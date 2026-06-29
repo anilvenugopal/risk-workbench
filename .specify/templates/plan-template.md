@@ -40,7 +40,27 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+Verify compliance with all 13 articles from `.specify/memory/constitution.md`.
+Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
+
+| Article | Title | Status | Notes |
+|---------|-------|--------|-------|
+| 1 | Manifest-Driven Extensibility | | |
+| 2 | Manifest Canonical; DB Is Generated Projection | | |
+| 3 | Categoricals Are Kind Tables, Never Enums | | |
+| 4 | Status Is Event-Sourced with Cached Current | | |
+| 5 | Generic Stage Review (No HITL Stage Type) | | |
+| 6 | Customer Isolation on Parameterized Path Only | | |
+| 7 | One Data-Access Package, Two Paths (`/db`) | | |
+| 8 | Server-Rendered; No SPA | | |
+| 9 | Styling Extends ITCSS via Tokens | | |
+| 10 | SQL Table Is the Queue; Single Worker by Default | | |
+| 11 | IRP and External Sources Behind an Interface | | |
+| 12 | Test-First, Three Connected Strategies | | |
+| 13 | Authentication & Secrets | | |
+
+> Any ⚠ MUST be resolved before `/speckit-implement`. Document justification
+> in the Complexity Tracking table below.
 
 ## Project Structure
 
