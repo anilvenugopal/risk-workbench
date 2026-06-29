@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>$TITLE · Cat Modeling</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/static/js/htmx.min.js"></script>
+  <script defer src="/static/js/alpine.min.js"></script>
+  <script defer src="/static/js/app.js"></script>
+</head>
+<body>
+<div class="shell" x-data="appShell()" @keydown.window="onKey($event)">
+
+  $RAIL
+
+  <div class="shell__col">
+    <header class="shell__topbar">
+      <div class="topbar__appname">RISK ANALYSIS WORKBENCH</div>
+      <button class="topbar__search" @click="searchOpen = true" aria-label="Search">
+        <span class="topbar__search-ico">&#9906;</span>
+        <span class="topbar__search-hint">Search</span>
+        <span class="topbar__kbd">Ctrl J</span>
+      </button>
+      <a class="topbar__help" href="#">Help</a>
+    </header>
+
+    <div class="shell__body">
+      $SIDEBAR
+      <main class="shell__main">$MAIN</main>
+    </div>
+
+    $STATUSBAR
+  </div>
+
+  <div class="search-modal" x-show="searchOpen" x-cloak @click.self="searchOpen = false"
+       @keydown.escape.window="searchOpen = false" x-transition.opacity>
+    <div class="search-box" @click.stop>
+      <div class="search-box__bar">
+        <span class="search-box__ico">&#9906;</span>
+        <input id="search-input" class="search-box__input" type="text" autocomplete="off"
+               placeholder="Search submissions, workflows, templates…"
+               hx-get="/api/search" hx-trigger="input changed delay:200ms"
+               hx-target="#search-results" name="q" x-ref="searchInput">
+        <span class="search-box__esc">esc</span>
+      </div>
+      <div id="search-results" class="search-box__results">
+        <div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

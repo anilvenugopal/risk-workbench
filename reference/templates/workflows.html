@@ -1,0 +1,10 @@
+<div class="page-pad">
+  <div class="filters">
+    <label>CUSTOMER <select disabled><option>All</option></select></label>
+    <label>PROGRAM <select disabled><option>All</option></select></label>
+  </div>
+  <table class="mk-table">
+    <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Customer</th><th>Status</th><th>Review</th><th></th></tr></thead>
+    <tbody hx-get="/api/workflows" hx-trigger="load" hx-swap="innerHTML"></tbody>
+  </table>
+</div>

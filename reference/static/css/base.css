@@ -1,0 +1,37 @@
+/* ============================================================================
+   base.css — Reset and base element styles.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  color: var(--text-primary);
+  background: var(--surface-page);
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+a { color: inherit; text-decoration: none; }
+
+code, pre { font-family: var(--font-mono); }
+
+:focus-visible { outline: none; box-shadow: var(--ring-focus); border-radius: var(--radius-sm); }

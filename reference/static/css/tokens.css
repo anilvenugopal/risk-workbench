@@ -1,0 +1,181 @@
+/* ============================================================================
+   tokens.css — DocIntel design tokens, derived from Verity's system.
+   Palette: dark navy + amber accent (document intelligence aesthetic).
+   ============================================================================ */
+
+:root {
+
+  /* ── TIER 1 — PRIMITIVES ────────────────────────────────────────────────── */
+
+  /* Surfaces — cool neutral, IDE-like */
+  --c-surface-0:        #F8F9FB;   /* page background */
+  --c-surface-1:        #FFFFFF;   /* panels, cards */
+  --c-surface-2:        #F0F2F5;   /* recessed / input bg */
+  --c-surface-3:        #E5E8EE;   /* hover on surface-1 */
+  --c-surface-nav:      #ECEEF3;   /* sidebar / rail / topbar */
+
+  /* Borders */
+  --c-border:           #D8DCE5;
+  --c-border-faint:     rgba(0,0,0,0.05);
+  --c-border-strong:    #BEC4D0;
+
+  /* Text */
+  --c-text-900:         #0F1629;   /* primary — deep navy */
+  --c-text-700:         #2D3748;   /* secondary */
+  --c-text-500:         #64748B;   /* tertiary */
+  --c-text-300:         #94A3B8;   /* disabled / ghost */
+
+  /* Navy — primary interactive accent */
+  --c-navy-900:         #0F2044;
+  --c-navy-700:         #1A3461;
+  --c-navy-600:         #234484;
+  --c-navy-500:         #2E57A8;
+  --c-navy-200:         #B8CCF0;
+  --c-navy-100:         #D8E5F8;
+  --c-navy-050:         #EBF2FC;
+
+  /* Amber — extraction highlight, bounding boxes, active selections */
+  --c-amber-700:        #92580A;
+  --c-amber-600:        #B06A0C;
+  --c-amber-500:        #D4820F;
+  --c-amber-200:        #F5D89A;
+  --c-amber-100:        #FBF0D0;
+  --c-amber-050:        #FDF8EE;
+
+  /* Green — success / complete */
+  --c-green-700:        #1E6B45;
+  --c-green-600:        #267A50;
+  --c-green-500:        #2E8F5E;
+  --c-green-200:        #A8D9BE;
+  --c-green-100:        #CCEEDD;
+  --c-green-050:        #E5F7EE;
+
+  /* Red — error / failed */
+  --c-red-700:          #8B1E2F;
+  --c-red-600:          #A42438;
+  --c-red-500:          #BE2D44;
+  --c-red-200:          #F0B8C0;
+  --c-red-100:          #F8D8DC;
+  --c-red-050:          #FCECEE;
+
+  /* Neutral gray */
+  --c-gray-bg:          #EDF0F5;
+  --c-gray-text:        #4B5569;
+  --c-gray-border:      #CDD2DD;
+  --c-gray-dot:         #8D96A8;
+
+
+  /* ── TIER 2 — SEMANTIC ──────────────────────────────────────────────────── */
+
+  --color-brand:           var(--c-navy-700);
+  --color-brand-hover:     var(--c-navy-600);
+  --color-brand-faint:     var(--c-navy-050);
+  --color-brand-wash:      var(--c-navy-100);
+  --color-brand-border:    var(--c-navy-200);
+
+  /* Extraction highlight — amber, used for bbox overlays */
+  --color-highlight:       var(--c-amber-500);
+  --color-highlight-fill:  rgba(212, 130, 15, 0.12);
+  --color-highlight-border: var(--c-amber-600);
+  --color-highlight-faint: rgba(212, 130, 15, 0.06);
+
+  --btn-primary-fg:        #FFFFFF;
+  --btn-primary-bg:        var(--c-navy-700);
+
+  --color-positive:        var(--c-green-700);
+  --color-positive-bg:     var(--c-green-050);
+  --color-positive-wash:   var(--c-green-100);
+  --color-positive-border: var(--c-green-200);
+
+  --color-negative:        var(--c-red-700);
+  --color-negative-bg:     var(--c-red-050);
+  --color-negative-wash:   var(--c-red-100);
+  --color-negative-border: var(--c-red-200);
+
+  --color-warning:         var(--c-amber-700);
+  --color-warning-bg:      var(--c-amber-050);
+  --color-warning-wash:    var(--c-amber-100);
+  --color-warning-border:  var(--c-amber-200);
+
+  --surface-page:          var(--c-surface-0);
+  --surface-panel:         var(--c-surface-1);
+  --surface-recessed:      var(--c-surface-2);
+  --surface-hover:         var(--c-surface-3);
+  --surface-nav:           var(--c-surface-nav);
+
+  --border-default:        var(--c-border);
+  --border-faint:          var(--c-border-faint);
+  --border-strong:         var(--c-border-strong);
+
+  --text-primary:          var(--c-text-900);
+  --text-secondary:        var(--c-text-700);
+  --text-tertiary:         var(--c-text-500);
+  --text-disabled:         var(--c-text-300);
+
+
+  /* ── TYPOGRAPHY ─────────────────────────────────────────────────────────── */
+  --font-ui:   "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Cascadia Code", "Consolas", monospace;
+
+  --fw-light:    300;
+  --fw-regular:  400;
+  --fw-medium:   500;
+  --fw-semibold: 600;
+
+  --fs-hero:    28px;
+  --fs-title:   20px;
+  --fs-h3:      15px;
+  --fs-body:    14px;
+  --fs-label:   13px;
+  --fs-caption: 11px;
+  --fs-eyebrow: 10px;
+  --fs-mono:    12px;
+
+  --tracking-eyebrow: 0.08em;
+
+
+  /* ── SPACING (4px base) ─────────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+
+
+  /* ── RADIUS ─────────────────────────────────────────────────────────────── */
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-pill: 999px;
+
+
+  /* ── SHADOWS ────────────────────────────────────────────────────────────── */
+  --shadow-sm: 0 1px 2px rgba(15,22,41,0.06), 0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md: 0 2px 6px rgba(15,22,41,0.08), 0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg: 0 4px 16px rgba(15,22,41,0.10), 0 2px 4px rgba(15,22,41,0.06);
+
+
+  /* ── FOCUS ──────────────────────────────────────────────────────────────── */
+  --ring-focus: 0 0 0 3px rgba(26, 52, 97, 0.22);
+
+
+  /* ── MOTION ─────────────────────────────────────────────────────────────── */
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+
+  /* ── LAYOUT DIMENSIONS ──────────────────────────────────────────────────── */
+  --topbar-h:       44px;
+  --rail-w:         56px;
+  --sidebar-w:      240px;   /* file browser */
+  --logs-h:         160px;   /* bottom logs panel */
+  --right-panel-w:  340px;
+  --statusbar-h:    22px;
+}

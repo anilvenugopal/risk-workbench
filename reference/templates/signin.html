@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/app.css">
+<script src="/static/js/htmx.min.js"></script></head>
+<body class="signin-body">
+  <div class="signin-card">
+    <div class="signin-logo">Cat Modeling</div>
+    <h1 class="signin-title">Sign in</h1>
+    <p class="signin-sub">Reinsurance catastrophe modeling workflow</p>
+    <button class="signin-sso">&#128274; Sign in with Microsoft</button>
+    <p class="signin-note">You'll be redirected to your organization's Microsoft sign-in. Roles come from the application, not the sign-in token.</p>
+    <div class="signin-divider"><span>LOCAL DEVELOPMENT ONLY</span></div>
+    <div class="signin-backdoor">
+      <div class="signin-backdoor__head">&#128274; BACKDOOR · LOCAL DEV</div>
+      <p class="signin-backdoor__body">Sign in as an existing user while SSO is under construction. Disabled by a flag in production.</p>
+      <label class="signin-backdoor__label">USER</label>
+      <select class="signin-backdoor__select" id="bd-user">
+        <option>Anil Venugopal · engineer</option>
+        <option>Dana Lee · model_risk</option>
+        <option>Sam Carter · admin</option>
+      </select>
+      <button class="signin-backdoor__btn" hx-post="/api/signin" hx-swap="none">Continue as selected user</button>
+    </div>
+  </div>
+</body></html>

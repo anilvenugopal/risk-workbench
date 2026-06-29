@@ -1,0 +1,18 @@
+<div class="page-pad">
+  <div class="filters">
+    <label>CUSTOMER
+      <select name="customer" hx-get="/api/submissions" hx-target="#sub-rows" hx-include="[name=program]" hx-swap="innerHTML">
+        <option>All</option><option>Zurich</option><option>AIG</option><option>Allianz</option><option>Munich Re</option>
+      </select>
+    </label>
+    <label>PROGRAM
+      <select name="program" hx-get="/api/submissions" hx-target="#sub-rows" hx-include="[name=customer]" hx-swap="innerHTML">
+        <option>All</option><option>Property Cat</option><option>NA Property</option><option>EU Windstorm</option><option>Global Property</option>
+      </select>
+    </label>
+  </div>
+  <table class="mk-table">
+    <thead><tr><th>ID</th><th>Name</th><th>Customer</th><th>Program</th><th>Status</th></tr></thead>
+    <tbody id="sub-rows" hx-get="/api/submissions" hx-trigger="load" hx-swap="innerHTML"></tbody>
+  </table>
+</div>

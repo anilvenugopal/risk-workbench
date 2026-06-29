@@ -1,0 +1,44 @@
+<div class="home">
+  <h1 class="home__greeting">Welcome, Anil Venugopal</h1>
+  <div class="home__cards">
+    <div class="metric-card"><div class="metric-card__label">Submissions</div><div class="metric-card__value">4</div></div>
+    <div class="metric-card"><div class="metric-card__label">Workflows</div><div class="metric-card__value">3</div></div>
+    <div class="metric-card"><div class="metric-card__label">Active jobs</div><div class="metric-card__value">2</div></div>
+    <div class="metric-card"><div class="metric-card__label">Review</div><div class="metric-card__value">$REVIEW_COUNT</div><div class="metric-card__sub metric-card__sub--warn">awaiting review</div></div>
+    <div class="metric-card metric-card--alert"><div class="metric-card__label">Errors</div><div class="metric-card__value">1</div></div>
+  </div>
+
+  <div class="home__section">
+    <div class="home__section-title">Submissions</div>
+    <table class="mk-table">
+      <thead><tr><th>ID</th><th>Name</th><th>Customer</th><th>Program</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr class="data-row" onclick="location.href='/submissions/SUB-1042'"><td>SUB-1042</td><td>Zurich Q2 Property Renewal</td><td>Zurich</td><td>Property Cat</td><td><span class="badge badge--brand">Active</span></td></tr>
+        <tr class="data-row" onclick="location.href='/submissions/SUB-1043'"><td>SUB-1043</td><td>AIG NA Property New Business</td><td>AIG</td><td>NA Property</td><td><span class="badge badge--warning">In review</span></td></tr>
+        <tr class="data-row" onclick="location.href='/submissions/SUB-1044'"><td>SUB-1044</td><td>Allianz EU Windstorm 2026</td><td>Allianz</td><td>EU Windstorm</td><td><span class="badge badge--brand">Active</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="home__section">
+    <div class="home__section-title">Workflows</div>
+    <table class="mk-table">
+      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Customer</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr class="data-row" onclick="location.href='/workflows/WF-2001'"><td>WF-2001</td><td>Zurich Property EDF run</td><td>EDM analysis</td><td>Zurich</td><td><span class="badge badge--brand">Active</span></td></tr>
+        <tr class="data-row" onclick="location.href='/workflows/WF-2003'"><td>WF-2003</td><td>AIG NA Property EDF run</td><td>EDM analysis</td><td>AIG</td><td><span class="badge badge--positive">Complete</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="home__section">
+    <div class="home__section-title">Jobs</div>
+    <table class="mk-table">
+      <thead><tr><th>Job</th><th>Workflow</th><th>Stage</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>JOB-5501</td><td>WF-2001</td><td>Geo-coding</td><td><span class="badge badge--warning">Running</span></td></tr>
+        <tr><td>JOB-5490</td><td>WF-2003</td><td>Export</td><td><span class="badge badge--positive">Succeeded</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
