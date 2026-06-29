@@ -179,8 +179,7 @@
 .signin-backdoor__btn { width: 100%; padding: 9px; border: 1px solid var(--border-strong); background: var(--surface-panel); border-radius: var(--radius-md); cursor: pointer; font-size: var(--fs-label); }
 
 /* ---------- App name + page-header band (fix 1) ---------- */
-.topbar__appname { flex: 1; font-weight: var(--fw-bold); letter-spacing: .06em; font-size: var(--fs-label);
-  color: var(--color-brand); text-transform: uppercase; min-width: 0; }
+.topbar__appname { flex: 1; height: 28px; width: auto; object-fit: contain; object-position: left center; min-width: 0; }
 .mk-pagehdr { display: flex; align-items: center; justify-content: space-between; gap: 16px;
   min-height: 40px; padding: 8px 22px; border-bottom: 1px solid var(--border-default);
   background: var(--surface-panel); flex-shrink: 0; }
