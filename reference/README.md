@@ -7,7 +7,6 @@ vs faked and the API contract sketch.
 ## Run
 
 ```bash
-cd mock
 python serve.py     # http://localhost:8000  (Python 3, no dependencies)
 ```
 
