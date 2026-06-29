@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>$TITLE · Cat Modeling</title>
+  <title>$TITLE · Risk Workbench</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/icons/rwb_white.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/css/app.css">
   <script src="/static/js/htmx.min.js"></script>
+  <script src="/static/js/app.js"></script>
   <script defer src="/static/js/alpine.min.js"></script>
-  <script defer src="/static/js/app.js"></script>
 </head>
 <body>
 <div class="shell" x-data="appShell()" @keydown.window="onKey($event)">

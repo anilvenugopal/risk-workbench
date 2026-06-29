@@ -343,7 +343,7 @@ def task_block(wf_id, si, t, editable):
     """One collapsible task block. `editable` => compose controls (save/remove)."""
     tid = t["id"]
     remove = (
-        f'<button class="icon-btn icon-btn--danger" @click.stop '
+        f'<button class="btn-sm btn-sm--danger" @click.stop '
         f'hx-post="/api/workflows/{wf_id}/stages/{si}/tasks/{tid}/delete" '
         f'hx-confirm="Remove this task?" hx-target="#task-{tid}" hx-swap="outerHTML">Remove</button>'
         if editable else "")
@@ -438,7 +438,7 @@ def stage_card(wf_id, st, si, is_current):
         '<button class="add-task" disabled title="Locked once the stage starts">+ Add task</button>')
     skip = ' <span class="stage-skip">skippable</span>' if st.get("skippable") else ""
     return (
-        f'<div class="stage-card stage-card--task{cur}{attn}" id="stage-card-{si}" x-data="{{open:true}}" '
+        f'<div class="stage-card{cur}{attn}" id="stage-card-{si}" x-data="{{open:true}}" '
         f'@expand-all.window="open=true" @collapse-all.window="open=false">'
         f'<div class="stage-card__head" @click="open=!open">'
         f'<span class="chevron" :class="{{\'chevron--open\':open}}">\u25b8</span>'
@@ -561,10 +561,10 @@ def review_queue_main():
         for r in rows)
     return (
         f'<div class="page-pad">'
-        f'<p class="muted" style="margin-bottom:12px">Stages awaiting a decision \u2014 '
+        f'<p class="muted mb-body">Stages awaiting a decision \u2014 '
         f'<strong>review</strong> (work finished, auto-complete off) or <strong>blocked</strong> '
         f'(validation gate). Completed-with-errors is not listed (it isn\u2019t waiting on anyone).</p>'
-        f'<table class="data-table"><thead><tr>'
+        f'<table class="mk-table"><thead><tr>'
         f'<th>Workflow</th><th>Name</th><th>Customer</th><th>Stage</th><th>Gate</th><th></th>'
         f'</tr></thead><tbody>{body}</tbody></table></div>')
 
@@ -733,6 +733,8 @@ class Handler(BaseHTTPRequestHandler):
                                    actions=workflow_actions(wf_id)))
         if p == "/signin":
             return self._send(load("templates/signin.html"))
+        if p == "/signout":
+            return self._send("", status=302, headers={"Location": "/signin"})
         # shell-only sections (out of scope this pass)
         section_pages = {
             "/results": ("results.results", "Results", "Result sets and reports appear here."),

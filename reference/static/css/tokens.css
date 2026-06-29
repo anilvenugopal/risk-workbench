@@ -64,8 +64,19 @@
   --c-gray-border:      #CDD2DD;
   --c-gray-dot:         #8D96A8;
 
+  /* Rail — dark IDE icon bar */
+  --c-rail:             #2B2B2B;
+  --c-rail-icon:        #B8B8B8;
+  --c-rail-icon-hover:  #FFFFFF;
+  --c-rail-hover:       #383838;
+  --c-rail-active:      #3C3C3C;
+
 
   /* ── TIER 2 — SEMANTIC ──────────────────────────────────────────────────── */
+
+  --color-neutral-bg:      var(--c-gray-bg);
+  --color-neutral-text:    var(--c-gray-text);
+  --color-neutral-border:  var(--c-gray-border);
 
   --color-brand:           var(--c-navy-700);
   --color-brand-hover:     var(--c-navy-600);
@@ -81,6 +92,22 @@
 
   --btn-primary-fg:        #FFFFFF;
   --btn-primary-bg:        var(--c-navy-700);
+
+  --color-danger:          var(--c-red-700);
+  --color-danger-bg:       var(--c-red-050);
+  --color-danger-wash:     var(--c-red-100);
+  --color-danger-border:   var(--c-red-200);
+
+  --color-info:            var(--c-navy-600);
+  --color-info-bg:         var(--c-navy-050);
+  --color-info-border:     var(--c-navy-200);
+
+  --surface-rail:          var(--c-rail);
+  --surface-rail-hover:    var(--c-rail-hover);
+  --surface-rail-active:   var(--c-rail-active);
+  --surface-sidebar:       var(--c-surface-nav);
+  --color-rail-icon:       var(--c-rail-icon);
+  --color-rail-icon-hover: var(--c-rail-icon-hover);
 
   --color-positive:        var(--c-green-700);
   --color-positive-bg:     var(--c-green-050);
@@ -121,6 +148,7 @@
   --fw-regular:  400;
   --fw-medium:   500;
   --fw-semibold: 600;
+  --fw-bold:     700;
 
   --fs-hero:    28px;
   --fs-title:   20px;

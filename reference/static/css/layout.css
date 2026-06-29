@@ -1,181 +1,6 @@
 /* ============================================================================
-   layout.css — IDE shell layout. Five panels: topbar / rail / sidebar (file
-   browser) / workspace canvas / logs panel. The canvas itself is a flex row
-   of three resizable sub-panels: PDF | results | right.
+   layout.css — shell layout. Rail-left chrome: rail | sidebar | main.
    ============================================================================ */
-
-/* ── App root ───────────────────────────────────────────────────────────────
-   Full-viewport column: topbar → body → statusbar.                          */
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* ── Topbar ─────────────────────────────────────────────────────────────── */
-.app__topbar {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  height: var(--topbar-h);
-  background: var(--surface-nav);
-  border-bottom: 1px solid var(--border-default);
-  padding: 0 var(--space-4);
-  gap: var(--space-3);
-  z-index: 20;
-}
-
-/* ── Body: rail | sidebar | workspace ───────────────────────────────────── */
-.app__body {
-  display: flex;
-  flex: 1;
-  min-height: 0;         /* allow flex children to shrink below content size */
-}
-
-/* ── Rail (icon nav, fixed 56px) ────────────────────────────────────────── */
-.app__rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
-  width: var(--rail-w);
-  background: var(--surface-nav);
-  border-right: 1px solid var(--border-default);
-  padding: var(--space-2) 0;
-  gap: var(--space-1);
-  z-index: 10;
-}
-
-/* ── File browser sidebar (resizable) ───────────────────────────────────── */
-.app__sidebar {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  width: var(--sidebar-w);
-  min-width: 160px;
-  max-width: 400px;
-  background: var(--surface-nav);
-  border-right: 1px solid var(--border-default);
-  overflow: hidden;
-  transition: width var(--dur-base) ease;
-}
-.app__sidebar.is-resizing { transition: none; }
-
-/* ── Main area: workspace column (canvas + logs) ────────────────────────── */
-.app__main {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-}
-
-/* ── Workspace canvas: PDF | results | right ────────────────────────────── */
-.app__workspace {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  background: var(--surface-page);
-  overflow: hidden;
-}
-
-/* ── PDF panel (left of workspace) ─────────────────────────────────────── */
-.app__pdf-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  min-width: 300px;
-  background: var(--surface-page);
-  border-right: 1px solid var(--border-default);
-  overflow: hidden;
-}
-.app__pdf-panel.is-resizing { transition: none; user-select: none; }
-
-/* ── Results panel (middle of workspace) ───────────────────────────────── */
-.app__results-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 280px;
-  background: var(--surface-panel);
-  border-right: 1px solid var(--border-default);
-  overflow: hidden;
-}
-
-/* ── Right panel (future: field extraction / RAG) ───────────────────────── */
-.app__right-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  background: var(--surface-nav);
-  overflow: hidden;
-  transition: width var(--dur-base) ease;
-}
-.app__right-panel.is-resizing { transition: none; user-select: none; }
-.app__right-panel--collapsed { width: 0 !important; }
-
-/* ── Logs panel (bottom) ────────────────────────────────────────────────── */
-.app__logs-panel {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  background: var(--c-text-900);   /* dark terminal aesthetic */
-  border-top: 1px solid var(--border-default);
-  overflow: hidden;
-  transition: height var(--dur-base) ease;
-}
-.app__logs-panel--collapsed { height: 28px !important; overflow: hidden; }
-.app__logs-panel.is-resizing { transition: none; user-select: none; }
-
-/* ── Status bar ──────────────────────────────────────────────────────────── */
-.app__statusbar {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  height: var(--statusbar-h);
-  background: var(--c-navy-900);
-  color: var(--c-navy-200);
-  font-size: var(--fs-caption);
-  padding: 0 var(--space-3);
-  gap: var(--space-3);
-}
-
-/* ── Resize handles ─────────────────────────────────────────────────────── */
-.resize-handle {
-  position: absolute;
-  z-index: 5;
-  background: transparent;
-  transition: background var(--dur-fast) ease;
-}
-.resize-handle:hover,
-.resize-handle.is-active {
-  background: var(--color-brand);
-  opacity: 0.35;
-}
-
-/* Vertical handles (on right or left edge of a panel) */
-.resize-handle--right {
-  top: 0; right: 0;
-  width: 4px; height: 100%;
-  cursor: col-resize;
-}
-.resize-handle--left {
-  top: 0; left: 0;
-  width: 4px; height: 100%;
-  cursor: col-resize;
-}
-/* Horizontal handle (on top edge of logs panel) */
-.resize-handle--top {
-  top: 0; left: 0;
-  width: 100%; height: 4px;
-  cursor: row-resize;
-}
 
 /* ── Layout primitives ───────────────────────────────────────────────────── */
 .l-stack     { display: flex; flex-direction: column; }
@@ -186,3 +11,69 @@
 .surface-page   { background: var(--surface-page); }
 .surface-panel  { background: var(--surface-panel); }
 .surface-nav    { background: var(--surface-nav); }
+
+/* ── shell (rail-left layout) ────────────────────────────────────────── */
+.shell { display: flex; flex-direction: row; height: 100vh; overflow: hidden; }
+.shell__col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.shell__body { flex: 1; display: flex; min-height: 0; }
+.shell__main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+.shell__topbar {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+.shell__rail {
+  width: var(--rail-w);
+  flex-shrink: 0;
+  background: var(--surface-rail);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2) 0;
+  gap: var(--space-1);
+}
+.shell__railbtn {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-rail-icon);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.shell__railbtn:hover  { color: var(--color-rail-icon-hover); background: var(--surface-rail-hover); }
+.shell__railbtn.is-active { color: var(--color-rail-icon-hover); background: var(--surface-rail-active); }
+.shell__railbtn svg { width: 24px; height: 24px; }
+.rail__spacer { flex: 1; }
+
+.shell__sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  background: var(--surface-sidebar);
+  border-right: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__statusbar {
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+  background: var(--color-brand);
+  color: #fff;
+  font-size: var(--fs-caption);
+}
