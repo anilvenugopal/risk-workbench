@@ -1,20 +1,46 @@
-# Data Model — Reinsurance Cat-Modeling Workflow Tool
+# Data Model — Risk Workbench
 
 Companion to `PRD.md`. This is the schema reference Claude Code turns into migrations.
 
-**Conventions (apply to every table):**
-- **Kind tables** (`*_kind`) hold categorical values. Every kind table has: `code` (PK, stable string), `label` (display), `sort_order` (int), and optional `icon`, `color`, `is_active`. Categorical columns are **FKs to kind tables — never enums.** DB is the single source of truth for values/labels/ordering; the validator's *behavior* for semantic kinds (stage mode, handle type) lives in the code manifest and is **seeded into** these tables.
-- **RLS:** `customer_id` is **denormalized** onto every major entity (set once at creation, immutable) so `apply_scope()` is a one-column predicate.
-- **Naming:** singular `snake_case` table names; `id` surrogate PK unless noted; `*_code` columns are FKs to the matching `*_kind` table; `*_id` are FKs to entities.
-- **Projected tables are generated, never hand-edited.** Tables marked **projected** (the workflow-definition graph) are a derived build artifact of the canonical **code manifest**, written only by the projection generator and guarded by a fail-fast startup content-hash check; projection is append-only and version-retained while instances pin (§2.3, PRD §9.1a). Same canonical-source-plus-cache discipline as event-sourced status.
-- **Artifacts are append-only:** a changed file inserts a new `file_artifact` row; the prior row is retained.
-- **Status is event-sourced (insert-only) with a cached current.** Lifecycle/status changes on `submission`, `workflow`, `stage_instance`, and `task_instance` are **never `UPDATE`-d in place.** Each transition **inserts** a row into the relevant `*_event` table (`who`, `what`, `when`, optional `note`), and **in the same transaction** stamps the denormalized `current_*_status` column on the parent. The event tables are the full history + audit trail; the cached column gives O(1) reads (list/detail pages read the column, never a recompute-on-read view). A single repository method (or trigger) owns "append event + update current" so the two can't drift. Reporting/history screens may read the event tables directly. **Stages and tasks keep two independent event streams** — *composition* (editing) and *execution* (runtime) — so editability and run-state never entangle.
+---
+
+## Database connections
+
+**All database access goes through the `db/` package** (`db/connection.py`). App code calls `get_connection("WORKBENCH")`, `get_connection("EXPOSURE")`, `get_connection("LOSS")`, `get_connection("DATABRIDGE")`. No URL strings in application code. Connection pooling, Kerberos renewal, and pool sizing are handled by the package.
+
+Each named connection is configured via `MSSQL_{NAME}_*` env vars:
+
+| Named connection | Database | Managed by | Env var prefix |
+|---|---|---|---|
+| `WORKBENCH` | Workbench Metamodel DB | Alembic + app | `MSSQL_WORKBENCH_*` |
+| `EXPOSURE` | Exposure Repository | App (schema defined in this project) | `MSSQL_EXPOSURE_*` |
+| `LOSS` | Loss Repository | App (schema defined in this project) | `MSSQL_LOSS_*` |
+| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — app never runs DDL | `MSSQL_DATABRIDGE_*` |
+
+Required vars per connection: `MSSQL_{NAME}_SERVER`, `MSSQL_{NAME}_USER`, `MSSQL_{NAME}_PASSWORD`, `MSSQL_{NAME}_DATABASE`. Optional: `MSSQL_{NAME}_PORT` (default 1433), `MSSQL_{NAME}_AUTH_TYPE` (default `SQL`).
+
+Global pool settings (apply across all connections): `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). **For 30 concurrent users:** set `MSSQL_POOL_SIZE=10`, `MSSQL_POOL_MAX_OVERFLOW=20`.
+
+**Local dev:** One Docker Compose SQL Server container runs three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). The three named connections point to the same server with different `MSSQL_{NAME}_DATABASE` values.
+
+**Redis:** `REDIS_URL` env var. Dramatiq broker. Stateless — losing it loses in-flight work items, not written results.
 
 ---
 
-## 1. Mermaid ER source
+## Conventions (apply to every table)
 
-### 1.1 Auth & business spine
+- **Kind tables** (`*_kind`) hold categorical values: `code` (PK, stable string), `label`, `sort_order`, optional `icon`/`color`/`is_active`. Categorical columns are FKs to kind tables — never DB enums.
+- **RLS:** `customer_id` is **denormalized** onto every major entity (set once at creation, immutable) so `apply_scope()` is a single-column predicate.
+- **Audit fields on every table:** `inserted_at` (DATETIME, server default), `updated_at` (DATETIME, bumped on every flush), `inserted_by` (FK → `app_user`, nullable for system-generated rows), `updated_by` (FK → `app_user`, nullable). Kind tables and projected tables are exempt — they have only `inserted_at`.
+- **Naming:** singular `snake_case` table names; `id` surrogate PK (UNIQUEIDENTIFIER) unless noted; `*_code` FK to matching `*_kind`; `*_id` FK to entity.
+- **Projected tables are generated, never hand-edited.** Tables marked **projected** are a build artifact of the canonical code manifest, written only by the projection generator and guarded by a fail-fast startup content-hash check. Projection is append-only and version-retained while any workflow instance pins a prior version.
+- **Artifacts are append-only.** A changed file inserts a new `file_artifact` row; the old row is retained.
+- **Status is event-sourced (insert-only) with a cached current.** Status changes on `submission`, `workflow`, `stage_instance`, and `task_instance` insert a row into the matching `*_event` table and in the same transaction stamp the cached `current_*_status` column. Stages and tasks keep two independent event streams — composition and execution.
+
+---
+
+## 1. Auth & business spine
+
 ```mermaid
 erDiagram
   customer ||--o{ program : has
@@ -24,56 +50,100 @@ erDiagram
   app_user ||--o{ user_role : has
   role_kind ||--o{ user_role : assigned
   app_user ||--o{ audit_log : acts
-  app_user ||--o{ submission : handles
+  app_user ||--o{ submission : "assigned analyst"
+  app_user ||--o{ notification_preference : sets
 
   customer {
-    int id PK
+    uniqueidentifier id PK
     string name
+    string short_code "UNIQUE; used in auto-naming"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK "app_user nullable"
+    uniqueidentifier updated_by FK "app_user nullable"
   }
   program {
-    int id PK
-    int customer_id FK
+    uniqueidentifier id PK
+    uniqueidentifier customer_id FK
     string name
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   submission {
-    int id PK
-    int program_id FK
-    int customer_id FK "denormalized"
-    int handled_by FK "app_user"
+    uniqueidentifier id PK
+    uniqueidentifier program_id FK
+    uniqueidentifier customer_id FK "denormalized"
+    uniqueidentifier assigned_analyst_id FK "app_user"
     string name
+    string cycle "e.g. 2026Q1; used in auto-naming"
+    string authoring_status "draft/active/complete; plain string"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   app_user {
-    int id PK
-    string entra_oid "nullable, unique"
+    uniqueidentifier id PK
+    string entra_oid "nullable; UNIQUE when set"
     string email
     string display_name
     bool is_active
+    datetime inserted_at
+    datetime updated_at
   }
   role_kind {
     string code PK
     string label
     int sort_order
-    bool is_admin "scope-bypass"
+    bool is_admin "true → apply_scope() bypass"
+    datetime inserted_at
   }
   user_role {
-    int user_id FK
+    uniqueidentifier user_id FK
     string role_code FK
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
   }
   user_customer_access {
-    int user_id FK
-    int customer_id FK
+    uniqueidentifier user_id FK
+    uniqueidentifier customer_id FK
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
   }
   audit_log {
-    int id PK
-    int user_id FK
+    uniqueidentifier id PK
+    uniqueidentifier user_id FK
     string action
-    string entity_ref
+    string entity_type
+    string entity_id
     string detail
     datetime at
   }
+  notification_preference {
+    uniqueidentifier id PK
+    uniqueidentifier user_id FK
+    string channel "teams/email/in_app"
+    bool enabled
+    bool on_success
+    bool on_failure
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
 ```
 
-### 1.2 File inventory subsystem
+**Notes:**
+- `customer.short_code` has a UNIQUE constraint. Used in auto-naming patterns (e.g. `{{ customer.short_code }}-{{ submission.cycle }}-{{ template.region_label }}`).
+- "My submissions" view = `WHERE assigned_analyst_id = current_user.id`.
+- `submission.authoring_status` is a plain string column (not a kind table FK) — it is simple enough that a lookup table adds no value.
+
+---
+
+## 2. File inventory
+
 ```mermaid
 erDiagram
   submission ||--o{ submission_directory : "associates (unique path)"
@@ -84,59 +154,261 @@ erDiagram
   artifact_tag_kind ||--o{ file_artifact : tags
   file_artifact ||--o{ discrepancy : raises
   discrepancy_severity_kind ||--o{ discrepancy : grades
+  file_artifact ||--o| edm : "source for"
+  file_artifact ||--o| rdm : "source for"
 
   submission_directory {
-    int id PK
-    int submission_id FK
-    string unc_path "unique"
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    string unc_path "UNIQUE"
     string linux_path
-    datetime added_at
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   file_artifact {
-    int id PK
-    int submission_id FK
-    int customer_id FK "denorm"
-    int directory_id FK "nullable (uploads)"
-    string source_code FK
-    string status_code FK
-    string tag_code FK "nullable"
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    uniqueidentifier customer_id FK "denorm"
+    uniqueidentifier directory_id FK "nullable; null for uploads"
+    string source_code FK "artifact_source_kind"
+    string status_code FK "artifact_status_kind"
+    string tag_code FK "artifact_tag_kind; nullable"
     string relative_path
-    string filename
+    string filename "original filename with extension"
+    string name "display name; initialized as UPPERCASE(filename without ext); user-editable"
     bigint size_bytes
     datetime fs_modified_at
-    datetime first_seen_at
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   artifact_source_kind {
-    string code PK
+    string code PK "shared_drive / upload / workflow_output"
     string label
     int sort_order
+    datetime inserted_at
   }
   artifact_status_kind {
-    string code PK
+    string code PK "present / changed / missing"
     string label
     int sort_order
+    datetime inserted_at
   }
   artifact_tag_kind {
-    string code PK
+    string code PK "edm / rdm"
     string label
     int sort_order
+    datetime inserted_at
   }
   discrepancy {
-    int id PK
-    int artifact_id FK
-    string severity_code FK
+    uniqueidentifier id PK
+    uniqueidentifier artifact_id FK
+    string severity_code FK "discrepancy_severity_kind"
     string reason
-    datetime detected_at
     bool resolved
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   discrepancy_severity_kind {
-    string code PK
+    string code PK "info / warning / critical"
     string label
     int sort_order
+    datetime inserted_at
   }
 ```
 
-### 1.3 Workflow — definition side (manifest-projected, seed/reference)
+**`file_artifact.name` behavior:**
+- Initialized as `filename` with extension stripped, converted to UPPERCASE (e.g. `XYZ_EDM_2026.bak` → `XYZ_EDM_2026`).
+- User can edit this name at any time.
+- When a file is tagged as `edm` or `rdm` (on tag action), and when `name` is changed: the app calls `client.edm.search_edms()` / `client.rdm.search_rdms()` to check whether that name already exists in IRP. If it does, the user is warned before proceeding. This check is non-blocking (user can override) but is always performed.
+- `file_artifact.name` becomes the initial `edm.name` or `rdm.name` when the EDM/RDM entity is created from this artifact.
+
+---
+
+## 3. EDM & RDM entities
+
+```mermaid
+erDiagram
+  submission ||--o{ edm : has
+  submission ||--o{ rdm : has
+  file_artifact ||--o| edm : "source .bak (nullable)"
+  file_artifact ||--o| rdm : "source .bak (nullable)"
+  edm ||--o{ irp_portfolio : "contains portfolios"
+
+  edm {
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    uniqueidentifier customer_id FK "denorm"
+    uniqueidentifier source_artifact_id FK "nullable; the tagged file_artifact"
+    string name "IRP EDM name; initialized from file_artifact.name"
+    int irp_exposure_id "nullable; backfilled by poller on import completion"
+    string server_name "IRP DataBridge server"
+    string status "pending_import / importing / ready / error / deleted; plain string"
+    datetime deleted_at "nullable; soft delete"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  rdm {
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    uniqueidentifier customer_id FK "denorm"
+    uniqueidentifier source_artifact_id FK "nullable"
+    string name "IRP RDM name; initialized from file_artifact.name"
+    int irp_id "nullable; backfilled by poller on import completion"
+    string status "pending_import / importing / ready / error; plain string"
+    datetime deleted_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  irp_portfolio {
+    uniqueidentifier id PK
+    uniqueidentifier edm_id FK
+    uniqueidentifier customer_id FK "denorm"
+    string name "portfolio name in IRP"
+    int irp_portfolio_id "nullable; backfilled once created in IRP"
+    datetime deleted_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+```
+
+**EDM/RDM name initialization:**
+- When an analyst tags a `file_artifact` as `edm` or `rdm`, the app creates an `edm` or `rdm` row with `name = file_artifact.name`.
+- This name is what gets submitted to IRP. If the name already exists in IRP (checked on tagging), the analyst is warned and can rename before import.
+
+**`irp_portfolio`:**
+- Created when the Portfolio Creation stage runs (via `client.portfolio.create_portfolio()`).
+- `name` is the portfolio name as it exists in IRP (e.g. `All Accounts`, `EQ Only`).
+- `irp_portfolio_id` is nullable and backfilled by the poller once IRP confirms creation.
+- Analyst picks a portfolio from a dropdown (populated from this table filtered by `edm_id`) when configuring an analysis task.
+
+---
+
+## 4. Analysis templates & suites
+
+```mermaid
+erDiagram
+  customer ||--o{ analysis_template : "scoped to"
+  app_user ||--o{ analysis_template : "created by"
+  analysis_template ||--o{ analysis_template_tag : "has tags"
+  customer ||--o{ template_suite : "scoped to"
+  template_suite ||--o{ template_suite_item : contains
+  analysis_template ||--o{ template_suite_item : "included in"
+
+  analysis_template {
+    uniqueidentifier id PK
+    uniqueidentifier customer_id FK "scope"
+    uniqueidentifier created_by FK "app_user"
+    string name
+    string analysis_profile_name "IRP model profile name"
+    string output_profile_name
+    string event_rate_scheme_name "nullable; required for DLM, optional for HD"
+    string currency_code
+    string region_label "display metadata; used in auto-naming"
+    string peril_code "display metadata; used in auto-naming"
+    string auto_name_pattern "Jinja2 pattern; e.g. {{ customer.short_code }}-{{ cycle }}-{{ region }}-{{ peril }}"
+    bool franchise_deductible
+    float min_loss_threshold "nullable"
+    int num_max_loss_event "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  analysis_template_tag {
+    uniqueidentifier template_id FK
+    string irp_tag_id "IRP tag ID from irp_tag cache"
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
+  }
+  template_suite {
+    uniqueidentifier id PK
+    uniqueidentifier customer_id FK "scope"
+    string name "e.g. Global 2026 Q1"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  template_suite_item {
+    uniqueidentifier id PK
+    uniqueidentifier suite_id FK
+    uniqueidentifier template_id FK
+    int position
+    string portfolio_name_override "nullable; overrides the default portfolio for this item"
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
+  }
+```
+
+**`analysis_template` design basis:**
+- `analysis_profile_name`, `output_profile_name`, `event_rate_scheme_name` come directly from `client.analysis.submit_portfolio_analysis_job()` parameters in irp-integration.
+- `event_rate_scheme_name` is required for DLM analysis, optional for HD. DLM vs HD is detected at batch-apply time from `irp_model_profile.software_version_code` (`"HD" in code → HD, else DLM`).
+- `auto_name_pattern` is evaluated at batch-apply time against submission context to generate the `job_name` for each submitted analysis. Without this, analysts must manually name 50–150+ jobs.
+- Tags are stored in `analysis_template_tag` (junction table, not inline). The `irp_tag_id` references the IRP tag as synced into `irp_tag` cache.
+
+---
+
+## 5. Phase A — DataBridge validation results
+
+Validation queries run via `client.databridge` against an imported EDM. Results can be thousands of rows — too large for a SQL column. Metadata is stored in SQL; row-level output is written to Parquet files under the submission's output directory.
+
+```mermaid
+erDiagram
+  edm ||--o{ validation_run : "validated by"
+  app_user ||--o{ validation_run : "triggered by"
+  validation_run ||--o{ validation_result : produces
+
+  validation_run {
+    uniqueidentifier id PK
+    uniqueidentifier edm_id FK
+    uniqueidentifier triggered_by FK "app_user"
+    string status "running / complete / error; plain string"
+    string error_detail "nullable"
+    datetime started_at
+    datetime completed_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  validation_result {
+    uniqueidentifier id PK
+    uniqueidentifier validation_run_id FK
+    string category "quality / consistency / completeness / summary"
+    string check_name
+    string query_file "relative path under app/databridge_queries/"
+    bool passed "nullable; null for summary/profiling checks without binary pass-fail"
+    int row_count "number of rows returned by the query"
+    string output_file_path "path to Parquet file under submission outputs dir; nullable for pass-fail checks with no row output"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+```
+
+**Parquet file location:** `{submission_outputs_dir}/{validation_run.id}/{check_name}.parquet`
+
+The `output_file_path` stores the relative path from the submission outputs root. The UI reads the Parquet file for detailed drill-down; the SQL row is used for the summary/pass-fail display.
+
+---
+
+## 6. Workflow — definition (manifest-projected)
+
+> **Projection rule (PRD §12.1a).** These tables are generated from the code manifest and never hand-edited. A fail-fast startup consistency check (manifest content-hash vs. stored hash) refuses to start on mismatch. Projection is append-only and version-retained while any instance pins a prior version.
+
 ```mermaid
 erDiagram
   workflow_type_kind ||--o{ workflow_definition : types
@@ -149,28 +421,32 @@ erDiagram
   handle_type_kind ||--o{ handle_type_kind : "parent (compatibility)"
 
   workflow_type_kind {
-    string code PK "EDM analysis (only, for now)"
+    string code PK
     string label
     int sort_order
+    datetime inserted_at
   }
   workflow_definition {
     int id PK
     string type_code FK
-    string version "manifest version"
-    string manifest_hash "consistency check"
-    bool is_current "retained when false"
+    string version
+    string manifest_hash
+    bool is_current
+    datetime inserted_at
   }
   stage_kind {
     string code PK
     string label
-    int sort_order "fixed order"
-    bool skippable "e.g. EDM Upload optional"
+    int sort_order "fixed; stages are never reordered"
+    bool default_skippable
     string icon
+    datetime inserted_at
   }
   stage_mode_kind {
-    string code PK "singleton/parallel/sequential"
+    string code PK "singleton / parallel / sequential"
     string label
     int sort_order
+    datetime inserted_at
   }
   definition_stage {
     int id PK
@@ -179,317 +455,552 @@ erDiagram
     string mode_code FK
     bool skippable
     int position
+    datetime inserted_at
   }
   task_template {
     int id PK
     int definition_stage_id FK
     string key
     string label
+    datetime inserted_at
   }
   port_template {
     int id PK
     int task_template_id FK
-    string direction "in/out"
+    string direction "in / out"
     string handle_type_code FK
-    string accepts_types "csv (in ports)"
-    string emits_rule "literal|derived (out ports)"
+    string accepts_types "comma-separated; for in ports"
+    string emits_rule "literal / derived; for out ports"
     bool required
+    datetime inserted_at
   }
   handle_type_kind {
-    string code PK "edm/rdm/analysis/group/dlm/hd"
+    string code PK "edm / rdm / analysis / group"
     string label
     int sort_order
-    string parent_code FK "nullable"
+    string parent_code FK "nullable; single-parent compatibility"
+    datetime inserted_at
   }
 ```
 
-### 1.4 Workflow — instance side (runtime) + IRP + results
+**`workflow_type_kind` seeds:**
+
+| code | label | Notes |
+|---|---|---|
+| `edm_analysis` | EDM Analysis | Phase A → B → C: data setup, analysis, results |
+| `rdm_import` | RDM Import | Standalone broker RDM import (outside the full EDM analysis flow) |
+| `edm_import_only` | EDM Import Only | Import and validate an EDM without proceeding to analysis |
+
+The three-phase full workflow is `edm_analysis`. `rdm_import` and `edm_import_only` are lighter-weight workflows for analysts who need just one step. Additional types are a manifest + seed change, no schema change.
+
+**`stage_kind` seeds (fixed order):**
+
+| code | position | default_skippable | mode |
+|---|---|---|---|
+| `edm_upload` | 1 | true | singleton |
+| `data_validation_profiling` | 2 | true | sequential |
+| `exposure_modification` | 3 | true | sequential |
+| `portfolio_creation` | 4 | false | sequential |
+| `geocoding_hazard` | 5 | true | parallel |
+| `analysis` | 6 | false | parallel |
+| `grouping` | 7 | true | sequential |
+| `export` | 8 | true | parallel |
+
+**`handle_type_kind` seeds:** `edm`, `rdm`, `analysis`, `group`. **`dlm` and `hd` are NOT handle types** — DLM vs HD is an analysis-profile property (`software_version_code`), not a file or handle attribute.
+
+---
+
+## 7. Workflow — instance (runtime)
+
 ```mermaid
 erDiagram
   submission ||--o{ workflow : has
   workflow_definition ||--o{ workflow : "pinned by"
   workflow_type_kind ||--o{ workflow : types
-  workflow_authoring_status_kind ||--o{ workflow : "authoring state"
-  workflow_execution_status_kind ||--o{ workflow : "execution state"
-  workflow ||--o{ workflow_status_event : "logs"
+  workflow ||--o{ workflow_status_event : logs
   workflow ||--o{ stage_instance : contains
   stage_kind ||--o{ stage_instance : identifies
-  stage_comp_status_kind ||--o{ stage_instance : "comp state"
-  stage_exec_status_kind ||--o{ stage_instance : "exec state"
   stage_instance ||--o{ stage_comp_event : "logs comp"
   stage_instance ||--o{ stage_exec_event : "logs exec"
   stage_instance ||--o{ task_instance : contains
-  task_status_kind ||--o{ task_instance : states
   task_instance ||--o{ task_comp_event : "logs comp"
   task_instance ||--o{ task_exec_event : "logs exec"
   task_instance ||--o{ task_input : consumes
   task_instance ||--o{ task_output : produces
-  input_source_kind ||--o{ task_input : "source type"
   file_artifact ||--o{ task_input : "pinned as"
   task_output ||--o{ task_input : "chained as"
-  handle_type_kind ||--o{ task_output : "typed handle"
   task_output ||--o| file_artifact : "emits (lineage)"
-  task_instance ||--o| irp_job : mirrors
-  task_instance ||--o{ result : yields
-  result ||--o{ result_artifact : exports
-  delivery_kind ||--o{ result_artifact : "delivery type"
+  task_instance ||--o| irp_job : "submits to IRP"
 
   workflow {
-    int id PK
-    int submission_id FK
-    int customer_id FK "denorm"
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    uniqueidentifier customer_id FK "denorm"
     string type_code FK
     int definition_id FK
-    string definition_version "pinned"
-    string authoring_status_code FK "current (cached)"
-    string execution_status_code FK "current, nullable until run"
+    string definition_version "pinned at creation"
+    string authoring_status_code "current (cached)"
+    string execution_status_code "current (cached); nullable until run starts"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   workflow_status_event {
-    int id PK
-    int workflow_id FK
-    string stream "authoring|execution"
+    uniqueidentifier id PK
+    uniqueidentifier workflow_id FK
+    string stream "authoring / execution"
     string status_code
     datetime at
-    int actor_user_id FK "nullable (system)"
+    uniqueidentifier actor_user_id FK "nullable; null for system transitions"
     string note "nullable"
   }
-  workflow_authoring_status_kind {
-    string code PK "draft/validated/runnable"
-    string label
-    int sort_order
-  }
-  workflow_execution_status_kind {
-    string code PK "active/complete/canceled/failed"
-    string label
-    int sort_order
-  }
   stage_instance {
-    int id PK
-    int workflow_id FK
+    uniqueidentifier id PK
+    uniqueidentifier workflow_id FK
     string stage_code FK
-    bool auto_complete "user toggle, default false"
+    bool auto_complete "default false; true → skips review state"
     bool skipped
-    string comp_status_code FK "current (cached)"
-    string exec_status_code FK "current (cached)"
-  }
-  stage_comp_status_kind {
-    string code PK "editable/locked"
-    string label
-    int sort_order
-  }
-  stage_exec_status_kind {
-    string code PK "not_started/blocked/running/review/complete/canceled"
-    string label
-    int sort_order
+    string comp_status_code "current (cached); editable / locked"
+    string exec_status_code "current (cached); not_started / blocked / running / review / complete / canceled"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   stage_comp_event {
-    int id PK
-    int stage_instance_id FK
+    uniqueidentifier id PK
+    uniqueidentifier stage_instance_id FK
     string status_code
     datetime at
-    int actor_user_id FK "nullable"
-    string note "nullable (e.g. task added/removed)"
+    uniqueidentifier actor_user_id FK "nullable"
+    string note "nullable"
   }
   stage_exec_event {
-    int id PK
-    int stage_instance_id FK
+    uniqueidentifier id PK
+    uniqueidentifier stage_instance_id FK
     string status_code
     datetime at
-    int actor_user_id FK "nullable (system or reviewer)"
-    string note "nullable (e.g. completed-with-errors, validation msg)"
+    uniqueidentifier actor_user_id FK "nullable"
+    string note "nullable"
   }
   task_instance {
-    int id PK
-    int stage_instance_id FK
-    string status_code FK "current (cached)"
+    uniqueidentifier id PK
+    uniqueidentifier stage_instance_id FK
+    string status_code "blocked / ready / running / succeeded / failed / skipped; current (cached)"
     int order_in_stage
     datetime started_at "nullable"
     datetime heartbeat_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   task_comp_event {
-    int id PK
-    int task_instance_id FK
-    string status_code "added/edited/removed"
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
+    string status_code "added / edited / removed"
     datetime at
-    int actor_user_id FK
+    uniqueidentifier actor_user_id FK
   }
   task_exec_event {
-    int id PK
-    int task_instance_id FK
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
     string status_code
     datetime at
-    int actor_user_id FK "nullable (system)"
+    uniqueidentifier actor_user_id FK "nullable"
     string note "nullable"
   }
-  task_status_kind {
-    string code PK "blocked/ready/running/succeeded/failed/skipped"
-    string label
-    int sort_order
-  }
   task_input {
-    int id PK
-    int task_instance_id FK
-    string input_source_code FK
-    int artifact_id FK "nullable"
-    int upstream_output_id FK "nullable"
-    string literal_or_ref "nullable"
-    bool is_stale
-  }
-  input_source_kind {
-    string code PK "inventory/upstream_output/literal_or_reference"
-    string label
-    int sort_order
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
+    string input_source_code FK "inventory / upstream_output / literal_or_reference"
+    uniqueidentifier artifact_id FK "nullable; set when source=inventory"
+    uniqueidentifier upstream_output_id FK "nullable; set when source=upstream_output"
+    string literal_or_ref "nullable; set when source=literal_or_reference"
+    bool is_stale "true when upstream task was re-run after this input was pinned"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   task_output {
-    int id PK
-    int task_instance_id FK
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
     string handle_type_code FK
-    string label "handle name"
-    int artifact_id FK "nullable (lineage)"
-  }
-  irp_job {
-    int id PK
-    int task_instance_id FK
-    string external_ref
-    string mirrored_status
-    datetime last_synced_at
-  }
-  result {
-    int id PK
-    int task_instance_id FK
-    int customer_id FK "denorm"
-  }
-  result_artifact {
-    int id PK
-    int result_id FK
-    string delivery_code FK
-    string location "file path or sql ref"
-  }
-  delivery_kind {
-    string code PK "file/sql"
-    string label
-    int sort_order
+    string label "handle name; the IRP entity name (EDM name, analysis name, etc.)"
+    uniqueidentifier artifact_id FK "nullable; lineage link to emitted file_artifact"
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
   }
 ```
 
-### 1.5 Reference data & parameters (global)
+---
+
+## 8. IRP jobs & result processing
+
+```mermaid
+erDiagram
+  task_instance ||--o| irp_job : "submits to IRP"
+  irp_job ||--o{ result_work_item : "produces on terminal status"
+  result_work_item_status_kind ||--o{ result_work_item : states
+
+  irp_job {
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
+    string job_type "workflow / risk_data_job / analysis_job / grouping_job / export_job; plain string — not a kind table"
+    string external_ref "IRP's integer job id (stored as string); nullable until submission succeeds"
+    string mirrored_status "plain string — not DB enum; see JobStatus vocabulary below"
+    int submission_attempt_count "incremented on each submission attempt; default 0"
+    datetime last_synced_at "nullable; null until first successful poll"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  result_work_item {
+    uniqueidentifier id PK
+    uniqueidentifier irp_job_id FK
+    string work_type "retrieve_analysis_results / push_results_to_loss_repo / push_rdm_to_loss_repo / push_exposure_summary / notify_analyst / download_export_file"
+    string status_code FK "result_work_item_status_kind"
+    string payload "JSON; job-specific context for the worker"
+    string error_detail "nullable; set on failure"
+    int retry_count
+    datetime completed_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK "nullable; system-generated"
+    uniqueidentifier updated_by FK "nullable"
+  }
+  result_work_item_status_kind {
+    string code PK "pending / running / succeeded / failed"
+    string label
+    int sort_order
+    datetime inserted_at
+  }
+```
+
+**`irp_job.job_type`** is a plain string column, not a FK to a kind table. New IRP job types never require a seed migration to unblock the poller.
+
+**`irp_job.mirrored_status`** is a plain string, not a DB enum. Full vocabulary:
+- Non-terminal (from IRP): `QUEUED`, `PENDING`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELLING`
+- Terminal (from IRP): `FINISHED`, `FAILED`, `CANCELLED`
+- App-local: `submission_failed` — IRP API call failed; `external_ref` is null; poller skips these rows; `submission_retry` Dramatiq actor handles re-attempts
+- Terminal ≠ success. Callers must check `status == 'FINISHED'` explicitly.
+
+**Submission flow:** request path calls IRP API → on success writes `irp_job` with `external_ref` set and `mirrored_status='QUEUED'` → on failure writes `irp_job` with `external_ref=null`, `mirrored_status='submission_failed'`, `submission_attempt_count=1` → `submission_retry` actor increments count and retries up to `IRP_SUBMISSION_MAX_RETRIES` (default 3).
+
+**Poller → Dramatiq flow:** Poller detects terminal `mirrored_status` → writes `result_work_item` row (`status=pending`) → Dramatiq worker picks it up → sets `status=running` → does work → sets `status=succeeded` or `status=failed`. Workers are idempotent; Dramatiq handles retry with backoff. A sweep job resets `running` rows past a staleness threshold back to `pending`.
+
+---
+
+## 9. Analysis results (hybrid: SQL metadata + Parquet files)
+
+Analysis results (ELT, EP curves, PLT, AAL) are retrieved from IRP via REST API after job completion by the `retrieve_analysis_results` Dramatiq worker. Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files. SQL stores only the metadata needed for list views and summaries.
+
+```mermaid
+erDiagram
+  task_instance ||--o{ analysis_result_meta : yields
+  analysis_result_meta ||--o{ result_export : "file exports"
+  delivery_kind ||--o{ result_export : types
+
+  analysis_result_meta {
+    uniqueidentifier id PK
+    uniqueidentifier task_instance_id FK
+    uniqueidentifier customer_id FK "denorm"
+    string analysis_name "IRP analysis name"
+    string perspective_code "GR / GU / RL"
+    float aal "Average Annual Loss; from get_stats()"
+    int elt_record_count "row count; from get_elt() response"
+    bool has_plt "true for HD analyses"
+    string elt_file_path "relative path to ELT Parquet file"
+    string ep_file_path "relative path to EP curve Parquet file"
+    string plt_file_path "nullable; relative path to PLT Parquet file (HD only)"
+    string stats_file_path "relative path to stats Parquet file"
+    datetime retrieved_at
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  result_export {
+    uniqueidentifier id PK
+    uniqueidentifier analysis_result_meta_id FK
+    string delivery_code FK "delivery_kind"
+    string location "file path (Parquet export) or SQL ref (RDM export)"
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
+  }
+  delivery_kind {
+    string code PK "file / sql"
+    string label
+    int sort_order
+    datetime inserted_at
+  }
+```
+
+**Parquet file location convention:** `{submission_outputs_dir}/{task_instance_id}/{perspective_code}/{result_type}.parquet`
+
+Where `result_type` ∈ `elt`, `ep`, `plt`, `stats`.
+
+**What the Parquet files contain:** The exact column schema comes from the DataFrames returned by `client.analysis.get_elt()`, `client.analysis.get_ep()`, `client.analysis.get_stats()`, `client.analysis.get_plt()`. These columns must be confirmed against the live irp-integration library response shapes when the `retrieve_analysis_results` worker is implemented. The SQL metadata row does not attempt to replicate or pre-parse the column schema — it stores only the summary fields needed for UI list views (`aal`, `elt_record_count`, `has_plt`).
+
+---
+
+## 10. IRP reference cache (metadata sync)
+
+Populated by the "Sync IRP Metadata" action. The app never writes to these tables outside of that action.
+
+```mermaid
+erDiagram
+  irp_model_profile {
+    uniqueidentifier id PK
+    string irp_id "IRP's profile ID"
+    string name
+    string software_version_code "contains 'HD' → HD profile, else DLM"
+    string description "nullable"
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_output_profile {
+    uniqueidentifier id PK
+    string irp_id
+    string name
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_event_rate_scheme {
+    uniqueidentifier id PK
+    string irp_id
+    string name
+    string peril_code "nullable"
+    string model_region_code "nullable"
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_database_server {
+    uniqueidentifier id PK
+    string name "IRP server name"
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_tag {
+    uniqueidentifier id PK
+    string irp_tag_id "IRP's tag ID"
+    string name
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_edm_cache {
+    uniqueidentifier id PK
+    string irp_exposure_id
+    string name "EDM name in IRP"
+    string server_name
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+```
+
+---
+
+## 11. Reference data & parameters (global)
+
 ```mermaid
 erDiagram
   reference_table ||--o{ reference_table_row : contains
+
   reference_table {
-    int id PK
-    string name "global"
-    string description
+    uniqueidentifier id PK
+    string name "UNIQUE"
+    string description "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
   reference_table_row {
-    int id PK
-    int reference_table_id FK
+    uniqueidentifier id PK
+    uniqueidentifier reference_table_id FK
     string key
     string value
     int version
+    datetime inserted_at
+    uniqueidentifier inserted_by FK
   }
   parameter {
-    int id PK
-    string name "global"
+    uniqueidentifier id PK
+    string name "UNIQUE"
     string value
     int version
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
   }
 ```
 
 ---
 
-## 2. Table manifest
+## 12. Table manifest
 
-Legend — **Type:** entity (transactional) · kind (categorical lookup) · projected (seeded from code manifest) · link (junction).
+### 12.1 Auth & business spine
 
-### 2.1 Auth & business spine
+| Table | Purpose | Key constraints |
+|---|---|---|
+| `customer` | Top of business hierarchy; RLS root. | `short_code` UNIQUE |
+| `program` | Program within a customer. | FK → customer |
+| `submission` | Broker package; anchors all work. | FK → program, customer (denorm), assigned analyst |
+| `app_user` | Provisioned user (Entra OID or dev stub). | `entra_oid` UNIQUE when set |
+| `role_kind` | Global role vocabulary. | `is_admin=true` drives `apply_scope()` bypass |
+| `user_role` | User↔role assignment. | Composite PK `(user_id, role_code)` |
+| `user_customer_access` | RLS: customers a user may access. | Composite PK `(user_id, customer_id)` |
+| `audit_log` | Append-only: who did what, when. | No update; insert-only |
+| `notification_preference` | Per-user notification channel preferences. | FK → app_user |
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `customer` | entity | Top of the business hierarchy; RLS root. | `id` | All `customer_id` denorm values originate here. |
-| `program` | entity | Program within a customer. | `customer_id`→customer | — |
-| `submission` | entity | Broker package handled by a user; anchors directories, artifacts, workflows. | `program_id`, `customer_id` (denorm), `handled_by`→app_user | Carries `customer_id` directly for scope. |
-| `app_user` | entity | Provisioned user (Entra `oid` or backdoor — both real users). | `entra_oid` (nullable, unique) | Identity only; **no roles stored here**. |
-| `role_kind` | kind | Global role vocabulary. | `code`, `is_admin` | `is_admin=true` row(s) drive the `apply_scope()` bypass. Confirm which codes. |
-| `user_role` | link | User↔role assignment. | `user_id`, `role_code` | Global roles in v1. |
-| `user_customer_access` | link | RLS: customers a user may access. | `user_id`, `customer_id` | Maintained in admin screens; read live per request. |
-| `audit_log` | entity | Who did what, when. | `user_id`, `action`, `entity_ref` | Mandatory for backdoor + state-changing actions. |
+### 12.2 File inventory
 
-### 2.2 File inventory
+| Table | Purpose | Key constraints / notes |
+|---|---|---|
+| `submission_directory` | Shared-drive folder linked to a submission. | `unc_path` UNIQUE |
+| `file_artifact` | One immutable version of a file. Append-only. | Identity = `(relative_path, size_bytes, fs_modified_at)`. `name` initialized as `UPPERCASE(filename without ext)`, user-editable. IRP name check on tag or rename. |
+| `artifact_source_kind` | `shared_drive` / `upload` / `workflow_output` | — |
+| `artifact_status_kind` | `present` / `changed` / `missing` | — |
+| `artifact_tag_kind` | `edm` / `rdm` only | — |
+| `discrepancy` | Flagged change/missing on a tracked artifact. | Severity escalates if tagged, further if workflow-referenced |
+| `discrepancy_severity_kind` | `info` / `warning` / `critical` | `sort_order` is meaningful (escalation) |
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `submission_directory` | entity | Shared-drive folder linked to a submission. | `submission_id`, `unc_path` **unique**, `linux_path` | UNIQUE(path) ⇒ a directory can't belong to two submissions. Read-only mount. |
-| `file_artifact` | entity | One **immutable version** of a file (shared-drive / upload / workflow output). | `source_code`, `status_code`, `tag_code` (nullable), `directory_id` (nullable), `customer_id` (denorm), `relative_path`, `size_bytes`, `fs_modified_at` | **Append-only.** Identity = **cheap metadata signature** `(relative_path, size_bytes, fs_modified_at)` — **no content hash** (dropped: too expensive; identity is best-effort, PRD §8.2). A detected change retains the old row and inserts a new one. |
-| `artifact_source_kind` | kind | `shared_drive` / `upload` / `workflow_output`. | `code` | One artifact store, three sources. |
-| `artifact_status_kind` | kind | `present` / `changed` / `missing`. | `code` | — |
-| `artifact_tag_kind` | kind | `edm` / `rdm` (none = no row). | `code` | User-applied; tagged artifacts are workflow-selectable. |
-| `discrepancy` | entity | Flagged change/missing on a tracked file. | `artifact_id`, `severity_code` | Severity escalates if tagged / workflow-referenced. |
-| `discrepancy_severity_kind` | kind | `info` / `warning` / `critical`. | `code`, `sort_order` | Ordering is meaningful (escalation). |
+### 12.3 EDM & RDM entities
 
-### 2.3 Workflow — definition (manifest-projected)
+| Table | Purpose | Key constraints / notes |
+|---|---|---|
+| `edm` | An EDM as it exists in IRP. Distinct from the .bak artifact. | `name` initialized from `file_artifact.name`. `irp_exposure_id` nullable, backfilled. Soft delete via `deleted_at`. Status is plain string. |
+| `rdm` | A broker RDM as it exists in IRP. | `name` initialized from `file_artifact.name`. `irp_id` nullable, backfilled. |
+| `irp_portfolio` | Portfolio created within an EDM in IRP. | FK → edm. `irp_portfolio_id` nullable, backfilled. Analyst picks from dropdown by edm_id. |
 
-> **Projection rule (PRD §9.1a).** The tables marked **projected** below are a *generated build artifact* of the canonical **code manifest**, written **only** by the projection generator — **never hand-edited**. A fail-fast **startup consistency check** compares a content-hash of the live manifest against the hash the projection was built from and refuses to start on mismatch. Projection is **append-only / version-retained**: a new manifest version **inserts** new `(definition_id, version)` rows and never deletes prior ones; old versions are kept while **any `workflow` instance pins them** (GC only when unreferenced), so a pinned in-flight/historical instance is never orphaned.
+### 12.4 Analysis templates & suites
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `workflow_type_kind` | kind | Workflow types. **Seeded with `EDM analysis` only.** Type drives the stage set and the allowed input(s), resolved in code per the definition manifest (no dynamic stage creation). | `code` | More types later = manifest + seed, no schema change. |
-| `workflow_definition` | projected | A versioned definition. | `type_code`, `version`, `is_current`, `manifest_hash` | **Generated from the code manifest; never hand-edited.** `manifest_hash` is the content-hash checked at startup. `is_current` flags the live version for *new* instances; **non-current rows are retained** while any instance pins their `version`. Instances pin `version`. |
-| `stage_kind` | kind | EDM Upload (skippable) / Portfolio Summary Extract / Sub-Portfolio Creation / Geo-coding / Hazard lookup / Analysis / Grouping / Export. | `code`, `sort_order` (**fixed order**), `skippable`, `icon` | **No HITL kind** — any stage can require review via `stage_instance.auto_complete`. Skippable (e.g. EDM Upload) but never reorderable. |
-| `stage_mode_kind` | kind+behavior | `singleton`/`parallel`/`sequential`. | `code` | Values in DB; **mode behavior in manifest** (drives validator). |
-| `definition_stage` | projected | Stages within a definition (order, mode, skippable). | `definition_id`, `stage_code`, `mode_code`, `skippable`, `position` | Generated; retained per definition version (keyed by `definition_id` → its `version`). |
-| `task_template` | projected | Task blueprint within a definition stage. | `definition_stage_id`, `key` | Generated; retained with its definition version. |
-| `port_template` | projected | Typed input/output ports of a task template. | `direction`, `handle_type_code`, `accepts_types`, `emits_rule`, `required` | `emits_rule` = `literal`/`derived` (type propagation). Generated; retained with its definition version. |
-| `handle_type_kind` | kind+registry | Handle type registry. | `code`, `parent_code` (self-FK) | edm/rdm/analysis/group/dlm/hd seeded; **no enum in code**; single-parent compatibility only. |
+| Table | Purpose | Key constraints / notes |
+|---|---|---|
+| `analysis_template` | Saved analysis job configuration. | Customer-scoped. `auto_name_pattern` evaluated at batch-apply time. `event_rate_scheme_name` required for DLM, checked via `irp_model_profile.software_version_code`. |
+| `analysis_template_tag` | Tags on a template (junction). | FK → template + IRP tag id |
+| `template_suite` | Named collection of templates for batch submission. | Customer-scoped |
+| `template_suite_item` | Ordered item in a suite. | `position` drives submission order |
 
-### 2.4 Workflow — instance (runtime)
+### 12.5 Phase A validation
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `workflow` | entity | A workflow instance under a submission. | `definition_id`, `definition_version` (**pinned**), `type_code`, `authoring_status_code`, `execution_status_code` (nullable), `customer_id` (denorm) | **Two status columns** (authoring vs execution), each a **cached "current"** of the latest `workflow_status_event` row, written in the same transaction. |
-| `workflow_status_event` | event | Append-only lifecycle log (authoring + execution streams). | `workflow_id`, `stream`, `status_code`, `at`, `actor_user_id` (nullable), `note` | **Insert-only**; current status on `workflow` is the latest event. History/audit lives here — never `UPDATE` status in place. |
-| `workflow_authoring_status_kind` | kind | `draft`/`validated`/`runnable`. | `code`, `sort_order` | External/IRP checks gate `validated`. |
-| `workflow_execution_status_kind` | kind | `active`/`complete`/`canceled`/`failed`. | `code`, `sort_order` | `canceled` = a reviewer canceled a stage (≠ technical `failed`). |
-| `stage_instance` | entity | A stage within a workflow instance. | `workflow_id`, `stage_code`, `auto_complete` (bool, default false), `skipped`, `comp_status_code`, `exec_status_code` | **No HITL kind** — review is generic. Two cached current statuses (composition + execution), each the latest of its event stream. `exec` ∈ not_started/blocked/running/review/complete/canceled. **`ERROR` is a dynamic rollup** (any task failed), not a stored status — so a `complete`/`canceled` stage can also read "with errors". When work finishes: `auto_complete=false` ⇒ `review`, else `complete`. |
-| `stage_comp_status_kind` | kind | `editable`/`locked`. | `code`, `sort_order` | `editable` while `exec=not_started` ⇒ task CRUD allowed (per-stage). |
-| `stage_exec_status_kind` | kind | `not_started`/`blocked`/`running`/`review`/`complete`/`canceled`. | `code`, `sort_order` | `blocked` is a gate carrying a validation result (slot only for now — checks are future). `review` + `blocked` are the **active gates** counted by the Review queue; `canceled` halts the workflow. |
-| `stage_comp_event` / `stage_exec_event` | event | Append-only per-stage logs (composition, execution). | `stage_instance_id`, `status_code`, `at`, `actor_user_id` (nullable), `note` | Insert-only. `note` captures e.g. *completed-with-errors* (audited), validation message, task add/remove. |
-| `task_instance` | entity | Executable unit = **the queue/job row**. | `stage_instance_id`, `status_code` (cached current), `order_in_stage`, `started_at`, `heartbeat_at` | Single-worker plain dequeue; `order_in_stage` + sequential mode enforce intra-stage chaining. |
-| `task_comp_event` / `task_exec_event` | event | Append-only per-task logs (composition: added/edited/removed; execution: status). | `task_instance_id`, `status_code`, `at`, `actor_user_id` | Insert-only; task `status_code` is the latest exec event. |
-| `task_status_kind` | kind | `blocked`/`ready`/`running`/`succeeded`/`failed`/`skipped`. | `code` | `blocked→ready` computed from input resolution. |
-| `task_input` | entity | A bound input port → its resolved source (one of three). | `input_source_code`, `artifact_id` (nullable), `upstream_output_id` (nullable), `literal_or_ref` (nullable), `is_stale` | Exactly one source populated. `is_stale` = upstream re-run (A1). |
-| `input_source_kind` | kind | `inventory`/`upstream_output`/`literal_or_reference`. | `code` | — |
-| `task_output` | entity | A produced output port = a typed **handle** + a lineage artifact. | `handle_type_code`, `label`, `artifact_id` (nullable) | Double duty: chaining handle + emitted `file_artifact`. |
+| Table | Purpose | Key constraints / notes |
+|---|---|---|
+| `validation_run` | A triggered DataBridge validation query set execution. | FK → edm. Multiple runs per EDM supported. |
+| `validation_result` | Metadata for one validation query result. | Row-level output in Parquet (`output_file_path`). `passed` nullable for summary checks. |
 
-### 2.5 IRP & results
+### 12.6 Workflow definition (manifest-projected)
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `irp_job` | entity | Local mirror of an IRP-side job. | `task_instance_id`, `external_ref`, `mirrored_status`, `last_synced_at` | Worker submit-then-poll; IRP owns execution, this mirrors state. |
-| `result` | entity | Output of a job, hung off a task. | `task_instance_id`, `customer_id` (denorm) | Provenance traces to pinned input artifacts. |
-| `result_artifact` | entity | Exported result deliverable. | `result_id`, `delivery_code`, `location` | Supports both paths: staged file(s)→consolidated deliverable, or load-to-SQL. |
-| `delivery_kind` | kind | `file` / `sql`. | `code` | Both required for business users. |
+| Table | Purpose | Notes |
+|---|---|---|
+| `workflow_type_kind` | Workflow type vocabulary. | Seeds: `edm_analysis`, `rdm_import`, `edm_import_only` |
+| `workflow_definition` | Versioned definition. | Generated; never hand-edited. `manifest_hash` checked at startup. |
+| `stage_kind` | Stage vocabulary with fixed order. | 8 seeds; `sort_order` is authoritative |
+| `stage_mode_kind` | `singleton` / `parallel` / `sequential` | — |
+| `definition_stage` | Stages within a definition (order, mode, skippable). | Projected; retained per version |
+| `task_template` | Task blueprint within a stage. | Projected |
+| `port_template` | Typed ports of a task template. | Projected |
+| `handle_type_kind` | Handle type registry. | Seeds: `edm`, `rdm`, `analysis`, `group`. NOT `dlm`/`hd`. |
 
-### 2.6 Reference data & parameters
+### 12.7 Workflow instance (runtime)
 
-| Table | Type | Purpose | Key columns / FKs | Review notes |
-|---|---|---|---|---|
-| `reference_table` | entity | A named reference list (**global**). | `id`, `name` | Global for access; client-specific values modeled as separate parameters for now. |
-| `reference_table_row` | entity | Rows/values in a reference table. | `reference_table_id`, `key`, `value`, `version` | `version` for pin-on-use as a workflow input. |
-| `parameter` | entity | Named parameter value (**global**). | `name`, `value`, `version` | Pinnable version when used as input source #3. |
+| Table | Purpose | Notes |
+|---|---|---|
+| `workflow` | Workflow instance. | Pins `definition_version`. Two cached status columns. |
+| `workflow_status_event` | Append-only lifecycle log (authoring + execution streams). | Insert-only |
+| `workflow_authoring_status_kind` | `draft` / `validated` / `runnable` | — |
+| `workflow_execution_status_kind` | `active` / `complete` / `canceled` / `failed` | — |
+| `stage_instance` | Stage within a workflow instance. | Two cached statuses (comp + exec). `ERROR` is a dynamic rollup, never stored. |
+| `stage_comp_status_kind` | `editable` / `locked` | — |
+| `stage_exec_status_kind` | `not_started` / `blocked` / `running` / `review` / `complete` / `canceled` | `review` + `blocked` counted in Review queue |
+| `stage_comp_event` / `stage_exec_event` | Append-only per-stage logs. | Insert-only; two separate streams |
+| `task_instance` | Executable unit = job queue row. | SQL table is the queue. Single-worker plain dequeue; documented upgrade to concurrent with `READPAST`/`UPDLOCK`. |
+| `task_comp_event` / `task_exec_event` | Append-only per-task logs. | Insert-only |
+| `task_status_kind` | `blocked` / `ready` / `running` / `succeeded` / `failed` / `skipped` | `blocked→ready` computed from input resolution |
+| `task_input` | Bound input port → resolved source. | Exactly one of `artifact_id`, `upstream_output_id`, `literal_or_ref` populated. `is_stale` = upstream re-run. |
+| `input_source_kind` | `inventory` / `upstream_output` / `literal_or_reference` | — |
+| `task_output` | Produced output handle + lineage. | `label` = the IRP entity name (e.g. EDM name, analysis name). |
+
+### 12.8 IRP jobs & result processing
+
+| Table | Purpose | Notes |
+|---|---|---|
+| `irp_job` | Local mirror of an IRP async job. | `job_type` and `mirrored_status` are plain strings (not kind tables, not DB enums). `external_ref` is nullable until submission succeeds. `submission_attempt_count` tracks retry attempts; the `submission_retry` Dramatiq actor stops after `IRP_SUBMISSION_MAX_RETRIES`. |
+| `result_work_item` | Dramatiq work queue. Written by poller on terminal job status. | `work_type` is a plain string. Each worker sets `running` on start, `succeeded`/`failed` on completion. |
+| `result_work_item_status_kind` | `pending` / `running` / `succeeded` / `failed` | A sweep resets stale `running` rows back to `pending`. |
+
+### 12.9 Analysis results
+
+| Table | Purpose | Notes |
+|---|---|---|
+| `analysis_result_meta` | SQL metadata for one (analysis, perspective_code) result set. | Stores `aal`, `elt_record_count`, `has_plt`, and file paths to Parquet files. Row-level ELT/EP/PLT data lives in Parquet only. |
+| `result_export` | Exported result deliverable. | `delivery_code=file` for Parquet exports; `delivery_code=sql` for RDM exports. |
+| `delivery_kind` | `file` / `sql` | — |
+
+### 12.10 IRP reference cache
+
+| Table | Purpose | Notes |
+|---|---|---|
+| `irp_model_profile` | Cached model profiles. | `software_version_code`: `"HD" in value → HD, else DLM`. |
+| `irp_output_profile` | Cached output profiles. | — |
+| `irp_event_rate_scheme` | Cached event rate schemes. | Required for DLM; validated at `draft→validated`. |
+| `irp_database_server` | Cached IRP DataBridge server names. | — |
+| `irp_tag` | Cached IRP tags. | Referenced by `analysis_template_tag.irp_tag_id`. |
+| `irp_edm_cache` | EDMs already in IRP (not necessarily from this app). | Used for "skip upload" path. |
+
+### 12.11 Reference data & parameters
+
+| Table | Purpose | Notes |
+|---|---|---|
+| `reference_table` | Named reference list (global). | `name` UNIQUE |
+| `reference_table_row` | Rows/values in a reference table. | Versionable for pin-on-use |
+| `parameter` | Named parameter value (global). | `name` UNIQUE; versionable |
 
 ---
 
-## 3. Kind-table seed checklist
-Every `*_kind` ships seeded (code/label/sort_order, + icon/color where useful):
-`role_kind`, `artifact_source_kind`, `artifact_status_kind`, `artifact_tag_kind`, `discrepancy_severity_kind`, `workflow_type_kind` (**seed: `EDM analysis` only**), `stage_kind` (with `skippable`), `stage_comp_status_kind`, `stage_exec_status_kind`, `stage_mode_kind`, `handle_type_kind`, `workflow_authoring_status_kind`, `workflow_execution_status_kind` (incl. `canceled`), `task_status_kind`, `input_source_kind`, `delivery_kind`.
+## 13. Kind-table seed checklist
 
-Semantic kinds (`stage_mode_kind`, `handle_type_kind`) and the projected definition tables are **seeded from the code manifest** so DB values and engine behavior never drift.
+| Kind table | Seeds |
+|---|---|
+| `role_kind` | `analyst`, `admin` (at minimum; codes confirmed with team). `admin` has `is_admin=true`. |
+| `artifact_source_kind` | `shared_drive`, `upload`, `workflow_output` |
+| `artifact_status_kind` | `present`, `changed`, `missing` |
+| `artifact_tag_kind` | `edm`, `rdm` — exactly these two |
+| `discrepancy_severity_kind` | `info`, `warning`, `critical` |
+| `workflow_type_kind` | `edm_analysis`, `rdm_import`, `edm_import_only` |
+| `stage_kind` | 8 rows per §6 table above |
+| `stage_mode_kind` | `singleton`, `parallel`, `sequential` |
+| `stage_comp_status_kind` | `editable`, `locked` |
+| `stage_exec_status_kind` | `not_started`, `blocked`, `running`, `review`, `complete`, `canceled` |
+| `handle_type_kind` | `edm`, `rdm`, `analysis`, `group` — NOT `dlm`/`hd` |
+| `workflow_authoring_status_kind` | `draft`, `validated`, `runnable` |
+| `workflow_execution_status_kind` | `active`, `complete`, `canceled`, `failed` |
+| `task_status_kind` | `blocked`, `ready`, `running`, `succeeded`, `failed`, `skipped` |
+| `input_source_kind` | `inventory`, `upstream_output`, `literal_or_reference` |
+| `delivery_kind` | `file`, `sql` |
+| `result_work_item_status_kind` | `pending`, `running`, `succeeded`, `failed` |
+
+**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `result_work_item.work_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
 
 ---
 
-## 4. Open data-model decisions (mirror of PRD §18)
-- Concrete `role_kind` codes + which is `is_admin`.
-- `reference_table` / `parameter` — confirmed **global** for access; revisit if client-specific scoping becomes structural rather than separate-parameter.
-- Whether `irp_sync_log` is worth a dedicated table (debugging the mirror) or folds into `audit_log`.
-- Nested directory paths across submissions: `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions (accepted v1 limitation).
+## 14. Open decisions
+
+- Confirm `role_kind` codes with team (`analyst`, `admin` — any others?).
+- Exposure Repository schema: defined in this project (separate SQL script or Alembic env targeting `MSSQL_EXPOSURE_*`). Columns TBD with reporting team.
+- Loss Repository schema: same — defined in this project, separate SQL script or Alembic env targeting `MSSQL_LOSS_*`. Schema coordinated with downstream consumers.
+- `IRP_SUBMISSION_MAX_RETRIES` — confirm default (currently 3). Configure via env var.
+- Exact column names of IRP REST API responses for ELT, EP, PLT, stats — must be confirmed against live irp-integration library when `retrieve_analysis_results` worker is implemented. Do not guess column names in advance.
+- `irp_reference_cache` staleness: manual "Sync IRP Metadata" only, or TTL-based warning if cache older than N days?
+- Whether `analysis_result_meta` should carry a FK to `irp_portfolio` (to know which portfolio the result was run against) or whether `task_input` lineage is sufficient.
+- Nested directory paths across submissions: `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions — accepted v1 limitation.
