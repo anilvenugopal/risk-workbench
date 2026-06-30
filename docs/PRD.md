@@ -156,7 +156,7 @@ Auto-naming is a first-class feature, not a convenience. For EDM imports, analys
 | Styling | Custom ITCSS design system (from `docintel/ui/src/styles`) |
 | Databases | SQL Server: Workbench Metamodel DB + Exposure Repository + Loss Repository (3 separate connections) |
 | DB access | `db/` package (SQLAlchemy Core + pyodbc + ODBC Driver 18). Named connections: `WORKBENCH`, `EXPOSURE`, `LOSS`, `DATABRIDGE`. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW`. |
-| Migrations | Alembic (targets `WORKBENCH` connection only) |
+| Migrations | Alembic (targets `WORKBENCH` connection only). **Dev strategy: drop-create-seed.** Until production (or significant data risk), the dev workflow is full drop-and-recreate — no accumulation of migration versions. A single `alembic/versions/0001_initial.py` creates all tables and seeds all kind tables. Re-running it drops and recreates. Migration version history begins at production cutover. |
 | Poller | Standalone loop process; `app/poller/run.py`. Batch-polls all non-terminal IRP jobs per interval. Not Dramatiq. |
 | Dramatiq workers | **Dramatiq** + **Redis** broker. Workers in `app/workers/`. Result workers (one class per `work_type`) + `submission_retry` actor. |
 | Auth | Entra ID (OIDC/BFF) via MSAL; dev header stub for local development |
@@ -166,7 +166,7 @@ Auto-naming is a first-class feature, not a convenience. For EDM imports, analys
 | Assets | All local — no CDN (org network policy) |
 | External integration | `irp-integration` (sync) — Risk Modeler REST + DataBridge ODBC |
 | Notifications | Dramatiq worker posts to Teams webhook and/or sends email |
-| Dev environment | Docker Compose: nginx + app + sqlserver + redis + poller + worker |
+| Dev environment | **Linux-native** — app, uvicorn, nginx, Redis, poller, and Dramatiq workers run directly on the host (systemd units or shell processes). **SQL Server only** runs in Docker (`docker run mcr.microsoft.com/mssql/server`). No Docker Compose wrapping the application stack. |
 
 ---
 
@@ -1042,17 +1042,35 @@ Centralized. First flags: `APP_ENV`, `ENFORCE_SSO`. More will accrue.
 
 Each iteration ends runnable and demonstrable. Sequencing: infrastructure first; IRP operations before results; repositories last.
 
+### 21.0 DB lifecycle prompt (applies to every iteration)
+
+**Before any iteration that touches schema or seed data, the builder (Claude Code) MUST ask:**
+
+> "This iteration will change the schema for [list of affected DBs: WORKBENCH / EXPOSURE / LOSS].
+> Choose an action for each:
+> - **Rebuild** — drop all tables, recreate schema, re-seed kind tables. All existing data is lost.
+> - **Refresh** — apply only the new additions (new tables, new columns, new seeds). Existing data is preserved where possible.
+> - **Skip** — leave the database untouched (use only if you are certain this iteration has no schema changes for this DB).
+>
+> DATABRIDGE is Moody's managed — never touched by this prompt."
+
+This prompt applies independently to each of the three app-managed databases (`WORKBENCH`, `EXPOSURE`, `LOSS`). A single iteration may affect only one (e.g., Iteration 1 only touches `WORKBENCH`), in which case the prompt only lists that database.
+
+**Rebuild** runs the drop-create-seed path (safe in dev; destructive). **Refresh** applies additive SQL only — it is the analyst's responsibility to confirm no breaking changes exist in the diff before choosing Refresh. In early iterations with no production data risk, Rebuild is the recommended default.
+
+---
+
 ### Iteration 0 — Foundation & shell
 
 **Alembic `env.py` requirement.** Alembic targets `WORKBENCH` only. `alembic/env.py` must call `get_connection_config("WORKBENCH")` from the `db/` package and pass the result to `build_sqlalchemy_url()`. **Never hardcode a SQLAlchemy URL in `env.py`** — this would bypass the `db/` package convention and break Windows auth + Kerberos renewal. The `EXPOSURE` and `LOSS` schemas are bootstrapped via separate SQL scripts (not Alembic), runnable via `python -m app.cli bootstrap-exposure` and `python -m app.cli bootstrap-loss`.
 
 **`submission_outputs_dir`** is a **derived path**, not stored in the DB. Always `{OUTPUTS_BASE_DIR}/{submission.id}/` where `OUTPUTS_BASE_DIR` is an env var (default `./data/outputs`). Parquet file paths stored in `validation_result.output_file_path` and `analysis_result_meta.*_file_path` are relative to this root (i.e. they store `{submission.id}/{...}` not the absolute path). The absolute path is reconstructed at read time as `OUTPUTS_BASE_DIR / stored_path`.
 
-**In:** §2 (architecture, three-DB config), §3 (full stack setup: Docker Compose with nginx + app + sqlserver + redis + worker), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7).
+**In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection.
 
 **Out:** auth, domain data, IRP integration, Dramatiq workers.
 
-**Exit:** `docker compose up` starts the full stack; health check returns green for all services; adding a page is one manifest node + handler + template.
+**Exit:** `uvicorn app.main:app --reload` starts the app; SQL Server container is up; health check returns green for all DB connections; adding a page is one manifest node + handler + template.
 
 ### Iteration 1 — Auth, sessions, RLS, admin
 
@@ -1128,7 +1146,7 @@ Each iteration ends runnable and demonstrable. Sequencing: infrastructure first;
 - **A4 — Cookie/session vs. live access changes.** Admin changes customer access; active session doesn't reflect it. Resolution: the session holds identity only; roles + scope are read **live from DB on every request** (§5.4). Changes are immediate.
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
 - **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
-- **A6 — Three-DB split makes local dev painful.** All three databases on one SQL Server instance in Docker; three separate connection strings pointing to three databases on one container. Schema isolation is enforced by schema names, not by separate servers. No extra infra cost locally.
+- **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
 - **A7 — Dramatiq worker failure leaves result work item stuck.** Resolution: Dramatiq's built-in retry with backoff. Worker sets `status='running'` before work, `status='failed'` on unrecoverable failure. A sweep job resets `running` items past a staleness threshold.
 - **A8 — IRP outage blocks everything.** Resolution: authoring stays in `draft` without IRP; only the `validated` transition and IRP-backed stage execution require it (§15.6). Poller catches up when IRP comes back.
 - **A9 — Search leaks across customers.** Resolution: every provider applies `apply_scope()` (§19).
@@ -1151,7 +1169,9 @@ Each iteration ends runnable and demonstrable. Sequencing: infrastructure first;
 ### Locked decisions
 
 - **Three declarative sources of truth** as code manifests, versioned, instance-pinned (§2.1).
-- **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One Docker SQL Server instance in dev with three databases; separate servers in prod (§2.2).
+- **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
+- **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
+- **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
 - **Connection pooling handled by `db/` package** — `get_engine()` / `get_connection()` cache one pooled engine per named connection. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` (set to 10/20 for 30 concurrent users).
 - **Sync-by-default:** plain `def` handlers, FastAPI threadpool; `async def` only for SSE (§2.3).
 - **IRP job submission is synchronous on the request path.** Fast IRP submit call returns a job ID immediately. On failure: `submission_failed` status + Dramatiq `submission_retry` actor (§14.3).

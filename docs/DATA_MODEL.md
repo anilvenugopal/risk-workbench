@@ -21,9 +21,18 @@ Required vars per connection: `MSSQL_{NAME}_SERVER`, `MSSQL_{NAME}_USER`, `MSSQL
 
 Global pool settings (apply across all connections): `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). **For 30 concurrent users:** set `MSSQL_POOL_SIZE=10`, `MSSQL_POOL_MAX_OVERFLOW=20`.
 
-**Local dev:** One Docker Compose SQL Server container runs three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). The three named connections point to the same server with different `MSSQL_{NAME}_DATABASE` values.
+**Local dev:** One SQL Server Docker container (`docker run mcr.microsoft.com/mssql/server`) hosts three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). The three named connections point to the same server with different `MSSQL_{NAME}_DATABASE` values. All other processes (app, nginx, Redis, poller, Dramatiq workers) run natively on Linux — not in Docker.
 
-**Redis:** `REDIS_URL` env var. Dramatiq broker. Stateless — losing it loses in-flight work items, not written results.
+**Dev DB strategy — drop-create-seed.** Until production cutover (or significant data risk in dev), the dev workflow is full drop-and-recreate via a single Alembic revision (`0001_initial.py`) that drops all tables, creates them fresh, and seeds all kind tables. No accumulation of migration versions in dev. Migration history starts at production cutover.
+
+**Per-iteration DB lifecycle prompt.** Before every iteration that touches schema or seeds, the builder MUST ask the analyst to choose for each affected app-managed database (`WORKBENCH`, `EXPOSURE`, `LOSS`):
+- **Rebuild** — drop all tables, recreate schema, re-seed. All data lost. Recommended default in dev.
+- **Refresh** — apply only additive changes (new tables, columns, seeds). Existing data preserved where possible.
+- **Skip** — no schema changes for this DB in this iteration.
+
+`DATABRIDGE` is Moody's managed schema and is **never** touched by this prompt or by any app-managed migration/bootstrap script.
+
+**Redis:** `REDIS_URL` env var (default `redis://localhost:6379/0`). Dramatiq broker. Runs natively on Linux (`redis-server`); not in Docker. Stateless — losing it loses in-flight work items, not written results.
 
 ---
 
