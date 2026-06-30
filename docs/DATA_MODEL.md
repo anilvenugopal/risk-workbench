@@ -36,6 +36,8 @@ Global pool settings (apply across all connections): `MSSQL_POOL_SIZE` (default 
 - **Projected tables are generated, never hand-edited.** Tables marked **projected** are a build artifact of the canonical code manifest, written only by the projection generator and guarded by a fail-fast startup content-hash check. Projection is append-only and version-retained while any workflow instance pins a prior version.
 - **Artifacts are append-only.** A changed file inserts a new `file_artifact` row; the old row is retained.
 - **Status is event-sourced (insert-only) with a cached current.** Status changes on `submission`, `workflow`, `stage_instance`, and `task_instance` insert a row into the matching `*_event` table and in the same transaction stamp the cached `current_*_status` column. Stages and tasks keep two independent event streams — composition and execution.
+- **Multi-statement transactions for event-sourced status.** `execute_command()` in `db/execute.py` uses `engine.begin()` — it commits one statement and is not usable for two-DML operations. Event-sourced writes (append event row + stamp cached status) **must** use `get_connection("WORKBENCH")` as a context manager with an explicit transaction: `with get_connection("WORKBENCH") as conn: with conn.begin(): conn.execute(insert_event); conn.execute(update_cached_status)`. Never split these two writes across separate `execute_command()` calls — a crash between them leaves the event log and cached status inconsistent.
+- **EXPOSURE and LOSS schema bootstrap.** These databases are not managed by Alembic (which targets `WORKBENCH` only). Their schemas are defined in `db/bootstrap/exposure_schema.sql` and `db/bootstrap/loss_schema.sql`. Bootstrap via: `python -m app.cli bootstrap-exposure` and `python -m app.cli bootstrap-loss`. These commands are idempotent (`CREATE TABLE IF NOT EXISTS`). Run once per environment before starting the app. Local dev: run after `docker compose up` creates the SQL Server container.
 
 ---
 
@@ -222,6 +224,8 @@ erDiagram
   }
 ```
 
+**`file_artifact` identity triple:** `UNIQUE(submission_id, relative_path, size_bytes, fs_modified_at)`. A file is considered a new version when any of these four values differs from all existing rows for the same `(submission_id, relative_path)`. The UNIQUE constraint prevents duplicate rows if the scanner runs twice before a status flip. Note: `submission_id` is included because the same relative path can appear in different submissions.
+
 **`file_artifact.name` behavior:**
 - Initialized as `filename` with extension stripped, converted to UPPERCASE (e.g. `XYZ_EDM_2026.bak` → `XYZ_EDM_2026`).
 - User can edit this name at any time.
@@ -290,7 +294,7 @@ erDiagram
 **`irp_portfolio`:**
 - Created when the Portfolio Creation stage runs (via `client.portfolio.create_portfolio()`).
 - `name` is the portfolio name as it exists in IRP (e.g. `All Accounts`, `EQ Only`).
-- `irp_portfolio_id` is nullable and backfilled by the poller once IRP confirms creation.
+- `irp_portfolio_id` is written **synchronously on the request path** — `create_portfolio()` returns `(portfolio_id, request_body)` immediately (IRP responds with HTTP 201 + Location header). The service writes `irp_portfolio_id` in the same transaction as the `irp_portfolio` insert. The poller is not involved.
 - Analyst picks a portfolio from a dropdown (populated from this table filtered by `edm_id`) when configuring an analysis task.
 
 ---
@@ -314,6 +318,7 @@ erDiagram
     string analysis_profile_name "IRP model profile name"
     string output_profile_name
     string event_rate_scheme_name "nullable; required for DLM, optional for HD"
+    string treaty_name_pattern "nullable; glob or regex pattern for auto-selecting treaties from the EDM at submit time"
     string currency_code
     string region_label "display metadata; used in auto-naming"
     string peril_code "display metadata; used in auto-naming"
@@ -355,6 +360,7 @@ erDiagram
 **`analysis_template` design basis:**
 - `analysis_profile_name`, `output_profile_name`, `event_rate_scheme_name` come directly from `client.analysis.submit_portfolio_analysis_job()` parameters in irp-integration.
 - `event_rate_scheme_name` is required for DLM analysis, optional for HD. DLM vs HD is detected at batch-apply time from `irp_model_profile.software_version_code` (`"HD" in code → HD, else DLM`).
+- `treaty_name_pattern` is an optional glob or regex pattern used at submit time to auto-select treaty names from the EDM via `client.treaty.search_treaties()`. Matching treaty names are resolved to IRP treaty IDs and included in the analysis job request. Null means no treaties are auto-selected (analyst may configure manually or use template tags instead).
 - `auto_name_pattern` is evaluated at batch-apply time against submission context to generate the `job_name` for each submitted analysis. Without this, analysts must manually name 50–150+ jobs.
 - Tags are stored in `analysis_template_tag` (junction table, not inline). The `irp_tag_id` references the IRP tag as synced into `irp_tag` cache.
 
@@ -587,8 +593,10 @@ erDiagram
   task_instance {
     uniqueidentifier id PK
     uniqueidentifier stage_instance_id FK
+    string task_type "irp_workflow / irp_risk_data / irp_analysis / irp_grouping / irp_export / databridge / sync; plain string"
+    string parameters "JSON; baked-in at authoring time. Engine reads this to know what to call."
     string status_code "blocked / ready / running / succeeded / failed / skipped; current (cached)"
-    int order_in_stage
+    int order_in_stage "UNIQUE with stage_instance_id"
     datetime started_at "nullable"
     datetime heartbeat_at "nullable"
     datetime inserted_at
@@ -635,6 +643,22 @@ erDiagram
   }
 ```
 
+**`task_instance.task_type`** tells the engine what to execute. Values:
+
+| `task_type` | What the engine does |
+|---|---|
+| `irp_workflow` | Calls the `workflow` IRP submit function; creates an `irp_job` row |
+| `irp_risk_data` | Calls the `risk_data_job` IRP submit function; creates an `irp_job` row |
+| `irp_analysis` | Calls `submit_portfolio_analysis_job(s)` (single or batch); creates `irp_job` row(s) |
+| `irp_grouping` | Calls `submit_analysis_grouping_job`; creates an `irp_job` row |
+| `irp_export` | Calls `submit_analysis_export_job`; creates an `irp_job` row |
+| `databridge` | Executes a DataBridge SQL query via `client.databridge`; no IRP job. Marks task `succeeded`/`failed` on request path. |
+| `sync` | Calls a synchronous IRP library method (e.g. `create_portfolio`); no IRP job. Marks task `succeeded`/`failed` on request path. |
+
+**`task_instance.parameters`** is a JSON object baked in at workflow-authoring time. The engine is a dumb executor — it reads `task_type`, deserializes `parameters`, calls the right function with those arguments. No reconstruction from `task_input` rows needed for dispatch. Example for an `irp_analysis` task: `{"edm_name": "XYZ_EDM_2026", "portfolio_name": "All Accounts", "job_name": "XYZ-2026Q1-NA-EQ", "analysis_profile_name": "DLM_NA_EQ_v5", ...}`.
+
+**UNIQUE constraint:** `UNIQUE(stage_instance_id, order_in_stage)`. Enforces unambiguous positional mapping for batch analysis submission — `order_in_stage` is the index into the `List[int]` returned by `submit_portfolio_analysis_jobs()`.
+
 ---
 
 ## 8. IRP jobs & result processing
@@ -650,8 +674,10 @@ erDiagram
     uniqueidentifier task_instance_id FK
     string job_type "workflow / risk_data_job / analysis_job / grouping_job / export_job; plain string — not a kind table"
     string external_ref "IRP's integer job id (stored as string); nullable until submission succeeds"
+    string resource_uri "nullable; IRP portfolio/exposure resource URI from submit return value. Required for get_elt/ep/plt calls."
     string mirrored_status "plain string — not DB enum; see JobStatus vocabulary below"
     int submission_attempt_count "incremented on each submission attempt; default 0"
+    datetime retry_locked_until "default GETUTCDATE(); submission_retry actor claims by UPDATE WHERE retry_locked_until < GETUTCDATE()"
     datetime last_synced_at "nullable; null until first successful poll"
     datetime inserted_at
     datetime updated_at
@@ -661,7 +687,7 @@ erDiagram
   result_work_item {
     uniqueidentifier id PK
     uniqueidentifier irp_job_id FK
-    string work_type "retrieve_analysis_results / push_results_to_loss_repo / push_rdm_to_loss_repo / push_exposure_summary / notify_analyst / download_export_file"
+    string work_type "see work_type vocabulary below; UNIQUE with irp_job_id"
     string status_code FK "result_work_item_status_kind"
     string payload "JSON; job-specific context for the worker"
     string error_detail "nullable; set on failure"
@@ -682,15 +708,38 @@ erDiagram
 
 **`irp_job.job_type`** is a plain string column, not a FK to a kind table. New IRP job types never require a seed migration to unblock the poller.
 
+**`irp_job.resource_uri`** is the portfolio/exposure resource URI returned by `submit_portfolio_analysis_job()` in `request_body["resourceUri"]`. Must be stored at submission time — it is not returned in the job completion response. The `retrieve_analysis_results` worker reads this to call `get_elt(analysis_id, perspective_code, exposure_resource_id)`.
+
+**`irp_job.retry_locked_until`** defaults to `GETUTCDATE()` (immediately claimable). The `submission_retry` actor claims by: `UPDATE irp_job SET retry_locked_until = DATEADD(minute, 15, GETUTCDATE()), submission_attempt_count = submission_attempt_count + 1 WHERE id = :id AND retry_locked_until < GETUTCDATE() AND submission_attempt_count < :max`. Only one actor wins; concurrent actors that lose the race skip silently.
+
 **`irp_job.mirrored_status`** is a plain string, not a DB enum. Full vocabulary:
 - Non-terminal (from IRP): `QUEUED`, `PENDING`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELLING`
 - Terminal (from IRP): `FINISHED`, `FAILED`, `CANCELLED`
 - App-local: `submission_failed` — IRP API call failed; `external_ref` is null; poller skips these rows; `submission_retry` Dramatiq actor handles re-attempts
 - Terminal ≠ success. Callers must check `status == 'FINISHED'` explicitly.
 
-**Submission flow:** request path calls IRP API → on success writes `irp_job` with `external_ref` set and `mirrored_status='QUEUED'` → on failure writes `irp_job` with `external_ref=null`, `mirrored_status='submission_failed'`, `submission_attempt_count=1` → `submission_retry` actor increments count and retries up to `IRP_SUBMISSION_MAX_RETRIES` (default 3).
+**`result_work_item` UNIQUE constraint:** `UNIQUE(irp_job_id, work_type)`. Prevents the poller from double-writing work items if it runs twice before the status flips. Idempotent upsert: `INSERT IF NOT EXISTS`.
 
-**Poller → Dramatiq flow:** Poller detects terminal `mirrored_status` → writes `result_work_item` row (`status=pending`) → Dramatiq worker picks it up → sets `status=running` → does work → sets `status=succeeded` or `status=failed`. Workers are idempotent; Dramatiq handles retry with backoff. A sweep job resets `running` rows past a staleness threshold back to `pending`.
+**`result_work_item.work_type` vocabulary:**
+
+| `work_type` | Written by | Chains to |
+|---|---|---|
+| `backfill_edm` | Poller on `FINISHED` for EDM import job | — |
+| `backfill_rdm` | Poller on `FINISHED` for RDM import job | — |
+| `retrieve_analysis_results` | Poller on `FINISHED` for analysis job | → `push_results_to_loss_repo` |
+| `push_results_to_loss_repo` | `retrieve_analysis_results` worker on success | — |
+| `push_rdm_to_loss_repo` | Poller on `FINISHED` for RDM export job | — |
+| `push_exposure_summary` | Poller on explicit analyst request (via separate trigger) | — |
+| `notify_analyst` | Poller on any terminal status | — |
+| `download_export_file` | Poller on `FINISHED` for export job | — |
+
+**Work item chaining:** The poller writes only **head** items. Workers write tail items on success. `push_results_to_loss_repo` is never created by the poller — it is created by the `retrieve_analysis_results` worker after it successfully writes Parquet files. If `retrieve_analysis_results` fails after all Dramatiq retries, no loss repo push is ever enqueued.
+
+**Submission flow:** request path calls IRP API → on success writes `irp_job` with `external_ref` set, `resource_uri` set, `mirrored_status='QUEUED'`, `submission_attempt_count=1` → on failure writes `irp_job` with `external_ref=null`, `resource_uri=null`, `mirrored_status='submission_failed'`, `submission_attempt_count=1` → `submission_retry` actor claims with atomic UPDATE and retries up to `IRP_SUBMISSION_MAX_RETRIES` (default 3).
+
+**Poller → Dramatiq flow:** Poller detects terminal `mirrored_status` → writes head `result_work_item` row(s) (`status=pending`) via idempotent INSERT IF NOT EXISTS → Dramatiq worker picks it up → sets `status=running` → does work → sets `status=succeeded` or `status=failed`, enqueues next item in chain if applicable. Workers are idempotent; Dramatiq handles retry with backoff. A sweep job resets `running` rows past a staleness threshold back to `pending`.
+
+**Event-sourcing transactions:** Status changes that append to a `*_event` table AND stamp the cached `current_*_status` column require two DML statements and must run in a single transaction. `execute_command()` (which uses `engine.begin()`) only handles a single statement. Use `get_connection("WORKBENCH")` as a context manager with manual `conn.begin()` / `conn.commit()` / `conn.rollback()` for all event-sourced status updates. Never split an event insert and a status stamp across two separate calls.
 
 ---
 
@@ -801,6 +850,23 @@ erDiagram
     string irp_exposure_id
     string name "EDM name in IRP"
     string server_name
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_simulation_set {
+    uniqueidentifier id PK
+    string irp_id "IRP's simulation set ID"
+    string name
+    string description "nullable"
+    datetime synced_at
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_currency {
+    uniqueidentifier id PK
+    string code "ISO 4217 currency code (e.g. USD, GBP)"
+    string name
     datetime synced_at
     datetime inserted_at
     datetime updated_at
@@ -919,12 +985,12 @@ erDiagram
 | `workflow` | Workflow instance. | Pins `definition_version`. Two cached status columns. |
 | `workflow_status_event` | Append-only lifecycle log (authoring + execution streams). | Insert-only |
 | `workflow_authoring_status_kind` | `draft` / `validated` / `runnable` | — |
-| `workflow_execution_status_kind` | `active` / `complete` / `canceled` / `failed` | — |
+| `workflow_execution_status_kind` | `active` / `complete` / `canceled` | `failed` seed removed — no defined transition reaches it; `ERROR` overlay handles task-level failures. |
 | `stage_instance` | Stage within a workflow instance. | Two cached statuses (comp + exec). `ERROR` is a dynamic rollup, never stored. |
 | `stage_comp_status_kind` | `editable` / `locked` | — |
 | `stage_exec_status_kind` | `not_started` / `blocked` / `running` / `review` / `complete` / `canceled` | `review` + `blocked` counted in Review queue |
 | `stage_comp_event` / `stage_exec_event` | Append-only per-stage logs. | Insert-only; two separate streams |
-| `task_instance` | Executable unit = job queue row. | SQL table is the queue. Single-worker plain dequeue; documented upgrade to concurrent with `READPAST`/`UPDLOCK`. |
+| `task_instance` | Executable unit = job queue row. | `task_type` + `parameters` JSON baked in at authoring time; engine dispatches from these. `UNIQUE(stage_instance_id, order_in_stage)`. SQL table is the queue. Single-worker plain dequeue; documented upgrade to concurrent with `READPAST`/`UPDLOCK`. |
 | `task_comp_event` / `task_exec_event` | Append-only per-task logs. | Insert-only |
 | `task_status_kind` | `blocked` / `ready` / `running` / `succeeded` / `failed` / `skipped` | `blocked→ready` computed from input resolution |
 | `task_input` | Bound input port → resolved source. | Exactly one of `artifact_id`, `upstream_output_id`, `literal_or_ref` populated. `is_stale` = upstream re-run. |
@@ -935,8 +1001,8 @@ erDiagram
 
 | Table | Purpose | Notes |
 |---|---|---|
-| `irp_job` | Local mirror of an IRP async job. | `job_type` and `mirrored_status` are plain strings (not kind tables, not DB enums). `external_ref` is nullable until submission succeeds. `submission_attempt_count` tracks retry attempts; the `submission_retry` Dramatiq actor stops after `IRP_SUBMISSION_MAX_RETRIES`. |
-| `result_work_item` | Dramatiq work queue. Written by poller on terminal job status. | `work_type` is a plain string. Each worker sets `running` on start, `succeeded`/`failed` on completion. |
+| `irp_job` | Local mirror of an IRP async job. | `job_type` and `mirrored_status` are plain strings (not kind tables, not DB enums). `external_ref` nullable until submission succeeds. `resource_uri` stores IRP portfolio resource URI captured at submission time — required for result retrieval. `retry_locked_until` enables atomic claim by `submission_retry` actor. `submission_attempt_count` tracks retry attempts; stops after `IRP_SUBMISSION_MAX_RETRIES`. |
+| `result_work_item` | Dramatiq work queue. Head items written by poller; tail items written by workers (chained). | `UNIQUE(irp_job_id, work_type)` prevents duplicate rows. `work_type` is plain string (see §13 vocabulary). Workers are responsible for enqueuing next items in the chain on success. |
 | `result_work_item_status_kind` | `pending` / `running` / `succeeded` / `failed` | A sweep resets stale `running` rows back to `pending`. |
 
 ### 12.9 Analysis results
@@ -954,6 +1020,8 @@ erDiagram
 | `irp_model_profile` | Cached model profiles. | `software_version_code`: `"HD" in value → HD, else DLM`. |
 | `irp_output_profile` | Cached output profiles. | — |
 | `irp_event_rate_scheme` | Cached event rate schemes. | Required for DLM; validated at `draft→validated`. |
+| `irp_simulation_set` | Cached simulation sets. | Populated by `client.reference_data.get_all_simulation_sets()`. |
+| `irp_currency` | Cached ISO 4217 currencies. | Populated by `client.reference_data.search_currencies()`. |
 | `irp_database_server` | Cached IRP DataBridge server names. | — |
 | `irp_tag` | Cached IRP tags. | Referenced by `analysis_template_tag.irp_tag_id`. |
 | `irp_edm_cache` | EDMs already in IRP (not necessarily from this app). | Used for "skip upload" path. |
@@ -990,7 +1058,13 @@ erDiagram
 | `delivery_kind` | `file`, `sql` |
 | `result_work_item_status_kind` | `pending`, `running`, `succeeded`, `failed` |
 
-**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `result_work_item.work_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
+**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `result_work_item.work_type`, `task_instance.task_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
+
+**`workflow_execution_status_kind` — `failed` seed note:** `failed` is seeded as a valid status code but there is no defined state transition that puts a workflow into `failed` — workflows reach `canceled` when any stage is canceled, and individual task failures are surfaced via the `ERROR` dynamic overlay, not a workflow-level `failed` status. Remove `failed` from this kind table unless a specific transition is defined for it. Keeping an unreachable seed creates confusion. **Decision needed:** define the transition or remove the seed.
+
+**`result_work_item.work_type` values (plain string — not a kind table):** `backfill_edm`, `backfill_rdm`, `retrieve_analysis_results`, `push_results_to_loss_repo`, `push_rdm_to_loss_repo`, `push_exposure_summary`, `notify_analyst`, `download_export_file`. Document these in code (worker registry), not in the DB.
+
+**`apply_scope()` guard:** `scoped_execute()` in `db/scope.py` defaults to `connection="WORKBENCH"` and must only be used against the `WORKBENCH` connection. The `EXPOSURE` and `LOSS` connections hold flat schemas with no `customer_id` scoping — calling `apply_scope()` on them is a bug. `db/scope.py` should assert `connection == "WORKBENCH"` (or a configurable allowlist) and raise immediately if called with any other connection name.
 
 ---
 

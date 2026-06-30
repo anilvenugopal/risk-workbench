@@ -114,7 +114,7 @@ MSSQL_LOSS_SERVER,      MSSQL_LOSS_USER,      MSSQL_LOSS_PASSWORD,      MSSQL_LO
 MSSQL_DATABRIDGE_SERVER, MSSQL_DATABRIDGE_USER, MSSQL_DATABRIDGE_PASSWORD, MSSQL_DATABRIDGE_DATABASE
 ```
 
-Pool sizing (global, applies across all connections): `MSSQL_POOL_SIZE` (default 5) + `MSSQL_POOL_MAX_OVERFLOW` (default 5). For 30 concurrent users set `MSSQL_POOL_SIZE=10`, `MSSQL_POOL_MAX_OVERFLOW=20`.
+Pool sizing is **per-connection**, not global. Each named connection has its own pool. Per-connection overrides: `MSSQL_{NAME}_POOL_SIZE`, `MSSQL_{NAME}_POOL_MAX_OVERFLOW`. Falls back to global `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` if not set (default 5 / 5). **Watch the total**: with four connections and defaults, you can open up to 40 physical connections to SQL Server. Tune per connection based on actual load. Recommended starting point for 30 users: `MSSQL_WORKBENCH_POOL_SIZE=10`, `MSSQL_WORKBENCH_POOL_MAX_OVERFLOW=20`; `MSSQL_EXPOSURE_POOL_SIZE=5`, `MSSQL_LOSS_POOL_SIZE=5` (Phase C Dramatiq workers). `MSSQL_DATABRIDGE_POOL_SIZE=3` (DataBridge ODBC is session-scoped; small pool is correct). **Note:** per-connection pool env vars require a one-line change to `_pool_kwargs()` in `db/connection.py` to prefer `MSSQL_{NAME}_POOL_SIZE` over the global fallback.
 
 ### 2.3 Stack posture
 
@@ -621,12 +621,12 @@ The single workflow type. Stages in fixed order (skippable but never reorderable
 
 | # | Stage | Mode | Skippable | Notes |
 |---|---|---|---|---|
-| 1 | EDM Upload | singleton | yes | Skip if EDM already in IRP. Submits `workflow` or `risk_data_job` to IRP |
-| 2 | Data Validation & Profiling | sequential | yes | DataBridge validation + profiling queries (§10.2). No IRP job — direct DataBridge calls |
-| 3 | Exposure Modification | sequential | yes | DataBridge modification queries (§10.3). No IRP job — direct DataBridge calls |
-| 4 | Portfolio Creation | sequential | no | `client.portfolio.create_portfolio()` — sync call, no IRP async job. Creates named portfolios from the EDM |
+| 1 | EDM Upload | singleton | yes | Skip if EDM already in IRP. Submits `workflow` or `risk_data_job` to IRP. `irp_exposure_id` backfilled via `backfill_edm` result worker. |
+| 2 | Data Validation & Profiling | sequential | yes | DataBridge validation + profiling queries (§10.2). No IRP job. Task executed synchronously on request path; service marks task `succeeded`/`failed` inline after the DataBridge call returns. |
+| 3 | Exposure Modification | sequential | yes | DataBridge modification queries (§10.3). No IRP job. Same synchronous completion pattern as Stage 2. |
+| 4 | Portfolio Creation | sequential | no | `client.portfolio.create_portfolio()` returns `(portfolio_id, _)` synchronously (201 + Location header). Service writes `irp_portfolio.irp_portfolio_id` inline on the same request. No poller involvement — the ID is known before the response. |
 | 5 | Geo-coding & Hazard | parallel | yes | `client.portfolio.submit_geohaz_job()` per portfolio → `workflow` job type |
-| 6 | Analysis | parallel | no | `client.analysis.submit_portfolio_analysis_job(s)()` → `analysis_job`. Supports batch from templates |
+| 6 | Analysis | parallel | no | `client.analysis.submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered). Task instances ordered by `template_suite_item.position`; job IDs mapped positionally. `resource_uri` per job stored on `irp_job.resource_uri` immediately. |
 | 7 | Grouping | sequential | yes | `client.analysis.submit_analysis_grouping_job()` → `grouping_job`. Analyses referenced by name+EDM |
 | 8 | Export | parallel | yes | `analysis_export_job` (Parquet) or `rdm_export` (`risk_data_job`). Result worker then pushes to Loss Repository |
 
@@ -743,13 +743,19 @@ Each IRP-backed task submits to one of five job types. The `irp_job` row records
 | EDM Delete | `client.edm.submit_delete_edm_job(exposure_id)` | `workflow` |
 | RDM Import | `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` | `risk_data_job` |
 | Geo-coding & Hazard | `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` | `workflow` |
-| Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` | `analysis_job` |
-| Analysis (batch) | `client.analysis.submit_portfolio_analysis_jobs(list)` | `analysis_job` per item |
+| Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` → `(job_id, request_body)` | `analysis_job` |
+| Analysis (batch) | `client.analysis.submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered job IDs) | `analysis_job` per item |
 | Grouping | `client.analysis.submit_analysis_grouping_job(group_name, analysis_names, ...)` | `grouping_job` |
 | File Export (Parquet) | `client.analysis.submit_analysis_export_job(analysis_id, loss_details)` | `export_job` |
 | RDM Export | `client.rdm.export_analyses_to_rdm(server_name, rdm_name, analysis_names)` | `risk_data_job` |
 
 > **DLM vs HD at submit time:** `event_rate_scheme_name` required for DLM; optional for HD. Detected internally by irp-integration from the model profile's `softwareVersionCode`. The app passes the value (or omits it) based on the cached profile.
+
+> **`exposure_resource_id` must be captured at submission time.** `submit_portfolio_analysis_job()` returns `(job_id, request_body)` where `request_body["resourceUri"]` is the portfolio's IRP resource URI — this IS the `exposure_resource_id` needed later for `get_elt()`, `get_ep()`, etc. Store it in `irp_job.resource_uri` on the `irp_job` row immediately after submission. The analysis result completion response does NOT include this value — if it is not stored at submission time it cannot be recovered without a separate IRP search call.
+
+> **Batch analysis — ordered positional mapping.** `submit_portfolio_analysis_jobs(list)` returns `List[int]` (one job ID per submitted item, same order). When applying a template suite, task instances are ordered by `template_suite_item.position` (ascending). The batch request list is built in the same order. Job IDs are matched back to `task_instance` rows by position: `job_ids[i]` → task at position `i`. The `(stage_instance_id, order_in_stage)` UNIQUE constraint enforces unambiguous ordering. This mapping is written atomically in a transaction immediately after the batch submit call returns.
+
+> **API method signatures** in the table above are from `irp-integration` v0.2.1.dev23. This is a pre-release library. Verify all signatures against the installed version before implementing any IRP-backed stage. Parameter names and return shapes are the most likely points of drift.
 
 ### 14.4 The poller
 
@@ -759,15 +765,17 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — the poller i
 
 **Each pass:**
 1. **Query non-terminal jobs** from `WORKBENCH` DB: `WHERE mirrored_status NOT IN ('FINISHED', 'FAILED', 'CANCELLED') AND mirrored_status != 'submission_failed'`
-2. **Poll each job** via irp-integration using the correct method per `job_type`:
+2. **Poll each job** via irp-integration using the **single-status-check** method per `job_type`. The poller **must never call `poll_*_to_completion` methods** — those are blocking loops with 600 000-second timeouts and will freeze the poller process. Use only the single-GET methods:
 
-| `job_type` | Poll method |
+| `job_type` | Single-status-check method (poller uses this) |
 |---|---|
-| `workflow` | `client.poll_workflow_to_completion(workflow_id)` |
-| `risk_data_job` | `client.risk_data_job.poll_risk_data_job_to_completion(job_id)` |
-| `analysis_job` | `client.analysis.poll_analysis_job_to_completion(job_id)` |
-| `grouping_job` | `client.analysis.poll_analysis_grouping_job_to_completion(job_id)` |
-| `export_job` | `client.export_job.poll_export_job_to_completion(job_id)` |
+| `workflow` | `client.client.get_workflow(workflow_id)` → `{"status": ..., "progress": ...}` |
+| `risk_data_job` | `client.risk_data_job.get_risk_data_job(job_id)` |
+| `analysis_job` | `client.analysis.get_analysis_job(job_id)` |
+| `grouping_job` | `client.analysis.get_analysis_grouping_job(job_id)` |
+| `export_job` | `client.export_job.get_export_job(job_id)` |
+
+> **`poll_*_to_completion` is FORBIDDEN in the poller.** These methods block for up to 600 000 seconds. The `get_*` single-check methods are the right primitives for a batch poller. The `poll_*` blocking variants exist in the library for interactive scripts, not for a production poller loop.
 
 3. **Update `irp_job.mirrored_status`** in `WORKBENCH` DB via `db.execute_command`.
 4. **On terminal status:** write one or more `result_work_item` rows (one per `work_type` needed). Mark the `task_instance` as `succeeded` or `failed` (`status == 'FINISHED'` is the only success; `FAILED` and `CANCELLED` are failures).
@@ -795,9 +803,22 @@ The poller writes one `result_work_item` row per `work_type` needed for each com
 | `notify_analyst` | Post Teams webhook and/or send email on job completion or failure |
 | `download_export_file` | Download Parquet export from IRP via `client.export_job.download_export_results()`; write to submission output dir |
 
+**Work item chaining — ordering without a depends_on column.** The poller only writes **head** work items for each completed job (the first in each chain). Each worker, on success, enqueues the next item in the chain as a new `result_work_item` row. This gives ordering without a dependency join at dequeue time:
+
+```
+Poller writes on FINISHED:
+  retrieve_analysis_results (head)
+  notify_analyst (head — independent, runs in parallel)
+
+retrieve_analysis_results worker, on success, writes:
+  push_results_to_loss_repo (tail)
+```
+
+This means `push_results_to_loss_repo` never races with `retrieve_analysis_results` — it does not exist until `retrieve_analysis_results` succeeds. If `retrieve_analysis_results` fails after Dramatiq retries, the chain stops there; `push_results_to_loss_repo` is never enqueued.
+
 **B — Submission retry actor** (triggered when `irp_job.mirrored_status = 'submission_failed'`):
 
-A separate `submission_retry` Dramatiq actor — not using the `result_work_item` table (different trigger, different lifecycle). It watches for `submission_failed` rows, re-attempts the IRP API call, and updates `mirrored_status` + `submission_attempt_count`. After `IRP_SUBMISSION_MAX_RETRIES` (default 3) attempts it stops retrying; the job surfaces as a permanent failure on the task.
+A separate `submission_retry` Dramatiq actor — not using the `result_work_item` table (different trigger, different lifecycle). It claims by atomically updating `irp_job`: `UPDATE irp_job SET retry_locked_until = DATEADD(minute, 15, GETUTCDATE()), submission_attempt_count = submission_attempt_count + 1 WHERE id = :id AND retry_locked_until < GETUTCDATE() AND submission_attempt_count < :max_retries`. Only one actor wins; the losers skip. It re-attempts the IRP API call and updates `mirrored_status` + `external_ref` on success or leaves `submission_failed` on exhaustion. After `IRP_SUBMISSION_MAX_RETRIES` (default 3) the job surfaces as a permanent failure on the task.
 
 **Worker behavior contract (both categories):**
 - Worker sets its status to `running` when it starts (work item row for result workers; `irp_job.mirrored_status` for retry actor)
@@ -855,7 +876,7 @@ Analysis results are **REST-only** — never DataBridge. Retrieved per `perspect
 
 These are called by the `retrieve_analysis_results` Dramatiq worker (§14.5), not on a request path.
 
-`exposure_resource_id` is the portfolio's resource ID, obtained from the analysis record returned by IRP.
+`exposure_resource_id` is the portfolio's IRP resource URI. It is **not** returned by the job completion response — it comes from `submit_portfolio_analysis_job()`'s return value (`request_body["resourceUri"]`) and must be stored in `irp_job.resource_uri` at submission time. The `retrieve_analysis_results` worker reads it from there.
 
 ### 15.4 DataBridge usage
 
@@ -872,6 +893,8 @@ The `irp_portfolio` table tracks portfolios created during a workflow:
 - `irp_portfolio_id` — IRP's integer portfolioId
 - `edm_name`, `portfolio_name`
 - `task_instance_id` FK — the Portfolio Creation task that created it
+
+**`create_portfolio()` returns the portfolio ID synchronously** — the IRP endpoint responds with HTTP 201 + a Location header; the library parses this and returns `(portfolio_id, request_body)` before the call returns. The service writes `irp_portfolio.irp_portfolio_id` on the same request path. The poller is not involved in portfolio ID backfill.
 
 Analysis job submission requires both `edm_name` and `portfolio_name` — IRP resolves these to IDs internally.
 
@@ -1020,6 +1043,10 @@ Centralized. First flags: `APP_ENV`, `ENFORCE_SSO`. More will accrue.
 Each iteration ends runnable and demonstrable. Sequencing: infrastructure first; IRP operations before results; repositories last.
 
 ### Iteration 0 — Foundation & shell
+
+**Alembic `env.py` requirement.** Alembic targets `WORKBENCH` only. `alembic/env.py` must call `get_connection_config("WORKBENCH")` from the `db/` package and pass the result to `build_sqlalchemy_url()`. **Never hardcode a SQLAlchemy URL in `env.py`** — this would bypass the `db/` package convention and break Windows auth + Kerberos renewal. The `EXPOSURE` and `LOSS` schemas are bootstrapped via separate SQL scripts (not Alembic), runnable via `python -m app.cli bootstrap-exposure` and `python -m app.cli bootstrap-loss`.
+
+**`submission_outputs_dir`** is a **derived path**, not stored in the DB. Always `{OUTPUTS_BASE_DIR}/{submission.id}/` where `OUTPUTS_BASE_DIR` is an env var (default `./data/outputs`). Parquet file paths stored in `validation_result.output_file_path` and `analysis_result_meta.*_file_path` are relative to this root (i.e. they store `{submission.id}/{...}` not the absolute path). The absolute path is reconstructed at read time as `OUTPUTS_BASE_DIR / stored_path`.
 
 **In:** §2 (architecture, three-DB config), §3 (full stack setup: Docker Compose with nginx + app + sqlserver + redis + worker), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7).
 
