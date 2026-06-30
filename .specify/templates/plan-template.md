@@ -47,7 +47,7 @@ Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
 |---------|-------|--------|-------|
 | 1 | Manifest-Driven Extensibility | | |
 | 2 | Manifest Canonical; DB Is Generated Projection | | |
-| 3 | Categoricals Are Kind Tables, Never Enums | | |
+| 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | | |
 | 4 | Status Is Event-Sourced with Cached Current | | |
 | 5 | Generic Stage Review (No HITL Stage Type) | | |
 | 6 | Customer Isolation on Parameterized Path Only | | |
@@ -55,7 +55,7 @@ Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
 | 8 | Server-Rendered; No SPA | | |
 | 9 | Styling Extends ITCSS via Tokens | | |
 | 10 | SQL Table Is the Queue; Single Worker by Default | | |
-| 11 | IRP and External Sources Behind an Interface | | |
+| 11 | IRP Polling and Result Work Behind Interface; Submission on Request Path Permitted | | |
 | 12 | Test-First, Three Connected Strategies | | |
 | 13 | Authentication & Secrets | | |
 

@@ -1,21 +1,35 @@
 <!--
   Sync Impact Report
   ==================
-  Version change: template (unversioned) → 1.0.0 (initial ratification)
+  Version change: 1.0.0 → 1.1.0
 
-  Added sections:
-    - Core Principles: Articles 1–13 (all new)
-    - Source-of-Truth Documents
-    - Compliance Gates
+  Modified principles:
+    - Article 3: "Categoricals Are Kind Tables, Never Enums"
+      → "Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors"
+      Added carve-out for columns that mirror external system state (IRP job
+      statuses, job-type discriminators). Rationale: kind tables for these
+      would require seed migrations whenever IRP adds a status, crashing the
+      poller on unrecognized values.
+      Affected columns explicitly listed: irp_job.job_type,
+      irp_job.mirrored_status, task_instance.task_type,
+      result_work_item.work_type, edm.status, rdm.status.
 
-  Removed:
-    - All placeholder bracket tokens ([PROJECT_NAME], [PRINCIPLE_n_*], etc.)
+    - Article 11: "IRP and External Data Sources Sit Behind an Interface"
+      → "IRP Polling and Result Work Behind an Interface; Submission on Request Path Permitted"
+      Narrowed the web-layer prohibition to cover polling and post-completion
+      result work only. Synchronous IRP job submission on the request path is
+      explicitly permitted: submit calls return a job ID immediately, the
+      analyst gets immediate confirmation or an error in the same HTTP
+      response, and there is no benefit to deferring through a queue.
+
+  Added sections: None
+  Removed sections: None
 
   Templates updated:
-    - .specify/templates/plan-template.md — Constitution Check gates aligned ✅
+    - .specify/templates/plan-template.md — Constitution Check table
+      Article 3 and Article 11 titles updated ✅
 
-  Deferred:
-    - None (all fields resolved from user input + today's date)
+  Deferred: None
 -->
 
 # Risk Analysis Workbench Constitution
@@ -48,12 +62,33 @@ hand-edited.
 - Projection is append-only and version-retained: new manifest versions insert
   new rows; old versions are retained while any instance pins them.
 
-### Article 3 — Categoricals Are Kind Tables, Never Enums
+### Article 3 — Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors
 
-Every categorical value MUST be a row in a `*_kind` table
+Every internal categorical value MUST be a row in a `*_kind` table
 (`code` PK, `label`, `sort_order`, optional `icon`/`color`) and referenced by
 FK. The database is the source of truth for values, labels, and ordering. No
-status/category enum literals may be baked into code paths.
+status/category enum literals may be baked into internal code paths.
+
+**Carve-out — external-status mirrors and job-type discriminators:** Columns
+that directly mirror an external system's status vocabulary, or discriminate
+job types defined by an external system, MAY be plain `VARCHAR` columns
+(not kind tables). A kind table for these would require a seed migration every
+time the external system adds a new status or type, causing crashes on
+unrecognized values before a migration can be deployed.
+
+The following columns are explicitly governed by this carve-out:
+
+| Column | Reason |
+|---|---|
+| `irp_job.mirrored_status` | Mirrors IRP's JobStatus vocabulary verbatim |
+| `irp_job.job_type` | Discriminates IRP endpoint family; defined by irp-integration |
+| `task_instance.task_type` | Discriminates the execution handler; coupled to IRP job types |
+| `result_work_item.work_type` | Worker dispatch key; grows with IRP capabilities |
+| `edm.status` | Mirrors IRP EDM lifecycle; may gain values with IRP releases |
+| `rdm.status` | Same rationale as `edm.status` |
+
+All other categoricals remain kind tables. The carve-out is narrow and
+intentional: when in doubt, use a kind table.
 
 ### Article 4 — Status Is Event-Sourced with a Cached Current
 
@@ -68,6 +103,10 @@ Stages and tasks keep two independent streams — composition and execution. The
 audit trail (including accept-with-errors and cancel decisions) derives from
 events. `ERROR` is a dynamic rollup (any task failed) overlaying any status —
 never a stored status, never a gate.
+
+Event-sourced writes require two DML statements and MUST use `get_connection()`
+as a context manager with an explicit transaction. `execute_command()` (single
+statement only) MUST NOT be used for event-sourced status updates.
 
 ### Article 5 — Generic Stage Review (No HITL Stage Type)
 
@@ -95,6 +134,10 @@ denormalized, immutable `customer_id` on every major entity.
 
 - Scoped tables MUST be reachable only through a repository layer that makes
   scope mandatory.
+- `apply_scope()` MUST only be called against the `WORKBENCH` connection.
+  Calling it against `EXPOSURE` or `LOSS` is a bug — those schemas have no
+  `customer_id` column. `scoped_execute()` MUST assert the connection name
+  and raise immediately on any other value.
 - An admin/superuser bypass MUST be explicit and audited.
 - Scope predicates MUST use bound parameters — never string interpolation.
 
@@ -145,12 +188,28 @@ Execution MUST use a SQL-backed queue with a single worker and plain dequeue
 These are documented upgrades, not default complexity. The reclaim-stuck sweep
 MUST be retained regardless of worker concurrency level.
 
-### Article 11 — IRP and External Data Sources Sit Behind an Interface
+### Article 11 — IRP Polling and Result Work Behind an Interface; Submission on Request Path Permitted
 
-The web layer MUST NOT call IRP or external SQL Server sources directly. Only
-the worker does, behind an interface abstraction with a defined degraded mode:
-bounded backoff, "unavailable" surfacing, and no immediate task failure on
-outage.
+**IRP polling and post-completion result work** MUST NOT run in the web layer:
+
+- The **poller** (`app/poller/run.py`) is a standalone process — never
+  imported or called from a route handler.
+- **Dramatiq result workers** consume `result_work_item` rows and perform
+  post-completion actions (retrieve results, push to repositories, notify).
+  They run in a separate worker process, never in the web process.
+
+**Synchronous IRP job submission on the request path is explicitly permitted.**
+Submit calls (`submit_edm_import_job`, `submit_portfolio_analysis_job`, etc.)
+return a job ID immediately (sub-second HTTP round-trip). The analyst gets
+immediate confirmation or an error in the same HTTP response, and deferring
+through a queue adds no benefit. A service called from a route handler MAY call
+`irp_integration` submit functions directly.
+
+**Interface contract:** The web layer MUST NOT call IRP polling methods
+(`get_*`, `poll_*_to_completion`) or result-retrieval methods (`get_elt`,
+`get_ep`, etc.). These are exclusively the domain of the poller and result
+workers. The `poll_*_to_completion` blocking variants MUST NEVER be called
+inside the poller — use single-status-check `get_*` methods only.
 
 ### Article 12 — Test-First, with Three Connected Strategies
 
@@ -169,11 +228,10 @@ machine, and the manifest→projection consistency check.
 
 ### Article 13 — Authentication & Secrets
 
-- Identity: Entra ID OIDC.
-- A gated, env-flagged, server-enforced, audited backdoor login for local/dev
-  is permitted.
+- Identity: Entra ID OIDC (v2). A gated, env-flagged (`AUTH_MODE=password`),
+  server-enforced, audited password login is permitted as v1 MVP fallback.
 - Sessions are signed-cookie identity only; roles and customer scope are read
-  from the DB each request.
+  from the DB on each request.
 - CSRF MUST be applied on all state-changing requests.
 - Idle timeout MUST be handled for HTMX via `HX-Redirect`.
 - No secrets in code or VCS.
@@ -217,4 +275,4 @@ research begins.
 
 ---
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-06-28
+**Version**: 1.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-06-30
