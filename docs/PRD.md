@@ -229,25 +229,181 @@ SVGs stored under `static/icons/`, inlined via an `icon(name)` Jinja macro. Inli
 
 ## 5. Feature: Authentication & session management
 
-### 5.1 Entra ID SSO (OIDC/BFF)
+### 5.0 Auth mode overview
 
-OIDC authorization-code flow, backend-for-frontend pattern: the OIDC exchange happens server-side; the browser holds only an opaque `HttpOnly`, `Secure`, `SameSite=Lax` session cookie. Entra authenticates **identity only** (`oid` maps to a local user record, provisioned on first sign-in). Authorization (roles, customer access) is owned by the app — never read from token claims.
+Authentication uses a **mode switch** controlled by `AUTH_MODE` in config:
 
-### 5.2 Dev header stub
+| `AUTH_MODE` | Who can log in | When to use |
+|---|---|---|
+| `password` | Users with a `password_hash` set in `app_user` | v1 production MVP (no Entra yet) |
+| `oidc` | Entra ID via OIDC/BFF | v2 (once Entra app registration is complete) |
 
-While OIDC is under construction: identity resolved from `X-Dev-User-Email` / `X-Dev-User-Role` headers (configurable defaults in settings). Returns the same `CurrentUser(email, role)` dataclass as the real path — no code-path difference downstream.
+The `CurrentUser(id, email, role)` dataclass is identical in both modes. All downstream code — RLS, audit, role gates, analyst filters — is auth-mode-agnostic. Switching from `password` to `oidc` requires no changes outside §5.
 
-**Fail-safe on the dev stub:** enabled only when `APP_ENV != production` AND `ENFORCE_SSO=false` (both required, checked server-side). Every dev-mode action is audited (§15.1). A persistent loud banner displays while dev auth is active.
+**Dev header stub** (`AUTH_MODE=dev`) remains available for local development only. Enabled only when `APP_ENV != production` AND `AUTH_MODE=dev`. Loud persistent banner when active. Never reachable in production.
 
-### 5.3 Server-side session
+---
 
-Session abstraction interface: `get(session_id)`, `set(session_id, value)`, `delete(session_id)`. In-memory dict for local dev; DB-backed or Redis in production. The browser holds only the session ID cookie; all identity and role context lives server-side.
+### 5.1 v1 — Password authentication
 
-**Idle timeout + absolute cap** tracked via `last_activity`. On expiry: `HX-Redirect` header on HTMX requests (prevents login page swapped into a fragment), ordinary redirect on full requests. **CSRF** protection on all state-changing requests.
+#### 5.1.1 Login form
 
-### 5.4 Identity vs authorization
+A standard server-rendered login page at `GET /auth/login`. On `POST /auth/login`:
+1. Look up `app_user` by email (case-insensitive).
+2. Verify the submitted password against `app_user.password_hash` (bcrypt, cost factor 12).
+3. On success: create a `user_session` row, set `HttpOnly Secure SameSite=Lax` cookie containing only the session ID (random 32-byte hex). Redirect to the originally-requested URL or home.
+4. On failure: increment `login_attempt` counter for `(email, ip_address)`. Apply rate limit (§5.1.3). Return the login form with a generic error — never indicate whether the email exists.
 
-Hard rule: **identity** comes from Entra (or dev stub); **authorization** (roles + customer scope) comes from the app's own tables, evaluated live on every request. The two are never conflated and authorization is never cached in the session.
+#### 5.1.2 Password management
+
+- `password_hash` is bcrypt (cost factor 12). Never stored or logged in plaintext.
+- New accounts are created by an admin. The admin sets a temporary password; `must_change_password = true` is set on the account.
+- On first login (or when `must_change_password = true`), the user is redirected to `GET /auth/change-password` and cannot access any other route until the password is changed.
+- Password requirements (enforced at set time, not just client-side): minimum 12 characters, at least one uppercase, one lowercase, one digit.
+- **Password reset by admin only** — no self-service reset in v1 (no email infrastructure required). Admin uses the admin UI or a CLI command (`python -m app.cli reset-password --email x@y.com`) to set a new temporary password and flag `must_change_password = true`.
+- Passwords for `AUTH_MODE=oidc` accounts are null. If an `oidc`-provisioned account somehow reaches the password login form, it is rejected with "account uses SSO login."
+
+#### 5.1.3 Rate limiting
+
+Tracked in the `login_attempt` table. Two independent limits applied on every failed attempt:
+
+| Scope | Limit | Lockout |
+|---|---|---|
+| Per email | 5 failed attempts in 15 minutes | 15-minute lockout on that email |
+| Per IP | 20 failed attempts in 15 minutes | 15-minute lockout on that IP |
+
+Lockout check runs **before** password verification — a locked account/IP receives the generic error without hitting bcrypt. On success, the attempt counter for that email is cleared. Lockout state is read from the `login_attempt` table (count of failed attempts in the window); no separate lockout column needed.
+
+#### 5.1.4 Session management
+
+Session store: `user_session` table in the WORKBENCH DB. **Not Redis** — the DB session store means sessions survive Redis restarts, active sessions are queryable by admins, and forced invalidation is a single UPDATE. Redis is not a hard dependency for auth.
+
+Session lifecycle:
+- **Sliding expiry:** `last_active_at` updated on every authenticated request. Session expires if `last_active_at` is older than `SESSION_IDLE_TIMEOUT` (default 8h).
+- **Absolute cap:** session expires unconditionally when `now() > expires_at` (set to `created_at + SESSION_ABSOLUTE_TIMEOUT`, default 24h).
+- **Expiry handling:** on an HTMX request, return `HX-Redirect: /auth/login` (prevents the login page being swapped into a content fragment). On a full request, return HTTP 302.
+- **Sign-out:** `POST /auth/logout` sets `invalidated_at` on the session row and clears the cookie.
+- **Admin force-logout:** admin sets `invalidated_at` on any session row. Takes effect on next request by that user.
+- Cookie: `HttpOnly`, `Secure`, `SameSite=Lax`. Contains only the session ID. Session ID is a cryptographically random 32-byte value (hex-encoded, 64 characters).
+
+#### 5.1.5 CSRF protection
+
+All state-changing requests (`POST`, `PUT`, `DELETE`, `PATCH`) require a CSRF token. Token is a signed value derived from the session ID, included as a hidden field in every form and as a request header for HTMX requests (`hx-headers`). Validated server-side before the handler runs. Mismatch returns HTTP 403.
+
+#### 5.1.6 Audit
+
+Every login attempt (success and failure) inserts a `login_attempt` row. Every authenticated state-changing action inserts an `audit_log` row. The audit log is the tamper-evident trail for all user activity.
+
+---
+
+### 5.2 v2 — Entra ID SSO (OIDC/BFF)
+
+Activated by setting `AUTH_MODE=oidc`. The login form is replaced by an Entra redirect. Everything downstream of `CurrentUser` is unchanged.
+
+OIDC authorization-code flow, backend-for-frontend pattern: the OIDC exchange is server-side; the browser never sees tokens. Entra authenticates **identity only** — `oid` claim maps to a local `app_user` record. **Authorization (roles, customer access) is always owned by the app**, never read from token claims or Entra groups.
+
+On first sign-in from a new Entra identity: a `app_user` row is provisioned automatically (`entra_oid` set, `password_hash` null). Roles and customer access must be assigned by an admin before the user can do anything useful (fail-closed: no access by default).
+
+Full implementation steps are in §5.3.
+
+---
+
+### 5.3 v2 implementation checklist
+
+#### In Entra ID (performed by an org admin)
+
+1. **Register an application** in the org's Entra ID tenant (Azure Portal → App registrations → New registration).
+   - Name: `Risk Workbench` (or environment-scoped: `Risk Workbench – Production`)
+   - Supported account types: single tenant (accounts in this org only)
+   - Redirect URI: `https://{app_hostname}/auth/callback` (type: Web)
+
+2. **Note the tenant and client identifiers** from the Overview page:
+   - Application (client) ID → `OIDC_CLIENT_ID` env var
+   - Directory (tenant) ID → `OIDC_TENANT_ID` env var
+
+3. **Create a client secret** (Certificates & secrets → New client secret).
+   - Set a sensible expiry (12 or 24 months). **Calendar a rotation reminder.**
+   - Copy the secret value immediately (shown only once) → `OIDC_CLIENT_SECRET` env var
+
+4. **Configure token settings** (Token configuration):
+   - Add optional claim: `email` (ID token). Required so the app can match the Entra identity to a local `app_user` by email.
+   - Optionally add `preferred_username` for display.
+
+5. **Set logout URL** (Authentication → Front-channel logout URL): `https://{app_hostname}/auth/logout`
+
+6. **Restrict access to specific users** (Enterprise application → Properties → Assignment required = Yes). Then assign users or groups under Users and groups. This prevents anyone in the tenant from signing in — only explicitly assigned users can authenticate.
+
+7. **Verify redirect URI** is `https://` (not `http://`). Entra rejects non-HTTPS redirect URIs for production registrations.
+
+#### In the application (code changes for v2)
+
+8. **Add MSAL dependency** (`msal` Python package). Configure in `app/auth/oidc.py`:
+   - `OIDC_AUTHORITY = https://login.microsoftonline.com/{OIDC_TENANT_ID}`
+   - `OIDC_SCOPES = ["openid", "email", "profile"]`
+   - `OIDC_REDIRECT_URI = https://{app_hostname}/auth/callback`
+
+9. **Implement OIDC routes** behind `AUTH_MODE=oidc` guard:
+   - `GET /auth/login` → generate PKCE code verifier + challenge, store in session, redirect to Entra authorization endpoint
+   - `GET /auth/callback` → exchange code for tokens (MSAL `acquire_token_by_auth_code_flow`), extract `oid` + `email` from ID token claims, upsert `app_user` (create if new, update `last_login_at`), create `user_session` row, set session cookie, redirect to home
+   - `POST /auth/logout` → invalidate `user_session`, redirect to Entra logout endpoint (`https://login.microsoftonline.com/{tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=...`) to clear the Entra session too
+
+10. **State parameter validation** — the `state` parameter in the OIDC flow must be a random value stored in the pre-auth session and validated on callback. Mismatch aborts the flow (CSRF protection for the OIDC redirect).
+
+11. **Token storage** — ID token and access token are never stored in the browser or in the `user_session` row. The session row records only the local `user_id`. Tokens are discarded after identity is confirmed.
+
+12. **Auto-provision on first login** — on callback, if no `app_user` row exists with `entra_oid = oid_claim`: insert a new row with `email`, `display_name`, `entra_oid`, `is_active=true`, `password_hash=null`. Log the auto-provision. Do **not** assign roles or customer access automatically — require admin action before the user can access anything.
+
+13. **Migrate existing password accounts to SSO** — for each `app_user` that has a `password_hash` and whose email matches an Entra user: set `entra_oid` from Entra, set `password_hash = null`. Run as an admin CLI command (`python -m app.cli migrate-accounts-to-sso`). Accounts not yet in Entra keep their `password_hash` until manually migrated.
+
+14. **Env vars to add for v2:**
+    ```
+    AUTH_MODE=oidc
+    OIDC_CLIENT_ID=<from step 2>
+    OIDC_TENANT_ID=<from step 2>
+    OIDC_CLIENT_SECRET=<from step 3>
+    OIDC_REDIRECT_URI=https://{app_hostname}/auth/callback
+    ```
+
+15. **Remove or disable** `AUTH_MODE=password` login route once all accounts are on SSO and the cutover is confirmed stable. Keep the route code behind the mode check — don't delete it until SSO has been running for a full season without issues.
+
+---
+
+### 5.4 Identity vs authorization (both versions)
+
+Hard rule, applies to both auth modes: **identity** (who you are) comes from the auth provider (password check or Entra); **authorization** (what you can see and do) comes from the app's own tables (`user_role`, `user_customer_access`), evaluated live on every request. The two are never conflated. Authorization is never read from token claims, never cached in the session cookie, and never derived from Entra group membership.
+
+---
+
+### 5.5 Schema additions for v1 auth
+
+These tables and columns are additions to the WORKBENCH DB schema (handled by Alembic):
+
+**`app_user` additions:**
+- `password_hash` — `VARCHAR(255)` nullable. Null for SSO-only accounts.
+- `must_change_password` — `BIT` default 1. Set on account creation; cleared after first password change.
+- `entra_oid` — `VARCHAR(100)` nullable, UNIQUE when set. Populated in v2.
+
+**New table: `user_session`**
+```
+id               CHAR(64) PK          -- 32-byte random hex session ID (the cookie value)
+user_id          FK → app_user
+created_at       DATETIME
+last_active_at   DATETIME
+expires_at       DATETIME             -- absolute cap: created_at + SESSION_ABSOLUTE_TIMEOUT
+ip_address       VARCHAR(45)          -- IPv4 or IPv6
+user_agent       VARCHAR(500)
+invalidated_at   DATETIME nullable    -- set by logout or admin force-logout
+```
+
+**New table: `login_attempt`**
+```
+id               INT PK identity
+email_tried      VARCHAR(255)         -- what the user typed; not FK (may not exist)
+ip_address       VARCHAR(45)
+succeeded        BIT
+attempted_at     DATETIME
+```
+Index: `(email_tried, attempted_at)` and `(ip_address, attempted_at)` for rate-limit window queries.
 
 ---
 
@@ -873,11 +1029,11 @@ Each iteration ends runnable and demonstrable. Sequencing: infrastructure first;
 
 ### Iteration 1 — Auth, sessions, RLS, admin
 
-**In:** §5 (Entra SSO/BFF, dev header stub with fail-safe, server-side session, idle timeout + HX-Redirect, CSRF), §6 (roles, `apply_scope`, analyst filter, admin bypass), §6.4 admin Users + customer access.
+**In:** §5.1 (password auth: login form, bcrypt verification, rate limiting via `login_attempt` table, `user_session` table, idle timeout + absolute cap, `HX-Redirect` on session expiry, CSRF tokens, forced password change on first login, `must_change_password` flow), §5.5 (schema additions: `password_hash`/`must_change_password` on `app_user`, `user_session`, `login_attempt`), §6 (roles, `apply_scope`, analyst filter, admin bypass), §6.4 (admin: Users, customer access, password reset UI).
 
-**Out:** native SQL Server RLS.
+**Out:** Entra SSO (v2, §5.2/§5.3), native SQL Server RLS.
 
-**Exit:** sign in; access scoped live from DB; "my submissions" filter works; admin edits access and change takes effect immediately.
+**Exit:** admin creates an account via admin UI; analyst signs in with email + password; forced to change password on first login; access scoped live from DB; "my submissions" filter works; 6th failed attempt is locked out for 15 minutes; sign-out invalidates the session.
 
 ### Iteration 2 — Domain, file inventory & search framework
 
@@ -943,7 +1099,8 @@ Each iteration ends runnable and demonstrable. Sequencing: infrastructure first;
 - **A2 — Skipping a stage with referenced handles.** Grouping references an Analysis handle; Analysis is skipped → unsatisfiable. Resolution: skipping is **blocked** when downstream references the stage's handles, with a clear reason (§12.4).
 - **A3 — Discrepancy latency.** A changed file may go undetected between triggers. Resolution: "workflow task attempts to use a file" is always a trigger, so the execution-critical path always re-scans (§8.3). Accepted elsewhere.
 - **A4 — Cookie/session vs. live access changes.** Admin changes customer access; active session doesn't reflect it. Resolution: the session holds identity only; roles + scope are read **live from DB on every request** (§5.4). Changes are immediate.
-- **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for a non-governance internal tool. Mitigated by default-off, dual-gate enablement (server-side only), audit, loud banner (§5.2).
+- **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
+- **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
 - **A6 — Three-DB split makes local dev painful.** All three databases on one SQL Server instance in Docker; three separate connection strings pointing to three databases on one container. Schema isolation is enforced by schema names, not by separate servers. No extra infra cost locally.
 - **A7 — Dramatiq worker failure leaves result work item stuck.** Resolution: Dramatiq's built-in retry with backoff. Worker sets `status='running'` before work, `status='failed'` on unrecoverable failure. A sweep job resets `running` items past a staleness threshold.
 - **A8 — IRP outage blocks everything.** Resolution: authoring stays in `draft` without IRP; only the `validated` transition and IRP-backed stage execution require it (§15.6). Poller catches up when IRP comes back.
@@ -976,7 +1133,9 @@ Each iteration ends runnable and demonstrable. Sequencing: infrastructure first;
 - **EDM and RDM are first-class entities** in the Metamodel DB, not just file artifact tags (§9).
 - **`file_artifact.name`** initialized as UPPERCASE filename without extension; user-editable; IRP name-check on tag or rename.
 - **Analysis templates and template suites** are first-class domain entities; auto-naming from submission context is built-in (§11).
-- **Signed-cookie / server-side session** — cookie holds session ID only; all auth/role context server-side (§5.3).
+- **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
+- **Session store is WORKBENCH DB** (`user_session` table), not Redis. Sessions survive Redis restarts; active sessions are queryable; admin force-logout is a single UPDATE (§5.1.4).
+- **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
 - **App-level RLS** via `apply_scope` + `user_customer_access`; global roles; native SQL Server RLS as later hardening (§6.2).
 - **Immutable artifact model**, cheap metadata signature (path+size+mtime), no content hash (§8.2).
 - **Workflow definition: manifest canonical, DB is generated projection** — never hand-edited; fail-fast content-hash check + append-only version retention (§12.1a).
