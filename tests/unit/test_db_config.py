@@ -117,32 +117,53 @@ class TestBuildOdbcConnectionString:
 
 
 class TestApplyScope:
-    """apply_scope() rewrites SQL to add a customer_id filter.
+    """apply_scope() is a generic SQL rewriter — an IN-list filter on any column.
 
-    These tests verify the scoping logic without touching any database.
-    apply_scope() is a pure SQL-string transformation.
+    It has no knowledge of application concepts. Column name and values are
+    always supplied by the caller. These tests use arbitrary column names to
+    confirm that nothing is hardcoded.
     """
 
-    def test_single_customer_adds_in_clause(self):
+    def test_rewrites_sql_to_add_in_clause_on_named_column(self):
         from db.scope import apply_scope
-        sql, params = apply_scope("SELECT * FROM submission", customer_ids=[42])
+        sql, params = apply_scope(
+            "SELECT * FROM event", [42], column="org_id"
+        )
+        assert "org_id" in sql
         assert "IN" in sql.upper()
         assert 42 in params.values()
 
-    def test_empty_customer_ids_returns_where_1_0(self):
+    def test_empty_values_produces_where_1_0(self):
         from db.scope import apply_scope
-        sql, params = apply_scope("SELECT * FROM submission", customer_ids=[])
+        sql, _ = apply_scope("SELECT * FROM event", [], column="region_id")
         assert "1=0" in sql
 
-    def test_admin_bypass_returns_original_sql_unchanged(self):
+    def test_admin_bypass_returns_sql_and_params_unchanged(self):
         from db.scope import apply_scope
-        original = "SELECT * FROM submission"
-        sql, params = apply_scope(original, customer_ids=[1, 2], is_admin=True)
+        original = "SELECT * FROM event WHERE status = :s"
+        original_params = {"s": "open"}
+        sql, params = apply_scope(
+            original, [1, 2], column="tenant_id",
+            params=original_params, is_admin=True,
+        )
         assert sql == original
-        assert params == {}
+        assert params == original_params
 
-    def test_multiple_customer_ids_all_bound_as_parameters(self):
+    def test_multiple_values_each_get_a_separate_bound_parameter(self):
         from db.scope import apply_scope
-        sql, params = apply_scope("SELECT * FROM submission", customer_ids=[1, 2, 3])
-        assert len([v for v in params.values() if v in (1, 2, 3)]) == 3
-        assert "IN" in sql.upper()
+        sql, params = apply_scope(
+            "SELECT * FROM event", [10, 20, 30], column="portfolio_id"
+        )
+        assert set(params.values()) == {10, 20, 30}
+        assert "portfolio_id" in sql
+
+    def test_existing_query_params_are_preserved(self):
+        from db.scope import apply_scope
+        sql, params = apply_scope(
+            "SELECT * FROM event WHERE status = :s",
+            [99],
+            column="account_id",
+            params={"s": "open"},
+        )
+        assert params["s"] == "open"
+        assert 99 in params.values()
