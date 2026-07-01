@@ -233,12 +233,19 @@ SVGs stored under `static/icons/`, inlined via an `icon(name)` Jinja macro. Inli
 
 Authentication uses a **mode switch** controlled by `AUTH_MODE` in config:
 
-| `AUTH_MODE` | Who can log in | When to use |
+| `AUTH_MODE` | Login page shows | Who can log in |
 |---|---|---|
-| `password` | Users with a `password_hash` set in `app_user` | v1 production MVP (no Entra yet) |
-| `oidc` | Entra ID via OIDC/BFF | v2 (once Entra app registration is complete) |
+| `password` | Password form only | Users with a `password_hash` set in `app_user` |
+| `oidc` | "Sign in with Microsoft" button only | Entra ID users (PremiumIQ tenant) |
+| `both` | Password form + "Sign in with Microsoft" button | Either — user chooses their path |
 
-The `CurrentUser(id, email, role)` dataclass is identical in both modes. All downstream code — RLS, audit, role gates, analyst filters — is auth-mode-agnostic. Switching from `password` to `oidc` requires no changes outside §5.
+**`both` is the recommended default for development.** It lets the developer test both paths without restarting the app. In production, choose `password` or `oidc` based on what the organisation is ready to support. If `AUTH_MODE=oidc` or `AUTH_MODE=both`, the OIDC env vars (`ENTRA_CLIENT_ID`, `ENTRA_TENANT_ID`, `ENTRA_CLIENT_SECRET`, `ENTRA_REDIRECT_URI`) must be set. If `AUTH_MODE=password` only, OIDC env vars are not required.
+
+The login page renders exactly the options corresponding to the configured mode — no dead UI elements, no hidden forms. Switching mode is a one-env-var change; no code changes are required.
+
+**Entra app registration status (2026-07-01):** The Entra app ("Governance", PremiumIQ tenant) is registered with redirect URI `http://localhost:8000/auth/callback` (Web) and `User.Read` delegated permission granted. See `docs/ENTRA_SETUP.md` for remaining steps before production.
+
+The `CurrentUser(id, email, role)` dataclass is identical across all modes. All downstream code — RLS, audit, role gates, analyst filters — is auth-mode-agnostic.
 
 **Dev header stub** (`AUTH_MODE=dev`) remains available for local development only. Enabled only when `APP_ENV != production` AND `AUTH_MODE=dev`. Loud persistent banner when active. Never reachable in production.
 
@@ -312,35 +319,32 @@ Full implementation steps are in §5.3.
 
 #### In Entra ID (performed by an org admin)
 
-1. **Register an application** in the org's Entra ID tenant (Azure Portal → App registrations → New registration).
-   - Name: `Risk Workbench` (or environment-scoped: `Risk Workbench – Production`)
-   - Supported account types: single tenant (accounts in this org only)
-   - Redirect URI: `https://{app_hostname}/auth/callback` (type: Web)
+1. ✅ **Register an application** in the org's Entra ID tenant.
+   - App name: `Governance` (PremiumIQ tenant)
+   - Supported account types: single tenant
+   - Redirect URI: `http://localhost:8000/auth/callback` (Web) — dev only; production needs `https://`
 
-2. **Note the tenant and client identifiers** from the Overview page:
-   - Application (client) ID → `OIDC_CLIENT_ID` env var
-   - Directory (tenant) ID → `OIDC_TENANT_ID` env var
+2. ✅ **Tenant and client identifiers** noted and stored as env vars:
+   - Application (client) ID → `OIDC_CLIENT_ID`
+   - Directory (tenant) ID → `OIDC_TENANT_ID`
 
-3. **Create a client secret** (Certificates & secrets → New client secret).
-   - Set a sensible expiry (12 or 24 months). **Calendar a rotation reminder.**
-   - Copy the secret value immediately (shown only once) → `OIDC_CLIENT_SECRET` env var
+3. ✅ **Client secret** created → `OIDC_CLIENT_SECRET` env var set.
+   - **Calendar a rotation reminder** when the secret expires.
 
-4. **Configure token settings** (Token configuration):
-   - Add optional claim: `email` (ID token). Required so the app can match the Entra identity to a local `app_user` by email.
-   - Optionally add `preferred_username` for display.
+4. ⬜ **Configure token settings** (Token configuration → Add optional claim → ID token → `email`). Required so the callback can match the Entra identity to a local `app_user` by email. Also add `preferred_username` for display name.
 
-5. **Set logout URL** (Authentication → Front-channel logout URL): `https://{app_hostname}/auth/logout`
+5. ⬜ **Set logout URL** (Authentication → Settings → Front-channel logout URL): `http://localhost:8000/auth/logout` (dev). Update to `https://` for production.
 
-6. **Restrict access to specific users** (Enterprise application → Properties → Assignment required = Yes). Then assign users or groups under Users and groups. This prevents anyone in the tenant from signing in — only explicitly assigned users can authenticate.
+6. ⬜ **Restrict access** (Enterprise applications → Governance → Properties → Assignment required = Yes). Then assign users under Users and groups. Without this, any PremiumIQ tenant user can authenticate.
 
-7. **Verify redirect URI** is `https://` (not `http://`). Entra rejects non-HTTPS redirect URIs for production registrations.
+7. ⬜ **Production redirect URI**: add `https://{app_hostname}/auth/callback` before go-live. Entra blocks `http://` for non-localhost redirect URIs in production.
 
 #### In the application (code changes for v2)
 
 8. **Add MSAL dependency** (`msal` Python package). Configure in `app/auth/oidc.py`:
-   - `OIDC_AUTHORITY = https://login.microsoftonline.com/{OIDC_TENANT_ID}`
-   - `OIDC_SCOPES = ["openid", "email", "profile"]`
-   - `OIDC_REDIRECT_URI = https://{app_hostname}/auth/callback`
+   - `AUTHORITY = https://login.microsoftonline.com/{ENTRA_TENANT_ID}`
+   - `SCOPES = ["openid", "email", "profile"]`
+   - `REDIRECT_URI = ENTRA_REDIRECT_URI env var`
 
 9. **Implement OIDC routes** behind `AUTH_MODE=oidc` guard:
    - `GET /auth/login` → generate PKCE code verifier + challenge, store in session, redirect to Entra authorization endpoint
@@ -355,13 +359,13 @@ Full implementation steps are in §5.3.
 
 13. **Migrate existing password accounts to SSO** — for each `app_user` that has a `password_hash` and whose email matches an Entra user: set `entra_oid` from Entra, set `password_hash = null`. Run as an admin CLI command (`python -m app.cli migrate-accounts-to-sso`). Accounts not yet in Entra keep their `password_hash` until manually migrated.
 
-14. **Env vars to add for v2:**
+14. **Env vars (already in `infra/.env.example` as `ENTRA_*`):**
     ```
     AUTH_MODE=oidc
-    OIDC_CLIENT_ID=<from step 2>
-    OIDC_TENANT_ID=<from step 2>
-    OIDC_CLIENT_SECRET=<from step 3>
-    OIDC_REDIRECT_URI=https://{app_hostname}/auth/callback
+    ENTRA_CLIENT_ID=<Application (client) ID from Azure Portal>
+    ENTRA_TENANT_ID=<Directory (tenant) ID from Azure Portal>
+    ENTRA_CLIENT_SECRET=<client secret value>
+    ENTRA_REDIRECT_URI=http://localhost:8000/auth/callback   # dev; use https:// in production
     ```
 
 15. **Remove or disable** `AUTH_MODE=password` login route once all accounts are on SSO and the cutover is confirmed stable. Keep the route code behind the mode check — don't delete it until SSO has been running for a full season without issues.
@@ -1068,17 +1072,19 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:** §2 (architecture, three-DB config), §3 (full Linux-native stack: SQL Server in Docker only; app + uvicorn + nginx + Redis run on host), §4 (shell, nav manifest, breadcrumbs, `hx-boost`, `hx-push-url`, status-bar shell, icons), §20.3/20.4/20.5 scaffolding, CSS framework integration, health check (§20.7). Alembic drop-create-seed wired against `WORKBENCH` connection.
 
-**Out:** auth, domain data, IRP integration, Dramatiq workers.
+**Out:** domain data, IRP integration, Dramatiq workers.
 
-**Exit:** `uvicorn app.main:app --reload` starts the app; SQL Server container is up; health check returns green for all DB connections; adding a page is one manifest node + handler + template.
+**Exit:** unauthenticated request redirects to `/login`; password login works; OIDC login works; new PremiumIQ user is JIT-provisioned on first sign-in and sees "access pending"; admin creates a password account for John Doe; John is forced to change password on first login; sign-out clears session and returns to `/login`; shell renders with nav manifest driving all structure; health check green.
 
-### Iteration 1 — Auth, sessions, RLS, admin
+**Moved in from Iteration 1:** §5.1 (password login, bcrypt, forced password change, `must_change_password` flow), §5.2/§5.3 (OIDC/BFF, PKCE, MSAL, JIT provisioning for PremiumIQ), §5.5 (schema: `user_session`, `login_attempt`, `password_hash`/`must_change_password` on `app_user`), §6.1 (roles, `apply_scope` WORKBENCH guard), §6.4 (admin: Users, password reset, force-logout). **Deferred from Iteration 1:** rate limiting lockout (§5.1.3 — `login_attempt` table created and logged but lockout gate not implemented), customer access admin (§6.4 — deferred to Iteration 2 when submission data exists to scope against).
 
-**In:** §5.1 (password auth: login form, bcrypt verification, rate limiting via `login_attempt` table, `user_session` table, idle timeout + absolute cap, `HX-Redirect` on session expiry, CSRF tokens, forced password change on first login, `must_change_password` flow), §5.5 (schema additions: `password_hash`/`must_change_password` on `app_user`, `user_session`, `login_attempt`), §6 (roles, `apply_scope`, analyst filter, admin bypass), §6.4 (admin: Users, customer access, password reset UI).
+### Iteration 1 — Domain, file inventory & RLS
 
-**Out:** Entra SSO (v2, §5.2/§5.3), native SQL Server RLS.
+**In:** §7 (Customer/Program/Submission, assigned analyst, master-detail, list ergonomics), §8 (directory association, immutable artifacts, scanner, tagging, discrepancies, upload storage), §6.2 (customer-access scoping: `user_customer_access`, `apply_scope()` on Submission list, admin bypass), §6.3 (analyst-centric "my submissions" filter), §6.4 (customer access admin UI — assign/revoke customer access per user).
 
-**Exit:** admin creates an account via admin UI; analyst signs in with email + password; forced to change password on first login; access scoped live from DB; "my submissions" filter works; 6th failed attempt is locked out for 15 minutes; sign-out invalidates the session.
+**Out:** EDM/RDM entities, search, workflow references.
+
+**Exit:** browse customer-scoped submissions with "my" filter; associate a directory, scan, tag EDM/RDM, detect a discrepancy; admin assigns customer access to a user and the scope takes effect immediately on next request.
 
 ### Iteration 2 — Domain, file inventory & search framework
 
