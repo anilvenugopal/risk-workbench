@@ -34,7 +34,7 @@ Two provisioning workflows, one per auth mode:
 **What you will have at the end of this iteration:**
 
 - The shell renders and is navigable; all seven rail destinations work
-- `GET /login` shows the login page with password form and "Sign in with Microsoft" button
+- `GET /auth/login` shows the login page with password form and "Sign in with Microsoft" button
 - An analyst with a password account can log in, is forced to change a temporary password on first login, and can sign out
 - A PremiumIQ user can click "Sign in with Microsoft", authenticate via Entra, and land in the app (or see "access pending" if no role is assigned)
 - Admin can create a password account (name, email, temporary password) via the admin UI
@@ -44,13 +44,13 @@ Two provisioning workflows, one per auth mode:
 
 **How to verify you got it:**
 
-1. Open `http://localhost:8000` unauthenticated — redirected to `/login`
+1. Open `http://localhost:8000` unauthenticated — redirected to `/auth/login`
 2. Log in with a password account — lands in the shell; status bar shows the user's name
-3. Sign out — redirected to `/login`; session cookie is gone; pressing Back does not restore the session
+3. Sign out — redirected to `/auth/login`; session cookie is gone; pressing Back does not restore the session
 4. Click "Sign in with Microsoft" — redirected to Entra; sign in with `avenugopal@premiumiq.com`; land in the shell (or "access pending" if no role assigned)
 5. Admin creates a new password user "John Doe" via the admin UI; John logs in with the temporary password; is immediately forced to the change-password screen; sets a new password; lands in the shell
 6. A new PremiumIQ user signs in via OIDC for the first time; `app_user` row is created; they see "access pending"; admin assigns a role; on next login they reach the shell
-7. Leave a session idle for longer than the timeout; return and try to navigate — redirected to `/login` (HTMX requests get `HX-Redirect`, not a fragment of the login page)
+7. Leave a session idle for longer than the timeout; return and try to navigate — redirected to `/auth/login` (HTMX requests get `HX-Redirect`, not a fragment of the login page)
 
 ---
 
@@ -62,15 +62,15 @@ An analyst with a provisioned password account opens the app, logs in with their
 
 **Why this priority**: The shell is gated by auth. Without login, nothing else in the iteration can be demonstrated or tested.
 
-**Independent Test**: Create an `app_user` row directly in the database (or via seed) with a bcrypt-hashed password. Log in via the form. Verify the session cookie is set and a `user_session` row exists. Sign out. Verify the cookie is cleared and `user_session.invalidated_at` is set. Press Back — the app redirects to `/login`, not back into the shell.
+**Independent Test**: Create an `app_user` row directly in the database (or via seed) with a bcrypt-hashed password. Log in via the form. Verify the session cookie is set and a `user_session` row exists. Sign out. Verify the cookie is cleared and `user_session.invalidated_at` is set. Press Back — the app redirects to `/auth/login`, not back into the shell.
 
 **Acceptance Scenarios**:
 
-1. **Given** an unauthenticated user navigates to any protected URL, **When** the request arrives, **Then** they are redirected to `GET /login` with the original URL preserved as a `next` parameter
+1. **Given** an unauthenticated user navigates to any protected URL, **When** the request arrives, **Then** they are redirected to `GET /auth/login` with the original URL preserved as a `next` parameter
 2. **Given** the login form is submitted with correct credentials, **When** authentication succeeds, **Then** an `HttpOnly Secure SameSite=Lax` session cookie is set, a `user_session` row is written, and the user is redirected to the originally-requested URL or home
 3. **Given** the login form is submitted with an incorrect password, **When** authentication fails, **Then** the form is re-rendered with a generic error ("Invalid email or password") — the message never reveals whether the email exists
-4. **Given** a signed-in user clicks "Sign out", **When** `POST /auth/logout` is processed, **Then** `user_session.invalidated_at` is set, the cookie is cleared, and the user is redirected to `GET /login`
-5. **Given** a user signs out and presses the browser Back button, **When** the browser re-requests the prior page, **Then** the app rejects the expired session and redirects to `/login` — no content is served from the signed-out session
+4. **Given** a signed-in user clicks "Sign out", **When** `POST /auth/logout` is processed, **Then** `user_session.invalidated_at` is set, the cookie is cleared, and the user is redirected to `GET /auth/login`
+5. **Given** a user signs out and presses the browser Back button, **When** the browser re-requests the prior page, **Then** the app rejects the expired session and redirects to `/auth/login` — no content is served from the signed-out session
 
 ---
 
@@ -89,7 +89,7 @@ A PremiumIQ analyst clicks "Sign in with Microsoft", authenticates with their `@
 3. **Given** no `app_user` exists with the returned `oid`, **When** the callback processes a new identity, **Then** a new `app_user` row is inserted with `entra_oid`, `email`, `display_name`, `is_active=true`, `password_hash=null` — and the user sees the "access pending" screen
 4. **Given** an `app_user` exists with the returned `oid`, **When** the callback processes a returning identity, **Then** `last_login_at` is updated, a new `user_session` row is written, and the user is redirected to home (or the originally-requested URL)
 5. **Given** the `state` parameter on callback does not match what was stored before the redirect, **When** the callback validates state, **Then** the flow is aborted with an error — no session is created
-6. **Given** a signed-in OIDC user clicks "Sign out", **When** `POST /auth/logout` is processed, **Then** the local session is invalidated and the browser is redirected to the Entra logout endpoint, which then redirects back to `/login`
+6. **Given** a signed-in OIDC user clicks "Sign out", **When** `POST /auth/logout` is processed, **Then** the local session is invalidated and the browser is redirected to the Entra logout endpoint, which then redirects back to `/auth/login`
 
 ---
 
@@ -140,7 +140,7 @@ An analyst leaves the application idle for longer than the session timeout. When
 
 **Acceptance Scenarios**:
 
-1. **Given** a session's `last_active_at` is older than `SESSION_IDLE_TIMEOUT` (default 8h), **When** a full-page request arrives, **Then** the app returns HTTP 302 to `/login`
+1. **Given** a session's `last_active_at` is older than `SESSION_IDLE_TIMEOUT` (default 8h), **When** a full-page request arrives, **Then** the app returns HTTP 302 to `/auth/login`
 2. **Given** a session's `last_active_at` is older than `SESSION_IDLE_TIMEOUT`, **When** an HTMX request arrives (identified by `HX-Request: true` header), **Then** the app returns HTTP 200 with header `HX-Redirect: /auth/login` so HTMX performs a full-page redirect rather than swapping the login form into a fragment
 3. **Given** a valid session is used, **When** each authenticated request completes, **Then** `user_session.last_active_at` is updated, resetting the idle timer
 4. **Given** a session has existed longer than `SESSION_ABSOLUTE_TIMEOUT` (default 24h) regardless of activity, **When** any request arrives, **Then** the session is rejected and the user is redirected to login — no sliding extension overrides the absolute cap
@@ -216,7 +216,7 @@ A developer runs `make wsl-db-rebuild` and gets a fresh, fully-seeded database �
 - What happens when an OIDC callback arrives with a `state` that does not match the pre-auth session? → The flow is aborted, no session is created, user sees a generic error
 - What happens when the OIDC callback receives a valid token but the `email` claim is absent? → The callback fails with a clear server-side error; Step 4 of the Entra setup guide (`docs/ENTRA_SETUP.md`) explains how to add the email claim
 - What happens when a `must_change_password=true` user accesses `/auth/change-password` directly after setting a new password in another tab? → The second tab finds `must_change_password=false` and redirects to home — not a double-change error
-- What happens if the Entra token exchange fails (network error, expired code)? → The user is redirected to `/login` with a generic error; the partial OIDC state (PKCE verifier, state) is cleared from the pre-auth session
+- What happens if the Entra token exchange fails (network error, expired code)? → The user is redirected to `/auth/login` with a generic error; the partial OIDC state (PKCE verifier, state) is cleared from the pre-auth session
 - What happens when a nav node's handler raises an unhandled exception? → 500 page renders inside the shell; stack trace never exposed; error logged server-side
 - What happens when `hx-boost` is active and a navigation target returns a redirect (e.g. to login)? → HTMX follows the redirect; if it returns `HX-Redirect`, HTMX performs a full-page redirect — the login page is never swapped into a content fragment
 
@@ -227,8 +227,8 @@ A developer runs `make wsl-db-rebuild` and gets a fresh, fully-seeded database �
 ### Functional Requirements
 
 **Authentication — login page:**
-- **FR-001**: `GET /login` MUST render a login page whose content is determined by `AUTH_MODE`: `password` → password form only; `oidc` → "Sign in with Microsoft" button only; `both` → password form and "Sign in with Microsoft" button. No inactive UI elements are shown for a mode that is not configured
-- **FR-002**: The login page MUST be accessible without a session cookie; all other routes MUST redirect unauthenticated requests to `/login` with the original URL preserved
+- **FR-001**: `GET /auth/login` MUST render a login page whose content is determined by `AUTH_MODE`: `password` → password form only; `oidc` → "Sign in with Microsoft" button only; `both` → password form and "Sign in with Microsoft" button. No inactive UI elements are shown for a mode that is not configured
+- **FR-002**: The login page MUST be accessible without a session cookie; all other routes MUST redirect unauthenticated requests to `/auth/login` with the original URL preserved
 - **FR-003**: The login page MUST NOT render inside the application shell — it has its own minimal layout
 
 **Authentication — password login:**
@@ -239,7 +239,7 @@ A developer runs `make wsl-db-rebuild` and gets a fresh, fully-seeded database �
 
 **Authentication — OIDC login:**
 - **FR-008**: Clicking "Sign in with Microsoft" MUST initiate an authorization-code flow with PKCE: generate a code verifier + challenge, store a random `state` value in the pre-auth session, and redirect to the Entra authorization endpoint
-- **FR-009**: `GET /auth/callback` MUST validate the `state` parameter before processing the token exchange; a mismatch MUST abort the flow and redirect to `/login` with an error
+- **FR-009**: `GET /auth/callback` MUST validate the `state` parameter before processing the token exchange; a mismatch MUST abort the flow and redirect to `/auth/login` with an error
 - **FR-010**: The token exchange MUST be server-side (BFF pattern); ID token and access token MUST NOT be stored in the session row, the cookie, or any client-accessible storage — they are discarded after `oid` and `email` are extracted
 - **FR-011**: On successful OIDC callback, if `email` is absent from the ID token, the flow MUST fail with a logged server-side error and a user-facing "Sign-in configuration error — contact your administrator" message
 
@@ -248,7 +248,7 @@ A developer runs `make wsl-db-rebuild` and gets a fresh, fully-seeded database �
 - **FR-013**: A session MUST be rejected when `last_active_at` is older than `SESSION_IDLE_TIMEOUT` (default 8h, configurable via env var)
 - **FR-014**: A session MUST be rejected when `now() > expires_at` (`created_at + SESSION_ABSOLUTE_TIMEOUT`, default 24h) regardless of activity
 - **FR-015**: When a session is rejected on an HTMX request (identified by `HX-Request: true`), the response MUST be HTTP 200 with header `HX-Redirect: /auth/login` — never a 302 that causes HTMX to swap the login page into a content fragment
-- **FR-016**: `POST /auth/logout` MUST set `user_session.invalidated_at`, clear the session cookie, and for OIDC sessions redirect to the Entra logout endpoint with a `post_logout_redirect_uri` pointing back to `/login`; for password sessions redirect directly to `/login`
+- **FR-016**: `POST /auth/logout` MUST set `user_session.invalidated_at`, clear the session cookie, and for OIDC sessions redirect to the Entra logout endpoint with a `post_logout_redirect_uri` pointing back to `/auth/login`; for password sessions redirect directly to `/auth/login`
 - **FR-017**: An admin MUST be able to force-invalidate any `user_session` row by setting `invalidated_at`; the invalidation MUST take effect on the next request from that session
 
 **User provisioning — password accounts:**
@@ -285,7 +285,7 @@ A developer runs `make wsl-db-rebuild` and gets a fresh, fully-seeded database �
 - **FR-036**: HTTP 500 MUST log the error server-side and return a user-friendly message; no tracebacks exposed in any environment
 
 **Schema and seed:**
-- **FR-037**: The Alembic `0001_initial.py` revision MUST create all tables from `docs/DATA_MODEL.md §12` — including all auth tables (`app_user`, `user_session`, `login_attempt`, `user_role`, `user_customer_access`, `role_kind`) — and seed all kind tables from `docs/DATA_MODEL.md §13`
+- **FR-037**: The Alembic `0001_initial.py` revision MUST create the following Iteration 0 tables: `app_user`, `user_session`, `login_attempt`, `role_kind`, `user_role`, `user_customer_access`, `customer`, `program`; and seed `role_kind` with `analyst` and `admin` rows. (Full table manifest is `docs/DATA_MODEL.md §12.1`; only `role_kind` from the kind-table checklist in `§13` is in Iteration 0 scope.)
 - **FR-038**: `make wsl-db-rebuild` MUST drop and recreate all three app databases, run the Alembic revision, and seed data — including at minimum one `role_kind` row for `analyst` and one for `admin`
 
 ### Key Entities

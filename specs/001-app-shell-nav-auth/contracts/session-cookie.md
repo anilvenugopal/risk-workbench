@@ -46,11 +46,11 @@ The cookie is deleted immediately after callback processing (success or failure)
 Request arrives
   │
   ├─ Read `rwb_session` cookie value (session_id)
-  │   ├─ Missing → unauthenticated; redirect to /login (or HX-Redirect if HTMX)
+  │   ├─ Missing → unauthenticated; redirect to /auth/login (or HX-Redirect if HTMX)
   │
   ├─ Query user_session WHERE id=:session_id AND invalidated_at IS NULL
   │     AND last_active_at > NOW()-IDLE_TIMEOUT AND expires_at > NOW()
-  │   ├─ No row → session expired/invalid; redirect to /login
+  │   ├─ No row → session expired/invalid; redirect to /auth/login
   │
   ├─ UPDATE user_session SET last_active_at=NOW() WHERE id=:session_id
   │
@@ -58,6 +58,15 @@ Request arrives
   │
   └─ Attach CurrentUser to request.state; call route handler
 ```
+
+## Auth-mode discriminator for logout
+
+The `POST /auth/logout` handler must distinguish password sessions from OIDC sessions to determine whether to redirect locally to `/auth/login` or to the Entra end-session endpoint. The discriminator is `app_user.entra_oid`:
+
+- `entra_oid IS NOT NULL` → OIDC session → redirect to Entra logout URL (via `build_logout_url()`) with `post_logout_redirect_uri=/auth/login`
+- `entra_oid IS NULL` → password session → redirect directly to `/auth/login`
+
+The `CurrentUser` object attached to `request.state` MUST carry `entra_oid` (or a boolean `is_oidc`) so the logout handler does not need a second DB query.
 
 ---
 
