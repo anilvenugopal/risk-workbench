@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "risk-workbench"
+version = "0.1.0"
+description = "Risk Analysis Workbench — analyst workbench over Moody's Risk Modeler via irp-integration."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Web
+    "fastapi",
+    "uvicorn[standard]",
+    "jinja2",
+    "python-multipart",
+    "itsdangerous",          # signed session cookies
+    "sse-starlette",
+
+    # Database
+    "sqlalchemy>=2.0",
+    "pyodbc",
+    "alembic",
+
+    # Config
+    "pydantic-settings",
+
+    # Workers / queue
+    "dramatiq[redis]",
+    "redis",
+
+    # IRP integration — served from TestPyPI during development (see [tool.uv.sources]).
+    # Bump the pin to roll the dev build forward.
+    "irp-integration[databridge]==0.2.1.dev23",
+
+    # Auth
+    "bcrypt",
+    "msal",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "debugpy",
+]
+
+# ── uv: route irp-integration to TestPyPI only; everything else resolves from PyPI. ──
+# `explicit = true` prevents a stray package on TestPyPI from winning over PyPI.
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+explicit = true
+
+[tool.uv.sources]
+irp-integration = { index = "testpypi" }
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+markers = [
+    "sqlserver: requires a live SQL Server connection (--run-sqlserver flag)",
+    "irp: requires a sandbox IRP environment (--run-irp flag)",
+]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

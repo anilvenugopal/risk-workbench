@@ -1,0 +1,75 @@
+{
+  // Attaches VS Code to the running linux-box container.
+  // This is the recommended setup for both WSL2 users (optional) and
+  // Windows users who run the full Docker Compose stack.
+  //
+  // Prerequisites:
+  //   1. Docker Desktop (Windows) OR Docker Engine (WSL2)
+  //   2. VS Code extension: "Dev Containers" (ms-vscode-remote.remote-containers)
+  //   3. `make dev-up` or `make sqlserver-up` must be running first
+  //
+  // Then: Ctrl+Shift+P → "Dev Containers: Attach to Running Container" → linux-box
+  "name": "Risk Workbench (linux-box)",
+
+  // Reference the running container by its Compose service name.
+  // Change if your Compose project name differs from the directory name.
+  "service": "linux-box",
+  "dockerComposeFile": "../infra/docker-compose.yml",
+  "workspaceFolder": "/workspace",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Python
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+
+        // Git / GitHub
+        "github.vscode-pull-request-github",
+        "eamodio.gitlens",
+
+        // HTML / Jinja / HTMX
+        "samuelcolvin.jinjahtml",
+        "otovo-oss.htmx-tags",
+
+        // SQL
+        "ms-mssql.mssql",
+
+        // Utilities
+        "EditorConfig.EditorConfig",
+        "streetsidesoftware.code-spell-checker"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+          }
+        },
+        "editor.rulers": [100],
+        "files.watcherExclude": {
+          "**/.venv/**": true,
+          "**/__pycache__/**": true,
+          "**/.dev-logs/**": true
+        }
+      }
+    }
+  },
+
+  // Port forwarding: access the app from the host browser.
+  "forwardPorts": [80, 8000, 5678],
+  "portsAttributes": {
+    "80": { "label": "App (nginx)", "onAutoForward": "notify" },
+    "8000": { "label": "App (uvicorn direct)", "onAutoForward": "silent" },
+    "5678": { "label": "debugpy", "onAutoForward": "silent" }
+  },
+
+  // Run inside the container on attach.
+  "postAttachCommand": "echo 'Attached to linux-box. Run: make logs'"
+}

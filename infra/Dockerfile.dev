@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.dev — the "Linux box" image.
+#
+# Every process that runs on the production Linux server runs here too:
+# uvicorn, nginx, redis-server, dramatiq workers, poller. This image is
+# intentionally NOT minimal — it mirrors what you would install on the
+# production server (Debian 12, ODBC Driver 18, nginx, Redis, Python 3.12).
+#
+# When you go to production:
+#   1. Install the same packages on the real Linux server.
+#   2. Convert each block in infra/scripts/start-all.sh into a systemd unit.
+#   3. The commands are identical — only the wrapper changes.
+
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# ── System packages ──────────────────────────────────────────────────────────
+# ODBC Driver 18: required for pyodbc / irp-integration DataBridge.
+# nginx: reverse proxy (same package as prod).
+# redis-server: in-process Redis (same as prod; no separate container needed).
+# procps: ps/kill for start-all.sh process management.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl gnupg ca-certificates apt-transport-https \
+        gcc g++ unixodbc-dev \
+        nginx \
+        redis-server \
+        procps \
+    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+    && curl -fsSL https://packages.microsoft.com/config/debian/12/prod.list \
+        -o /etc/apt/sources.list.d/mssql-release.list \
+    && sed -i 's#deb https#deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg] https#' \
+        /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 mssql-tools18 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# ── uv ───────────────────────────────────────────────────────────────────────
+COPY --from=ghcr.io/astral-sh/uv:0.11.6 /uv /uvx /bin/
+
+WORKDIR /workspace
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    PATH="/workspace/.venv/bin:/opt/mssql-tools18/bin:$PATH"
+
+# ── Python dependencies ───────────────────────────────────────────────────────
+# Install from lockfile first (separate layer — survives app code edits).
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen
+
+# ── Application code (overridden by volume mount in dev) ──────────────────────
+COPY app ./app
+COPY alembic ./alembic
+COPY alembic.ini ./
+COPY deploy ./deploy
+COPY db ./db
+
+# ── Startup ───────────────────────────────────────────────────────────────────
+COPY infra/scripts/start-all.sh /usr/local/bin/start-all.sh
+RUN chmod +x /usr/local/bin/start-all.sh
+
+EXPOSE 80 8000
+
+CMD ["/usr/local/bin/start-all.sh"]

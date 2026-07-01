@@ -1,0 +1,65 @@
+services:
+
+  # ── linux-box ────────────────────────────────────────────────────────────────
+  # The "Linux server" container. Runs every process that will run natively on
+  # the production Linux host: uvicorn, nginx, redis, dramatiq workers, poller.
+  # Source directories are volume-mounted so uvicorn --reload picks up edits
+  # without a rebuild. Only rebuild when pyproject.toml / Dockerfile.dev change.
+  linux-box:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.dev
+    env_file: .env
+    ports:
+      - "80:80"         # nginx HTTP (main entry point)
+      - "8000:8000"     # uvicorn direct (bypass nginx for debug)
+      - "5678:5678"     # debugpy (active only when APP_DEBUG=1)
+    volumes:
+      - ../app:/workspace/app               # live Python reload
+      - ../alembic:/workspace/alembic       # pick up new revisions
+      - ../db:/workspace/db                 # db package edits
+      - ../deploy:/workspace/deploy         # nginx config edits
+      - ../infra/scripts:/workspace/scripts # bootstrap / helper scripts
+      - ../tests:/workspace/tests           # run tests inside the container
+      - rwb-data:/workspace/data            # Parquet / export output files
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── sqlserver ─────────────────────────────────────────────────────────────────
+  # SQL Server 2022 Developer edition. Mirrors the separate SQL Server instance
+  # in production. The app NEVER uses Docker's internal hostname in production —
+  # it reads MSSQL_*_SERVER from env vars. Swapping to prod means changing .env.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test:
+        - CMD
+        - /opt/mssql-tools18/bin/sqlcmd
+        - -C
+        - -S
+        - localhost
+        - -U
+        - sa
+        - -P
+        - ${MSSQL_SA_PASSWORD}
+        - -Q
+        - "SELECT 1"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  mssql-data:
+  rwb-data:

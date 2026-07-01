@@ -1,0 +1,51 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // ── Attach to uvicorn running under debugpy ──────────────────────────
+      // Step 1: `make debug-up`  (starts the container with APP_DEBUG=1)
+      // Step 2: Run this configuration in VS Code
+      // Step 3: VS Code connects; uvicorn starts and serves requests
+      //
+      // Breakpoints work in any app/ file. Note: --reload is DISABLED in
+      // debug mode (debugpy is incompatible with forked reload workers).
+      "name": "Attach to uvicorn (debugpy)",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          // Map container paths back to your local workspace so VS Code
+          // shows the right file when you hit a breakpoint.
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/workspace"
+        }
+      ],
+      "justMyCode": false
+    },
+    {
+      // ── Run tests directly (inside devcontainer terminal) ────────────────
+      // Uses pytest-debugpy integration. Set breakpoints, then run this.
+      "name": "pytest (current file)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      // ── Run all unit tests ───────────────────────────────────────────────
+      "name": "pytest unit",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/unit", "-v"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
