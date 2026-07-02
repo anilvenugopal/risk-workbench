@@ -83,6 +83,29 @@ Seven rail destinations (in order):
 | `irp` | Moody's IRP | `moodys` | Yes |
 | `admin` | Administration | `administration` | Yes; roles=["admin"] |
 
+Sidebar children (stub in Iteration 0 — routes exist but pages are stubs):
+
+**Submissions** (`parent=submissions`):
+
+| key | label | route |
+|-----|-------|-------|
+| `submissions.all` | List | `/submissions` |
+| `submissions.mine` | My Submissions | `/submissions/mine` |
+
+**Workflows** (`parent=workflows`):
+
+| key | label | route |
+|-----|-------|-------|
+| `workflows.active` | Active | `/workflows/active` |
+| `workflows.review` | Review Queue | `/workflows/review` |
+| `workflows.irp_jobs` | IRP Jobs | `/workflows/irp-jobs` |
+| `workflows.rwb_jobs` | RWB Jobs | `/workflows/rwb-jobs` |
+| `workflows.exceptions` | Exceptions | `/workflows/exceptions` |
+
+**RWB Jobs** (`workflows.rwb_jobs`) is the queue-monitoring view for `rwb_job` rows — shows pending, running, succeeded, and failed jobs with their `work_type`, `origin`, `request_key`, and timestamps. It is a read-only audit/monitoring page in Iteration 0 (stub template); full filtering/detail is a later iteration.
+
+**Templates**, **Results**, **Moody's IRP**, and **Administration** sidebar children are stubs defined when those features land. In Iteration 0 the sidebar renders with a single placeholder link for each.
+
 Bottom rail:
 
 | key | label | rail_icon |

@@ -670,13 +670,14 @@ erDiagram
 
 ---
 
-## 8. IRP jobs & result processing
+## 8. IRP jobs & RWB jobs
 
 ```mermaid
 erDiagram
   task_instance ||--o| irp_job : "submits to IRP"
-  irp_job ||--o{ result_work_item : "produces on terminal status"
-  result_work_item_status_kind ||--o{ result_work_item : states
+  irp_job ||--o{ rwb_job : "produces on terminal status (nullable FK)"
+  rwb_job_status_kind ||--o{ rwb_job : states
+  rwb_job ||--o| rwb_job_heartbeat : "heartbeated by worker"
 
   irp_job {
     uniqueidentifier id PK
@@ -693,21 +694,30 @@ erDiagram
     uniqueidentifier inserted_by FK
     uniqueidentifier updated_by FK
   }
-  result_work_item {
+  rwb_job {
     uniqueidentifier id PK
-    uniqueidentifier irp_job_id FK
-    string work_type "see work_type vocabulary below; UNIQUE with irp_job_id"
-    string status_code FK "result_work_item_status_kind"
+    string request_key "VARCHAR UNIQUE NOT NULL; idempotency key; see scheme below"
+    string origin "irp_completion / analyst_request / chained; plain string"
+    uniqueidentifier irp_job_id FK "nullable; lineage only"
+    string work_type "see work_type vocabulary below; plain string"
+    string status_code FK "rwb_job_status_kind"
+    uniqueidentifier customer_id FK "denormalized; for apply_scope()"
     string payload "JSON; job-specific context for the worker"
     string error_detail "nullable; set on failure"
-    int retry_count
+    int attempt_count "default 0; incremented on each Dramatiq delivery"
+    string claimed_by "nullable; worker_id; observability only"
     datetime completed_at "nullable"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK "nullable; system-generated"
     uniqueidentifier updated_by FK "nullable"
   }
-  result_work_item_status_kind {
+  rwb_job_heartbeat {
+    uniqueidentifier rwb_job_id FK "UNIQUE — one row per job; upserted"
+    string worker_id "worker that is currently processing this job"
+    datetime heartbeat_at "stamped every RWB_HEARTBEAT_INTERVAL_SECS by daemon thread"
+  }
+  rwb_job_status_kind {
     string code PK "pending / running / succeeded / failed"
     string label
     int sort_order
@@ -727,9 +737,18 @@ erDiagram
 - App-local: `submission_failed` — IRP API call failed; `external_ref` is null; poller skips these rows; `submission_retry` Dramatiq actor handles re-attempts
 - Terminal ≠ success. Callers must check `status == 'FINISHED'` explicitly.
 
-**`result_work_item` UNIQUE constraint:** `UNIQUE(irp_job_id, work_type)`. Prevents the poller from double-writing work items if it runs twice before the status flips. Idempotent upsert: `INSERT IF NOT EXISTS`.
+**`rwb_job.request_key`** is a VARCHAR UNIQUE NOT NULL idempotency key. Computed by the producer from lineage:
+- `origin=irp_completion`: `irp:{irp_job_id}:{work_type}`
+- `origin=analyst_request`: `analyst:{entity_type}:{entity_id}:{work_type}`
+- `origin=chained`: `chain:{parent_rwb_job_id}:{work_type}`
 
-**`result_work_item.work_type` vocabulary:**
+**`rwb_job` creation:** idempotent `INSERT ... WHERE NOT EXISTS (request_key)`. `irp_job_id` is nullable — non-IRP rows (analyst-request, chained) have no `irp_job` parent. `UNIQUE(request_key)` is the dedup constraint; the old `UNIQUE(irp_job_id, work_type)` is dropped.
+
+**`rwb_job_heartbeat`** has a UNIQUE constraint on `rwb_job_id` (one row per job). Upserted by the daemon heartbeat thread every `RWB_HEARTBEAT_INTERVAL_SECS`. Kept in a child table to isolate heartbeat churn from the main `rwb_job` row and from any event stream.
+
+**Atomic claim:** `UPDATE rwb_job SET status='running', claimed_by=:worker_id WHERE id=:id AND status='pending'`. Rowcount 0 = already claimed → ack and drop silently. No owner token or lease; `claimed_by` is observability only.
+
+**`rwb_job.work_type` vocabulary** (plain string — not a kind table; document in worker registry, not in the DB):
 
 | `work_type` | Written by | Chains to |
 |---|---|---|
@@ -738,15 +757,15 @@ erDiagram
 | `retrieve_analysis_results` | Poller on `FINISHED` for analysis job | → `push_results_to_loss_repo` |
 | `push_results_to_loss_repo` | `retrieve_analysis_results` worker on success | — |
 | `push_rdm_to_loss_repo` | Poller on `FINISHED` for RDM export job | — |
-| `push_exposure_summary` | Poller on explicit analyst request (via separate trigger) | — |
+| `push_exposure_summary` | Poller on explicit analyst request (`origin=analyst_request`) | — |
 | `notify_analyst` | Poller on any terminal status | — |
 | `download_export_file` | Poller on `FINISHED` for export job | — |
 
-**Work item chaining:** The poller writes only **head** items. Workers write tail items on success. `push_results_to_loss_repo` is never created by the poller — it is created by the `retrieve_analysis_results` worker after it successfully writes Parquet files. If `retrieve_analysis_results` fails after all Dramatiq retries, no loss repo push is ever enqueued.
+**RWB job chaining:** The poller writes only **head** rows. Workers create tail rows on success via idempotent insert on the chained `request_key`. `push_results_to_loss_repo` is never created by the poller — it is created by the `retrieve_analysis_results` worker after it successfully writes Parquet files. If `retrieve_analysis_results` fails after all Dramatiq retries, the chain stops there; `push_results_to_loss_repo` is never enqueued.
 
 **Submission flow:** request path calls IRP API → on success writes `irp_job` with `external_ref` set, `resource_uri` set, `mirrored_status='QUEUED'`, `submission_attempt_count=1` → on failure writes `irp_job` with `external_ref=null`, `resource_uri=null`, `mirrored_status='submission_failed'`, `submission_attempt_count=1` → `submission_retry` actor claims with atomic UPDATE and retries up to `IRP_SUBMISSION_MAX_RETRIES` (default 3).
 
-**Poller → Dramatiq flow:** Poller detects terminal `mirrored_status` → writes head `result_work_item` row(s) (`status=pending`) via idempotent INSERT IF NOT EXISTS → Dramatiq worker picks it up → sets `status=running` → does work → sets `status=succeeded` or `status=failed`, enqueues next item in chain if applicable. Workers are idempotent; Dramatiq handles retry with backoff. A sweep job resets `running` rows past a staleness threshold back to `pending`.
+**Poller → Dramatiq flow:** Poller detects terminal `mirrored_status` → creates head `rwb_job` row(s) (`status=pending`) via idempotent insert on `request_key` → Dramatiq worker picks it up → claims atomically → starts heartbeat daemon thread → does work inside `with heartbeating(job_id, worker_id):` context → stops heartbeat → sets `status=succeeded` or `status=failed`; creates tail rows on success. Workers are idempotent; Dramatiq handles retry with backoff. Stale `running` rows (heartbeat older than `RWB_HEARTBEAT_STALE_SECS`) are recovered by the reconciler (folded into the poller) — not by a sweep timer tied to job duration.
 
 **Event-sourcing transactions:** Status changes that append to a `*_event` table AND stamp the cached `current_*_status` column require two DML statements and must run in a single transaction. `execute_command()` (which uses `engine.begin()`) only handles a single statement. Use `get_connection("WORKBENCH")` as a context manager with manual `conn.begin()` / `conn.commit()` / `conn.rollback()` for all event-sourced status updates. Never split an event insert and a status stamp across two separate calls.
 
@@ -1006,13 +1025,14 @@ erDiagram
 | `input_source_kind` | `inventory` / `upstream_output` / `literal_or_reference` | — |
 | `task_output` | Produced output handle + lineage. | `label` = the IRP entity name (e.g. EDM name, analysis name). |
 
-### 12.8 IRP jobs & result processing
+### 12.8 IRP jobs & RWB jobs
 
 | Table | Purpose | Notes |
 |---|---|---|
 | `irp_job` | Local mirror of an IRP async job. | `job_type` and `mirrored_status` are plain strings (not kind tables, not DB enums). `external_ref` nullable until submission succeeds. `resource_uri` stores IRP portfolio resource URI captured at submission time — required for result retrieval. `retry_locked_until` enables atomic claim by `submission_retry` actor. `submission_attempt_count` tracks retry attempts; stops after `IRP_SUBMISSION_MAX_RETRIES`. |
-| `result_work_item` | Dramatiq work queue. Head items written by poller; tail items written by workers (chained). | `UNIQUE(irp_job_id, work_type)` prevents duplicate rows. `work_type` is plain string (see §13 vocabulary). Workers are responsible for enqueuing next items in the chain on success. |
-| `result_work_item_status_kind` | `pending` / `running` / `succeeded` / `failed` | A sweep resets stale `running` rows back to `pending`. |
+| `rwb_job` | General queued-work table. Head rows written by poller (`origin=irp_completion`); analyst-request rows (`origin=analyst_request`); chained tail rows (`origin=chained`). | `UNIQUE(request_key)` is the dedup constraint. `irp_job_id` is nullable — non-IRP work has no `irp_job` parent. `work_type` is plain string. `customer_id` denormalized for `apply_scope()`. Atomic claim: `UPDATE ... WHERE status='pending'`. `claimed_by` is observability only. |
+| `rwb_job_heartbeat` | Per-job progress heartbeat. One row per job (UNIQUE on `rwb_job_id`); upserted every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread. | Kept in a child table to isolate heartbeat churn. The reconciler reads `heartbeat_at` to detect stale `running` rows and reset them to `pending`. |
+| `rwb_job_status_kind` | `pending` / `running` / `succeeded` / `failed` | Stale `running` rows (heartbeat older than `RWB_HEARTBEAT_STALE_SECS`) are recovered by the single-instance reconciler in the poller. No duration-based sweep. |
 
 ### 12.9 Analysis results
 
@@ -1065,13 +1085,15 @@ erDiagram
 | `task_status_kind` | `blocked`, `ready`, `running`, `succeeded`, `failed`, `skipped` |
 | `input_source_kind` | `inventory`, `upstream_output`, `literal_or_reference` |
 | `delivery_kind` | `file`, `sql` |
-| `result_work_item_status_kind` | `pending`, `running`, `succeeded`, `failed` |
+| `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed` |
 
-**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `result_work_item.work_type`, `task_instance.task_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
+**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `rwb_job.work_type`, `rwb_job.origin`, `task_instance.task_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
 
 **`workflow_execution_status_kind` — `failed` seed note:** `failed` is seeded as a valid status code but there is no defined state transition that puts a workflow into `failed` — workflows reach `canceled` when any stage is canceled, and individual task failures are surfaced via the `ERROR` dynamic overlay, not a workflow-level `failed` status. Remove `failed` from this kind table unless a specific transition is defined for it. Keeping an unreachable seed creates confusion. **Decision needed:** define the transition or remove the seed.
 
-**`result_work_item.work_type` values (plain string — not a kind table):** `backfill_edm`, `backfill_rdm`, `retrieve_analysis_results`, `push_results_to_loss_repo`, `push_rdm_to_loss_repo`, `push_exposure_summary`, `notify_analyst`, `download_export_file`. Document these in code (worker registry), not in the DB.
+**`rwb_job.work_type` values (plain string — not a kind table):** `backfill_edm`, `backfill_rdm`, `retrieve_analysis_results`, `push_results_to_loss_repo`, `push_rdm_to_loss_repo`, `push_exposure_summary`, `notify_analyst`, `download_export_file`. Document these in code (worker registry), not in the DB.
+
+**`rwb_job.origin` values (plain string):** `irp_completion`, `analyst_request`, `chained`. For observability and debugging; the reconciler does not branch on `origin`.
 
 **`apply_scope()` guard:** `scoped_execute()` in `db/scope.py` defaults to `connection="WORKBENCH"` and must only be used against the `WORKBENCH` connection. The `EXPOSURE` and `LOSS` connections hold flat schemas with no `customer_id` scoping — calling `apply_scope()` on them is a bug. `db/scope.py` should assert `connection == "WORKBENCH"` (or a configurable allowlist) and raise immediately if called with any other connection name.
 

@@ -67,8 +67,12 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Stage** — one ordered phase of a workflow (EDM Upload, Data Validation & Profiling, Exposure Modification, Portfolio Creation, Geo-coding & Hazard, Analysis, Grouping, Export). Has a mode and an execution status.
 - **Task** — the executable unit inside a stage. Consumes typed inputs, produces typed handles.
 - **Handle** — a named, typed output produced by a task (EDM name, RDM name, portfolio name, analysis name, group name). The unit of reference chaining. Handles carry **names**, not typed IDs — IRP resolves names to internal IDs at submit time.
-- **Job** — an IRP async operation tracked in the Workbench Metamodel DB. Has a `job_type` (which IRP endpoint to poll) and a `result_work_item` written on completion.
-- **Result work item** — a row written to a SQL queue table by the poller when a job reaches a terminal status. Picked up by a Dramatiq worker that performs post-completion actions (retrieve results from IRP, write to Loss Repository, notify analyst).
+- **Job** — an IRP async operation tracked in the Workbench Metamodel DB. Has a `job_type` (which IRP endpoint to poll) and one or more `rwb_job` rows written on completion.
+- **RWB job** — a general queued-work row in the `rwb_job` SQL table. Created by the poller on IRP completion (`origin=irp_completion`), by an analyst request (`origin=analyst_request`), or by another worker chaining work (`origin=chained`). Picked up by a Dramatiq worker. The queue is idempotent via `request_key`.
+- **Request key** — a source-agnostic VARCHAR idempotency key on every `rwb_job` row. Computed by the producer from lineage: `irp:{irp_job_id}:{work_type}` for IRP-triggered rows; `analyst:{entity_type}:{entity_id}:{work_type}` for analyst-requested rows; `chain:{parent_rwb_job_id}:{work_type}` for chained rows. Uniqueness enforced at the DB level (`UNIQUE(request_key)`).
+- **Job heartbeat** — a child-table row (`rwb_job_heartbeat`) stamped every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread while a worker holds a job. Proves the job is progressing, independent of which worker and independent of job duration.
+- **Reconciler** — a single-instance periodic sweep (folded into the poller process) that recovers `running` `rwb_job` rows whose heartbeat is stale. Stale = heartbeat older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the heartbeat interval; never a function of job size or duration). Resets `running → pending` and re-enqueues via Dramatiq. Does not scan `pending` rows (durable Redis covers those).
+- **IRP job type** — discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `workflow`, `risk_data_job`, `analysis_job`, `grouping_job`, `export_job`.
 - **IRP job type** — discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `workflow`, `risk_data_job`, `analysis_job`, `grouping_job`, `export_job`.
 - **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group.
 - **Exposure Repository** — on-prem SQL Server that holds pre-aggregated exposure summary data (output of Phase A). Separate connection from the Workbench Metamodel DB.
@@ -124,8 +128,27 @@ Server-rendered HTML over **FastAPI + Jinja2 + HTMX 2.x**, with **Alpine.js** fo
 
 **Background work splits into three tiers:**
 - **IRP job submission** — synchronous on the request path. The IRP submit call returns a job ID immediately; the round-trip is fast enough that there is no benefit to deferring it. On failure the job is marked `submission_failed` and a retry actor picks it up.
-- **Poller** — standalone loop process (`app/poller/run.py`). One process, one pass per interval: bulk-queries all non-terminal `irp_job` rows, polls IRP per `job_type`, updates `mirrored_status`, writes `result_work_item` rows on terminal status. Not Dramatiq — batching by design; a per-message queue would break the natural grouping.
-- **Dramatiq workers** — consume result work items and handle submission retries. Redis broker. Each result worker class owns one post-completion action. A separate `submission_retry` actor re-attempts failed IRP submissions up to a configurable limit.
+- **Poller** — standalone loop process (`app/poller/run.py`). One process, one pass per interval: bulk-queries all non-terminal `irp_job` rows, polls IRP per `job_type`, updates `mirrored_status`, writes `rwb_job` rows (idempotent, via `request_key`) on terminal status. Also runs the reconciler sweep each cycle. Not Dramatiq — batching by design; a per-message queue would break the natural grouping.
+- **Dramatiq workers** — consume `rwb_job` rows and handle submission retries. Redis broker (durable via AOF). Each result worker class owns one post-completion action. A separate `submission_retry` actor re-attempts failed IRP submissions up to a configurable limit.
+
+### 2.3a Queue resilience model (CR-001)
+
+The queue is resilient through a layered design — each layer handles the failure modes it is best suited for:
+
+| Failure | Handled by | Custom code? |
+|---|---|---|
+| Worker dies mid-job, Redis alive | Dramatiq redelivery (ack-after-success; per-process heartbeat) | No |
+| Task raises / fails | Dramatiq Retries middleware (backoff, max_retries, dead-letter) | No |
+| Graceful shutdown / redeploy | Dramatiq requeues in-flight messages | No |
+| Redis loses data (crash) | AOF durability (`appendonly yes`, `appendfsync everysec`) + Dramatiq redelivery on restart | Config only |
+| Job stops progressing (wedged worker; or running-job message lost) | Job heartbeat + reconciler (stale `running` → re-enqueue) | Minimal (§14.5) |
+| Any rare double-delivery | Idempotent worker + atomic `request_key` claim | Yes (backstop) |
+
+**Redis AOF durability.** Redis runs with `appendonly yes`, `appendfsync everysec`, persisted SSD volume, and default auto-rewrite (self-compacting). With AOF, acknowledged enqueues survive a broker crash (≤ ~1s worst-case loss), so pending-lost stops being a case that requires detection — which eliminates the need for any pending-side timeout. Outstanding work is always inspectable in the SQL `rwb_job` table; never by parsing AOF/RDB files.
+
+**Heartbeat + reconciler.** When a Dramatiq worker claims an `rwb_job` (`pending → running`), it starts a daemon thread whose only job is to write `(rwb_job_id, worker_id, heartbeat_at=now)` to `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`. The heartbeat thread is separate from the work thread — it keeps stamping even while the work thread is blocked in a long, non-chunkable call (e.g., a large file download). The reconciler (folded into the poller process) checks for `running` rows whose heartbeat is older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the interval; never job-duration-based) and re-enqueues them atomically. The reconciler never scans `pending` rows; AOF makes that unnecessary.
+
+**Idempotency backstop.** Workers are idempotent: file writes go to a temp path + atomic rename; chained `rwb_job` rows are created via `INSERT ... WHERE NOT EXISTS (request_key)`. The atomic claim (`UPDATE ... WHERE status='pending'`) means any rare double-delivery results in one effective execution.
 
 ### 2.4 Styling discipline
 
@@ -215,7 +238,7 @@ IDE-style, three zones:
 |---|---|
 | Home (dashboard) | — |
 | Submissions | List, My Submissions |
-| Workflows | Active, Review Queue, IRP Jobs, Exceptions |
+| Workflows | Active, Review Queue, IRP Jobs, RWB Jobs, Exceptions |
 | Templates | Analysis Templates, Template Suites |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
@@ -562,7 +585,7 @@ These run as DataBridge SQL commands via `client.databridge.execute_command(quer
 
 ### 10.4 Load to Exposure Repository
 
-After validation passes, the analyst pushes pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`). The workbench writes to a known schema in the Exposure Repository. This is a Dramatiq worker action: the poller triggers it via a result work item when the analyst explicitly requests it from the Phase A UI.
+After validation passes, the analyst pushes pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`). The workbench writes to a known schema in the Exposure Repository. This is a Dramatiq worker action: the poller triggers it via an `rwb_job` row (with `origin=analyst_request`) when the analyst explicitly requests it from the Phase A UI.
 
 ---
 
@@ -782,7 +805,7 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — the poller i
 > **`poll_*_to_completion` is FORBIDDEN in the poller.** These methods block for up to 600 000 seconds. The `get_*` single-check methods are the right primitives for a batch poller. The `poll_*` blocking variants exist in the library for interactive scripts, not for a production poller loop.
 
 3. **Update `irp_job.mirrored_status`** in `WORKBENCH` DB via `db.execute_command`.
-4. **On terminal status:** write one or more `result_work_item` rows (one per `work_type` needed). Mark the `task_instance` as `succeeded` or `failed` (`status == 'FINISHED'` is the only success; `FAILED` and `CANCELLED` are failures).
+4. **On terminal status:** write one or more `rwb_job` rows (one per `work_type` needed) via idempotent `INSERT ... WHERE NOT EXISTS (request_key)`, with `origin='irp_completion'`, `irp_job_id` set. Mark the `task_instance` as `succeeded` or `failed` (`status == 'FINISHED'` is the only success; `FAILED` and `CANCELLED` are failures).
 5. **Update stage/workflow rollups** (task counts, error overlay, status propagation).
 
 **JobStatus vocabulary** (stored as plain string — not a DB enum, so future IRP statuses never crash the poller):
@@ -790,13 +813,13 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — the poller i
 - Terminal: `FINISHED`, `FAILED`, `CANCELLED`
 - App-local: `submission_failed` (never sent to IRP; poller skips these rows)
 
-### 14.5 Result work items & Dramatiq workers
+### 14.5 RWB jobs & Dramatiq workers
 
 **Two categories of Dramatiq actors:**
 
-**A — Result workers** (triggered by the poller on terminal IRP job status):
+**A — Result workers** (triggered by the poller writing an `rwb_job` row on terminal IRP job status):
 
-The poller writes one `result_work_item` row per `work_type` needed for each completed job. Dramatiq workers run in parallel — multiple work types for the same job can process concurrently.
+The poller writes one `rwb_job` row per `work_type` needed for each completed job, using idempotent `INSERT ... WHERE NOT EXISTS (request_key)` with `origin='irp_completion'`. Dramatiq workers run in parallel — multiple work types for the same job can process concurrently.
 
 | `work_type` | Worker responsibility |
 |---|---|
@@ -807,31 +830,35 @@ The poller writes one `result_work_item` row per `work_type` needed for each com
 | `notify_analyst` | Post Teams webhook and/or send email on job completion or failure |
 | `download_export_file` | Download Parquet export from IRP via `client.export_job.download_export_results()`; write to submission output dir |
 
-**Work item chaining — ordering without a depends_on column.** The poller only writes **head** work items for each completed job (the first in each chain). Each worker, on success, enqueues the next item in the chain as a new `result_work_item` row. This gives ordering without a dependency join at dequeue time:
+**RWB job chaining — ordering without a depends_on column.** The poller only writes **head** `rwb_job` rows for each completed IRP job (the first in each chain). Each worker, on success, creates the next `rwb_job` in the chain via idempotent insert on the chained `request_key` (`chain:{parent_rwb_job_id}:{work_type}`). This gives ordering without a dependency join at dequeue time:
 
 ```
-Poller writes on FINISHED:
+Poller writes on FINISHED (origin=irp_completion):
   retrieve_analysis_results (head)
   notify_analyst (head — independent, runs in parallel)
 
-retrieve_analysis_results worker, on success, writes:
-  push_results_to_loss_repo (tail)
+retrieve_analysis_results worker, on success, creates:
+  push_results_to_loss_repo (tail, origin=chained)
 ```
 
 This means `push_results_to_loss_repo` never races with `retrieve_analysis_results` — it does not exist until `retrieve_analysis_results` succeeds. If `retrieve_analysis_results` fails after Dramatiq retries, the chain stops there; `push_results_to_loss_repo` is never enqueued.
 
+**Worker claim and heartbeat protocol:**
+1. Claim: `UPDATE rwb_job SET status='running', claimed_by=:worker_id WHERE id=:id AND status='pending'`. If rowcount is 0, the row is already claimed — ack and drop silently.
+2. Start heartbeat daemon thread (see §2.3a): stamps `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS` from a separate thread, independent of how long the work takes.
+3. Do work inside `with heartbeating(job_id, worker_id): ...`. All long blocking calls (file downloads, IRP API calls) are inside this context.
+4. On success: stop heartbeat, set `status='succeeded'`, write `completed_at`; create any tail `rwb_job` rows.
+5. On failure: stop heartbeat, set `status='failed'`, write `error_detail`; Dramatiq handles retry with exponential backoff.
+
 **B — Submission retry actor** (triggered when `irp_job.mirrored_status = 'submission_failed'`):
 
-A separate `submission_retry` Dramatiq actor — not using the `result_work_item` table (different trigger, different lifecycle). It claims by atomically updating `irp_job`: `UPDATE irp_job SET retry_locked_until = DATEADD(minute, 15, GETUTCDATE()), submission_attempt_count = submission_attempt_count + 1 WHERE id = :id AND retry_locked_until < GETUTCDATE() AND submission_attempt_count < :max_retries`. Only one actor wins; the losers skip. It re-attempts the IRP API call and updates `mirrored_status` + `external_ref` on success or leaves `submission_failed` on exhaustion. After `IRP_SUBMISSION_MAX_RETRIES` (default 3) the job surfaces as a permanent failure on the task.
+A separate `submission_retry` Dramatiq actor — does not use the `rwb_job` table (different trigger, different lifecycle). It claims by atomically updating `irp_job`: `UPDATE irp_job SET retry_locked_until = DATEADD(minute, 15, GETUTCDATE()), submission_attempt_count = submission_attempt_count + 1 WHERE id = :id AND retry_locked_until < GETUTCDATE() AND submission_attempt_count < :max_retries`. Only one actor wins; the losers skip. It re-attempts the IRP API call and updates `mirrored_status` + `external_ref` on success or leaves `submission_failed` on exhaustion. After `IRP_SUBMISSION_MAX_RETRIES` (default 3) the job surfaces as a permanent failure on the task.
 
 **Worker behavior contract (both categories):**
-- Worker sets its status to `running` when it starts (work item row for result workers; `irp_job.mirrored_status` for retry actor)
-- On success: sets status to `succeeded`, writes `completed_at`
-- On failure: sets status to `failed`, writes `error_detail`; Dramatiq handles retry with exponential backoff
-- All workers are idempotent — safe to re-run on Dramatiq retry
-- A staleness sweep resets `running` result work items past a timeout back to `pending`
+- All workers are idempotent — safe to re-run on Dramatiq retry; file writes go to a temp path + atomic rename
+- Recovery of stale-`running` rows is handled by the reconciler in the poller, not by a separate sweep or timer
 
-**Dramatiq broker:** Redis. In local dev, Redis runs as a Docker Compose service. Workers start with: `dramatiq app.workers`.
+**Dramatiq broker:** Redis (durable via AOF — see §2.3a). Workers start with: `dramatiq app.workers`.
 
 ### 14.6 Stage / workflow rollups
 
@@ -1128,7 +1155,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 7 — Analysis execution, grouping & results
 
-**In:** §14 (full execution engine: readiness gate, claim loop, reclaim-stuck sweep, all poller job types, result work item queue, all Dramatiq worker types), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
+**In:** §14 (full execution engine: readiness gate, claim loop, all poller job types, `rwb_job` queue with heartbeat + reconciler, all Dramatiq worker types), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
 
 **Out:** export file download (Iteration 8).
 
@@ -1153,7 +1180,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
 - **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
 - **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
-- **A7 — Dramatiq worker failure leaves result work item stuck.** Resolution: Dramatiq's built-in retry with backoff. Worker sets `status='running'` before work, `status='failed'` on unrecoverable failure. A sweep job resets `running` items past a staleness threshold.
+- **A7 — Dramatiq worker failure leaves RWB job stuck.** Resolution: layered per §2.3a. Worker death → Dramatiq redelivery. Task failure → Dramatiq Retries middleware. Job stops progressing (wedged worker or message lost) → per-job heartbeat + single-instance reconciler resets `running → pending` and re-enqueues. Idempotent workers ensure double-delivery is harmless. No duration-based sweep — stale threshold is a constant multiple of the heartbeat interval.
 - **A8 — IRP outage blocks everything.** Resolution: authoring stays in `draft` without IRP; only the `validated` transition and IRP-backed stage execution require it (§15.6). Poller catches up when IRP comes back.
 - **A9 — Search leaks across customers.** Resolution: every provider applies `apply_scope()` (§19).
 - **A10 — Admin can't see all customers under RLS.** Resolution: `apply_scope()` honors admin bypass (§6.2).
@@ -1161,7 +1188,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A12 — Detail pages have no manifest node.** Resolution: detail routes declare a home node; breadcrumb walks up from it + appends entity label (§4.2, §4.3).
 - **A13 — Nested directory paths across submissions.** `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions. Accepted v1 limitation.
 - **A14 — Authoring validation vs. execution readiness conflated.** Resolution: explicitly separated — §13 (authoring, graph rules) vs §14.2 (execution, input-resolved gate).
-- **A15 — Dramatiq/Redis adds ops complexity.** Accepted; the alternative (polling a SQL queue from the app process) is simpler but does not support per-job-type parallelism or fan-out without entangling the web process. Redis + Dramatiq is the standard pattern for this scale. Redis is stateless; losing it loses in-flight work items but not results already written. Poller re-triggers work items if the status is still `pending` after a staleness window.
+- **A15 — Dramatiq/Redis adds ops complexity.** Accepted; the alternative (polling a SQL queue from the app process) is simpler but does not support per-job-type parallelism or fan-out without entangling the web process. Redis + Dramatiq is the standard pattern for this scale. Redis runs with AOF durability (`appendonly yes`, `appendfsync everysec`) so acknowledged enqueues survive a broker crash (≤ ~1s worst-case loss). Outstanding work is always inspectable in the SQL `rwb_job` table. Results already written survive Redis loss entirely; Redis holds only the Dramatiq message, not the work artifact.
 - **A16 — Over-generalizing the rule engine.** Hard line: flat registry + single-parent inheritance only; invariants are registered code validators, not a DSL (§13.1, §13.6).
 - **A17 — Icon assets.** Dependency logged (§23). Not a code blocker.
 - **A18 — `customer_id` denormalization drift.** Set once at creation from the parent chain, never user-editable. Immutable (§2.1).
@@ -1180,6 +1207,10 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
 - **Connection pooling handled by `db/` package** — `get_engine()` / `get_connection()` cache one pooled engine per named connection. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` (set to 10/20 for 30 concurrent users).
 - **Sync-by-default:** plain `def` handlers, FastAPI threadpool; `async def` only for SSE (§2.3).
+- **CR-001 — `rwb_job` general queue (replaces `result_work_item`).** `result_work_item` is renamed `rwb_job`; `irp_job_id` is nullable (lineage only); idempotency key is `request_key` (VARCHAR UNIQUE NOT NULL). Origin discriminator (`irp_completion` | `analyst_request` | `chained`) is for observability only — the reconciler is origin-agnostic.
+- **CR-001 — Durable Redis (AOF).** Redis runs with `appendonly yes`, `appendfsync everysec`, persisted SSD volume. Required in dev, partner-Docker, and prod. Eliminates the pending-lost failure case without application-level detection.
+- **CR-001 — Per-job heartbeat + single-instance reconciler.** Heartbeat emitted from a daemon thread (§2.3a) every `RWB_HEARTBEAT_INTERVAL_SECS`. Reconciler folds into the poller process. Stale threshold = `RWB_HEARTBEAT_STALE_SECS`, a constant multiple of the interval, never duration-based.
+- **CR-001 — No `owner_token`, no worker-liveness table, no duration windows, no new statuses.** Heartbeat is a progress timestamp, not a lease. Recovery is per-job, not per-worker. The only statuses remain `pending / running / succeeded / failed`.
 - **IRP job submission is synchronous on the request path.** Fast IRP submit call returns a job ID immediately. On failure: `submission_failed` status + Dramatiq `submission_retry` actor (§14.3).
 - **Poller is a standalone loop process — not Dramatiq.** Batch-queries all non-terminal jobs per pass. Dramatiq would break the natural batching (§14.4).
 - **Dramatiq workers for result processing and submission retry only** (§14.5). Redis broker.
