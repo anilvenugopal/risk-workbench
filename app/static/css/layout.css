@@ -1,0 +1,79 @@
+/* ============================================================================
+   layout.css — shell layout. Rail-left chrome: rail | sidebar | main.
+   ============================================================================ */
+
+/* ── Layout primitives ───────────────────────────────────────────────────── */
+.l-stack     { display: flex; flex-direction: column; }
+.l-cluster   { display: flex; align-items: center; gap: var(--space-3); }
+.l-spacer    { flex: 1 1 auto; }
+.l-fill      { flex: 1; min-height: 0; min-width: 0; overflow: auto; }
+
+.surface-page   { background: var(--surface-page); }
+.surface-panel  { background: var(--surface-panel); }
+.surface-nav    { background: var(--surface-nav); }
+
+/* ── shell (rail-left layout) ────────────────────────────────────────── */
+.shell { display: flex; flex-direction: row; height: 100vh; overflow: hidden; }
+.shell__col { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.shell__body { flex: 1; display: flex; min-height: 0; }
+.shell__main {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  background: var(--surface-page);
+}
+
+.shell__topbar {
+  height: var(--topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-panel);
+}
+
+.shell__rail {
+  width: var(--rail-w);
+  flex-shrink: 0;
+  background: var(--surface-rail);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2) 0;
+  gap: var(--space-1);
+}
+.shell__railbtn {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--color-rail-icon);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.shell__railbtn:hover  { color: var(--color-rail-icon-hover); background: var(--surface-rail-hover); }
+.shell__railbtn.is-active { color: var(--color-rail-icon-hover); background: var(--surface-rail-active); }
+.shell__railbtn svg { width: 24px; height: 24px; }
+.rail__spacer { flex: 1; }
+
+.shell__sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  background: var(--surface-sidebar);
+  border-right: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+}
+
+.shell__statusbar {
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+  background: var(--color-brand);
+  color: #fff;
+  font-size: var(--fs-caption);
+}

@@ -73,7 +73,7 @@ def get_connection_config(connection_name: str) -> Dict[str, str]:
             )
     else:  # WINDOWS
         if not config["server"]:
-            raise SQLServerConfigurationError(
+            raise SQLServerConfigurationError(  # pragma no cover
                 f"Connection '{name}' (auth=WINDOWS) is missing {prefix}SERVER. "
                 f"Windows auth also needs a valid Kerberos ticket (see db.kerberos)."
             )

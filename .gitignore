@@ -9,3 +9,4 @@ data/
 *.egg-info/
 .pytest_cache/
 irp-workbench/*
+hb_demo.db

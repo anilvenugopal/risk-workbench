@@ -1,0 +1,45 @@
+{% extends "base/shell.html" %}
+
+{% block title %}Users{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/users/new" class="btn-sm btn-sm--primary">+ New user</a>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <table class="mk-table">
+    <thead>
+      <tr>
+        <th>Email</th>
+        <th>Name</th>
+        <th>Roles</th>
+        <th>Status</th>
+        <th>Last login</th>
+        <th>Auth</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr class="data-row" onclick="location.href='/admin/users/{{ u.id }}'">
+        <td>{{ u.email }}</td>
+        <td>{{ u.display_name or '—' }}</td>
+        <td>
+          {% if u.roles %}
+            {% for role in u.roles.split(', ') %}<span class="badge badge--brand">{{ role }}</span> {% endfor %}
+          {% else %}<span class="badge">none</span>{% endif %}
+        </td>
+        <td>
+          {% if u.is_active %}<span class="badge badge--positive">active</span>
+          {% else %}<span class="badge badge--negative">inactive</span>{% endif %}
+        </td>
+        <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}</td>
+        <td class="muted">{{ 'Entra' if u.entra_oid else 'password' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No users found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

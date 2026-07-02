@@ -23,13 +23,18 @@ PID_DIR=$WORKSPACE/.dev-pids
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
-# ── 1. Redis ──────────────────────────────────────────────────────────────────
-echo "[start] Redis..."
+# ── 1. Redis (AOF durability required) ───────────────────────────────────────
+# appendonly yes + appendfsync everysec ensures acknowledged Dramatiq enqueues
+# survive a broker crash (≤ ~1s worst-case loss). Required in all environments.
+echo "[start] Redis (AOF enabled)..."
 redis-server \
     --daemonize yes \
     --logfile "$LOG_DIR/redis.log" \
     --bind 127.0.0.1 \
-    --protected-mode yes
+    --protected-mode yes \
+    --appendonly yes \
+    --appendfsync everysec \
+    --dir "$LOG_DIR"
 
 # ── 2. nginx ──────────────────────────────────────────────────────────────────
 echo "[start] nginx..."

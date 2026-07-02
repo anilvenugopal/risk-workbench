@@ -1,0 +1,15 @@
+{% extends "base/shell.html" %}
+
+{% block title %}Home{% endblock %}
+
+{% block main %}
+<div class="home">
+  <h1 class="home__greeting">Welcome, {{ current_user.display_name }}</h1>
+  <div class="home__cards">
+    <div class="metric-card">
+      <div class="metric-card__label">Customers</div>
+      <div class="metric-card__value">{{ customer_count }}</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -34,6 +34,13 @@ The same five processes run in development and production. In development they
 are started manually (one terminal each). In production they run as systemd
 services. The commands are identical — only the launcher changes.
 
+**Redis is durable (AOF) in all environments.** `appendonly yes`,
+`appendfsync everysec`, persisted SSD volume. This ensures acknowledged
+Dramatiq enqueues survive a broker crash (≤ ~1s worst-case loss). The poller
+also runs a reconciler sweep each cycle to recover any `rwb_job` rows stuck in
+`running` with a stale heartbeat — it is folded into the same poller process,
+so the five-process count is unchanged.
+
 Docker is used in development **only for SQL Server**. Everything else runs
 directly in your WSL2 shell. Your partner (Windows, no WSL2) runs everything
 including the app inside Docker — see [PARTNER_PLAYBOOK.md](PARTNER_PLAYBOOK.md).
@@ -124,6 +131,10 @@ sudo apt-get install -y redis-server
 
 Verify: `redis-server --version` should print a version number.
 
+**Redis must run with AOF durability** so acknowledged enqueues survive a broker
+crash. The `make wsl-start` command starts Redis with AOF enabled (see below).
+Verify after start: `redis-cli CONFIG GET appendonly` should return `yes`.
+
 ### Step 5 — Install Python dependencies
 
 ```bash
@@ -136,14 +147,18 @@ listed in `pyproject.toml`. Takes 1–2 minutes on first run.
 
 Verify: `uv run python --version` should print Python 3.12 or later.
 
-### Step 6 — Start SQL Server
+### Step 6 — Start SQL Server and Redis
 
 ```bash
 make wsl-start
 ```
 
-This starts the SQL Server Docker container and Redis. SQL Server takes about
-30 seconds to be ready on first start. The command waits for it automatically.
+This starts the SQL Server Docker container and Redis (with AOF durability
+enabled). SQL Server takes about 30 seconds to be ready on first start. The
+command waits for it automatically.
+
+To verify Redis AOF is active: `redis-cli INFO persistence | grep aof_enabled`
+should print `aof_enabled:1`.
 
 ### Step 7 — Create databases and run migrations
 
@@ -198,7 +213,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 
 | Command | What it does |
 |---|---|
-| `make wsl-start` | Start SQL Server (Docker) + Redis. Idempotent. |
+| `make wsl-start` | Start SQL Server (Docker) + Redis (with AOF: `--appendonly yes --appendfsync everysec`). Idempotent. |
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
 | `make wsl-worker` | Start Dramatiq background worker. |
@@ -317,6 +332,78 @@ def test_scope_filter(sqlite_conn):
 ```bash
 uv run pytest tests/unit/test_db_config.py::TestGetConnectionConfig::test_sql_auth_resolves_server_user_password -v
 ```
+
+---
+
+## RWB Job Queue & Redis AOF
+
+### New env vars (`infra/.env.example`)
+
+Three new env vars control the heartbeat and reconciler timing. Add these to
+`infra/.env.example` (and to your local `infra/.env`):
+
+```ini
+# Heartbeat: how often the daemon thread stamps rwb_job_heartbeat (seconds)
+RWB_HEARTBEAT_INTERVAL_SECS=15
+
+# Reconciler: how old a heartbeat must be before the reconciler reclaims the job.
+# Must be a constant multiple of INTERVAL (3-4× is recommended).
+# Never set this close to INTERVAL — a transient DB blip must not cause false reclaims.
+RWB_HEARTBEAT_STALE_SECS=45
+
+# Reconciler: how often the poller runs the reconcile sweep (seconds)
+RWB_RECONCILE_INTERVAL_SECS=30
+```
+
+These are constants, not per-job durations. The reconciler's stale threshold
+is a multiple of the heartbeat interval — never tied to how long a job takes.
+
+### Redis AOF — all environments
+
+**Dev (WSL2 native `redis-server`):**
+`make wsl-start` starts Redis as:
+```
+redis-server --appendonly yes --appendfsync everysec --dir /var/lib/redis
+```
+The AOF file persists on local disk across restarts.
+
+**Partner / Docker Compose (`infra/docker-compose.yml`):**
+The Redis service in `docker-compose.yml` must include:
+```yaml
+redis:
+  command: redis-server --appendonly yes --appendfsync everysec
+  volumes:
+    - redis-data:/data
+```
+The named volume `redis-data` persists across container restarts.
+
+**Production (systemd `redis-server`):**
+`/etc/redis/redis.conf` must include:
+```
+appendonly yes
+appendfsync everysec
+dir /var/lib/redis  # persisted SSD volume
+```
+Leave `auto-aof-rewrite-percentage` and `auto-aof-rewrite-min-size` at
+defaults (self-compacting; the AOF file tracks live queue size, not history).
+
+**Verify AOF is active:**
+```bash
+redis-cli CONFIG GET appendonly   # → appendonly / yes
+redis-cli INFO persistence | grep aof_enabled  # → aof_enabled:1
+```
+
+### Reconciler
+
+The reconciler is folded into the poller process (`app/poller/run.py`). It
+runs every `RWB_RECONCILE_INTERVAL_SECS` and scans for `rwb_job` rows with
+`status='running'` whose latest `rwb_job_heartbeat.heartbeat_at` is older than
+`RWB_HEARTBEAT_STALE_SECS`. For each stale row it atomically resets
+`running → pending` and re-enqueues the Dramatiq message.
+
+The reconciler **must run as a single instance** — running two pollers
+simultaneously would double-re-enqueue (still safe via the atomic claim, but
+wasteful). The single-poller dev topology enforces this naturally.
 
 ---
 

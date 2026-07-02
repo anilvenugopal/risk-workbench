@@ -1,15 +1,13 @@
 """Tests for the `db` package.
 
-These run **without** a SQL Server, pyodbc, or the ODBC driver: the connection
-layer is exercised by injecting a sqlite SQLAlchemy engine via
+These run without a SQL Server, pyodbc, or the ODBC driver: the connection
+layer is exercised by injecting a SQLite SQLAlchemy engine via
 `db.register_engine`, and the pure-Python config/substitution logic is tested
-directly. (Integration tests against a real SQL Server container are a separate
-suite — see test_sqlserver.sh in the source framework.)
+directly.
 
-Run: pytest test_db.py -v
+Integration tests against a real SQL Server are in tests/sqlserver/.
 """
 
-import os
 import pytest
 from sqlalchemy import create_engine, text
 
@@ -19,9 +17,8 @@ from db import (execute, execute_one, execute_scalar, execute_command,
 from db import scripts
 
 
-# --------------------------------------------------------------------------- #
-# config / auth                                                               #
-# --------------------------------------------------------------------------- #
+# ── config / auth ──────────────────────────────────────────────────────────────
+
 @pytest.fixture
 def sql_env(monkeypatch):
     monkeypatch.setenv("MSSQL_WB_SERVER", "localhost")
@@ -67,9 +64,8 @@ def test_empty_connection_name_raises():
         db.get_connection_config("")
 
 
-# --------------------------------------------------------------------------- #
-# safe path (bound params) against sqlite                                     #
-# --------------------------------------------------------------------------- #
+# ── safe path (bound params) against SQLite ────────────────────────────────────
+
 @pytest.fixture
 def wb(monkeypatch):
     eng = create_engine("sqlite://")
@@ -80,7 +76,8 @@ def wb(monkeypatch):
                       {"a": r[0], "b": r[1], "c": r[2]})
     register_engine("WORKBENCH", eng)
     yield
-    db._ENGINE_OVERRIDES.clear() if hasattr(db, "_ENGINE_OVERRIDES") else None
+    if hasattr(db, "_ENGINE_OVERRIDES"):
+        db._ENGINE_OVERRIDES.clear()
 
 
 def test_execute_returns_list_of_dicts(wb):
@@ -91,7 +88,6 @@ def test_execute_returns_list_of_dicts(wb):
 
 
 def test_execute_binds_not_interpolates(wb):
-    # an injection attempt is treated as a literal bound value -> no rows
     rows = execute("SELECT * FROM submission WHERE status_code = :s",
                    {"s": "x' OR '1'='1"}, connection="WORKBENCH")
     assert rows == []
@@ -111,38 +107,35 @@ def test_execute_command_rowcount(wb):
     assert n == 1
 
 
-# --------------------------------------------------------------------------- #
-# scope (RLS) on the safe path                                                #
-# --------------------------------------------------------------------------- #
+# ── scope (RLS) on the safe path ───────────────────────────────────────────────
+
 def test_scope_filters_by_customer(wb):
-    rows = scoped_execute("SELECT * FROM submission", customer_ids=[10],
-                          is_admin=False, connection="WORKBENCH")
+    rows = scoped_execute("SELECT * FROM submission", values=[10],
+                          column="customer_id", is_admin=False, connection="WORKBENCH")
     assert {r["customer_id"] for r in rows} == {10}
 
 
 def test_scope_admin_bypass(wb):
-    rows = scoped_execute("SELECT * FROM submission", customer_ids=[10],
-                          is_admin=True, connection="WORKBENCH")
+    rows = scoped_execute("SELECT * FROM submission", values=[10],
+                          column="customer_id", is_admin=True, connection="WORKBENCH")
     assert len(rows) == 4
 
 
 def test_scope_no_access_fails_closed(wb):
-    rows = scoped_execute("SELECT * FROM submission", customer_ids=[],
-                          is_admin=False, connection="WORKBENCH")
+    rows = scoped_execute("SELECT * FROM submission", values=[],
+                          column="customer_id", is_admin=False, connection="WORKBENCH")
     assert rows == []
 
 
 def test_scope_uses_bound_params_not_text():
-    sql, params = apply_scope("SELECT * FROM submission", [10, 20])
+    sql, params = apply_scope("SELECT * FROM submission", values=[10, 20], column="customer_id")
     assert ":_scope_0" in sql and ":_scope_1" in sql
     assert params["_scope_0"] == 10 and params["_scope_1"] == 20
-    # the numeric ids must not appear as literals in the SQL text
     assert " 10" not in sql and "(10" not in sql
 
 
-# --------------------------------------------------------------------------- #
-# trusted-script path: substitution + injection containment                   #
-# --------------------------------------------------------------------------- #
+# ── trusted-script path: substitution + injection containment ──────────────────
+
 def test_value_context_quotes_and_escapes():
     out = scripts._substitute_named_parameters(
         "WHERE id = {{ uid }} AND name = {{ nm }}", {"uid": 123, "nm": "O'Brien"})
@@ -150,13 +143,15 @@ def test_value_context_quotes_and_escapes():
 
 
 def test_identifier_context_raw_substitution():
-    assert scripts._substitute_named_parameters("USE [{{ db }}]", {"db": "EDM_202503"}) == "USE [EDM_202503]"
+    assert scripts._substitute_named_parameters(
+        "USE [{{ db }}]", {"db": "EDM_202503"}) == "USE [EDM_202503]"
     assert scripts._substitute_named_parameters(
         "FROM Data_{{ d }}_Work", {"d": "20250115"}) == "FROM Data_20250115_Work"
 
 
 def test_value_context_injection_contained():
-    out = scripts._substitute_named_parameters("WHERE x = {{ v }}", {"v": "a'; DROP TABLE t;--"})
+    out = scripts._substitute_named_parameters(
+        "WHERE x = {{ v }}", {"v": "a'; DROP TABLE t;--"})
     assert out == "WHERE x = 'a''; DROP TABLE t;--'"
 
 

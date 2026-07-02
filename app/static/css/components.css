@@ -1,0 +1,255 @@
+/* ============================================================================
+   components.css — Shared UI components for the RWB mock.
+   DocIntel-origin sections (pdf, logs, file-browser, overlays, etc.) removed
+   — none are rendered by this app's templates or serve.py.
+   ============================================================================ */
+
+/* ── Status badge ───────────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-medium);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.badge--neutral  { background: var(--color-neutral-bg);    color: var(--color-neutral-text);  border-color: var(--color-neutral-border); }
+.badge--brand    { background: var(--color-brand-wash);    color: var(--color-brand);    border-color: var(--color-brand-border); }
+.badge--positive { background: var(--color-positive-wash); color: var(--color-positive); border-color: var(--color-positive-border); }
+.badge--warning  { background: var(--color-warning-wash);  color: var(--color-warning);  border-color: var(--color-warning-border); }
+.badge--negative { background: var(--color-negative-wash); color: var(--color-negative); border-color: var(--color-negative-border); }
+.badge--info     { background: var(--color-info-bg);       color: var(--color-info);     border-color: var(--color-info-border); }
+.badge--sm { font-size: 10px; padding: 1px 6px; }
+
+/* ── Icon button (icon-only, 28×28) ─────────────────────────────────────── */
+.icon-btn {
+  width: 28px; height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-tertiary);
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+.icon-btn:hover  { background: var(--surface-hover); color: var(--text-primary); }
+.icon-btn:active { background: var(--surface-recessed); }
+
+/* ── Small text button ───────────────────────────────────────────────────── */
+.btn-sm {
+  font-size: var(--fs-caption);
+  padding: 4px 10px;
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.btn-sm--primary { background: var(--color-brand); color: var(--btn-primary-fg); border-color: var(--color-brand); }
+.btn-sm--danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 41, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-card {
+  background: var(--surface-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-faint);
+}
+.modal-title {
+  flex: 1;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+.modal-warning {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-caption);
+  color: var(--color-warning);
+  background: var(--color-warning-wash);
+  border-bottom: 1px solid var(--color-warning-border);
+}
+.modal-body {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.modal-error {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-caption);
+  color: var(--color-negative);
+  background: var(--color-negative-wash);
+  border-top: 1px solid var(--color-negative-border);
+}
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-faint);
+}
+.modal-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--dur-fast) ease, opacity var(--dur-fast) ease;
+}
+.modal-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.modal-btn--secondary {
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
+  background: transparent;
+}
+.modal-btn--secondary:hover:not(:disabled) { background: var(--surface-hover); }
+.modal-btn--primary {
+  color: var(--btn-primary-fg);
+  background: var(--btn-primary-bg);
+  border: 1px solid transparent;
+}
+.modal-btn--primary:hover:not(:disabled) { background: var(--color-brand-hover); }
+.modal-btn--danger {
+  background: var(--color-danger);
+  color: #fff;
+  border: 1px solid var(--color-danger);
+}
+.modal-btn--danger:hover { filter: brightness(.94); }
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-default); margin-bottom: var(--space-4); }
+.tab {
+  padding: 9px var(--space-4);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--text-primary); }
+.tab--active { color: var(--color-brand); border-bottom-color: var(--color-brand); font-weight: var(--fw-medium); }
+.tab-panel { animation: fadein var(--dur-fast) ease; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Search modal ────────────────────────────────────────────────────────── */
+.search-modal {
+  position: fixed; inset: 0;
+  background: rgba(20, 24, 40, .45);
+  display: flex; justify-content: center; align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 50;
+}
+.search-box {
+  width: 600px; max-width: 90vw;
+  background: var(--surface-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(0,0,0,.28);
+  overflow: hidden;
+}
+.search-box__bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px var(--space-4);
+  border-bottom: 1px solid var(--border-default);
+}
+.search-box__ico { color: var(--text-tertiary); }
+.search-box__input { flex: 1; border: none; background: transparent; color: var(--text-primary); font-size: var(--fs-body); }
+.search-box__input:focus { outline: none; }
+.search-box__bar:focus-within { border-bottom-color: var(--color-brand); }
+.search-box__esc {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  padding: 1px 6px;
+}
+.search-box__results { max-height: 52vh; overflow: auto; padding: 6px 0; }
+.sr-hint { padding: 22px 18px; color: var(--text-tertiary); font-size: var(--fs-label); text-align: center; }
+.sr-group__title { padding: 10px var(--space-4) 4px; font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); }
+.sr-item { display: flex; align-items: center; gap: 10px; padding: 9px var(--space-4); color: var(--text-primary); font-size: var(--fs-body); text-decoration: none; }
+.sr-item:hover, .sr-item.is-active { background: var(--surface-hover); }
+.sr-icon svg { width: 18px; height: 18px; color: var(--text-secondary); vertical-align: middle; }
+.sr-label { flex: 1; }
+.sr-meta { font-size: var(--fs-caption); color: var(--text-tertiary); font-family: var(--font-mono); }
+
+/* ── Sign-in ─────────────────────────────────────────────────────────────── */
+.signin-body {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh;
+  background: var(--surface-page);
+}
+.signin-card {
+  width: 380px;
+  background: var(--surface-panel);
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.12);
+  text-align: center;
+}
+.signin-logo { font-weight: var(--fw-bold); color: var(--color-brand); margin-bottom: 18px; }
+.signin-title { font-size: 22px; margin: 0 0 4px; }
+.signin-sub { color: var(--text-secondary); font-size: var(--fs-label); margin: 0 0 20px; }
+.signin-sso {
+  width: 100%; padding: var(--space-3);
+  background: var(--color-brand); color: var(--btn-primary-fg);
+  border: none; border-radius: var(--radius-md);
+  font-size: var(--fs-body); cursor: pointer;
+}
+.signin-note { font-size: var(--fs-caption); color: var(--text-tertiary); margin: var(--space-3) 0 0; line-height: 1.5; }
+.signin-divider {
+  display: flex; align-items: center; gap: 10px;
+  margin: 22px 0 var(--space-4);
+  color: var(--text-tertiary); font-size: 11px;
+}
+.signin-divider::before,
+.signin-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-default); }
+.signin-backdoor {
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  text-align: left;
+}
+.signin-backdoor__head { font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--color-warning); letter-spacing: .03em; }
+.signin-backdoor__body { font-size: var(--fs-caption); color: var(--text-secondary); margin: var(--space-2) 0 var(--space-3); line-height: 1.5; }
+.signin-backdoor__label { font-size: var(--fs-caption); color: var(--text-tertiary); display: block; margin-bottom: 4px; }
+.signin-backdoor__select {
+  width: 100%; margin-bottom: var(--space-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+  padding: var(--space-2) var(--space-3);
+}
+.signin-backdoor__btn {
+  width: 100%; padding: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-panel);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: var(--fs-label);
+}

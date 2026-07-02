@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Access Pending · Risk Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" href="/static/icons/rwb_white.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="signin-body">
+  <div class="signin-card">
+    <div class="signin-logo"><img src="/static/icons/rwb.svg" alt="Risk Workbench" style="height: 64px; width: auto;"></div>
+    <h1 class="signin-title">Access pending</h1>
+    <p class="signin-sub">
+      {% if current_user %}{{ current_user.email }}{% endif %}
+    </p>
+    <p class="signin-note">
+      Your account was created successfully. An administrator must assign you a role before you can access the application.
+    </p>
+
+    {% if setup_saved %}
+    <div style="margin-bottom: 16px; padding: 10px 14px; background: var(--color-positive-bg, #e6f4ea); border: 1px solid var(--color-positive-border, #a8d5b5); border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--color-positive, #1a7a3c);">
+      Profile saved.
+    </div>
+    {% endif %}
+
+    {# ── Self-service profile setup ── #}
+    <div class="signin-backdoor" style="text-align: left; margin-top: 20px;">
+      <p style="font-size: var(--fs-label); font-weight: 500; margin-bottom: 10px; color: var(--color-text-muted);">Complete your profile while you wait</p>
+
+      {% if setup_errors %}
+      <div style="margin-bottom: 12px; padding: 10px 14px; background: var(--color-negative-bg); border: 1px solid var(--color-negative-border); border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--color-negative);">
+        {% for e in setup_errors %}<div>{{ e }}</div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <form method="post" action="/auth/setup-profile">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+        <label class="signin-backdoor__label" for="display_name">DISPLAY NAME</label>
+        <input class="signin-backdoor__select" type="text" id="display_name" name="display_name"
+               value="{{ setup_display_name or (current_user.display_name if current_user else '') }}"
+               required>
+
+        <label class="signin-backdoor__label" for="profile_email" style="margin-top: 8px;">EMAIL (confirm)</label>
+        <input class="signin-backdoor__select" type="email" id="profile_email" name="email"
+               value="{{ current_user.email if current_user else '' }}"
+               required>
+
+        <details style="margin-top: 12px;">
+          <summary style="font-size: var(--fs-label); color: var(--color-text-muted); cursor: pointer;">Set a password (optional)</summary>
+          <div style="margin-top: 8px;">
+            <p class="signin-backdoor__body" style="font-size: var(--fs-label); color: var(--color-text-muted);">Min 12 chars · uppercase · lowercase · number</p>
+            <label class="signin-backdoor__label" for="new_password">NEW PASSWORD</label>
+            <input class="signin-backdoor__select" type="password" id="new_password" name="new_password"
+                   autocomplete="new-password">
+            <label class="signin-backdoor__label" for="confirm_password" style="margin-top: 8px;">CONFIRM PASSWORD</label>
+            <input class="signin-backdoor__select" type="password" id="confirm_password" name="confirm_password"
+                   autocomplete="new-password">
+          </div>
+        </details>
+
+        <button class="signin-backdoor__btn" type="submit" style="margin-top: 12px;">Save profile</button>
+      </form>
+    </div>
+
+    <form method="post" action="/auth/logout" style="margin-top: 20px;">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="signin-backdoor__btn" type="submit" style="background: transparent; color: var(--color-text-muted); border: 1px solid var(--color-border);">Sign out</button>
+    </form>
+  </div>
+</body>
+</html>
