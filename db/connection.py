@@ -56,7 +56,7 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
         eng = _ENGINES[key]
     else:
         config = get_connection_config(connection_name)
-        if config["auth_type"] == "WINDOWS" and not ensure_valid_kerberos_ticket():
+        if config["auth_type"] == "WINDOWS" and not ensure_valid_kerberos_ticket():  # pragma: no cover
             raise SQLServerConnectionError(
                 f"Connection '{config['name']}' uses Windows auth but no valid "
                 f"Kerberos ticket could be obtained (check KERBEROS_* env)."
@@ -65,7 +65,7 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
         eng = create_engine(url, **_pool_kwargs())
 
         # Self-renew Kerberos on each new physical connection for WINDOWS targets.
-        if config["auth_type"] == "WINDOWS":
+        if config["auth_type"] == "WINDOWS":  # pragma: no cover
             @event.listens_for(eng, "do_connect")
             def _ensure_ticket(dialect, conn_rec, cargs, cparams):  # noqa: ANN001
                 ensure_valid_kerberos_ticket()

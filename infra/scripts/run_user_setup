@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# run_user_setup — interactive user provisioning CLI for Risk Workbench.
+#
+# Works in WSL2 (sources infra/.env) and on the production server
+# (where infra/.env holds production credentials).
+#
+# Usage:
+#   ./infra/scripts/run_user_setup
+#   make wsl-user-setup
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$ROOT/infra/scripts/wsl-env.sh"
+exec uv run python "$ROOT/infra/scripts/user_setup.py" "$@"

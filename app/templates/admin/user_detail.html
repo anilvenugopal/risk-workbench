@@ -1,0 +1,163 @@
+{% extends "base/shell.html" %}
+
+{% block title %}{{ edit_user.email if edit_user else 'New User' }}{% endblock %}
+
+{% block page_actions %}
+<a href="/admin/users" class="btn-sm">← Back to users</a>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad" style="max-width: 600px;">
+
+  {% if errors %}
+  <div style="margin-bottom: 16px; padding: 10px 14px; background: var(--color-negative-bg); border: 1px solid var(--color-negative-border); border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--color-negative);">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not edit_user %}
+
+  <div class="detail-head">
+    <h1>New user</h1>
+  </div>
+
+  {# ── OIDC pre-provisioning (preferred for Microsoft Entra accounts) ── #}
+  <div class="section-head">
+    <h2>Microsoft Entra (OIDC) account</h2>
+  </div>
+  <p class="muted" style="margin-bottom: 14px;">
+    Use this for PremiumIQ / Entra users. The user signs in with Microsoft and their account is linked automatically on first login. No password is set.
+  </p>
+  <form method="post" action="/admin/users/provision-oidc">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-fields">
+      <div class="wf-field">
+        <label>DISPLAY NAME</label>
+        <input class="wf-field__input" type="text" name="display_name" required>
+      </div>
+      <div class="wf-field">
+        <label>EMAIL (must match Entra account)</label>
+        <input class="wf-field__input" type="email" name="email" required>
+      </div>
+      <div class="wf-field">
+        <label>ROLE</label>
+        <select class="wf-field__input" name="role_code">
+          {% for role in all_roles or [] %}
+          <option value="{{ role.code }}">{{ role.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <button class="btn-sm btn-sm--primary" type="submit" style="margin-top: 8px;">Provision OIDC user</button>
+  </form>
+
+  <hr style="margin: 28px 0; border: none; border-top: 1px solid var(--color-border);">
+
+  {# ── Create new password user ── #}
+  <div class="section-head">
+    <h2>Password account</h2>
+  </div>
+  <p class="muted" style="margin-bottom: 14px;">
+    Use for local / service accounts that authenticate with a username and password.
+  </p>
+  <form method="post" action="/admin/users/new">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-fields">
+      <div class="wf-field">
+        <label>DISPLAY NAME</label>
+        <input class="wf-field__input" type="text" name="display_name" required>
+      </div>
+      <div class="wf-field">
+        <label>EMAIL</label>
+        <input class="wf-field__input" type="email" name="email" required>
+      </div>
+      <div class="wf-field">
+        <label>INITIAL PASSWORD</label>
+        <input class="wf-field__input" type="password" name="password" autocomplete="new-password" required>
+      </div>
+    </div>
+    <div class="muted" style="margin-bottom: 14px;">Min 12 chars · uppercase · lowercase · number. User must change on first login.</div>
+    <button class="btn-sm" type="submit">Create password user</button>
+  </form>
+
+  {% else %}
+
+  {# ── Account details ── #}
+  <div class="detail-head">
+    <h1>{{ edit_user.display_name or edit_user.email }}</h1>
+    <div class="detail-meta">
+      <span>{{ edit_user.email }}</span>
+      <span class="detail-meta__handler">·</span>
+      <span>{{ 'Microsoft Entra' if edit_user.entra_oid else 'Password' }}</span>
+      <span class="detail-meta__handler">·</span>
+      {% if edit_user.is_active %}<span class="badge badge--positive">active</span>
+      {% else %}<span class="badge badge--negative">inactive</span>{% endif %}
+      {% if edit_user.must_change_password %}
+        <span class="badge badge--warning">must change password</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="wf-fields" style="margin-bottom: 4px;">
+    <div class="wf-field">
+      <label>LAST LOGIN</label>
+      <span class="wf-field__val">{{ edit_user.last_login_at.strftime('%Y-%m-%d %H:%M UTC') if edit_user.last_login_at else '—' }}</span>
+    </div>
+    <div class="wf-field">
+      <label>CURRENT ROLES</label>
+      <span class="wf-field__val">
+        {% if edit_user.roles %}
+          {% for role in edit_user.roles.split(', ') %}<span class="badge badge--brand">{{ role }}</span> {% endfor %}
+        {% else %}<span class="badge">none</span>{% endif %}
+      </span>
+    </div>
+  </div>
+
+  {# ── Assign role ── #}
+  <div class="section-head" style="margin-top: 24px;">
+    <h2>Assign role</h2>
+  </div>
+  <form method="post" action="/admin/users/{{ edit_user.id }}/assign-role" style="display:flex; gap:8px; align-items:flex-end; margin-bottom: 24px;">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-field" style="grid-template-columns: auto;">
+      <label>ROLE</label>
+      <select class="wf-field__input" name="role_code">
+        {% for role in all_roles %}
+        <option value="{{ role.code }}">{{ role.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="btn-sm btn-sm--primary" type="submit">Assign</button>
+  </form>
+
+  {% if not edit_user.entra_oid %}
+  {# ── Reset password (password users only) ── #}
+  <div class="section-head">
+    <h2>Reset password</h2>
+  </div>
+  <form method="post" action="/admin/users/{{ edit_user.id }}/reset-password" style="display:flex; gap:8px; align-items:flex-end; margin-bottom: 24px;">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-field" style="grid-template-columns: auto;">
+      <label>NEW PASSWORD</label>
+      <input class="wf-field__input" type="password" name="new_password" autocomplete="new-password" required>
+    </div>
+    <button class="btn-sm" type="submit">Reset</button>
+  </form>
+  <div class="muted" style="margin-bottom: 24px;">User will be required to change password on next login.</div>
+  {% endif %}
+
+  {# ── Force logout ── #}
+  <div class="section-head">
+    <h2>Sessions</h2>
+  </div>
+  <form method="post" action="/admin/users/{{ edit_user.id }}/force-logout">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm btn-sm--danger" type="submit"
+            onclick="return confirm('Force-logout {{ edit_user.email }}?')">
+      Force logout all sessions
+    </button>
+  </form>
+
+  {% endif %}
+</div>
+{% endblock %}

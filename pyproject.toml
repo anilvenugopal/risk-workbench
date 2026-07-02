@@ -42,9 +42,12 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
     "httpx",
     "ruff",
     "debugpy",
+    "InquirerPy",
+    "rich",
 ]
 
 # ── uv: route irp-integration to TestPyPI only; everything else resolves from PyPI. ──
@@ -77,3 +80,18 @@ markers = [
 ]
 asyncio_mode = "auto"
 filterwarnings = ["ignore::DeprecationWarning"]
+addopts = "--cov=app --cov=db --cov-report=term-missing"
+
+[tool.coverage.run]
+omit = [
+    "tests/*",
+    # Kerberos/Windows-auth shim — only runs on a domain-joined host with krb5 installed.
+    # No logic to unit test; no mock surface worth maintaining.
+    "db/kerberos.py",
+    # Infinite polling loop (while True: sleep(...)). The testable unit is the
+    # IRP client calls, not the loop driver. Covered by tests/irp/.
+    "app/poller/run.py",
+]
+
+[tool.coverage.report]
+show_missing = true

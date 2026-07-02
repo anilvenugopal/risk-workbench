@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 try:
     import pandas as pd
     import numpy as np
-except ImportError as e:  # pandas/numpy only needed for this path
+except ImportError as e:  # pragma: no cover  # pandas/numpy absent; only needed for script path
     pd = None  # type: ignore
     np = None  # type: ignore
     _PANDAS_IMPORT_ERROR = e
@@ -44,7 +44,7 @@ else:
 
 
 def _require_pandas() -> None:
-    if pd is None:
+    if pd is None:  # pragma: no cover
         raise SQLServerConfigurationError(
             "pandas/numpy are required for the trusted-script path "
             "(db.scripts). Install pandas and numpy."
@@ -167,13 +167,16 @@ def _resolve_sql_path(file_path: Union[str, Path], sql_dir: Optional[Union[str, 
     return p
 
 
-def execute_script_file(file_path: Union[str, Path],
+def execute_script_file(file_path: Union[str, Path],  # pragma: no cover
                         params: Optional[Dict[str, Any]] = None,
                         connection: str = "DATABRIDGE",
                         database: Optional[str] = None,
                         sql_dir: Optional[Union[str, Path]] = None) -> List[Any]:
     """Run a trusted multi-statement SQL script (GO batches, multiple SELECTs) and
-    return one DataFrame per result set. Connection comes from the shared pool."""
+    return one DataFrame per result set. Connection comes from the shared pool.
+
+    Requires a real pyodbc-backed engine; tested in tests/sqlserver/ only.
+    """
     _require_pandas()
     path = _resolve_sql_path(file_path, sql_dir)
     logger.info("Executing SQL script %s (connection=%s)", path.name, connection)

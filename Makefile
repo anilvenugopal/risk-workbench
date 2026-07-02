@@ -22,7 +22,8 @@
         test test-sql lint format \
         wsl-setup wsl-start wsl-stop \
         wsl-db-bootstrap wsl-db-migrate wsl-db-rebuild \
-        wsl-test wsl-test-sql
+        wsl-test wsl-test-sql \
+        wsl-user-setup
 
 COMPOSE     = docker compose -f infra/docker-compose.yml --env-file infra/.env
 BOX         = $(COMPOSE) exec linux-box
@@ -138,3 +139,6 @@ wsl-test:   ## [WSL2] Run unit tests (no SQL Server needed)
 
 wsl-test-sql:   ## [WSL2] Run SQL Server integration tests
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run pytest tests/sqlserver -v --run-sqlserver'
+
+wsl-user-setup:   ## [WSL2] Interactive user provisioning CLI (provision, create, reset password)
+	@bash infra/scripts/run_user_setup

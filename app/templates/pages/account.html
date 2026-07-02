@@ -1,0 +1,36 @@
+{% extends "base/shell.html" %}
+{% block title %}Account{% endblock %}
+
+{% block main %}
+<div class="page-pad" style="max-width: 560px;">
+
+  <div class="detail-head">
+    <h1>{{ current_user.display_name }}</h1>
+    <div class="detail-meta">
+      <span>{{ current_user.email }}</span>
+      <span class="detail-meta__handler">·</span>
+      <span>{{ 'Microsoft Entra' if current_user.entra_oid else 'Password' }}</span>
+    </div>
+  </div>
+
+  <div class="wf-fields" style="margin-bottom: 24px;">
+    <div class="wf-field">
+      <label>ROLES</label>
+      <span class="wf-field__val">
+        {% if current_user.role_codes %}
+          {% for r in current_user.role_codes %}<span class="badge badge--brand">{{ r }}</span> {% endfor %}
+        {% else %}<span class="badge">none</span>{% endif %}
+      </span>
+    </div>
+  </div>
+
+  <div class="section-head">
+    <h2>Session</h2>
+  </div>
+  <form method="post" action="/auth/logout">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm btn-sm--danger" type="submit">Sign out</button>
+  </form>
+
+</div>
+{% endblock %}

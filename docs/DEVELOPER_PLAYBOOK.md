@@ -70,7 +70,7 @@ Open `infra\.env` in Notepad and fill in:
 SESSION_SECRET_KEY=<64-char-hex-string>
 
 # SQL Server password — must be strong (upper+lower+digit+symbol, min 8 chars)
-MSSQL_SA_PASSWORD=YourStr0ng!Password
+MSSQL_SA_PASSWORD=<>
 
 # Leave everything else as-is for local dev
 ```
