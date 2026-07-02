@@ -12,7 +12,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v1.1.0); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v2.0.0); all compliance gates
 
 ## Development Environment
 
@@ -50,7 +50,7 @@ Full rules in the constitution. Key points for implementation:
 
 | Name | Env prefix | Purpose | Managed by |
 |---|---|---|---|
-| `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
+| `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, jobs, audit | Alembic (`make db-migrate`) |
 | `rwb_exposure` | `MSSQL_EXPOSURE_*` | Exposure data (EDM/RDM) | Bootstrap SQL script |
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
 | DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Never touched by this app** |

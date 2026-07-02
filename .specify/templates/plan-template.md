@@ -45,11 +45,11 @@ Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
 
 | Article | Title | Status | Notes |
 |---------|-------|--------|-------|
-| 1 | Manifest-Driven Extensibility | | |
-| 2 | Manifest Canonical; DB Is Generated Projection | | |
+| 1 | Manifest-Driven & Code-Dispatch Extensibility | | |
+| 2 | Topology Lives in Code, Not Data | | |
 | 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | | |
-| 4 | Status Is Event-Sourced with Cached Current | | |
-| 5 | Generic Stage Review (No HITL Stage Type) | | |
+| 4 | Status Is Event-Sourced with Cached Current (job.status) | | |
+| 5 | Analyst-Gated Progression; No Stored Stage Pointer | | |
 | 6 | Customer Isolation on Parameterized Path Only | | |
 | 7 | One Data-Access Package, Two Paths (`/db`) | | |
 | 8 | Server-Rendered; No SPA | | |

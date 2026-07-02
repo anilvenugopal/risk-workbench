@@ -1,33 +1,49 @@
 <!--
   Sync Impact Report
   ==================
-  Version change: 1.0.0 → 1.1.0
+  Version change: 1.1.0 → 2.0.0  (MAJOR — backward-incompatible removal/redefinition of
+  workflow-engine principles; the app is a "workbench, not a workflow engine")
 
-  Modified principles:
-    - Article 3: "Categoricals Are Kind Tables, Never Enums"
-      → "Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors"
-      Added carve-out for columns that mirror external system state (IRP job
-      statuses, job-type discriminators). Rationale: kind tables for these
-      would require seed migrations whenever IRP adds a status, crashing the
-      poller on unrecognized values.
-      Affected columns explicitly listed: irp_job.job_type,
-      irp_job.mirrored_status, task_instance.task_type,
-      result_work_item.work_type, edm.status, rdm.status.
+  Context: The workflow/stage/task/typed-port/handle-registry/manifest-projection ENGINE
+  was removed and replaced by a lean job / batch / rwb_job model. Authoritative sources:
+  docs/DATA_MODEL.md (canonical schema), docs/metamodel-design.md (rationale — §7 is the
+  case against the engine), docs/execution-design.md, docs/CR_01__RWB_JOBS.md (rwb_job).
+  Article numbering is preserved (13 articles) so downstream references stay valid; two
+  now-void engine articles were repurposed into live workbench principles.
 
-    - Article 11: "IRP and External Data Sources Sit Behind an Interface"
-      → "IRP Polling and Result Work Behind an Interface; Submission on Request Path Permitted"
-      Narrowed the web-layer prohibition to cover polling and post-completion
-      result work only. Synchronous IRP job submission on the request path is
-      explicitly permitted: submit calls return a job ID immediately, the
-      analyst gets immediate confirmation or an error in the same HTTP
-      response, and there is no benefit to deferring through a queue.
+  Modified / repurposed principles:
+    - Article 1 "Manifest-Driven Extensibility" — REVISED. Dropped the workflow-definition
+      manifest and the type/port registry (removed). Extensibility now = the navigation
+      manifest + code dispatch tables (poller on-terminal handlers keyed by job_type, the
+      worker registry, prerequisite gates). Nav manifest retained.
+    - Article 2 "Manifest Is Canonical; DB Is a Generated Projection"
+      → "Topology Lives in Code, Not Data" — REPURPOSED. The projected tables
+      (workflow_definition/definition_stage/task_template/port_template) and the
+      content-hash projection guard are removed. New principle: what-follows-what is a
+      fixed product decision expressed in code (prerequisite gates + poller dispatch),
+      never authored DAG topology stored as data.
+    - Article 3 carve-out column list — UPDATED. irp_job.job_type / irp_job.mirrored_status
+      / task_instance.task_type / result_work_item.work_type → job.job_type, job.status,
+      rwb_job.work_type, rwb_job.origin (edm.status, rdm.status retained). Added: rwb_job.
+      status_code stays a KIND TABLE (internal, stable values — NOT an external mirror).
+    - Article 4 "Status Is Event-Sourced with a Cached Current" — REVISED. The only
+      event-sourced status is job.status (append job_status_event + stamp cached job.status
+      in one transaction). Removed the submissions/workflows/stages/tasks scope and the
+      dual composition/execution streams. batch.status is a RUNNING/COMPLETE latch; entity
+      statuses (edm/rdm/analysis) are simple in-place flags.
+    - Article 5 "Generic Stage Review (No HITL Stage Type)"
+      → "Analyst-Gated Progression; No Stored Stage Pointer" — REPURPOSED. No stages exist.
+      Mechanical follow-up auto-fires (poller Mechanism A); judgment steps wait for an
+      analyst click (Mechanism B). "What's next" is a pure function of entity state.
+    - Article 11 — result_work_item → rwb_job (worker-consumed rows).
+    - Article 12 — removed "manifest→projection consistency check"; the job/batch state
+      machine, prerequisite gates, and the on-terminal dispatch are what MUST be tested.
 
   Added sections: None
-  Removed sections: None
+  Removed sections: None (Articles 2 & 5 repurposed, not deleted; numbering preserved)
 
   Templates updated:
-    - .specify/templates/plan-template.md — Constitution Check table
-      Article 3 and Article 11 titles updated ✅
+    - .specify/templates/plan-template.md — Constitution Check: Article 1/2/4/5 titles ✅
 
   Deferred: None
 -->
@@ -36,31 +52,42 @@
 
 ## Core Principles
 
-### Article 1 — Manifest-Driven Extensibility
+### Article 1 — Manifest-Driven & Code-Dispatch Extensibility
 
-Everything that changes when requirements change MUST live in versioned code
-manifests, not scattered config: the navigation manifest, the workflow-definition
-manifest, and the type/port registry.
+Everything that changes when requirements change MUST live in one traceable
+place — the navigation manifest, or a small code dispatch table — not scattered
+config, and never as authored DAG topology stored in the database.
 
 - "Add a page" = one nav node + one handler + one template.
-- "Add a chaining type" = registry rows + declared ports.
-- "Add a constraint" = one registered validator.
+- "Add a chained follow-up" = one `job_type` string + one row in the poller's
+  on-terminal dispatch table (release a dependent / write a head `rwb_job`),
+  optionally a `prereq_job_id` edge. No schema migration.
+- "Add a background action" = one entry in the worker registry.
+- "Add a gate" = one clause in the pure entity-state prerequisite function.
 
-Engine code stays fixed. Manifests carry a version; workflow instances pin the
-version they ran under. Any complexity that cannot be traced to a single
-manifest edit MUST be justified against this article.
+There is no workflow-definition manifest and no type/port registry (removed with
+the engine — see Article 2). Engine-style complexity that cannot be traced to a
+single nav-manifest edit or a single code-dispatch entry MUST be justified
+against this article; when in doubt, choose the boring, one-place-to-change option.
 
-### Article 2 — Manifest Is Canonical; DB Definition Is a Generated Projection
+### Article 2 — Topology Lives in Code, Not Data
 
-Where a manifest is projected into tables for FK/reporting
-(`workflow_definition`, `definition_stage`, `task_template`, `port_template`),
-the manifest is the source of truth and the projection is generated — never
-hand-edited.
+What-follows-what is a **fixed product decision expressed in code**, never
+authored, versioned, or projected as data. This is a workbench (the analyst
+clicks known actions), not a workflow-authoring engine.
 
-- A fail-fast startup consistency check (content-hash of the manifest vs. the
-  hash the projection was built from) MUST refuse to start on mismatch.
-- Projection is append-only and version-retained: new manifest versions insert
-  new rows; old versions are retained while any instance pins them.
+- There are NO `workflow_definition` / `definition_stage` / `task_template` /
+  `port_template` tables, no manifest→projection, no content-hash startup guard,
+  and no version-pinning of in-flight definitions. All were removed.
+- Sequencing is re-derived from entity + job state on demand: the poller's
+  on-terminal dispatch (keyed by `job_type`) and the prerequisite-gate function
+  (Article 5). The only stored dependency is a single `prereq_job_id` instance
+  edge; the dependency *rule* lives in code.
+- Step inputs resolve **live from Risk Modeler by name** at call time
+  (`search_edms`, `search_portfolios`, `search_analyses`) — coupling is
+  name-based, not id-based, so there is no pinned upstream artifact to project or
+  invalidate. Reintroducing a definition-as-data layer MUST be justified against
+  this article (rationale: `docs/metamodel-design.md §7`).
 
 ### Article 3 — Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors
 
@@ -80,52 +107,62 @@ The following columns are explicitly governed by this carve-out:
 
 | Column | Reason |
 |---|---|
-| `irp_job.mirrored_status` | Mirrors IRP's JobStatus vocabulary verbatim |
-| `irp_job.job_type` | Discriminates IRP endpoint family; defined by irp-integration |
-| `task_instance.task_type` | Discriminates the execution handler; coupled to IRP job types |
-| `result_work_item.work_type` | Worker dispatch key; grows with IRP capabilities |
+| `job.status` | Mirrors IRP's JobStatus vocabulary verbatim (plus app-local states RM never sends) |
+| `job.job_type` | Discriminates the IRP endpoint family; defined by irp-integration |
+| `rwb_job.work_type` | Worker dispatch key; grows with app + IRP capabilities |
+| `rwb_job.origin` | Provenance discriminator (`irp_completion`/`analyst_request`/`chained`) |
 | `edm.status` | Mirrors IRP EDM lifecycle; may gain values with IRP releases |
 | `rdm.status` | Same rationale as `edm.status` |
+
+**Not carved out — `rwb_job.status_code` IS a kind table** (`rwb_job_status_kind`:
+`pending`/`running`/`succeeded`/`failed`). Its values are **ours** — internal and
+stable — not an external mirror, so the carve-out does not apply and Article 3's
+default (kind table) governs it (CR-001).
 
 All other categoricals remain kind tables. The carve-out is narrow and
 intentional: when in doubt, use a kind table.
 
-### Article 4 — Status Is Event-Sourced with a Cached Current
+### Article 4 — Status Is Event-Sourced with a Cached Current (job.status)
 
-Lifecycle/status on submissions, workflows, stages, and tasks MUST NOT be
-`UPDATE`-d in place. Each transition MUST:
+`job.status` MUST NOT be `UPDATE`-d in place. Each transition MUST:
 
-1. Insert a `*_event` row.
-2. In the same transaction, stamp a cached `current_*_status` column on the
-   parent (O(1) reads; never recompute-on-read in the hot path).
+1. Insert a `job_status_event` row.
+2. In the same transaction, stamp the cached `job.status` column (O(1) reads;
+   never recompute-on-read in the hot path).
 
-Stages and tasks keep two independent streams — composition and execution. The
-audit trail (including accept-with-errors and cancel decisions) derives from
-events. `ERROR` is a dynamic rollup (any task failed) overlaying any status —
-never a stored status, never a gate.
+This is the one lifecycle that earns an event stream. There are no workflow /
+stage / task status streams (those constructs are gone). Other lifecycles are
+simpler by design and MUST NOT carry an event stream:
 
+- `batch.status` is a `RUNNING → COMPLETE` **latch** (settle + notify exactly
+  once via a guarded `settled_at`); its breakdown is derived (`GROUP BY batch_id`).
+- Entity statuses (`edm`, `rdm`, `analysis`) are simple in-place lifecycle flags.
+- `rwb_job.status_code` transitions in place (`pending → running → …`).
+
+`ERROR` (submission-side, no `irp_id`) is distinct from `FAILED` (RM ran it).
 Event-sourced writes require two DML statements and MUST use `get_connection()`
 as a context manager with an explicit transaction. `execute_command()` (single
-statement only) MUST NOT be used for event-sourced status updates.
+statement only) MUST NOT be used for the event-sourced `job.status` update.
 
-### Article 5 — Generic Stage Review (No HITL Stage Type)
+### Article 5 — Analyst-Gated Progression; No Stored Stage Pointer
 
-Every stage has an execution status lifecycle:
-`not_started → blocked → running → review → complete | canceled`
+"What's next" MUST be re-derived from entity + job state — never a stored
+`current_stage`/`current_step` pointer. Progression happens two ways only:
 
-A per-instance `auto_complete` toggle (compose-time, default `false`) governs
-parking: when a stage's work finishes, `auto_complete=false` parks it in
-`review`; otherwise it completes automatically.
+- **Mechanism A — mechanical follow-up (auto-fires, no human).** On a job's
+  terminal status the poller runs a fixed on-terminal handler keyed by
+  `job_type`: backfill ids, then release a waiting dependent (`prereq_job_id`
+  now `FINISHED`), `BLOCKED` it (prereq `FAILED`), or write a head `rwb_job`; and
+  settle the batch once all its members are terminal.
+- **Mechanism B — analyst-gated (judgment).** Steps needing judgment (which
+  portfolios, which analyses, which settings) MUST NOT auto-run. The UI lights or
+  greys each action from a **pure function of entity state** (the prerequisite
+  gate); the analyst clicks when ready.
 
-- Review means a human reads task output/errors (or, for `blocked`, the
-  validation result) and chooses **Complete** (advances the workflow) or
-  **Cancel** (halts the workflow → `canceled`).
-- Complete-with-errors stays `complete` and MUST be audited.
-- No retry/rerun.
-- `ERROR` overlays any status dynamically; it is never stored and never a gate.
-- The Review queue counts active gates only (`review` + `blocked`).
-- A stage whose execution status is `not_started` is editable (task add/remove/
-  edit), per-stage, even while other stages run concurrently.
+Mechanical follow-up auto-fires; anything requiring judgment waits for a click.
+There is no stage-review parking, no `auto_complete` toggle, and no cancel-halts-
+the-workflow gate — those belonged to the removed engine. Synchronous single ops
+(subportfolio create, treaty CRUD) create no job and never appear in the monitor.
 
 ### Article 6 — Customer Isolation on the Parameterized Path Only
 
@@ -194,9 +231,11 @@ MUST be retained regardless of worker concurrency level.
 
 - The **poller** (`app/poller/run.py`) is a standalone process — never
   imported or called from a route handler.
-- **Dramatiq result workers** consume `result_work_item` rows and perform
-  post-completion actions (retrieve results, push to repositories, notify).
-  They run in a separate worker process, never in the web process.
+- **Dramatiq result workers** consume `rwb_job` rows and perform post-completion
+  actions (retrieve results, push to repositories, notify). They run in a
+  separate worker process, never in the web process. Stale-`running` `rwb_job`
+  rows are recovered by a single-instance reconciler (heartbeat-based, CR-001),
+  not by inline web-layer logic.
 
 **Synchronous IRP job submission on the request path is explicitly permitted.**
 Submit calls (`submit_edm_import_job`, `submit_portfolio_analysis_job`, etc.)
@@ -223,8 +262,10 @@ Behavior MUST be covered by tests across three tiers:
 3. **IRP-connected** — a fake IRP implementing the interface for default CI,
    plus an opt-in `irp`-marked suite against a sandbox IRP.
 
-The following MUST have tests: validators, `apply_scope`, the run/queue state
-machine, and the manifest→projection consistency check.
+The following MUST have tests: validators, `apply_scope`, the `job` / `batch` /
+`rwb_job` state machines, the poller's on-terminal dispatch (release / `BLOCKED` /
+head-`rwb_job`), the prerequisite-gate function, and `rwb_job` idempotency
+(`request_key` claim) + the reconciler decision.
 
 ### Article 13 — Authentication & Secrets
 
@@ -241,11 +282,15 @@ machine, and the manifest→projection consistency check.
 The following documents are the authoritative references for this project. All
 specs, plans, and implementations MUST be consistent with them:
 
+- **DATA_MODEL.md** — canonical entity and relationship definitions (the lean
+  job / batch / rwb_job model).
 - **PRD.md** — product requirements and feature scope.
-- **DATA_MODEL.md** — canonical entity and relationship definitions.
+- **metamodel-design.md / execution-design.md / mvp-scope.md** — the rationale for
+  the lean model (why each table exists; the case against the engine) and the MVP
+  scope boundary. **CR_01__RWB_JOBS.md** — the `rwb_job` decoupling + resilience design.
 - **`mock/`** — runnable clickable mock; the UX reference implementation.
-- **`/db` package** — the implemented data-access layer; Articles 2 and 7 govern
-  its structure.
+- **`/db` package** — the implemented data-access layer; Article 7 governs its
+  structure.
 
 ## Compliance Gates
 
@@ -275,4 +320,4 @@ research begins.
 
 ---
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-06-30
+**Version**: 2.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-01
