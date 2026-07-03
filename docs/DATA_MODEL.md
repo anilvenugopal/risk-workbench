@@ -63,6 +63,9 @@ erDiagram
   app_user ||--o{ audit_log : acts
   app_user ||--o{ submission : "assigned analyst"
   app_user ||--o{ notification_preference : sets
+  submission ||--o{ submission_status_event : logs
+  submission_status_kind ||--o{ submission : "current status"
+  submission_status_kind ||--o{ submission_status_event : records
 
   customer {
     uniqueidentifier id PK
@@ -87,13 +90,26 @@ erDiagram
     uniqueidentifier program_id FK
     uniqueidentifier customer_id FK "denormalized"
     uniqueidentifier assigned_analyst_id FK "app_user"
-    string name
-    string cycle "e.g. 2026Q1; used in auto-naming"
-    string authoring_status "draft/active/complete; plain string"
+    string name "UNIQUE per program_id"
+    string status_code FK "submission_status_kind; cached current"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
     uniqueidentifier updated_by FK
+  }
+  submission_status_kind {
+    string code PK "ACTIVE / COMPLETED / CANCELLED"
+    string label
+    int sort_order
+    datetime inserted_at
+  }
+  submission_status_event {
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    string status_code FK "submission_status_kind"
+    string reason "nullable; free text, mainly for CANCELLED"
+    datetime at
+    uniqueidentifier inserted_by FK "app_user"
   }
   app_user {
     uniqueidentifier id PK
@@ -147,9 +163,14 @@ erDiagram
 ```
 
 **Notes:**
-- `customer.short_code` has a UNIQUE constraint. Used in auto-naming patterns (e.g. `{{ customer.short_code }}-{{ submission.cycle }}-{{ template.region_label }}`).
+- `customer.short_code` has a UNIQUE constraint. Used in auto-naming patterns (exact pattern TBD in Iteration 5 — see correction below on `submission.cycle`).
 - "My submissions" view = `WHERE assigned_analyst_id = current_user.id`.
-- `submission.authoring_status` is a plain string column (not a kind table FK) — it is simple enough that a lookup table adds no value.
+- **`submission.name` is UNIQUE per `program_id`.** Two submissions under the same program cannot share a name. Enforced at the DB level (`UNIQUE(program_id, name)`), not just in the UI.
+- `submission.status_code` is event-sourced per the standard convention (top of this doc): every status change inserts a `submission_status_event` row and stamps `submission.status_code` in the same transaction. Three values only — `ACTIVE`, `COMPLETED`, `CANCELLED`. `COMPLETED → ACTIVE` (reopening) is allowed; there is no system-enforced precondition on any transition — the analyst decides when a submission is done, consistent with "the analyst is always in the driver's seat" (PRD §1.1). **There is no delete.** A submission can carry Risk Modeler assets (EDMs, RDMs) with real IRP-side identity, so removing the row is never safe. `CANCELLED` is the terminal/withdrawal state instead of a delete.
+
+> **Correction (outside Iteration 1/2 scope, but changed here because it directly touches `submission`):** the prior schema had `submission.cycle` ("e.g. 2026Q1; used in auto-naming") and `submission.authoring_status` ("draft/active/complete; plain string"). Both are removed:
+> - **`cycle` is gone.** It described a renewal-cycle concept that doesn't apply to how this team works — broker submissions, not cyclical renewals. It was only ever consumed by the auto-naming pattern example in §11.2 of the PRD, which is Iteration 5 (not yet built) — removing it now has no code impact, only a documentation one. Iteration 5's auto-naming section will need a replacement token set when that iteration is actually planned; this is called out there as an open item, not resolved here.
+> - **`authoring_status` is replaced by `status_code`** (above). The prior three-state guess (`draft/active/complete`) assumed a workflow-authoring lifecycle that no longer applies now that Workflow/Stage/Task is being redesigned separately (out of scope for this update). The new `ACTIVE/COMPLETED/CANCELLED` vocabulary describes the submission itself — is the analyst still working it — independent of whatever job/workflow machinery eventually runs underneath it.
 
 ---
 
@@ -167,6 +188,9 @@ erDiagram
   discrepancy_severity_kind ||--o{ discrepancy : grades
   file_artifact ||--o| edm : "source for"
   file_artifact ||--o| rdm : "source for"
+  ignore_rule_scope_kind ||--o{ ignore_rule : scopes
+  customer ||--o{ ignore_rule : "scoped to (nullable)"
+  submission ||--o{ ignore_rule : "scoped to (nullable)"
 
   submission_directory {
     uniqueidentifier id PK
@@ -231,6 +255,25 @@ erDiagram
     int sort_order
     datetime inserted_at
   }
+  ignore_rule {
+    uniqueidentifier id PK
+    string scope_code FK "ignore_rule_scope_kind: global / customer / submission"
+    uniqueidentifier customer_id FK "nullable; set only when scope_code=customer"
+    uniqueidentifier submission_id FK "nullable; set only when scope_code=submission"
+    string pattern "gitignore-style glob; may start with ! for negation"
+    int position "evaluation order within a scope level"
+    bool is_active
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  ignore_rule_scope_kind {
+    string code PK "global / customer / submission"
+    string label
+    int sort_order
+    datetime inserted_at
+  }
 ```
 
 **`file_artifact` identity triple:** `UNIQUE(submission_id, relative_path, size_bytes, fs_modified_at)`. A file is considered a new version when any of these four values differs from all existing rows for the same `(submission_id, relative_path)`. The UNIQUE constraint prevents duplicate rows if the scanner runs twice before a status flip. Note: `submission_id` is included because the same relative path can appear in different submissions.
@@ -240,6 +283,13 @@ erDiagram
 - User can edit this name at any time.
 - When a file is tagged as `edm` or `rdm` (on tag action), and when `name` is changed: the app calls `client.edm.search_edms()` / `client.rdm.search_rdms()` to check whether that name already exists in IRP. If it does, the user is warned before proceeding. This check is non-blocking (user can override) but is always performed.
 - `file_artifact.name` becomes the initial `edm.name` or `rdm.name` when the EDM/RDM entity is created from this artifact.
+
+**`ignore_rule` (new — visibility ruleset, PRD §8.7):**
+- Admin-authored at application level (`scope_code = global`). Optionally overridden per customer (`scope_code = customer`, `customer_id` set) or per submission (`scope_code = submission`, `submission_id` set).
+- **Cascade is cumulative, not replacing:** when the reconciliation scanner (§8.3) evaluates a discovered file, it applies `global` patterns, then `customer` patterns for that file's customer, then `submission` patterns for that file's submission, in that order — same evaluation model as nested `.gitignore` files. A pattern prefixed with `!` negates (un-ignores) a match from an earlier, broader level. The last matching pattern across all three levels wins, standard gitignore semantics.
+- A matched, non-negated file is excluded from becoming a `file_artifact` row at scan time — it never enters the inventory at all (not a hidden/soft-deleted row; it's simply never inserted).
+- `position` orders rules within one scope level (e.g. all `global` rules), since negation order matters within a level, not just across levels.
+- Matching uses standard gitignore glob semantics (`*`, `**`, directory anchors, `!negation`) — implemented via a library (e.g. `pathspec`), not hand-rolled.
 
 ---
 
@@ -261,7 +311,7 @@ erDiagram
     string name "IRP EDM name; initialized from file_artifact.name"
     int irp_exposure_id "nullable; backfilled by poller on import completion"
     string server_name "IRP DataBridge server"
-    string status "pending_import / importing / ready / error / deleted; plain string"
+    string status "pending_import / importing / ready / error / delete_pending / deleted; plain string"
     datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
@@ -275,7 +325,7 @@ erDiagram
     uniqueidentifier source_artifact_id FK "nullable"
     string name "IRP RDM name; initialized from file_artifact.name"
     int irp_id "nullable; backfilled by poller on import completion"
-    string status "pending_import / importing / ready / error; plain string"
+    string status "pending_import / importing / ready / error / delete_pending / deleted; plain string"
     datetime deleted_at "nullable"
     datetime inserted_at
     datetime updated_at
@@ -305,6 +355,40 @@ erDiagram
 - `name` is the portfolio name as it exists in IRP (e.g. `All Accounts`, `EQ Only`).
 - `irp_portfolio_id` is written **synchronously on the request path** — `create_portfolio()` returns `(portfolio_id, request_body)` immediately (IRP responds with HTTP 201 + Location header). The service writes `irp_portfolio_id` in the same transaction as the `irp_portfolio` insert. The poller is not involved.
 - Analyst picks a portfolio from a dropdown (populated from this table filtered by `edm_id`) when configuring an analysis task.
+
+---
+
+## 3a. Package (new — PRD §9.4)
+
+A **package** is an EDM/RDM pairing — the unit an analyst saves and syncs to Risk Modeler together. Most packages pair one EDM with one RDM, but either side may be absent (EDM-only or RDM-only packages are valid).
+
+```mermaid
+erDiagram
+  submission ||--o{ package : has
+  edm ||--o| package : "paired in (nullable)"
+  rdm ||--o| package : "paired in (nullable)"
+
+  package {
+    uniqueidentifier id PK
+    uniqueidentifier submission_id FK
+    uniqueidentifier customer_id FK "denorm"
+    uniqueidentifier edm_id FK "nullable"
+    uniqueidentifier rdm_id FK "nullable"
+    datetime deleted_at "nullable; soft delete"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+```
+
+**`package` has no independent status column.** This is a deliberate departure from the event-sourced-status convention used elsewhere in this doc. A package is a join between an EDM and an RDM, and each of those already carries its own `status` (`pending_import / importing / ready / error / delete_pending / deleted`) plus its own IRP jobs with their own job status. Rolling those up into a third, package-level status would create a value that has to be kept in sync with two independently-changing sources of truth for no real benefit. The UI reads and displays the EDM's status and the RDM's status side by side inside the package card — it never computes or caches an aggregate.
+
+**Package actions:**
+- **Cancel** — discard the in-progress modal; no DB write.
+- **Save** — persists `package` (and the `edm`/`rdm` name fields, if edited) with `status` left at whatever the EDM/RDM already had (typically `pending_import` for newly tagged artifacts). The IRP name-collision check (`client.edm.search_edms()` / `client.rdm.search_rdms()`, same non-blocking-warning pattern as `file_artifact.name` in §2) runs on every Save where a name was entered or changed. No job is submitted.
+- **Save and Sync** — Save, then enqueues stub `rwb_job` row(s) per PRD §9.4. **EDM and RDM sync are separate `rwb_job` rows, sequenced, not one combined job** — Risk Modeler requires the EDM to exist before an RDM can be linked to it. If the package has an EDM: enqueue `edm_upload` first. If it also has an RDM: `rdm_upload` is created as a **chained tail job** (`origin=chained`, `request_key=chain:{edm_upload_job_id}:rdm_upload`) once `edm_upload` succeeds — it is never enqueued up front, so it cannot race ahead of the EDM job. An RDM-only package (no EDM) enqueues `rdm_upload` directly as a head job. **This iteration's stubs do no real IRP work** — each claims, heartbeats every `RWB_HEARTBEAT_INTERVAL_SECS` for 60 seconds, then succeeds. They exist to prove the `rwb_job` claim/heartbeat/chaining/completion plumbing end-to-end before real IRP import calls are wired in a later iteration.
+- **Delete** — enqueues stub `rwb_job` row(s), **in the reverse order of sync**, because Risk Modeler requires unlinking the RDM before its linked EDM can be deleted. If the package has an RDM: `rdm_delete` runs first (head job); on success it soft-deletes the `rdm` row and, if the package also has an EDM, creates `edm_delete` as a chained tail job. If the package has no RDM (EDM-only), `edm_delete` is enqueued directly as a head job. Once the last delete job in the chain succeeds, the `package` row itself is stamped `deleted_at` (soft delete — kept for audit, consistent with the no-hard-delete stance taken for `submission`). In a later iteration, the real version of these workers will call the actual IRP EDM/RDM delete endpoints before soft-deleting the local rows.
 
 ---
 
@@ -760,8 +844,14 @@ erDiagram
 | `push_exposure_summary` | Poller on explicit analyst request (`origin=analyst_request`) | — |
 | `notify_analyst` | Poller on any terminal status | — |
 | `download_export_file` | Poller on `FINISHED` for export job | — |
+| `edm_upload` | Request path on "Save and Sync", when package has an EDM (`origin=analyst_request`) — **stubbed this iteration**: 60s heartbeat-only sleep, no real IRP call (§3a) | **TBD — see note below** |
+| `rdm_upload` | Request path on "Save and Sync" if RDM-only (`origin=analyst_request`); if package has both EDM and RDM, **when/how this is triggered is TBD** (§3a) | — |
+| `rdm_delete` | Request path on package "Delete", when package has an RDM (`origin=analyst_request`) — **stubbed**: 60s heartbeat-only sleep; on success soft-deletes `rdm` (§3a) | **TBD — see note below** |
+| `edm_delete` | Request path on package "Delete" if EDM-only (`origin=analyst_request`); if package has both, **when/how this is triggered is TBD** (§3a) | — |
 
 **RWB job chaining:** The poller writes only **head** rows. Workers create tail rows on success via idempotent insert on the chained `request_key`. `push_results_to_loss_repo` is never created by the poller — it is created by the `retrieve_analysis_results` worker after it successfully writes Parquet files. If `retrieve_analysis_results` fails after all Dramatiq retries, the chain stops there; `push_results_to_loss_repo` is never enqueued.
+
+> **Open design question — package job chaining (TBD, do not implement until resolved):** the existing chaining pattern above ("worker succeeds → worker creates the next `rwb_job`") assumes the whole chain lives inside RWB-job-space. Package sync doesn't fit that shape: `edm_upload` is an RWB job, but it needs to kick off a real **IRP job** (EDM import), and it is the **poller noticing that IRP job reach a terminal status** that needs to trigger `rdm_upload` — same problem in reverse for `rdm_delete` → `edm_delete`. That crosses from RWB-job space into IRP-job space and back, which today's mechanism doesn't cover. One proposed shape: an on-completion / on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic and only the hook carries package-specific logic. **Not decided yet — flagged for a follow-up design discussion before this is built**, this iteration's stub jobs do not need it since they never call real IRP.
 
 **Submission flow:** request path calls IRP API → on success writes `irp_job` with `external_ref` set, `resource_uri` set, `mirrored_status='QUEUED'`, `submission_attempt_count=1` → on failure writes `irp_job` with `external_ref=null`, `resource_uri=null`, `mirrored_status='submission_failed'`, `submission_attempt_count=1` → `submission_retry` actor claims with atomic UPDATE and retries up to `IRP_SUBMISSION_MAX_RETRIES` (default 3).
 
@@ -1070,6 +1160,8 @@ erDiagram
 | Kind table | Seeds |
 |---|---|
 | `role_kind` | `analyst`, `admin` (at minimum; codes confirmed with team). `admin` has `is_admin=true`. |
+| `submission_status_kind` | `ACTIVE`, `COMPLETED`, `CANCELLED` — exactly these three (§1) |
+| `ignore_rule_scope_kind` | `global`, `customer`, `submission` (§2) |
 | `artifact_source_kind` | `shared_drive`, `upload`, `workflow_output` |
 | `artifact_status_kind` | `present`, `changed`, `missing` |
 | `artifact_tag_kind` | `edm`, `rdm` — exactly these two |
@@ -1087,11 +1179,13 @@ erDiagram
 | `delivery_kind` | `file`, `sql` |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed` |
 
-**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `rwb_job.work_type`, `rwb_job.origin`, `task_instance.task_type`, `edm.status`, `rdm.status`, `submission.authoring_status`, `validation_run.status`.
+**Not kind tables (plain string columns):** `irp_job.job_type`, `irp_job.mirrored_status`, `rwb_job.work_type`, `rwb_job.origin`, `task_instance.task_type`, `edm.status`, `rdm.status`, `validation_run.status`.
+
+> **Correction:** `submission.authoring_status` no longer exists — it was removed and replaced by `submission.status_code`, a proper kind-table FK (`submission_status_kind`; see §1 and the checklist row above), not a plain string. This is the one status field in the workbench that moved *into* a kind table rather than staying a plain string, because unlike `edm.status`/`rdm.status` (which mirror an external IRP-controlled vocabulary that can drift) `submission` status is fully app-owned with a fixed, small, closed set of values — exactly the case kind tables are for.
 
 **`workflow_execution_status_kind` — `failed` seed note:** `failed` is seeded as a valid status code but there is no defined state transition that puts a workflow into `failed` — workflows reach `canceled` when any stage is canceled, and individual task failures are surfaced via the `ERROR` dynamic overlay, not a workflow-level `failed` status. Remove `failed` from this kind table unless a specific transition is defined for it. Keeping an unreachable seed creates confusion. **Decision needed:** define the transition or remove the seed.
 
-**`rwb_job.work_type` values (plain string — not a kind table):** `backfill_edm`, `backfill_rdm`, `retrieve_analysis_results`, `push_results_to_loss_repo`, `push_rdm_to_loss_repo`, `push_exposure_summary`, `notify_analyst`, `download_export_file`. Document these in code (worker registry), not in the DB.
+**`rwb_job.work_type` values (plain string — not a kind table):** `backfill_edm`, `backfill_rdm`, `retrieve_analysis_results`, `push_results_to_loss_repo`, `push_rdm_to_loss_repo`, `push_exposure_summary`, `notify_analyst`, `download_export_file`, `edm_upload`, `rdm_upload`, `rdm_delete`, `edm_delete`. Document these in code (worker registry), not in the DB.
 
 **`rwb_job.origin` values (plain string):** `irp_completion`, `analyst_request`, `chained`. For observability and debugging; the reconciler does not branch on `origin`.
 
@@ -1109,3 +1203,34 @@ erDiagram
 - `irp_reference_cache` staleness: manual "Sync IRP Metadata" only, or TTL-based warning if cache older than N days?
 - Whether `analysis_result_meta` should carry a FK to `irp_portfolio` (to know which portfolio the result was run against) or whether `task_input` lineage is sufficient.
 - Nested directory paths across submissions: `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions — accepted v1 limitation.
+
+---
+
+## Change log
+
+### 2026-07-02 — Pre-Iteration 2 planning: customer seeding, submission, ignore rules, Package
+
+Companion entry to `PRD.md` §24 — schema-level detail for the same change. See there for the full feature rationale; this entry covers what moved at the table level.
+
+**§1 Auth & business spine**
+- `submission.cycle` removed.
+- `submission.authoring_status` (plain string) removed → `submission.status_code` (FK to new `submission_status_kind`: `ACTIVE` / `COMPLETED` / `CANCELLED`) + new `submission_status_event` table, following the standard event-sourced-status convention used elsewhere in this doc.
+- `submission.name` documented as `UNIQUE(program_id, name)`.
+- This is the one status field in the workbench that *moved into* a kind table rather than staying a plain string — called out explicitly in §13, since `edm.status`/`rdm.status` stay plain strings (they mirror an external, IRP-controlled vocabulary that can drift) while `submission` status is fully app-owned and closed.
+
+**§2 File inventory**
+- New `ignore_rule` + `ignore_rule_scope_kind` tables. Scope levels `global` / `customer` / `submission`, cumulative cascade (not replacement), `position` orders rules within a level, `!`-prefixed patterns negate.
+
+**§3 EDM & RDM entities**
+- `edm.status` / `rdm.status` vocabulary extended with `delete_pending` (both tables), needed for Package delete sequencing.
+
+**§3a (new section) Package**
+- New `package` table: `submission_id`, `customer_id` (denorm), `edm_id` (nullable), `rdm_id` (nullable), `deleted_at` (soft delete). Deliberately **no status column** — see rationale inline in §3a.
+- New `rwb_job.work_type` values: `edm_upload`, `rdm_upload`, `rdm_delete`, `edm_delete` — four separate, ordered work types rather than one combined `package_sync`/`package_delete`, because Risk Modeler requires the EDM to exist before an RDM can link to it (and the reverse on teardown). This correction was made after an initial draft used two combined work types and was caught as wrong before being finalized.
+- All four are heartbeat-only stubs this iteration (60s sleep, no real IRP call) — real implementation lands in Iteration 3.
+- **Left open, not resolved:** how a stub (and later, real) `edm_upload` RWB job triggers the chained `rdm_upload` once the *IRP* job it submits reaches a terminal status. The existing "worker succeeds → worker creates next `rwb_job`" chaining pattern doesn't cover this, since the trigger here is the **poller** observing IRP job completion, not RWB worker success. Flagged inline in §3a and cross-referenced from PRD.md §22 (A21) for a dedicated design pass before Iteration 3.
+
+**Checklist / vocabulary tables updated for consistency**
+- §13 kind-table seed checklist: added `submission_status_kind`, `ignore_rule_scope_kind`.
+- §13 "not kind tables" list: removed stale `submission.authoring_status` reference.
+- `rwb_job.work_type` plain-value list: added the four package work types.

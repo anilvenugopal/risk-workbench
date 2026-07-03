@@ -166,7 +166,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context (customer short-code, program, cycle, region/peril tag from the template). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite.
+Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context (customer short-code, program, submission name, region/peril tag from the template — **not cycle**; `submission.cycle` was removed, §7.2b). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 5 (analysis templates) is planned.
 
 ---
 
@@ -460,22 +460,67 @@ Admin rail destination maintains users, roles, and `user_customer_access`. Build
 
 ### 7.1 Business hierarchy
 
-**Customer → Program → Submission**. A Submission anchors all work: directories, file artifacts, EDMs, RDMs, workflows, jobs, and results. Every major entity carries `customer_id` (denormalized, immutable) for RLS.
+**Customer → Program → Submission**. A Submission anchors all work: directories, file artifacts, EDMs, RDMs, and jobs. Every major entity carries `customer_id` (denormalized, immutable) for RLS.
+
+### 7.1a Customer seeding
+
+`customer` rows are seeded from an admin-provided CSV, not created one-by-one through the UI. `python -m app.cli seed-customers <path.csv>` **upserts by `short_code`** (the existing `UNIQUE` constraint — DATA_MODEL.md §1): a row present in the CSV inserts if new or updates if it already exists by short code. **A customer row is never deleted by the seeder**, even if a previously-seeded short code is absent from a later CSV — `customer_id` is denormalized onto nearly every entity in the system, so a delete-on-sync seeder would be a standing data-loss risk. Removing a customer, if ever needed, is a separate, deliberate admin action outside this tool. Idempotent — safe to re-run the same CSV repeatedly.
 
 ### 7.2 Submission
 
-The analyst's unit of work. Fields: `id`, `name`, `customer_id` (denorm), `program_id`, `assigned_analyst_id`, `authoring_status`, `created_at`.
+The analyst's unit of work. Fields: `id`, `name`, `customer_id` (denorm), `program_id`, `assigned_analyst_id`, `status_code`, `created_at`.
 
 A submission has:
 - Zero or more **directories** (shared-drive paths) → file inventory
 - Zero or more **file artifacts** (tagged EDM/RDM files found in directories, or uploads)
+- Zero or more **packages** (EDM/RDM pairs — §9.4)
 - Zero or more **EDM records** (IRP exposure databases, tracked separately from the artifact file)
 - Zero or more **RDM records** (IRP results databases from broker, tracked separately)
-- Zero or more **workflows** (analysis pipelines)
+
+> **Correction — this section previously also listed "workflows" here and referenced `authoring_status`.** Both are changed as part of this update, for reasons unrelated to file inventory/domain-model work (Iterations 1–2), so they're called out explicitly:
+> - **Workflows removed from this list.** The Workflow/Stage/Task layer (§12–14) is being redesigned separately, in favor of a simpler model built directly on IRP Jobs and RWB Jobs. That redesign is out of scope here — this PRD update does not touch §12–14 — but Submission's own field list should not keep advertising a relationship to a layer that is actively being replaced.
+> - **`authoring_status` → `status_code`, and the vocabulary changed.** See §7.2a below.
+
+### 7.2a Submission status
+
+Three values only, event-sourced (insert `submission_status_event` + stamp cached `submission.status_code`, in one transaction, per the standard convention):
+
+| Status | Meaning |
+|---|---|
+| `ACTIVE` | Open — the analyst can work on it: add directories, tag artifacts, create/sync/delete packages. |
+| `COMPLETED` | Closed for tracking purposes. No further action is possible on the submission while in this state. |
+| `CANCELLED` | Withdrawn. Terminal state for a submission the analyst is no longer pursuing. |
+
+Rules:
+- **`COMPLETED → ACTIVE` (reopening) is allowed** — set it back to `ACTIVE` and work resumes. There is no one-way door between these two.
+- **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn — consistent with §1.1 ("the analyst is always in the driver's seat"). The system does not block `ACTIVE → COMPLETED` because, say, a package hasn't synced yet.
+- **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
+
+This replaces the prior `authoring_status` field, whose three-value guess (`draft`/`active`/`complete`) assumed a workflow-authoring lifecycle. `submission.status_code` describes the submission itself, independent of whatever job or workflow machinery runs underneath it.
+
+### 7.2b Submission name uniqueness
+
+`submission.name` is **unique per `program_id`** (`UNIQUE(program_id, name)`, enforced at the DB level, not just client-side). Two submissions cannot share a name under the same Program — this guards against an analyst accidentally re-creating a submission that already exists for a given broker/program during peak season.
+
+> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just submissions. It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 5, not yet built), so removing it now is a documentation-only change. **Open item for Iteration 5:** the auto-naming pattern needs a replacement token set once that iteration is actually planned — likely `customer.short_code` + `submission.name`, but not decided here.
 
 ### 7.3 Submission UI
 
-Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, customer/program filter) + detail panel. List ergonomics per §15.4. Status badges surface active job counts and review queue depth per submission.
+Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, customer/program filter) + detail panel. List ergonomics per §20.4. Status badges surface active job counts and review queue depth per submission.
+
+### 7.4 Submission detail — package cards (new)
+
+The submission detail panel shows one **full-width card per package** (§9.4) — deliberately not a compact grid, since a package's EDM side and RDM side each carry enough independent state (status, jobs, portfolio summary, analysis counts) to need real layout room rather than being squeezed into a small tile. Each card displays:
+- **Upload progress** — stubbed at `Not Started` for now (real progress requires the real IRP import calls this iteration's stub jobs don't make yet).
+- **Status** — stubbed at `Pending Upload`.
+- **Local file name** — the source `file_artifact` filename(s) behind the package's EDM/RDM.
+- **Portfolio summary** — empty for now (populated once Portfolio Creation exists — later iteration).
+- **Analysis counts** — empty for now (populated once analysis execution exists — later iteration).
+- **IRP Jobs and RWB Jobs counts** — all / active / failed, scoped to this package's EDM and RDM.
+
+**Card title click** (EDM name or RDM name) → navigates to that EDM's or RDM's detail page. **Not built this iteration** — the route is reserved so the link target exists, but the detail page itself is out of scope until EDM/RDM entity management is built out further.
+
+**Job count click** → navigates to the IRP Jobs or RWB Jobs list, pre-filtered to this customer + submission (and package, once job-to-package linkage exists). See §20.4 for how pre-applied filters work — this is the first real consumer of that mechanism.
 
 ---
 
@@ -507,6 +552,16 @@ Raised when a tracked file changes or goes missing. Severity escalates if the ar
 
 Upload artifacts use `source=upload`, stored under a server-managed upload location (not the read-only broker mount). Uploads are immutable by nature.
 
+### 8.7 Ignore ruleset (new)
+
+An admin-managed, gitignore-style ruleset controls which discovered files the reconciliation scanner (§8.3) turns into `file_artifact` rows at all — a way to keep broker-folder noise (`*.tmp`, `~$*`, `.DS_Store`, scratch files) out of the inventory rather than surfacing it as clutter to tag or dismiss.
+
+- **Three scope levels: global, customer, submission.** Global rules are admin-authored at the application level and apply everywhere. Customer-level and submission-level rules are optional overrides layered on top for a specific customer or specific submission.
+- **Cascade is cumulative, not a replacement.** All applicable levels' patterns apply together — global, then customer, then submission, in that order — the same model real `.gitignore` files use when nested in subdirectories. A pattern prefixed with `!` negates (un-ignores) a match made by a broader level; the more specific level can carve out an exception, but it can't silently drop the global admin default by simply not repeating it.
+- A file matched by a non-negated pattern is excluded from the inventory at scan time — it's never inserted as a `file_artifact` row, not hidden or soft-deleted after the fact.
+- Standard glob semantics (`*`, `**`, directory anchors, `!negation`), implemented with an existing library rather than hand-rolled matching.
+- Schema: DATA_MODEL.md §2 (`ignore_rule`, `ignore_rule_scope_kind`).
+
 ---
 
 ## 9. Feature: EDM & RDM entity management
@@ -517,7 +572,7 @@ An **EDM record** (`edm` table) is distinct from the file artifact that produced
 - `name` — the EDM name in IRP (auto-generated from submission context per §2.6, editable)
 - `irp_exposure_id` — IRP's integer exposureId (backfilled on import completion)
 - `submission_id`, `customer_id` (denorm)
-- `status` — `pending_import`, `importing`, `ready`, `error`, `deleted`
+- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted`
 - `source_artifact_id` FK — the file artifact used for import (nullable for EDMs created fresh in IRP)
 - `server_name` — the DataBridge server the EDM lives on
 - Soft-delete via `deleted_at`
@@ -536,7 +591,7 @@ An **RDM record** (`rdm` table) tracks a broker-supplied results database in IRP
 - `name` — the RDM name in IRP
 - `irp_id` — IRP's integer id (backfilled on import completion)
 - `submission_id`, `customer_id` (denorm)
-- `status` — `pending_import`, `importing`, `ready`, `error`
+- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted`
 - `source_artifact_id` FK — the .bak file used for import
 - Soft-delete via `deleted_at`
 
@@ -552,6 +607,26 @@ Rail destinations under "Moody's IRP" that show all EDMs / RDMs across submissio
 - Viewing import job status
 - Linking an already-in-IRP EDM to a submission (without re-import)
 - Triggering DataBridge validation and profiling (§10)
+
+### 9.4 Package (new)
+
+A **package** is the pairing of an EDM and an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one EDM and more than one RDM — a package is how the analyst declares which EDM goes with which RDM. Most packages pair one EDM with one RDM; either side may be absent (EDM-only or RDM-only packages are valid — not every submission has both).
+
+**Creation flow:** the analyst tags one or two `file_artifact` rows as `edm`/`rdm` (§8.4) and creates a package from them, typically via a modal (chosen over a full page — a package is a lightweight join plus two name fields and a status display, not enough surface area to justify dedicated navigation and breadcrumb machinery).
+
+**Name-collision check.** EDM and RDM names must not be duplicated on Risk Modeler. Whenever the analyst tags an artifact as EDM/RDM or edits its name inside the package modal, the app checks the proposed name against Risk Modeler (`client.edm.search_edms()` / `client.rdm.search_rdms()`) — the same check and same non-blocking warning pattern already specified for artifact tagging in §8.4/DATA_MODEL.md §2. A collision highlights the name field as an error (existing CSS error state), but does not block Save — the analyst can override and proceed, or rename.
+
+**Actions — Cancel / Save / Save and Sync:**
+- **Cancel** — discard, no write.
+- **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
+- **Save and Sync** — Save, then queues the EDM/RDM for import. **This iteration stubs the sync work** — it creates real `rwb_job` row(s) with the real claim/heartbeat/completion lifecycle (§14.5), but the stub does nothing except wait 60 seconds while sending heartbeats, then succeed. No real IRP call is made yet. This proves the queue plumbing end-to-end ahead of wiring actual EDM/RDM import calls in a later iteration. **EDM/RDM ordering when syncing a package with both:** Risk Modeler requires the EDM to exist before an RDM can be linked to it, so the EDM-side job runs first and the RDM-side job only starts after it succeeds — see DATA_MODEL.md §3a for the exact job sequencing, and note the open TBD there on how an IRP-job completion triggers the next RWB job (flagged for a separate design discussion, not resolved in this pass).
+- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **Reverse order from sync:** the RDM side is torn down before the EDM it's linked to, since Risk Modeler requires unlinking the RDM first.
+
+**No independent package status.** Unlike Submission, a package does not get its own status field or an aggregated rollup of its EDM/RDM statuses. The EDM already has a status (`pending_import`/`importing`/`ready`/`error`/`delete_pending`/`deleted`) and so does the RDM, and each has its own IRP jobs with their own job status. A package-level status would just be a third value that has to be kept in sync with two independently-changing sources of truth, for no benefit — the UI shows the EDM's status chip and the RDM's status chip side by side inside the package card instead.
+
+**Surfacing on the inventory (§8):** the inventory shows a package badge on the source `file_artifact` row when that artifact belongs to a package, rather than duplicating package data onto the artifact record.
+
+Schema: DATA_MODEL.md §3a.
 
 ---
 
@@ -607,7 +682,7 @@ A saved configuration for a single analysis job. Stored in the Metamodel DB as `
 - `tag_names` — list of IRP tags to apply
 - `currency_code`
 - `region_label`, `peril_code` — metadata for display and grouping
-- `auto_name_pattern` — Jinja-style template string for auto-generating the analysis job name, e.g., `{{ customer_code }}-{{ cycle }}-{{ region }}-{{ peril }}`
+- `auto_name_pattern` — Jinja-style template string for auto-generating the analysis job name. **Example pattern uses `cycle`, which no longer exists** (`submission.cycle` was removed — see §7.2b); the token set for this pattern is an open item to resolve when Iteration 5 is actually planned, likely built from `customer_code` + `submission.name` + `region` + `peril` instead.
 - `franchise_deductible` (bool), `min_loss_threshold`, `num_max_loss_event`
 
 ### 11.3 Template suite
@@ -1055,6 +1130,14 @@ Consistent HTMX-aware 403/404/500 responses (fragment-safe; `HX-Redirect` where 
 
 Reusable server-side pagination, filtering, sorting. One pattern, reused everywhere.
 
+**Filter state lives in the URL query string — never in server session state or a client store.** This extends the same principle §4.3 already establishes for breadcrumbs ("a pure function of the manifest position, never of navigation history") to filtered lists: a filtered list's state is a pure function of its URL's query string. A filterable list page (Jobs, EDMs, RDMs, Results, …) reads its active filters from `request.query_params` on every request — full load or `hx-boost`'d partial swap, same code path — and renders active-filter chips so the user can see and clear what's applied.
+
+**This is also the mechanism for cross-page "pre-applied filter" navigation** (e.g. clicking a job count on a Submission package card, §7.4, to land on the Jobs list pre-filtered to that customer/submission). A link like `<a href="/jobs?submission_id={{ id }}&status=failed" hx-boost>` needs no new component and no duplicate "filtered jobs" view — it's the exact same Jobs list template, just with query params already set. `hx-boost` + `hx-push-url` (already the standing navigation pattern, §4.3) keeps the address bar honest automatically, so refresh, deep-link, bookmark, and back/forward all behave correctly for free — the alternative (stashing "the filter I arrived with" in server session state with no URL param) would break exactly those four things, silently.
+
+**Fixed filter-param vocabulary.** To keep this "one pattern, reused everywhere" rather than each list inventing its own param names, a small starting set of query params is shared across all filterable lists: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`. Each list accepts whichever subset applies to it and ignores the rest — the Jobs list uses all five; the EDM library might use only `customer_id` + `submission_id` + `status`. The set can grow (a param or two, added as new filterable lists need them), but starts here rather than being designed fresh per page.
+
+**`status` means something different on every list — this is expected, not a conflict.** Submission status (`ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a), job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`; `irp_job.mirrored_status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
+
 ### 20.5 Master-detail layout
 
 List + detail panel recurs (Submissions, Workflows, Results). Built once as a reusable layout.
@@ -1107,23 +1190,38 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 1 — Domain, file inventory & RLS
 
-**In:** §7 (Customer/Program/Submission, assigned analyst, master-detail, list ergonomics), §8 (directory association, immutable artifacts, scanner, tagging, discrepancies, upload storage), §6.2 (customer-access scoping: `user_customer_access`, `apply_scope()` on Submission list, admin bypass), §6.3 (analyst-centric "my submissions" filter), §6.4 (customer access admin UI — assign/revoke customer access per user).
+> **Restructuring note:** previously this iteration and Iteration 2 both listed the same §7/§8 scope (Customer/Program/Submission, file inventory) as "In," differing only in RLS vs. search framework — a near-duplicate that's now resolved by keeping domain-model/file-inventory/RLS here in Iteration 1, and moving everything else (search framework, plus the new scope from this PRD update) into Iteration 2. Numbering elsewhere is unchanged.
 
-**Out:** EDM/RDM entities, search, workflow references.
+**In:**
+- §7.1a (customer CSV seeding, upsert-by-`short_code`, no delete-on-sync)
+- §7 (Customer/Program/Submission, assigned analyst, master-detail, list ergonomics)
+- §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced, no delete)
+- §7.2b (submission name uniqueness per program)
+- §8 (directory association, immutable artifacts, scanner, tagging, discrepancies, upload storage)
+- §6.2 (customer-access scoping: `user_customer_access`, `apply_scope()` on Submission list, admin bypass)
+- §6.3 (analyst-centric "my submissions" filter)
+- §6.4 (customer access admin UI — assign/revoke customer access per user)
 
-**Exit:** browse customer-scoped submissions with "my" filter; associate a directory, scan, tag EDM/RDM, detect a discrepancy; admin assigns customer access to a user and the scope takes effect immediately on next request.
+**Out:** EDM/RDM entities, search, workflow references, Package (§9.4 — moved to Iteration 2, since it needs the search-framework iteration's query-string filtering, §20.4, for its job-count links).
 
-### Iteration 2 — Domain, file inventory & search framework
+**Exit:** browse customer-scoped submissions with "my" filter; associate a directory, scan, tag EDM/RDM, detect a discrepancy; seed customers from a CSV; set a submission's status and confirm `COMPLETED` blocks further action while `ACTIVE` allows it, and reopening (`COMPLETED → ACTIVE`) works; admin assigns customer access to a user and the scope takes effect immediately on next request.
 
-**In:** §7 (Customer/Program/Submission, assigned analyst, master-detail, list ergonomics), §8 (directory association, immutable artifacts, scanner, tagging, discrepancies, upload storage), §19 search framework + navigation + submission providers.
+### Iteration 2 — Domain, file inventory, search framework & packages
 
-**Out:** EDM/RDM entities, workflow references.
+**In:**
+- §19 search framework + navigation + submission providers
+- §20.4 query-string-driven filtering (the fixed filter-param vocabulary: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`)
+- §8.7 (admin-managed gitignore-style ignore ruleset: global/customer/submission, cumulative cascade)
+- §9.4 (Package: EDM/RDM pairing, IRP name-collision check, Save/Save-and-Sync/Delete actions with stubbed `rwb_job` rows)
+- §7.4 (submission detail package cards — stubbed upload progress/status/job counts)
 
-**Exit:** browse scoped submissions with "my" filter; associate a directory, scan, tag EDM/RDM, detect a discrepancy; Ctrl/Cmd-J finds nav and submissions.
+**Out:** EDM/RDM entity management beyond what Package needs (full EDM/RDM library pages, real IRP import calls — Package's sync/delete jobs are stubs this iteration), workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately).
+
+**Exit:** Ctrl/Cmd-J finds nav and submissions; admin authors a global ignore rule and a customer- or submission-level override, and the scanner respects the cumulative cascade; create a package from a tagged EDM/RDM pair, see the IRP name-collision warning, Save/Save-and-Sync/Delete each produce a stub `rwb_job` that heartbeats for 60 seconds and completes, with EDM-before-RDM ordering on sync and RDM-before-EDM ordering on delete; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
 
 ### Iteration 3 — EDM & RDM entity management
 
-**In:** §9 (EDM entity, RDM entity, EDM/RDM library rail destinations), §14.3 IRP submit for EDM create/import/upgrade/delete and RDM import, §14.4 poller (basic: poll workflow + risk_data_job types), §14.5 Dramatiq worker scaffold + `notify_analyst` worker, §18 notifications.
+**In:** §9 (EDM entity, RDM entity, EDM/RDM library rail destinations), §14.3 IRP submit for EDM create/import/upgrade/delete and RDM import, §14.4 poller (basic: poll workflow + risk_data_job types), §14.5 Dramatiq worker scaffold + `notify_analyst` worker, §18 notifications. **This is where Package's `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` jobs (§9.4, Iteration 2) go from 60-second heartbeat stubs to real IRP calls** — the job rows and UI built in Iteration 2 don't change shape, only what the worker does inside them.
 
 **Out:** analysis, grouping, results, repositories.
 
@@ -1194,6 +1292,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A18 — `customer_id` denormalization drift.** Set once at creation from the parent chain, never user-editable. Immutable (§2.1).
 - **A19 — Loss Repository schema ownership.** The workbench has write-only access to specific tables. Schema is defined and versioned separately (not by Alembic). Breaking schema changes in the Loss Repository require coordination. Mitigated by: write through a thin adapter layer in the Dramatiq worker; the adapter is the single point to update on Loss Repository schema changes.
 - **A20 — Analyst submits 150 analysis jobs; IRP rate-limits.** Resolution: irp-integration has built-in retry (5 attempts, exponential backoff). The batch-submit method handles the loop. Do not add another retry layer. The poller polls at an interval; no thundering-herd problem.
+- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and the reverse for `rdm_delete` → `edm_delete`). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 3 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
 
 ---
 
@@ -1250,3 +1349,37 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Teams webhook URL** — for notifications.
 - **Icon SVG source set** committed to `static/icons/`.
 - **SQL Server Express** on WSL2 / Docker Desktop for local dev.
+
+---
+
+## 24. Change log
+
+### 2026-07-02 — Pre-Iteration 2 planning: customer seeding, submission, ignore rules, Package
+
+Scope: preparation for Iteration 2 ("Domain, file inventory & search framework"). Full design discussion preserved in the originating conversation; summary below.
+
+**Iteration structure**
+- Iteration 1 and Iteration 2 previously listed near-identical "In" scope (§7/§8 both places, differing only in RLS vs. search framework). Resolved: Iteration 1 keeps domain-model/file-inventory/RLS; Iteration 2 retitled to "Domain, file inventory, search framework & packages" and now also carries the new scope below. No iterations after 2 were renumbered.
+
+**New features**
+- **§7.1a Customer seeding** — CSV-driven, upsert by `customer.short_code`. Never deletes a customer row missing from the CSV (denormalization blast radius makes delete-on-sync unsafe).
+- **§7.2a Submission status** — replaces `authoring_status` with `status_code`: `ACTIVE` / `COMPLETED` / `CANCELLED` only, event-sourced. `COMPLETED → ACTIVE` reopening allowed; no system-enforced transition preconditions (analyst judgment). No delete — `CANCELLED` is the terminal/withdrawal state, since a submission can carry real Risk Modeler-side identity (EDMs/RDMs) by the time anyone would remove it.
+- **§7.2b Submission name uniqueness** — `UNIQUE(program_id, name)`, DB-enforced.
+- **§8.7 Ignore ruleset** — admin-authored, gitignore-style, three scope levels (global / customer / submission), cumulative cascade with `!negation` (not most-specific-wins replacement) — same semantics as nested `.gitignore` files.
+- **§9.4 Package** — new entity pairing an EDM and an RDM (either side optional). No independent status — UI reads EDM/RDM status directly rather than aggregating. Actions: Cancel / Save / Save-and-Sync / Delete. IRP name-collision check reuses the existing `search_edms()`/`search_rdms()` pattern from artifact tagging. Save-and-Sync and Delete each produce **stubbed** `rwb_job` rows this iteration (60s heartbeat wait, no real IRP call) — real IRP calls land in Iteration 3. Sync/delete ordering is EDM-before-RDM / RDM-before-EDM respectively (Risk Modeler linkage requirement).
+- **§7.4 Submission detail package cards** — full-width card per package (chosen over a compact-grid or split-column alternative — see rationale below), showing upload progress/status (stubbed), local filename, portfolio summary (empty), analysis counts (empty), and IRP/RWB job counts. Card title → EDM/RDM detail (route reserved, not built). Job count → Jobs list, pre-filtered.
+- **§20.4 Query-string-driven filtering** — cross-page "arrive with a filter pre-applied" (e.g. package card → filtered Jobs list) is implemented as ordinary query params on the shared list view, not session state or a separate component. Fixed starting vocabulary: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`. Extends the same "URL is the source of truth" principle §4.3 already used for breadcrumbs.
+
+**Removed**
+- `submission.cycle` — did not correspond to how the team works broker submissions (no renewal-cycle concept at the Submission level). Only consumer was the Iteration 5 auto-naming example pattern; flagged there as an open item, not resolved in this pass.
+- `submission.authoring_status` — replaced by `status_code` (above).
+
+**Corrections made outside Iteration 1/2 scope (called out per-instance in the text, summarized here)**
+- §7.3: fixed a pre-existing broken cross-reference (`§15.4` → `§20.4`; the old reference pointed to "DataBridge usage," unrelated to list ergonomics).
+- §2.6 and §11.2: updated auto-naming language to remove `{{ cycle }}`; §11.2's example flagged as needing a new token set when Iteration 5 is actually planned.
+- §9.1/§9.2: added `delete_pending` to `edm.status`/`rdm.status` vocabulary (needed for Package delete sequencing).
+- §22: added **A21**, documenting an unresolved design question — Package job chaining crosses from RWB-job space into IRP-job space and back (an RWB stub job needs to eventually trigger a real IRP job; the poller noticing that IRP job's completion needs to trigger the *next* RWB job). Not designed in this pass; flagged for a dedicated follow-up discussion before Iteration 3 implements real Package sync/delete.
+
+**Explicitly out of scope for this update:** the Workflow/Stage/Task layer (§12–14) — being redesigned separately by another workstream toward a simpler IRP-Jobs/RWB-Jobs-only model. No changes made there; existing text may reference workflows in ways that will need revisiting once that redesign lands, but that revisiting is not part of this change.
+
+**Rationale for full-width package cards:** considered a compact-card-with-click-through and a split EDM/RDM-column layout as alternatives (favoring scannability across multiple packages per submission); the full-width-card option was chosen deliberately despite that tradeoff, since each package's EDM and RDM sides carry enough independent state (status, jobs, portfolio/analysis summaries) to warrant full layout room now rather than deferring depth to a not-yet-built EDM/RDM detail page.
