@@ -29,7 +29,7 @@ Pre-requisites:
 2. **Choose settings** — User picks the geocode `version` and which hazards
    (`hazard_eq` / `hazard_ws`). In this flow the chosen settings apply uniformly to
    every selected portfolio (the API accepts per-item settings, but the UI action is
-   one setting set for the batch).
+   one setting set).
 3. **Submit** — User clicks "Run GeoHaz". The app **loops the selected portfolios
    itself**, calling the single-portfolio `submit_geohaz_job(...)` once per
    portfolio (deliberately not the plural helper — see boundaries). For each
@@ -118,7 +118,3 @@ sequenceDiagram
   job changes a portfolio's hazard state rather than creating anything. The only
   things to track are the N jobs and the fact that N portfolios changed. A candidate
   for "Job bounding box, but no new entity."
-- **A batch that is genuinely per-portfolio.** The only batch-scoped thing is the
-  analyst's intent + the shared settings. Each job validates, runs, finishes, and
-  can fail independently — so as with analyses and export, the "batch" is a
-  submission-time grouping, not a runtime unit.

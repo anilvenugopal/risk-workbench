@@ -15,7 +15,7 @@ reports the export FINISHED.
 **Classification:** **N async Jobs** (one per analysis) each with a **heavy
 post-finish load** (download + bulk insert). Unlike upload, the heavy work is *after*
 the job finishes, not in the submit. Multi-analysis export is **entirely
-app-orchestrated** — the package has no plural export helper and no up-front batch
+app-orchestrated** — the package has no plural export helper and no up-front
 validation.
 
 Pre-requisites:
@@ -38,7 +38,7 @@ Pre-requisites:
    each, calls `submit_analysis_export_job(analysisId, loss_details, "PARQUET")`.
    - This is a **light** submit (validate analysis exists → `POST` export job →
      `job_id`); no bulk bytes move yet.
-   - There is **no plural helper and no up-front batch validation** — each analysis
+   - There is **no plural helper and no up-front validation** — each analysis
      is submitted independently; a bad analysis fails only its own submit.
 4. **Monitor (async, independent)** — Poll `get_export_job(job_id)` per job until
    terminal. `FINISHED` here means **parquet is ready in Moody's object store**, not
@@ -119,8 +119,7 @@ sequenceDiagram
 - **Multi-analysis export is pure app orchestration.** Unlike analyses (which have a
   plural helper + up-front all-names-unique validation), export has neither. The app
   loops single submits; each analysis is fully independent from selection through
-  load. There is nothing batch-scoped at all — even less of a case for a *Batch*
-  entity than analyses had.
+  load.
 - **Heavy work is on the load, not the submit** — the inverse of EDM/RDM upload.
   Upload goes off-request because the *submit* is heavy; export goes off-request
   because the *post-finish load* is heavy. Same "off the request thread"
