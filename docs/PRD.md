@@ -58,22 +58,21 @@ Every submission follows three sequential phases. The workbench covers all three
 ### 1.4 Core domain glossary
 
 - **Customer → Program → Submission** — business hierarchy. A Program belongs to a Customer; a Submission belongs to a Program.
-- **Submission** — one broker's package handled by an analyst. Anchors directories, artifacts, EDMs, RDMs, workflows, and jobs. Has an assigned analyst ("my submissions" view).
-- **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
+- **Submission** — one broker's package handled by an analyst. Anchors directories, artifacts, EDMs, RDMs, and jobs. Has an assigned analyst ("my submissions" view) and a `crm_id` (the CRM identifier it wraps).
+- **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
-- **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. The workbench tracks `irp_exposure_id` + `irp_portfolio_id`.
-- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event rate scheme, treaty names, currency). Used for batch submission. Can be organized into **template suites** (e.g., "Global suite" = all worldwide region/peril combinations).
-- **Workflow** — a staged modeling pipeline under a submission. Stages are fixed-order, mode-typed, and manifest-declared. Currently one type: **EDM analysis**.
-- **Stage** — one ordered phase of a workflow (EDM Upload, Data Validation & Profiling, Exposure Modification, Portfolio Creation, Geo-coding & Hazard, Analysis, Grouping, Export). Has a mode and an execution status.
-- **Task** — the executable unit inside a stage. Consumes typed inputs, produces typed handles.
-- **Handle** — a named, typed output produced by a task (EDM name, RDM name, portfolio name, analysis name, group name). The unit of reference chaining. Handles carry **names**, not typed IDs — IRP resolves names to internal IDs at submit time.
-- **Job** — an IRP async operation tracked in the Workbench Metamodel DB. Has a `job_type` (which IRP endpoint to poll) and one or more `rwb_job` rows written on completion.
-- **RWB job** — a general queued-work row in the `rwb_job` SQL table. Created by the poller on IRP completion (`origin=irp_completion`), by an analyst request (`origin=analyst_request`), or by another worker chaining work (`origin=chained`). Picked up by a Dramatiq worker. The queue is idempotent via `request_key`.
-- **Request key** — a source-agnostic VARCHAR idempotency key on every `rwb_job` row. Computed by the producer from lineage: `irp:{irp_job_id}:{work_type}` for IRP-triggered rows; `analyst:{entity_type}:{entity_id}:{work_type}` for analyst-requested rows; `chain:{parent_rwb_job_id}:{work_type}` for chained rows. Uniqueness enforced at the DB level (`UNIQUE(request_key)`).
+- **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
+- **Analysis** — an analysis (or, when `is_group=true`, a **group** — a group *is* an analysis in Risk Modeler) belonging to an EDM. `rdm_id` set → the analysis came from importing that RDM (broker); null → a net-new analysis the analyst ran (own). Backed by `irp_analysis`.
+- **Treaty** — a reinsurance treaty belonging to an EDM, referenced by analyses by name. Create/edit is synchronous (no job). Backed by `irp_treaty`.
+- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event rate scheme, treaty names, currency), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite`.
+- **Prerequisite gate** — the computed "what can the analyst do right now": a lookup + entity-existence/job-terminal-status check in code (§13.1), not a stored stage machine. Replaces the removed Workflow/Stage/Task construct.
+- **Name-based coupling** — each op resolves its inputs live from Risk Modeler by name at submit time (`search_edms`/`search_portfolios`/`search_analyses`/`search_treaties`); there is no typed handle to chain (§13.2).
+- **Job (`irp_job`)** — an IRP async operation tracked in the Workbench Metamodel DB — one row per real IRP op (the executable unit). Has an `irp_job_type` (which IRP endpoint to poll), an `irp_id` (RM's job id), and one or more `rwb_job` rows written on completion.
+- **RWB job** — a general queued-work row in the `rwb_job` SQL table, for work **this app executes** in-process. Fully decoupled from `irp_job` (no FK). `requestor_type` + `requestor_id` record what triggered it (an `irp_job` completion, an analyst request, or a parent `rwb_job` for chaining). Picked up by a Dramatiq worker.
+- **RWB job dedup key** — the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` on every `rwb_job` row (replaces the old `request_key` string).
 - **Job heartbeat** — a child-table row (`rwb_job_heartbeat`) stamped every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread while a worker holds a job. Proves the job is progressing, independent of which worker and independent of job duration.
 - **Reconciler** — a single-instance periodic sweep (folded into the poller process) that recovers `running` `rwb_job` rows whose heartbeat is stale. Stale = heartbeat older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the heartbeat interval; never a function of job size or duration). Resets `running → pending` and re-enqueues via Dramatiq. Does not scan `pending` rows (durable Redis covers those).
-- **IRP job type** — discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `workflow`, `risk_data_job`, `analysis_job`, `grouping_job`, `export_job`.
-- **IRP job type** — discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `workflow`, `risk_data_job`, `analysis_job`, `grouping_job`, `export_job`.
+- **IRP job type** — a kind-table discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `edm_import`, `rdm_import`, `geohaz`, `analysis`, `grouping`, `export`.
 - **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group.
 - **Exposure Repository** — on-prem SQL Server that holds pre-aggregated exposure summary data (output of Phase A). Separate connection from the Workbench Metamodel DB.
 - **Loss Repository** — on-prem SQL Server that holds finalized loss sets / analysis results (output of Phase C). Separate connection from both other databases.
@@ -84,19 +83,13 @@ Every submission follows three sequential phases. The workbench covers all three
 
 ## 2. Architecture principles
 
-### 2.1 The three declarative sources of truth
+### 2.1 The navigation manifest (the one declarative source of truth)
 
-Everything that "changes when requirements change" lives in **versioned code manifests**, so engine code stays fixed:
+> **CR-002.** Earlier drafts named *three* declarative sources of truth — a nav manifest, a workflow-definition manifest, and a type/port registry. The latter two are **removed** with the workflow engine (§12). What remains is the general principle applied to the **navigation manifest** alone.
 
-1. **Navigation manifest** (§4.2) — the rail/sidebar/breadcrumb/search tree.
-2. **Workflow-definition manifest** (§9.2) — stages, modes, skippability, task templates, ports.
-3. **Type/port registry** (§10.1) — handle types, compatibility, propagation rules.
+The **navigation manifest** (§4.2) — the rail/sidebar/breadcrumb/search tree — is a versioned code manifest, so engine code stays fixed: "add a page" is one manifest node + one handler + one template. There is **no workflow-definition manifest, no type/port registry, and no manifest→DB projection subsystem** — nothing in this app projects a manifest into tables, so the fail-fast content-hash consistency check and version-retention machinery that existed only to serve the workflow definition are gone too.
 
-Graph **invariants** (DLM/HD homogeneity, name uniqueness, IRP reference validity) are **registered named validators** (§10.6) — isolated, independently-testable functions behind a registry, run by a generic pass.
-
-**Versioning rule:** each manifest/registry carries a `version`. A workflow instance **pins** the definition + registry version it was authored under, so later manifest edits never rewrite the meaning of in-flight or historical workflows.
-
-**Manifest-vs-DB rule:** where a manifest is *projected* into DB tables for FK/reporting, the **manifest is canonical and the projection is generated, never hand-edited**, guarded by a fail-fast startup **consistency check** (manifest content-hash vs. stored hash) and a **version-retention** rule (projection is append-only; old versions retained while any instance pins them). Full treatment in §9.1a.
+Validation is **at the point of action** (§13.3), not a registered-validator graph pass: entity existence + name uniqueness + reference-data lookups against the local IRP cache, checked when the analyst acts.
 
 ### 2.2 Three-database architecture
 
@@ -127,9 +120,9 @@ Server-rendered HTML over **FastAPI + Jinja2 + HTMX 2.x**, with **Alpine.js** fo
 **Concurrency model — sync by default.** Route handlers are plain `def`; FastAPI runs them in its threadpool. `irp-integration` is sync; pyodbc is sync. Both are called directly from services — no `asyncio.to_thread` needed in sync handlers. **SSE endpoints are the only `async def`**; inside them, DB reads use `await asyncio.to_thread(sync_read)`.
 
 **Background work splits into three tiers:**
-- **IRP job submission** — synchronous on the request path. The IRP submit call returns a job ID immediately; the round-trip is fast enough that there is no benefit to deferring it. On failure the job is marked `submission_failed` and a retry actor picks it up.
-- **Poller** — standalone loop process (`app/poller/run.py`). One process, one pass per interval: bulk-queries all non-terminal `irp_job` rows, polls IRP per `job_type`, updates `mirrored_status`, writes `rwb_job` rows (idempotent, via `request_key`) on terminal status. Also runs the reconciler sweep each cycle. Not Dramatiq — batching by design; a per-message queue would break the natural grouping.
-- **Dramatiq workers** — consume `rwb_job` rows and handle submission retries. Redis broker (durable via AOF). Each result worker class owns one post-completion action. A separate `submission_retry` actor re-attempts failed IRP submissions up to a configurable limit.
+- **IRP job submission** — synchronous on the request path. The IRP submit call returns a job ID immediately; the round-trip is fast enough that there is no benefit to deferring it. On failure the job is marked `SUBMISSION FAILED` and the retry batch job picks it up.
+- **Poller** — standalone loop process (`app/poller/run.py`). One process, one pass per interval: bulk-queries all non-terminal `irp_job` rows, polls IRP per `irp_job_type`, updates `irp_job.status`, writes `rwb_job` rows (idempotent, via the composite dedup key) on terminal status. Also runs the reconciler sweep each cycle. Not Dramatiq — batching by design; a per-message queue would break the natural grouping.
+- **Dramatiq workers** — consume `rwb_job` rows (post-terminal / analyst-requested / chained work). Redis broker (durable via AOF). Each result worker class owns one action. Submission retry is a separate **single-threaded batch job** (not a Dramatiq actor), re-attempting failed IRP submissions up to a configurable limit.
 
 ### 2.3a Queue resilience model (CR-001)
 
@@ -142,13 +135,13 @@ The queue is resilient through a layered design — each layer handles the failu
 | Graceful shutdown / redeploy | Dramatiq requeues in-flight messages | No |
 | Redis loses data (crash) | AOF durability (`appendonly yes`, `appendfsync everysec`) + Dramatiq redelivery on restart | Config only |
 | Job stops progressing (wedged worker; or running-job message lost) | Job heartbeat + reconciler (stale `running` → re-enqueue) | Minimal (§14.5) |
-| Any rare double-delivery | Idempotent worker + atomic `request_key` claim | Yes (backstop) |
+| Any rare double-delivery | Idempotent worker + atomic status claim (composite dedup key) | Yes (backstop) |
 
 **Redis AOF durability.** Redis runs with `appendonly yes`, `appendfsync everysec`, persisted SSD volume, and default auto-rewrite (self-compacting). With AOF, acknowledged enqueues survive a broker crash (≤ ~1s worst-case loss), so pending-lost stops being a case that requires detection — which eliminates the need for any pending-side timeout. Outstanding work is always inspectable in the SQL `rwb_job` table; never by parsing AOF/RDB files.
 
 **Heartbeat + reconciler.** When a Dramatiq worker claims an `rwb_job` (`pending → running`), it starts a daemon thread whose only job is to write `(rwb_job_id, worker_id, heartbeat_at=now)` to `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`. The heartbeat thread is separate from the work thread — it keeps stamping even while the work thread is blocked in a long, non-chunkable call (e.g., a large file download). The reconciler (folded into the poller process) checks for `running` rows whose heartbeat is older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the interval; never job-duration-based) and re-enqueues them atomically. The reconciler never scans `pending` rows; AOF makes that unnecessary.
 
-**Idempotency backstop.** Workers are idempotent: file writes go to a temp path + atomic rename; chained `rwb_job` rows are created via `INSERT ... WHERE NOT EXISTS (request_key)`. The atomic claim (`UPDATE ... WHERE status='pending'`) means any rare double-delivery results in one effective execution.
+**Idempotency backstop.** Workers are idempotent: file writes go to a temp path + atomic rename; chained `rwb_job` rows are created via idempotent insert on the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)`. The atomic claim (`UPDATE ... WHERE status_code='pending'`) means any rare double-delivery results in one effective execution.
 
 ### 2.4 Styling discipline
 
@@ -159,10 +152,9 @@ Extend the ITCSS system via tokens, never override it. New UI is layered into th
 These tasks must each be a bounded, one-place change:
 - **Add a page** → one nav-manifest node + one handler + one template. Rail, sidebar, breadcrumb, active-state, RBAC, search visibility are inherited.
 - **Add a searchable object type** → register one search provider.
-- **Add a chaining type** → add registry rows + declare ports on task templates.
-- **Add a workflow constraint** → write one registered validator + register it.
-- **Change a stage's mode / skippability** → one manifest edit.
-- **Change a workflow definition** → edit the code manifest + re-run the projection generator. Never hand-edit projected tables.
+- **Add a new IRP operation** → one `irp_job_type_kind` seed + one submit call + one poll-method mapping (§14.3–§14.4). No manifest, no projection.
+- **Add a post-completion action** → one `rwb_job_type_kind` seed + one Dramatiq worker (§14.5).
+- **Add a validation rule** → one check at the point of action (§13.3).
 
 ### 2.6 Auto-naming
 
@@ -238,8 +230,7 @@ IDE-style, three zones:
 |---|---|
 | Home (dashboard) | — |
 | Submissions | List, My Submissions |
-| Workflows | Active, Review Queue, IRP Jobs, RWB Jobs, Exceptions |
-| Templates | Analysis Templates, Template Suites |
+| Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
 | Administration | Users, Customer Access, Settings |
@@ -446,6 +437,8 @@ Users are scoped to customers via `user_customer_access(user_id, customer_id)`. 
 
 `apply_scope()` honors an **admin bypass** (admins see all). Native SQL Server RLS is a later hardening layer, not v1.
 
+**Scope changes take effect on the next request, not the next login (spec 002 FR-021).** The allowed-customer set is resolved per request from `user_customer_access`, so granting or revoking a user's access is reflected the moment they make their next request — even mid-session — with no logout/login or cache-refresh needed.
+
 ### 6.3 Analyst-centric views
 
 "My submissions" is a first-class filter: `WHERE assigned_analyst_id = current_user.id`. Every submission list defaults to this view with a toggle to "All team submissions." This reflects the real workflow: analysts each own a submission end-to-end during peak season.
@@ -464,11 +457,11 @@ Admin rail destination maintains users, roles, and `user_customer_access`. Build
 
 ### 7.1a Customer seeding
 
-`customer` rows are seeded from an admin-provided CSV, not created one-by-one through the UI. `python -m app.cli seed-customers <path.csv>` **upserts by `short_code`** (the existing `UNIQUE` constraint — DATA_MODEL.md §1): a row present in the CSV inserts if new or updates if it already exists by short code. **A customer row is never deleted by the seeder**, even if a previously-seeded short code is absent from a later CSV — `customer_id` is denormalized onto nearly every entity in the system, so a delete-on-sync seeder would be a standing data-loss risk. Removing a customer, if ever needed, is a separate, deliberate admin action outside this tool. Idempotent — safe to re-run the same CSV repeatedly.
+`customer` rows are seeded from an admin-provided CSV, not created one-by-one through the UI. `python -m app.cli seed-customers <path.csv>` **upserts by `short_code`** (the existing `UNIQUE` constraint — DATA_MODEL.md §1): a row present in the CSV inserts if new or updates if it already exists by short code. **A customer row is never deleted by the seeder**, even if a previously-seeded short code is absent from a later CSV — `customer_id` is denormalized onto nearly every entity in the system, so a delete-on-sync seeder would be a standing data-loss risk. Removing a customer, if ever needed, is a separate, deliberate admin action outside this tool. Idempotent — safe to re-run the same CSV repeatedly. The CSV is **minimal — `short_code` and `name` columns only** (spec 002 FR-001); no contact/address/metadata fields this iteration. A malformed or in-file-duplicate `short_code` is reported and skipped without aborting the valid rows.
 
 ### 7.2 Submission
 
-The analyst's unit of work. Fields: `id`, `name`, `customer_id` (denorm), `program_id`, `assigned_analyst_id`, `status_code`, `created_at`.
+The analyst's unit of work. Fields: `id`, `name`, `customer_id` (denorm), `program_id`, `assigned_analyst_id`, `status_code`, `crm_id` (the CRM identifier this submission wraps — plain text, §1.4), `created_at`.
 
 A submission has:
 - Zero or more **directories** (shared-drive paths) → file inventory
@@ -477,8 +470,8 @@ A submission has:
 - Zero or more **EDM records** (IRP exposure databases, tracked separately from the artifact file)
 - Zero or more **RDM records** (IRP results databases from broker, tracked separately)
 
-> **Correction — this section previously also listed "workflows" here and referenced `authoring_status`.** Both are changed as part of this update, for reasons unrelated to file inventory/domain-model work (Iterations 1–2), so they're called out explicitly:
-> - **Workflows removed from this list.** The Workflow/Stage/Task layer (§12–14) is being redesigned separately, in favor of a simpler model built directly on IRP Jobs and RWB Jobs. That redesign is out of scope here — this PRD update does not touch §12–14 — but Submission's own field list should not keep advertising a relationship to a layer that is actively being replaced.
+> **Correction — this section previously also listed "workflows" here and referenced `authoring_status`.**
+> - **Workflows removed from this list (CR-002, now applied).** The Workflow/Stage/Task layer is removed — §12–14 are rewritten around IRP Jobs, RWB Jobs, and the prerequisite gate. A submission's progress is derived from its jobs and entity state, not from a stored workflow.
 > - **`authoring_status` → `status_code`, and the vocabulary changed.** See §7.2a below.
 
 ### 7.2a Submission status
@@ -488,7 +481,7 @@ Three values only, event-sourced (insert `submission_status_event` + stamp cache
 | Status | Meaning |
 |---|---|
 | `ACTIVE` | Open — the analyst can work on it: add directories, tag artifacts, create/sync/delete packages. |
-| `COMPLETED` | Closed for tracking purposes. No further action is possible on the submission while in this state. |
+| `COMPLETED` | Closed for tracking purposes. Analyst-initiated edits (adding directories, tagging, uploads, packages) are blocked; read-only inventory operations — viewing and discrepancy-detection scans — continue (spec 002 FR-013). Reopening to `ACTIVE` restores edit capability. |
 | `CANCELLED` | Withdrawn. Terminal state for a submission the analyst is no longer pursuing. |
 
 Rules:
@@ -534,19 +527,23 @@ The submission detail panel shows one **full-width card per package** (§9.4) �
 
 A `file_artifact` row = one **version** of a file. Identity: cheap metadata signature `(relative_path, size_bytes, fs_modified_at)` — no content hash (hashing a 1.4 GB MDF is too expensive; identity is best-effort). **Append-only**: a detected change retains the old row and inserts a new one.
 
-Sources: `shared_drive` | `upload` | `workflow_output`. All three share one model, one store; `source` is the discriminator.
+Sources: `shared_drive` | `upload`. Both share one model, one store; `source` is the discriminator. (The former `workflow_output` source is dropped, CR-002 — job-produced files land in the submission directory and are picked up by the next scan as ordinary `shared_drive` files.)
 
 ### 8.3 Reconciliation scanner & triggers
 
-Background job (not a request). Triggers: directory added/removed, workflow task attempts to use a file, user opens the submission page, explicit "Refresh inventory" button. Per file: not tracked → insert `present`; unchanged → no-op; changed → mark old `changed`, insert new `present`; gone → mark `missing`. A **settle window** (N seconds) prevents fingerprinting files mid-copy.
+Background job (not a request). Triggers: directory added/removed, an op attempts to use a file, user opens the submission page, explicit "Refresh inventory" button. Per file: not tracked → insert `present`; unchanged → no-op; changed → mark old `changed`, insert new `present`; gone → mark `missing`. A **settle window** (N seconds) prevents fingerprinting files mid-copy.
+
+**A failed scan is not a missing file (spec 002 FR-044).** When a directory is unreachable (network share down), the scan does not flip its previously-tracked artifacts to `missing` — a failed scan attempt is distinct from a confirmed absent file. `missing` is recorded only when a *successful* scan of a reachable directory confirms the file is gone. The unreachable case surfaces as the error state in §8.8, not as a wave of false `missing` flags.
+
+**COMPLETED submissions still scan.** Read-only inventory operations — viewing and discrepancy-detection scans — continue while a submission is `COMPLETED` (spec 002 FR-013 edge case); only analyst-initiated edits (adding directories, tagging, uploads) are blocked (§7.2a).
 
 ### 8.4 Tagging
 
-Users tag artifacts as `edm` or `rdm` on the submission detail page. Tagged artifacts are selectable as workflow inputs.
+Users tag artifacts as `edm` or `rdm` on the submission detail page. **Tagging only sets `file_artifact.tag_code`** — it does *not* create an `irp_edm`/`irp_rdm` tracked entity (spec 002 FR-033). The tagged artifact is the *source* for creating that entity later (at Package "Save and Sync" / import, §9.4, a later iteration), and is resolved by name at submit time. The IRP name-collision check is a REST search that needs no local entity, so it runs at tag/rename time (non-blocking warning, §9.4).
 
 ### 8.5 Discrepancies
 
-Raised when a tracked file changes or goes missing. Severity escalates if the artifact was tagged, and further if it had been referenced/pinned by a workflow (provenance in question). Surfaced: count in status bar, marker on submission, dedicated list.
+Raised when a tracked file changes or goes missing. Severity escalates if the artifact was tagged, and further if it is used in a `package` (i.e. it is the source file behind an `irp_edm`/`irp_rdm` a package references — provenance in question). Surfaced: count in status bar, marker on submission, dedicated list. Discrepancies carry a resolved/unresolved state and can be **marked resolved** by the analyst once addressed (spec 002 FR-040) — they are not auto-cleared.
 
 ### 8.6 Upload storage
 
@@ -562,42 +559,51 @@ An admin-managed, gitignore-style ruleset controls which discovered files the re
 - Standard glob semantics (`*`, `**`, directory anchors, `!negation`), implemented with an existing library rather than hand-rolled matching.
 - Schema: DATA_MODEL.md §2 (`ignore_rule`, `ignore_rule_scope_kind`).
 
+### 8.8 Directory & inventory states — error vs. warning (spec 002 FR-041–043)
+
+The submission detail page distinguishes two non-happy states so the analyst can tell "something is wrong" from "nothing is here yet":
+
+- **Error** — the submission has **no directory associated**, or an associated directory is **unreachable/missing** (network share down). Shown as an error, never a silent empty list.
+- **Warning** — an associated directory is **reachable but contains zero files**. A distinct, softer state than the error above.
+
+Both states are **re-evaluated immediately** whenever the analyst adds a directory or triggers a "Refresh inventory" — they are not sticky or cached past the next scan/action. This pairs with §8.3's rule that an unreachable directory raises the error state rather than flipping tracked files to `missing`.
+
 ---
 
 ## 9. Feature: EDM & RDM entity management
 
 ### 9.1 EDM as a first-class entity
 
-An **EDM record** (`edm` table) is distinct from the file artifact that produced it. The file artifact is the `.bak` file on disk (tracked by §8). The EDM record represents the exposure database **as it exists in IRP**, with:
+An **EDM record** (`irp_edm` table) is distinct from the file artifact that produced it. The file artifact is the `.bak`/`.mdf` file on disk (tracked by §8). The EDM record represents the exposure database **as it exists in IRP**, with:
 - `name` — the EDM name in IRP (auto-generated from submission context per §2.6, editable)
-- `irp_exposure_id` — IRP's integer exposureId (backfilled on import completion)
+- `irp_id` — IRP's integer exposureId (backfilled by the poller on import `FINISHED`)
 - `submission_id`, `customer_id` (denorm)
-- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted`
-- `source_artifact_id` FK — the file artifact used for import (nullable for EDMs created fresh in IRP)
+- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
+- `file_artifact_id` FK — the file artifact used for import (nullable)
+- `created_by_irp_job_irp_id`, `as_of` — creation lineage + last-confirmed-against-IRP trust signal
 - `server_name` — the DataBridge server the EDM lives on
 - Soft-delete via `deleted_at`
 
-**EDM operations:**
-- **Create fresh in IRP** — `client.edm.submit_create_edm_job(edm_name, server_name)` → `workflow` job type
-- **Import from .bak** — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `risk_data_job` (uploads to S3 first, handled inside library)
-- **Upgrade data version** — `client.edm.submit_upgrade_edm_data_version_job(edm_name, edm_version)` → `workflow`
-- **Delete** — `client.edm.delete_edm(edm_name)` → `workflow`
+**EDM operations** (MVP spine is import; create-fresh / upgrade / delete are out of the MVP spine, `mvp-scope.md §1`):
+- **Import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = edm_import` (uploads to S3 first, inside the library — a heavy submit). Both `.bak` and `.mdf` database files are accepted (`mvp-scope.md` row 4).
 
-All async operations create an `irp_job` row and are polled by the cron poller.
+All async operations create an `irp_job` row and are polled by the poller.
 
 ### 9.2 RDM as a first-class entity
 
-An **RDM record** (`rdm` table) tracks a broker-supplied results database in IRP:
+An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in IRP:
 - `name` — the RDM name in IRP
-- `irp_id` — IRP's integer id (backfilled on import completion)
+- `irp_id` — IRP's integer id (backfilled on import `FINISHED`)
+- `edm_id` FK — **NOT NULL**: an RDM is always tied to an EDM (its results are meaningless without exposures to link to)
 - `submission_id`, `customer_id` (denorm)
-- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted`
-- `source_artifact_id` FK — the .bak file used for import
+- `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
+- `file_artifact_id` FK — the .bak/.mdf file used for import
+- `created_by_irp_job_irp_id`, `as_of`
 - Soft-delete via `deleted_at`
 
 **RDM operations:**
-- **Import from .bak** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `risk_data_job` (uploads to S3 first)
-- **Query via DataBridge** — once imported, the RDM is accessible via DataBridge for comparison queries (reading broker results tables directly)
+- **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = rdm_import` (uploads to S3 first)
+- **Query via DataBridge** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; accessible via DataBridge for comparison queries (reading broker results tables directly)
 - **Export to Loss Repository** — push broker results to the Loss Repository for side-by-side comparison with own analysis (see §17)
 
 ### 9.3 EDM library & RDM library
@@ -610,7 +616,7 @@ Rail destinations under "Moody's IRP" that show all EDMs / RDMs across submissio
 
 ### 9.4 Package (new)
 
-A **package** is the pairing of an EDM and an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one EDM and more than one RDM — a package is how the analyst declares which EDM goes with which RDM. Most packages pair one EDM with one RDM; either side may be absent (EDM-only or RDM-only packages are valid — not every submission has both).
+A **package** is the pairing of an EDM and an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one EDM and more than one RDM — a package is how the analyst declares which EDM goes with which RDM. Most packages pair one EDM with one RDM; the RDM side may be absent (**EDM-only packages are valid; RDM-only packages are not** — an RDM is meaningless without the EDM whose exposures its results link to). Every package therefore has an EDM.
 
 **Creation flow:** the analyst tags one or two `file_artifact` rows as `edm`/`rdm` (§8.4) and creates a package from them, typically via a modal (chosen over a full page — a package is a lightweight join plus two name fields and a status display, not enough surface area to justify dedicated navigation and breadcrumb machinery).
 
@@ -620,7 +626,7 @@ A **package** is the pairing of an EDM and an RDM that an analyst creates, names
 - **Cancel** — discard, no write.
 - **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
 - **Save and Sync** — Save, then queues the EDM/RDM for import. **This iteration stubs the sync work** — it creates real `rwb_job` row(s) with the real claim/heartbeat/completion lifecycle (§14.5), but the stub does nothing except wait 60 seconds while sending heartbeats, then succeed. No real IRP call is made yet. This proves the queue plumbing end-to-end ahead of wiring actual EDM/RDM import calls in a later iteration. **EDM/RDM ordering when syncing a package with both:** Risk Modeler requires the EDM to exist before an RDM can be linked to it, so the EDM-side job runs first and the RDM-side job only starts after it succeeds — see DATA_MODEL.md §3a for the exact job sequencing, and note the open TBD there on how an IRP-job completion triggers the next RWB job (flagged for a separate design discussion, not resolved in this pass).
-- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **Reverse order from sync:** the RDM side is torn down before the EDM it's linked to, since Risk Modeler requires unlinking the RDM first.
+- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **The delete dependency is one-way:** an RDM can be deleted on its own (its EDM stays), but an EDM cannot be deleted while an RDM is still linked to it. So deleting the EDM drives the cleanup — its linked RDM is torn down first, then the EDM — whereas deleting just the RDM never cascades into deleting the EDM. See DATA_MODEL.md §3a for the exact job sequencing.
 
 **No independent package status.** Unlike Submission, a package does not get its own status field or an aggregated rollup of its EDM/RDM statuses. The EDM already has a status (`pending_import`/`importing`/`ready`/`error`/`delete_pending`/`deleted`) and so does the RDM, and each has its own IRP jobs with their own job status. A package-level status would just be a third value that has to be kept in sync with two independently-changing sources of truth, for no benefit — the UI shows the EDM's status chip and the RDM's status chip side by side inside the package card instead.
 
@@ -664,7 +670,9 @@ After validation passes, the analyst pushes pre-aggregated exposure summaries to
 
 ---
 
-## 11. Feature: Analysis templates & template suites
+## 11. Feature: Analysis templates & template suites — **IN MVP**
+
+> **In scope for the MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral). The batch problem below is the #1 analyst pain point, so saved templates and suites ship rather than being built only on demand. Until the template UI lands in its iteration, batch analysis runs as an app-side loop over `submit_portfolio_analysis_job` (§14.3); the templates layer replaces the manual per-job configuration, not the loop itself.
 
 ### 11.1 The batch problem
 
@@ -692,256 +700,173 @@ A named collection of templates for batch submission. Stored as `template_suite`
 - `customer_id` (scope)
 - Items link to `analysis_template` rows with an optional per-item `portfolio_name_override`
 
-**Applying a suite** to a submission generates one analysis task per template item, all wired into the Analysis stage of the workflow. Names are auto-generated from each template's `auto_name_pattern` + submission context. The analyst reviews, adjusts if needed, then submits.
+**Applying a suite** to a submission generates one analysis submission per template item (an app-side loop over `submit_portfolio_analysis_job`, each producing its own `irp_job` row — §14.3). Names are auto-generated from each template's `auto_name_pattern` + submission context. The analyst reviews, adjusts if needed, then submits.
 
 ### 11.4 DLM vs HD detection
 
-At batch-apply time, the workbench checks each template's `analysis_profile_name` against the locally cached `irp_model_profile.software_version_code` (`"HD" in code → HD, else DLM`). For DLM templates, `event_rate_scheme_name` is required; for HD, it is optional. The homogeneity validator (§12.6) catches any DLM+HD mixing in a Grouping stage.
+At batch-apply time, the workbench checks each template's `analysis_profile_name` against the locally cached `irp_model_profile.software_version_code` (`"HD" in code → HD, else DLM`). For DLM templates, `event_rate_scheme_name` is required; for HD, it is optional. The homogeneity check (§13.3) catches any DLM+HD mixing when composing a grouping op.
 
 ---
 
-## 12. Feature: Workflow model
+## 12. Feature: Work model — Submission → EDM/RDM → Job
 
-### 12.1 Definition vs instance
+> **Pivot (CR-002).** This app is a **workbench, not a workflow engine.** There is no `workflow`, stage machine, task template, typed port, handle-type registry, or manifest-projection subsystem. A submission's progress is **derived** from its `irp_job` rows and entity state; "what's next" is the prerequisite gate (§13.1), computed in code, not read off a stored `stage.exec_status`.
 
-Two clean layers:
-- **Definition** (code manifest §12.2): Workflow type → ordered Stages (mode + skippable + task templates with typed ports). Manifest is canonical; DB tables are a generated projection.
-- **Instance** (runtime, Metamodel DB): workflow-instance → stage-instances → task-instances, each with status, counts, and resolved I/O.
+### 12.1 The spine
 
-An instance **pins** the definition + registry version it was authored under (§2.1).
+```
+Submission            broker package (Name + CRM ID); assigned analyst; WORKBENCH-only concept
+  ├──< irp_edm / irp_rdm   one or more EDM/RDM sets per submission; each RDM is tied to an EDM
+  │       └── work is anchored to an EDM (portfolios / analyses / groups / treaties belong to one EDM)
+  ├──< irp_job          one IRP operation (async-polled or heavy-deferred); resubmit lineage
+  │       └──< rwb_job  app-side post-terminal / analyst-requested / chained work (decoupled, no FK)
+  └──< {irp_portfolio, irp_analysis, irp_treaty}   entity artifacts produced by ops (a group IS an analysis)
+```
 
-### 12.1a Manifest is canonical; DB is a generated projection
+### 12.2 Persistence tiers (the governing principle)
 
-The code manifest is the single source of truth. Projected tables (`workflow_definition`, `definition_stage`, `task_template`, `port_template`) are generated *from* the manifest and **never hand-edited**. Three rules:
-- **Never hand-edit projected tables.** Edit the manifest, re-run the projection generator.
-- **Fail-fast startup consistency check.** Content-hash of live manifest vs. stored hash. App refuses to start on mismatch.
-- **Append-only / version-retained.** A new manifest version inserts new rows; prior versions are never deleted while any instance pins them.
+**A construct earns a table only if it must persist after the HTTP response returns.**
+- **Entity** — EDM / RDM / Portfolio / Analysis / Treaty: a durable artifact.
+- **`irp_job`** — must be tracked after the response: an async IRP poll, or a heavy-deferred submit (e.g. the S3 upload inside an EDM import).
+- **`rwb_job`** — app-side post-terminal / analyst-requested / chained work (CR-001, redesigned in CR-002 — see DATA_MODEL §8).
+- **Audit** — *deferred, not built* (DATA_MODEL §1, `audit_log`).
 
-### 12.2 EDM analysis workflow — stages
+Synchronous single ops (create-subportfolio, treaty CRUD) create **no job and no batch** — they persist the entity in-request. **A group is an `irp_analysis` with `is_group=true`**, not a separate entity — viewed/exported identically. There is **no workflow-definition manifest, no projection, no typed ports, no handle-type registry, no stage machine, no version pinning** — those existed to model authored, evolvable DAG topology as data, a problem this app does not have.
 
-The single workflow type. Stages in fixed order (skippable but never reorderable):
+### 12.3 EDM & RDM operations
 
-| # | Stage | Mode | Skippable | Notes |
-|---|---|---|---|---|
-| 1 | EDM Upload | singleton | yes | Skip if EDM already in IRP. Submits `workflow` or `risk_data_job` to IRP. `irp_exposure_id` backfilled via `backfill_edm` result worker. |
-| 2 | Data Validation & Profiling | sequential | yes | DataBridge validation + profiling queries (§10.2). No IRP job. Task executed synchronously on request path; service marks task `succeeded`/`failed` inline after the DataBridge call returns. |
-| 3 | Exposure Modification | sequential | yes | DataBridge modification queries (§10.3). No IRP job. Same synchronous completion pattern as Stage 2. |
-| 4 | Portfolio Creation | sequential | no | `client.portfolio.create_portfolio()` returns `(portfolio_id, _)` synchronously (201 + Location header). Service writes `irp_portfolio.irp_portfolio_id` inline on the same request. No poller involvement — the ID is known before the response. |
-| 5 | Geo-coding & Hazard | parallel | yes | `client.portfolio.submit_geohaz_job()` per portfolio → `workflow` job type |
-| 6 | Analysis | parallel | no | `client.analysis.submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered). Task instances ordered by `template_suite_item.position`; job IDs mapped positionally. `resource_uri` per job stored on `irp_job.resource_uri` immediately. |
-| 7 | Grouping | sequential | yes | `client.analysis.submit_analysis_grouping_job()` → `grouping_job`. Analyses referenced by name+EDM |
-| 8 | Export | parallel | yes | `analysis_export_job` (Parquet) or `rdm_export` (`risk_data_job`). Result worker then pushes to Loss Repository |
+Every async op is tracked as an `irp_job` row and polled by the poller (§14.4). Only the operations below are the MVP analysis spine (`mvp-scope.md §1–§3`); EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine and, if revived, map onto the same `irp_job_type` set.
 
-All stages support `auto_complete` toggle (default false → parks in `review` when work completes).
+- **EDM import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = edm_import` (uploads to S3 first, inside the library — a **heavy** submit). `irp_edm.irp_id` is backfilled by the poller on import `FINISHED`.
+- **RDM import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = rdm_import` (also heavy). Once imported, the RDM's broker analyses appear as `irp_analysis` rows with `rdm_id` set (see DATA_MODEL §3c), readable via DataBridge for comparison.
 
-### 12.3 Stage review & status model
+### 12.4 Treaties (view / edit)
 
-Per-stage execution status: `not_started → blocked → running → review → complete / canceled`
+Analysts can **view and create/edit** reinsurance treaty details for the main treaty types directly in the UI. A **treaty belongs to an EDM** and is referenced by analyses **by name** (not by id), consistent with the name-based coupling used everywhere else. Backed by the `irp_treaty` entity (DATA_MODEL §3b).
 
-- `auto_complete=false` (default) → stage goes to `review` when tasks finish; human must complete it
-- `auto_complete=true` → stage goes directly to `complete`
-- **`ERROR` is a dynamic rollup** (any task failed) — overlays any status; is never a gate
-- **`blocked`** is a gate from a validation failure; carries a severity + message for the review panel
-- **Complete** advances the workflow. **Cancel** halts the entire workflow (`execution_status → canceled`). No retry/rerun — escape hatch is cancel-and-create-new.
-
-Review queue: home dashboard card + Workflows sidebar item count only `review` + `blocked` stages.
-
-### 12.4 Stage execution modes
-
-- **Singleton** — exactly one task
-- **Parallel** — sibling tasks, no intra-stage ordering; all dispatchable at once
-- **Sequential** — ordered tasks; may chain to earlier tasks in the same stage
-
-Skipping a stage marks its tasks `skipped` and passes handles through; blocked when downstream references the stage's handles.
-
-### 12.5 Workflow states
-
-`draft → validated → runnable` (then execution states):
-- **draft** — being authored; only compose-time checks apply
-- **validated** — passed whole-graph validation pass including IRP reference-data checks; gates the `validated` transition
-- **runnable** — validated and ready to execute
+All treaty IRP calls are **synchronous** and create **no job**: `treaty.search_treaties` (list / resolve by name), `treaty.create_treaty`, and `treaty.create_treaty_lob`. Creating a treaty with its lines of business is a **1 + N** call pattern and is **non-atomic** — a partial failure can leave a treaty with some LOBs missing; the UI surfaces this and lets the analyst retry the remaining LOBs. Because it is synchronous with no job, a treaty create/edit records an audit entry + a toast and **never appears in the job monitor**. Scope is **edit-only** (add/edit treaty + LOBs for the main types); cedant-ID checks, treaty-accuracy validation, and location-detail checks are out.
 
 ---
 
-## 13. Feature: Type registry, reference chaining & validation
+## 13. Feature: Prerequisite gate, name-based coupling & validation
 
-### 13.1 Handle-type registry
+### 13.1 The prerequisite gate (replaces the stage machine)
 
-Each producible/consumable type is a row: `code`, `label`, optional `parent_code` (single-parent inheritance for compatibility). Seeded: `edm`, `rdm`, `analysis`, `group`. Nothing in code treats these as special; new chaining needs add rows, not code branches.
+"What can the analyst do right now" is computed live from entity existence + job terminal status — a lookup + existence check in code, not a stored `stage_kind.sort_order`:
 
-**`dlm` and `hd` are NOT handle types.** DLM vs HD is an analysis-profile property (`"HD" in softwareVersionCode`), not a file-level attribute. The homogeneity validator checks cached model profile names, not handle types.
+| Op | Enabled once these exist / are `FINISHED` |
+|---|---|
+| EDM import | server exists; EDM name not already in RM |
+| RDM import | its EDM imported (`FINISHED`) |
+| Create subportfolio | EDM + ≥1 portfolio exist |
+| GeoHaz | EDM + portfolio exist |
+| Treaty create/edit | EDM exists |
+| Analysis | EDM + portfolio (+ named treaties) exist |
+| Grouping | member analyses/groups exist (`FINISHED`) |
+| Export → Loss Repo | analysis/group exists (`FINISHED`) |
 
-### 13.2 Typed ports & input sources
+This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones.
 
-Every task input resolves to one of three sources:
-1. **Inventory item** → pins an immutable `artifact_id` (tagged EDM/RDM file)
-2. **Upstream handle** → references a specific upstream `task_instance` output port (prior stage freely; prior task only within a sequential stage)
-3. **Literal / reference-table row / parameter** → user value or pinned reference version
+**Auto-fires vs click-gated.** Mechanical follow-up **auto-fires** (a broker package is one intent, so EDM→RDM chains automatically); anything requiring judgment (picking analysis settings) **waits for a click**. This auto/click distinction is made explicit per op in the flow specs.
 
-A consumer port declares the type set it accepts; the UI offers matching handles as a dropdown.
+### 13.2 Name-based coupling (replaces typed handles)
 
-### 13.3 Type propagation
+There is **no typed handle to chain or invalidate.** Each op resolves its inputs **live from Risk Modeler by name at submit time** — `search_edms`, `search_portfolios`, `search_analyses`, `search_treaties`. IRP re-validates names to internal IDs on every submit anyway, so a local typed-port/handle-type registry would only track something IRP already owns. Entity tables reference each other directly (`edm_id`, `group_parent_id`, etc.); a job's produced entity records its creator via `created_by_irp_job_irp_id` (DATA_MODEL §3, §3c).
 
-An output port's emitted type is either **literal** (`analysis` emits `analysis`) or **derived** (`group` emits "same as my inputs' type"). Derived types propagate DLM/HD lineage through group-of-groups. Known structurally at authoring time.
+### 13.3 Validation — at the point of action
 
-### 13.4 Two-phase validation
+Validation is **entity-existence + uniqueness + reference-data**, checked when the analyst acts, not as a two-phase whole-graph pass:
+- **Uniqueness** — no duplicate EDM/analysis/group name in RM (checked live via `search_*` before submit; a dup name is retryable).
+- **Reference-data** — model/output profiles, event-rate schemes, servers, treaties resolve against the local IRP cache (DATA_MODEL §10); pick-lists resolve locally.
+- **Homogeneity** (grouping) — members share a model family (DLM vs HD from cached `irp_model_profile.software_version_code`), checked when composing the grouping op. **`dlm`/`hd` are not types** — DLM vs HD is an analysis-profile property, not a file attribute.
 
-- **Compose-time (instant, per-edge):** type compatibility + structural rule. Runs as the user wires.
-- **Save-time / validate (whole-graph, may call IRP cache):** graph invariants, gates `draft → validated`.
-
-### 13.5 Structural rule (written once, generic)
-
-An edge P → C is legal iff: C's accepted-type set is compatible with P's emitted type (registry lookup, incl. parent inheritance) AND one of: (a) P is in an earlier stage, or (b) same stage, sequential, P precedes C. Same-stage edges in parallel stages and any backward edge are rejected. Cycle check always runs. This function never grows.
-
-### 13.6 Graph invariants (registered named validators)
-
-- **Homogeneity** — all inputs to a Grouping task must share the same model family. DLM vs HD determined from cached `irp_model_profile.software_version_code`. No live IRP call at validation time.
-- **Uniqueness** — no duplicate analysis names within an EDM; no duplicate group names.
-- **External validity** — reference-data lookups against local IRP cache: named model profile, output profile, event rate scheme, server, treaties all exist. No trial job submitted.
-
-New constraint = one registered validator function + register it.
-
-### 13.7 Reference chaining vs data lineage
-
-- **Reference chaining** (user-wired, validated) — handles flow downstream: EDM name → Portfolio Creation → Analysis → Grouping. Analysis names reusable in Grouping; group names reusable in subsequent Grouping tasks (sequential stage allows this). Group-of-groups: a group task consumes `{analysis, group}` and emits `group`.
-- **Data lineage** (implicit) — produced outputs are artifacts in the §8 model, giving an end-to-end provenance graph. Not user-wired, not validated.
-
-**Handle re-run semantics:** when an upstream task is re-run, downstream tasks that pinned its prior output are marked **stale (needs review)** — never silently re-pointed.
+A failed prerequisite surfaces as `irp_job.status = 'BLOCKED'` (the only "needs attention" pre-submit state); it is not a stored stage gate.
 
 ---
 
 ## 14. Feature: Execution engine, job tracking & result processing
 
-### 14.1 Task as job (SQL table is the queue)
+### 14.1 `irp_job` is the tracked unit
 
-A task-instance is a **job row** in the Metamodel DB; that table is the queue — no separate queue technology (no Celery/Redis for job submission). The SQL table enforces readiness gates, which IRP cannot (only we know when a task's pinned inputs have resolved).
+An `irp_job` row is **one IRP operation** — the executable unit that replaces the old task-instance. It is tracked (by the poller) after the request returns; `rwb_job` is the SQL-backed queue for app-side work (Article 10). No separate queue technology for IRP submission — submit is synchronous on the request path (§14.3).
 
-**Default: single worker, plain dequeue.** IRP already queues and executes; our worker's role is submit-then-hand-off. So the default is one worker process doing `SELECT TOP (1) WHERE status='ready' ORDER BY priority, id` then `UPDATE SET status='running'`. No locking hints needed.
+### 14.2 Readiness = the prerequisite gate
 
-**Documented upgrade:** swap for `SELECT TOP (n) WITH (READPAST, UPDLOCK, ROWLOCK) OUTPUT` for concurrent workers. One-statement change, no schema change.
-
-**Reclaim-stuck sweep** always runs: periodically resets rows stuck in `running` past a timeout back to `ready`.
-
-### 14.2 Readiness gate
-
-Per-task: `blocked → ready → running → succeeded | failed | skipped`. `blocked→ready` computed from whether all bound inputs have resolved (artifacts present + unchanged). The claim query gates on `ready`.
+There is no per-task `blocked→ready` machine. An op is offered to the analyst only when its prerequisites (§13.1) are met; a pre-submit prerequisite failure is recorded as `irp_job.status = 'BLOCKED'`.
 
 ### 14.3 IRP job submission
 
-**Submission is synchronous on the request path.** When an analyst triggers an IRP operation the service calls the IRP API directly, records the returned job ID, and responds immediately. This is the right model because:
-- IRP submit calls return quickly (they enqueue work server-side and return a job ID — no waiting)
-- The analyst gets immediate confirmation or an error in the same HTTP response
-- No benefit to deferring through a queue for a sub-second operation
+**Submission is synchronous on the request path** (Article 11): the service calls the IRP API directly, records the returned job id, and responds immediately — IRP submit calls return quickly (they enqueue work server-side and hand back a job id), the analyst gets immediate confirmation or an error in the same HTTP response, and there is no benefit to deferring a sub-second call through a queue.
 
-**On submission failure:** the `irp_job` row is written with `mirrored_status = 'submission_failed'` and `submission_attempt_count` incremented. The `submission_retry` Dramatiq actor picks these up and re-attempts up to `IRP_SUBMISSION_MAX_RETRIES` (default 3) times with backoff. After max retries the job stays `submission_failed` and surfaces as an error on the task.
+**On submission failure** the `irp_job` row is written with `status = 'SUBMISSION FAILED'` (submission-side — it never reached RM, so there is no `irp_id`) and `submission_attempt_count` incremented. A **single-threaded `submission_retry` batch job** re-attempts eligible rows up to `IRP_SUBMISSION_MAX_RETRIES` (default 3) with backoff; after max retries the job stays `SUBMISSION FAILED` (now terminal). `SUBMISSION FAILED` (no `irp_id`) is distinct from `FAILED` (RM ran it and it failed) — different cause, different retry. There is no bare `ERROR` status.
 
-Each IRP-backed task submits to one of five job types. The `irp_job` row records `job_type` (for poll routing), `external_ref` (IRP's returned integer job id), and `submission_attempt_count`:
+Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routing), `irp_id` (RM's returned integer job id, as string), and `submission_attempt_count`:
 
-| Stage | IRP call | `job_type` |
+| Op | IRP call | `irp_job_type` |
 |---|---|---|
-| EDM Create (fresh) | `client.edm.submit_create_edm_job(edm_name, server_name)` | `workflow` |
-| EDM .bak Import | `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` | `risk_data_job` |
-| EDM Upgrade | `client.edm.submit_upgrade_edm_data_version_job(edm_name, edm_version)` | `workflow` |
-| EDM Delete | `client.edm.submit_delete_edm_job(exposure_id)` | `workflow` |
-| RDM Import | `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` | `risk_data_job` |
-| Geo-coding & Hazard | `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` | `workflow` |
-| Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` → `(job_id, request_body)` | `analysis_job` |
-| Analysis (batch) | `client.analysis.submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered job IDs) | `analysis_job` per item |
-| Grouping | `client.analysis.submit_analysis_grouping_job(group_name, analysis_names, ...)` | `grouping_job` |
-| File Export (Parquet) | `client.analysis.submit_analysis_export_job(analysis_id, loss_details)` | `export_job` |
-| RDM Export | `client.rdm.export_analyses_to_rdm(server_name, rdm_name, analysis_names)` | `risk_data_job` |
+| EDM .bak/.mdf import | `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` | `edm_import` |
+| RDM import | `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` | `rdm_import` |
+| Geo-coding & Hazard | `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` | `geohaz` |
+| Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` → `(job_id, request_body)` | `analysis` |
+| Analysis (batch) | **loop** `submit_portfolio_analysis_job` app-side, once per item, capturing each `(job_id, request_body)` | `analysis` per item |
+| Grouping | `client.analysis.submit_analysis_grouping_job(group_name, analysis_names, ...)` | `grouping` |
+| File Export (Parquet) | `client.analysis.submit_analysis_export_job(analysis_id, loss_details)` | `export` |
 
-> **DLM vs HD at submit time:** `event_rate_scheme_name` required for DLM; optional for HD. Detected internally by irp-integration from the model profile's `softwareVersionCode`. The app passes the value (or omits it) based on the cached profile.
+> **Subportfolio creation is synchronous** — `create_portfolio()` returns `(portfolio_id, request_body)` (HTTP 201 + Location), no job; the service writes `irp_portfolio.irp_id` inline. **Treaty CRUD is synchronous**, no job. EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine; if revived they map onto the same `irp_job_type` set.
 
-> **`exposure_resource_id` must be captured at submission time.** `submit_portfolio_analysis_job()` returns `(job_id, request_body)` where `request_body["resourceUri"]` is the portfolio's IRP resource URI — this IS the `exposure_resource_id` needed later for `get_elt()`, `get_ep()`, etc. Store it in `irp_job.resource_uri` on the `irp_job` row immediately after submission. The analysis result completion response does NOT include this value — if it is not stored at submission time it cannot be recovered without a separate IRP search call.
+> **Resource URI must be captured at submission time.** `submit_portfolio_analysis_job()` returns `(job_id, request_body)` where `request_body["resourceUri"]` is the portfolio's IRP resource URI — needed later for `get_elt()`, `get_ep()`, etc. Store it as an `irp_job_resource` row (`resource_type='portfolio'`, `resource_uri=...`) immediately after submission — RM's completion response does not return it, so it is otherwise unrecoverable without a separate search call (DATA_MODEL §8).
 
-> **Batch analysis — ordered positional mapping.** `submit_portfolio_analysis_jobs(list)` returns `List[int]` (one job ID per submitted item, same order). When applying a template suite, task instances are ordered by `template_suite_item.position` (ascending). The batch request list is built in the same order. Job IDs are matched back to `task_instance` rows by position: `job_ids[i]` → task at position `i`. The `(stage_instance_id, order_in_stage)` UNIQUE constraint enforces unambiguous ordering. This mapping is written atomically in a transaction immediately after the batch submit call returns.
+> **Batch analysis — ordered positional mapping.** The batch submit is an **app-side loop** over `submit_portfolio_analysis_job`, once per item, capturing each `(job_id, request_body)`. Each item gets its own `irp_job` row written in the same order; there is no stage-position index anymore.
 
-> **API method signatures** in the table above are from `irp-integration` v0.2.1.dev23. This is a pre-release library. Verify all signatures against the installed version before implementing any IRP-backed stage. Parameter names and return shapes are the most likely points of drift.
+> **API method signatures** are from `irp-integration` v0.2.1.dev23 (pre-release). Verify against the installed version before implementing any IRP-backed op.
 
 ### 14.4 The poller
 
-Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — the poller is a batch operation by design. One process, one pass per interval: it queries all non-terminal jobs in a single SELECT, groups them by `job_type`, polls IRP for each, and writes results. A per-message Dramatiq queue would break this natural batching and add unnecessary Redis round-trips.
-
-**Running:** `--loop --interval 30` for dev; cron or a supervised systemd service in production (e.g. `ExecStart=python -m app.poller.run --loop --interval 60`).
+Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch operation by design: one pass per interval queries all non-terminal jobs in a single SELECT, groups them by `irp_job_type`, polls IRP for each, and writes results. Run `--loop --interval 30` in dev; a supervised service in production.
 
 **Each pass:**
-1. **Query non-terminal jobs** from `WORKBENCH` DB: `WHERE mirrored_status NOT IN ('FINISHED', 'FAILED', 'CANCELLED') AND mirrored_status != 'submission_failed'`
-2. **Poll each job** via irp-integration using the **single-status-check** method per `job_type`. The poller **must never call `poll_*_to_completion` methods** — those are blocking loops with 600 000-second timeouts and will freeze the poller process. Use only the single-GET methods:
+1. **Query non-terminal jobs** from `WORKBENCH`: `WHERE status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')`, grouped by `irp_job_type`. App-local rows with no `irp_id` are skipped.
+2. **Poll each job** via the **single-status-check** method per `irp_job_type` (never `poll_*_to_completion`, which blocks for up to 600 000 s and would freeze the poller):
 
-| `job_type` | Single-status-check method (poller uses this) |
+| `irp_job_type` | Single-status-check method (poller uses this) |
 |---|---|
-| `workflow` | `client.client.get_workflow(workflow_id)` → `{"status": ..., "progress": ...}` |
-| `risk_data_job` | `client.risk_data_job.get_risk_data_job(job_id)` |
-| `analysis_job` | `client.analysis.get_analysis_job(job_id)` |
-| `grouping_job` | `client.analysis.get_analysis_grouping_job(job_id)` |
-| `export_job` | `client.export_job.get_export_job(job_id)` |
+| `edm_import` / `rdm_import` | `client.import_job.get_import_job(id)` |
+| `geohaz` | `client.portfolio.get_geohaz_job(id)` |
+| `analysis` | `client.analysis.get_analysis_job(id)` |
+| `grouping` | `client.analysis.get_analysis_grouping_job(id)` |
+| `export` | `client.export_job.get_export_job(id)` |
 
-> **`poll_*_to_completion` is FORBIDDEN in the poller.** These methods block for up to 600 000 seconds. The `get_*` single-check methods are the right primitives for a batch poller. The `poll_*` blocking variants exist in the library for interactive scripts, not for a production poller loop.
+> Imports poll via `import_job.get_import_job`, **not** `risk_data_job`/`get_workflow` (the prototype confirms this).
 
-3. **Update `irp_job.mirrored_status`** in `WORKBENCH` DB via `db.execute_command`.
-4. **On terminal status:** write one or more `rwb_job` rows (one per `work_type` needed) via idempotent `INSERT ... WHERE NOT EXISTS (request_key)`, with `origin='irp_completion'`, `irp_job_id` set. Mark the `task_instance` as `succeeded` or `failed` (`status == 'FINISHED'` is the only success; `FAILED` and `CANCELLED` are failures).
-5. **Update stage/workflow rollups** (task counts, error overlay, status propagation).
+3. **Update `irp_job.status`** (updated in place; `last_tracked_at` stamped). **Backfill entity `irp_id`s** directly on import `FINISHED`.
+4. **On terminal status:** write head `rwb_job` row(s) via idempotent insert on the composite key (§14.5). `status == 'FINISHED'` is the only success; `FAILED`/`CANCELED` are failures.
 
-**JobStatus vocabulary** (stored as plain string — not a DB enum, so future IRP statuses never crash the poller):
-- Non-terminal: `QUEUED`, `PENDING`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELLING`
-- Terminal: `FINISHED`, `FAILED`, `CANCELLED`
-- App-local: `submission_failed` (never sent to IRP; poller skips these rows)
+**`irp_job.status` vocabulary** (plain string; future RM statuses never crash the poller):
+- RM-mirrored non-terminal: `PENDING`, `QUEUED`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELING`
+- RM-mirrored terminal: `FINISHED` (only success), `FAILED`, `CANCELED` (one-L spellings, per RM)
+- App-local: `UNSUBMITTED`, `SUBMITTING`, `BLOCKED` (non-terminal); `SUBMISSION FAILED` (terminal; poller skips these, no `irp_id`)
 
 ### 14.5 RWB jobs & Dramatiq workers
 
-**Two categories of Dramatiq actors:**
+`rwb_job` is app-side work **this app executes** in-process (Dramatiq worker), fully decoupled from `irp_job` (no FK). Each row's `requestor_type` (kind-table FK) + `requestor_id` records what triggered it — an `irp_job` completion, an analyst action, or a parent `rwb_job` (chaining); the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` is the dedup/idempotency key (replacing `request_key`). `rwb_job_type` is a kind-table FK. See DATA_MODEL §8 for the full vocabulary.
 
-**A — Result workers** (triggered by the poller writing an `rwb_job` row on terminal IRP job status):
+**Result workers** (triggered by the poller writing an `rwb_job` head row on terminal IRP status): `retrieve_analysis_results` → `push_results_to_loss_repo`; `push_rdm_to_loss_repo`; `notify_analyst`; `download_export_file`; plus the package `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` stubs (§7.4/§9.4). (`push_exposure_summary` is out of MVP — no Exposure Repository per `mvp-scope.md §6`.)
 
-The poller writes one `rwb_job` row per `work_type` needed for each completed job, using idempotent `INSERT ... WHERE NOT EXISTS (request_key)` with `origin='irp_completion'`. Dramatiq workers run in parallel — multiple work types for the same job can process concurrently.
+**Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `push_results_to_loss_repo` never races `retrieve_analysis_results` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
 
-| `work_type` | Worker responsibility |
-|---|---|
-| `retrieve_analysis_results` | Call `client.analysis.get_elt/ep/stats/plt()` per perspective code; write Parquet files + `analysis_result_meta` row to `WORKBENCH` DB |
-| `push_results_to_loss_repo` | Read Parquet result files; write to `LOSS` DB via `get_connection("LOSS")` |
-| `push_rdm_to_loss_repo` | Query broker RDM via DataBridge; write to `LOSS` DB |
-| `push_exposure_summary` | Run DataBridge exposure summary queries; write to `EXPOSURE` DB via `get_connection("EXPOSURE")` |
-| `notify_analyst` | Post Teams webhook and/or send email on job completion or failure |
-| `download_export_file` | Download Parquet export from IRP via `client.export_job.download_export_results()`; write to submission output dir |
+**Claim + heartbeat protocol (CR-001, unchanged):** atomic claim (`UPDATE ... SET status_code='running', claimed_by=:w WHERE id=:id AND status_code='pending'`; rowcount 0 → already claimed, ack and drop); heartbeat daemon thread stamps `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`; work runs inside `with heartbeating(job_id, worker_id):`; on success set `succeeded` + `output_data` and create tail rows, on failure set `failed` + `error_detail` (Dramatiq retries with backoff). Stale `running` rows are recovered by the reconciler folded into the poller.
 
-**RWB job chaining — ordering without a depends_on column.** The poller only writes **head** `rwb_job` rows for each completed IRP job (the first in each chain). Each worker, on success, creates the next `rwb_job` in the chain via idempotent insert on the chained `request_key` (`chain:{parent_rwb_job_id}:{work_type}`). This gives ordering without a dependency join at dequeue time:
+**Submission retry** is a **single-threaded batch job**, not a concurrent Dramatiq actor and not on the `rwb_job` table (per CR-002 — submission is not long-running, so no worker pool and no `retry_locked_until` lock column). Eligibility is a plain query: `status='SUBMISSION FAILED' AND submission_attempt_count < IRP_SUBMISSION_MAX_RETRIES`.
 
-```
-Poller writes on FINISHED (origin=irp_completion):
-  retrieve_analysis_results (head)
-  notify_analyst (head — independent, runs in parallel)
+**Dramatiq broker:** Redis (durable via AOF). Workers start with `dramatiq app.workers`.
 
-retrieve_analysis_results worker, on success, creates:
-  push_results_to_loss_repo (tail, origin=chained)
-```
+### 14.6 Submission progress (derived, not rolled up)
 
-This means `push_results_to_loss_repo` never races with `retrieve_analysis_results` — it does not exist until `retrieve_analysis_results` succeeds. If `retrieve_analysis_results` fails after Dramatiq retries, the chain stops there; `push_results_to_loss_repo` is never enqueued.
-
-**Worker claim and heartbeat protocol:**
-1. Claim: `UPDATE rwb_job SET status='running', claimed_by=:worker_id WHERE id=:id AND status='pending'`. If rowcount is 0, the row is already claimed — ack and drop silently.
-2. Start heartbeat daemon thread (see §2.3a): stamps `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS` from a separate thread, independent of how long the work takes.
-3. Do work inside `with heartbeating(job_id, worker_id): ...`. All long blocking calls (file downloads, IRP API calls) are inside this context.
-4. On success: stop heartbeat, set `status='succeeded'`, write `completed_at`; create any tail `rwb_job` rows.
-5. On failure: stop heartbeat, set `status='failed'`, write `error_detail`; Dramatiq handles retry with exponential backoff.
-
-**B — Submission retry actor** (triggered when `irp_job.mirrored_status = 'submission_failed'`):
-
-A separate `submission_retry` Dramatiq actor — does not use the `rwb_job` table (different trigger, different lifecycle). It claims by atomically updating `irp_job`: `UPDATE irp_job SET retry_locked_until = DATEADD(minute, 15, GETUTCDATE()), submission_attempt_count = submission_attempt_count + 1 WHERE id = :id AND retry_locked_until < GETUTCDATE() AND submission_attempt_count < :max_retries`. Only one actor wins; the losers skip. It re-attempts the IRP API call and updates `mirrored_status` + `external_ref` on success or leaves `submission_failed` on exhaustion. After `IRP_SUBMISSION_MAX_RETRIES` (default 3) the job surfaces as a permanent failure on the task.
-
-**Worker behavior contract (both categories):**
-- All workers are idempotent — safe to re-run on Dramatiq retry; file writes go to a temp path + atomic rename
-- Recovery of stale-`running` rows is handled by the reconciler in the poller, not by a separate sweep or timer
-
-**Dramatiq broker:** Redis (durable via AOF — see §2.3a). Workers start with: `dramatiq app.workers`.
-
-### 14.6 Stage / workflow rollups
-
-Task statuses are leaves. A stage's `exec_status` is event-sourced; its Task/Completed counts and `error` overlay (any task `failed`) roll up from tasks. Workflow current stage = earliest not-`complete` stage; `canceled` stage forces workflow to `canceled`.
+There are no stage/workflow rollups to maintain. A submission's progress is **derived on read** from its `irp_job` rows (which ops are `FINISHED`/running/failed) and its entity rows (which EDMs/portfolios/analyses/treaties exist) — the same signals the prerequisite gate (§13.1) reads. `ERROR` is not a stored status; a failure is a job in `FAILED` or `SUBMISSION FAILED`.
 
 ### 14.7 Live monitoring
 
-SSE (`sse-starlette`) streams job status updates to the UI as the poller updates `mirrored_status`. The workflow-detail stage list and status-bar activity zone subscribe. nginx must have `proxy_buffering off` on SSE routes. HTMX polling used as fallback for stage-level counts.
+SSE (`sse-starlette`) streams job status updates to the UI as the poller updates `irp_job.status`. The job-monitor list and status-bar activity zone subscribe. nginx must have `proxy_buffering off` on SSE routes. HTMX polling is the fallback for counts.
 
 ---
 
@@ -959,7 +884,7 @@ Always required: `RISK_MODELER_BASE_URL`, `RISK_MODELER_RESOURCE_GROUP_ID`
 
 ### 15.2 IRP metadata sync
 
-"Sync IRP Metadata" rail action fetches and caches IRP reference data into local `irp_*_cache` tables in the Metamodel DB. Feeds workflow authoring dropdowns and the `draft→validated` validation checks.
+"Sync IRP Metadata" rail action fetches and caches IRP reference data into the local `irp_*` cache tables in the Metamodel DB. Feeds op-configuration dropdowns and the point-of-action reference-data checks (§13.3).
 
 What is synced:
 - `client.reference_data.get_model_profiles()` → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
@@ -994,13 +919,13 @@ DataBridge **cannot serve analysis results** — REST only for results.
 
 ### 15.5 Portfolio tracking
 
-The `irp_portfolio` table tracks portfolios created during a workflow:
-- `irp_exposure_id` — IRP's integer exposureId for the EDM
-- `irp_portfolio_id` — IRP's integer portfolioId
-- `edm_name`, `portfolio_name`
-- `task_instance_id` FK — the Portfolio Creation task that created it
+The `irp_portfolio` table tracks portfolios created within an EDM:
+- `edm_id` FK → `irp_edm`; `customer_id` (denorm)
+- `irp_id` — IRP's integer portfolioId
+- `name` — the portfolio name in IRP
+- Synchronous creation, so no `created_by_irp_job` lineage column (DATA_MODEL §3)
 
-**`create_portfolio()` returns the portfolio ID synchronously** — the IRP endpoint responds with HTTP 201 + a Location header; the library parses this and returns `(portfolio_id, request_body)` before the call returns. The service writes `irp_portfolio.irp_portfolio_id` on the same request path. The poller is not involved in portfolio ID backfill.
+**`create_portfolio()` returns the portfolio ID synchronously** — the IRP endpoint responds with HTTP 201 + a Location header; the library parses this and returns `(portfolio_id, request_body)` before the call returns. The service writes `irp_portfolio.irp_id` on the same request path. The poller is not involved in portfolio ID backfill.
 
 Analysis job submission requires both `edm_name` and `portfolio_name` — IRP resolves these to IDs internally.
 
@@ -1008,7 +933,7 @@ Analysis job submission requires both `edm_name` and `portfolio_name` — IRP re
 
 - **Built-in retry** inside irp-integration: 5 attempts, exponential backoff for 429/5xx. Do not add another retry layer.
 - **Rate limits / concurrency caps:** honored at the poller level; do not submit faster than IRP allows.
-- **IRP availability:** hard runtime dependency for IRP-backed stage execution and the `validated` transition's live fallback calls. Workflow authoring stays in `draft` without IRP.
+- **IRP availability:** hard runtime dependency for submitting and polling IRP operations. Without IRP, ops that need it are simply not enabled by the prerequisite gate (§13.1); already-imported entities remain viewable.
 - **Terminal ≠ success:** always inspect `status == 'FINISHED'` before treating a terminal job as successful.
 
 ---
@@ -1027,7 +952,7 @@ These tables are the source for the results review UI.
 
 ### 16.2 Results review UI
 
-Rail: Results. Shows analysis outputs per workflow/submission:
+Rail: Results. Shows analysis outputs per submission:
 - ELT summary (AAL, max event loss, record count)
 - EP curves (plot or table, by perspective)
 - AAL by perspective
@@ -1042,11 +967,11 @@ The `push_results_to_loss_repo` Dramatiq worker writes to it after analysis resu
 
 ### 16.4 Results grouping
 
-After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`submit_analysis_grouping_job`). This is the Grouping stage of the workflow. Groups can themselves be grouped (group-of-groups, supported by irp-integration). Results of grouped analyses are retrieved the same way as individual analyses.
+After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`submit_analysis_grouping_job` → `irp_job_type = grouping`). A group is an `irp_analysis` with `is_group=true` (not a separate entity). Groups can themselves be grouped (group-of-groups, supported by irp-integration). Results of grouped analyses are retrieved the same way as individual analyses.
 
 ### 16.5 Exposure Repository
 
-The Exposure Repository (`EXPOSURE_REPO_URL`) receives pre-aggregated exposure summaries from Phase A. The `push_exposure_summary` Dramatiq worker writes structured exposure data (total insured value by portfolio/geography/LOB) to the Exposure Repository after the analyst explicitly triggers it from the Data Validation & Profiling stage UI.
+The Exposure Repository (`EXPOSURE_REPO_URL`) receives pre-aggregated exposure summaries from Phase A. The `push_exposure_summary` Dramatiq worker writes structured exposure data (total insured value by portfolio/geography/LOB) to the Exposure Repository after the analyst explicitly triggers it from the Phase A UI. *(Out of MVP — no Exposure Repository per `mvp-scope.md §6`; deferred with Phase A.)*
 
 ---
 
@@ -1088,11 +1013,13 @@ Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal st
 - **Email** — SMTP, sent to `assigned_analyst.email`
 - **In-app** — a notification item in the status bar (polled via SSE)
 
-**Content:** job name, submission name, final status (FINISHED/FAILED/CANCELLED), timestamp, deep link to the workflow stage.
+**Content:** job name, submission name, final status (`FINISHED`/`FAILED`/`CANCELED`/`SUBMISSION FAILED`), timestamp, deep link to the job.
+
+> **Notifications are deferred (CR-002).** The `notification_preference` table is dropped and notifications will be re-added in a future version. `notify_analyst` remains a defined `rwb_job_type` for when the feature is picked up.
 
 ### 18.2 Configuration
 
-`notification_preference` table per user: `channel` (teams/email/in_app), `enabled`, `on_success`, `on_failure`. Teams webhook URL configured in application settings (per submission or global).
+*(Deferred with the feature.)* Per-user preferences (`channel` teams/email/in_app, `enabled`, `on_success`, `on_failure`) and the Teams webhook URL will be re-specified when notifications are built; the `notification_preference` table is not carried in the current schema.
 
 ---
 
@@ -1104,8 +1031,8 @@ Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal st
 - **Submissions** — name, customer, program
 - **EDMs** — EDM name, submission
 - **RDMs** — RDM name, submission
-- **Workflows** — name, submission, status
-- **Templates** — analysis template name, profile name
+- **Analyses** — analysis/group name, submission, status
+- **Jobs** — IRP job / RWB job, by type and status
 - **Results** — analysis job name
 
 Adding a searchable type = register one provider. **All providers apply `apply_scope()`** — results are customer-scoped and cannot leak. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
@@ -1136,11 +1063,11 @@ Reusable server-side pagination, filtering, sorting. One pattern, reused everywh
 
 **Fixed filter-param vocabulary.** To keep this "one pattern, reused everywhere" rather than each list inventing its own param names, a small starting set of query params is shared across all filterable lists: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`. Each list accepts whichever subset applies to it and ignores the rest — the Jobs list uses all five; the EDM library might use only `customer_id` + `submission_id` + `status`. The set can grow (a param or two, added as new filterable lists need them), but starts here rather than being designed fresh per page.
 
-**`status` means something different on every list — this is expected, not a conflict.** Submission status (`ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a), job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`; `irp_job.mirrored_status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
+**`status` means something different on every list — this is expected, not a conflict.** Submission status (`ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
 
 ### 20.5 Master-detail layout
 
-List + detail panel recurs (Submissions, Workflows, Results). Built once as a reusable layout.
+List + detail panel recurs (Submissions, Jobs, Results). Built once as a reusable layout.
 
 ### 20.6 Feature flags / config
 
@@ -1149,6 +1076,10 @@ Centralized. First flags: `APP_ENV`, `ENFORCE_SSO`. More will accrue.
 ### 20.7 Health check
 
 `GET /api/health` → `{status, db_workbench, db_exposure, db_loss, redis, env}`. Checks connectivity to all three DB connections (`get_connection("WORKBENCH")`, `get_connection("EXPOSURE")`, `get_connection("LOSS")`) and Redis. Returns 200 regardless; callers check individual fields.
+
+### 20.8 Optimistic concurrency (spec 002 FR-045/046)
+
+Two actors can touch the same row at once — two users changing a submission's status, or a user editing a `file_artifact` while a reconciliation scan updates it. To prevent silent lost updates, analyst-editable rows use **optimistic concurrency keyed on `updated_at`**: the edit reads `updated_at`, and the write is `UPDATE … WHERE id = :id AND updated_at = :read_value`. A rowcount of 0 means the row changed since it was read — the write is **rejected and the conflict is surfaced to the user** (flash/toast, §20.2, prompting a reload), never silently overwritten. This applies chiefly to `submission` and `file_artifact`; append-only inserts (new `file_artifact` versions, `submission_status_event`) and single-threaded machinery (the poller, the `submission_retry` batch job) don't need it. Schema note: DATA_MODEL.md Conventions.
 
 ---
 
@@ -1221,78 +1152,78 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 3 — EDM & RDM entity management
 
-**In:** §9 (EDM entity, RDM entity, EDM/RDM library rail destinations), §14.3 IRP submit for EDM create/import/upgrade/delete and RDM import, §14.4 poller (basic: poll workflow + risk_data_job types), §14.5 Dramatiq worker scaffold + `notify_analyst` worker, §18 notifications. **This is where Package's `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` jobs (§9.4, Iteration 2) go from 60-second heartbeat stubs to real IRP calls** — the job rows and UI built in Iteration 2 don't change shape, only what the worker does inside them.
+**In:** §9 (EDM entity, RDM entity, EDM/RDM library rail destinations), §14.3 IRP submit for EDM import and RDM import, §14.4 poller (basic: poll `edm_import` + `rdm_import` types via `import_job.get_import_job`), §14.5 Dramatiq worker scaffold + `notify_analyst` worker. **This is where Package's `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` jobs (§9.4, Iteration 2) go from 60-second heartbeat stubs to real IRP calls** — the job rows and UI built in Iteration 2 don't change shape, only what the worker does inside them.
 
 **Out:** analysis, grouping, results, repositories.
 
-**Exit:** import an EDM from a .bak file; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM shows `ready` status.
+**Exit:** import an EDM from a .bak or .mdf file; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM shows `ready` status.
 
 ### Iteration 4 — Phase A: Validation, profiling & Exposure Repository
 
 **In:** §10 (DataBridge validation queries, profiling, exposure modification), §16.5 Exposure Repository write via `push_exposure_summary` worker.
 
-**Out:** workflow authoring, analysis.
+**Out:** analysis execution. *(Phase A itself is deferred / out of MVP — `mvp-scope.md §6`; this iteration runs only if Phase A is picked up.)*
 
 **Exit:** run a validation query set against an imported EDM; view profiling results; push exposure summary to Exposure Repository; re-validate after modification.
 
-### Iteration 5 — Analysis templates & template suites
+### Iteration 5 — Analysis templates & template suites — **IN MVP**
 
-**In:** §11 (analysis template entity, template suite, batch application to workflow, auto-naming), IRP metadata sync (§15.2), `irp_*_cache` tables seeded.
+**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
 
-**Out:** workflow authoring, analysis execution.
+**Out:** analysis execution. *(In MVP per the 2026-07-06 practice-lead call, reversing the CR-002 deferral. IRP metadata sync can move earlier since analysis execution needs it too.)*
 
 **Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated; IRP metadata sync populates profile/server dropdowns.
 
-### Iteration 6 — Workflow authoring, type registry & validation
+### Iteration 6 — Prerequisite gate, name-based coupling & point-of-action validation
 
-**In:** §12 (definition manifest, instance, stage/mode model, draft→validated→runnable), §13 (type registry, typed ports, propagation, two-phase validation, structural rule, registered invariants), §12.2 workflow stages for all 8 stage types.
+**In:** §12 (work model — submission → EDM/RDM → job; entity tables `irp_treaty`/`irp_analysis`), §13 (prerequisite gate computed in code, name-based coupling via IRP `search_*`, point-of-action validation: uniqueness, reference-data, grouping homogeneity). No workflow authoring, no manifest, no typed ports — those are removed (CR-002).
 
 **Out:** actual IRP execution (next iteration).
 
-**Exit:** author a workflow; wire reference chaining; compose-time rejection of illegal edges; save-time validate pass (with mocked IRP cache checks); DLM+HD mixing caught; duplicate names caught.
+**Exit:** the prerequisite gate correctly enables/disables each op from entity + job state; a duplicate EDM/analysis name is caught live via `search_*`; DLM+HD mixing is caught when composing a grouping op.
 
 ### Iteration 7 — Analysis execution, grouping & results
 
-**In:** §14 (full execution engine: readiness gate, claim loop, all poller job types, `rwb_job` queue with heartbeat + reconciler, all Dramatiq worker types), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
+**In:** §14 (execution engine: `irp_job` as the tracked unit, synchronous submit, all poller `irp_job_type`s, `rwb_job` queue with heartbeat + reconciler, all Dramatiq worker types, single-threaded submission retry), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
 
 **Out:** export file download (Iteration 8).
 
-**Exit:** run a full workflow end-to-end (EDM upload → portfolio → geocode → analysis → grouping → results); results appear in review UI; Loss Repository populated; broker RDM comparison side-by-side.
+**Exit:** run the full op sequence end-to-end (EDM upload → portfolio → geocode → analysis → grouping → results) driven by the prerequisite gate; results appear in review UI; Loss Repository populated; broker RDM comparison side-by-side.
 
 ### Iteration 8 — Export, search completion & polish
 
-**In:** §14.3 file export job (`export_job` + `download_export_file` worker), §12.2 Export stage, §19 all remaining search providers (EDM, RDM, workflow, template, results), §18 notification preferences UI.
+**In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker), §19 all remaining search providers (EDM, RDM, analyses, jobs, results), notifications (§18, if picked up).
 
 **Out:** —
 
-**Exit:** export analysis results to Parquet; all search providers working; notification preferences configurable per user.
+**Exit:** export analysis results to Parquet; all search providers working.
 
 ---
 
 ## 22. Adversarial review
 
-- **A1 — Stale handles on re-run.** Re-running an upstream task silently corrupts a downstream task's input. Resolution: downstream pins a specific produced-output version; a re-run marks dependents **stale (needs review)**, never auto-repoints (§13.7).
-- **A2 — Skipping a stage with referenced handles.** Grouping references an Analysis handle; Analysis is skipped → unsatisfiable. Resolution: skipping is **blocked** when downstream references the stage's handles, with a clear reason (§12.4).
-- **A3 — Discrepancy latency.** A changed file may go undetected between triggers. Resolution: "workflow task attempts to use a file" is always a trigger, so the execution-critical path always re-scans (§8.3). Accepted elsewhere.
+- **A1 — Stale references on re-run (dissolved by CR-002).** The old concern — a re-run upstream task silently corrupting a downstream task's pinned input — no longer exists: there are no typed handles to pin. Each op resolves its inputs live from Risk Modeler by name at submit time (§13.2), so there is nothing to go stale; a rename shows up on the next `search_*`. `as_of` on entity rows signals when the local copy was last confirmed against RM.
+- **A2 — Op with an unmet prerequisite (replaces the "skip a stage with referenced handles" concern).** Grouping needs its member analyses to exist and be `FINISHED`; if they don't, the op is simply not enabled by the prerequisite gate (§13.1) — surfaced as `irp_job.status = 'BLOCKED'` if a submit is attempted anyway. No stage-skip machinery to make unsatisfiable.
+- **A3 — Discrepancy latency.** A changed file may go undetected between triggers. Resolution: "an op attempts to use a file" is always a trigger, so the execution-critical path always re-scans (§8.3). Accepted elsewhere.
 - **A4 — Cookie/session vs. live access changes.** Admin changes customer access; active session doesn't reflect it. Resolution: the session holds identity only; roles + scope are read **live from DB on every request** (§5.4). Changes are immediate.
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
 - **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
 - **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
 - **A7 — Dramatiq worker failure leaves RWB job stuck.** Resolution: layered per §2.3a. Worker death → Dramatiq redelivery. Task failure → Dramatiq Retries middleware. Job stops progressing (wedged worker or message lost) → per-job heartbeat + single-instance reconciler resets `running → pending` and re-enqueues. Idempotent workers ensure double-delivery is harmless. No duration-based sweep — stale threshold is a constant multiple of the heartbeat interval.
-- **A8 — IRP outage blocks everything.** Resolution: authoring stays in `draft` without IRP; only the `validated` transition and IRP-backed stage execution require it (§15.6). Poller catches up when IRP comes back.
+- **A8 — IRP outage blocks everything.** Resolution: ops that need IRP are simply not enabled by the prerequisite gate while IRP is down (§13.1, §15.6); already-imported entities remain viewable. Submissions in `SUBMISSION FAILED` are retried by the single-threaded submission-retry batch job, and the poller catches up when IRP comes back.
 - **A9 — Search leaks across customers.** Resolution: every provider applies `apply_scope()` (§19).
 - **A10 — Admin can't see all customers under RLS.** Resolution: `apply_scope()` honors admin bypass (§6.2).
 - **A11 — Upload vs. shared-drive store split.** Resolution: one `file_artifact` model, `source` discriminator (§8.2, §8.6).
 - **A12 — Detail pages have no manifest node.** Resolution: detail routes declare a home node; breadcrumb walks up from it + appends entity label (§4.2, §4.3).
 - **A13 — Nested directory paths across submissions.** `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions. Accepted v1 limitation.
-- **A14 — Authoring validation vs. execution readiness conflated.** Resolution: explicitly separated — §13 (authoring, graph rules) vs §14.2 (execution, input-resolved gate).
+- **A14 — Validation vs. readiness (simplified by CR-002).** There is no separate authoring-graph validation pass and execution-readiness gate to conflate anymore — both collapse into a single prerequisite gate + point-of-action validation (§13.1, §13.3), computed from entity + job state at the moment the analyst acts.
 - **A15 — Dramatiq/Redis adds ops complexity.** Accepted; the alternative (polling a SQL queue from the app process) is simpler but does not support per-job-type parallelism or fan-out without entangling the web process. Redis + Dramatiq is the standard pattern for this scale. Redis runs with AOF durability (`appendonly yes`, `appendfsync everysec`) so acknowledged enqueues survive a broker crash (≤ ~1s worst-case loss). Outstanding work is always inspectable in the SQL `rwb_job` table. Results already written survive Redis loss entirely; Redis holds only the Dramatiq message, not the work artifact.
-- **A16 — Over-generalizing the rule engine.** Hard line: flat registry + single-parent inheritance only; invariants are registered code validators, not a DSL (§13.1, §13.6).
+- **A16 — Over-generalizing (settled by CR-002).** The type/port registry and registered-validator graph engine are removed entirely — they modeled authored DAG topology this app doesn't have. Validation is a handful of point-of-action checks (§13.3); sequencing is a static lookup table (§13.1). No DSL, no registry, no engine.
 - **A17 — Icon assets.** Dependency logged (§23). Not a code blocker.
 - **A18 — `customer_id` denormalization drift.** Set once at creation from the parent chain, never user-editable. Immutable (§2.1).
 - **A19 — Loss Repository schema ownership.** The workbench has write-only access to specific tables. Schema is defined and versioned separately (not by Alembic). Breaking schema changes in the Loss Repository require coordination. Mitigated by: write through a thin adapter layer in the Dramatiq worker; the adapter is the single point to update on Loss Repository schema changes.
 - **A20 — Analyst submits 150 analysis jobs; IRP rate-limits.** Resolution: irp-integration has built-in retry (5 attempts, exponential backoff). The batch-submit method handles the loop. Do not add another retry layer. The poller polls at an interval; no thundering-herd problem.
-- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and the reverse for `rdm_delete` → `edm_delete`). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 3 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
+- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and, on the delete path, an `edm_delete` waits on its prerequisite `rdm_delete` completing first — the dependency runs one way, EDM-delete depends on RDM-delete, never the reverse; §9.4). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 3 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
 
 ---
 
@@ -1300,29 +1231,29 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Locked decisions
 
-- **Three declarative sources of truth** as code manifests, versioned, instance-pinned (§2.1).
+- **CR-002 — Not a workflow engine.** Workflow / Stage / Task / typed-handle / type-port-registry / manifest-projection are all removed (§12). Sequencing is the prerequisite gate computed in code (§13.1); coupling is name-based via IRP `search_*` (§13.2); the executable unit is `irp_job` (§14). One declarative source of truth remains: the **navigation manifest** (§2.1, §4.2).
+- **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own; `edm_id` NOT NULL on both `irp_rdm` and `irp_analysis`). `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
 - **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
 - **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
 - **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
 - **Connection pooling handled by `db/` package** — `get_engine()` / `get_connection()` cache one pooled engine per named connection. Pool sizing via `MSSQL_POOL_SIZE` / `MSSQL_POOL_MAX_OVERFLOW` (set to 10/20 for 30 concurrent users).
 - **Sync-by-default:** plain `def` handlers, FastAPI threadpool; `async def` only for SSE (§2.3).
-- **CR-001 — `rwb_job` general queue (replaces `result_work_item`).** `result_work_item` is renamed `rwb_job`; `irp_job_id` is nullable (lineage only); idempotency key is `request_key` (VARCHAR UNIQUE NOT NULL). Origin discriminator (`irp_completion` | `analyst_request` | `chained`) is for observability only — the reconciler is origin-agnostic.
+- **CR-001 — `rwb_job` general queue (replaces `result_work_item`).** `result_work_item` renamed `rwb_job`. *(Superseded in part by CR-002: `irp_job_id` and the `request_key`/`origin` scheme are replaced by `requestor_type`/`requestor_id` + composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)`; the heartbeat/reconciler mechanism below is unchanged.)*
 - **CR-001 — Durable Redis (AOF).** Redis runs with `appendonly yes`, `appendfsync everysec`, persisted SSD volume. Required in dev, partner-Docker, and prod. Eliminates the pending-lost failure case without application-level detection.
 - **CR-001 — Per-job heartbeat + single-instance reconciler.** Heartbeat emitted from a daemon thread (§2.3a) every `RWB_HEARTBEAT_INTERVAL_SECS`. Reconciler folds into the poller process. Stale threshold = `RWB_HEARTBEAT_STALE_SECS`, a constant multiple of the interval, never duration-based.
 - **CR-001 — No `owner_token`, no worker-liveness table, no duration windows, no new statuses.** Heartbeat is a progress timestamp, not a lease. Recovery is per-job, not per-worker. The only statuses remain `pending / running / succeeded / failed`.
-- **IRP job submission is synchronous on the request path.** Fast IRP submit call returns a job ID immediately. On failure: `submission_failed` status + Dramatiq `submission_retry` actor (§14.3).
+- **IRP job submission is synchronous on the request path.** Fast IRP submit call returns a job ID immediately. On failure: `SUBMISSION FAILED` status + single-threaded submission-retry batch job (§14.3).
 - **Poller is a standalone loop process — not Dramatiq.** Batch-queries all non-terminal jobs per pass. Dramatiq would break the natural batching (§14.4).
 - **Dramatiq workers for result processing and submission retry only** (§14.5). Redis broker.
 - **EDM and RDM are first-class entities** in the Metamodel DB, not just file artifact tags (§9).
 - **`file_artifact.name`** initialized as UPPERCASE filename without extension; user-editable; IRP name-check on tag or rename.
-- **Analysis templates and template suites** are first-class domain entities; auto-naming from submission context is built-in (§11).
+- **Analysis templates and template suites** — in MVP (practice-lead call, 2026-07-06; reverses the CR-002 deferral). Auto-naming from submission context is the intended approach (§11).
 - **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
 - **Session store is WORKBENCH DB** (`user_session` table), not Redis. Sessions survive Redis restarts; active sessions are queryable; admin force-logout is a single UPDATE (§5.1.4).
 - **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
 - **App-level RLS** via `apply_scope` + `user_customer_access`; global roles; native SQL Server RLS as later hardening (§6.2).
 - **Immutable artifact model**, cheap metadata signature (path+size+mtime), no content hash (§8.2).
-- **Workflow definition: manifest canonical, DB is generated projection** — never hand-edited; fail-fast content-hash check + append-only version retention (§12.1a).
-- **`dlm`/`hd` are NOT handle types** — analysis-profile property detected from `softwareVersionCode` (§13.1).
+- **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, used only by the grouping homogeneity check (§13.3). (There are no handle types at all under CR-002.)
 - **Analysis results hybrid storage** — Parquet files on disk for row-level data (ELT, EP, PLT); SQL metadata row for summaries and file paths (§16.1).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
 - **Styling extends the ITCSS design system via tokens** — never hardcoded hex (§2.4).
@@ -1335,12 +1266,11 @@ This prompt applies independently to each of the three app-managed databases (`W
 - Loss Repository schema (coordinates with downstream consumers)
 - Exposure Repository schema (coordinates with reporting team)
 - Idle-timeout durations (sliding + absolute)
-- `reference_table` / `parameter` scope — global vs. customer-scoped
 - Export format beyond Parquet (CSV? Excel?)
 
 ### External dependencies
 
-- **Moody's IRP** — `irp-integration` library (`IRPClient`). Five async job types. Auth via env vars. Rate limits apply.
+- **Moody's IRP** — `irp-integration` library (`IRPClient`). Six `irp_job_type`s (`edm_import`/`rdm_import`/`geohaz`/`analysis`/`grouping`/`export`). Auth via env vars. Rate limits apply.
 - **DataBridge** — Moody's cloud SQL Server. ODBC via irp-integration. Used for Phase A validation/profiling/modification and broker RDM queries.
 - **Redis** — Dramatiq broker. Required for result workers and notifications.
 - **Shared-drive mount** — read-only CIFS/SMB, least-privilege service account (§8.1).
@@ -1354,6 +1284,41 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-07-06 — Practice-lead review: MDF support, templates back in MVP, package/delete semantics
+
+Review pass over the PRD following the same review of DATA_MODEL.md (see its change log for schema-level detail).
+
+- **Analysis templates & suites returned to MVP (§1.1, §11, §21 Iteration 5, §23).** Reverses the CR-002 deferral (practice-lead call) — batch submission from saved templates is the #1 analyst pain point, so it ships rather than being built only on demand. The `auto_name_pattern` token set (references the dropped `cycle`) remains the one open item.
+- **EDM/RDM import accepts `.mdf` as well as `.bak` (§1.1, §9.1, §9.2, §14.3, §21).** File references generalized to `.bak/.mdf`; matches `mvp-scope.md` ("upload EDM MDF/BAK").
+- **RDM-only packages are invalid (§9.4).** Every package has an EDM (an RDM is meaningless without one); EDM-only packages remain valid.
+- **Package delete dependency corrected — one-way (§9.4, §22 A21).** Deleting an RDM never cascades into deleting its EDM; an EDM delete depends on its RDMs being deleted first and drives that cleanup.
+- **`irp_analysis.origin` column dropped (§12).** Own vs. broker is derived from `rdm_id` (own/broker) rather than stored. Schema detail in DATA_MODEL.md. (The creation-lineage column keeps its existing name, `created_by_irp_job_irp_id`.)
+
+### 2026-07-06 — PR #5 / spec 002: domain, file inventory & RLS (Iteration 1)
+
+Reconciled the PRD with the approved spec `specs/002-domain-file-inventory-rls/spec.md` (PR #5). Most of this iteration's scope (§6 RLS, §7 domain/status, §8 file inventory) was already written during CR-002 pre-planning; this entry records what the spec **added or clarified**.
+
+- **§20.8 (new) Optimistic concurrency** — `updated_at`-keyed lost-update protection on analyst-editable rows (`submission`, `file_artifact`); rejected writes surface a conflict rather than overwriting (FR-045/046).
+- **§6.2** — access grants/revokes take effect on the next request, not the next login (FR-021).
+- **§7.1a** — seeding CSV is minimal (`short_code` + `name` only); malformed/duplicate rows are skipped without aborting the run (FR-001, edge case).
+- **§7.2a** — `COMPLETED` now precisely blocks *analyst-initiated edits* only; read-only viewing and discrepancy-detection scans continue; reopening restores edit capability (FR-013).
+- **§8.3** — a failed/unreachable scan never flips artifacts to `missing` (FR-044); `COMPLETED` submissions still scan read-only.
+- **§8.4** — tagging only sets `tag_code`; the `irp_edm`/`irp_rdm` entity is created later (Package/import), not at tag time (FR-033).
+- **§8.5** — discrepancies carry a resolved/unresolved state and are analyst-resolved, not auto-cleared (FR-040).
+- **§8.8 (new)** — submission-detail error state (no directory / unreachable) vs. warning state (reachable but empty), re-evaluated on add-directory/refresh, not sticky (FR-041–043).
+- **No "Batch" concept** — PR #5 removed the *Batch* metamodel notion from the sequence diagrams; the PRD already frames a batch as an app-side loop over single submits (§14.3), not a persisted entity — no change needed.
+
+### 2026-07-06 — CR-002: no workflow engine
+
+Applied CR-002 (`docs/CR_02__NO_WORKFLOW_ENGINE.md`). The workbench is not a workflow engine — the Workflow / Stage / Task / typed-handle / type-port-registry / manifest-projection layer is removed.
+
+- **§1.4 glossary** — dropped Workflow/Stage/Task/Handle; added Prerequisite gate, Name-based coupling, Analysis, Treaty; `irp_job_type` values are now `edm_import`/`rdm_import`/`geohaz`/`analysis`/`grouping`/`export`; RWB-job idempotency is now a composite key, not `request_key`.
+- **§2.1** — "three declarative sources of truth" → the navigation manifest alone; the workflow-definition manifest, type/port registry, and manifest→DB projection are removed. §2.5 maintainability contract rewritten around IRP-op / worker / validation additions.
+- **§12** rewritten as "Work model — Submission → EDM/RDM → Job" (spine, persistence tiers, EDM/RDM ops, treaties). **§13** rewritten as "Prerequisite gate, name-based coupling & point-of-action validation." **§14** rewritten: `irp_job` is the executable unit, synchronous submit, `SUBMISSION FAILED` vs `FAILED`, `irp_job_resource`, six `irp_job_type`s polled via single-status-check methods, `rwb_job` decoupled and keyed by `(requestor_type, requestor_id, rwb_job_type)`, single-threaded submission retry, derived submission progress (no stage rollups).
+- **Cross-references** updated throughout: rail (§4.5 Workflows→Jobs), file inventory (§8 — `workflow_output` dropped, discrepancy escalation keys off `package`), EDM/RDM entities (§9 — `irp_edm`/`irp_rdm`, `edm_id` NOT NULL, `irp_id` naming), templates (§11 deferred), notifications (§18 deferred, `notification_preference` dropped), search (§19), monitoring (§20), build plan (§21 Iterations 5–8), adversarial review (§22 A1/A2/A8/A14/A16), locked decisions & external deps (§23).
+- **Practice-lead resolutions folded in:** `irp_analysis.rdm_id` nullable (set → broker-from-RDM, null → own); `irp_rdm.edm_id` and `irp_analysis.edm_id` NOT NULL (no RDM/analysis without an EDM); everything scoped to a submission; `submission.crm_id` added.
+- Constitution cleanup (Articles 1/2/3/4/5) tracked separately.
+
 ### 2026-07-02 — Pre-Iteration 2 planning: customer seeding, submission, ignore rules, Package
 
 Scope: preparation for Iteration 2 ("Domain, file inventory & search framework"). Full design discussion preserved in the originating conversation; summary below.
@@ -1366,7 +1331,7 @@ Scope: preparation for Iteration 2 ("Domain, file inventory & search framework")
 - **§7.2a Submission status** — replaces `authoring_status` with `status_code`: `ACTIVE` / `COMPLETED` / `CANCELLED` only, event-sourced. `COMPLETED → ACTIVE` reopening allowed; no system-enforced transition preconditions (analyst judgment). No delete — `CANCELLED` is the terminal/withdrawal state, since a submission can carry real Risk Modeler-side identity (EDMs/RDMs) by the time anyone would remove it.
 - **§7.2b Submission name uniqueness** — `UNIQUE(program_id, name)`, DB-enforced.
 - **§8.7 Ignore ruleset** — admin-authored, gitignore-style, three scope levels (global / customer / submission), cumulative cascade with `!negation` (not most-specific-wins replacement) — same semantics as nested `.gitignore` files.
-- **§9.4 Package** — new entity pairing an EDM and an RDM (either side optional). No independent status — UI reads EDM/RDM status directly rather than aggregating. Actions: Cancel / Save / Save-and-Sync / Delete. IRP name-collision check reuses the existing `search_edms()`/`search_rdms()` pattern from artifact tagging. Save-and-Sync and Delete each produce **stubbed** `rwb_job` rows this iteration (60s heartbeat wait, no real IRP call) — real IRP calls land in Iteration 3. Sync/delete ordering is EDM-before-RDM / RDM-before-EDM respectively (Risk Modeler linkage requirement).
+- **§9.4 Package** — new entity pairing an EDM and an RDM (EDM required, RDM optional — RDM-only packages are invalid). No independent status — UI reads EDM/RDM status directly rather than aggregating. Actions: Cancel / Save / Save-and-Sync / Delete. IRP name-collision check reuses the existing `search_edms()`/`search_rdms()` pattern from artifact tagging. Save-and-Sync and Delete each produce **stubbed** `rwb_job` rows this iteration (60s heartbeat wait, no real IRP call) — real IRP calls land in Iteration 3. Sync order is EDM-before-RDM; on delete the dependency is one-way (an EDM-delete drives its RDM-delete first; deleting an RDM never cascades to its EDM).
 - **§7.4 Submission detail package cards** — full-width card per package (chosen over a compact-grid or split-column alternative — see rationale below), showing upload progress/status (stubbed), local filename, portfolio summary (empty), analysis counts (empty), and IRP/RWB job counts. Card title → EDM/RDM detail (route reserved, not built). Job count → Jobs list, pre-filtered.
 - **§20.4 Query-string-driven filtering** — cross-page "arrive with a filter pre-applied" (e.g. package card → filtered Jobs list) is implemented as ordinary query params on the shared list view, not session state or a separate component. Fixed starting vocabulary: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`. Extends the same "URL is the source of truth" principle §4.3 already used for breadcrumbs.
 
