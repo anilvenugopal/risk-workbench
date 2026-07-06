@@ -11,7 +11,7 @@ Sequence diagrams for the MVP spine (`../mvp-scope.md` §2), at two altitudes:
 
 **These flows are deliberately metamodel-free.** They show only the real
 interactions between the app, Risk Modeler, S3, and Data Bridge — *not* where
-we write `UserActions` / `Job` / `Batch` / entity rows. That is intentional: we
+we write `Job` rows. That is intentional: we
 want to read the flows objectively and *then* decide where the metamodel
 bounding boxes belong (see `../execution-design.md`). Each granular flow ends
 with a short **"Boundaries worth noting"** block flagging the sync / async /

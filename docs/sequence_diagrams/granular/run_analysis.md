@@ -1,4 +1,4 @@
-# Granular Flow — Run Analysis (single + batch)
+# Granular Flow — Run Analysis
 
 Submits a portfolio analysis (DLM or HD) and tracks it to completion, producing an
 Analysis (`analysisId`). Submitting several is **N independent analysis jobs**, not
@@ -7,7 +7,7 @@ one job — the app loops the single submit per analysis.
 `irp-integration`: `analysis.submit_portfolio_analysis_job` → (async)
 `analysis.get_analysis_job(job_id)`.
 
-**Classification:** async **Job** (N jobs for a batch). Not heavy (the analysis
+**Classification:** async **Job**. Not heavy (the analysis
 compute runs server-side; the submit moves no bulk bytes).
 
 Pre-requisites:
@@ -100,11 +100,6 @@ sequenceDiagram
 
 **Boundaries worth noting** (candidates for metamodel bounding boxes — observations, not decisions):
 
-- **A "batch" is a submission-time convenience, not a runtime unit.** Looping the
-  single submit yields N independent jobs that run and finish separately. The only
-  thing genuinely batch-scoped is the user's intent to submit them together (plus any
-  optional app-side name pre-check). This is the sharpest test of whether a *Batch*
-  bounding box earns its place, or whether it's just "N jobs created by one click."
 - **Heavy reference-data resolution on the submit path.** A single submit fans out
   into many synchronous RM reads (profiles, event rate scheme, treaties, tags,
   currency) before the job is created. Any of them can fail the submit

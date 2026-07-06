@@ -3,8 +3,7 @@
 The analyst's UI action for running one or more analyses against a portfolio.
 **This flow assumes there is no "analysis suite" concept** — the analyst cannot
 one-click a pre-defined bundle of analyses. Every required setting is picked by
-hand, per analysis. A "batch" here is therefore "the analyst manually configured
-several analyses and submitted them together," not "expanded a saved template."
+hand, per analysis.
 
 **Composed of:**
 - `granular/run_analysis.md` — `analysis.submit_portfolio_analysis_job` (single),
@@ -43,7 +42,7 @@ Pre-requisites:
    - **treaties** (by name), **tags**, **loss currency**;
    - an **analysis name** (the analyst applies the naming convention manually —
      there is no suite to generate it).
-4. **Add more analyses (optional)** — To run a batch, the user repeats step 3 for
+4. **Add more analyses (optional)** — The user repeats step 3 for
    each analysis. Every analysis is configured independently and fully by hand.
    Nothing is shared except the intent to submit together.
 5. **Submit** — User clicks "Run". The app **loops the configured analyses itself**,
@@ -132,14 +131,6 @@ sequenceDiagram
   **analysis-suite / template** construct would live — its *absence* is what forces
   the analyst to hand-configure every analysis. Worth flagging as the strongest
   argument for that construct, and as an explicit non-goal for now.
-- **A "batch" is still N independent jobs, and we loop the singles ourselves.**
-  Same as the granular flow, and reinforced by the workbench-wide rule to prefer
-  single endpoints: the app loops `submit_portfolio_analysis_job` per analysis (not
-  the plural `submit_portfolio_analysis_jobs`) so it captures each `job_id` and
-  handles per-analysis failure. The only batch-scoped thing is the analyst's intent
-  to submit together (plus any app-side pre-validation) — with manual configuration
-  a batch of N is N× the work, with nothing shared to hang a *Batch* entity on
-  besides "submitted in one click."
 - **DLM vs HD is discovered at profile-pick time and drives the form.** The UI can
   only know whether to require the event rate scheme once the analyst has chosen a
   model profile (`softwareVersionCode`). That's a real intra-form dependency, and a
@@ -152,7 +143,7 @@ sequenceDiagram
   a collision fails only *that* analysis (its own `search_analyses` dup-check),
   leaving the rest to proceed — unless the app deliberately runs an up-front
   pre-validation pass to reject the whole submission first. Whether a naming
-  collision fails one analysis or the whole batch is therefore an **app decision
+  collision fails an analysis is therefore an **app decision
   here, not a package behavior** — worth being explicit about in any bounding box
   around "submit analyses."
 - **`analysisId` resolves only after each job FINISHES**, per job — the analysis
