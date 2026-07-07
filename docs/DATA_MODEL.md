@@ -179,8 +179,8 @@ erDiagram
   artifact_tag_kind ||--o{ file_artifact : tags
   file_artifact ||--o{ discrepancy : raises
   discrepancy_severity_kind ||--o{ discrepancy : grades
-  file_artifact ||--o| irp_edm : "source for"
-  file_artifact ||--o| irp_rdm : "source for"
+  file_artifact |o--o| irp_edm : "source for"
+  file_artifact |o--o| irp_rdm : "source for"
   ignore_rule_scope_kind ||--o{ ignore_rule : scopes
   customer ||--o{ ignore_rule : "scoped to (nullable)"
   submission ||--o{ ignore_rule : "scoped to (nullable)"
@@ -273,7 +273,7 @@ erDiagram
 - **`artifact_source_kind` loses `workflow_output`** (shrinks to `shared_drive` / `upload`). Both surviving values describe files whose content originates *outside* the app, which is what `file_artifact`'s drift-detection machinery exists to reconcile. A job-produced file (e.g. a downloaded export) is written into the same submission directory and picked up by the next reconciliation scan as an ordinary `shared_drive` file — no special source needed.
 - **`discrepancy` escalation rule (behavior only, no schema change).** The second-tier escalation, previously "referenced/pinned by a workflow," now keys off **package membership** — a discrepancy escalates further when the file artifact is used in a `package` (i.e. it is the `file_artifact_id` behind an `irp_edm`/`irp_rdm` that a `package` row references). Same intent (provenance in question once something downstream depends on the file), traced through a construct that still exists.
 
-**`file_artifact` identity triple:** `UNIQUE(submission_id, relative_path, size_bytes, fs_modified_at)`. A file is considered a new version when any of these four values differs from all existing rows for the same `(submission_id, relative_path)`. The UNIQUE constraint prevents duplicate rows if the scanner runs twice before a status flip. Note: `submission_id` is included because the same relative path can appear in different submissions.
+**`file_artifact` identity key:** `UNIQUE(submission_id, relative_path, size_bytes, fs_modified_at)`. A file is considered a new version when any of these four values differs from all existing rows for the same `(submission_id, relative_path)`. The UNIQUE constraint prevents duplicate rows if the scanner runs twice before a status flip. Note: `submission_id` is included because the same relative path can appear in different submissions.
 
 **`file_artifact.name` behavior:**
 - Initialized as `filename` with extension stripped, converted to UPPERCASE (e.g. `XYZ_EDM_2026.bak` → `XYZ_EDM_2026`).
@@ -299,14 +299,14 @@ erDiagram
 
 ## 3. EDM & RDM entities (`irp_edm`, `irp_rdm`, `irp_portfolio`)
 
-> **CR-002 rename.** `edm` → **`irp_edm`**, `rdm` → **`irp_rdm`**. Both keep their fields except: `source_artifact_id` → `file_artifact_id`; `edm.irp_exposure_id` → `irp_edm.irp_id`; new `created_by_irp_job_irp_id` and `as_of` on both; new **NOT NULL** `edm_id` on `irp_rdm`. `irp_portfolio.irp_portfolio_id` → `irp_id`; new `as_of`. These are the entities the app creates in Risk Modeler and must list, name, and track — the EDM is the modeling anchor (portfolios, analyses, treaties all belong to one EDM).
+`irp_edm`, `irp_rdm`, and `irp_portfolio` are the entities the app creates in Risk Modeler and must list, name, and track — the EDM is the modeling anchor (portfolios, analyses, treaties all belong to one EDM). *(Renamed from `edm`/`rdm`/`irp_portfolio` by CR-002; the field-level rename map is in `docs/CR_02__NO_WORKFLOW_ENGINE.md`.)*
 
 ```mermaid
 erDiagram
   submission ||--o{ irp_edm : has
   submission ||--o{ irp_rdm : has
-  file_artifact ||--o| irp_edm : "source .bak/.mdf (nullable)"
-  file_artifact ||--o| irp_rdm : "source .bak/.mdf (nullable)"
+  file_artifact |o--o| irp_edm : "source .bak/.mdf (nullable)"
+  file_artifact |o--o| irp_rdm : "source .bak/.mdf (nullable)"
   irp_edm ||--o{ irp_rdm : "associated (RDM always has an EDM)"
   irp_edm ||--o{ irp_portfolio : "contains portfolios"
 
@@ -367,7 +367,7 @@ erDiagram
 
 **`irp_rdm.edm_id` is NOT NULL (CR-002, practice-lead call).** There is no scenario where an RDM exists without an EDM — an RDM's analysis results are meaningless unless they can be linked to exposures in an EDM. Every `irp_rdm` therefore references exactly one `irp_edm`, and (like every entity here) is always scoped to a `submission`. This is a change from the CR's earlier draft, which had `edm_id` nullable for a "standalone broker RDM"; the practice lead ruled that case out.
 
-**Creation lineage (`created_by_irp_job_irp_id`):** `irp_edm` and `irp_rdm` are created by async import jobs, so they carry the `irp_job.irp_id` of the job whose completion created them (replaces the dropped `task_output` lineage). `irp_portfolio` does **not** — portfolio creation is synchronous (no `irp_job` row), so there is no creating job to reference.
+**Creation lineage (`created_by_irp_job_irp_id`):** `irp_edm` and `irp_rdm` are created by async import jobs, so they carry the `irp_job.irp_id` of the job whose completion created them. `irp_portfolio` does **not** — portfolio creation is synchronous (no `irp_job` row), so there is no creating job to reference.
 
 **`irp_portfolio`:**
 - Created via `client.portfolio.create_portfolio()`.
@@ -455,7 +455,7 @@ An analysis (or, when `is_group=true`, a **group** — a group *is* an analysis 
 ```mermaid
 erDiagram
   irp_edm ||--o{ irp_analysis : produces
-  irp_rdm ||--o{ irp_analysis : "source of broker analyses (nullable)"
+  irp_rdm |o--o{ irp_analysis : "source of broker analyses (nullable)"
   irp_analysis ||--o{ irp_analysis : "group members (self-ref)"
   irp_analysis_status_kind ||--o{ irp_analysis : states
 
@@ -628,34 +628,23 @@ The `output_file_path` stores the relative path from the submission outputs root
 
 The entire Workflow / Stage / Task construct is removed. This app is a
 **workbench, not a workflow engine**: there is no `workflow`,
-`workflow_definition`, `stage_instance`, `task_instance`, typed-port, or
-handle-type-registry object, and no manifest-projection subsystem. A
-submission's progress is derived live from its `irp_job` rows and entity
-state; "what's next" is the prerequisite gate (computed in code, see PRD
-§14.2), not a stored stage machine.
+`stage_instance`, `task_instance`, typed-port, or handle-type-registry
+object, and no manifest-projection subsystem. A submission's progress is
+derived live from its `irp_job` rows and entity state; "what's next" is the
+prerequisite gate (computed in code, see PRD §14.2), not a stored stage
+machine. Execution tracking is `irp_job` (one row per real IRP op) and
+`rwb_job` (§8); input coupling is name-based — every op resolves its inputs
+live from Risk Modeler by name at submit time, so there is no typed handle to
+chain or invalidate.
 
-**Dropped tables (24):** `workflow_type_kind`, `workflow_definition`,
-`stage_kind`, `stage_mode_kind`, `definition_stage`, `task_template`,
-`port_template`, `handle_type_kind`, `workflow`, `workflow_status_event`,
-`workflow_authoring_status_kind`, `workflow_execution_status_kind`,
-`stage_instance`, `stage_comp_status_kind`, `stage_exec_status_kind`,
-`stage_comp_event`, `stage_exec_event`, `task_instance`, `task_status_kind`,
-`task_comp_event`, `task_exec_event`, `task_input`, `input_source_kind`,
-`task_output`.
-
-**Where their responsibilities went:**
-- `task_instance` → **`irp_job`** (one row per real IRP op is the executable unit; §8).
-- `task_output` (lineage) → **`created_by_irp_job_irp_id`** on each entity table (§3, §3c).
-- `task_input` / `port_template` / `handle_type_kind` → **name-based coupling** — every op resolves its inputs live from Risk Modeler by name at submit time (`search_edms` / `search_portfolios` / `search_analyses` / `search_treaties`), so there is no typed handle to chain or invalidate.
-- Stage sequencing / review gate → the **prerequisite gate** (PRD §14.2), computed from entity existence + job terminal status, not stored.
+> The full list of dropped tables and where each responsibility moved is recorded in `docs/CR_02__NO_WORKFLOW_ENGINE.md`.
 
 ---
 
 ## 7. Workflow instance — **REMOVED (CR-002)**
 
-Removed together with §6 (see the dropped-table list above). Runtime workflow/
-stage/task state no longer exists; `irp_job` (§8) and `rwb_job` (§8) are the
-only execution-tracking tables.
+Removed together with §6. Runtime workflow/stage/task state no longer exists;
+`irp_job` (§8) and `rwb_job` (§8) are the only execution-tracking tables.
 
 ---
 
@@ -666,9 +655,9 @@ only execution-tracking tables.
 ```mermaid
 erDiagram
   submission ||--o{ irp_job : tracks
-  irp_edm ||--o{ irp_job : "entity lineage (nullable)"
+  irp_edm |o--o{ irp_job : "entity lineage (nullable)"
   irp_portfolio ||--o{ irp_job : "entity lineage (nullable)"
-  irp_rdm ||--o{ irp_job : "entity lineage (nullable)"
+  irp_rdm |o--o{ irp_job : "entity lineage (nullable)"
   irp_job_type_kind ||--o{ irp_job : types
   irp_job ||--o{ irp_job_resource : "submits resource(s)"
   irp_job_resource_type_kind ||--o{ irp_job_resource : types
@@ -775,11 +764,11 @@ erDiagram
 - App-local, terminal: `SUBMISSION FAILED` (submission never reached RM — no `irp_id`)
 - `SUBMISSION FAILED` vs `FAILED` is load-bearing: submission-side vs RM-ran-it-and-it-failed — different cause, different retry. `ERROR` is retired; every failure must say which side failed. Terminal ≠ success — callers must check `status == 'FINISHED'` explicitly.
 
-**Three `last_*` columns replace five once-proposed satellite tables** (`irp_job_submission`, `irp_job_completion`, `irp_job_failure`, `irp_job_validation`, `irp_job_status_event` — all considered and dropped). `last_completion_result` covers **both** `FINISHED` and `FAILED`, since RM's poll endpoint returns the identical shape either way (just a different `status` inside); a separate failure column would only duplicate it. Each column holds only the latest value — a full per-transition audit trail is part of the deferred auditing capability.
+**The `last_*` columns each hold only the latest value.** `last_completion_result` covers **both** `FINISHED` and `FAILED`, since RM's poll endpoint returns the identical shape either way (just a different `status` inside); a separate failure column would only duplicate it. A full per-transition audit trail is part of the deferred auditing capability.
 
 **`irp_job_resource`** replaces the single `irp_job.resource_uri` column with a typed `(resource_type, resource_uri)` pair — matching RM's own submit payload, which is literally `{"resourceUri": ..., "resourceType": "portfolio", ...}`. The URI (e.g. a portfolio's) **must be captured at submit time** — RM's completion response never returns it, so it is otherwise unrecoverable without a separate search call. *Open (flagged for future review): whether this is always exactly one row per job (only `portfolio` exists today) or genuinely multi-resource — proceed on one-per-job for now.*
 
-**Removed from the pre-CR-002 schema:** `resource_uri` (moved to `irp_job_resource`); `retry_locked_until` (removed — submission retry is now a single-threaded batch job, which never races itself, so the atomic-claim lock has nothing to protect); `external_ref` (renamed `irp_id`); `mirrored_status` (renamed `status`); `last_synced_at` (renamed `last_tracked_at`).
+*(Column-level changes to `irp_job` from the pre-CR-002 schema — renames and the `irp_job_resource` split — are recorded in `docs/CR_02__NO_WORKFLOW_ENGINE.md`.)*
 
 ### `rwb_job`
 
@@ -793,8 +782,8 @@ erDiagram
 
 | `rwb_job_type` | Worker responsibility | Chains to |
 |---|---|---|
-| `upload_edm` | Package "Save and Sync" — EDM sync (stubbed this iteration) | → `upload_rdm` (chained) |
-| `upload_rdm` | Package "Save and Sync" — RDM sync | → `retrieve_analysis_results` (chained) |
+| `edm_upload` | Package "Save and Sync" — EDM sync (stubbed this iteration) | → `rdm_upload` (chained) |
+| `rdm_upload` | Package "Save and Sync" — RDM sync | → `retrieve_analysis_results` (chained) |
 | `retrieve_analysis_results` | Call `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` row | → `download_export_file` (chained) |
 | `download_export_file` | Download Parquet export via `download_export_results()`; write to submission output dir | — |
 | `push_results_to_loss_repo` | Read Parquet result files; write to LOSS DB via `get_connection("LOSS")` | — |
@@ -822,7 +811,7 @@ Analysis results (ELT, EP curves, PLT, AAL) are retrieved from IRP via REST API 
 ```mermaid
 erDiagram
   irp_analysis ||--o{ analysis_result_meta : yields
-  irp_rdm ||--o{ analysis_result_meta : "sourced from (nullable)"
+  irp_rdm |o--o{ analysis_result_meta : "sourced from (nullable)"
   analysis_result_meta ||--o{ result_export : "file exports"
   delivery_kind ||--o{ result_export : types
 
@@ -1030,7 +1019,7 @@ erDiagram
 
 ### 12.6–12.7 Workflow / Stage / Task — **REMOVED (CR-002)**
 
-All 24 tables dropped (see §6). No replacement rows in this manifest.
+All Workflow/Stage/Task tables dropped (see §6). No replacement rows in this manifest.
 
 ### 12.8 IRP jobs & RWB jobs
 
@@ -1140,9 +1129,9 @@ Reconciles the data model with the approved spec `specs/002-domain-file-inventor
 
 ### 2026-07-06 — CR-002: no workflow engine; build directly on IRP jobs + RWB jobs
 
-Applies CR-002 (`docs/CR_02__NO_WORKFLOW_ENGINE.md`) — the workbench is not a workflow engine. Net **72 → 52 tables** (adds `irp_analysis_status_kind`, which the CR specified but omitted from its own count). See the CR for full per-table rationale.
+Applies CR-002 (`docs/CR_02__NO_WORKFLOW_ENGINE.md`) — the workbench is not a workflow engine. The Workflow/Stage/Task construct is removed and the model is rebuilt on IRP jobs + RWB jobs. See the CR for full per-table rationale.
 
-**Removed (29 tables):** the entire Workflow/Stage/Task construct (24 tables, §6–§7, now tombstones); `notification_preference`; `irp_edm_cache`; `reference_table`; `reference_table_row`; `parameter` (§11, tombstone). `audit_log`, analysis templates/suites (§4), and Phase A validation (§5) were **DEFERRED** here — documented, not deleted. *(Analysis templates/suites were later returned to MVP scope — see the 2026-07-06 practice-lead review entry above.)*
+**Removed:** the entire Workflow/Stage/Task construct (§6–§7, now tombstones); `notification_preference`; `irp_edm_cache`; `reference_table`; `reference_table_row`; `parameter` (§11, tombstone). `audit_log`, analysis templates/suites (§4), and Phase A validation (§5) were **DEFERRED** here — documented, not deleted. *(Analysis templates/suites were later returned to MVP scope — see the 2026-07-06 practice-lead review entry above.)*
 
 **Renamed:** `edm` → `irp_edm`, `rdm` → `irp_rdm` (`source_artifact_id` → `file_artifact_id`; `irp_exposure_id` → `irp_id`; + `created_by_irp_job_irp_id`, `as_of`). `irp_portfolio.irp_portfolio_id` → `irp_id`. `irp_tag.irp_tag_id` → `irp_id`. All reference-cache `synced_at` → `as_of`. `irp_job.external_ref` → `irp_id`, `.mirrored_status` → `.status`, `.last_synced_at` → `.last_tracked_at`. `rwb_job.work_type` → `.rwb_job_type`, `.payload` → `.input_data`.
 

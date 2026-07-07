@@ -470,9 +470,7 @@ A submission has:
 - Zero or more **EDM records** (IRP exposure databases, tracked separately from the artifact file)
 - Zero or more **RDM records** (IRP results databases from broker, tracked separately)
 
-> **Correction — this section previously also listed "workflows" here and referenced `authoring_status`.**
-> - **Workflows removed from this list (CR-002, now applied).** The Workflow/Stage/Task layer is removed — §12–14 are rewritten around IRP Jobs, RWB Jobs, and the prerequisite gate. A submission's progress is derived from its jobs and entity state, not from a stored workflow.
-> - **`authoring_status` → `status_code`, and the vocabulary changed.** See §7.2a below.
+A submission's progress is derived from its jobs and entity state (§12–14: IRP Jobs, RWB Jobs, and the prerequisite gate), not from a stored workflow.
 
 ### 7.2a Submission status
 
@@ -666,7 +664,7 @@ These run as DataBridge SQL commands via `client.databridge.execute_command(quer
 
 ### 10.4 Load to Exposure Repository
 
-After validation passes, the analyst pushes pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`). The workbench writes to a known schema in the Exposure Repository. This is a Dramatiq worker action: the poller triggers it via an `rwb_job` row (with `origin=analyst_request`) when the analyst explicitly requests it from the Phase A UI.
+After validation passes, the analyst pushes pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`). The workbench writes to a known schema in the Exposure Repository. This is a Dramatiq worker action: the poller triggers it via an `rwb_job` row (`requestor_type='analyst_request'`) when the analyst explicitly requests it from the Phase A UI.
 
 ---
 
@@ -1315,7 +1313,7 @@ Applied CR-002 (`docs/CR_02__NO_WORKFLOW_ENGINE.md`). The workbench is not a wor
 - **§1.4 glossary** — dropped Workflow/Stage/Task/Handle; added Prerequisite gate, Name-based coupling, Analysis, Treaty; `irp_job_type` values are now `edm_import`/`rdm_import`/`geohaz`/`analysis`/`grouping`/`export`; RWB-job idempotency is now a composite key, not `request_key`.
 - **§2.1** — "three declarative sources of truth" → the navigation manifest alone; the workflow-definition manifest, type/port registry, and manifest→DB projection are removed. §2.5 maintainability contract rewritten around IRP-op / worker / validation additions.
 - **§12** rewritten as "Work model — Submission → EDM/RDM → Job" (spine, persistence tiers, EDM/RDM ops, treaties). **§13** rewritten as "Prerequisite gate, name-based coupling & point-of-action validation." **§14** rewritten: `irp_job` is the executable unit, synchronous submit, `SUBMISSION FAILED` vs `FAILED`, `irp_job_resource`, six `irp_job_type`s polled via single-status-check methods, `rwb_job` decoupled and keyed by `(requestor_type, requestor_id, rwb_job_type)`, single-threaded submission retry, derived submission progress (no stage rollups).
-- **Cross-references** updated throughout: rail (§4.5 Workflows→Jobs), file inventory (§8 — `workflow_output` dropped, discrepancy escalation keys off `package`), EDM/RDM entities (§9 — `irp_edm`/`irp_rdm`, `edm_id` NOT NULL, `irp_id` naming), templates (§11 deferred), notifications (§18 deferred, `notification_preference` dropped), search (§19), monitoring (§20), build plan (§21 Iterations 5–8), adversarial review (§22 A1/A2/A8/A14/A16), locked decisions & external deps (§23).
+- **Cross-references** updated throughout: rail (§4.5 Workflows→Jobs), file inventory (§8 — `workflow_output` dropped, discrepancy escalation keys off `package`), EDM/RDM entities (§9 — `irp_edm`/`irp_rdm`, `edm_id` NOT NULL, `irp_id` naming), templates (§11), notifications (§18 deferred, `notification_preference` dropped), search (§19), monitoring (§20), build plan (§21 Iterations 5–8), adversarial review (§22 A1/A2/A8/A14/A16), locked decisions & external deps (§23).
 - **Practice-lead resolutions folded in:** `irp_analysis.rdm_id` nullable (set → broker-from-RDM, null → own); `irp_rdm.edm_id` and `irp_analysis.edm_id` NOT NULL (no RDM/analysis without an EDM); everything scoped to a submission; `submission.crm_id` added.
 - Constitution cleanup (Articles 1/2/3/4/5) tracked separately.
 

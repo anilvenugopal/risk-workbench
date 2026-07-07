@@ -7,9 +7,16 @@
 > - **`irp_analysis.rdm_id` — UNBLOCKED.** Nullable. `rdm_id` set → the analysis entered the app as a result of importing that RDM (a broker analysis); null → a net-new analysis the analyst ran (own). `origin` (own/broker) becomes derivable from `rdm_id`. This resolves the sole BLOCKED item in §2a.
 > - **`irp_rdm.edm_id` — NOT NULL** (the §2a draft had it nullable "for a standalone broker RDM"). There is no scenario where an RDM exists without an EDM.
 > - **Everything lives under a `submission`.** `irp_analysis.edm_id` made NOT NULL (analyses are always scoped to an EDM per the installed library); RDMs stay `submission`-scoped (resolves §8 item 1).
-> - **`irp_analysis_status_kind` created** — §2a specified `irp_analysis.status` as a kind table but omitted the table from its own count; added on application (52 → the applied schema, one more kind table than the §2a total).
+> - **`irp_analysis_status_kind` created** — §2a specified `irp_analysis.status` as a kind table but omitted the table itself; added on application.
 > - **`mvp-scope.md` added to the repo; `execution-design.md` ignored** (§9.1); the auth-audit gap left by deferring `audit_log` is carried as an open item in `DATA_MODEL.md §13` (§8 item 2).
 **Applies to (once approved):** `docs/PRD.md` §12–14 (and every cross-reference to Workflow/Stage/Task elsewhere in the PRD), `docs/DATA_MODEL.md` §1–§11 + table manifest + kind-seed checklist, `.specify/memory/constitution.md` Articles 1, 2, 4, 5, 10, `docs/sequence_diagrams/` (as confirming ground truth, not as something this CR changes).
+> **⚠️ `docs/DATA_MODEL.md` is the source of truth for the schema.** This CR is a point-in-time record of the pivot and the reasoning behind it. The §2a catalog reflects the design **as proposed**; where any table, column, or nullability here differs from `DATA_MODEL.md`, **DATA_MODEL.md governs** — do not treat §2a as a build spec. Deltas folded in after §2a was written (some in the practice-lead resolutions below, some in the later 2026-07-06 practice-lead review recorded in `DATA_MODEL.md`):
+> - `irp_analysis.origin` — **dropped**; own vs. broker is derived from `rdm_id`. (§2a still lists an `origin` column.)
+> - `irp_analysis.rdm_id` — **resolved, nullable**. (§2a marks it BLOCKED / "do not build".)
+> - `irp_analysis.edm_id` and `irp_rdm.edm_id` — **NOT NULL**. (§2a shows both nullable.)
+> - Packages — **RDM-only is invalid; `package.edm_id` is NOT NULL**. (§2a allows an RDM-only package.)
+> - Analysis templates & suites — **IN MVP**. (§2a marks them DEFERRED.)
+
 **Owner:** Analyst + Practice Leader (IRP domain expert), joint review.
 **Supersedes:** the workflow-authoring/execution model in PRD §12–14 and DATA_MODEL §6–8 as it stands today (post-CR-001). Does **not** supersede CR-001's heartbeat/reconciler resilience mechanism, which is unchanged — though `rwb_job`'s own columns are substantially redesigned here (§2a).
 
@@ -54,7 +61,7 @@ built nor removed — revisit in a future version).
 
 ### Master index — every table, one row each
 
-All 72 tables that exist in `DATA_MODEL.md` today, plus every table this CR
+Every table in `DATA_MODEL.md` today, plus every table this CR
 introduces. Cross-checked against the ERD diagrams **and** the §12 table
 manifest in `DATA_MODEL.md` (six kind tables — `workflow_authoring_status_kind`,
 `workflow_execution_status_kind`, `stage_comp_status_kind`,
@@ -63,34 +70,19 @@ referenced only in field notes, not drawn as ERD boxes, and would be missed
 by reading the diagrams alone). Full detail for every row lives in the
 per-table sections below; this index is for at-a-glance review.
 
-**Table count, before and after:**
-
-| | Before (current `DATA_MODEL.md`) | After (this CR) |
-|---|---|---|
-| **Total tables** | 72 | 52 |
-| **Kind tables** (of the total) | 19 | 15 |
-
-**Net change: −20 tables** (29 dropped, 9 added). The 29 dropped are the
-entire 24-table Workflow/Stage/Task construct plus 5 unrelated tables
-(`notification_preference`, `irp_edm_cache`, `reference_table`,
-`reference_table_row`, `parameter`). The 9 added are `irp_treaty`,
-`irp_analysis` (2 new entity tables), `irp_job_type_kind`,
-`irp_job_resource`, `irp_job_resource_type_kind` (3 new, from the `irp_job`
-redesign), `rwb_job_requestor_type_kind`, `rwb_job_type_kind` (2 new, from
-the `rwb_job` redesign), and `validation_run_status_kind`,
-`validation_result_category_kind` (2 new kind tables, from the Phase A
-validation standardization pass). Of the 19 kind tables in the old schema,
-10 are dropped (all Workflow/Stage/Task) and 9 survive unchanged; the new
-schema adds 6 more kind tables (listed above), for 15 total — a slightly
-higher proportion of kind tables overall (15/52 ≈ 29% vs. 19/72 ≈ 26%),
-consistent with this review's "always kind table, strong reason needed to
-deviate" default being applied to several fields that were previously plain
-strings (`irp_job_type`, `rwb_job_type`, `rwb_job.requestor_type`,
-`validation_run.status`, `validation_result.category`). Note: one
-additional table, `irp_job_status_event`, was proposed during this review
-and then explicitly dropped before ever being built — it counts toward
-neither the "before" nor "after" total, since it never existed in the
-schema at any point.
+The dropped tables are the entire Workflow/Stage/Task construct plus five
+unrelated tables (`notification_preference`, `irp_edm_cache`,
+`reference_table`, `reference_table_row`, `parameter`). The added tables are
+`irp_treaty` and `irp_analysis` (2 new entity tables), plus new kind/detail
+tables from the `irp_job` redesign (`irp_job_type_kind`, `irp_job_resource`,
+`irp_job_resource_type_kind`), the `rwb_job` redesign
+(`rwb_job_requestor_type_kind`, `rwb_job_type_kind`), and the Phase A
+validation standardization pass (`validation_run_status_kind`,
+`validation_result_category_kind`) — reflecting this review's "always kind
+table, strong reason needed to deviate" default applied to several fields
+that were previously plain strings (`irp_job_type`, `rwb_job_type`,
+`rwb_job.requestor_type`, `validation_run.status`,
+`validation_result.category`).
 
 | Table | Disposition | What changed / why |
 |---|---|---|
