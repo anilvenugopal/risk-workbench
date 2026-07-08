@@ -2,17 +2,17 @@
 
 **ID:** CR-003
 
-**Status:** Decisions locked — O1–O8 **confirmed (2026-07-07)**, including O2 (allow RDM-only), **practice-lead ratified (2026-07-07)**, superseding the 2026-07-06 NOT NULL call. No open decisions remain. Data model **applied** to `DATA_MODEL.md` (2026-07-07); downstream passes — `PRD.md` and the constitution (§8) — still pending.
+**Status:** Decisions locked — O1–O9 confirmed (O1–O8 **2026-07-07**, O9 **2026-07-08**); O2 (allow RDM-only) **practice-lead ratified**, superseding the 2026-07-06 NOT NULL call. No open decisions remain. Applied: **`DATA_MODEL.md`** (2026-07-07) and the **constitution** → v3.0.0 (2026-07-08). Pending: the **`PRD.md`** pass (§8.2).
 
 **Scope of this pass:** the **data model only** (`docs/DATA_MODEL.md`). Downstream edits to `PRD.md` and `.specify/memory/constitution.md` are catalogued (§8) but deliberately deferred to follow-up passes, per the analyst's direction to settle the schema first.
 
-**Applies to:** `docs/DATA_MODEL.md` — **applied 2026-07-07**; and — in later passes — `docs/PRD.md` (customer/program/file-inventory sections) and `.specify/memory/constitution.md` Articles 6, 7, 12, 13.
+**Applies to:** `docs/DATA_MODEL.md` — **applied 2026-07-07**; `.specify/memory/constitution.md` Articles 6, 7, 12, 13 — **applied 2026-07-08** (v3.0.0); and — next pass — `docs/PRD.md` (customer/program/file-inventory sections).
 
 **Owner:** Analyst + Practice Leader (IRP domain expert), joint review. CIC domain experts (Wendy Hayes, Cheryl TeHennepe, Ross Konell) are the source authority for the deal/package/CRM-tagging reality captured here.
 
 **Source:** Design session 2026-07-07 — `docs/design_session_notes/01_data_model_and_workbench_organization.md` and `docs/design_session_notes/02_cic_data_organization.md`.
 
-> **How to use this document.** §1 is why. §2 is the five structural moves at a glance. §3 is the target schema, table by table, in the style of `DATA_MODEL.md`. §4 is the table-disposition index (every current table, one row: kept / modified / dropped). §5 is the kind-table seed delta. §6 records the RLS consequence in one place because it is the largest ripple. §7 is the decisions (all confirmed 2026-07-07, including the practice lead's ratification of O2 — no open items remain). §8 is the downstream document impact (PRD + constitution), to be handled in later passes. §9 is out of scope.
+> **How to use this document.** §1 is why. §2 is the five structural moves at a glance. §3 is the target schema, table by table, in the style of `DATA_MODEL.md`. §4 is the table-disposition index (every current table, one row: kept / modified / dropped). §5 is the kind-table seed delta. §6 records the RLS consequence in one place because it is the largest ripple. §7 is the decisions (O1–O9, all confirmed; practice-lead ratified O2 — no open items remain). §8 is the downstream document impact (constitution applied; PRD pass next). §9 is out of scope.
 >
 > **The schema here is applied — `DATA_MODEL.md` is the built source of truth.** This CR records the decisions and rationale behind the change; if the two ever diverge, `DATA_MODEL.md` wins.
 
@@ -259,7 +259,7 @@ Dropping `customer_id` is not a field edit — it removes the workbench's entire
 - **The denormalized-`customer_id`-on-every-table convention (DATA_MODEL.md Conventions) is retired** — that denorm existed solely to make `apply_scope()` a single-column predicate.
 - **Access model becomes:** any authenticated analyst can view any submission and everything under it; `assigned_analyst_id` is a soft owner used for the "my submissions" view only. Roles (`role_kind`/`user_role`) may still exist for admin functions, but `is_admin`'s "`apply_scope()` bypass" purpose is gone.
 
-This directly redefines **constitution Article 6 (Customer Isolation on the Parameterized Path Only)** and touches **Article 7** (the `scoped_execute()` connection assertion), **Article 12** (RLS is a named test target), and **Article 13** (sessions read "roles and customer scope" from the DB each request). Those constitution edits are catalogued in §8 and handled in the follow-up constitution pass.
+This directly redefines **constitution Article 6 (Customer Isolation on the Parameterized Path Only)** and touches **Article 7** (the `scoped_execute()` connection assertion), **Article 12** (RLS is a named test target), and **Article 13** (sessions read "roles and customer scope" from the DB each request). Those constitution edits are catalogued in §8.1 and were applied on 2026-07-08 (constitution v3.0.0).
 
 ---
 
@@ -277,13 +277,17 @@ This directly redefines **constitution Article 6 (Customer Isolation on the Para
 - **O7 — Job grain → PACKAGE, NOT SUBMISSION.** `irp_job` drops `submission_id` (and `customer_id`); a nullable `package_id` FK provides the "jobs for this package" grouping. There is no need to view jobs at the submission level (§3.5).
 - **O8 — CSV handling → SAME AS `.bak`/`.mdf`.** A CSV is just another `source_file_path` value; the analyst-facing process is identical. The IRP integration under the hood differs, but that is a flow/implementation detail, not a schema distinction — no separate table or format discriminator.
 
+### Confirmed by the analyst (2026-07-08)
+
+- **O9 — File handling / package-creation flow → PATH-PER-OBJECT, CHOSEN AT PACKAGE CREATION.** The file-inventory subsystem (M5: reconciliation scanner, `file_artifact` versioning, EDM/RDM tagging, discrepancy detection, ignore ruleset, directory error/warning states) is dropped entirely — the workbench is not a File Explorer (notes 01 §2 D8). Replacement flow: when creating a package, the analyst picks the shape — **EDM-only / RDM-only / both** (matching O2's ≥1-of-edm/rdm CHECK) — and selects the shared-drive file(s) to upload, which create the corresponding EDM/RDM object(s) in Moody's. The analyst can **browse the shared drive** to choose files. The chosen path is stored as `irp_edm.source_file_path` / `irp_rdm.source_file_path`; `submission.directory_path` may seed the browse location. No scanning, versioning, drift/discrepancy, tagging, or ignore rules.
+
 ---
 
 ## 8. Downstream document impacts (later passes)
 
-Per the analyst's direction, this pass settles the data model only. The following are catalogued, not yet edited.
+The impacts below were catalogued when this CR settled the data model first. Status: the constitution pass (§8.1) is **applied**; the PRD pass (§8.2) is **next**; code removal (§8.3) stays **deferred**.
 
-### 8.1 Constitution (`.specify/memory/constitution.md`) — v2.0.0 → v3.0.0 (MAJOR)
+### 8.1 Constitution (`.specify/memory/constitution.md`) — v2.0.0 → v3.0.0 (MAJOR) — ✅ applied 2026-07-08
 - **Article 6 (Customer Isolation on the Parameterized Path Only)** — **redefined in place, not removed** (§6). Becomes a positive statement of the no-RLS access model: any authenticated analyst sees every submission and everything under it; `assigned_analyst_id` is a soft "my submissions" owner, not an access gate; no `customer_id`, no `apply_scope()`, no `user_customer_access`. Kept in place rather than deleted to preserve the stable 13-article numbering the Compliance Gates depend on ("Articles 1–13"), consistent with how CR-002 redefined Articles 1/2/5. Largest edit; drives the MAJOR bump.
 - **Article 7** — the `scoped_execute()` "must assert `connection == WORKBENCH`" clause loses its customer-scoping rationale; reword. (The assertion may be worth keeping as a plain connection-safety guard, but it is no longer justified by customer isolation.)
 - **Article 12** — RLS appears twice: the SQL-Server-tier description ("…migrations, RLS, and event-sourcing transactions") and the required-test list (`apply_scope`). Strike both — there is no scoping function left to test.
@@ -292,8 +296,41 @@ Per the analyst's direction, this pass settles the data model only. The followin
 - **Sync Impact Report header** — add a CR-003 entry recording the 2.0.0 → 3.0.0 bump and the Article 6 redefinition.
 
 ### 8.2 PRD (`docs/PRD.md`)
-- Customer/program-hierarchy sections, customer-seeding (spec 002 FR-001–004), the file-inventory feature set (§8.x drift/discrepancy/ignore-rules), and any "my submissions"/access-control copy all need realignment to the deal-centric, no-RLS, path-only-file model.
-- The `analysis_template` `auto_name_pattern` open item (references dropped `cycle`) can now be re-derived against the new `submission` attributes (`cedant_name` + `treaty_year` + region + peril).
+
+The PRD conforms to this CR — where the two disagree, the locked decisions here (M1–M5, O1–O9) win. The PRD predates the 2026-07-07 design session, so several sections assert the *opposite* of a locked decision; those are overrides to apply, not content to preserve (see "Reverse, don't preserve" below).
+
+**Section disposition:**
+
+| PRD area | Disposition | Authority |
+|---|---|---|
+| §6 title "Authorization & row-level security" | Retitle → "Authorization" | O1 |
+| §6.1 Roles | Keep; drop "`admin` bypasses customer scoping" | O1 |
+| §6.2 Customer-access scoping (app-level RLS) | **Delete** | O1 / M2 |
+| §6.3 "My submissions" filter | Keep | O1 |
+| §6.4 Admin maintenance | Rewrite → user/role management only; drop `user_customer_access` | O1 |
+| §7 title "Domain model — Customer → Program → Submission" | Retitle → "Domain model — Submission & Package" | M1 |
+| §7.1 Business hierarchy | **Delete** | M1 |
+| §7.1a Customer seeding | **Delete** (no `customer` table; cedant is a plain string) | M1 / O3 |
+| §7.2 Submission fields | Rewrite: −`customer_id`/`program_id`; single `crm_id` → `submission_crm_id` tags; +`cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path` | M1 / M3 / O6 |
+| §7.2a Submission status | Keep; drop "discrepancy-detection scans continue" from the `COMPLETED` row (no scanner) | M5 |
+| §7.2b Name uniqueness | Rewrite `UNIQUE(program_id, name)` → global `UNIQUE(name)`; drop the `cycle`-note program references | O5 |
+| §7.3 Submission UI | "customer/program filter" → cedant / treaty-type / inception filters | M1 / M3 |
+| §7.4 Package cards | "Local file name" (`file_artifact`) → `source_file_path`; drop "customer" from the job-filter copy | M5 / O1 |
+| §8 "File inventory & artifacts" (§8.1–§8.8) | **Delete**; replace with a short "File handling" note (see O9) | O9 / M5 |
+| §9.1 EDM entity fields | −`submission_id`/`customer_id`/`file_artifact_id`; +`source_file_path` | M5 |
+| §9.2 RDM entity fields | `edm_id` **NOT NULL → nullable**; −`customer_id`/`file_artifact_id`; +`source_file_path` | O2 / M5 |
+| §9.3 EDM/RDM libraries | "customer-scoped" → global | O1 |
+| §9.4 Package | Rewrite creation flow per O9; **reverse "RDM-only packages are not [valid]"** | O2 / O9 |
+| Scattered | §4 nav ("Administration → Customer Access" rail), §5 `CurrentUser`/"RLS" copy, §2.6 + §11.2 auto-naming tokens, §20.4 job-filter "customer" | O1 / M1 |
+
+**Reverse, don't preserve** — the PRD currently states the opposite of a locked decision in three places:
+- §9.4 "RDM-only packages are not [valid]… every package therefore has an EDM" and §9.2 `edm_id` **NOT NULL** → **O2** (RDM-only valid; `edm_id` nullable; ≥1-of-edm/rdm CHECK).
+- §7.2b `UNIQUE(program_id, name)` → **O5** (global `UNIQUE(name)`).
+- §7.2 single `crm_id` text field → **M3 / O6** (`submission_crm_id` tag set).
+
+**File handling (replaces all of §8)** — per **O9**: no scanner, inventory, versioning, tagging, discrepancy detection, or ignore ruleset. At package creation the analyst picks the shape (EDM-only / RDM-only / both) and selects shared-drive file(s) — browsable — to upload and create the object(s) in Moody's. Path stored as `source_file_path`; `submission.directory_path` may seed the browse location.
+
+**Auto-naming** — the `auto_name_pattern` / `cycle`-removed open item (§7.2b note, §11.2) resolves against the new `submission` attributes: `cedant_name` + `treaty_year` + region + peril.
 
 ### 8.3 Already-built code (spec 002 / PR #5)
 - The customer/program spine, `apply_scope()`/RLS, and the file-inventory subsystem are **implemented**. This CR drops much of that. A migration/removal plan and a decision on whether to preserve any spec-002 file-inventory behavior are required before code changes — this is the opposite of CR-002's debt-free pivot. Flag for the practice lead and analyst jointly.

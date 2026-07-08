@@ -33,7 +33,7 @@ Reinsurance catastrophe analysts who:
 - Review results (ELTs, EP curves, AAL), compare against broker results
 - Export finalized loss sets to downstream repositories
 
-Administrators manage users, customer access, and system configuration.
+Administrators manage users, roles, and system configuration.
 
 ### 1.3 The three-phase workflow
 
@@ -57,8 +57,8 @@ Every submission follows three sequential phases. The workbench covers all three
 
 ### 1.4 Core domain glossary
 
-- **Customer → Program → Submission** — business hierarchy. A Program belongs to a Customer; a Submission belongs to a Program.
-- **Submission** — one broker's package handled by an analyst. Anchors directories, artifacts, EDMs, RDMs, and jobs. Has an assigned analyst ("my submissions" view) and a `crm_id` (the CRM identifier it wraps).
+- **Submission (the deal)** — the top-level unit of work: a specific cedant's specific treaty at a specific inception. There is no hierarchy above it (no Customer or Program — dropped, CR-003). Anchors packages, EDMs, RDMs, and jobs. Carries the deal's identity and filter attributes (`cedant_name`, `treaty_type_code`, `inception_date`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential renewal link. CRM identifiers attach as a 0..N tag set (`submission_crm_id`), not a single field.
+- **Package** — the pairing of an EDM and/or an RDM that an analyst creates and syncs to Risk Modeler together. Many-to-many with submission (a package can be reused across deals). EDM-only **and** RDM-only packages are both valid (at least one of EDM/RDM required).
 - **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
 - **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
@@ -158,7 +158,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context (customer short-code, program, submission name, region/peril tag from the template — **not cycle**; `submission.cycle` was removed, §7.2b). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 5 (analysis templates) is planned.
+Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 5 (analysis templates) is planned.
 
 ---
 
@@ -233,7 +233,7 @@ IDE-style, three zones:
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
-| Administration | Users, Customer Access, Settings |
+| Administration | Users, Settings |
 
 ### 4.6 Icons
 
@@ -259,7 +259,7 @@ The login page renders exactly the options corresponding to the configured mode 
 
 **Entra app registration status (2026-07-01):** The Entra app ("Governance", PremiumIQ tenant) is registered with redirect URI `http://localhost:8000/auth/callback` (Web) and `User.Read` delegated permission granted. See `docs/ENTRA_SETUP.md` for remaining steps before production.
 
-The `CurrentUser(id, email, role)` dataclass is identical across all modes. All downstream code — RLS, audit, role gates, analyst filters — is auth-mode-agnostic.
+The `CurrentUser(id, email, role)` dataclass is identical across all modes. All downstream code — audit, role gates, analyst filters — is auth-mode-agnostic.
 
 **Dev header stub** (`AUTH_MODE=dev`) remains available for local development only. Enabled only when `APP_ENV != production` AND `AUTH_MODE=dev`. Loud persistent banner when active. Never reachable in production.
 
@@ -321,9 +321,9 @@ Every login attempt (success and failure) inserts a `login_attempt` row. Every a
 
 Activated by setting `AUTH_MODE=oidc`. The login form is replaced by an Entra redirect. Everything downstream of `CurrentUser` is unchanged.
 
-OIDC authorization-code flow, backend-for-frontend pattern: the OIDC exchange is server-side; the browser never sees tokens. Entra authenticates **identity only** — `oid` claim maps to a local `app_user` record. **Authorization (roles, customer access) is always owned by the app**, never read from token claims or Entra groups.
+OIDC authorization-code flow, backend-for-frontend pattern: the OIDC exchange is server-side; the browser never sees tokens. Entra authenticates **identity only** — `oid` claim maps to a local `app_user` record. **Authorization (roles) is always owned by the app**, never read from token claims or Entra groups.
 
-On first sign-in from a new Entra identity: a `app_user` row is provisioned automatically (`entra_oid` set, `password_hash` null). Roles and customer access must be assigned by an admin before the user can do anything useful (fail-closed: no access by default).
+On first sign-in from a new Entra identity: a `app_user` row is provisioned automatically (`entra_oid` set, `password_hash` null). Roles must be assigned by an admin before the user can do anything useful (fail-closed: no privileged access by default).
 
 Full implementation steps are in §5.3.
 
@@ -369,7 +369,7 @@ Full implementation steps are in §5.3.
 
 11. **Token storage** — ID token and access token are never stored in the browser or in the `user_session` row. The session row records only the local `user_id`. Tokens are discarded after identity is confirmed.
 
-12. **Auto-provision on first login** — on callback, if no `app_user` row exists with `entra_oid = oid_claim`: insert a new row with `email`, `display_name`, `entra_oid`, `is_active=true`, `password_hash=null`. Log the auto-provision. Do **not** assign roles or customer access automatically — require admin action before the user can access anything.
+12. **Auto-provision on first login** — on callback, if no `app_user` row exists with `entra_oid = oid_claim`: insert a new row with `email`, `display_name`, `entra_oid`, `is_active=true`, `password_hash=null`. Log the auto-provision. Do **not** assign roles automatically — require admin action before the user gains any privileged role.
 
 13. **Migrate existing password accounts to SSO** — for each `app_user` that has a `password_hash` and whose email matches an Entra user: set `entra_oid` from Entra, set `password_hash = null`. Run as an admin CLI command (`python -m app.cli migrate-accounts-to-sso`). Accounts not yet in Entra keep their `password_hash` until manually migrated.
 
@@ -388,7 +388,7 @@ Full implementation steps are in §5.3.
 
 ### 5.4 Identity vs authorization (both versions)
 
-Hard rule, applies to both auth modes: **identity** (who you are) comes from the auth provider (password check or Entra); **authorization** (what you can see and do) comes from the app's own tables (`user_role`, `user_customer_access`), evaluated live on every request. The two are never conflated. Authorization is never read from token claims, never cached in the session cookie, and never derived from Entra group membership.
+Hard rule, applies to both auth modes: **identity** (who you are) comes from the auth provider (password check or Entra); **authorization** (what you can do) comes from the app's own tables (`user_role`), evaluated live on every request. The two are never conflated. Authorization is never read from token claims, never cached in the session cookie, and never derived from Entra group membership.
 
 ---
 
@@ -425,50 +425,48 @@ Index: `(email_tried, attempted_at)` and `(ip_address, attempted_at)` for rate-l
 
 ---
 
-## 6. Feature: Authorization & row-level security
+## 6. Feature: Authorization
+
+> **No row-level security (CR-003, constitution Article 6 v3.0.0).** The workbench has **no customer isolation**: there is no `customer_id`, no `apply_scope()`, and no `user_customer_access`. Every authenticated analyst can view — and act on — every submission and everything under it. Roles gate *functions*, never *rows*. `assigned_analyst_id` is a soft owner used for the "my submissions" filter, not an access boundary. This section replaces the earlier customer-access/RLS model wholesale.
 
 ### 6.1 Roles
 
-Global roles (not per-customer) in v1. Exact codes TBD with the team; at minimum: `analyst`, `admin`. `admin` bypasses customer scoping. Roles gate manifest nodes and actions, checked server-side via `require_role(*allowed_roles)` dependency.
+Global roles in v1. Exact codes TBD with the team; at minimum: `analyst`, `admin`. Roles gate manifest nodes and actions (which *functions* a user may invoke — e.g. admin-only user management), checked server-side via `require_role(*allowed_roles)` dependency. Roles never restrict which rows a user can read or write — all authenticated analysts see all deals.
 
-### 6.2 Customer-access scoping (app-level RLS)
+### 6.2 Analyst-centric views
 
-Users are scoped to customers via `user_customer_access(user_id, customer_id)`. Every list/detail query calls `apply_scope()` which injects `WHERE customer_id IN (allowed set)`. `customer_id` is denormalized onto every major entity (set once at creation from the parent chain, never user-editable) so scoping is a single-column predicate — no multi-join.
+"My submissions" is a first-class filter: `WHERE assigned_analyst_id = current_user.id`. Every submission list defaults to this view with a toggle to "All submissions." This reflects the real workflow: analysts each own a deal end-to-end during peak season. It is a convenience filter over data everyone can already see — never an access restriction.
 
-`apply_scope()` honors an **admin bypass** (admins see all). Native SQL Server RLS is a later hardening layer, not v1.
+### 6.3 Admin maintenance
 
-**Scope changes take effect on the next request, not the next login (spec 002 FR-021).** The allowed-customer set is resolved per request from `user_customer_access`, so granting or revoking a user's access is reflected the moment they make their next request — even mid-session — with no logout/login or cache-refresh needed.
-
-### 6.3 Analyst-centric views
-
-"My submissions" is a first-class filter: `WHERE assigned_analyst_id = current_user.id`. Every submission list defaults to this view with a toggle to "All team submissions." This reflects the real workflow: analysts each own a submission end-to-end during peak season.
-
-### 6.4 Admin maintenance
-
-Admin rail destination maintains users, roles, and `user_customer_access`. Building this early makes RLS testable end-to-end immediately.
+Admin rail destination maintains users and role assignments only (there is no customer-access grant to manage). Building it early makes role-gating testable end-to-end immediately.
 
 ---
 
-## 7. Feature: Domain model — Customer → Program → Submission
+## 7. Feature: Domain model — Submission & Package
 
-### 7.1 Business hierarchy
+### 7.1 The deal is the root
 
-**Customer → Program → Submission**. A Submission anchors all work: directories, file artifacts, EDMs, RDMs, and jobs. Every major entity carries `customer_id` (denormalized, immutable) for RLS.
+**Submission is the top-level entity** (CR-003 M1). There is no Customer or Program above it — that hierarchy is dropped, along with the CSV customer seeder that populated it. A submission models a *deal*: a specific cedant's specific treaty at a specific inception, producing one or more EDM/RDM packages and tracked for the business by zero or more CRM IDs. It anchors all work: packages, EDMs, RDMs, and jobs. No entity carries `customer_id` (no RLS — §6).
 
-### 7.1a Customer seeding
+### 7.2 Submission fields
 
-`customer` rows are seeded from an admin-provided CSV, not created one-by-one through the UI. `python -m app.cli seed-customers <path.csv>` **upserts by `short_code`** (the existing `UNIQUE` constraint — DATA_MODEL.md §1): a row present in the CSV inserts if new or updates if it already exists by short code. **A customer row is never deleted by the seeder**, even if a previously-seeded short code is absent from a later CSV — `customer_id` is denormalized onto nearly every entity in the system, so a delete-on-sync seeder would be a standing data-loss risk. Removing a customer, if ever needed, is a separate, deliberate admin action outside this tool. Idempotent — safe to re-run the same CSV repeatedly. The CSV is **minimal — `short_code` and `name` columns only** (spec 002 FR-001); no contact/address/metadata fields this iteration. A malformed or in-file-duplicate `short_code` is reported and skipped without aborting the valid rows.
-
-### 7.2 Submission
-
-The analyst's unit of work. Fields: `id`, `name`, `customer_id` (denorm), `program_id`, `assigned_analyst_id`, `status_code`, `crm_id` (the CRM identifier this submission wraps — plain text, §1.4), `created_at`.
+The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
+- `id`, `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), **globally unique** (§7.2b)
+- `cedant_name` — plain string, primary filter, kept consistent via autocomplete over existing values (no `cedant` table — that would re-create `customer` under a new name, CR-003 O3)
+- `treaty_type_code` FK → `treaty_type_kind` — deal-level treaty type, primary filter (kind table, Article 3)
+- `inception_date` — primary filter
+- `treaty_year` — nullable; parsed from the `TY{YY}` naming convention, for renewal-year grouping
+- `renews_from_submission_id` FK → `submission` — nullable self-reference; the renewal / expiring-submission link, **manual** (no treaty-system integration to infer it — CR-003 O4)
+- `directory_path` — nullable; the per-deal shared-drive directory the analyst stages files in. Seeds the file browse location and the naming-convention parse; there is no directory *inventory* (§8)
+- `assigned_analyst_id` FK → `app_user` — soft owner for the "my submissions" filter (§6.2), **not** an access gate
+- `status_code` FK → `submission_status_kind` — cached current status (§7.2a)
+- CRM identifiers attach as a **0..N tag set** via `submission_crm_id` (hand-entered, optional, editable, may be absent or mistyped, many per deal), **not** a single `crm_id` column (CR-003 M3/O6)
+- `created_at` and the standard audit columns
 
 A submission has:
-- Zero or more **directories** (shared-drive paths) → file inventory
-- Zero or more **file artifacts** (tagged EDM/RDM files found in directories, or uploads)
-- Zero or more **packages** (EDM/RDM pairs — §9.4)
-- Zero or more **EDM records** (IRP exposure databases, tracked separately from the artifact file)
-- Zero or more **RDM records** (IRP results databases from broker, tracked separately)
+- Zero or more **packages** (EDM and/or RDM — §9.4), associated many-to-many via `submission_package`
+- Zero or more **EDM records** (IRP exposure databases) and **RDM records** (IRP results databases), reached through its packages
 
 A submission's progress is derived from its jobs and entity state (§12–14: IRP Jobs, RWB Jobs, and the prerequisite gate), not from a stored workflow.
 
@@ -479,92 +477,62 @@ Three values only, event-sourced (insert `submission_status_event` + stamp cache
 | Status | Meaning |
 |---|---|
 | `ACTIVE` | Open — the analyst can work on it: add directories, tag artifacts, create/sync/delete packages. |
-| `COMPLETED` | Closed for tracking purposes. Analyst-initiated edits (adding directories, tagging, uploads, packages) are blocked; read-only inventory operations — viewing and discrepancy-detection scans — continue (spec 002 FR-013). Reopening to `ACTIVE` restores edit capability. |
+| `COMPLETED` | Closed for tracking purposes. Analyst-initiated edits (creating/syncing/deleting packages) are blocked; viewing continues. Reopening to `ACTIVE` restores edit capability. |
 | `CANCELLED` | Withdrawn. Terminal state for a submission the analyst is no longer pursuing. |
 
 Rules:
 - **`COMPLETED → ACTIVE` (reopening) is allowed** — set it back to `ACTIVE` and work resumes. There is no one-way door between these two.
 - **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn — consistent with §1.1 ("the analyst is always in the driver's seat"). The system does not block `ACTIVE → COMPLETED` because, say, a package hasn't synced yet.
+- **There is no file-inventory scanning to keep running on a `COMPLETED` submission** — the scanner subsystem is dropped (CR-003 M5, §8); the only ongoing operation is viewing.
 - **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
 
 This replaces the prior `authoring_status` field, whose three-value guess (`draft`/`active`/`complete`) assumed a workflow-authoring lifecycle. `submission.status_code` describes the submission itself, independent of whatever job or workflow machinery runs underneath it.
 
 ### 7.2b Submission name uniqueness
 
-`submission.name` is **unique per `program_id`** (`UNIQUE(program_id, name)`, enforced at the DB level, not just client-side). Two submissions cannot share a name under the same Program — this guards against an analyst accidentally re-creating a submission that already exists for a given broker/program during peak season.
+`submission.name` is **globally unique** (`UNIQUE(name)`, enforced at the DB level, not just client-side). With Program dropped (CR-003 O5), the `TY{YY}{MM}_{Cedant}` naming-convention label is unique across all submissions — this guards against an analyst accidentally re-creating a deal that already exists during peak season.
 
-> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just submissions. It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 5, not yet built), so removing it now is a documentation-only change. **Open item for Iteration 5:** the auto-naming pattern needs a replacement token set once that iteration is actually planned — likely `customer.short_code` + `submission.name`, but not decided here.
+> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 5, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
 ### 7.3 Submission UI
 
-Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, customer/program filter) + detail panel. List ergonomics per §20.4. Status badges surface active job counts and review queue depth per submission.
+Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, plus cedant / treaty-type / inception-date filters) + detail panel. List ergonomics per §20.4. Status badges surface active job counts and review queue depth per submission.
 
 ### 7.4 Submission detail — package cards (new)
 
 The submission detail panel shows one **full-width card per package** (§9.4) — deliberately not a compact grid, since a package's EDM side and RDM side each carry enough independent state (status, jobs, portfolio summary, analysis counts) to need real layout room rather than being squeezed into a small tile. Each card displays:
 - **Upload progress** — stubbed at `Not Started` for now (real progress requires the real IRP import calls this iteration's stub jobs don't make yet).
 - **Status** — stubbed at `Pending Upload`.
-- **Local file name** — the source `file_artifact` filename(s) behind the package's EDM/RDM.
+- **Source file** — the `source_file_path` the package's EDM and/or RDM were created from (stored on `irp_edm`/`irp_rdm`, §9.1/§9.2; there is no `file_artifact` record — CR-003 M5).
 - **Portfolio summary** — empty for now (populated once Portfolio Creation exists — later iteration).
 - **Analysis counts** — empty for now (populated once analysis execution exists — later iteration).
 - **IRP Jobs and RWB Jobs counts** — all / active / failed, scoped to this package's EDM and RDM.
 
 **Card title click** (EDM name or RDM name) → navigates to that EDM's or RDM's detail page. **Not built this iteration** — the route is reserved so the link target exists, but the detail page itself is out of scope until EDM/RDM entity management is built out further.
 
-**Job count click** → navigates to the IRP Jobs or RWB Jobs list, pre-filtered to this customer + submission (and package, once job-to-package linkage exists). See §20.4 for how pre-applied filters work — this is the first real consumer of that mechanism.
+**Job count click** → navigates to the IRP Jobs or RWB Jobs list, pre-filtered to this package (`irp_job` lives at the package grain — CR-003 O7). See §20.4 for how pre-applied filters work — this is the first real consumer of that mechanism.
 
 ---
 
-## 8. Feature: File inventory & artifacts
+## 8. Feature: File handling
 
-### 8.1 Directory association
+> **The file-inventory subsystem is dropped (CR-003 M5/O9).** There is no directory inventory, no immutable `file_artifact` model, no reconciliation scanner, no tagging, no discrepancy/drift detection, no upload store split, no ignore ruleset, and no directory error/warning states. The workbench is a cat-modeling tool, not a File Explorer (design notes 01 §2 D8). All of §8.1–§8.8 in earlier drafts is removed and replaced by the flow below.
 
-`submission_directory` links a submission to one or more shared-drive paths, `UNIQUE(unc_path)`. Stores both the Windows UNC path (human-facing) and the Linux mount path (for reading). The shared drive is mounted **read-only** into the Linux host (CIFS/SMB, least-privilege service account). The app only reads — never writes, moves, or deletes broker files.
+### 8.1 The flow — pick a file at package creation
 
-### 8.2 Immutable artifact model
+File handling happens **at package creation** (§9.4), not as a standing inventory:
 
-A `file_artifact` row = one **version** of a file. Identity: cheap metadata signature `(relative_path, size_bytes, fs_modified_at)` — no content hash (hashing a 1.4 GB MDF is too expensive; identity is best-effort). **Append-only**: a detected change retains the old row and inserts a new one.
+1. The analyst chooses the package **shape** — EDM-only / RDM-only / both (matching the ≥1-of-edm/rdm rule, CR-003 O2).
+2. For each slot (EDM and/or RDM), the analyst **browses the shared drive** and selects the file to upload — a `.bak`, `.mdf`, or `.csv`. The browse location may be seeded from `submission.directory_path` (§7.2).
+3. The selected file is uploaded to create the corresponding EDM/RDM object in Moody's (Risk Modeler). The chosen path is stored directly as `irp_edm.source_file_path` / `irp_rdm.source_file_path` (§9.1/§9.2) — a single string, no versioning.
 
-Sources: `shared_drive` | `upload`. Both share one model, one store; `source` is the discriminator. (The former `workflow_output` source is dropped, CR-002 — job-produced files land in the submission directory and are picked up by the next scan as ordinary `shared_drive` files.)
+### 8.2 The shared drive
 
-### 8.3 Reconciliation scanner & triggers
+The shared drive is mounted **read-only** into the Linux host (CIFS/SMB, least-privilege service account); the app reads to browse and to upload, never writes/moves/deletes broker files. Browsing is a live directory listing, not a scanned-and-cached inventory — there is nothing to reconcile, and no `missing`/`changed`/`present` states to track.
 
-Background job (not a request). Triggers: directory added/removed, an op attempts to use a file, user opens the submission page, explicit "Refresh inventory" button. Per file: not tracked → insert `present`; unchanged → no-op; changed → mark old `changed`, insert new `present`; gone → mark `missing`. A **settle window** (N seconds) prevents fingerprinting files mid-copy.
+### 8.3 CSV files
 
-**A failed scan is not a missing file (spec 002 FR-044).** When a directory is unreachable (network share down), the scan does not flip its previously-tracked artifacts to `missing` — a failed scan attempt is distinct from a confirmed absent file. `missing` is recorded only when a *successful* scan of a reachable directory confirms the file is gone. The unreachable case surfaces as the error state in §8.8, not as a wave of false `missing` flags.
-
-**COMPLETED submissions still scan.** Read-only inventory operations — viewing and discrepancy-detection scans — continue while a submission is `COMPLETED` (spec 002 FR-013 edge case); only analyst-initiated edits (adding directories, tagging, uploads) are blocked (§7.2a).
-
-### 8.4 Tagging
-
-Users tag artifacts as `edm` or `rdm` on the submission detail page. **Tagging only sets `file_artifact.tag_code`** — it does *not* create an `irp_edm`/`irp_rdm` tracked entity (spec 002 FR-033). The tagged artifact is the *source* for creating that entity later (at Package "Save and Sync" / import, §9.4, a later iteration), and is resolved by name at submit time. The IRP name-collision check is a REST search that needs no local entity, so it runs at tag/rename time (non-blocking warning, §9.4).
-
-### 8.5 Discrepancies
-
-Raised when a tracked file changes or goes missing. Severity escalates if the artifact was tagged, and further if it is used in a `package` (i.e. it is the source file behind an `irp_edm`/`irp_rdm` a package references — provenance in question). Surfaced: count in status bar, marker on submission, dedicated list. Discrepancies carry a resolved/unresolved state and can be **marked resolved** by the analyst once addressed (spec 002 FR-040) — they are not auto-cleared.
-
-### 8.6 Upload storage
-
-Upload artifacts use `source=upload`, stored under a server-managed upload location (not the read-only broker mount). Uploads are immutable by nature.
-
-### 8.7 Ignore ruleset (new)
-
-An admin-managed, gitignore-style ruleset controls which discovered files the reconciliation scanner (§8.3) turns into `file_artifact` rows at all — a way to keep broker-folder noise (`*.tmp`, `~$*`, `.DS_Store`, scratch files) out of the inventory rather than surfacing it as clutter to tag or dismiss.
-
-- **Three scope levels: global, customer, submission.** Global rules are admin-authored at the application level and apply everywhere. Customer-level and submission-level rules are optional overrides layered on top for a specific customer or specific submission.
-- **Cascade is cumulative, not a replacement.** All applicable levels' patterns apply together — global, then customer, then submission, in that order — the same model real `.gitignore` files use when nested in subdirectories. A pattern prefixed with `!` negates (un-ignores) a match made by a broader level; the more specific level can carve out an exception, but it can't silently drop the global admin default by simply not repeating it.
-- A file matched by a non-negated pattern is excluded from the inventory at scan time — it's never inserted as a `file_artifact` row, not hidden or soft-deleted after the fact.
-- Standard glob semantics (`*`, `**`, directory anchors, `!negation`), implemented with an existing library rather than hand-rolled matching.
-- Schema: DATA_MODEL.md §2 (`ignore_rule`, `ignore_rule_scope_kind`).
-
-### 8.8 Directory & inventory states — error vs. warning (spec 002 FR-041–043)
-
-The submission detail page distinguishes two non-happy states so the analyst can tell "something is wrong" from "nothing is here yet":
-
-- **Error** — the submission has **no directory associated**, or an associated directory is **unreachable/missing** (network share down). Shown as an error, never a silent empty list.
-- **Warning** — an associated directory is **reachable but contains zero files**. A distinct, softer state than the error above.
-
-Both states are **re-evaluated immediately** whenever the analyst adds a directory or triggers a "Refresh inventory" — they are not sticky or cached past the next scan/action. This pairs with §8.3's rule that an unreachable directory raises the error state rather than flipping tracked files to `missing`.
+A `source_file_path` may point to a `.csv` (ELT/PLT, or exposure too large for an RDM) as readily as a `.bak`/`.mdf` (CR-003 O8). The analyst-facing selection is identical; any difference in how the IRP integration ingests a CSV is an implementation detail, not a separate file type in the model.
 
 ---
 
@@ -572,14 +540,15 @@ Both states are **re-evaluated immediately** whenever the analyst adds a directo
 
 ### 9.1 EDM as a first-class entity
 
-An **EDM record** (`irp_edm` table) is distinct from the file artifact that produced it. The file artifact is the `.bak`/`.mdf` file on disk (tracked by §8). The EDM record represents the exposure database **as it exists in IRP**, with:
+An **EDM record** (`irp_edm` table) is distinct from the source file that produced it. The EDM record represents the exposure database **as it exists in IRP**, with:
 - `name` — the EDM name in IRP (auto-generated from submission context per §2.6, editable)
 - `irp_id` — IRP's integer exposureId (backfilled by the poller on import `FINISHED`)
-- `submission_id`, `customer_id` (denorm)
 - `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
-- `file_artifact_id` FK — the file artifact used for import (nullable)
+- `source_file_path` — nullable string; the shared-drive path of the `.bak`/`.mdf`/`.csv` this EDM was created from (CR-003 M5; replaces the `file_artifact_id` FK — there is no file-artifact table)
 - `created_by_irp_job_irp_id`, `as_of` — creation lineage + last-confirmed-against-IRP trust signal
 - `server_name` — the DataBridge server the EDM lives on
+
+There is no `submission_id` or `customer_id` on the EDM (CR-003 M1/M2/O7): ownership reaches the submission transitively through `package` → `submission_package`, and there is no customer isolation.
 - Soft-delete via `deleted_at`
 
 **EDM operations** (MVP spine is import; create-fresh / upgrade / delete are out of the MVP spine, `mvp-scope.md §1`):
@@ -592,12 +561,13 @@ All async operations create an `irp_job` row and are polled by the poller.
 An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in IRP:
 - `name` — the RDM name in IRP
 - `irp_id` — IRP's integer id (backfilled on import `FINISHED`)
-- `edm_id` FK — **NOT NULL**: an RDM is always tied to an EDM (its results are meaningless without exposures to link to)
-- `submission_id`, `customer_id` (denorm)
+- `edm_id` FK — **nullable** (CR-003 O2, reversing the earlier NOT NULL call): an RDM-only package has an RDM with no EDM — the broker provides losses to review with no exposure to re-run. When present, the FK still means "the EDM this RDM's results link to."
 - `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
-- `file_artifact_id` FK — the .bak/.mdf file used for import
+- `source_file_path` — nullable string; the shared-drive path of the `.bak`/`.mdf`/`.csv` this RDM was created from (CR-003 M5; replaces `file_artifact_id`)
 - `created_by_irp_job_irp_id`, `as_of`
 - Soft-delete via `deleted_at`
+
+No `submission_id`/`customer_id` — same as the EDM (ownership through the package, no RLS).
 
 **RDM operations:**
 - **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = rdm_import` (uploads to S3 first)
@@ -606,31 +576,31 @@ An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in
 
 ### 9.3 EDM library & RDM library
 
-Rail destinations under "Moody's IRP" that show all EDMs / RDMs across submissions (customer-scoped). Entry points for:
+Rail destinations under "Moody's IRP" that show all EDMs / RDMs across submissions (global — every analyst sees all of them; no customer scoping, §6). Entry points for:
 - Importing new EDM/RDM files
 - Viewing import job status
-- Linking an already-in-IRP EDM to a submission (without re-import)
+- Linking an already-in-IRP EDM to a submission (via a package, without re-import)
 - Triggering DataBridge validation and profiling (§10)
 
 ### 9.4 Package (new)
 
-A **package** is the pairing of an EDM and an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one EDM and more than one RDM — a package is how the analyst declares which EDM goes with which RDM. Most packages pair one EDM with one RDM; the RDM side may be absent (**EDM-only packages are valid; RDM-only packages are not** — an RDM is meaningless without the EDM whose exposures its results link to). Every package therefore has an EDM.
+A **package** is the pairing of an EDM and/or an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one package, and a package can be shared across submissions (many-to-many via `submission_package`, CR-003 M4). **All three shapes are valid: EDM-only, RDM-only, and EDM+RDM** — at least one of the two is required (a DB CHECK enforces ≥1). RDM-only is real: a broker supplies losses to review with no exposure to re-run (CR-003 O2, reversing the earlier "every package has an EDM" rule).
 
-**Creation flow:** the analyst tags one or two `file_artifact` rows as `edm`/`rdm` (§8.4) and creates a package from them, typically via a modal (chosen over a full page — a package is a lightweight join plus two name fields and a status display, not enough surface area to justify dedicated navigation and breadcrumb machinery).
+**Creation flow (CR-003 O9):** in the package modal the analyst first picks the **shape** (EDM-only / RDM-only / both), then for each slot **browses the shared drive** and selects the file to upload (§8.1). This selection *is* the file handling — there is no prior tagging step and no `file_artifact` row. A modal is chosen over a full page — a package is a lightweight join plus a couple of name fields and a status display, not enough surface area to justify dedicated navigation and breadcrumb machinery.
 
-**Name-collision check.** EDM and RDM names must not be duplicated on Risk Modeler. Whenever the analyst tags an artifact as EDM/RDM or edits its name inside the package modal, the app checks the proposed name against Risk Modeler (`client.edm.search_edms()` / `client.rdm.search_rdms()`) — the same check and same non-blocking warning pattern already specified for artifact tagging in §8.4/DATA_MODEL.md §2. A collision highlights the name field as an error (existing CSS error state), but does not block Save — the analyst can override and proceed, or rename.
+**Name-collision check.** EDM and RDM names must not be duplicated on Risk Modeler. Whenever the analyst edits an EDM/RDM name inside the package modal, the app checks the proposed name against Risk Modeler (`client.edm.search_edms()` / `client.rdm.search_rdms()`) — a REST search that needs no local file row, run at create/edit time as a non-blocking warning (DATA_MODEL.md §5). A collision highlights the name field as an error (existing CSS error state), but does not block Save — the analyst can override and proceed, or rename.
 
 **Actions — Cancel / Save / Save and Sync:**
 - **Cancel** — discard, no write.
 - **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
-- **Save and Sync** — Save, then queues the EDM/RDM for import. **This iteration stubs the sync work** — it creates real `rwb_job` row(s) with the real claim/heartbeat/completion lifecycle (§14.5), but the stub does nothing except wait 60 seconds while sending heartbeats, then succeed. No real IRP call is made yet. This proves the queue plumbing end-to-end ahead of wiring actual EDM/RDM import calls in a later iteration. **EDM/RDM ordering when syncing a package with both:** Risk Modeler requires the EDM to exist before an RDM can be linked to it, so the EDM-side job runs first and the RDM-side job only starts after it succeeds — see DATA_MODEL.md §3a for the exact job sequencing, and note the open TBD there on how an IRP-job completion triggers the next RWB job (flagged for a separate design discussion, not resolved in this pass).
-- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **The delete dependency is one-way:** an RDM can be deleted on its own (its EDM stays), but an EDM cannot be deleted while an RDM is still linked to it. So deleting the EDM drives the cleanup — its linked RDM is torn down first, then the EDM — whereas deleting just the RDM never cascades into deleting the EDM. See DATA_MODEL.md §3a for the exact job sequencing.
+- **Save and Sync** — Save, then queues the EDM/RDM for import. **This iteration stubs the sync work** — it creates real `rwb_job` row(s) with the real claim/heartbeat/completion lifecycle (§14.5), but the stub does nothing except wait 60 seconds while sending heartbeats, then succeed. No real IRP call is made yet. This proves the queue plumbing end-to-end ahead of wiring actual EDM/RDM import calls in a later iteration. **Sync ordering depends on the package shape (CR-003 O2):** for an EDM-only or RDM-only package there is a single side job and no chaining; for a package with both, Risk Modeler requires the EDM to exist before an RDM can be linked to it, so the EDM-side job runs first and the RDM-side job only starts after it succeeds. The "EDM is always the head job" assumption no longer holds — RDM-only makes the RDM the head. See DATA_MODEL.md §4 for the exact sequencing, and note the open TBD there on how an IRP-job completion triggers the next RWB job (flagged for a separate design discussion, not resolved in this pass).
+- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **The delete dependency is one-way:** an RDM can be deleted on its own (its EDM stays), but an EDM cannot be deleted while an RDM is still linked to it. So deleting the EDM drives the cleanup — its linked RDM is torn down first, then the EDM — whereas deleting just the RDM never cascades into deleting the EDM. See DATA_MODEL.md §4 for the exact job sequencing.
 
 **No independent package status.** Unlike Submission, a package does not get its own status field or an aggregated rollup of its EDM/RDM statuses. The EDM already has a status (`pending_import`/`importing`/`ready`/`error`/`delete_pending`/`deleted`) and so does the RDM, and each has its own IRP jobs with their own job status. A package-level status would just be a third value that has to be kept in sync with two independently-changing sources of truth, for no benefit — the UI shows the EDM's status chip and the RDM's status chip side by side inside the package card instead.
 
-**Surfacing on the inventory (§8):** the inventory shows a package badge on the source `file_artifact` row when that artifact belongs to a package, rather than duplicating package data onto the artifact record.
+**Surfacing on the submission:** packages appear as the full-width cards on the submission detail page (§7.4). There is no file inventory to badge (CR-003 M5) — the package card itself shows the `source_file_path` its EDM/RDM were created from.
 
-Schema: DATA_MODEL.md §3a.
+Schema: DATA_MODEL.md §4 (`package`, `submission_package`).
 
 ---
 
@@ -680,7 +650,7 @@ A worldwide reinsurance contract may require 50–150+ individual model/region/p
 
 A saved configuration for a single analysis job. Stored in the Metamodel DB as `analysis_template`:
 - `name` — template name
-- `customer_id` (scope), `created_by`
+- `created_by` — templates are **global** (visible to all analysts) or `created_by`-scoped (per-analyst); there is no `customer_id` scope (CR-003 M2/O1 — no customer isolation)
 - `analysis_profile_name` — IRP model profile name
 - `output_profile_name`
 - `event_rate_scheme_name` (nullable — required for DLM, not for HD)
@@ -688,14 +658,14 @@ A saved configuration for a single analysis job. Stored in the Metamodel DB as `
 - `tag_names` — list of IRP tags to apply
 - `currency_code`
 - `region_label`, `peril_code` — metadata for display and grouping
-- `auto_name_pattern` — Jinja-style template string for auto-generating the analysis job name. **Example pattern uses `cycle`, which no longer exists** (`submission.cycle` was removed — see §7.2b); the token set for this pattern is an open item to resolve when Iteration 5 is actually planned, likely built from `customer_code` + `submission.name` + `region` + `peril` instead.
+- `auto_name_pattern` — Jinja-style template string for auto-generating the analysis job name. Built from the deal's own attributes (CR-003, §2.6): `cedant_name` + `treaty_year` + `region_label` + `peril_code`. (The earlier example used the removed `submission.cycle`, and a pre-CR-003 draft proposed a `customer_code` token — neither exists; there is no customer, §7.)
 - `franchise_deductible` (bool), `min_loss_threshold`, `num_max_loss_event`
 
 ### 11.3 Template suite
 
 A named collection of templates for batch submission. Stored as `template_suite` + `template_suite_item` (ordered):
 - `name` — suite name (e.g., "Global 2026 Q1")
-- `customer_id` (scope)
+- `created_by` — global or `created_by`-scoped, same as templates; no `customer_id` scope (CR-003 M2/O1)
 - Items link to `analysis_template` rows with an optional per-item `portfolio_name_override`
 
 **Applying a suite** to a submission generates one analysis submission per template item (an app-side loop over `submit_portfolio_analysis_job`, each producing its own `irp_job` row — §14.3). Names are auto-generated from each template's `auto_name_pattern` + submission context. The analyst reviews, adjusts if needed, then submits.
@@ -918,7 +888,7 @@ DataBridge **cannot serve analysis results** — REST only for results.
 ### 15.5 Portfolio tracking
 
 The `irp_portfolio` table tracks portfolios created within an EDM:
-- `edm_id` FK → `irp_edm`; `customer_id` (denorm)
+- `edm_id` FK → `irp_edm` (no `customer_id` — dropped with RLS, CR-003 M2)
 - `irp_id` — IRP's integer portfolioId
 - `name` — the portfolio name in IRP
 - Synchronous creation, so no `created_by_irp_job` lineage column (DATA_MODEL §3)
@@ -1026,14 +996,14 @@ Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal st
 **Ctrl/Cmd-J** opens a modal (Alpine.js: open/close, keyboard nav, focus trap). Search-as-you-type via HTMX (`hx-trigger="keyup changed delay:200ms"`). A **provider registry** fans out across result groups:
 
 - **Navigation** — reads the nav manifest; new nav items are searchable automatically
-- **Submissions** — name, customer, program
+- **Submissions** — name, cedant, treaty type
 - **EDMs** — EDM name, submission
 - **RDMs** — RDM name, submission
 - **Analyses** — analysis/group name, submission, status
 - **Jobs** — IRP job / RWB job, by type and status
 - **Results** — analysis job name
 
-Adding a searchable type = register one provider. **All providers apply `apply_scope()`** — results are customer-scoped and cannot leak. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
+Adding a searchable type = register one provider. There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
 
 ---
 
@@ -1057,9 +1027,9 @@ Reusable server-side pagination, filtering, sorting. One pattern, reused everywh
 
 **Filter state lives in the URL query string — never in server session state or a client store.** This extends the same principle §4.3 already establishes for breadcrumbs ("a pure function of the manifest position, never of navigation history") to filtered lists: a filtered list's state is a pure function of its URL's query string. A filterable list page (Jobs, EDMs, RDMs, Results, …) reads its active filters from `request.query_params` on every request — full load or `hx-boost`'d partial swap, same code path — and renders active-filter chips so the user can see and clear what's applied.
 
-**This is also the mechanism for cross-page "pre-applied filter" navigation** (e.g. clicking a job count on a Submission package card, §7.4, to land on the Jobs list pre-filtered to that customer/submission). A link like `<a href="/jobs?submission_id={{ id }}&status=failed" hx-boost>` needs no new component and no duplicate "filtered jobs" view — it's the exact same Jobs list template, just with query params already set. `hx-boost` + `hx-push-url` (already the standing navigation pattern, §4.3) keeps the address bar honest automatically, so refresh, deep-link, bookmark, and back/forward all behave correctly for free — the alternative (stashing "the filter I arrived with" in server session state with no URL param) would break exactly those four things, silently.
+**This is also the mechanism for cross-page "pre-applied filter" navigation** (e.g. clicking a job count on a Submission package card, §7.4, to land on the Jobs list pre-filtered to that package). A link like `<a href="/jobs?package_id={{ id }}&status=failed" hx-boost>` needs no new component and no duplicate "filtered jobs" view — it's the exact same Jobs list template, just with query params already set. `hx-boost` + `hx-push-url` (already the standing navigation pattern, §4.3) keeps the address bar honest automatically, so refresh, deep-link, bookmark, and back/forward all behave correctly for free — the alternative (stashing "the filter I arrived with" in server session state with no URL param) would break exactly those four things, silently.
 
-**Fixed filter-param vocabulary.** To keep this "one pattern, reused everywhere" rather than each list inventing its own param names, a small starting set of query params is shared across all filterable lists: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`. Each list accepts whichever subset applies to it and ignores the rest — the Jobs list uses all five; the EDM library might use only `customer_id` + `submission_id` + `status`. The set can grow (a param or two, added as new filterable lists need them), but starts here rather than being designed fresh per page.
+**Fixed filter-param vocabulary.** To keep this "one pattern, reused everywhere" rather than each list inventing its own param names, a small starting set of query params is shared across all filterable lists: `submission_id`, `package_id`, `status`, `job_type` (there is no `customer_id` — customer scoping is dropped, CR-003 M2). Each list accepts whichever subset applies to it and ignores the rest — the Jobs list uses all four; the EDM library might use only `submission_id` + `status`. The set can grow (a param or two, added as new filterable lists need them), but starts here rather than being designed fresh per page.
 
 **`status` means something different on every list — this is expected, not a conflict.** Submission status (`ACTIVE`/`COMPLETED`/`CANCELLED`, §7.2a), RWB job status (`rwb_job_status_kind`: `pending`/`running`/`succeeded`/`failed`), IRP job status (`irp_job.status`: the IRP job-status vocabulary, §14.4), and any future list's status are independent domains that happen to share a param name because they never appear on the same list at the same time. Each list defines and validates its own `status` domain against its own data; there is no shared "status" enum anywhere in the system.
 
@@ -1077,7 +1047,7 @@ Centralized. First flags: `APP_ENV`, `ENFORCE_SSO`. More will accrue.
 
 ### 20.8 Optimistic concurrency (spec 002 FR-045/046)
 
-Two actors can touch the same row at once — two users changing a submission's status, or a user editing a `file_artifact` while a reconciliation scan updates it. To prevent silent lost updates, analyst-editable rows use **optimistic concurrency keyed on `updated_at`**: the edit reads `updated_at`, and the write is `UPDATE … WHERE id = :id AND updated_at = :read_value`. A rowcount of 0 means the row changed since it was read — the write is **rejected and the conflict is surfaced to the user** (flash/toast, §20.2, prompting a reload), never silently overwritten. This applies chiefly to `submission` and `file_artifact`; append-only inserts (new `file_artifact` versions, `submission_status_event`) and single-threaded machinery (the poller, the `submission_retry` batch job) don't need it. Schema note: DATA_MODEL.md Conventions.
+Two actors can touch the same row at once — for example two users editing the same submission or package. To prevent silent lost updates, analyst-editable rows use **optimistic concurrency keyed on `updated_at`**: the edit reads `updated_at`, and the write is `UPDATE … WHERE id = :id AND updated_at = :read_value`. A rowcount of 0 means the row changed since it was read — the write is **rejected and the conflict is surfaced to the user** (flash/toast, §20.2, prompting a reload), never silently overwritten. This applies chiefly to `submission` and `package` (and EDM/RDM name edits); append-only inserts (`submission_status_event`, `submission_crm_id` tags) and single-threaded machinery (the poller, the `submission_retry` batch job) don't need it. Schema note: DATA_MODEL.md Conventions.
 
 ---
 
@@ -1115,38 +1085,35 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** unauthenticated request redirects to `/login`; password login works; OIDC login works; new PremiumIQ user is JIT-provisioned on first sign-in and sees "access pending"; admin creates a password account for John Doe; John is forced to change password on first login; sign-out clears session and returns to `/login`; shell renders with nav manifest driving all structure; health check green.
 
-**Moved in from Iteration 1:** §5.1 (password login, bcrypt, forced password change, `must_change_password` flow), §5.2/§5.3 (OIDC/BFF, PKCE, MSAL, JIT provisioning for PremiumIQ), §5.5 (schema: `user_session`, `login_attempt`, `password_hash`/`must_change_password` on `app_user`), §6.1 (roles, `apply_scope` WORKBENCH guard), §6.4 (admin: Users, password reset, force-logout). **Deferred from Iteration 1:** rate limiting lockout (§5.1.3 — `login_attempt` table created and logged but lockout gate not implemented), customer access admin (§6.4 — deferred to Iteration 2 when submission data exists to scope against).
+**Moved in from Iteration 1:** §5.1 (password login, bcrypt, forced password change, `must_change_password` flow), §5.2/§5.3 (OIDC/BFF, PKCE, MSAL, JIT provisioning for PremiumIQ), §5.5 (schema: `user_session`, `login_attempt`, `password_hash`/`must_change_password` on `app_user`), §6.1 (roles), §6.3 (admin: Users, password reset, force-logout). **Deferred from Iteration 1:** rate limiting lockout (§5.1.3 — `login_attempt` table created and logged but lockout gate not implemented).
 
-### Iteration 1 — Domain, file inventory & RLS
+### Iteration 1 — Submission domain model
 
-> **Restructuring note:** previously this iteration and Iteration 2 both listed the same §7/§8 scope (Customer/Program/Submission, file inventory) as "In," differing only in RLS vs. search framework — a near-duplicate that's now resolved by keeping domain-model/file-inventory/RLS here in Iteration 1, and moving everything else (search framework, plus the new scope from this PRD update) into Iteration 2. Numbering elsewhere is unchanged.
+> **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. **Reconciliation with the already-built spec-002 code (customer/program spine, RLS, file inventory) is a separate migration/removal decision (CR-003 §8.3), owned jointly by the practice lead and analyst — it is not folded into this plan.**
 
 **In:**
-- §7.1a (customer CSV seeding, upsert-by-`short_code`, no delete-on-sync)
-- §7 (Customer/Program/Submission, assigned analyst, master-detail, list ergonomics)
+- §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
+- §7.2 (`submission_crm_id` CRM-ID tag set — add/edit/remove tags)
 - §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced, no delete)
-- §7.2b (submission name uniqueness per program)
-- §8 (directory association, immutable artifacts, scanner, tagging, discrepancies, upload storage)
-- §6.2 (customer-access scoping: `user_customer_access`, `apply_scope()` on Submission list, admin bypass)
-- §6.3 (analyst-centric "my submissions" filter)
-- §6.4 (customer access admin UI — assign/revoke customer access per user)
+- §7.2b (global submission name uniqueness, `UNIQUE(name)`)
+- §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
+- `treaty_type_kind` seed (confirm the authoritative list with the CIC team, CR-003 §5)
 
-**Out:** EDM/RDM entities, search, workflow references, Package (§9.4 — moved to Iteration 2, since it needs the search-framework iteration's query-string filtering, §20.4, for its job-count links).
+**Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entities, search, workflow references, Package (§9.4 — moved to Iteration 2, since it needs the search-framework iteration's query-string filtering, §20.4, for its job-count links).
 
-**Exit:** browse customer-scoped submissions with "my" filter; associate a directory, scan, tag EDM/RDM, detect a discrepancy; seed customers from a CSV; set a submission's status and confirm `COMPLETED` blocks further action while `ACTIVE` allows it, and reopening (`COMPLETED → ACTIVE`) works; admin assigns customer access to a user and the scope takes effect immediately on next request.
+**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm `COMPLETED` blocks package edits while `ACTIVE` allows them, and reopening (`COMPLETED → ACTIVE`) works.
 
-### Iteration 2 — Domain, file inventory, search framework & packages
+### Iteration 2 — Search framework & packages
 
 **In:**
 - §19 search framework + navigation + submission providers
-- §20.4 query-string-driven filtering (the fixed filter-param vocabulary: `customer_id`, `submission_id`, `package_id`, `status`, `job_type`)
-- §8.7 (admin-managed gitignore-style ignore ruleset: global/customer/submission, cumulative cascade)
-- §9.4 (Package: EDM/RDM pairing, IRP name-collision check, Save/Save-and-Sync/Delete actions with stubbed `rwb_job` rows)
+- §20.4 query-string-driven filtering (the fixed filter-param vocabulary: `submission_id`, `package_id`, `status`, `job_type`)
+- §8 + §9.4 (Package creation: pick shape EDM-only/RDM-only/both, browse the shared drive and select file(s), IRP name-collision check, Save/Save-and-Sync/Delete actions with stubbed `rwb_job` rows; `submission_package` M:N)
 - §7.4 (submission detail package cards — stubbed upload progress/status/job counts)
 
 **Out:** EDM/RDM entity management beyond what Package needs (full EDM/RDM library pages, real IRP import calls — Package's sync/delete jobs are stubs this iteration), workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately).
 
-**Exit:** Ctrl/Cmd-J finds nav and submissions; admin authors a global ignore rule and a customer- or submission-level override, and the scanner respects the cumulative cascade; create a package from a tagged EDM/RDM pair, see the IRP name-collision warning, Save/Save-and-Sync/Delete each produce a stub `rwb_job` that heartbeats for 60 seconds and completes, with EDM-before-RDM ordering on sync and RDM-before-EDM ordering on delete; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
+**Exit:** Ctrl/Cmd-J finds nav and submissions; create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s), see the IRP name-collision warning, Save/Save-and-Sync/Delete each produce a stub `rwb_job` that heartbeats for 60 seconds and completes — with EDM-before-RDM ordering on sync of a both-package and RDM-before-EDM ordering on delete; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
 
 ### Iteration 3 — EDM & RDM entity management
 
@@ -1202,23 +1169,23 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 - **A1 — Stale references on re-run (dissolved by CR-002).** The old concern — a re-run upstream task silently corrupting a downstream task's pinned input — no longer exists: there are no typed handles to pin. Each op resolves its inputs live from Risk Modeler by name at submit time (§13.2), so there is nothing to go stale; a rename shows up on the next `search_*`. `as_of` on entity rows signals when the local copy was last confirmed against RM.
 - **A2 — Op with an unmet prerequisite (replaces the "skip a stage with referenced handles" concern).** Grouping needs its member analyses to exist and be `FINISHED`; if they don't, the op is simply not enabled by the prerequisite gate (§13.1) — surfaced as `irp_job.status = 'BLOCKED'` if a submit is attempted anyway. No stage-skip machinery to make unsatisfiable.
-- **A3 — Discrepancy latency.** A changed file may go undetected between triggers. Resolution: "an op attempts to use a file" is always a trigger, so the execution-critical path always re-scans (§8.3). Accepted elsewhere.
-- **A4 — Cookie/session vs. live access changes.** Admin changes customer access; active session doesn't reflect it. Resolution: the session holds identity only; roles + scope are read **live from DB on every request** (§5.4). Changes are immediate.
+- **A3 — Stale source file (dissolved by CR-003).** The old concern — a changed broker file going undetected between scanner triggers — no longer exists: there is no reconciliation scanner or file inventory (CR-003 M5, §8). A file is read live at package creation and its path stored as `source_file_path`; there is nothing to drift out of sync.
+- **A4 — Cookie/session vs. live role changes.** Admin changes a user's role; active session doesn't reflect it. Resolution: the session holds identity only; roles are read **live from DB on every request** (§5.4). Changes are immediate. (There is no customer-access scope to change — CR-003 M2.)
 - **A5 — Dev stub can't be killed mid-session.** Resolution: explicitly accepted for local development only. `AUTH_MODE=dev` is gated on `APP_ENV != production` server-side. Audit, loud banner (§5.0).
 - **A5a — Password auth is weaker than SSO.** Accepted for v1 MVP. Mitigated by: bcrypt cost factor 12, rate limiting (5 attempts / 15 min per email; 20 / 15 min per IP), `HttpOnly Secure SameSite=Lax` cookie, server-side sessions in WORKBENCH DB, CSRF tokens on all state-changing requests, forced password change on first login, admin-only password reset. Upgrade path to Entra SSO (§5.3) requires no downstream code changes.
 - **A6 — Three-DB split makes local dev painful.** One SQL Server Docker container hosts all three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`). Three connection strings, one server, three database names. Schema isolation is enforced by database name, not separate servers. No extra infra cost locally. All application processes (app, nginx, Redis, poller, workers) run natively on Linux — no Docker overhead for anything except SQL Server.
 - **A7 — Dramatiq worker failure leaves RWB job stuck.** Resolution: layered per §2.3a. Worker death → Dramatiq redelivery. Task failure → Dramatiq Retries middleware. Job stops progressing (wedged worker or message lost) → per-job heartbeat + single-instance reconciler resets `running → pending` and re-enqueues. Idempotent workers ensure double-delivery is harmless. No duration-based sweep — stale threshold is a constant multiple of the heartbeat interval.
 - **A8 — IRP outage blocks everything.** Resolution: ops that need IRP are simply not enabled by the prerequisite gate while IRP is down (§13.1, §15.6); already-imported entities remain viewable. Submissions in `SUBMISSION FAILED` are retried by the single-threaded submission-retry batch job, and the poller catches up when IRP comes back.
-- **A9 — Search leaks across customers.** Resolution: every provider applies `apply_scope()` (§19).
-- **A10 — Admin can't see all customers under RLS.** Resolution: `apply_scope()` honors admin bypass (§6.2).
-- **A11 — Upload vs. shared-drive store split.** Resolution: one `file_artifact` model, `source` discriminator (§8.2, §8.6).
+- **A9 — Search leaks across customers (dissolved by CR-003).** There are no customers and no row-level security (M1/M2/O1), so there is no cross-customer boundary to leak across — every analyst is meant to see every deal (§6, §19).
+- **A10 — (retired with RLS, CR-003).** The old concern — admin can't see all customers under scoping — is moot: there is no scoping to bypass; all authenticated users see all rows (§6).
+- **A11 — Upload vs. shared-drive store split (dissolved by CR-003).** There is no upload store and no `file_artifact` model (M5, §8). A file is selected from the shared drive at package creation and its path stored as `source_file_path`; no two-store reconciliation to get wrong.
 - **A12 — Detail pages have no manifest node.** Resolution: detail routes declare a home node; breadcrumb walks up from it + appends entity label (§4.2, §4.3).
-- **A13 — Nested directory paths across submissions.** `UNIQUE(unc_path)` allows `/a` and `/a/b` on different submissions. Accepted v1 limitation.
+- **A13 — (retired with the directory inventory, CR-003).** There is no `submission_directory` table or `UNIQUE(unc_path)` constraint anymore (M5, §8); `submission.directory_path` is a single optional seed for the file browser, with no cross-submission uniqueness concern.
 - **A14 — Validation vs. readiness (simplified by CR-002).** There is no separate authoring-graph validation pass and execution-readiness gate to conflate anymore — both collapse into a single prerequisite gate + point-of-action validation (§13.1, §13.3), computed from entity + job state at the moment the analyst acts.
 - **A15 — Dramatiq/Redis adds ops complexity.** Accepted; the alternative (polling a SQL queue from the app process) is simpler but does not support per-job-type parallelism or fan-out without entangling the web process. Redis + Dramatiq is the standard pattern for this scale. Redis runs with AOF durability (`appendonly yes`, `appendfsync everysec`) so acknowledged enqueues survive a broker crash (≤ ~1s worst-case loss). Outstanding work is always inspectable in the SQL `rwb_job` table. Results already written survive Redis loss entirely; Redis holds only the Dramatiq message, not the work artifact.
 - **A16 — Over-generalizing (settled by CR-002).** The type/port registry and registered-validator graph engine are removed entirely — they modeled authored DAG topology this app doesn't have. Validation is a handful of point-of-action checks (§13.3); sequencing is a static lookup table (§13.1). No DSL, no registry, no engine.
 - **A17 — Icon assets.** Dependency logged (§23). Not a code blocker.
-- **A18 — `customer_id` denormalization drift.** Set once at creation from the parent chain, never user-editable. Immutable (§2.1).
+- **A18 — (retired with `customer_id`, CR-003).** There is no denormalized `customer_id` on any table (M2/O1), so the drift concern it raised no longer applies.
 - **A19 — Loss Repository schema ownership.** The workbench has write-only access to specific tables. Schema is defined and versioned separately (not by Alembic). Breaking schema changes in the Loss Repository require coordination. Mitigated by: write through a thin adapter layer in the Dramatiq worker; the adapter is the single point to update on Loss Repository schema changes.
 - **A20 — Analyst submits 150 analysis jobs; IRP rate-limits.** Resolution: irp-integration has built-in retry (5 attempts, exponential backoff). The batch-submit method handles the loop. Do not add another retry layer. The poller polls at an interval; no thundering-herd problem.
 - **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and, on the delete path, an `edm_delete` waits on its prerequisite `rdm_delete` completing first — the dependency runs one way, EDM-delete depends on RDM-delete, never the reverse; §9.4). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 3 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
@@ -1229,8 +1196,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Locked decisions
 
+- **CR-003 — Submission + Package; no Customer/Program; no RLS; simplified file handling.** `submission` is the top-level deal (M1); `customer`/`program` and all `customer_id` denormalization are dropped, retiring row-level security entirely — every authenticated analyst sees every deal (M2/O1, §6). CRM IDs are a `submission_crm_id` tag set, not a single field (M3/O6). `package` is many-to-many with `submission`, and EDM-only **and** RDM-only are both valid (`edm_id` nullable, ≥1-of-edm/rdm CHECK) (M4/O2). The file-inventory subsystem is replaced by a single `source_file_path` per EDM/RDM chosen at package creation (M5/O9). `submission.name` is globally unique (O5); `irp_job` lives at the package grain (O7); cedant is a plain string (O3); the renewal link is a manual nullable self-ref (O4). Applied to DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Full detail: `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`.
 - **CR-002 — Not a workflow engine.** Workflow / Stage / Task / typed-handle / type-port-registry / manifest-projection are all removed (§12). Sequencing is the prerequisite gate computed in code (§13.1); coupling is name-based via IRP `search_*` (§13.2); the executable unit is `irp_job` (§14). One declarative source of truth remains: the **navigation manifest** (§2.1, §4.2).
-- **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own; `edm_id` NOT NULL on both `irp_rdm` and `irp_analysis`). `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
+- **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own). *(The CR-002 `edm_id` NOT NULL rule on `irp_rdm`/`irp_analysis` is superseded by CR-003 O2 — `irp_rdm.edm_id` is nullable for RDM-only packages.)* `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
 - **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
 - **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
 - **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
@@ -1243,14 +1211,13 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **IRP job submission is synchronous on the request path.** Fast IRP submit call returns a job ID immediately. On failure: `SUBMISSION FAILED` status + single-threaded submission-retry batch job (§14.3).
 - **Poller is a standalone loop process — not Dramatiq.** Batch-queries all non-terminal jobs per pass. Dramatiq would break the natural batching (§14.4).
 - **Dramatiq workers for result processing and submission retry only** (§14.5). Redis broker.
-- **EDM and RDM are first-class entities** in the Metamodel DB, not just file artifact tags (§9).
-- **`file_artifact.name`** initialized as UPPERCASE filename without extension; user-editable; IRP name-check on tag or rename.
+- **EDM and RDM are first-class entities** in the Metamodel DB, each created from a shared-drive `source_file_path` (CR-003 M5 — no `file_artifact` table) (§9).
 - **Analysis templates and template suites** — in MVP (practice-lead call, 2026-07-06; reverses the CR-002 deferral). Auto-naming from submission context is the intended approach (§11).
 - **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
 - **Session store is WORKBENCH DB** (`user_session` table), not Redis. Sessions survive Redis restarts; active sessions are queryable; admin force-logout is a single UPDATE (§5.1.4).
 - **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
-- **App-level RLS** via `apply_scope` + `user_customer_access`; global roles; native SQL Server RLS as later hardening (§6.2).
-- **Immutable artifact model**, cheap metadata signature (path+size+mtime), no content hash (§8.2).
+- **No row-level security (CR-003 M2/O1).** No `customer_id`, no `apply_scope()`, no `user_customer_access`; every authenticated analyst sees every deal. Global roles gate *functions*, not *rows*; `assigned_analyst_id` is a soft "my submissions" owner (§6).
+- **No file inventory (CR-003 M5).** No `file_artifact` model, scanner, or discrepancy detection; a single `source_file_path` per EDM/RDM is chosen at package creation (§8).
 - **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, used only by the grouping homogeneity check (§13.3). (There are no handle types at all under CR-002.)
 - **Analysis results hybrid storage** — Parquet files on disk for row-level data (ELT, EP, PLT); SQL metadata row for summaries and file paths (§16.1).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
@@ -1281,6 +1248,20 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-07-08 — CR-003: Submission + Package; drop Customer/Program & RLS; simplify file handling
+
+Applied `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md` (decisions M1–M5, O1–O9) to the PRD, following the same CR's earlier passes on DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Where the PRD asserted the opposite of a locked decision, the CR won. Highlights:
+
+- **§1.4, §7** — `submission` is now the top-level deal (no Customer/Program). §7 retitled "Submission & Package"; §7.1 business hierarchy and §7.1a customer seeding **deleted**; §7.2 fields rewritten (`cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`; CRM IDs as a `submission_crm_id` tag set, not a single field; no `customer_id`/`program_id`).
+- **§6** — retitled "Authorization"; the customer-access/RLS subsection **deleted**. New banner: no `customer_id`, no `apply_scope()`, no `user_customer_access`; every authenticated analyst sees every deal; roles gate functions, not rows; `assigned_analyst_id` is a soft owner.
+- **§8** — the entire file-inventory subsystem (directory inventory, immutable `file_artifact`, scanner, tagging, discrepancies, upload store, ignore ruleset, directory error/warning states) **deleted** and replaced with "File handling": pick a package shape and browse/select shared-drive file(s) at package creation; path stored as `source_file_path`.
+- **§7.2b** — `UNIQUE(program_id, name)` → global `UNIQUE(name)` (O5). **§9.2** — `irp_rdm.edm_id` NOT NULL → **nullable** (O2, RDM-only valid). **§9.1/§9.2** — `submission_id`/`customer_id`/`file_artifact_id` dropped; `source_file_path` added. **§9.4** — package is M:N with submission; EDM-only, RDM-only, and both are all valid; creation flow rewritten per O9; sync head-job is no longer always the EDM.
+- **§2.6/§11.2 auto-naming** — token set resolved to `cedant_name` + `treaty_year` + region + peril. **§11.2/§11.3** — template/suite `customer_id` scope → global or `created_by`. **§9.3** libraries "customer-scoped" → global. **§15.5** `irp_portfolio.customer_id` dropped. **§19/§20.4** — search no longer customer-scoped; `customer_id` removed from the filter vocabulary; job-count links filter by package (O7).
+- **§21 build plan** — Iteration 1 retitled "Submission domain model" (deal-centric, no RLS/inventory); Iteration 2 "Search framework & packages" (package creation with shared-drive browse, no ignore ruleset). Reconciliation with the already-built spec-002 code (customer/program spine, RLS, file inventory) is flagged as a separate joint decision (CR-003 §8.3), not folded into this plan.
+- **§22/§23** — adversarial items A3/A9/A10/A11/A13/A18 retired or reframed (RLS/file-inventory concerns dissolved); locked-decisions list gains a CR-003 entry and drops the App-level-RLS and immutable-artifact bullets.
+
+> **Not changed here:** §12–§14 (Work model / prerequisite gate / execution engine) remain a separate workstream (being redesigned toward an IRP-Jobs/RWB-Jobs-only model); a few references there (e.g. "each RDM is tied to an EDM") will be reconciled with CR-003 O2 when that redesign lands. The spec-002 **code** removal is deferred (CR-003 §8.3).
 
 ### 2026-07-06 — Practice-lead review: MDF support, templates back in MVP, package/delete semantics
 
