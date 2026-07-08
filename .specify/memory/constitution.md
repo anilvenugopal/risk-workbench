@@ -1,6 +1,40 @@
 <!--
   Sync Impact Report
   ==================
+
+  --- CR-003 (2026-07-08) ---
+  Version change: 2.0.0 → 3.0.0  (MAJOR — CR-003: drop customer/program
+  hierarchy and row-level security; submission becomes the deal root)
+
+  Applies CR-003 (docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md §8.1). Consolidates
+  the model to Submission + Package and retires customer-based RLS.
+
+  Redefined principle (backward-incompatible → MAJOR):
+    - Article 6: "Customer Isolation on the Parameterized Path Only"
+      → "No Row-Level Security; All Authenticated Analysts See All Deals"
+      No customer_id scoping key, no apply_scope(), no user_customer_access.
+      assigned_analyst_id is a soft "my submissions" owner, not an access gate.
+      Redefined in place (not removed) to preserve the stable 13-article
+      numbering the Compliance Gates depend on.
+
+  Modified principles:
+    - Article 7: safe-path description drops db.scope (the customer-scoping
+      helper); the bound-parameter safe path (db.execute) is otherwise unchanged.
+    - Article 12: RLS struck from the SQL-Server-connected tier; apply_scope
+      removed from the required-test list.
+    - Article 13: sessions read "roles" from the DB each request (was "roles
+      and customer scope").
+
+  Removed sections: None (Article 6 redefined in place; 13-article numbering
+    stable).
+
+  Templates: .specify/templates/plan-template.md Constitution Check titles
+    synced — Article 6 (this CR) plus Articles 1/2/5 (outstanding CR-002 debt).
+
+  Follow-up (not in this pass): PRD realignment (CR-003 §8.2) and spec-002
+    code/RLS/file-inventory removal (CR-003 §8.3).
+
+  --- CR-002 ---
   Version change: 1.1.0 → 2.0.0  (MAJOR — CR-002: no workflow engine; article redefinitions)
 
   Applies CR-002 (docs/CR_02__NO_WORKFLOW_ENGINE.md). The Workflow / Stage /
@@ -48,7 +82,7 @@
 
   Templates to update:
     - .specify/templates/plan-template.md — Constitution Check table
-      Article 1/2/5 titles need updating (follow-up).
+      Article 1/2/5 titles need updating (done in CR-003, 2026-07-08).
 -->
 
 # Risk Analysis Workbench Constitution
@@ -152,26 +186,30 @@ principle governs how the prerequisite gate (Article 2) hands off between ops:
 - The auto vs. click-gated distinction MUST be made **explicit per op**, not
   left implicit. The analyst is always in the driver's seat for judgment steps.
 
-### Article 6 — Customer Isolation on the Parameterized Path Only
+### Article 6 — No Row-Level Security; All Authenticated Analysts See All Deals
 
-Row scoping MUST be enforced in the app via `apply_scope()` against a
-denormalized, immutable `customer_id` on every major entity.
+There is **no row-level security**. Any authenticated analyst can read and act
+on every submission and everything under it. There is no `customer_id` scoping
+key, no `apply_scope()`, and no `user_customer_access` grant table.
 
-- Scoped tables MUST be reachable only through a repository layer that makes
-  scope mandatory.
-- `apply_scope()` MUST only be called against the `WORKBENCH` connection.
-  Calling it against `EXPOSURE` or `LOSS` is a bug — those schemas have no
-  `customer_id` column. `scoped_execute()` MUST assert the connection name
-  and raise immediately on any other value.
-- An admin/superuser bypass MUST be explicit and audited.
-- Scope predicates MUST use bound parameters — never string interpolation.
+- **`assigned_analyst_id` is a soft owner** — it drives the "my submissions"
+  filter only and MUST NOT be used to restrict reads or writes.
+- **Roles (`role_kind` / `user_role`) gate function, not rows.** `is_admin`
+  grants admin capabilities; it is not a scope bypass, because there is no scope
+  to bypass.
+- **The safe bound-parameter path (Article 7) stays mandatory.** Dropping RLS
+  does not relax the "bound parameters, never string interpolation" rule for any
+  application query.
+- App tables live only in the `WORKBENCH` connection. A `WORKBENCH`-only
+  assertion, if retained in code, is now a wrong-database guard — no longer a
+  customer-isolation mechanism.
 
 ### Article 7 — One Data-Access Package, Two Execution Paths Split by Safety (`/db`)
 
 All SQL MUST go through the `/db` package (SQLAlchemy Core as pool/engine
 only — no ORM). The package exposes exactly two paths:
 
-**(a) Safe bound-parameter path** (`db.execute`, `db.scope`) — returns
+**(a) Safe bound-parameter path** (`db.execute`) — returns
 `list[dict]`. This is the default and the ONLY path for application data and
 any user-derived value.
 
@@ -246,12 +284,12 @@ Behavior MUST be covered by tests across three tiers:
 1. **Unit** — fast, no external deps. Pure functions plus the `/db` safe path
    exercised via an injected SQLite engine.
 2. **SQL-Server-connected** — a `sqlserver`-marked suite against a SQL Server
-   Express container, covering the real driver, migrations, RLS, and
+   Express container, covering the real driver, migrations, and
    event-sourcing transactions.
 3. **IRP-connected** — a fake IRP implementing the interface for default CI,
    plus an opt-in `irp`-marked suite against a sandbox IRP.
 
-The following MUST have tests: point-of-action validators (§13.3), `apply_scope`,
+The following MUST have tests: point-of-action validators (§13.3),
 the prerequisite gate (Article 2), and the `rwb_job` claim/heartbeat/reconciler
 state machine.
 
@@ -259,8 +297,8 @@ state machine.
 
 - Identity: Entra ID OIDC (v2). A gated, env-flagged (`AUTH_MODE=password`),
   server-enforced, audited password login is permitted as v1 MVP fallback.
-- Sessions are signed-cookie identity only; roles and customer scope are read
-  from the DB on each request.
+- Sessions are signed-cookie identity only; roles are read from the DB on each
+  request.
 - CSRF MUST be applied on all state-changing requests.
 - Idle timeout MUST be handled for HTMX via `HX-Redirect`.
 - No secrets in code or VCS.
@@ -304,4 +342,4 @@ research begins.
 
 ---
 
-**Version**: 2.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-06
+**Version**: 3.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-08

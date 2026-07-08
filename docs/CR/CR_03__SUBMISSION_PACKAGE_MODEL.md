@@ -2,11 +2,11 @@
 
 **ID:** CR-003
 
-**Status:** DRAFT (decisions locked) — data-model focus. First pass feeding the Thursday design session. **Not applied** to `DATA_MODEL.md`, `PRD.md`, or the constitution yet. All eight decisions O1–O8 are **confirmed (2026-07-07)**, including O2 (allow RDM-only), which the **practice lead has ratified** (2026-07-07) — it supersedes the 2026-07-06 NOT NULL call. No open decisions remain; the schema is ready to fold into `DATA_MODEL.md`.
+**Status:** Decisions locked — O1–O8 **confirmed (2026-07-07)**, including O2 (allow RDM-only), **practice-lead ratified (2026-07-07)**, superseding the 2026-07-06 NOT NULL call. No open decisions remain. Data model **applied** to `DATA_MODEL.md` (2026-07-07); downstream passes — `PRD.md` and the constitution (§8) — still pending.
 
 **Scope of this pass:** the **data model only** (`docs/DATA_MODEL.md`). Downstream edits to `PRD.md` and `.specify/memory/constitution.md` are catalogued (§8) but deliberately deferred to follow-up passes, per the analyst's direction to settle the schema first.
 
-**Applies to (once approved):** `docs/DATA_MODEL.md` §1–§3a, §4, §8–§9, §12–§13; and — in later passes — `docs/PRD.md` (customer/program/file-inventory sections) and `.specify/memory/constitution.md` Articles 3, 6, 7, 12.
+**Applies to:** `docs/DATA_MODEL.md` — **applied 2026-07-07**; and — in later passes — `docs/PRD.md` (customer/program/file-inventory sections) and `.specify/memory/constitution.md` Articles 6, 7, 12, 13.
 
 **Owner:** Analyst + Practice Leader (IRP domain expert), joint review. CIC domain experts (Wendy Hayes, Cheryl TeHennepe, Ross Konell) are the source authority for the deal/package/CRM-tagging reality captured here.
 
@@ -14,7 +14,7 @@
 
 > **How to use this document.** §1 is why. §2 is the five structural moves at a glance. §3 is the target schema, table by table, in the style of `DATA_MODEL.md`. §4 is the table-disposition index (every current table, one row: kept / modified / dropped). §5 is the kind-table seed delta. §6 records the RLS consequence in one place because it is the largest ripple. §7 is the decisions (all confirmed 2026-07-07, including the practice lead's ratification of O2 — no open items remain). §8 is the downstream document impact (PRD + constitution), to be handled in later passes. §9 is out of scope.
 >
-> **⚠️ This is a DRAFT proposal, not a build spec.** Where any table or nullability here is still marked open in §7, do not build against it yet.
+> **The schema here is applied — `DATA_MODEL.md` is the built source of truth.** This CR records the decisions and rationale behind the change; if the two ever diverge, `DATA_MODEL.md` wins.
 
 ---
 
@@ -259,7 +259,7 @@ Dropping `customer_id` is not a field edit — it removes the workbench's entire
 - **The denormalized-`customer_id`-on-every-table convention (DATA_MODEL.md Conventions) is retired** — that denorm existed solely to make `apply_scope()` a single-column predicate.
 - **Access model becomes:** any authenticated analyst can view any submission and everything under it; `assigned_analyst_id` is a soft owner used for the "my submissions" view only. Roles (`role_kind`/`user_role`) may still exist for admin functions, but `is_admin`'s "`apply_scope()` bypass" purpose is gone.
 
-This directly redefines **constitution Article 6 (Customer Isolation on the Parameterized Path Only)** and touches **Article 7** (the `scoped_execute()` connection assertion) and **Article 12** (RLS is a named test target). Those constitution edits are catalogued in §8 and handled in the follow-up constitution pass — **but the schema in §3 cannot be finalized until O1 confirms the access model is genuinely "no RLS."**
+This directly redefines **constitution Article 6 (Customer Isolation on the Parameterized Path Only)** and touches **Article 7** (the `scoped_execute()` connection assertion), **Article 12** (RLS is a named test target), and **Article 13** (sessions read "roles and customer scope" from the DB each request). Those constitution edits are catalogued in §8 and handled in the follow-up constitution pass.
 
 ---
 
@@ -283,11 +283,13 @@ This directly redefines **constitution Article 6 (Customer Isolation on the Para
 
 Per the analyst's direction, this pass settles the data model only. The following are catalogued, not yet edited.
 
-### 8.1 Constitution (`.specify/memory/constitution.md`)
-- **Article 6 (Customer Isolation)** — redefined or removed (§6). Largest edit; MAJOR version bump likely.
-- **Article 7** — the `scoped_execute()` "must assert `connection == WORKBENCH`" clause loses its customer-scoping rationale; reword.
-- **Article 3** — carve-out table is unaffected, but the doc references `customer_id` in examples; sweep.
-- **Article 12** — RLS is a named required-test target; update to match the new access model.
+### 8.1 Constitution (`.specify/memory/constitution.md`) — v2.0.0 → v3.0.0 (MAJOR)
+- **Article 6 (Customer Isolation on the Parameterized Path Only)** — **redefined in place, not removed** (§6). Becomes a positive statement of the no-RLS access model: any authenticated analyst sees every submission and everything under it; `assigned_analyst_id` is a soft "my submissions" owner, not an access gate; no `customer_id`, no `apply_scope()`, no `user_customer_access`. Kept in place rather than deleted to preserve the stable 13-article numbering the Compliance Gates depend on ("Articles 1–13"), consistent with how CR-002 redefined Articles 1/2/5. Largest edit; drives the MAJOR bump.
+- **Article 7** — the `scoped_execute()` "must assert `connection == WORKBENCH`" clause loses its customer-scoping rationale; reword. (The assertion may be worth keeping as a plain connection-safety guard, but it is no longer justified by customer isolation.)
+- **Article 12** — RLS appears twice: the SQL-Server-tier description ("…migrations, RLS, and event-sourcing transactions") and the required-test list (`apply_scope`). Strike both — there is no scoping function left to test.
+- **Article 13** — the session clause reads "roles and **customer scope** are read from the DB on each request"; drop the customer-scope half, keep roles. Sweep the authorization copy that references `user_customer_access`.
+- **Article 3** — no change. (An earlier draft flagged `customer_id` examples here; the carve-out table contains none.)
+- **Sync Impact Report header** — add a CR-003 entry recording the 2.0.0 → 3.0.0 bump and the Article 6 redefinition.
 
 ### 8.2 PRD (`docs/PRD.md`)
 - Customer/program-hierarchy sections, customer-seeding (spec 002 FR-001–004), the file-inventory feature set (§8.x drift/discrepancy/ignore-rules), and any "my submissions"/access-control copy all need realignment to the deal-centric, no-RLS, path-only-file model.

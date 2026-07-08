@@ -45,12 +45,12 @@ Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
 
 | Article | Title | Status | Notes |
 |---------|-------|--------|-------|
-| 1 | Manifest-Driven Extensibility | | |
-| 2 | Manifest Canonical; DB Is Generated Projection | | |
+| 1 | Navigation Manifest Is the One Versioned Source of Truth | | |
+| 2 | Sequencing Is Derived, Not Stored | | |
 | 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | | |
 | 4 | Status Is Event-Sourced with Cached Current | | |
-| 5 | Generic Stage Review (No HITL Stage Type) | | |
-| 6 | Customer Isolation on Parameterized Path Only | | |
+| 5 | Mechanical Follow-up Auto-fires; Judgment Waits for a Click | | |
+| 6 | No Row-Level Security; All Authenticated Analysts See All Deals | | |
 | 7 | One Data-Access Package, Two Paths (`/db`) | | |
 | 8 | Server-Rendered; No SPA | | |
 | 9 | Styling Extends ITCSS via Tokens | | |
