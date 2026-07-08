@@ -158,7 +158,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 5 (analysis templates) is planned.
+Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 4 (analysis templates) is planned.
 
 ---
 
@@ -492,7 +492,7 @@ This replaces the prior `authoring_status` field, whose three-value guess (`draf
 
 `submission.name` is **globally unique** (`UNIQUE(name)`, enforced at the DB level, not just client-side). With Program dropped (CR-003 O5), the `TY{YY}{MM}_{Cedant}` naming-convention label is unique across all submissions — this guards against an analyst accidentally re-creating a deal that already exists during peak season.
 
-> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 5, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
+> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 4, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
 ### 7.3 Submission UI
 
@@ -1087,9 +1087,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Moved in from Iteration 1:** §5.1 (password login, bcrypt, forced password change, `must_change_password` flow), §5.2/§5.3 (OIDC/BFF, PKCE, MSAL, JIT provisioning for PremiumIQ), §5.5 (schema: `user_session`, `login_attempt`, `password_hash`/`must_change_password` on `app_user`), §6.1 (roles), §6.3 (admin: Users, password reset, force-logout). **Deferred from Iteration 1:** rate limiting lockout (§5.1.3 — `login_attempt` table created and logged but lockout gate not implemented).
 
-### Iteration 1 — Submission domain model
+### Iteration 1 — Submission & Package domain model
 
-> **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. **Reconciliation with the already-built spec-002 code (customer/program spine, RLS, file inventory) is a separate migration/removal decision (CR-003 §8.3), owned jointly by the practice lead and analyst — it is not folded into this plan.**
+> **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. It covers the full DATA_MODEL §4 "Submission & Package" domain — the submission behavior plus the package *structure* that Iteration 2 builds its behavior on. **Reconciliation with the already-built spec-002 code (customer/program spine, RLS, file inventory) is a separate migration/removal decision (CR-003 §8.3), owned jointly by the practice lead and analyst — it is not folded into this plan.**
 
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
@@ -1097,41 +1097,39 @@ This prompt applies independently to each of the three app-managed databases (`W
 - §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced, no delete)
 - §7.2b (global submission name uniqueness, `UNIQUE(name)`)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
+- **§9.4 Package structure (schema only, DATA_MODEL §4):** the `package` and `submission_package` tables, the submission↔package M:N, nullable `edm_id`/`rdm_id` with the ≥1 DB CHECK, soft-delete (`deleted_at`), plus the `db/` access functions and constraint tests. The `edm_id`/`rdm_id` FKs target `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. **No package creation/sync/delete behavior here** — the ≥1 CHECK means a package needs at least one EDM or RDM to exist, so exercising one waits for Iteration 2.
 - `treaty_type_kind` seed (confirm the authoritative list with the CIC team, CR-003 §5)
 
-**Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entities, search, workflow references, Package (§9.4 — moved to Iteration 2, since it needs the search-framework iteration's query-string filtering, §20.4, for its job-count links).
+**Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entity management, search, workflow references; Package *behavior* — creation via shared-drive browse, name-collision check, IRP sync/delete, and the §7.4 package cards — all Iteration 2, building on the package schema defined here.
 
-**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm `COMPLETED` blocks package edits while `ACTIVE` allows them, and reopening (`COMPLETED → ACTIVE`) works.
+**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening (`COMPLETED → ACTIVE`) works (the status gate's effect on package edits is exercised once package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: a package with neither EDM nor RDM is rejected by the ≥1 CHECK, and the M:N lets one package attach to two submissions.
 
-### Iteration 2 — Search framework & packages
+### Iteration 2 — EDM & RDM entity management (incl. Packages)
+
+> **Reordered (2026-07-08).** This was previously Iteration 3; EDM/RDM management now comes before the search framework, and Package *behavior* is built here in full on top of the package schema defined in Iteration 1 (DATA_MODEL §4). Because the IRP import plumbing lands in this iteration, Package sync/delete are **real from the start** — there is no longer a stub-then-real two-step across iterations (the package UI can still be built against 60-second heartbeat stubs first and wired to real IRP within the iteration).
 
 **In:**
-- §19 search framework + navigation + submission providers
-- §20.4 query-string-driven filtering (the fixed filter-param vocabulary: `submission_id`, `package_id`, `status`, `job_type`)
-- §8 + §9.4 (Package creation: pick shape EDM-only/RDM-only/both, browse the shared drive and select file(s), IRP name-collision check, Save/Save-and-Sync/Delete actions with stubbed `rwb_job` rows; `submission_package` M:N)
-- §7.4 (submission detail package cards — stubbed upload progress/status/job counts)
+- §9 (EDM entity, RDM entity, EDM/RDM library rail destinations)
+- §14.3 IRP submit for EDM import and RDM import, §14.4 poller (basic: poll `edm_import` + `rdm_import` types via `import_job.get_import_job`), §14.5 Dramatiq worker scaffold + `notify_analyst` worker
+- §8 + §9.4 Package **behavior** (the `package`/`submission_package` schema comes from Iteration 1): creation — pick shape EDM-only/RDM-only/both, browse the shared drive and select file(s), IRP name-collision check, Save/Save-and-Sync/Delete backed by **real** `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` IRP jobs
+- §7.4 (submission detail package cards — real upload progress/status/job counts)
+- §20.4 query-string-driven filtering + the Jobs list (fixed filter-param vocabulary: `submission_id`, `package_id`, `status`, `job_type`) — needed here so a package card's job-count link lands on a pre-filtered Jobs list
 
-**Out:** EDM/RDM entity management beyond what Package needs (full EDM/RDM library pages, real IRP import calls — Package's sync/delete jobs are stubs this iteration), workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately).
+**Out:** the global command-palette search framework (§19, Ctrl/Cmd-J and providers — Iteration 3); analysis, grouping, results, repositories; workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately). Package job chaining across RWB-job/IRP-job space (A21) must be resolved before the real sync/delete paths are implemented.
 
-**Exit:** Ctrl/Cmd-J finds nav and submissions; create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s), see the IRP name-collision warning, Save/Save-and-Sync/Delete each produce a stub `rwb_job` that heartbeats for 60 seconds and completes — with EDM-before-RDM ordering on sync of a both-package and RDM-before-EDM ordering on delete; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
+**Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s); see the IRP name-collision warning; Save-and-Sync runs a real IRP sync with EDM-before-RDM ordering on a both-package, and Delete runs a real IRP delete with RDM-before-EDM ordering; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
 
-### Iteration 3 — EDM & RDM entity management
+### Iteration 3 — Search framework
 
-**In:** §9 (EDM entity, RDM entity, EDM/RDM library rail destinations), §14.3 IRP submit for EDM import and RDM import, §14.4 poller (basic: poll `edm_import` + `rdm_import` types via `import_job.get_import_job`), §14.5 Dramatiq worker scaffold + `notify_analyst` worker. **This is where Package's `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` jobs (§9.4, Iteration 2) go from 60-second heartbeat stubs to real IRP calls** — the job rows and UI built in Iteration 2 don't change shape, only what the worker does inside them.
+> **Reordered (2026-07-08).** Previously Iteration 2; the package pieces it used to carry now live in Iteration 2, so this iteration is the search framework on its own.
 
-**Out:** analysis, grouping, results, repositories.
+**In:** §19 search framework + navigation + submission, EDM, RDM, package, and jobs providers; §20 command palette (Ctrl/Cmd-J) and remaining query-string filtering beyond the Jobs list already built in Iteration 2.
 
-**Exit:** import an EDM from a .bak or .mdf file; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM shows `ready` status.
+**Out:** analyses/results search providers (those entities don't exist yet — search is completed in the final iteration); analysis, grouping, results, repositories.
 
-### Iteration 4 — Phase A: Validation, profiling & Exposure Repository
+**Exit:** Ctrl/Cmd-J finds nav, submissions, EDMs, RDMs, packages, and jobs; providers return results and navigate correctly.
 
-**In:** §10 (DataBridge validation queries, profiling, exposure modification), §16.5 Exposure Repository write via `push_exposure_summary` worker.
-
-**Out:** analysis execution. *(Phase A itself is deferred / out of MVP — `mvp-scope.md §6`; this iteration runs only if Phase A is picked up.)*
-
-**Exit:** run a validation query set against an imported EDM; view profiling results; push exposure summary to Exposure Repository; re-validate after modification.
-
-### Iteration 5 — Analysis templates & template suites — **IN MVP**
+### Iteration 4 — Analysis templates & template suites — **IN MVP**
 
 **In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
 
@@ -1139,7 +1137,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated; IRP metadata sync populates profile/server dropdowns.
 
-### Iteration 6 — Prerequisite gate, name-based coupling & point-of-action validation
+### Iteration 5 — Prerequisite gate, name-based coupling & point-of-action validation
 
 **In:** §12 (work model — submission → EDM/RDM → job; entity tables `irp_treaty`/`irp_analysis`), §13 (prerequisite gate computed in code, name-based coupling via IRP `search_*`, point-of-action validation: uniqueness, reference-data, grouping homogeneity). No workflow authoring, no manifest, no typed ports — those are removed (CR-002).
 
@@ -1147,21 +1145,25 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** the prerequisite gate correctly enables/disables each op from entity + job state; a duplicate EDM/analysis name is caught live via `search_*`; DLM+HD mixing is caught when composing a grouping op.
 
-### Iteration 7 — Analysis execution, grouping & results
+### Iteration 6 — Analysis execution, grouping & results
 
 **In:** §14 (execution engine: `irp_job` as the tracked unit, synchronous submit, all poller `irp_job_type`s, `rwb_job` queue with heartbeat + reconciler, all Dramatiq worker types, single-threaded submission retry), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
 
-**Out:** export file download (Iteration 8).
+**Out:** export file download (Iteration 7).
 
 **Exit:** run the full op sequence end-to-end (EDM upload → portfolio → geocode → analysis → grouping → results) driven by the prerequisite gate; results appear in review UI; Loss Repository populated; broker RDM comparison side-by-side.
 
-### Iteration 8 — Export, search completion & polish
+### Iteration 7 — Export, search completion & polish
 
-**In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker), §19 all remaining search providers (EDM, RDM, analyses, jobs, results), notifications (§18, if picked up).
+**In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker), §19 remaining search providers (analyses, results — submission/EDM/RDM/package/jobs providers already built in Iteration 3), notifications (§18, if picked up).
 
 **Out:** —
 
 **Exit:** export analysis results to Parquet; all search providers working.
+
+---
+
+> **Phase A — Validation, profiling & Exposure Repository: out of MVP, not scheduled.** §10 (DataBridge validation/profiling/exposure modification) and §16.5 (Exposure Repository write via `push_exposure_summary`) are out of MVP per `mvp-scope.md §6`. There is nothing to build for MVP, so Phase A is intentionally **not** a build-plan iteration (it was previously Iteration 4). If it is ever picked up, it slots in as its own iteration (§10 + §16.5).
 
 ---
 
@@ -1188,7 +1190,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A18 — (retired with `customer_id`, CR-003).** There is no denormalized `customer_id` on any table (M2/O1), so the drift concern it raised no longer applies.
 - **A19 — Loss Repository schema ownership.** The workbench has write-only access to specific tables. Schema is defined and versioned separately (not by Alembic). Breaking schema changes in the Loss Repository require coordination. Mitigated by: write through a thin adapter layer in the Dramatiq worker; the adapter is the single point to update on Loss Repository schema changes.
 - **A20 — Analyst submits 150 analysis jobs; IRP rate-limits.** Resolution: irp-integration has built-in retry (5 attempts, exponential backoff). The batch-submit method handles the loop. Do not add another retry layer. The poller polls at an interval; no thundering-herd problem.
-- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and, on the delete path, an `edm_delete` waits on its prerequisite `rdm_delete` completing first — the dependency runs one way, EDM-delete depends on RDM-delete, never the reverse; §9.4). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 3 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
+- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and, on the delete path, an `edm_delete` waits on its prerequisite `rdm_delete` completing first — the dependency runs one way, EDM-delete depends on RDM-delete, never the reverse; §9.4). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 2 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
 
 ---
 
@@ -1249,6 +1251,17 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-07-08 — Build-plan reorder: EDM/RDM + Packages before search; Phase A dropped from plan
+
+Scope: §21 build plan only (no feature-section behavior changes).
+
+- **Swapped old Iterations 2 and 3.** EDM/RDM entity management now comes first (new **Iteration 2 — "EDM & RDM entity management (incl. Packages)"**), and the search framework follows (new **Iteration 3 — "Search framework"**). Rationale: packages depend on the EDM/RDM entities and IRP import plumbing, so building them together is more natural than fronting the search framework.
+- **Package structure moved up to Iteration 1; behavior stays in Iteration 2.** Iteration 1 renamed **"Submission & Package domain model"** and now owns the full DATA_MODEL §4 static structure — the `package`/`submission_package` tables, the submission↔package M:N, nullable `edm_id`/`rdm_id` + the ≥1 CHECK, soft-delete, and their `db/` access + constraint tests. Package *behavior* (creation via shared-drive browse, name-collision check, IRP sync/delete, §7.4 cards) remains Iteration 2, because the ≥1 CHECK means a package can't be created until an EDM/RDM exists. This thickens Iteration 1 and gives Iteration 2 a stable schema to build on.
+- **Package behavior consolidated into one iteration, real from the start.** Package behavior was previously split — UI + stubbed `rwb_job` rows in old Iteration 2, real IRP calls in old Iteration 3. Because the IRP import plumbing (§14.3/§14.4/§14.5) now lands in the same iteration, Package sync/delete are real in Iteration 2 (the UI may still be built against 60-second stubs first and wired within the iteration). The stub-then-real two-step across iterations is gone.
+- **§20.4 query-string filtering + the Jobs list moved into Iteration 2** (from the old search iteration) so a package card's job-count link has a pre-filtered Jobs list to land on. The command-palette search framework (§19, Ctrl/Cmd-J) stays in the search iteration.
+- **Phase A dropped as a build-plan iteration.** Old Iteration 4 (§10 validation/profiling/exposure modification, §16.5 Exposure Repository write) is out of MVP per `mvp-scope.md §6` — there is nothing to build — so it is no longer a numbered iteration; a short "not scheduled" note preserves the traceability and re-entry path. The §10/§16.5 feature sections (already marked out of MVP) are unchanged.
+- **Renumbered** the tail: Analysis templates 5→4, Prerequisite gate 6→5, Analysis execution 7→6, Export/polish 8→7. Updated forward-references: §2.6/§11.2 auto-naming note (Iteration 5→4), A21 (real Package sync/delete now flagged before Iteration 2), and the prior CR-003 change-log entry's Iteration pointer (5→4).
+
 ### 2026-07-08 — CR-003: Submission + Package; drop Customer/Program & RLS; simplify file handling
 
 Applied `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md` (decisions M1–M5, O1–O9) to the PRD, following the same CR's earlier passes on DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Where the PRD asserted the opposite of a locked decision, the CR won. Highlights:
@@ -1267,7 +1280,7 @@ Applied `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md` (decisions M1–M5, O1–O9
 
 Review pass over the PRD following the same review of DATA_MODEL.md (see its change log for schema-level detail).
 
-- **Analysis templates & suites returned to MVP (§1.1, §11, §21 Iteration 5, §23).** Reverses the CR-002 deferral (practice-lead call) — batch submission from saved templates is the #1 analyst pain point, so it ships rather than being built only on demand. The `auto_name_pattern` token set (references the dropped `cycle`) remains the one open item.
+- **Analysis templates & suites returned to MVP (§1.1, §11, §21 Iteration 4, §23).** Reverses the CR-002 deferral (practice-lead call) — batch submission from saved templates is the #1 analyst pain point, so it ships rather than being built only on demand. The `auto_name_pattern` token set (references the dropped `cycle`) remains the one open item.
 - **EDM/RDM import accepts `.mdf` as well as `.bak` (§1.1, §9.1, §9.2, §14.3, §21).** File references generalized to `.bak/.mdf`; matches `mvp-scope.md` ("upload EDM MDF/BAK").
 - **RDM-only packages are invalid (§9.4).** Every package has an EDM (an RDM is meaningless without one); EDM-only packages remain valid.
 - **Package delete dependency corrected — one-way (§9.4, §22 A21).** Deleting an RDM never cascades into deleting its EDM; an EDM delete depends on its RDMs being deleted first and drives that cleanup.
