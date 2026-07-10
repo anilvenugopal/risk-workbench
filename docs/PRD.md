@@ -58,7 +58,7 @@ Every submission follows three sequential phases. The workbench covers all three
 ### 1.4 Core domain glossary
 
 - **Submission (the deal)** — the top-level unit of work: a specific cedant's specific treaty at a specific inception. There is no hierarchy above it (no Customer or Program — dropped, CR-003). Anchors packages, EDMs, RDMs, and jobs. Carries the deal's identity and filter attributes (`cedant_name`, `treaty_type_code`, `inception_date`, `treaty_year`), an assigned analyst (soft owner, for the "my submissions" view — **not** an access gate), an optional shared-drive `directory_path`, and an optional self-referential renewal link. CRM identifiers attach as a 0..N tag set (`submission_crm_id`), not a single field.
-- **Package** — the pairing of an EDM and/or an RDM that an analyst creates and syncs to Risk Modeler together. Many-to-many with submission (a package can be reused across deals). EDM-only **and** RDM-only packages are both valid (at least one of EDM/RDM required).
+- **Package** — a *bundle* of one or more EDMs and/or RDMs (any combination — several of each, EDM-only, or RDM-only) that arrive and are worked together; roughly one "RMS" subfolder on the file share. Members carry a `package_id` FK; the package row is a lightweight grouping (no `edm_id`/`rdm_id` slots). Many-to-many with submission (a package can be reused across deals). ≥1 member required (app-enforced). An RDM is applied to *every* EDM in its bundle (full grid); EDMs are DataBridge SQL databases, RDMs are not (§9.4).
 - **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
 - **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
@@ -452,7 +452,7 @@ Admin rail destination maintains users and role assignments only (there is no cu
 ### 7.2 Submission fields
 
 The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
-- `id`, `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), **globally unique** (§7.2b)
+- `id` (surrogate UUID — the real key), `name` — the naming-convention label (e.g. `TY2604_AmericanFamily`), a human label that is **not unique** (§7.2b)
 - `cedant_name` — plain string, primary filter, kept consistent via autocomplete over existing values (no `cedant` table — that would re-create `customer` under a new name, CR-003 O3)
 - `treaty_type_code` FK → `treaty_type_kind` — deal-level treaty type, primary filter (kind table, Article 3)
 - `inception_date` — primary filter
@@ -488,9 +488,9 @@ Rules:
 
 This replaces the prior `authoring_status` field, whose three-value guess (`draft`/`active`/`complete`) assumed a workflow-authoring lifecycle. `submission.status_code` describes the submission itself, independent of whatever job or workflow machinery runs underneath it.
 
-### 7.2b Submission name uniqueness
+### 7.2b Submission identity — surrogate key, non-unique label
 
-`submission.name` is **globally unique** (`UNIQUE(name)`, enforced at the DB level, not just client-side). With Program dropped (CR-003 O5), the `TY{YY}{MM}_{Cedant}` naming-convention label is unique across all submissions — this guards against an analyst accidentally re-creating a deal that already exists during peak season.
+`submission.name` is **not unique.** The July 9 CIC session established that two genuinely distinct deals can share every naming-convention attribute — same cedant, same inception, same treaty type (e.g. a regional cat and a corporate cat incepting the same day) — and differ only by the **manual, optional CRM ID** (design note 03 §4). A DB-level `UNIQUE(name)` would therefore reject a legitimate second deal, or force analysts to mangle the label with a suffix at peak season. So identity rests on the surrogate `id` (UUID); `name` is a human label kept consistent by autocomplete. To still guard against *accidental* re-creation, create/rename runs a **non-blocking** "a similar deal already exists" check (same UX as the EDM/RDM name-collision warning, §9.4) — it warns and lets the analyst proceed, never hard-blocks. *(Resolves the OQ-3 identity/uniqueness tension from design note 03 in favor of a surrogate key + soft warning.)*
 
 > **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 4, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
@@ -500,13 +500,13 @@ Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, 
 
 ### 7.4 Submission detail — package cards (new)
 
-The submission detail panel shows one **full-width card per package** (§9.4) — deliberately not a compact grid, since a package's EDM side and RDM side each carry enough independent state (status, jobs, portfolio summary, analysis counts) to need real layout room rather than being squeezed into a small tile. Each card displays:
+The submission detail panel shows one **full-width card per package** (§9.4) — deliberately not a compact grid, since each EDM and RDM in a package carries enough independent state (status, jobs, portfolio summary, analysis counts) to need real layout room rather than being squeezed into a small tile. Each card displays:
 - **Upload progress** — stubbed at `Not Started` for now (real progress requires the real IRP import calls this iteration's stub jobs don't make yet).
 - **Status** — stubbed at `Pending Upload`.
-- **Source file** — the `source_file_path` the package's EDM and/or RDM were created from (stored on `irp_edm`/`irp_rdm`, §9.1/§9.2; there is no `file_artifact` record — CR-003 M5).
+- **Source files** — the `source_file_path`(s) the package's EDMs/RDMs were created from (stored on `irp_edm`/`irp_rdm`, §9.1/§9.2; there is no `file_artifact` record — CR-003 M5).
 - **Portfolio summary** — empty for now (populated once Portfolio Creation exists — later iteration).
 - **Analysis counts** — empty for now (populated once analysis execution exists — later iteration).
-- **IRP Jobs and RWB Jobs counts** — all / active / failed, scoped to this package's EDM and RDM.
+- **IRP Jobs and RWB Jobs counts** — all / active / failed, scoped to this package's EDMs and RDMs.
 
 **Card title click** (EDM name or RDM name) → navigates to that EDM's or RDM's detail page. **Not built this iteration** — the route is reserved so the link target exists, but the detail page itself is out of scope until EDM/RDM entity management is built out further.
 
@@ -522,9 +522,10 @@ The submission detail panel shows one **full-width card per package** (§9.4) �
 
 File handling happens **at package creation** (§9.4), not as a standing inventory:
 
-1. The analyst chooses the package **shape** — EDM-only / RDM-only / both (matching the ≥1-of-edm/rdm rule, CR-003 O2).
-2. For each slot (EDM and/or RDM), the analyst **browses the shared drive** and selects the file to upload — a `.bak`, `.mdf`, or `.csv`. The browse location may be seeded from `submission.directory_path` (§7.2).
-3. The selected file is uploaded to create the corresponding EDM/RDM object in Moody's (Risk Modeler). The chosen path is stored directly as `irp_edm.source_file_path` / `irp_rdm.source_file_path` (§9.1/§9.2) — a single string, no versioning.
+1. The analyst declares the bundle's **members** — one or more EDMs and/or RDMs (≥1 total; any combination, per §9.4). This replaces the earlier fixed two-slot "EDM-only / RDM-only / both" choice.
+2. For each member the analyst **browses the shared drive** and selects the file(s) — `.bak`, `.mdf`, or `.csv`. **Multi-select is supported**: the analyst can pick several EDM/RDM files from one directory and import them together (design note 03 §6.1 — *"take all five of these and move them"*). The browse location may be seeded from `submission.directory_path` (§7.2).
+3. Each selected file is uploaded to create the corresponding EDM/RDM object in Moody's (Risk Modeler), with `package_id` set to the new package. The chosen path is stored directly as `irp_edm.source_file_path` / `irp_rdm.source_file_path` (§9.1/§9.2) — a single string, no versioning.
+4. Optionally, **delete-after-transfer**: a per-import checkbox deletes the temporary `.bak` once it has been transferred into DataBridge — these BAKs exist only to move data, and otherwise *"you have thousands of files sitting out there forever"* (design note 03 §6.3). The read-only shared-drive mount (§8.2) is never touched; this deletes only app-created temp files.
 
 ### 8.2 The shared drive
 
@@ -547,8 +548,9 @@ An **EDM record** (`irp_edm` table) is distinct from the source file that produc
 - `source_file_path` — nullable string; the shared-drive path of the `.bak`/`.mdf`/`.csv` this EDM was created from (CR-003 M5; replaces the `file_artifact_id` FK — there is no file-artifact table)
 - `created_by_irp_job_irp_id`, `as_of` — creation lineage + last-confirmed-against-IRP trust signal
 - `server_name` — the DataBridge server the EDM lives on
+- `package_id` — nullable FK → `package`; the bundle this EDM belongs to (§9.4; replaces the removed `package.edm_id` slot)
 
-There is no `submission_id` or `customer_id` on the EDM (CR-003 M1/M2/O7): ownership reaches the submission transitively through `package` → `submission_package`, and there is no customer isolation.
+The EDM is a **DataBridge SQL database** (persistent, storage-limited — never duplicated). There is no `submission_id` or `customer_id` on the EDM (CR-003 M1/M2/O7): ownership reaches the submission transitively through `package` → `submission_package`, and there is no customer isolation.
 - Soft-delete via `deleted_at`
 
 **EDM operations** (MVP spine is import; create-fresh / upgrade / delete are out of the MVP spine, `mvp-scope.md §1`):
@@ -561,7 +563,7 @@ All async operations create an `irp_job` row and are polled by the poller.
 An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in IRP:
 - `name` — the RDM name in IRP
 - `irp_id` — IRP's integer id (backfilled on import `FINISHED`)
-- `edm_id` FK — **nullable** (CR-003 O2, reversing the earlier NOT NULL call): an RDM-only package has an RDM with no EDM — the broker provides losses to review with no exposure to re-run. When present, the FK still means "the EDM this RDM's results link to."
+- `package_id` FK — nullable → `package`; the bundle this RDM belongs to (§9.4; replaces the removed `package.rdm_id` slot). **There is no `edm_id`** — an RDM is applied to *every* EDM in its bundle (full grid, §9.4), so it has no single owning EDM; the EDM associations live in the apply jobs and the resulting `irp_analysis` rows. Importing an RDM is **not** a DataBridge asset (unlike an EDM) — it creates analyses on an EDM when one is supplied, or with **no EDM** for a review-only RDM-only import (the analyses still exist; `irp_analysis.edm_id` is nullable). `status` is a combined rollup of its per-EDM apply jobs.
 - `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
 - `source_file_path` — nullable string; the shared-drive path of the `.bak`/`.mdf`/`.csv` this RDM was created from (CR-003 M5; replaces `file_artifact_id`)
 - `created_by_irp_job_irp_id`, `as_of`
@@ -584,23 +586,23 @@ Rail destinations under "Moody's IRP" that show all EDMs / RDMs across submissio
 
 ### 9.4 Package (new)
 
-A **package** is the pairing of an EDM and/or an RDM that an analyst creates, names, and syncs to Risk Modeler together. A submission can have more than one package, and a package can be shared across submissions (many-to-many via `submission_package`, CR-003 M4). **All three shapes are valid: EDM-only, RDM-only, and EDM+RDM** — at least one of the two is required (a DB CHECK enforces ≥1). RDM-only is real: a broker supplies losses to review with no exposure to re-run (CR-003 O2, reversing the earlier "every package has an EDM" rule).
+A **package** is a *bundle* of one or more EDMs and/or RDMs that an analyst creates, names, and syncs to Risk Modeler together — roughly one "RMS" subfolder on the file share. **Any combination is valid**: several EDMs and several RDMs, EDM-only, or RDM-only (e.g. 4 EDMs + 1 RDM — design note 03 §6.1, which corrected the earlier one-EDM-one-RDM assumption). At least one member is required — an **app-enforced invariant**, since membership lives on the child rows (`irp_edm.package_id` / `irp_rdm.package_id`) and a single two-column DB CHECK can no longer express it. There is no `edm_id`/`rdm_id` on the package. A submission can have more than one package, and a package can be shared across submissions (many-to-many via `submission_package`, CR-003 M4). **EDMs and RDMs are asymmetric:** an EDM is a DataBridge SQL database (persistent, storage-limited, never duplicated); an RDM is a broker results file that is *not* a DataBridge asset — importing it creates analyses on an EDM, and an RDM is applied to **every** EDM in the bundle (full grid). RDM-only is review-only in the sense that there is no exposure to re-run against — but the broker's analyses **are** still created (with no EDM; `irp_analysis.edm_id` nullable, §9.2), so they can be reviewed (CR-003 O2).
 
-**Creation flow (CR-003 O9):** in the package modal the analyst first picks the **shape** (EDM-only / RDM-only / both), then for each slot **browses the shared drive** and selects the file to upload (§8.1). This selection *is* the file handling — there is no prior tagging step and no `file_artifact` row. A modal is chosen over a full page — a package is a lightweight join plus a couple of name fields and a status display, not enough surface area to justify dedicated navigation and breadcrumb machinery.
+**Creation flow (CR-003 O9, updated for the bundle model):** in the package modal the analyst **browses the shared drive and multi-selects** the EDM/RDM files that make up the bundle (§8.1) — several at once is expected (design note 03 §6.1). This selection *is* the file handling — there is no prior tagging step and no `file_artifact` row. A modal is chosen over a full page — a package is a lightweight grouping plus per-member name fields and status display, not enough surface area to justify dedicated navigation and breadcrumb machinery.
 
 **Name-collision check.** EDM and RDM names must not be duplicated on Risk Modeler. Whenever the analyst edits an EDM/RDM name inside the package modal, the app checks the proposed name against Risk Modeler (`client.edm.search_edms()` / `client.rdm.search_rdms()`) — a REST search that needs no local file row, run at create/edit time as a non-blocking warning (DATA_MODEL.md §5). A collision highlights the name field as an error (existing CSS error state), but does not block Save — the analyst can override and proceed, or rename.
 
-**Actions — Cancel / Save / Save and Sync:**
+**Actions — Cancel / Save / Save and Sync / Delete:**
 - **Cancel** — discard, no write.
 - **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
-- **Save and Sync** — Save, then queues the EDM/RDM for import. **This iteration stubs the sync work** — it creates real `rwb_job` row(s) with the real claim/heartbeat/completion lifecycle (§14.5), but the stub does nothing except wait 60 seconds while sending heartbeats, then succeed. No real IRP call is made yet. This proves the queue plumbing end-to-end ahead of wiring actual EDM/RDM import calls in a later iteration. **Sync ordering depends on the package shape (CR-003 O2):** for an EDM-only or RDM-only package there is a single side job and no chaining; for a package with both, Risk Modeler requires the EDM to exist before an RDM can be linked to it, so the EDM-side job runs first and the RDM-side job only starts after it succeeds. The "EDM is always the head job" assumption no longer holds — RDM-only makes the RDM the head. See DATA_MODEL.md §4 for the exact sequencing, and note the open TBD there on how an IRP-job completion triggers the next RWB job (flagged for a separate design discussion, not resolved in this pass).
-- **Delete** — also a stub job this iteration, 60-second heartbeat wait. On completion, the linked EDM/RDM are soft-deleted and the package row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). **The delete dependency is one-way:** an RDM can be deleted on its own (its EDM stays), but an EDM cannot be deleted while an RDM is still linked to it. So deleting the EDM drives the cleanup — its linked RDM is torn down first, then the EDM — whereas deleting just the RDM never cascades into deleting the EDM. See DATA_MODEL.md §4 for the exact job sequencing.
+- **Save and Sync** — Save, then queues **one `edm_upload` job per EDM plus one `rdm_upload` (apply) job per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `rdm_upload(R→E)` waits only for `E`'s `edm_upload` to succeed, so applications fan out in parallel as each EDM lands — the old "EDM is always *the* single head job" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `rdm_upload` with no EDM. Per the §21 build-plan reorder these are **real** `edm_upload`/`rdm_upload` IRP jobs (the UI may be built against 60-second heartbeat stubs first and wired to real IRP within Iteration 2). See DATA_MODEL.md §4 for the exact sequencing, and the open TBD there on how an IRP-job completion triggers the next RWB job (A21, to resolve before real sync/delete lands).
+- **Delete** — the two sides are independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker); deleting an **RDM** removes only the broker analyses it created across EDMs. When the last member-delete job succeeds, the linked EDMs/RDMs are soft-deleted and the `package` row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). See DATA_MODEL.md §4 for the exact job sequencing.
 
 **No independent package status.** Unlike Submission, a package does not get its own status field or an aggregated rollup of its EDM/RDM statuses. The EDM already has a status (`pending_import`/`importing`/`ready`/`error`/`delete_pending`/`deleted`) and so does the RDM, and each has its own IRP jobs with their own job status. A package-level status would just be a third value that has to be kept in sync with two independently-changing sources of truth, for no benefit — the UI shows the EDM's status chip and the RDM's status chip side by side inside the package card instead.
 
-**Surfacing on the submission:** packages appear as the full-width cards on the submission detail page (§7.4). There is no file inventory to badge (CR-003 M5) — the package card itself shows the `source_file_path` its EDM/RDM were created from.
+**Surfacing on the submission:** packages appear as the full-width cards on the submission detail page (§7.4). There is no file inventory to badge (CR-003 M5) — the package card itself shows the `source_file_path`(s) its EDMs/RDMs were created from.
 
-Schema: DATA_MODEL.md §4 (`package`, `submission_package`).
+Schema: DATA_MODEL.md §4 (`package`, `submission_package`) and §5 (`irp_edm.package_id` / `irp_rdm.package_id`).
 
 ---
 
@@ -918,6 +920,8 @@ When the `retrieve_analysis_results` worker completes, results are stored in the
 
 These tables are the source for the results review UI.
 
+**Broker (RDM) results are deduplicated by `rdm_id`.** When a broker RDM is applied across M EDMs it produces M `irp_analysis` rows (§9.4 / DATA_MODEL §6), but the broker's result data is *static* and identical across them — so it is retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: the `retrieve_analysis_results` job fires once per `rdm_id`, and the metadata row + its Parquet files are shared by all M `irp_analysis` handles. Own results stay per-analysis. See DATA_MODEL §9 (`analysis_result_meta`) for the authoritative storage model — hybrid Parquet + SQL metadata, with `analysis_id`/`rdm_id` mutually exclusive (CHECK). *(The §16.1 row-level SQL tables above predate the Parquet-hybrid decision in DATA_MODEL §9 / §23 locked decisions; DATA_MODEL §9 governs.)*
+
 ### 16.2 Results review UI
 
 Rail: Results. Shows analysis outputs per submission:
@@ -1089,20 +1093,20 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 1 — Submission & Package domain model
 
-> **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. It covers the full DATA_MODEL §4 "Submission & Package" domain — the submission behavior plus the package *structure* that Iteration 2 builds its behavior on. **Reconciliation with the already-built spec-002 code (customer/program spine, RLS, file inventory) is a separate migration/removal decision (CR-003 §8.3), owned jointly by the practice lead and analyst — it is not folded into this plan.**
+> **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. It covers the full DATA_MODEL §4 "Submission & Package" domain — the submission behavior plus the package *structure* that Iteration 2 builds its behavior on. **Reconciliation with the pre-CR-003 leftovers is a small removal step (CR-003 §8.3): the built migration `0001_initial.py` only ever created the `customer`, `program`, and `user_customer_access` shell tables plus the generic `db/scope.py` helper — the `submission`, `package`, and file-inventory tables were never built. So the cleanup is just dropping those three tables + `db/scope.py`/`test_scope.py`, not unwinding a live domain.**
 
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
 - §7.2 (`submission_crm_id` CRM-ID tag set — add/edit/remove tags)
 - §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced, no delete)
-- §7.2b (global submission name uniqueness, `UNIQUE(name)`)
+- §7.2b (submission identity: surrogate `id` key, non-unique `name` label + soft duplicate warning)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
-- **§9.4 Package structure (schema only, DATA_MODEL §4):** the `package` and `submission_package` tables, the submission↔package M:N, nullable `edm_id`/`rdm_id` with the ≥1 DB CHECK, soft-delete (`deleted_at`), plus the `db/` access functions and constraint tests. The `edm_id`/`rdm_id` FKs target `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. **No package creation/sync/delete behavior here** — the ≥1 CHECK means a package needs at least one EDM or RDM to exist, so exercising one waits for Iteration 2.
+- **§9.4 Package structure (schema only, DATA_MODEL §4/§5):** the `package` and `submission_package` tables, the submission↔package M:N, the `package_id` FK on `irp_edm`/`irp_rdm` (bundle membership), soft-delete (`deleted_at`), plus the `db/` access functions and tests. Membership FKs live on `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. The **≥1-member rule is an app-enforced invariant** (no column CHECK — membership spans two child tables). **No package creation/sync/delete behavior here** — exercising a non-empty package waits for the EDM/RDM import plumbing in Iteration 2.
 - `treaty_type_kind` seed (confirm the authoritative list with the CIC team, CR-003 §5)
 
 **Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entity management, search, workflow references; Package *behavior* — creation via shared-drive browse, name-collision check, IRP sync/delete, and the §7.4 package cards — all Iteration 2, building on the package schema defined here.
 
-**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening (`COMPLETED → ACTIVE`) works (the status gate's effect on package edits is exercised once package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: a package with neither EDM nor RDM is rejected by the ≥1 CHECK, and the M:N lets one package attach to two submissions.
+**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening (`COMPLETED → ACTIVE`) works (the status gate's effect on package edits is exercised once package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: `irp_edm`/`irp_rdm` accept a nullable `package_id`, the app-level ≥1-member invariant is covered by a test, and the M:N lets one package attach to two submissions.
 
 ### Iteration 2 — EDM & RDM entity management (incl. Packages)
 
@@ -1198,9 +1202,10 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Locked decisions
 
-- **CR-003 — Submission + Package; no Customer/Program; no RLS; simplified file handling.** `submission` is the top-level deal (M1); `customer`/`program` and all `customer_id` denormalization are dropped, retiring row-level security entirely — every authenticated analyst sees every deal (M2/O1, §6). CRM IDs are a `submission_crm_id` tag set, not a single field (M3/O6). `package` is many-to-many with `submission`, and EDM-only **and** RDM-only are both valid (`edm_id` nullable, ≥1-of-edm/rdm CHECK) (M4/O2). The file-inventory subsystem is replaced by a single `source_file_path` per EDM/RDM chosen at package creation (M5/O9). `submission.name` is globally unique (O5); `irp_job` lives at the package grain (O7); cedant is a plain string (O3); the renewal link is a manual nullable self-ref (O4). Applied to DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Full detail: `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`.
+- **2026-07-10 — July 9 CIC session (package = bundle; EDM/RDM asymmetry; broker-result dedup; submission identity).** A `package` is a **bundle** of any combination of EDMs/RDMs; membership is `package_id` on `irp_edm`/`irp_rdm` (no `edm_id`/`rdm_id` on the package; ≥1 member **app-enforced**, not a column CHECK). An **EDM is a DataBridge SQL database**; an **RDM is not a DataBridge asset** — importing it creates analyses on an EDM, and an RDM is applied to **every** EDM in its bundle (full grid). `irp_rdm.edm_id` is **dropped**; `irp_rdm.status` is a combined rollup of its apply jobs; one `irp_rdm` row per file, one `irp_analysis` per Moody's object (with `irp_analysis.edm_id`/`rdm_id` both nullable + ≥1 CHECK — RDM-only analyses have no EDM). **Broker result data is deduplicated by `rdm_id`** (`analysis_result_meta.analysis_id` nullable + CHECK exactly one of `analysis_id`/`rdm_id`; retrieved once per RDM source analysis). **`submission.name` is no longer unique** — surrogate `id` key + soft duplicate warning. **The top-level organization (submission vs project; two- vs three-tier) is reopened by CIC and NOT ratified** — DATA_MODEL §4 is a provisional build-to-learn shape (OQ-1..OQ-4, Open decisions below). Applied to DATA_MODEL.md (2026-07-10); a formal CR follows.
+- **CR-003 — Submission + Package; no Customer/Program; no RLS; simplified file handling.** `submission` is the top-level deal (M1); `customer`/`program` and all `customer_id` denormalization are dropped, retiring row-level security entirely — every authenticated analyst sees every deal (M2/O1, §6). CRM IDs are a `submission_crm_id` tag set, not a single field (M3/O6). `package` is many-to-many with `submission`, and EDM-only **and** RDM-only are both valid (`edm_id` nullable, ≥1-of-edm/rdm CHECK) (M4/O2). The file-inventory subsystem is replaced by a single `source_file_path` per EDM/RDM chosen at package creation (M5/O9). `submission.name` is globally unique (O5); `irp_job` lives at the package grain (O7); cedant is a plain string (O3); the renewal link is a manual nullable self-ref (O4). Applied to DATA_MODEL.md (2026-07-07) and the constitution → v3.0.0 (2026-07-08). Full detail: `docs/CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`. *(Superseded in part by 2026-07-10, above: `package` is now a bundle — no `edm_id`/`rdm_id`, members carry `package_id`, ≥1 app-enforced; `submission.name` is no longer unique.)*
 - **CR-002 — Not a workflow engine.** Workflow / Stage / Task / typed-handle / type-port-registry / manifest-projection are all removed (§12). Sequencing is the prerequisite gate computed in code (§13.1); coupling is name-based via IRP `search_*` (§13.2); the executable unit is `irp_job` (§14). One declarative source of truth remains: the **navigation manifest** (§2.1, §4.2).
-- **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own). *(The CR-002 `edm_id` NOT NULL rule on `irp_rdm`/`irp_analysis` is superseded by CR-003 O2 — `irp_rdm.edm_id` is nullable for RDM-only packages.)* `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
+- **CR-002 entities & schema** — `edm`/`rdm` → `irp_edm`/`irp_rdm`; new `irp_treaty`, `irp_analysis` (a group is an analysis with `is_group=true`; `rdm_id` set → broker-from-RDM, null → own). *(Superseded 2026-07-10: `irp_rdm` has **no** `edm_id` — an RDM applies to every EDM in its bundle. `irp_analysis.edm_id` is now **nullable** with a ≥1-of-(edm_id, rdm_id) CHECK — RDM-only imports create analyses with no EDM.)* `irp_job` redesigned (typed lineage FKs; `irp_job_type` kind table, `status` plain string; three `last_*` columns; `irp_job_resource`; single-threaded retry). `rwb_job` decoupled from `irp_job` (`requestor_type`/`requestor_id` + composite dedup key). Full detail: DATA_MODEL.md §CR-002 change-log.
 - **Three separate database connections** — named `WORKBENCH`, `EXPOSURE`, `LOSS` — resolved via the `db/` package (`MSSQL_{NAME}_*` env vars). One SQL Server Docker container in dev with three databases (`rwb_workbench`, `rwb_exposure`, `rwb_loss`); separate servers in prod (§2.2).
 - **Dev environment is Linux-native.** Only SQL Server runs in Docker. App (uvicorn), nginx, Redis, poller, and Dramatiq workers all run as native Linux processes. No Docker Compose wrapping the application stack.
 - **Dev DB strategy: drop-create-seed.** Until production cutover, the WORKBENCH schema is managed via a single Alembic revision that drops all tables, recreates them, and seeds kind tables. No migration version accumulation in dev. EXPOSURE and LOSS bootstrapped via idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`).
@@ -1227,6 +1232,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Open decisions (need team input; do not block early iterations)
 
+- **OQ-1/OQ-2 (blocks ratification, not the build) — top-level organization.** Is the organizing object "submission," a looser "project," or nothing (attributes-on-package)? And is it two-tier (submission = deal, CRM as tags — current build) or three-tier (project → submission ≈ CRM ID → package)? Reopened July 9; resolve at the wireframe review. DATA_MODEL §4 builds submission-as-deal provisionally in the meantime.
+- **OQ-4 — treaty-type precedence** ("cat treaty always at the top"): a modeled attribute or display-only? Not modeled today.
 - Concrete `role_kind` codes (analyst, admin, viewer?)
 - Teams webhook URL: per-submission or global config?
 - Notification preferences: per-user opt-in or always-on?
@@ -1250,6 +1257,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-07-10 — July 9 CIC session: package = bundle; EDM/RDM asymmetry; broker-result dedup; submission identity
+
+- **Package regrained to a bundle.** Dropped `package.edm_id`/`package.rdm_id`; membership now on `irp_edm.package_id`/`irp_rdm.package_id` (any combination of EDMs/RDMs; ≥1 member app-enforced, no column CHECK). §1.4, §7.4, §8.1, §9.1, §9.2, §9.4 updated; DATA_MODEL §4/§5/§12.
+- **EDM/RDM asymmetry.** EDM = DataBridge SQL database; RDM = tracked file, not a DataBridge asset. An RDM applies to **every** EDM in its bundle (full grid), one `rdm_import` apply job per EDM. `irp_rdm.edm_id` dropped; `irp_rdm.status` = combined rollup of apply jobs; one `irp_rdm` row per file, one `irp_analysis` per Moody's object. `irp_analysis.edm_id` is nullable (≥1-of-(edm_id, rdm_id) CHECK) so RDM-only analyses with no EDM are valid.
+- **Broker-result dedup by `rdm_id`.** Broker result data (static, identical across the M EDM-copies) is stored once per RDM source analysis + perspective; `analysis_result_meta.analysis_id` nullable + CHECK exactly one of `analysis_id`/`rdm_id`; `retrieve_analysis_results` fires once per `rdm_id`. §16.1; DATA_MODEL §9.
+- **Submission identity.** `submission.name` UNIQUE dropped — surrogate `id` key + non-blocking duplicate warning; distinct deals can share every naming attribute (OQ-3). §7.2/§7.2b.
+- **Stance retoned to provisional.** CIC reopened the top-level organization on July 9 (OQ-1/OQ-2); DATA_MODEL §4 / PRD §7 are build-to-learn, not ratified. Open questions logged (§23; DATA_MODEL §14).
+- **Build-plan corrections.** §21 Iteration 1 package-structure bullet + exit criteria updated for the bundle model; the spec-002 reconciliation note corrected (only `customer`/`program`/`user_customer_access` + `db/scope.py` were ever built — `submission`/`package`/file-inventory never were).
 
 ### 2026-07-08 — Build-plan reorder: EDM/RDM + Packages before search; Phase A dropped from plan
 
