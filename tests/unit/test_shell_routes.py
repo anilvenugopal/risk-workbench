@@ -61,38 +61,24 @@ def _make_app(user=None):
 
 
 class TestHomeRoute:
-    def test_returns_200(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [{"n": 0}])
+    def test_returns_200(self):
         resp = TestClient(_make_app()).get("/")
         assert resp.status_code == 200
 
-    def test_html_response(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [{"n": 5}])
+    def test_html_response(self):
         resp = TestClient(_make_app()).get("/")
         assert "text/html" in resp.headers["content-type"]
 
-    def test_customer_count_in_page(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [{"n": 42}])
+    def test_greeting_in_page(self):
         resp = TestClient(_make_app()).get("/")
-        assert "42" in resp.text
-
-    def test_zero_count_when_execute_returns_empty(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [])
-        resp = TestClient(_make_app()).get("/")
-        assert resp.status_code == 200
+        assert "Test User" in resp.text
 
 
 class TestSimpleShellRoutes:
     """Routes that need no DB calls — just render a template."""
 
     @pytest.fixture
-    def client(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [])
+    def client(self):
         return TestClient(_make_app())
 
     def test_submissions(self, client):
@@ -135,9 +121,7 @@ class TestSimpleShellRoutes:
 class TestShellNavContext:
     """Verify nav context is rendered into the shell."""
 
-    def test_display_name_in_page(self, monkeypatch):
-        import app.routers.shell as shell_mod
-        monkeypatch.setattr(shell_mod, "execute", lambda sql, params, connection=None: [{"n": 0}])
+    def test_display_name_in_page(self):
         user = _fake_user(display_name="Alice Smith")
         resp = TestClient(_make_app(user=user)).get("/")
         assert "Alice Smith" in resp.text

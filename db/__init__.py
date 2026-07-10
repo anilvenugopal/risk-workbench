@@ -6,8 +6,8 @@ Targets are just named connections (`MSSQL_{NAME}_*`); auth is per-connection.
 
 It exposes **two execution styles**, split by safety — not by target:
 
-  • Safe path (DEFAULT) — `execute`, `execute_one`, `execute_scalar`,
-    `execute_command` and the scoped helpers. Bound parameters, returns
+  • Safe path (DEFAULT) — `execute`, `execute_one`, `execute_scalar`, and
+    `execute_command`. Bound parameters, returns
     `list[dict]`/scalar/rowcount. Injection-safe; the ONLY path that may receive
     user-derived values. Use this for ALL application data access.
 
@@ -20,11 +20,9 @@ It exposes **two execution styles**, split by safety — not by target:
 Both styles share the same pooled SQLAlchemy-core engine layer (no ORM).
 
 Examples:
-    from db import execute, scoped_execute, execute_command
+    from db import execute, execute_command
     rows = execute("SELECT * FROM submission WHERE id = :id", {"id": 7},
                    connection="WORKBENCH")
-    rows = scoped_execute("SELECT * FROM submission",
-                          customer_ids=user.customer_ids, is_admin=user.is_admin)
 
     from db.scripts import execute_script_file       # trusted external scripts
     dfs = execute_script_file("control_totals/3d_RMS_EDM_Control_Totals.sql",
@@ -40,7 +38,6 @@ from .connection import (get_engine, get_connection, test_connection,
 from .kerberos import (check_kerberos_status, init_kerberos, is_ticket_valid,
                        ensure_valid_kerberos_ticket)
 from .execute import execute, execute_one, execute_scalar, execute_command
-from .scope import apply_scope, scoped_execute
 
 __all__ = [
     # errors
@@ -55,8 +52,6 @@ __all__ = [
     "ensure_valid_kerberos_ticket",
     # safe execution (default)
     "execute", "execute_one", "execute_scalar", "execute_command",
-    # scoping (safe path only)
-    "apply_scope", "scoped_execute",
 ]
 # NOTE: the trusted-script path is intentionally NOT re-exported here. Import it
 # explicitly from db.scripts so its use is always visible in code review.

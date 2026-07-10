@@ -33,32 +33,6 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
     )
 
-    # ── customer (shell — FK target for user_customer_access) ─────────────────
-    op.create_table(
-        "customer",
-        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("name", sa.NVARCHAR(255), nullable=False),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
-        sa.Column("inserted_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("updated_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-    )
-
-    # ── program (shell — depends on customer) ─────────────────────────────────
-    op.create_table(
-        "program",
-        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("customer_id", sa.Uuid, nullable=False),
-        sa.Column("name", sa.NVARCHAR(255), nullable=False),
-        sa.Column("is_active", sa.Boolean, nullable=False, server_default="1"),
-        sa.Column("inserted_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("updated_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.ForeignKeyConstraint(["customer_id"], ["customer.id"]),
-    )
-
     # ── app_user ──────────────────────────────────────────────────────────────
     op.create_table(
         "app_user",
@@ -130,20 +104,6 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
     )
 
-    # ── user_customer_access ──────────────────────────────────────────────────
-    op.create_table(
-        "user_customer_access",
-        sa.Column("user_id", sa.Uuid, nullable=False),
-        sa.Column("customer_id", sa.Uuid, nullable=False),
-        sa.Column("inserted_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("inserted_by", sa.Uuid, nullable=True),
-        sa.PrimaryKeyConstraint("user_id", "customer_id"),
-        sa.ForeignKeyConstraint(["user_id"], ["app_user.id"]),
-        sa.ForeignKeyConstraint(["customer_id"], ["customer.id"]),
-        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
-    )
-
     # ── Seeds ─────────────────────────────────────────────────────────────────
     op.execute(sa.text(
         "INSERT INTO role_kind (code, label, sort_order, is_admin) VALUES "
@@ -153,12 +113,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("user_customer_access")
     op.drop_table("user_role")
     op.drop_table("login_attempt")
     op.drop_table("user_session")
     op.drop_index("ix_app_user_entra_oid", table_name="app_user")
     op.drop_table("app_user")
-    op.drop_table("program")
-    op.drop_table("customer")
     op.drop_table("role_kind")

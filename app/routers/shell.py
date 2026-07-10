@@ -10,7 +10,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.nav import get_nav_context
-from db import execute
 
 router = APIRouter()
 
@@ -34,9 +33,7 @@ def _render(request: Request, template: str, nav_key: str, extra: dict | None = 
 
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request):
-    rows = execute("SELECT COUNT(*) AS n FROM customer", {}, connection="WORKBENCH")
-    customer_count = rows[0]["n"] if rows else 0
-    return _render(request, "pages/home.html", "home", {"customer_count": customer_count})
+    return _render(request, "pages/home.html", "home")
 
 
 @router.get("/submissions", response_class=HTMLResponse)

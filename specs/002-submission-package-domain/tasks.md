@@ -40,20 +40,20 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### CR-003 cleanup sweep (FR-032/FR-033 — grep-verified surface, research R8)
 
-- [ ] T002 [P] Delete `db/scope.py` (removes `apply_scope`/`scoped_execute`).
-- [ ] T003 Remove the `from .scope import ...` import, the `__all__` entries, and the `scoped_execute`/`customer_ids` docstring example from `db/__init__.py` (after T002).
-- [ ] T004 [P] Reword the `db/execute.py` module docstring to drop the `apply_scope`/`customer_id` references (cosmetic, no dangling refs).
-- [ ] T005 [P] Update `db/README.md`: remove the `db.scope` module row, the RLS `scoped_execute` example, the `scope.py` file listing, and the "multi-tenant tables" line.
-- [ ] T006 [P] Delete `tests/unit/test_scope.py`.
-- [ ] T007 [P] Edit `tests/unit/test_db_package.py`: drop the `apply_scope, scoped_execute` import and the scope test block; remove the `customer_id` fixture column; keep the safe-path tests.
-- [ ] T008 [P] Edit `tests/unit/test_db_config.py`: remove the `apply_scope` test block (~lines 120–162).
-- [ ] T009 [P] Edit `app/routers/shell.py`: replace the `SELECT COUNT(*) FROM customer` in `home()` with a submission count (or drop the stat).
-- [ ] T010 [P] Edit `app/templates/pages/home.html`: update or remove the `customer_count` stat to match T009.
-- [ ] T011 [P] Edit `tests/unit/test_shell_routes.py`: retarget or remove `test_customer_count_in_page` to match T009.
+- [X] T002 [P] Delete `db/scope.py` (removes `apply_scope`/`scoped_execute`).
+- [X] T003 Remove the `from .scope import ...` import, the `__all__` entries, and the `scoped_execute`/`customer_ids` docstring example from `db/__init__.py` (after T002).
+- [X] T004 [P] Reword the `db/execute.py` module docstring to drop the `apply_scope`/`customer_id` references (cosmetic, no dangling refs).
+- [X] T005 [P] Update `db/README.md`: remove the `db.scope` module row, the RLS `scoped_execute` example, the `scope.py` file listing, and the "multi-tenant tables" line.
+- [X] T006 [P] Delete `tests/unit/test_scope.py`.
+- [X] T007 [P] Edit `tests/unit/test_db_package.py`: drop the `apply_scope, scoped_execute` import and the scope test block; remove the `customer_id` fixture column; keep the safe-path tests.
+- [X] T008 [P] Edit `tests/unit/test_db_config.py`: remove the `apply_scope` test block (~lines 120–162).
+- [X] T009 [P] Edit `app/routers/shell.py`: replace the `SELECT COUNT(*) FROM customer` in `home()` with a submission count (or drop the stat).
+- [X] T010 [P] Edit `app/templates/pages/home.html`: update or remove the `customer_count` stat to match T009.
+- [X] T011 [P] Edit `tests/unit/test_shell_routes.py`: retarget or remove `test_customer_count_in_page` to match T009.
 
 ### Schema + seeds (single revision — drop-create-seed, data-model §9)
 
-- [ ] T012 Edit `alembic/versions/0001_initial.py`: remove the `customer`, `program`, and `user_customer_access` `create_table` calls and their downgrade drops (FR-032).
+- [X] T012 Edit `alembic/versions/0001_initial.py`: remove the `customer`, `program`, and `user_customer_access` `create_table` calls and their downgrade drops (FR-032).
 - [ ] T013 Edit `alembic/versions/0001_initial.py`: add the nine Iteration-1 tables in FK order — `treaty_type_kind`, `submission_status_kind`, `package`, `submission`, `submission_crm_id`, `submission_status_event`, `submission_package` (composite PK), `irp_edm`, `irp_rdm` — with the self-renewal `CHECK (renews_from_submission_id IS NULL OR renews_from_submission_id <> id)`, indexes on `assigned_analyst_id`/`cedant_name`/`treaty_type_code`/`inception_date`, **no** `UNIQUE(name)`, **no** `customer_id`, nullable `package_id` on `irp_edm`/`irp_rdm`, and plain-`VARCHAR` `status` on the irp tables (data-model §2–§7); downgrade drops in reverse FK order (after T012).
 - [ ] T014 Edit `alembic/versions/0001_initial.py`: add in-migration seeds mirroring the `role_kind` seed — `submission_status_kind` (ACTIVE 10 / COMPLETED 20 / CANCELLED 30) and `treaty_type_kind` (the six provisional codes) (data-model §1/§9, FR-010/FR-030) (after T013).
 - [ ] T015 Edit `infra/scripts/seed_db.py`: add idempotent `MERGE` seeds for `submission_status_kind` and `treaty_type_kind` (same pattern as the existing `role_kind` MERGE) so a re-seed without a full rebuild stays correct (data-model §9).
@@ -61,7 +61,7 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 ### Shared service scaffolding + cleanup verification
 
 - [ ] T016 [P] Create `app/services/errors.py` with the typed service errors `SubmissionClosed`, `ConcurrencyConflict`, `SelfRenewalError`, and `EmptyPackageError` (contracts/data-access.md).
-- [ ] T017 [P] Create `tests/unit/test_no_scope.py`: assert `db` exposes no `apply_scope`/`scoped_execute`, `import db.scope` fails, and no repository query/source references `customer_id` (SC-010 / FR-032) (after T002–T005).
+- [X] T017 [P] Create `tests/unit/test_no_scope.py`: assert `db` exposes no `apply_scope`/`scoped_execute`, `import db.scope` fails, and no repository query/source references `customer_id` (SC-010 / FR-032) (after T002–T005).
 - [ ] T018 Create `tests/sqlserver/test_submission_migration.py`: assert the migration builds all nine tables + FKs + the self-renewal CHECK and that the seeds are present (data-model §9). (Event-sourced atomicity is added in T032.)
 - [ ] T019 Run `make db-rebuild`; verify the nine tables exist, `customer`/`program`/`user_customer_access` do not, and the seeds are present (quickstart §1) (after T012–T015).
 
