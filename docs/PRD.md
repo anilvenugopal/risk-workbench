@@ -476,12 +476,13 @@ Three values only, event-sourced (insert `submission_status_event` + stamp cache
 
 | Status | Meaning |
 |---|---|
-| `ACTIVE` | Open — the analyst can work on it: add directories, tag artifacts, create/sync/delete packages. |
-| `COMPLETED` | Closed for tracking purposes. Analyst-initiated edits (creating/syncing/deleting packages) are blocked; viewing continues. Reopening to `ACTIVE` restores edit capability. |
-| `CANCELLED` | Withdrawn. Terminal state for a submission the analyst is no longer pursuing. |
+| `ACTIVE` | Open — fully editable: the analyst can edit its fields and CRM-ID tags, set its directory, and create/sync/delete packages. |
+| `COMPLETED` | Closed for tracking purposes. The submission is **read-only** — all analyst-initiated edits (its own fields, its CRM-ID tags, and package create/sync/delete) are blocked; viewing continues. Reopening to `ACTIVE` restores edit capability. |
+| `CANCELLED` | Withdrawn — the analyst is no longer pursuing it. Read-only in the same way as `COMPLETED`, and likewise reopenable to `ACTIVE` (with no delete, reopening is the recovery path for a mistaken cancel). |
 
 Rules:
-- **`COMPLETED → ACTIVE` (reopening) is allowed** — set it back to `ACTIVE` and work resumes. There is no one-way door between these two.
+- **Reopening to `ACTIVE` is allowed from either `COMPLETED` or `CANCELLED`** — set it back to `ACTIVE` and work resumes. Neither closed state is a one-way door; because there is no delete (below), reopening is also how a mistaken `CANCELLED` is recovered.
+- **Both closed states are fully read-only.** `COMPLETED` and `CANCELLED` alike block edits to the submission's own fields, its CRM-ID tags, and (once built) package create/sync/delete. The only actions on a closed submission are viewing and reopening. *(This is the deal-level record gate; it is distinct from the "no precondition on transitions" rule below, which is about what the analyst may not be blocked from doing.)*
 - **No system-enforced precondition on any transition.** The analyst decides when a submission is done or withdrawn — consistent with §1.1 ("the analyst is always in the driver's seat"). The system does not block `ACTIVE → COMPLETED` because, say, a package hasn't synced yet.
 - **There is no file-inventory scanning to keep running on a `COMPLETED` submission** — the scanner subsystem is dropped (CR-003 M5, §8); the only ongoing operation is viewing.
 - **There is no delete, ever.** A submission can carry EDMs/RDMs with real Risk Modeler identity by the time anyone would want to remove it — deleting the row would orphan or mis-audit that Risk Modeler-side state. `CANCELLED` exists specifically as the "this isn't happening" outcome in place of a delete.
@@ -1098,7 +1099,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 **In:**
 - §7 (Submission as the top-level deal: `cedant_name`/`treaty_type_code`/`inception_date`/`treaty_year`/`renews_from_submission_id`/`directory_path`, assigned analyst as soft owner, master-detail, list ergonomics)
 - §7.2 (`submission_crm_id` CRM-ID tag set — add/edit/remove tags)
-- §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced, no delete)
+- §7.2a (submission status: `ACTIVE`/`COMPLETED`/`CANCELLED`, event-sourced; closed states are fully read-only and reopenable to `ACTIVE`; no delete)
 - §7.2b (submission identity: surrogate `id` key, non-unique `name` label + soft duplicate warning)
 - §6.1 (global roles gating functions) + §6.2 (analyst-centric "my submissions" filter)
 - **§9.4 Package structure (schema only, DATA_MODEL §4/§5):** the `package` and `submission_package` tables, the submission↔package M:N, the `package_id` FK on `irp_edm`/`irp_rdm` (bundle membership), soft-delete (`deleted_at`), plus the `db/` access functions and tests. Membership FKs live on `irp_edm`/`irp_rdm`, whose tables are created with the initial schema; their *entity management* (import, IRP) is Iteration 2. The **≥1-member rule is an app-enforced invariant** (no column CHECK — membership spans two child tables). **No package creation/sync/delete behavior here** — exercising a non-empty package waits for the EDM/RDM import plumbing in Iteration 2.
@@ -1106,7 +1107,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entity management, search, workflow references; Package *behavior* — creation via shared-drive browse, name-collision check, IRP sync/delete, and the §7.4 package cards — all Iteration 2, building on the package schema defined here.
 
-**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening (`COMPLETED → ACTIVE`) works (the status gate's effect on package edits is exercised once package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: `irp_edm`/`irp_rdm` accept a nullable `package_id`, the app-level ≥1-member invariant is covered by a test, and the M:N lets one package attach to two submissions.
+**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening works from both `COMPLETED → ACTIVE` and `CANCELLED → ACTIVE`, and that a closed submission is read-only — edits to its fields and CRM-ID tags are blocked until it is reopened (the gate's effect on package actions follows when package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: `irp_edm`/`irp_rdm` accept a nullable `package_id`, the app-level ≥1-member invariant is covered by a test, and the M:N lets one package attach to two submissions.
 
 ### Iteration 2 — EDM & RDM entity management (incl. Packages)
 
@@ -1257,6 +1258,13 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-07-10 — Spec-002 clarify: §7.2a closed-state semantics (fully read-only; CANCELLED reopenable)
+
+Scope: §7.2a wording + §21 Iteration 1 In/Exit; reconciles the PRD with the spec-002 `/speckit.clarify` decisions. No CR (docs-only refinement, consistent with the CR-004-skip decision).
+
+- **Closed = fully read-only.** `COMPLETED` (and `CANCELLED`) now block **all** analyst edits — the submission's own fields, its CRM-ID tags, and package create/sync/delete — not just package actions as the prior wording read. This gives the status gate a real, testable effect in Iteration 1 (field/CRM-tag edits), with the package-action effect following in Iteration 2. Reopening remains the escape hatch.
+- **`CANCELLED` is reopenable.** Dropped the "terminal state" framing: `CANCELLED → ACTIVE` is now allowed alongside `COMPLETED → ACTIVE`. Because there is no delete, reopening is the recovery path for a mistaken cancel — consistent with "no delete, ever" and "the analyst is always in the driver's seat."
 
 ### 2026-07-10 — July 9 CIC session: package = bundle; EDM/RDM asymmetry; broker-result dedup; submission identity
 
