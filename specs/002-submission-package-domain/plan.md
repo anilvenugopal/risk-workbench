@@ -102,7 +102,10 @@ specs/002-submission-package-domain/
 
 ```text
 app/
+├── main.py                       # EDIT: register the submissions router (app.include_router)
 ├── services/
+│   ├── errors.py                 # NEW: typed service errors (SubmissionClosed, ConcurrencyConflict,
+│   │                             #      SelfRenewalError, EmptyPackageError)
 │   ├── submission_service.py     # NEW: create/get/list/update/reassign, status transitions
 │   │                             #      (event-sourced), CRM-tag add/edit/remove, duplicate
 │   │                             #      warning, optimistic-concurrency conflict, read-only gate
