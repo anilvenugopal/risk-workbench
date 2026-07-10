@@ -76,8 +76,6 @@ def wb(monkeypatch):
                       {"a": r[0], "b": r[1]})
     register_engine("WORKBENCH", eng)
     yield
-    if hasattr(db, "_ENGINE_OVERRIDES"):
-        db._ENGINE_OVERRIDES.clear()
 
 
 def test_execute_returns_list_of_dicts(wb):

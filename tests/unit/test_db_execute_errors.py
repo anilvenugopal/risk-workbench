@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import create_engine
 
-from db.connection import register_engine, _ENGINE_OVERRIDES
+from db.connection import register_engine
 from db.errors import SQLServerQueryError
 from db.execute import execute, execute_one, execute_scalar, execute_command
 
@@ -20,10 +20,8 @@ from db.execute import execute, execute_one, execute_scalar, execute_command
 def _sqlite(monkeypatch):
     """Register a blank SQLite engine for WORKBENCH so no real DB is needed."""
     eng = create_engine("sqlite:///:memory:")
-    _ENGINE_OVERRIDES.clear()
     register_engine("WORKBENCH", eng)
     yield
-    _ENGINE_OVERRIDES.clear()
 
 
 class TestExecuteErrorPath:

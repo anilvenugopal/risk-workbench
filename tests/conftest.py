@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from db.connection import register_engine
+from db.connection import register_engine, dispose_all, _ENGINE_OVERRIDES
 
 
 def pytest_addoption(parser):
@@ -44,6 +44,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_sql)
         if "irp" in item.keywords and not config.getoption("--run-irp"):
             item.add_marker(skip_irp)
+
+
+# ── Deterministic engine disposal (all tiers) ────────────────────────────────
+# In-memory SQLite engines registered during a test keep their sqlite3
+# connection open until GC, which Python 3.13+ surfaces as a noisy
+# ResourceWarning (via pytest's unraisableexception plugin). Dispose and clear
+# every registered/cached engine after each test so connections close
+# deterministically and no engine state leaks across tests.
+
+@pytest.fixture(autouse=True)
+def _dispose_registered_engines():
+    yield
+    for engine in list(_ENGINE_OVERRIDES.values()):
+        engine.dispose()
+    _ENGINE_OVERRIDES.clear()
+    dispose_all()
 
 
 # ── SQLite engine fixture (unit tests) ───────────────────────────────────────

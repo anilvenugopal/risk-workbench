@@ -215,7 +215,6 @@ class TestExecuteQuery:
         _ENGINE_OVERRIDES.clear()
         register_engine("DATABRIDGE", eng)
         result = execute_query("SELECT n FROM demo", connection="DATABRIDGE")
-        _ENGINE_OVERRIDES.clear()
 
         assert isinstance(result, pd.DataFrame)
         assert result["n"].iloc[0] == 7
@@ -230,7 +229,6 @@ class TestExecuteQuery:
         register_engine("DATABRIDGE", create_engine("sqlite:///:memory:"))
         with pytest.raises(SQLServerQueryError):
             execute_query("NOT VALID SQL", connection="DATABRIDGE")
-        _ENGINE_OVERRIDES.clear()
 
     def test_connection_error_reraised(self, monkeypatch):
         """SQLServerConnectionError from get_engine must propagate unchanged (line 152)."""
