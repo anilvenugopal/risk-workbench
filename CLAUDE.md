@@ -12,7 +12,7 @@ Read these before any implementation work:
 
 - [docs/PRD.md](docs/PRD.md) — product requirements, feature scope, iteration roadmap
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
-- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v1.1.0); all compliance gates
+- [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v3.0.0); all compliance gates
 
 ## Development Environment
 
@@ -38,9 +38,9 @@ See [docs/SCAFFOLDING.md](docs/SCAFFOLDING.md) for full setup and debugging tuto
 
 Full rules in the constitution. Key points for implementation:
 
-1. **Data access**: all SQL through `db/` package. Safe path: `db.execute()`, `db.scoped_execute()`. Trusted-script path: `from db.scripts import execute_script_file` (explicit import only — never at top level).
-2. **Scoping**: `apply_scope()` MUST only be called with `connection="WORKBENCH"`. Raises immediately on EXPOSURE, LOSS, DATABRIDGE.
-3. **Status**: always event-sourced (insert event row + stamp cached column in one transaction via `get_connection()` context manager). Never UPDATE in place.
+1. **Data access**: all SQL through `db/` package. Safe path: `db.execute()`. Trusted-script path: `from db.scripts import execute_script_file` (explicit import only — never at top level).
+2. **No row-level security** (CR-003, Article 6 v3.0.0): no `customer_id`, no `apply_scope()`, no `user_customer_access`. Every authenticated analyst sees every deal. `submission.assigned_analyst_id` is a soft "my submissions" owner, not an access gate. Roles gate *functions*, never *rows*.
+3. **Status**: `submission.status_code` is event-sourced (insert `submission_status_event` + stamp the cached column in one transaction via `get_connection("WORKBENCH")` with an explicit `conn.begin()`). All other status columns are updated in place.
 4. **Categoricals**: kind tables (`*_kind`) for all internal values. Plain VARCHAR for external-mirror columns only (listed in Article 3 carve-out).
 5. **IRP**: submission on request path is permitted. Polling and result work MUST be in the poller/workers — never in route handlers. `poll_*_to_completion` FORBIDDEN in poller; use `get_*` single-status-check only.
 6. **Frontend**: FastAPI + Jinja2 + HTMX. No SPA. `hx-boost` for top-level nav. Alpine.js only for small client slivers.
