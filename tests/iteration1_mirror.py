@@ -49,12 +49,19 @@ ITERATION1_SCHEMA = [
         submission_id TEXT, package_id TEXT, inserted_at TEXT, inserted_by TEXT,
         PRIMARY KEY (submission_id, package_id)
     )""",
+    # irp_edm / irp_rdm carry their full §5 shape from Iteration 1; this iteration
+    # EXERCISES the previously-inert columns (§6). The mirror is a subset of the
+    # real table (SUBSET_TABLES), so it lists every column a service now touches.
     """CREATE TABLE irp_edm (
-        id TEXT PRIMARY KEY, package_id TEXT, name TEXT, deleted_at TEXT,
+        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
+        server_name TEXT, status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE irp_rdm (
-        id TEXT PRIMARY KEY, package_id TEXT, name TEXT, deleted_at TEXT,
+        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
+        status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
 ]
