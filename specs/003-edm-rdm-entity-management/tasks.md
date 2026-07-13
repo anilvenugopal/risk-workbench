@@ -95,16 +95,16 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Tests for User Story 1 ⚠️ (write first, ensure they fail)
 
-- [ ] T018 [P] [US1] Unit-test `edm_service` in `tests/unit/test_edm_service.py`: `import_edm` creates the `irp_edm` (`pending_import`) + enqueues one `upload_edm` with **no** gateway call on the request path (FR-042); `check_name_collision` returns colliding names and never raises/blocks (SC-005); `replace_source_file` updates `source_file_path` + re-enqueues (FR-046); `retry_import` is idempotent (FR-045); `list_edms` applies no row scoping (SC-009); a stale `expected_updated_at` on `replace_source_file` raises `ConcurrencyConflict` (FR-039/SC-010).
-- [ ] T019 [P] [US1] Unit-test the poller import path (fake IRP) in `tests/unit/test_poller.py`: terminal `FINISHED` backfills `irp_id` + `completed_at` and flips `irp_edm.status` → `ready`; a non-`FINISHED` terminal flips → `error`; `SUBMISSION FAILED` is distinct from `FAILED`; `last_tracked_at` is stamped.
+- [X] T018 [P] [US1] Unit-test `edm_service` in `tests/unit/test_edm_service.py`: `import_edm` creates the `irp_edm` (`pending_import`) + enqueues one `upload_edm` with **no** gateway call on the request path (FR-042); `check_name_collision` returns colliding names and never raises/blocks (SC-005); `replace_source_file` updates `source_file_path` + re-enqueues (FR-046); `retry_import` is idempotent (FR-045); `list_edms` applies no row scoping (SC-009); a stale `expected_updated_at` on `replace_source_file` raises `ConcurrencyConflict` (FR-039/SC-010).
+- [X] T019 [P] [US1] Unit-test the poller import path (fake IRP) in `tests/unit/test_poller.py`: terminal `FINISHED` backfills `irp_id` + `completed_at` and flips `irp_edm.status` → `ready`; a non-`FINISHED` terminal flips → `error`; `SUBMISSION FAILED` is distinct from `FAILED`; `last_tracked_at` is stamped.
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement `app/services/edm_service.py` (depends T010, T012, T014): `import_edm` (standalone → enqueue `upload_edm` head `requestor_type='analyst_request'`, `requestor_id=irp_edm.id`; validates source via `shared_drive`), `check_name_collision`, `list_edms` (no scoping), `get_edm`, `replace_source_file` (optimistic concurrency, FR-039), `retry_import`.
-- [ ] T021 [US1] Implement the `upload_edm` Dramatiq actor in `app/workers/package_jobs.py` (depends T011, T012): body calls `irp_gateway.submit_edm_import`, records the `irp_job` (`import_edm`, QUEUED) + `irp_job_resource`; on successful submit flip `irp_edm.status` → `importing` (FR-004); on submit failure writes `SUBMISSION FAILED`. The unit of work is the **submit**, not the remote finish.
-- [ ] T022 [US1] Implement the import-tracking body of `poll_once` in `app/poller/run.py` (depends T013, T012): batch non-terminal `irp_job` by type, single-status `get_import_job`, mirror `status` in place, and on terminal backfill `irp_id` + `completed_at` + flip `irp_edm.status` (`ready` on `FINISHED`, else `error`).
-- [ ] T023 [US1] Implement EDM import/detail/recovery routes in `app/routers/edms.py` (depends T020, T015): `GET`/`POST /edms/import`, `GET /edms/{id}`, `POST /edms/{id}/retry`, `POST /edms/{id}/replace-file`, `GET /edms/name-check` — CSRF on every POST (Article 13), returns partials, no Risk Modeler call; include the router in `app/main.py`.
-- [ ] T024 [P] [US1] Create the EDM import form + detail templates (`app/templates/pages/edm_import.html`, `edm_detail.html`) and the non-blocking `app/templates/partials/name_collision.html` fragment (FR-012/SC-005).
+- [X] T020 [US1] Implement `app/services/edm_service.py` (depends T010, T012, T014): `import_edm` (standalone → enqueue `upload_edm` head `requestor_type='analyst_request'`, `requestor_id=irp_edm.id`; validates source via `shared_drive`), `check_name_collision`, `list_edms` (no scoping), `get_edm`, `replace_source_file` (optimistic concurrency, FR-039), `retry_import`.
+- [X] T021 [US1] Implement the `upload_edm` Dramatiq actor in `app/workers/package_jobs.py` (depends T011, T012): body calls `irp_gateway.submit_edm_import`, records the `irp_job` (`import_edm`, QUEUED) + `irp_job_resource`; on successful submit flip `irp_edm.status` → `importing` (FR-004); on submit failure writes `SUBMISSION FAILED`. The unit of work is the **submit**, not the remote finish.
+- [X] T022 [US1] Implement the import-tracking body of `poll_once` in `app/poller/run.py` (depends T013, T012): batch non-terminal `irp_job` by type, single-status `get_import_job`, mirror `status` in place, and on terminal backfill `irp_id` + `completed_at` + flip `irp_edm.status` (`ready` on `FINISHED`, else `error`).
+- [X] T023 [US1] Implement EDM import/detail/recovery routes in `app/routers/edms.py` (depends T020, T015): `GET`/`POST /edms/import`, `GET /edms/{id}`, `POST /edms/{id}/retry`, `POST /edms/{id}/replace-file`, `GET /edms/name-check` — CSRF on every POST (Article 13), returns partials, no Risk Modeler call; include the router in `app/main.py`.
+- [X] T024 [P] [US1] Create the EDM import form + detail templates (`app/templates/pages/edm_import.html`, `edm_detail.html`) and the non-blocking `app/templates/partials/name_collision.html` fragment (FR-012/SC-005).
 
 **Checkpoint**: MVP — an analyst can import an EDM and watch it reach *ready*, fully background-tracked.
 
@@ -118,15 +118,15 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T025 [P] [US2] Unit-test `rdm_service` in `tests/unit/test_rdm_service.py`: applied import enqueues one apply per EDM; review-only enqueues a single apply with no EDM (FR-002/FR-016); collision warning non-blocking; `retry_import` idempotent; `list_rdms` no scoping.
+- [X] T025 [P] [US2] Unit-test `rdm_service` in `tests/unit/test_rdm_service.py`: applied import enqueues one apply per EDM; review-only enqueues a single apply with no EDM (FR-002/FR-016); collision warning non-blocking; `retry_import` idempotent; `list_rdms` no scoping.
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] Implement `app/services/rdm_service.py` (depends T010, T012, T014): `import_rdm` (applied → one `upload_rdm` per EDM / review-only → single; enqueues heads), `check_name_collision`, `list_rdms`, `get_rdm`, `replace_source_file`, `retry_import` (mirrors `edm_service`).
-- [ ] T027 [US2] Add the `upload_rdm` actor to `app/workers/package_jobs.py` (depends T021): for each applied EDM call `irp_gateway.submit_rdm_import(edm_name=…)` (name-resolved via `search_edms`, Article 2), writing one `irp_job(import_rdm)` per apply; review-only → single apply, no EDM; on successful submit flip `irp_rdm.status` → `importing` (FR-004).
-- [ ] T028 [US2] Extend `poll_once` in `app/poller/run.py` (depends T022) to track terminal `import_rdm` and roll `irp_rdm.status` up to `ready` once all of its apply jobs are `FINISHED` (combined rollup, data-model §6).
-- [ ] T029 [US2] Implement RDM import/detail/recovery routes in `app/routers/rdms.py` (depends T026, T015): `GET`/`POST /rdms/import` (body carries `applied_edm_ids`, empty → review-only), `GET /rdms/{id}`, `POST /rdms/{id}/retry`, `/rdms/{id}/replace-file`, `GET /rdms/name-check` — CSRF; include in `app/main.py`.
-- [ ] T030 [P] [US2] Create the RDM import form + detail templates (`app/templates/pages/rdm_import.html`, `rdm_detail.html`), reusing the shared `name_collision` fragment.
+- [X] T026 [US2] Implement `app/services/rdm_service.py` (depends T010, T012, T014): `import_rdm` (applied → one `upload_rdm` per EDM / review-only → single; enqueues heads), `check_name_collision`, `list_rdms`, `get_rdm`, `replace_source_file`, `retry_import` (mirrors `edm_service`).
+- [X] T027 [US2] Add the `upload_rdm` actor to `app/workers/package_jobs.py` (depends T021): for each applied EDM call `irp_gateway.submit_rdm_import(edm_name=…)` (name-resolved via `search_edms`, Article 2), writing one `irp_job(import_rdm)` per apply; review-only → single apply, no EDM; on successful submit flip `irp_rdm.status` → `importing` (FR-004).
+- [X] T028 [US2] Extend `poll_once` in `app/poller/run.py` (depends T022) to track terminal `import_rdm` and roll `irp_rdm.status` up to `ready` once all of its apply jobs are `FINISHED` (combined rollup, data-model §6).
+- [X] T029 [US2] Implement RDM import/detail/recovery routes in `app/routers/rdms.py` (depends T026, T015): `GET`/`POST /rdms/import` (body carries `applied_edm_ids`, empty → review-only), `GET /rdms/{id}`, `POST /rdms/{id}/retry`, `/rdms/{id}/replace-file`, `GET /rdms/name-check` — CSRF; include in `app/main.py`.
+- [X] T030 [P] [US2] Create the RDM import form + detail templates (`app/templates/pages/rdm_import.html`, `rdm_detail.html`), reusing the shared `name_collision` fragment.
 
 **Checkpoint**: Both import shapes work and are tracked; the import/poller machinery is shared and proven.
 
@@ -140,15 +140,15 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T031 [P] [US3] Unit-test `package_sync_service` in `tests/unit/test_package_sync_service.py`: Save persists names + runs the collision check + submits nothing; Save-and-Sync enqueues one `upload_edm` per EDM and (via chaining) one apply per (EDM × RDM) pair; idempotent re-sync skips ready/in-flight and re-enqueues only unstarted/errored (SC-013); empty package → `EmptyPackageError` (SC-012); review-only → single apply; a stale `expected_updated_at` on `save_package` raises `ConcurrencyConflict` (FR-039/SC-010).
-- [ ] T032 [P] [US3] Unit-test completion-chaining + fan-in idempotency in `tests/unit/test_job_chaining.py` (Article 2 mandate): `import_edm` `FINISHED` enqueues exactly one `upload_rdm` fanning out to one apply per RDM; a duplicate/repeated trigger never double-enqueues (SC-014); per-pair fan-out (an apply gated only on its target EDM's upload, not a global head).
+- [X] T031 [P] [US3] Unit-test `package_sync_service` in `tests/unit/test_package_sync_service.py`: Save persists names + runs the collision check + submits nothing; Save-and-Sync enqueues one `upload_edm` per EDM and (via chaining) one apply per (EDM × RDM) pair; idempotent re-sync skips ready/in-flight and re-enqueues only unstarted/errored (SC-013); empty package → `EmptyPackageError` (SC-012); review-only → single apply; a stale `expected_updated_at` on `save_package` raises `ConcurrencyConflict` (FR-039/SC-010).
+- [X] T032 [P] [US3] Unit-test completion-chaining + fan-in idempotency in `tests/unit/test_job_chaining.py` (Article 2 mandate): `import_edm` `FINISHED` enqueues exactly one `upload_rdm` fanning out to one apply per RDM; a duplicate/repeated trigger never double-enqueues (SC-014); per-pair fan-out (an apply gated only on its target EDM's upload, not a global head).
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Implement `app/services/package_sync_service.py` (depends T010, T020, T026): `save_package` (≥1-member invariant, per-member collision, optimistic concurrency), `save_and_sync` (record pending work + return immediately; enqueue `upload_edm` heads `requestor_type='analyst_request'`, `requestor_id=package_id`; review-only RDM → `upload_rdm` head; idempotent on the dedup key, FR-044), `retry_member` (FR-045).
-- [ ] T034 [US3] Extend `poll_once` in `app/poller/run.py` (depends T028, T027): on `import_edm` `FINISHED` idempotently enqueue the `upload_rdm` head (`requestor_type='irp_job'`, `requestor_id=<finished irp_job.id>`), which fans out per-pair — each RDM apply gated only on its target EDM's upload (FR-015/FR-043).
-- [ ] T035 [US3] Implement package routes in `app/routers/packages.py` (depends T033, T015): `GET /submissions/{id}/packages/new` (modal), `POST /submissions/{id}/packages` (Save), `POST /packages/{pid}` (edit), `POST /packages/{pid}/sync` (Save-and-Sync — enqueue + return queued card), `POST /packages/{pid}/members/{mid}/retry` — CSRF + read-only submission gate (`SubmissionClosed`→409, FR-025); include in `app/main.py`.
-- [ ] T036 [P] [US3] Create `app/templates/partials/package_modal.html` (browse + multi-select + per-member name + actions, Alpine.js), `member_row.html` (per-member retry / replace-file control), and a **basic** `package_card.html` (queued/syncing state) — the card is enriched in US5.
+- [X] T033 [US3] Implement `app/services/package_sync_service.py` (depends T010, T020, T026): `save_package` (≥1-member invariant, per-member collision, optimistic concurrency), `save_and_sync` (record pending work + return immediately; enqueue `upload_edm` heads `requestor_type='analyst_request'`, `requestor_id=package_id`; review-only RDM → `upload_rdm` head; idempotent on the dedup key, FR-044), `retry_member` (FR-045).
+- [X] T034 [US3] Extend `poll_once` in `app/poller/run.py` (depends T028, T027): on `import_edm` `FINISHED` idempotently enqueue the `upload_rdm` head (`requestor_type='irp_job'`, `requestor_id=<finished irp_job.id>`), which fans out per-pair — each RDM apply gated only on its target EDM's upload (FR-015/FR-043).
+- [X] T035 [US3] Implement package routes in `app/routers/packages.py` (depends T033, T015): `GET /submissions/{id}/packages/new` (modal), `POST /submissions/{id}/packages` (Save), `POST /packages/{pid}` (edit), `POST /packages/{pid}/sync` (Save-and-Sync — enqueue + return queued card), `POST /packages/{pid}/members/{mid}/retry` — CSRF + read-only submission gate (`SubmissionClosed`→409, FR-025); include in `app/main.py`.
+- [X] T036 [P] [US3] Create `app/templates/partials/package_modal.html` (browse + multi-select + per-member name + actions, Alpine.js), `member_row.html` (per-member retry / replace-file control), and a **basic** `package_card.html` (queued/syncing state) — the card is enriched in US5.
 
 **Checkpoint**: The headline capability — real package sync — works end-to-end against the gateway/fake, off the request path, idempotently.
 
@@ -162,15 +162,15 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T037 [P] [US4] Unit-test delete ordering + fan-in in `tests/unit/test_delete_ordering.py`: `delete_rdm` writes no `irp_job` and completes synchronously; `delete_edm` writes a pollable `irp_job`; `delete_edm` enqueued only when all package RDMs `deleted`; duplicate `delete_rdm` success does not double-enqueue; package soft-delete fires once (SC-007).
+- [X] T037 [P] [US4] Unit-test delete ordering + fan-in in `tests/unit/test_delete_ordering.py`: `delete_rdm` writes no `irp_job` and completes synchronously; `delete_edm` writes a pollable `irp_job`; `delete_edm` enqueued only when all package RDMs `deleted`; duplicate `delete_rdm` success does not double-enqueue; package soft-delete fires once (SC-007).
 
 ### Implementation for User Story 4
 
-- [ ] T038 [US4] Add `delete_package` to `app/services/package_sync_service.py` (depends T033): enqueue reverse-order removals — one `delete_rdm` head per RDM (or one `delete_edm` head per EDM when the package has no RDMs); return immediately; no hard-delete path anywhere (FR-019/FR-021).
-- [ ] T039 [US4] Add the `delete_rdm` + `delete_edm` actors to `app/workers/package_jobs.py` (depends T027, T012): `delete_rdm` = **synchronous** `irp_gateway.delete_rdm_analyses`, set `irp_rdm.status='deleted'`, then app-side RDM→EDM fan-in (when all package RDMs `deleted`, idempotently enqueue `delete_edm` heads); `delete_edm` = atomic `delete_pending` guard → `submit_delete_edm` → write `irp_job(delete_edm)`.
-- [ ] T040 [US4] Extend `poll_once` in `app/poller/run.py` (depends T034): on `delete_edm` `FINISHED`, run the idempotent package-finalize fan-in — soft-delete the package + its members when no live members remain (FR-021/SC-014).
-- [ ] T041 [US4] Add `POST /packages/{pid}/delete` to `app/routers/packages.py` (depends T035, T038): CSRF + read-only gate; enqueue removals; return the deleting-state card.
-- [ ] T042 [P] [US4] Extend `app/templates/partials/package_card.html` (depends T036) with the deleting-state rendering.
+- [X] T038 [US4] Add `delete_package` to `app/services/package_sync_service.py` (depends T033): enqueue reverse-order removals — one `delete_rdm` head per RDM (or one `delete_edm` head per EDM when the package has no RDMs); return immediately; no hard-delete path anywhere (FR-019/FR-021).
+- [X] T039 [US4] Add the `delete_rdm` + `delete_edm` actors to `app/workers/package_jobs.py` (depends T027, T012): `delete_rdm` = **synchronous** `irp_gateway.delete_rdm_analyses`, set `irp_rdm.status='deleted'`, then app-side RDM→EDM fan-in (when all package RDMs `deleted`, idempotently enqueue `delete_edm` heads); `delete_edm` = atomic `delete_pending` guard → `submit_delete_edm` → write `irp_job(delete_edm)`.
+- [X] T040 [US4] Extend `poll_once` in `app/poller/run.py` (depends T034): on `delete_edm` `FINISHED`, run the idempotent package-finalize fan-in — soft-delete the package + its members when no live members remain (FR-021/SC-014).
+- [X] T041 [US4] Add `POST /packages/{pid}/delete` to `app/routers/packages.py` (depends T035, T038): CSRF + read-only gate; enqueue removals; return the deleting-state card.
+- [X] T042 [P] [US4] Extend `app/templates/partials/package_card.html` (depends T036) with the deleting-state rendering.
 
 **Checkpoint**: Delete works with the correct asymmetric ordering and idempotent soft-delete finalize.
 
@@ -184,14 +184,14 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T043 [P] [US5] Unit-test package-card data in `tests/unit/test_package_cards.py`: `package_job_counts` returns all/active/failed scoped to the package's members; `get_package_cards` exposes both status chips + source paths, renders portfolio/analysis empty (no error), carries no rolled-up package status (FR-018); create/sync/delete blocked on a COMPLETED/CANCELLED submission (SC-011).
+- [X] T043 [P] [US5] Unit-test package-card data in `tests/unit/test_package_cards.py`: `package_job_counts` returns all/active/failed scoped to the package's members; `get_package_cards` exposes both status chips + source paths, renders portfolio/analysis empty (no error), carries no rolled-up package status (FR-018); create/sync/delete blocked on a COMPLETED/CANCELLED submission (SC-011).
 
 ### Implementation for User Story 5
 
-- [ ] T044 [P] [US5] Create `app/services/job_query.py` with `package_job_counts(package_id)` — all/active/failed over `irp_job` + `rwb_job` scoped to the package's members (FR-023/FR-024) (depends T005).
-- [ ] T045 [US5] Add `get_package_cards(submission_id)` to `app/services/package_sync_service.py` (depends T044, T038): per-package card data — upload progress, member EDM + RDM status chips, source path(s), job counts; portfolio/analysis empty (R13); no rolled-up package status (FR-018).
-- [ ] T046 [US5] Edit `app/routers/submissions.py` + `app/templates/pages/submission_detail.html` (depends T045, T036) to render one full-width card per package (replacing the Iteration-1 placeholder), inheriting the read-only status gate.
-- [ ] T047 [P] [US5] Build the full `app/templates/partials/package_card.html` (depends T042) — upload progress, EDM + RDM status chips, source path(s), all/active/failed counts each deep-linking to the package-filtered Jobs list (FR-024) — and add `app/static/css/packages.css` (cards/chips/progress via ITCSS tokens, Article 9).
+- [X] T044 [P] [US5] Create `app/services/job_query.py` with `package_job_counts(package_id)` — all/active/failed over `irp_job` + `rwb_job` scoped to the package's members (FR-023/FR-024) (depends T005).
+- [X] T045 [US5] Add `get_package_cards(submission_id)` to `app/services/package_sync_service.py` (depends T044, T038): per-package card data — upload progress, member EDM + RDM status chips, source path(s), job counts; portfolio/analysis empty (R13); no rolled-up package status (FR-018).
+- [X] T046 [US5] Edit `app/routers/submissions.py` + `app/templates/pages/submission_detail.html` (depends T045, T036) to render one full-width card per package (replacing the Iteration-1 placeholder), inheriting the read-only status gate.
+- [X] T047 [P] [US5] Build the full `app/templates/partials/package_card.html` (depends T042) — upload progress, EDM + RDM status chips, source path(s), all/active/failed counts each deep-linking to the package-filtered Jobs list (FR-024) — and add `app/static/css/packages.css` (cards/chips/progress via ITCSS tokens, Article 9).
 
 **Checkpoint**: The analyst's day-to-day window into each package is legible on the submission.
 
