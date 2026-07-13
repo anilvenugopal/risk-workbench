@@ -54,15 +54,15 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 ### Schema + seeds (single revision — drop-create-seed, data-model §9)
 
 - [X] T012 Edit `alembic/versions/0001_initial.py`: remove the `customer`, `program`, and `user_customer_access` `create_table` calls and their downgrade drops (FR-032).
-- [ ] T013 Edit `alembic/versions/0001_initial.py`: add the nine Iteration-1 tables in FK order — `treaty_type_kind`, `submission_status_kind`, `package`, `submission`, `submission_crm_id`, `submission_status_event`, `submission_package` (composite PK), `irp_edm`, `irp_rdm` — with the self-renewal `CHECK (renews_from_submission_id IS NULL OR renews_from_submission_id <> id)`, indexes on `assigned_analyst_id`/`cedant_name`/`treaty_type_code`/`inception_date`, **no** `UNIQUE(name)`, **no** `customer_id`, nullable `package_id` on `irp_edm`/`irp_rdm`, and plain-`VARCHAR` `status` on the irp tables (data-model §2–§7); downgrade drops in reverse FK order (after T012).
-- [ ] T014 Edit `alembic/versions/0001_initial.py`: add in-migration seeds mirroring the `role_kind` seed — `submission_status_kind` (ACTIVE 10 / COMPLETED 20 / CANCELLED 30) and `treaty_type_kind` (the six provisional codes) (data-model §1/§9, FR-010/FR-030) (after T013).
-- [ ] T015 Edit `infra/scripts/seed_db.py`: add idempotent `MERGE` seeds for `submission_status_kind` and `treaty_type_kind` (same pattern as the existing `role_kind` MERGE) so a re-seed without a full rebuild stays correct (data-model §9).
+- [X] T013 Edit `alembic/versions/0001_initial.py`: add the nine Iteration-1 tables in FK order — `treaty_type_kind`, `submission_status_kind`, `package`, `submission`, `submission_crm_id`, `submission_status_event`, `submission_package` (composite PK), `irp_edm`, `irp_rdm` — with the self-renewal `CHECK (renews_from_submission_id IS NULL OR renews_from_submission_id <> id)`, indexes on `assigned_analyst_id`/`cedant_name`/`treaty_type_code`/`inception_date`, **no** `UNIQUE(name)`, **no** `customer_id`, nullable `package_id` on `irp_edm`/`irp_rdm`, and plain-`VARCHAR` `status` on the irp tables (data-model §2–§7); downgrade drops in reverse FK order (after T012).
+- [X] T014 Edit `alembic/versions/0001_initial.py`: add in-migration seeds mirroring the `role_kind` seed — `submission_status_kind` (ACTIVE 10 / COMPLETED 20 / CANCELLED 30) and `treaty_type_kind` (the six provisional codes) (data-model §1/§9, FR-010/FR-030) (after T013).
+- [X] T015 Edit `infra/scripts/seed_db.py`: add idempotent `MERGE` seeds for `submission_status_kind` and `treaty_type_kind` (same pattern as the existing `role_kind` MERGE) so a re-seed without a full rebuild stays correct (data-model §9).
 
 ### Shared service scaffolding + cleanup verification
 
-- [ ] T016 [P] Create `app/services/errors.py` with the typed service errors `SubmissionClosed`, `ConcurrencyConflict`, `SelfRenewalError`, and `EmptyPackageError` (contracts/data-access.md).
+- [X] T016 [P] Create `app/services/errors.py` with the typed service errors `SubmissionClosed`, `ConcurrencyConflict`, `SelfRenewalError`, and `EmptyPackageError` (contracts/data-access.md).
 - [X] T017 [P] Create `tests/unit/test_no_scope.py`: assert `db` exposes no `apply_scope`/`scoped_execute`, `import db.scope` fails, and no repository query/source references `customer_id` (SC-010 / FR-032) (after T002–T005).
-- [ ] T018 Create `tests/sqlserver/test_submission_migration.py`: assert the migration builds all nine tables + FKs + the self-renewal CHECK and that the seeds are present (data-model §9). (Event-sourced atomicity is added in T032.)
+- [X] T018 Create `tests/sqlserver/test_submission_migration.py`: assert the migration builds all nine tables + FKs + the self-renewal CHECK and that the seeds are present (data-model §9). (Event-sourced atomicity is added in T032.)
 - [ ] T019 Run `make db-rebuild`; verify the nine tables exist, `customer`/`program`/`user_customer_access` do not, and the seeds are present (quickstart §1) (after T012–T015).
 
 **Checkpoint**: Schema rebuilds clean, no scope construct remains, typed errors available — user stories can now begin.
@@ -77,16 +77,16 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 1 ⚠️ (write first, ensure they fail)
 
-- [ ] T020 [P] [US1] In `tests/unit/test_submission_service.py`: `create_submission` writes the submission **and** the initial ACTIVE status event atomically, sets the owner, and yields status ACTIVE; `get_submission` returns full detail with no access restriction; `cedant_suggestions` returns DISTINCT prefix matches (SC-001; contracts test obligations).
+- [X] T020 [P] [US1] In `tests/unit/test_submission_service.py`: `create_submission` writes the submission **and** the initial ACTIVE status event atomically, sets the owner, and yields status ACTIVE; `get_submission` returns full detail with no access restriction; `cedant_suggestions` returns DISTINCT prefix matches (SC-001; contracts test obligations).
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Create `app/services/submission_service.py` with `create_submission` (app-side `uuid4()` id; write submission + ACTIVE event in one `db.get_connection("WORKBENCH")` + `conn.begin()` transaction; returns `CreateResult`), `get_submission`, and `cedant_suggestions` (`SELECT DISTINCT cedant_name … LIKE`) — research R2/R6/R11. Also define here (so US2–US5 reuse them, and no story "owns" a shared primitive): the `_require_active(status_code)` read-only gate helper (raises `SubmissionClosed`) and the result DTOs `CreateResult`/`UpdateResult`/`Submission`/`SubmissionRow`/`StatusEvent`/`CrmTag` (contracts/data-access.md).
-- [ ] T022 [US1] Edit `app/nav/manifest.py`: add a parameterized `submissions.detail` node under the existing `submissions` rail (Article 1; http-routes Cross-cutting).
-- [ ] T023 [US1] Create `app/routers/submissions.py` (`APIRouter`): GET `/submissions/new`, POST `/submissions` (CSRF; 303 → `/submissions/{id}` or detail partial), GET `/submissions/{id}` (404 on unknown id), GET `/submissions/cedant-suggest?q=`; reuse the `_render(request, template, nav_key, extra)` shell pattern (contracts/http-routes.md).
-- [ ] T024 [US1] Edit `app/main.py`: register the router with `app.include_router(submissions.router)`.
-- [ ] T025 [P] [US1] Create `app/templates/pages/submission_form.html` (create form: name/cedant/treaty-type/inception + optional treaty-year/directory/renewal; CSRF token; cedant autocomplete via HTMX suggest or `<datalist>`) and `app/templates/pages/submission_detail.html` (attributes, status chip, empty CRM/packages placeholders).
-- [ ] T026 [P] [US1] Create `app/static/css/submissions.css`: list/detail/status-chip styling via existing ITCSS tokens — no hardcoded hex (Article 9).
+- [X] T021 [US1] Create `app/services/submission_service.py` with `create_submission` (app-side `uuid4()` id; write submission + ACTIVE event in one `db.get_connection("WORKBENCH")` + `conn.begin()` transaction; returns `CreateResult`), `get_submission`, and `cedant_suggestions` (`SELECT DISTINCT cedant_name … LIKE`) — research R2/R6/R11. Also define here (so US2–US5 reuse them, and no story "owns" a shared primitive): the `_require_active(status_code)` read-only gate helper (raises `SubmissionClosed`) and the result DTOs `CreateResult`/`UpdateResult`/`Submission`/`SubmissionRow`/`StatusEvent`/`CrmTag` (contracts/data-access.md).
+- [X] T022 [US1] Edit `app/nav/manifest.py`: add a parameterized `submissions.detail` node under the existing `submissions` rail (Article 1; http-routes Cross-cutting).
+- [X] T023 [US1] Create `app/routers/submissions.py` (`APIRouter`): GET `/submissions/new`, POST `/submissions` (CSRF; 303 → `/submissions/{id}` or detail partial), GET `/submissions/{id}` (404 on unknown id), GET `/submissions/cedant-suggest?q=`; reuse the `_render(request, template, nav_key, extra)` shell pattern (contracts/http-routes.md).
+- [X] T024 [US1] Edit `app/main.py`: register the router with `app.include_router(submissions.router)`.
+- [X] T025 [P] [US1] Create `app/templates/pages/submission_form.html` (create form: name/cedant/treaty-type/inception + optional treaty-year/directory/renewal; CSRF token; cedant autocomplete via HTMX suggest or `<datalist>`) and `app/templates/pages/submission_detail.html` (attributes, status chip, empty CRM/packages placeholders).
+- [X] T026 [P] [US1] Create `app/static/css/submissions.css`: list/detail/status-chip styling via existing ITCSS tokens — no hardcoded hex (Article 9).
 
 **Checkpoint**: A deal can be created, is owned by its creator, is ACTIVE, and is viewable by its own URL. MVP slice functional.
 
@@ -100,13 +100,13 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 2 ⚠️
 
-- [ ] T027 [P] [US2] In `tests/unit/test_submission_service.py`: `list_submissions(owner_id=A)` returns only A's; `owner_id=None` returns all; each filter (cedant/treaty_type/inception/treaty_year) and combinations narrow correctly; `reassign_owner` changes the owner and raises `ConcurrencyConflict` on a stale `updated_at` (SC-002/SC-003/SC-011/SC-009).
+- [X] T027 [P] [US2] In `tests/unit/test_submission_service.py`: `list_submissions(owner_id=A)` returns only A's; `owner_id=None` returns all; each filter (cedant/treaty_type/inception/treaty_year) and combinations narrow correctly; `reassign_owner` changes the owner and raises `ConcurrencyConflict` on a stale `updated_at` (SC-002/SC-003/SC-011/SC-009).
 
 ### Implementation for User Story 2
 
-- [ ] T028 [US2] Add to `app/services/submission_service.py`: `list_submissions` (plain `assigned_analyst_id` predicate for My; no owner predicate for All; AND-combined bound filters — research R7/R10) and `reassign_owner` (reuse the `_require_active` gate helper defined in T021 + `updated_at` concurrency check — research R1/R3; FR-005a).
-- [ ] T029 [US2] Add to `app/routers/submissions.py`: GET `/submissions` (All; filter query params), GET `/submissions/mine` (the default landing per FR-020), POST `/submissions/{id}/reassign` (CSRF; 409 on gate/concurrency).
-- [ ] T030 [P] [US2] Replace the stub `app/templates/pages/submissions.html` with the master-detail list (My/All toggle; cedant/treaty-type/inception filter controls) and create `app/templates/partials/submission_row.html` (HTMX swap row).
+- [X] T028 [US2] Add to `app/services/submission_service.py`: `list_submissions` (plain `assigned_analyst_id` predicate for My; no owner predicate for All; AND-combined bound filters — research R7/R10) and `reassign_owner` (reuse the `_require_active` gate helper defined in T021 + `updated_at` concurrency check — research R1/R3; FR-005a).
+- [X] T029 [US2] Add to `app/routers/submissions.py`: GET `/submissions` (All; filter query params), GET `/submissions/mine` (the default landing per FR-020), POST `/submissions/{id}/reassign` (CSRF; 409 on gate/concurrency).
+- [X] T030 [P] [US2] Replace the stub `app/templates/pages/submissions.html` with the master-detail list (My/All toggle; cedant/treaty-type/inception filter controls) and create `app/templates/partials/submission_row.html` (HTMX swap row).
 
 **Checkpoint**: The master-detail list is usable at scale; ownership filters and reassignment work with no row-level access restriction.
 
@@ -120,14 +120,14 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 3 ⚠️
 
-- [ ] T031 [P] [US3] In `tests/unit/test_submission_service.py`: `set_status` records history for every transition; reopen works from COMPLETED **and** CANCELLED; same-status is a recorded no-op (never errors); `get_status_history` is newest-first and immutable; the read-only gate makes `reassign_owner` raise `SubmissionClosed` when status != ACTIVE; assert no delete function exists (SC-004/SC-005/SC-012).
-- [ ] T032 [P] [US3] Extend `tests/sqlserver/test_submission_migration.py`: the event-sourced status transaction is atomic — the `submission_status_event` insert and the cached `submission.status_code` stamp commit and roll back together.
+- [X] T031 [P] [US3] In `tests/unit/test_submission_service.py`: `set_status` records history for every transition; reopen works from COMPLETED **and** CANCELLED; same-status is a recorded no-op (never errors); `get_status_history` is newest-first and immutable; the read-only gate makes `reassign_owner` raise `SubmissionClosed` when status != ACTIVE; assert no delete function exists (SC-004/SC-005/SC-012).
+- [X] T032 [P] [US3] Extend `tests/sqlserver/test_submission_migration.py`: the event-sourced status transaction is atomic — the `submission_status_event` insert and the cached `submission.status_code` stamp commit and roll back together.
 
 ### Implementation for User Story 3
 
-- [ ] T033 [US3] Add to `app/services/submission_service.py`: `set_status` (one `conn.begin()` transaction — INSERT event + UPDATE cached `status_code` + `updated_at` concurrency check; no precondition; same-status no-op — research R2) and `get_status_history` (FR-010–FR-014).
-- [ ] T034 [US3] Add to `app/routers/submissions.py`: POST `/submissions/{id}/status` (body `to_status`/`reason`/`updated_at`; reopen from either closed state; returns status-chip + history partial; CSRF). Confirm **no** delete route exists anywhere (FR-014/SC-005).
-- [ ] T035 [P] [US3] Edit `app/templates/pages/submission_detail.html`: add the status section + history list + Reopen control, and render read-only (hide edit/reassign/CRM affordances) when status != ACTIVE (FR-015/SC-012).
+- [X] T033 [US3] Add to `app/services/submission_service.py`: `set_status` (one `conn.begin()` transaction — INSERT event + UPDATE cached `status_code` + `updated_at` concurrency check; no precondition; same-status no-op — research R2) and `get_status_history` (FR-010–FR-014).
+- [X] T034 [US3] Add to `app/routers/submissions.py`: POST `/submissions/{id}/status` (body `to_status`/`reason`/`updated_at`; reopen from either closed state; returns status-chip + history partial; CSRF). Confirm **no** delete route exists anywhere (FR-014/SC-005).
+- [X] T035 [P] [US3] Edit `app/templates/pages/submission_detail.html`: add the status section + history list + Reopen control, and render read-only (hide edit/reassign/CRM affordances) when status != ACTIVE (FR-015/SC-012).
 
 **Checkpoint**: Status is event-sourced and lossless; closed deals are read-only and reopenable; there is no delete.
 
@@ -141,13 +141,13 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 4 ⚠️
 
-- [ ] T036 [P] [US4] In `tests/unit/test_submission_service.py`: add/edit/remove/list CRM tags; zero tags valid; blank/whitespace rejected (not stored); no format validation; duplicate identical tags permitted; all three mutations raise `SubmissionClosed` unless ACTIVE (SC-007/SC-012).
+- [X] T036 [P] [US4] In `tests/unit/test_submission_service.py`: add/edit/remove/list CRM tags; zero tags valid; blank/whitespace rejected (not stored); no format validation; duplicate identical tags permitted; all three mutations raise `SubmissionClosed` unless ACTIVE (SC-007/SC-012).
 
 ### Implementation for User Story 4
 
-- [ ] T037 [US4] Add to `app/services/submission_service.py`: `add_crm_id`, `edit_crm_id`, `remove_crm_id`, `list_crm_ids` (append-only inserts; reuse the `_require_active` gate; FR-016–FR-018).
-- [ ] T038 [US4] Add to `app/routers/submissions.py`: POST `/submissions/{id}/crm-ids`, POST `/submissions/{id}/crm-ids/{tag_id}`, POST `/submissions/{id}/crm-ids/{tag_id}/delete` (CSRF; return the tag-set partial; 409 on gate).
-- [ ] T039 [P] [US4] Create `app/templates/partials/crm_tags.html` (tag-set editor fragment; small Alpine sliver) and wire it into `app/templates/pages/submission_detail.html`.
+- [X] T037 [US4] Add to `app/services/submission_service.py`: `add_crm_id`, `edit_crm_id`, `remove_crm_id`, `list_crm_ids` (append-only inserts; reuse the `_require_active` gate; FR-016–FR-018).
+- [X] T038 [US4] Add to `app/routers/submissions.py`: POST `/submissions/{id}/crm-ids`, POST `/submissions/{id}/crm-ids/{tag_id}`, POST `/submissions/{id}/crm-ids/{tag_id}/delete` (CSRF; return the tag-set partial; 409 on gate).
+- [X] T039 [P] [US4] Create `app/templates/partials/crm_tags.html` (tag-set editor fragment; small Alpine sliver) and wire it into `app/templates/pages/submission_detail.html`.
 
 **Checkpoint**: CRM tags are fully manageable on ACTIVE deals and correctly gated on closed deals.
 
@@ -161,13 +161,13 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 5 ⚠️
 
-- [ ] T040 [P] [US5] In `tests/unit/test_submission_service.py`: `find_similar` warns on name-match and on attribute-match (cedant+type+inception), returns empty for a genuinely new deal, and `exclude_id` skips the renamed row; `create_submission` with an unconfirmed match returns `CreateResult(created=False, warnings=…)` without writing while `confirmed=True` writes; `update_submission` runs `find_similar` on rename, raises `SelfRenewalError` on a self-link, and raises `ConcurrencyConflict` on a stale `updated_at` (SC-006/SC-009).
+- [X] T040 [P] [US5] In `tests/unit/test_submission_service.py`: `find_similar` warns on name-match and on attribute-match (cedant+type+inception), returns empty for a genuinely new deal, and `exclude_id` skips the renamed row; `create_submission` with an unconfirmed match returns `CreateResult(created=False, warnings=…)` without writing while `confirmed=True` writes; `update_submission` runs `find_similar` on rename, raises `SelfRenewalError` on a self-link, and raises `ConcurrencyConflict` on a stale `updated_at` (SC-006/SC-009).
 
 ### Implementation for User Story 5
 
-- [ ] T041 [US5] Add to `app/services/submission_service.py`: `find_similar` (name OR cedant+type+inception; `exclude_id`); wire the duplicate check into `create_submission` (confirmed flag → CreateResult); `update_submission` (edit mutable fields; `_require_active` gate; `updated_at` concurrency; self-renewal guard; dup-warning on rename) — research R1/R3/R4/R9.
-- [ ] T042 [US5] Add to `app/routers/submissions.py`: GET `/submissions/{id}/edit` (carries `updated_at`; 409 gate if not ACTIVE) and POST `/submissions/{id}` (update); non-blocking dup-warning two-step confirm (`confirmed=1`) on create **and** update; 409 conflict banner that preserves input (contracts/http-routes.md).
-- [ ] T043 [P] [US5] Create `app/templates/partials/dup_warning.html` (non-blocking look-alike list + Create/Save-anyway control) and add edit mode + conflict banner + hidden `confirmed` field to `app/templates/pages/submission_form.html`.
+- [X] T041 [US5] Add to `app/services/submission_service.py`: `find_similar` (name OR cedant+type+inception; `exclude_id`); wire the duplicate check into `create_submission` (confirmed flag → CreateResult); `update_submission` (edit mutable fields; `_require_active` gate; `updated_at` concurrency; self-renewal guard; dup-warning on rename) — research R1/R3/R4/R9.
+- [X] T042 [US5] Add to `app/routers/submissions.py`: GET `/submissions/{id}/edit` (carries `updated_at`; 409 gate if not ACTIVE) and POST `/submissions/{id}` (update); non-blocking dup-warning two-step confirm (`confirmed=1`) on create **and** update; 409 conflict banner that preserves input (contracts/http-routes.md).
+- [X] T043 [P] [US5] Create `app/templates/partials/dup_warning.html` (non-blocking look-alike list + Create/Save-anyway control) and add edit mode + conflict banner + hidden `confirmed` field to `app/templates/pages/submission_form.html`.
 
 **Checkpoint**: Look-alike deals coexist with a warning-not-block flow; field edits are concurrency-safe and self-renewal-proof.
 
@@ -181,12 +181,12 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 6 ⚠️
 
-- [ ] T044 [P] [US6] Create `tests/unit/test_package_service.py`: `create_package([])` raises `EmptyPackageError` (SC-008); `create_package` with members writes the package and stamps `package_id` in one transaction; `package_member_count` counts across `irp_edm` + `irp_rdm` where `deleted_at IS NULL`; `add_member`/`remove_member` work and removing the last member soft-deletes the package; `attach_to_submission` is composite-PK idempotent and one package attaches to two submissions; `detach_from_submission` and `soft_delete_package` behave (FR-023–FR-027/SC-008).
+- [X] T044 [P] [US6] Create `tests/unit/test_package_service.py`: `create_package([])` raises `EmptyPackageError` (SC-008); `create_package` with members writes the package and stamps `package_id` in one transaction; `package_member_count` counts across `irp_edm` + `irp_rdm` where `deleted_at IS NULL`; `add_member`/`remove_member` work and removing the last member soft-deletes the package; `attach_to_submission` is composite-PK idempotent and one package attaches to two submissions; `detach_from_submission` and `soft_delete_package` behave (FR-023–FR-027/SC-008).
 
 ### Implementation for User Story 6
 
-- [ ] T045 [P] [US6] Create `app/services/package_service.py`: `create_package`, `package_member_count`, `add_member`, `remove_member`, `attach_to_submission`, `detach_from_submission`, `soft_delete_package`, `get_packages_for_submission` — the ≥1-member invariant enforced app-side across both child tables, raising `EmptyPackageError` (research R5; FR-024/FR-029). Define the `Package` DTO here (contracts/data-access.md).
-- [ ] T046 [US6] Edit `app/templates/pages/submission_detail.html`: add a read-only placeholder list of attached packages via `get_packages_for_submission` — no create/sync/delete (FR-028). (Touches the detail template; sequence after T035/T039.)
+- [X] T045 [P] [US6] Create `app/services/package_service.py`: `create_package`, `package_member_count`, `add_member`, `remove_member`, `attach_to_submission`, `detach_from_submission`, `soft_delete_package`, `get_packages_for_submission` — the ≥1-member invariant enforced app-side across both child tables, raising `EmptyPackageError` (research R5; FR-024/FR-029). Define the `Package` DTO here (contracts/data-access.md).
+- [X] T046 [US6] Edit `app/templates/pages/submission_detail.html`: add a read-only placeholder list of attached packages via `get_packages_for_submission` — no create/sync/delete (FR-028). (Touches the detail template; sequence after T035/T039.)
 
 **Checkpoint**: Package structure + data-access + tests complete; Iteration 2 can build package behavior on it.
 
@@ -196,8 +196,8 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 **Purpose**: Verify constitution gates and run the end-to-end validation.
 
-- [ ] T047 [P] Confirm every state-changing route in `app/routers/submissions.py` carries a CSRF check via `app/auth/csrf.py` and inherits the Iteration-0 HTMX session-expiry `HX-Redirect` handling (Article 13; http-routes Cross-cutting).
-- [ ] T048 [P] ITCSS/token audit of `app/static/css/submissions.css` — tokens only, no hardcoded hex, no flat append-sheets (Article 9).
+- [X] T047 [P] Confirm every state-changing route in `app/routers/submissions.py` carries a CSRF check via `app/auth/csrf.py` and inherits the Iteration-0 HTMX session-expiry `HX-Redirect` handling (Article 13; http-routes Cross-cutting).
+- [X] T048 [P] ITCSS/token audit of `app/static/css/submissions.css` — tokens only, no hardcoded hex, no flat append-sheets (Article 9).
 - [ ] T049 Run `pytest tests/unit` and `pytest tests/sqlserver --run-sqlserver`; confirm all green (quickstart §2–§3).
 - [ ] T050 Execute the quickstart.md manual walkthrough (SC-001…SC-012), confirming no delete action exists anywhere and no customer/program/scope construct remains in schema, `db/`, or tests (SC-005/SC-010).
 
