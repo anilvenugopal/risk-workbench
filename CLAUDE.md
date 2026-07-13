@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/002-submission-package-domain/plan.md
+at specs/003-edm-rdm-entity-management/plan.md
 <!-- SPECKIT END -->
 
 # Risk Analysis Workbench — Claude Code Context
@@ -61,8 +61,9 @@ Drop-create-seed. Single revision `alembic/versions/0001_initial.py` until produ
 Before each schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
 DATABRIDGE is never in scope.
 
-## irp-integration v0.2.1.dev23
+## irp-integration (source-switchable: PyPI / TestPyPI / local)
 
+- Source is switchable via uv dependency groups — `make irp-pypi` (PyPI `0.2.0`, production default), `make irp-testpypi` (newest TestPyPI dev build), `make irp-local` (editable checkout at `../../IRP/irp-integration`). `make irp-status` shows the active source. Confirm method signatures against the **active** wheel — it is pre-release and moves.
 - `IRPClient()` reads all config from env vars — no constructor args
 - Batch analysis: `submit_portfolio_analysis_jobs(list)` → `List[int]` (ordered, positional)
 - Single analysis: `submit_portfolio_analysis_job()` → `Tuple[int, request_body]`; store `request_body["resourceUri"]` as `irp_job.resource_uri` immediately — not available in completion response
