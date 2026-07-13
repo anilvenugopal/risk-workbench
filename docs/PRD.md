@@ -72,7 +72,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **RWB job dedup key** — the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` on every `rwb_job` row (replaces the old `request_key` string).
 - **Job heartbeat** — a child-table row (`rwb_job_heartbeat`) stamped every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread while a worker holds a job. Proves the job is progressing, independent of which worker and independent of job duration.
 - **Reconciler** — a single-instance periodic sweep (folded into the poller process) that recovers `running` `rwb_job` rows whose heartbeat is stale. Stale = heartbeat older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the heartbeat interval; never a function of job size or duration). Resets `running → pending` and re-enqueues via Dramatiq. Does not scan `pending` rows (durable Redis covers those).
-- **IRP job type** — a kind-table discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `edm_import`, `rdm_import`, `geohaz`, `analysis`, `grouping`, `export`.
+- **IRP job type** — a kind-table discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`.
 - **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group.
 - **Exposure Repository** — on-prem SQL Server that holds pre-aggregated exposure summary data (output of Phase A). Separate connection from the Workbench Metamodel DB.
 - **Loss Repository** — on-prem SQL Server that holds finalized loss sets / analysis results (output of Phase C). Separate connection from both other databases.
@@ -555,7 +555,7 @@ The EDM is a **DataBridge SQL database** (persistent, storage-limited — never 
 - Soft-delete via `deleted_at`
 
 **EDM operations** (MVP spine is import; create-fresh / upgrade / delete are out of the MVP spine, `mvp-scope.md §1`):
-- **Import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = edm_import` (uploads to S3 first, inside the library — a heavy submit). Both `.bak` and `.mdf` database files are accepted (`mvp-scope.md` row 4).
+- **Import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = import_edm` (uploads to S3 first, inside the library — a heavy submit). Both `.bak` and `.mdf` database files are accepted (`mvp-scope.md` row 4).
 
 All async operations create an `irp_job` row and are polled by the poller.
 
@@ -573,7 +573,7 @@ An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in
 No `submission_id`/`customer_id` — same as the EDM (ownership through the package, no RLS).
 
 **RDM operations:**
-- **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = rdm_import` (uploads to S3 first)
+- **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = import_rdm` (uploads to S3 first)
 - **Query via DataBridge** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; accessible via DataBridge for comparison queries (reading broker results tables directly)
 - **Export to Loss Repository** — push broker results to the Loss Repository for side-by-side comparison with own analysis (see §17)
 
@@ -596,8 +596,8 @@ A **package** is a *bundle* of one or more EDMs and/or RDMs that an analyst crea
 **Actions — Cancel / Save / Save and Sync / Delete:**
 - **Cancel** — discard, no write.
 - **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
-- **Save and Sync** — Save, then queues **one `edm_upload` job per EDM plus one `rdm_upload` (apply) job per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `rdm_upload(R→E)` waits only for `E`'s `edm_upload` to succeed, so applications fan out in parallel as each EDM lands — the old "EDM is always *the* single head job" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `rdm_upload` with no EDM. Per the §21 build-plan reorder these are **real** `edm_upload`/`rdm_upload` IRP jobs (the UI may be built against 60-second heartbeat stubs first and wired to real IRP within Iteration 2). See DATA_MODEL.md §4 for the exact sequencing, and the open TBD there on how an IRP-job completion triggers the next RWB job (A21, to resolve before real sync/delete lands).
-- **Delete** — the two sides are independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker); deleting an **RDM** removes only the broker analyses it created across EDMs. When the last member-delete job succeeds, the linked EDMs/RDMs are soft-deleted and the `package` row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). See DATA_MODEL.md §4 for the exact job sequencing.
+- **Save and Sync** — Save, then queues **one `upload_edm` job per EDM plus one `upload_rdm` (apply) job per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `upload_rdm(R→E)` waits only for `E`'s `upload_edm` to succeed, so applications fan out in parallel as each EDM lands — the old "EDM is always *the* single head job" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `upload_rdm` with no EDM. Per the §21 build-plan reorder these are **real** `upload_edm`/`upload_rdm` IRP jobs (the UI may be built against 60-second heartbeat stubs first and wired to real IRP within Iteration 2). See DATA_MODEL.md §4 for the exact sequencing, and DATA_MODEL.md §8 → *Package sync/delete chaining* for how an IRP-job completion triggers the next RWB job (A21, **resolved** 2026-07-13).
+- **Delete** — the two sides are independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker) — an **asynchronous** Risk Modeler job; deleting an **RDM** removes only the broker analyses it created across EDMs — a **synchronous** operation (an RDM is not a first-class Risk Modeler object, so its removal deletes those analysis entities inline). Deletes run RDM-before-EDM; when the last member removal completes, the linked EDMs/RDMs are soft-deleted and the `package` row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). See DATA_MODEL.md §4 (sequencing) and §8 → *Package sync/delete chaining* (A21).
 
 **No independent package status.** Unlike Submission, a package does not get its own status field or an aggregated rollup of its EDM/RDM statuses. The EDM already has a status (`pending_import`/`importing`/`ready`/`error`/`delete_pending`/`deleted`) and so does the RDM, and each has its own IRP jobs with their own job status. A package-level status would just be a third value that has to be kept in sync with two independently-changing sources of truth, for no benefit — the UI shows the EDM's status chip and the RDM's status chip side by side inside the package card instead.
 
@@ -708,8 +708,8 @@ Synchronous single ops (create-subportfolio, treaty CRUD) create **no job and no
 
 Every async op is tracked as an `irp_job` row and polled by the poller (§14.4). Only the operations below are the MVP analysis spine (`mvp-scope.md §1–§3`); EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine and, if revived, map onto the same `irp_job_type` set.
 
-- **EDM import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = edm_import` (uploads to S3 first, inside the library — a **heavy** submit). `irp_edm.irp_id` is backfilled by the poller on import `FINISHED`.
-- **RDM import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = rdm_import` (also heavy). Once imported, the RDM's broker analyses appear as `irp_analysis` rows with `rdm_id` set (see DATA_MODEL §3c), readable via DataBridge for comparison.
+- **EDM import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = import_edm` (uploads to S3 first, inside the library — a **heavy** submit). `irp_edm.irp_id` is backfilled by the poller on import `FINISHED`.
+- **RDM import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = import_rdm` (also heavy). Once imported, the RDM's broker analyses appear as `irp_analysis` rows with `rdm_id` set (see DATA_MODEL §3c), readable via DataBridge for comparison.
 
 ### 12.4 Treaties (view / edit)
 
@@ -775,8 +775,8 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 
 | Op | IRP call | `irp_job_type` |
 |---|---|---|
-| EDM .bak/.mdf import | `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` | `edm_import` |
-| RDM import | `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` | `rdm_import` |
+| EDM .bak/.mdf import | `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` | `import_edm` |
+| RDM import | `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` | `import_rdm` |
 | Geo-coding & Hazard | `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` | `geohaz` |
 | Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` → `(job_id, request_body)` | `analysis` |
 | Analysis (batch) | **loop** `submit_portfolio_analysis_job` app-side, once per item, capturing each `(job_id, request_body)` | `analysis` per item |
@@ -801,7 +801,8 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 
 | `irp_job_type` | Single-status-check method (poller uses this) |
 |---|---|
-| `edm_import` / `rdm_import` | `client.import_job.get_import_job(id)` |
+| `import_edm` / `import_rdm` | `client.import_job.get_import_job(id)` |
+| `delete_edm` | EDM delete job getter *(exact single-status getter confirmed against the installed library at planning — A21)* |
 | `geohaz` | `client.portfolio.get_geohaz_job(id)` |
 | `analysis` | `client.analysis.get_analysis_job(id)` |
 | `grouping` | `client.analysis.get_analysis_grouping_job(id)` |
@@ -821,7 +822,7 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 
 `rwb_job` is app-side work **this app executes** in-process (Dramatiq worker), fully decoupled from `irp_job` (no FK). Each row's `requestor_type` (kind-table FK) + `requestor_id` records what triggered it — an `irp_job` completion, an analyst action, or a parent `rwb_job` (chaining); the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` is the dedup/idempotency key (replacing `request_key`). `rwb_job_type` is a kind-table FK. See DATA_MODEL §8 for the full vocabulary.
 
-**Result workers** (triggered by the poller writing an `rwb_job` head row on terminal IRP status): `retrieve_analysis_results` → `push_results_to_loss_repo`; `push_rdm_to_loss_repo`; `notify_analyst`; `download_export_file`; plus the package `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` stubs (§7.4/§9.4). (`push_exposure_summary` is out of MVP — no Exposure Repository per `mvp-scope.md §6`.)
+**Result workers** (triggered by the poller writing an `rwb_job` head row on terminal IRP status): `retrieve_analysis_results` → `push_results_to_loss_repo`; `push_rdm_to_loss_repo`; `notify_analyst`; `download_export_file`; plus the package `upload_edm`/`upload_rdm`/`delete_rdm`/`delete_edm` stubs (§7.4/§9.4; `delete_rdm` runs a synchronous removal, the others submit async Risk Modeler jobs). (`push_exposure_summary` is out of MVP — no Exposure Repository per `mvp-scope.md §6`.)
 
 **Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `push_results_to_loss_repo` never races `retrieve_analysis_results` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
 
@@ -1115,12 +1116,12 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:**
 - §9 (EDM entity, RDM entity, EDM/RDM library rail destinations)
-- §14.3 IRP submit for EDM import and RDM import, §14.4 poller (basic: poll `edm_import` + `rdm_import` types via `import_job.get_import_job`), §14.5 Dramatiq worker scaffold + `notify_analyst` worker
-- §8 + §9.4 Package **behavior** (the `package`/`submission_package` schema comes from Iteration 1): creation — pick shape EDM-only/RDM-only/both, browse the shared drive and select file(s), IRP name-collision check, Save/Save-and-Sync/Delete backed by **real** `edm_upload`/`rdm_upload`/`rdm_delete`/`edm_delete` IRP jobs
+- §14.3 IRP submit for EDM import and RDM import, §14.4 poller (basic: poll `import_edm` + `import_rdm` types via `import_job.get_import_job`), §14.5 Dramatiq worker scaffold + `notify_analyst` worker
+- §8 + §9.4 Package **behavior** (the `package`/`submission_package` schema comes from Iteration 1): creation — pick shape EDM-only/RDM-only/both, browse the shared drive and select file(s), IRP name-collision check, Save/Save-and-Sync/Delete backed by **real** Risk Modeler operations — `upload_edm`/`upload_rdm`/`delete_edm` async jobs plus the synchronous `delete_rdm`
 - §7.4 (submission detail package cards — real upload progress/status/job counts)
 - §20.4 query-string-driven filtering + the Jobs list (fixed filter-param vocabulary: `submission_id`, `package_id`, `status`, `job_type`) — needed here so a package card's job-count link lands on a pre-filtered Jobs list
 
-**Out:** the global command-palette search framework (§19, Ctrl/Cmd-J and providers — Iteration 3); analysis, grouping, results, repositories; workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately). Package job chaining across RWB-job/IRP-job space (A21) must be resolved before the real sync/delete paths are implemented.
+**Out:** the global command-palette search framework (§19, Ctrl/Cmd-J and providers — Iteration 3); analysis, grouping, results, repositories; workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately). *(Package job chaining across RWB-job/IRP-job space (A21) — the prerequisite for the real sync/delete paths — is now **resolved**; see §22 A21 and DATA_MODEL.md §8.)*
 
 **Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s); see the IRP name-collision warning; Save-and-Sync runs a real IRP sync with EDM-before-RDM ordering on a both-package, and Delete runs a real IRP delete with RDM-before-EDM ordering; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
 
@@ -1195,7 +1196,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **A18 — (retired with `customer_id`, CR-003).** There is no denormalized `customer_id` on any table (M2/O1), so the drift concern it raised no longer applies.
 - **A19 — Loss Repository schema ownership.** The workbench has write-only access to specific tables. Schema is defined and versioned separately (not by Alembic). Breaking schema changes in the Loss Repository require coordination. Mitigated by: write through a thin adapter layer in the Dramatiq worker; the adapter is the single point to update on Loss Repository schema changes.
 - **A20 — Analyst submits 150 analysis jobs; IRP rate-limits.** Resolution: irp-integration has built-in retry (5 attempts, exponential backoff). The batch-submit method handles the loop. Do not add another retry layer. The poller polls at an interval; no thundering-herd problem.
-- **A21 — Package job chaining crosses RWB-job space and IRP-job space (open, not resolved).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success is what triggers the next `rwb_job`. Package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace this iteration's stubs: `edm_upload` needs to submit a real IRP job, and it's the **poller** noticing that IRP job go terminal — not the RWB worker — that needs to trigger `rdm_upload` next (and, on the delete path, an `edm_delete` waits on its prerequisite `rdm_delete` completing first — the dependency runs one way, EDM-delete depends on RDM-delete, never the reverse; §9.4). One proposed shape, not yet decided: an on-completion/on-failure hook per `irp_job_type`, no-op by default, so the poller itself stays generic (§14.4's "no custom code in the poller" principle) and only the hook carries package-specific chaining logic. **Flagged for a dedicated design discussion before Iteration 2 implements real Package sync/delete** — see DATA_MODEL.md §3a for the same open question at the schema level.
+- **A21 — Package job chaining crosses RWB-job space and IRP-job space (RESOLVED 2026-07-13, spec 003).** The existing `rwb_job` chaining pattern (§14.5) assumes a worker's own success triggers the next `rwb_job`; package sync/delete (§9.4) doesn't fit that shape once real IRP calls replace the stubs, because it's the **poller** noticing an IRP job go terminal — not the RWB worker — that must trigger the next step. **Resolution:** lineage chaining, with (1) all member ops run as `rwb_job`s and **workers performing every Risk Modeler call** (Save-and-Sync/Delete only enqueue `analyst_request` head rows and return — nothing submitted on the request path); (2) the **poller** writing the dependent head `rwb_job` (`requestor_type='irp_job'`, `requestor_id=` the finished job) on terminal status, driven by a **per-`irp_job_type` completion mapping** so the poller stays generic (the proposed hook shape, §14.4); (3) **idempotent, status-guarded fan-in** for `delete_edm`-after-all-RDM-removals and for the final package soft-delete (no dependency counter); and (4) recovery via idempotent Save-and-Sync + per-member retry + **replace-the-source-file-and-retry**, atop the `submission_retry` batch. **Delete is asymmetric:** EDM delete is asynchronous (`submit_delete_edm_job` → pollable id, polled like imports; only `delete_edm` is added to `irp_job_type_kind`), while **RDM delete is synchronous** — an RDM import yields analysis entities rather than a first-class RM object, so removing an RDM deletes those entities inline (no `irp_job`, no polling) and the RDM→EDM fan-in is detected app-side on `delete_rdm` worker success. Job-type codes follow `<verb>_<entity>` (`import_edm`/`import_rdm`/`delete_edm`; `upload_edm`/`upload_rdm`/`delete_rdm`). Full design: DATA_MODEL.md §8 → *Package sync/delete chaining*; behavior: spec 003 FR-042–FR-048.
 
 ---
 
@@ -1245,7 +1246,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### External dependencies
 
-- **Moody's IRP** — `irp-integration` library (`IRPClient`). Six `irp_job_type`s (`edm_import`/`rdm_import`/`geohaz`/`analysis`/`grouping`/`export`). Auth via env vars. Rate limits apply.
+- **Moody's IRP** — `irp-integration` library (`IRPClient`). Seven `irp_job_type`s (`import_edm`/`import_rdm`/`delete_edm`/`geohaz`/`analysis`/`grouping`/`export`). Auth via env vars. Rate limits apply.
 - **DataBridge** — Moody's cloud SQL Server. ODBC via irp-integration. Used for Phase A validation/profiling/modification and broker RDM queries.
 - **Redis** — Dramatiq broker. Required for result workers and notifications.
 - **Shared-drive mount** — read-only CIFS/SMB, least-privilege service account (§8.1).
