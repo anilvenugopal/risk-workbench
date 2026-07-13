@@ -41,7 +41,11 @@ STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
 
 def _mk(db, *, owner=None, name="TY2604_AmericanFamily", cedant="American Family",
-        tt="cat_xol", inc=date(2026, 4, 1), ty=2026, confirmed=False):
+        tt="cat_xol", inc=date(2026, 4, 1), ty=2026, confirmed=True):
+    # confirmed=True by default: test setup must always create its baseline row,
+    # even when a look-alike already exists in a shared dev DB (an unconfirmed
+    # create would short-circuit with a warning and write nothing). Tests that
+    # specifically exercise the duplicate-warning path pass confirmed=False.
     res = create_submission(
         name=name, cedant_name=cedant, treaty_type_code=tt, inception_date=inc,
         treaty_year=ty, actor_id=owner or db.user_a, confirmed=confirmed,
@@ -93,8 +97,14 @@ def test_cedant_suggestions_distinct_prefix(iteration1_db):
         inc=date(2026, 3, 1))
     _mk(iteration1_db, name="D", cedant="Beta Insurance", tt="surplus",
         inc=date(2026, 4, 1))
+    # cedant_suggestions is a global DISTINCT with no owner scope, so restrict the
+    # equality check to the cedants this test created — unrelated "Ac…" cedants in
+    # a shared dev DB then can't fail it, while DISTINCT + sort order are still
+    # verified (Acme Mutual appears once; Acadia sorts before Acme).
     out = cedant_suggestions("Ac")
-    assert out == ["Acadia Re", "Acme Mutual"]  # DISTINCT + sorted
+    ours = [c for c in out if c in {"Acadia Re", "Acme Mutual"}]
+    assert ours == ["Acadia Re", "Acme Mutual"]
+    assert "Beta Insurance" not in out  # prefix filter excludes non-matches
     assert cedant_suggestions("") == []
 
 
@@ -105,26 +115,35 @@ def test_list_owner_predicate_is_not_an_access_gate(iteration1_db):
              cedant="Acme", inc=date(2026, 1, 1)).submission_id
     b1 = _mk(iteration1_db, owner=iteration1_db.user_b, name="B1",
              cedant="Beta", inc=date(2026, 2, 1)).submission_id
+    # Owner filter is scoped to the (throwaway) owner, so exact-match is safe:
+    # nothing else in the DB is owned by this freshly-created analyst.
     mine = {r.id for r in list_submissions(owner_id=iteration1_db.user_a)}
     assert mine == {a1}
+    # "All" (owner=None) must include BOTH owners' deals — that is the property
+    # under test (no row-level scoping). Assert membership, not exact equality,
+    # so unrelated deals already present in a shared dev DB don't fail the test.
     all_ids = {r.id for r in list_submissions(owner_id=None)}
-    assert all_ids == {a1, b1}  # All shows every deal regardless of owner
+    assert {a1, b1} <= all_ids  # All shows every deal regardless of owner
 
 
 def test_list_filters_combine(iteration1_db):
-    _mk(iteration1_db, name="X", cedant="Acme", tt="cat_xol",
+    a = iteration1_db.user_a
+    _mk(iteration1_db, owner=a, name="X", cedant="Acme", tt="cat_xol",
         inc=date(2026, 1, 1), ty=2026)
-    _mk(iteration1_db, name="Y", cedant="Acme", tt="quota_share",
+    _mk(iteration1_db, owner=a, name="Y", cedant="Acme", tt="quota_share",
         inc=date(2026, 6, 1), ty=2026)
-    _mk(iteration1_db, name="Z", cedant="Beta", tt="cat_xol",
+    _mk(iteration1_db, owner=a, name="Z", cedant="Beta", tt="cat_xol",
         inc=date(2025, 1, 1), ty=2025)
 
-    assert len(list_submissions(cedant_name="Acme")) == 2
-    assert len(list_submissions(treaty_type_code="cat_xol")) == 2
-    assert len(list_submissions(inception_date=date(2026, 6, 1))) == 1
-    assert len(list_submissions(treaty_year=2025)) == 1
+    # Scope every filter query to this test's throwaway owner so rows already
+    # present in a shared dev DB can't skew the counts. owner_id is itself just
+    # another AND-predicate, so this still exercises filter combination.
+    assert len(list_submissions(owner_id=a, cedant_name="Acme")) == 2
+    assert len(list_submissions(owner_id=a, treaty_type_code="cat_xol")) == 2
+    assert len(list_submissions(owner_id=a, inception_date=date(2026, 6, 1))) == 1
+    assert len(list_submissions(owner_id=a, treaty_year=2025)) == 1
     # combined AND: Acme + cat_xol → only X
-    combo = list_submissions(cedant_name="Acme", treaty_type_code="cat_xol")
+    combo = list_submissions(owner_id=a, cedant_name="Acme", treaty_type_code="cat_xol")
     assert len(combo) == 1 and combo[0].name == "X"
 
 
@@ -135,8 +154,9 @@ def test_reassign_owner_moves_my_view(iteration1_db):
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
     assert list_submissions(owner_id=iteration1_db.user_a) == []
     assert len(list_submissions(owner_id=iteration1_db.user_b)) == 1
-    # still visible to everyone
-    assert len(list_submissions(owner_id=None)) == 1
+    # Still visible in the global ("everyone") list — assert the deal is present
+    # rather than that it is the ONLY row, so a shared dev DB doesn't fail this.
+    assert sid in {r.id for r in list_submissions(owner_id=None)}
 
 
 def test_reassign_owner_stale_marker_conflicts(iteration1_db):
@@ -241,28 +261,33 @@ def test_crm_mutations_gated_when_closed(iteration1_db):
 def test_find_similar_name_and_attribute_arms(iteration1_db):
     first = _mk(iteration1_db, name="TY2604_Acme", cedant="Acme Mutual",
                 tt="cat_xol", inc=date(2026, 4, 1)).submission_id
+    # find_similar is a global dedup lookup with no owner scope; assert our
+    # planted row's presence/absence rather than exact result sets, so unrelated
+    # look-alikes already in a shared dev DB don't fail the test.
     # name-match arm (different cedant/type/inception)
     by_name = find_similar(name="TY2604_Acme", cedant_name="Zzz",
                            treaty_type_code="stop_loss", inception_date=date(2030, 1, 1))
-    assert {r.id for r in by_name} == {first}
+    assert first in {r.id for r in by_name}
     # attribute-match arm (different name)
     by_attr = find_similar(name="Totally Different", cedant_name="Acme Mutual",
                            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1))
-    assert {r.id for r in by_attr} == {first}
-    # genuinely new deal → no look-alikes
-    assert find_similar(name="Brand New", cedant_name="Nobody Re",
-                        treaty_type_code="surplus", inception_date=date(2031, 1, 1)) == []
+    assert first in {r.id for r in by_attr}
+    # genuinely new deal → our row is not a look-alike
+    assert first not in {r.id for r in find_similar(
+        name="Brand New", cedant_name="Nobody Re",
+        treaty_type_code="surplus", inception_date=date(2031, 1, 1))}
     # exclude_id skips the row being renamed
-    assert find_similar(name="TY2604_Acme", cedant_name="Acme Mutual",
-                        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
-                        exclude_id=first) == []
+    assert first not in {r.id for r in find_similar(
+        name="TY2604_Acme", cedant_name="Acme Mutual",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        exclude_id=first)}
 
 
 def test_create_duplicate_warns_then_confirms(iteration1_db):
     first = _mk(iteration1_db, name="TY2604_Acme").submission_id
-    res = _mk(iteration1_db, name="TY2604_Acme")  # unconfirmed dup
+    res = _mk(iteration1_db, name="TY2604_Acme", confirmed=False)  # unconfirmed dup
     assert res.created is False and res.submission_id is None
-    assert {w.id for w in res.warnings} == {first}
+    assert first in {w.id for w in res.warnings}  # our row flagged as a look-alike
     res2 = _mk(iteration1_db, name="TY2604_Acme", confirmed=True)
     assert res2.created is True and res2.submission_id
 
@@ -276,7 +301,7 @@ def test_update_rename_warns_then_confirms(iteration1_db):
     # rename second → Alpha collides with first (name arm)
     r = update_submission(submission_id=second, expected_updated_at=_marker(second),
                           actor_id=a, name="Alpha")
-    assert r.updated is False and {w.id for w in r.warnings} == {first}
+    assert r.updated is False and first in {w.id for w in r.warnings}
     r2 = update_submission(submission_id=second, expected_updated_at=_marker(second),
                            actor_id=a, confirmed=True, name="Alpha")
     assert r2.updated is True
