@@ -117,6 +117,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _uid(value: Any) -> str | None:
+    """Normalize a UUID/id to a lowercase string (``None`` passes through).
+
+    App-generated ids come from ``uuid4()`` (lowercase); SQL Server's
+    ``uniqueidentifier`` reads them back UPPERCASE. Lowercasing every id the
+    service hands out keeps app-generated, bound, and read-back ids
+    byte-identical, so Python-side equality (dedup sets, "is this the selected
+    row?" checks, redirect URLs) is stable across both backends. SQL Server
+    compares ``uniqueidentifier`` case-insensitively so lookups are unaffected,
+    and the SQLite unit tier stores strings verbatim so this is a no-op there."""
+    if value is None:
+        return None
+    return str(value).lower()
+
+
 def _as_date(value: Any) -> Any:
     """Normalize a date-ish value to a ``date`` for binding.
 
@@ -160,7 +175,7 @@ _ROW_SELECT = """
 
 def _to_row(row: dict) -> SubmissionRow:
     return SubmissionRow(
-        id=str(row["id"]),
+        id=_uid(row["id"]),
         name=row["name"],
         cedant_name=row["cedant_name"],
         treaty_type_code=row["treaty_type_code"],
@@ -169,7 +184,7 @@ def _to_row(row: dict) -> SubmissionRow:
         treaty_year=row["treaty_year"],
         status_code=row["status_code"],
         status_label=row.get("status_label"),
-        assigned_analyst_id=str(row["assigned_analyst_id"]),
+        assigned_analyst_id=_uid(row["assigned_analyst_id"]),
         assigned_analyst_name=row.get("assigned_analyst_name"),
         updated_at=row["updated_at"],
     )
@@ -256,21 +271,18 @@ def get_submission(submission_id: Any) -> Submission | None:
     if row is None:
         return None
     return Submission(
-        id=str(row["id"]),
+        id=_uid(row["id"]),
         name=row["name"],
         cedant_name=row["cedant_name"],
         treaty_type_code=row["treaty_type_code"],
         treaty_type_label=row.get("treaty_type_label"),
         inception_date=row["inception_date"],
         treaty_year=row["treaty_year"],
-        renews_from_submission_id=(
-            str(row["renews_from_submission_id"])
-            if row["renews_from_submission_id"] else None
-        ),
+        renews_from_submission_id=_uid(row["renews_from_submission_id"]),
         directory_path=row["directory_path"],
         status_code=row["status_code"],
         status_label=row.get("status_label"),
-        assigned_analyst_id=str(row["assigned_analyst_id"]),
+        assigned_analyst_id=_uid(row["assigned_analyst_id"]),
         assigned_analyst_name=row.get("assigned_analyst_name"),
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
@@ -381,7 +393,7 @@ def update_submission(
     merged["inception_date"] = _as_date(merged["inception_date"])
 
     renews_from = merged["renews_from_submission_id"]
-    if renews_from is not None and str(renews_from) == sid:
+    if renews_from is not None and _uid(renews_from) == _uid(sid):
         raise SelfRenewalError("A submission cannot renew from itself.")
 
     matches = find_similar(
@@ -510,12 +522,12 @@ def get_status_history(submission_id: Any) -> list[StatusEvent]:
     )
     return [
         StatusEvent(
-            id=str(row["id"]),
+            id=_uid(row["id"]),
             status_code=row["status_code"],
             status_label=row.get("status_label"),
             reason=row["reason"],
             at=row["at"],
-            inserted_by=str(row["inserted_by"]) if row["inserted_by"] else None,
+            inserted_by=_uid(row["inserted_by"]),
             inserted_by_name=row.get("inserted_by_name"),
         )
         for row in rows
@@ -581,8 +593,8 @@ def list_crm_ids(submission_id: Any) -> list[CrmTag]:
     )
     return [
         CrmTag(
-            id=str(row["id"]),
-            submission_id=str(row["submission_id"]),
+            id=_uid(row["id"]),
+            submission_id=_uid(row["submission_id"]),
             crm_id=row["crm_id"],
             inserted_at=row["inserted_at"],
         )
