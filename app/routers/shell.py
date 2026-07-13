@@ -36,16 +36,6 @@ def home(request: Request):
     return _render(request, "pages/home.html", "home")
 
 
-@router.get("/submissions", response_class=HTMLResponse)
-def submissions(request: Request):
-    return _render(request, "pages/submissions.html", "submissions.all")
-
-
-@router.get("/submissions/mine", response_class=HTMLResponse)
-def submissions_mine(request: Request):
-    return _render(request, "pages/submissions.html", "submissions.mine")
-
-
 @router.get("/workflows", response_class=HTMLResponse)
 def workflows(request: Request):
     return _render(request, "pages/workflows.html", "workflows.active")
