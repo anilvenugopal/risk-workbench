@@ -51,6 +51,41 @@ class Settings(BaseSettings):
     # ── Paths ─────────────────────────────────────────────────────────────────
     submission_outputs_base: str = "/workspace/data/outputs"
 
+    # Read-only shared drive the broker files are browsed from (FR-008/FR-009/R11).
+    # The app never writes/moves/deletes under this root — browsing is a live
+    # directory listing. Empty in dev without a mounted drive.
+    shared_drive_root: str = ""
+
+    # ── Background queue / poller (Iteration 2, Article 10 / Article 11) ────────
+    # rwb_job heartbeat cadence + the staleness window the poller's reconciler uses
+    # to reclaim a dead worker's `running` row back to `pending`.
+    rwb_heartbeat_interval_secs: int = 30
+    rwb_heartbeat_stale_secs: int = 120
+
+    # Worker body switch (FR-048): 'stub' heartbeats + marks succeeded without
+    # calling Risk Modeler; 'real' calls the irp_gateway. Lets the package UI be
+    # built ahead of the real Risk Modeler wiring.
+    rwb_worker_mode: Literal["stub", "real"] = "real"
+
+    # Poller pass cadence (FR-027 / SC-001). One single-status-check per
+    # non-terminal irp_job per pass; never poll_*_to_completion.
+    poll_interval_secs: int = 15
+
+    # Submit-side retry ceiling for the submission_retry batch (FR-029). There is
+    # deliberately NO fixed default — it is a deployment decision; None means "not
+    # configured", and the batch parks SUBMISSION FAILED rows until it is set.
+    irp_submission_max_retries: int | None = None
+
+    # ── Notifications (Iteration 2, R10) ────────────────────────────────────────
+    # Comma-separated channels to deliver completion/failure notices on
+    # (any of: teams, email, desktop). Enabling a channel is a config edit.
+    notify_channels: str = ""
+    teams_webhook_url: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 25
+    smtp_from: str = ""
+    notify_email_to: str = ""
+
     @computed_field
     @property
     def is_production(self) -> bool:
