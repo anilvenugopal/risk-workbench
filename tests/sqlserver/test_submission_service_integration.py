@@ -6,13 +6,21 @@ functions and re-collects them here, backed by a SQL-Server-connected
 ``iteration1_db`` fixture. Same assertions, real driver + dialect — which is what
 actually proves the paths the SQLite mirror cannot vouch for:
 
-  * the ``updated_at`` optimistic-concurrency marker (a form-supplied string
-    compared against a real DATETIME2 column),
+  * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
+    column,
   * ``LIKE`` collation in cedant autocomplete / find_similar,
   * status-history ``ORDER BY at DESC`` tie-breaking.
 
 Because ``import *`` pulls in every ``test_*`` name, new unit tests added later
 are automatically exercised here too — the seam stays closed as the suite grows.
+
+One path the reused suite does **not** cover, added explicitly below
+(``test_string_marker_round_trips_against_datetime2``): the reused tests read the
+concurrency marker via ``get_submission().updated_at``, which on SQL Server is a
+native ``datetime`` — but the web flow renders that value into a hidden field as
+``str(...)`` and submits it back as a **string**. So the string→DATETIME2 *match*
+(not just the always-mismatching stale-string arm) is only exercised by the
+dedicated test here.
 
 Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
 
@@ -26,10 +34,12 @@ that). A freshly rebuilt DB is the assumed clean starting point.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
 
+from app.services import submission_service as svc
 from db import execute_command, get_engine
 
 # Re-collect the entire unit submission-service suite against the fixture below.
@@ -80,3 +90,57 @@ def iteration1_db() -> SimpleNamespace:
                               user_a=user_a, user_b=user_b)
     finally:
         _cleanup(user_a, user_b)
+
+
+def test_string_marker_round_trips_against_datetime2(iteration1_db):
+    """A form-supplied STRING marker must MATCH the DATETIME2 column (R1/FR-031).
+
+    The browser never sends a ``datetime``: the detail/edit templates render
+    ``submission.updated_at`` into a hidden field as ``str(...)`` and post it back
+    as a string, which the service binds verbatim into ``WHERE updated_at =
+    :expected``. The reused unit tests read the marker as ``get_submission()
+    .updated_at`` — a native ``datetime`` on SQL Server — so they never exercise
+    the string→DATETIME2 conversion the real flow depends on. If that conversion
+    ever failed to round-trip, every marker-guarded write (edit, status, reassign)
+    would raise a spurious ``ConcurrencyConflict`` in production.
+
+    Here each write reads the marker and ``str()``s it exactly as Jinja does, then
+    asserts the write is applied (no conflict) — covering all three guarded paths:
+    the in-place UPDATE (update_submission), the event-sourced transaction
+    (set_status), and reassign_owner.
+    """
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    sid = svc.create_submission(
+        name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        actor_id=a, confirmed=True,
+    ).submission_id
+
+    def marker() -> str:
+        """The hidden-field value the browser would submit: str(a datetime)."""
+        value = svc.get_submission(sid).updated_at
+        assert not isinstance(value, str), (
+            "precondition: on SQL Server the marker is a native datetime; if it is "
+            "already a string this test is not exercising the conversion it targets")
+        return str(value)
+
+    # 1) In-place UPDATE path — matches (does not 409) and applies the change.
+    res = svc.update_submission(
+        submission_id=sid, expected_updated_at=marker(), actor_id=a,
+        confirmed=True, directory_path="/staging/marker")
+    assert res.updated is True
+    assert svc.get_submission(sid).directory_path == "/staging/marker"
+
+    # 2) Event-sourced status transaction — same marker semantics inside conn.begin().
+    svc.set_status(submission_id=sid, to_status="COMPLETED", reason=None,
+                   expected_updated_at=marker(), actor_id=a)
+    assert svc.get_submission(sid).status_code == "COMPLETED"
+
+    # Reopen (reassign is gated to ACTIVE) — also a marker-guarded transition.
+    svc.set_status(submission_id=sid, to_status="ACTIVE", reason=None,
+                   expected_updated_at=marker(), actor_id=a)
+
+    # 3) Reassign path.
+    svc.reassign_owner(submission_id=sid, new_owner_id=b,
+                       expected_updated_at=marker(), actor_id=a)
+    assert svc.get_submission(sid).assigned_analyst_id == b
