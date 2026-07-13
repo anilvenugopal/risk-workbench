@@ -1,0 +1,203 @@
+/* Package cards, member rows, status chips, and the assembly modal (US3–US5).
+   ITCSS component layer — colours/spacing/radii come from tokens.css only; no
+   hardcoded hex (Article 9). */
+
+/* ── card ─────────────────────────────────────────────────────────────────── */
+.package-card {
+  background: var(--c-surface-1);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+  width: 100%;
+}
+
+.package-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.package-card__name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* ── upload progress ──────────────────────────────────────────────────────── */
+.package-card__progress {
+  position: relative;
+  background: var(--c-surface-2);
+  border-radius: var(--radius-pill);
+  height: 18px;
+  margin-bottom: var(--space-4);
+  overflow: hidden;
+}
+
+.package-card__progress-bar {
+  background: var(--c-green-500);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.package-card__progress-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+}
+
+/* ── members ──────────────────────────────────────────────────────────────── */
+.package-card__members {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 720px) {
+  .package-card__members { grid-template-columns: 1fr; }
+}
+
+.package-card__group-title {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+
+.package-card__future {
+  border-top: 1px solid var(--c-border-faint);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--c-border-faint);
+  font-size: 0.85rem;
+}
+
+.member-row__kind {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  min-width: 34px;
+}
+
+.member-row__name { font-weight: 500; color: var(--text-primary); }
+
+.member-row__src {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+/* ── status chips (import/delete lifecycle) ───────────────────────────────── */
+.status-chip {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-pill);
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: var(--c-gray-bg);
+  color: var(--c-gray-text);
+  border: 1px solid var(--c-gray-border);
+}
+
+.status-chip--pending_import,
+.status-chip--importing { background: var(--c-navy-050); color: var(--c-navy-600);
+                          border-color: var(--c-navy-200); }
+.status-chip--ready { background: var(--c-green-050); color: var(--c-green-700);
+                      border-color: var(--c-green-200); }
+.status-chip--error,
+.status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700);
+                                  border-color: var(--c-red-200); }
+.status-chip--delete_pending,
+.status-chip--deleting { background: var(--c-amber-050); color: var(--c-amber-700);
+                         border-color: var(--c-amber-200); }
+.status-chip--deleted { background: var(--c-gray-bg); color: var(--text-tertiary); }
+
+/* ── job counts ───────────────────────────────────────────────────────────── */
+.job-counts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.job-counts__pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  font-size: 0.72rem;
+  text-decoration: none;
+  background: var(--c-surface-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--c-border);
+}
+.job-counts__pill:hover { background: var(--c-surface-3); }
+.job-counts__pill--active { color: var(--c-navy-600); }
+.job-counts__pill--failed { color: var(--c-red-600); }
+.job-counts__n { font-weight: 700; font-size: 0.85rem; }
+
+/* ── actions ──────────────────────────────────────────────────────────────── */
+.package-card__actions,
+.package-card__counts { margin-top: var(--space-3); display: flex; gap: var(--space-2); }
+
+/* ── assembly modal ───────────────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 22, 41, 0.4);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  z-index: 50;
+  overflow-y: auto;
+}
+
+.modal__panel {
+  background: var(--c-surface-1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  width: 100%;
+  max-width: 640px;
+}
+
+.modal__title { margin: 0 0 var(--space-4); font-size: 1.1rem; }
+
+.member-editor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--c-border-faint);
+}
+.member-editor__kind { width: 84px; }
+.member-editor__name { flex: 0 0 160px; }
+.member-editor__path {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
