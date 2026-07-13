@@ -9,3 +9,21 @@ import os
 
 # Must be set before any app.* import triggers Settings() at module level.
 os.environ.setdefault("SESSION_SECRET_KEY", "unit-test-secret-key-not-for-production")
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture()
+def fake_irp():
+    """Inject an in-memory fake Risk Modeler as the active irp_gateway (Article 12).
+
+    The fake implements the ``IRPGateway`` protocol; the poller/worker code under
+    test reaches it through the gateway free functions. Reset after each test so no
+    implementation leaks across tests."""
+    from app.services import irp_gateway
+    from tests.unit.fakes.fake_irp import FakeIRP
+
+    fake = FakeIRP()
+    irp_gateway.configure(fake)
+    yield fake
+    irp_gateway.reset()

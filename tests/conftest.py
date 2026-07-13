@@ -24,8 +24,18 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from db.connection import register_engine, dispose_all, _ENGINE_OVERRIDES
-from tests.iteration1_mirror import ITERATION1_SCHEMA, STATUS_SEED, TREATY_SEED
+from db.connection import _ENGINE_OVERRIDES, dispose_all, register_engine
+from tests.iteration1_mirror import (
+    IRP_JOB_RESOURCE_TYPE_SEED,
+    IRP_JOB_TYPE_SEED,
+    ITERATION1_SCHEMA,
+    ITERATION2_SCHEMA,
+    RWB_JOB_REQUESTOR_TYPE_SEED,
+    RWB_JOB_STATUS_SEED,
+    RWB_JOB_TYPE_SEED,
+    STATUS_SEED,
+    TREATY_SEED,
+)
 
 # Python 3.12+ removed the implicit sqlite3 date/datetime adapters (fully gone in
 # 3.14). The service layer binds native date/datetime (SQL Server wants those);
@@ -133,3 +143,46 @@ def iteration1_db() -> SimpleNamespace:
     register_engine("WORKBENCH", engine)
     yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
     engine.dispose()
+
+
+# ── Iteration-2 schema (unit tier) ───────────────────────────────────────────
+# The Iteration-1 WORKBENCH mirror PLUS the irp_job / rwb_job families and their
+# five kind tables (single source: tests/iteration1_mirror.py). Seeds every kind
+# table and two analysts, and registers it as the WORKBENCH connection.
+
+
+@pytest.fixture()
+def iteration2_db() -> SimpleNamespace:
+    """Build the Iteration-1 + Iteration-2 WORKBENCH schema in SQLite, seed the kind
+    tables and two analysts, register it as WORKBENCH, and return the analyst ids.
+    Engine disposal is handled by the autouse root fixture."""
+    engine = create_engine("sqlite://")  # in-memory, SingletonThreadPool (shared)
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    with engine.begin() as conn:
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA):
+            conn.execute(text(ddl))
+        conn.execute(text(
+            "INSERT INTO app_user (id, email, display_name) VALUES "
+            "(:a, 'analyst.a@example.com', 'Analyst A'), "
+            "(:b, 'analyst.b@example.com', 'Analyst B')"
+        ), {"a": user_a, "b": user_b})
+        _seed(conn, "submission_status_kind", STATUS_SEED)
+        _seed(conn, "treaty_type_kind", TREATY_SEED)
+        _seed(conn, "irp_job_type_kind", IRP_JOB_TYPE_SEED)
+        _seed(conn, "irp_job_resource_type_kind", IRP_JOB_RESOURCE_TYPE_SEED)
+        _seed(conn, "rwb_job_type_kind", RWB_JOB_TYPE_SEED)
+        _seed(conn, "rwb_job_requestor_type_kind", RWB_JOB_REQUESTOR_TYPE_SEED)
+        _seed(conn, "rwb_job_status_kind", RWB_JOB_STATUS_SEED)
+    register_engine("WORKBENCH", engine)
+    yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
+    engine.dispose()
+
+
+def _seed(conn, table: str, rows: list[tuple[str, str, int]]) -> None:
+    """Insert (code, label, sort_order) kind rows. ``table`` is a trusted literal
+    from the mirror module — never user input."""
+    for code, label, order in rows:
+        conn.execute(text(
+            f"INSERT INTO {table} (code, label, sort_order) VALUES (:c, :l, :o)"
+        ), {"c": code, "l": label, "o": order})
