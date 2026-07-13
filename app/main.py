@@ -57,11 +57,12 @@ templates.env.globals["generate_csrf_token"] = generate_csrf_token
 app.state.templates = templates
 
 # ── Routers ────────────────────────────────────────────────────────────────
-from app.routers import auth, shell, health, admin  # noqa: E402
+from app.routers import auth, shell, health, admin, submissions  # noqa: E402
 
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
+app.include_router(submissions.router)
 app.include_router(shell.router)
 
 

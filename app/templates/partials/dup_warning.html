@@ -1,0 +1,16 @@
+<div class="dup-warn">
+  <div class="dup-warn__head">A similar deal already exists</div>
+  <ul class="dup-warn__list">
+    {% for w in warnings %}
+    <li>
+      <a href="/submissions/{{ w.id }}" target="_blank" rel="noopener">{{ w.name }}</a>
+      <span class="dup-warn__meta">{{ w.cedant_name }} ·
+        {{ w.treaty_type_label or w.treaty_type_code }} · {{ w.inception_date }} ·
+        {{ w.status_label or w.status_code }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  <div class="dup-warn__note">
+    This does not block you — names need not be unique. Confirm below to proceed.
+  </div>
+</div>

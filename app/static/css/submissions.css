@@ -1,0 +1,130 @@
+/* submissions.css — submission list / detail / status-chip / CRM-tag styling.
+   ITCSS component layer. Tokens only — no hardcoded hex (Article 9). */
+
+/* ── My / All toggle ─────────────────────────────────────────────────────── */
+.sub-toggle { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
+.sub-toggle__btn {
+  padding: 6px var(--space-3); font-size: var(--fs-label);
+  color: var(--text-secondary); text-decoration: none;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--surface-panel);
+}
+.sub-toggle__btn:hover { border-color: var(--border-strong); }
+.sub-toggle__btn.is-active {
+  color: var(--btn-primary-fg); background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-bg);
+}
+
+.sub-table { margin-top: var(--space-2); }
+
+/* ── Status chips ────────────────────────────────────────────────────────── */
+.status-chip {
+  display: inline-block; font-size: var(--fs-caption); font-weight: var(--fw-medium);
+  letter-spacing: .03em; text-transform: uppercase;
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  border: 1px solid var(--border-default); color: var(--text-secondary);
+  background: var(--surface-recessed);
+}
+.status-chip--active {
+  color: var(--color-info); background: var(--color-info-bg);
+  border-color: var(--color-info-border);
+}
+.status-chip--completed {
+  color: var(--color-positive); background: var(--color-positive-bg);
+  border-color: var(--color-positive-border);
+}
+.status-chip--cancelled {
+  color: var(--color-negative); background: var(--color-negative-bg);
+  border-color: var(--color-negative-border);
+}
+
+/* ── Form banners ────────────────────────────────────────────────────────── */
+.form-banner {
+  margin-bottom: var(--space-4); padding: var(--space-2) 14px;
+  border-radius: var(--radius-md); font-size: var(--fs-label);
+  border: 1px solid var(--border-default);
+}
+.form-banner--error {
+  color: var(--color-danger); background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+}
+.form-banner--readonly {
+  color: var(--color-warning); background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+}
+
+.form-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+
+/* ── Duplicate-warning fragment ──────────────────────────────────────────── */
+.dup-warn {
+  margin-bottom: var(--space-4); padding: var(--space-3) 14px;
+  border: 1px solid var(--color-warning-border); background: var(--color-warning-bg);
+  border-radius: var(--radius-md);
+}
+.dup-warn__head {
+  font-size: var(--fs-label); font-weight: var(--fw-semibold);
+  color: var(--color-warning); margin-bottom: var(--space-2);
+}
+.dup-warn__list { margin: 0 0 var(--space-2); padding-left: var(--space-4);
+  display: flex; flex-direction: column; gap: var(--space-1); }
+.dup-warn__list a { color: var(--color-brand); }
+.dup-warn__meta { color: var(--text-tertiary); font-size: var(--fs-caption); }
+.dup-warn__note { font-size: var(--fs-caption); color: var(--text-tertiary); }
+
+/* ── Status controls + history ───────────────────────────────────────────── */
+.status-controls { display: flex; flex-wrap: wrap; gap: var(--space-2);
+  margin-bottom: var(--space-4); }
+.status-form { display: flex; align-items: center; gap: var(--space-2); }
+.status-form__reason {
+  padding: 5px var(--space-2); border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm); font-size: var(--fs-label);
+  background: var(--surface-panel); min-width: 160px;
+}
+.status-history { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 6px; }
+.status-history__item { display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--fs-label); padding: 6px 0;
+  border-bottom: 1px solid var(--border-faint); }
+.status-history__at { font-family: var(--font-mono); font-size: var(--fs-caption);
+  color: var(--text-tertiary); }
+.status-history__by { color: var(--text-tertiary); }
+.status-history__reason { color: var(--text-secondary); }
+
+/* ── CRM tags ────────────────────────────────────────────────────────────── */
+.crm-tags { display: flex; flex-direction: column; gap: 6px; }
+.crm-tag { display: flex; align-items: center; gap: 4px; }
+.crm-tag--ro {
+  padding: 3px var(--space-2); border-radius: var(--radius-sm);
+  background: var(--surface-recessed); font-size: var(--fs-label);
+  color: var(--text-primary); width: fit-content;
+}
+.crm-tag__edit { display: flex; align-items: center; flex: 1; }
+.crm-tag__input {
+  flex: 1; padding: 4px var(--space-2); font-size: var(--fs-label);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+}
+.crm-tag__btn {
+  border: 1px solid var(--border-default); background: var(--surface-page);
+  color: var(--text-secondary); cursor: pointer; border-radius: var(--radius-sm);
+  padding: 2px var(--space-2); margin-left: 4px; font-size: var(--fs-label);
+}
+.crm-tag__btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.crm-tag__btn--del:hover { border-color: var(--color-danger); color: var(--color-danger); }
+.crm-add { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.crm-add__input {
+  flex: 1; padding: 5px var(--space-2); font-size: var(--fs-label);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: var(--surface-panel);
+}
+
+/* ── Reassign + packages (side column) ───────────────────────────────────── */
+.reassign-form { display: flex; gap: var(--space-2); align-items: center; }
+.pkg-list { display: flex; flex-direction: column; gap: 6px; }
+.pkg-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px var(--space-3); border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm); font-size: var(--fs-label);
+}
+.pkg-item__name { color: var(--text-primary); }
+.pkg-item__count { color: var(--text-tertiary); font-size: var(--fs-caption); }

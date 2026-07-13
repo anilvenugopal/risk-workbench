@@ -1,0 +1,9 @@
+<tr class="data-row" onclick="location.href='/submissions/{{ row.id }}'">
+  <td>{{ row.name }}</td>
+  <td>{{ row.cedant_name }}</td>
+  <td>{{ row.treaty_type_label or row.treaty_type_code }}</td>
+  <td>{{ row.inception_date }}</td>
+  <td>{{ row.treaty_year or '—' }}</td>
+  <td><span class="status-chip status-chip--{{ row.status_code|lower }}">{{ row.status_label or row.status_code }}</span></td>
+  <td class="muted">{{ row.assigned_analyst_name or '—' }}</td>
+</tr>
