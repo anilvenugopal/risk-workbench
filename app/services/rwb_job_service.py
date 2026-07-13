@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -34,34 +35,95 @@ def _json(value: Any) -> str | None:
     return None if value is None else json.dumps(value)
 
 
+@contextmanager
+def _txn(conn):
+    """Yield a working connection: reuse the caller's (so a worker/poller can span
+    ``irp_job`` + ``rwb_job`` in one transaction) or open our own when none given."""
+    if conn is not None:
+        yield conn
+    else:
+        with get_connection("WORKBENCH") as owned:
+            with owned.begin():
+                yield owned
+
+
+_INSERT_IF_ABSENT = """
+    INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
+        status_code, input_data, attempt_count, inserted_at, updated_at,
+        inserted_by, updated_by)
+    SELECT :id, :rt, :rid, :jt, 'pending', :input, 0, :now, :now, :by, :by
+    WHERE NOT EXISTS (
+        SELECT 1 FROM rwb_job
+        WHERE requestor_type = :rt AND requestor_id = :rid AND rwb_job_type = :jt
+    )
+"""
+
+
 def enqueue_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
-    input_data: dict | None = None, actor_id: Any | None = None,
+    input_data: dict | None = None, actor_id: Any | None = None, conn=None,
 ) -> str | None:
     """Idempotent insert on ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``
     (FR-043 / SC-014). Returns the new job id, or ``None`` if a matching row already
     exists (dedup hit) — a re-poll / redelivery / reconciler re-enqueue is a no-op.
-    """
+    Never resurrects a terminal row (that is the fan-in idempotency backbone the
+    poller/workers rely on); the request path uses ``ensure_pending_rwb_job``.
+
+    ``conn`` lets a caller enqueue the chained tail in its own open transaction."""
     job_id = str(uuid.uuid4())
-    now = _utcnow()
-    rows = execute_command(
-        """
-        INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
-            status_code, input_data, attempt_count, inserted_at, updated_at,
-            inserted_by, updated_by)
-        SELECT :id, :rt, :rid, :jt, 'pending', :input, 0, :now, :now, :by, :by
-        WHERE NOT EXISTS (
-            SELECT 1 FROM rwb_job
-            WHERE requestor_type = :rt AND requestor_id = :rid
-              AND rwb_job_type = :jt
-        )
-        """,
-        {"id": job_id, "rt": requestor_type, "rid": str(requestor_id),
-         "jt": rwb_job_type, "input": _json(input_data), "now": now,
-         "by": (str(actor_id) if actor_id is not None else None)},
-        connection="WORKBENCH",
-    )
+    params = {
+        "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
+        "jt": rwb_job_type, "input": _json(input_data), "now": _utcnow(),
+        "by": (str(actor_id) if actor_id is not None else None),
+    }
+    if conn is not None:
+        rows = conn.execute(text(_INSERT_IF_ABSENT), params).rowcount
+    else:
+        rows = execute_command(_INSERT_IF_ABSENT, params, connection="WORKBENCH")
     return job_id if rows == 1 else None
+
+
+def ensure_pending_rwb_job(
+    *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
+    input_data: dict | None = None, actor_id: Any | None = None,
+) -> str | None:
+    """Request-path (re)enqueue for retry / re-sync (FR-044/FR-045). Insert a fresh
+    ``pending`` head if none exists; if the existing head is **terminal**
+    (``succeeded``/``failed``) reset it to ``pending`` for a new attempt; if it is
+    already ``pending``/``running`` skip it (return ``None``). This is the deliberate
+    counterpart to ``enqueue_rwb_job`` — that one never revives a terminal row so a
+    mechanical re-poll cannot; this one does, because an analyst asked for it."""
+    now = _utcnow()
+    with get_connection("WORKBENCH") as conn:
+        with conn.begin():
+            row = conn.execute(text(
+                "SELECT id, status_code FROM rwb_job "
+                "WHERE requestor_type = :rt AND requestor_id = :rid "
+                "AND rwb_job_type = :jt"
+            ), {"rt": requestor_type, "rid": str(requestor_id),
+                "jt": rwb_job_type}).mappings().first()
+            if row is None:
+                job_id = str(uuid.uuid4())
+                conn.execute(text(_INSERT_IF_ABSENT), {
+                    "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
+                    "jt": rwb_job_type, "input": _json(input_data), "now": now,
+                    "by": (str(actor_id) if actor_id is not None else None)})
+                return job_id
+            if row["status_code"] in ("pending", "running"):
+                return None  # already in flight — skip
+            conn.execute(text(
+                """
+                UPDATE rwb_job
+                SET status_code = 'pending', claimed_by = NULL, output_data = NULL,
+                    error_detail = NULL, completed_at = NULL, submitted_at = NULL,
+                    input_data = :input, attempt_count = attempt_count + 1,
+                    updated_at = :now, updated_by = :by
+                WHERE id = :id
+                """
+            ), {"input": _json(input_data), "now": now,
+                "by": (str(actor_id) if actor_id is not None else None),
+                "id": str(row["id"])})
+            return str(row["id"])
 
 
 def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
@@ -129,6 +191,7 @@ def reconcile_stale_rwb_jobs(*, stale_secs: int, now: datetime | None = None) ->
 
 __all__ = [
     "enqueue_rwb_job",
+    "ensure_pending_rwb_job",
     "claim_rwb_job",
     "complete_rwb_job",
     "reconcile_stale_rwb_jobs",

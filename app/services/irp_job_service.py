@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from db import get_connection
+from db import execute, get_connection
 
 
 def _utcnow() -> datetime:
@@ -101,6 +101,47 @@ def record_submitted_irp_job(
     return job_id
 
 
+# Terminal irp_job.status values (data-model §2). SUBMISSION FAILED is terminal
+# too — owned by the poller's submission_retry batch, never the status tracker.
+TERMINAL = frozenset({"FINISHED", "FAILED", "CANCELED", "SUBMISSION FAILED"})
+
+
+def list_non_terminal() -> list[dict]:
+    """Poller-side: every ``irp_job`` still worth a single-status check — non-terminal
+    and actually submitted (``irp_id`` present). Batched by the caller per type."""
+    rows = execute(
+        """
+        SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id, package_id, status
+        FROM irp_job
+        WHERE irp_id IS NOT NULL
+          AND status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')
+        ORDER BY irp_job_type
+        """,
+        {}, connection="WORKBENCH",
+    )
+    return [dict(r) for r in rows]
+
+
+def update_tracking(conn, *, irp_job_id: Any, status: str,
+                    result: dict | None = None) -> None:
+    """Poller-side: mirror the Risk Modeler status in place (Article 4) and stamp
+    ``last_tracked_at``; on a terminal status also stamp ``completed_at`` and store
+    the completion body. Runs inside the poller's transaction (accepts ``conn``)."""
+    now = _utcnow()
+    terminal = status in TERMINAL
+    conn.execute(text(
+        """
+        UPDATE irp_job
+        SET status = :s, last_tracked_at = :now, updated_at = :now,
+            completed_at = CASE WHEN :terminal = 1 THEN :now ELSE completed_at END,
+            last_completion_result = CASE WHEN :terminal = 1 THEN :result
+                                          ELSE last_completion_result END
+        WHERE id = :id
+        """
+    ), {"s": status, "now": now, "terminal": (1 if terminal else 0),
+        "result": _json(result), "id": str(irp_job_id)})
+
+
 def record_submission_failure(
     *, package_id: Any | None, irp_job_type: str,
     irp_edm_id: Any | None = None, irp_rdm_id: Any | None = None,
@@ -120,4 +161,7 @@ def record_submission_failure(
     return job_id
 
 
-__all__ = ["record_submitted_irp_job", "record_submission_failure"]
+__all__ = [
+    "record_submitted_irp_job", "record_submission_failure",
+    "TERMINAL", "list_non_terminal", "update_tracking",
+]
