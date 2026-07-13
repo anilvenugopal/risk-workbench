@@ -1,0 +1,10 @@
+<div id="name-collision" class="name-collision">
+  {% if collision %}
+  <div class="name-collision__warn" role="status">
+    <strong>Heads up:</strong> {{ collision|length }} existing
+    {{ kind or 'entity' }}{{ '' if collision|length == 1 else 's' }} in Risk Modeler
+    share this name ({{ collision|join(', ') }}). You can still proceed — names need
+    not be unique.
+  </div>
+  {% endif %}
+</div>

@@ -1,0 +1,62 @@
+{% extends "base/shell.html" %}
+{% block title %}Import RDM{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Import RDM</h1>
+    <div class="detail-meta">
+      <span>Import broker results, applied to one or more ready EDMs — or
+        review-only with no EDM.</span>
+    </div>
+  </div>
+
+  {% if errors %}
+  <div class="form-banner form-banner--error">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/rdms/import" class="entity-import-form">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+    <div class="wf-field">
+      <label for="rdm-name">NAME</label>
+      <input class="wf-field__input" type="text" id="rdm-name" name="name"
+             value="{{ form.name }}" required
+             hx-get="/rdms/name-check" hx-trigger="keyup changed delay:400ms"
+             hx-target="#name-collision" hx-swap="outerHTML">
+    </div>
+
+    {% include "partials/name_collision.html" %}
+
+    <div class="wf-field">
+      <label>APPLIED EDMs <span class="wf-field__hint">(none = review-only)</span></label>
+      <div class="edm-apply-list">
+        {% for e in edms %}
+        <label class="edm-apply-list__row">
+          <input type="checkbox" name="applied_edm_ids" value="{{ e.id }}">
+          <span>{{ e.name }}</span>
+          <span class="status-chip status-chip--{{ (e.status or 'unknown')|lower|replace(' ', '-') }}">
+            {{ e.status or 'unknown' }}</span>
+        </label>
+        {% else %}
+        <span class="tag-empty">No EDMs yet — import review-only.</span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="wf-field">
+      <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
+      <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+        Loading the shared drive…
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit">Import</button>
+      <a class="btn-sm" href="/submissions">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

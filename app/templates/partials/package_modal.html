@@ -1,0 +1,90 @@
+{# Package assembly modal (US3): browse the shared drive, multi-select files, name
+   each member and mark it EDM/RDM, then Save or Save-and-Sync. Alpine.js keeps the
+   member list across browse navigations; the server never caches drive state. #}
+<div class="modal" id="package-modal" x-data="packageModal()">
+  {% if closed %}
+  <div class="modal__panel">
+    <div class="form-banner form-banner--readonly">
+      This submission is closed — packages are read-only. Reopen it to make changes.
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+    </div>
+  </div>
+  {% else %}
+  <form class="modal__panel" method="post"
+        action="/submissions/{{ submission_id }}/packages"
+        hx-post="/submissions/{{ submission_id }}/packages"
+        hx-target="#package-list" hx-swap="beforeend">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <h2 class="modal__title">New package</h2>
+
+    {% if error %}
+    <div class="form-banner form-banner--error">{{ error }}</div>
+    {% endif %}
+
+    <div class="wf-field">
+      <label for="pkg-name">PACKAGE NAME</label>
+      <input class="wf-field__input" type="text" id="pkg-name" name="name"
+             placeholder="Optional">
+    </div>
+
+    <div class="wf-field">
+      <label>BROWSE &amp; SELECT FILES</label>
+      <div @change="onDriveChange($event)">
+        <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+          Loading the shared drive…
+        </div>
+      </div>
+    </div>
+
+    <div class="wf-field">
+      <label>MEMBERS</label>
+      <template x-if="members.length === 0">
+        <span class="tag-empty">Tick files above to add them as members.</span>
+      </template>
+      <template x-for="(m, i) in members" :key="m.path">
+        <div class="member-editor">
+          <select name="member_kind" x-model="m.kind" class="member-editor__kind">
+            <option value="edm">EDM</option>
+            <option value="rdm">RDM</option>
+          </select>
+          <input type="text" name="member_name" x-model="m.name"
+                 class="member-editor__name" placeholder="name">
+          <input type="hidden" name="member_path" :value="m.path">
+          <span class="member-editor__path" x-text="m.path"></span>
+          <button type="button" class="btn-xs" @click="remove(i)">✕</button>
+        </div>
+      </template>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit"
+              hx-post="/submissions/{{ submission_id }}/packages">Save</button>
+      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+
+<script>
+  function packageModal() {
+    return {
+      members: [],
+      onDriveChange(e) {
+        const cb = e.target;
+        if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
+        const path = cb.value;
+        if (cb.checked) {
+          if (!this.members.some(m => m.path === path)) {
+            const base = path.split(/[\\/]/).pop();
+            this.members.push({ path, kind: 'edm', name: base });
+          }
+        } else {
+          this.members = this.members.filter(m => m.path !== path);
+        }
+      },
+      remove(i) { this.members.splice(i, 1); },
+    };
+  }
+</script>

@@ -1,0 +1,45 @@
+{% extends "base/shell.html" %}
+{% block title %}Import EDM{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Import EDM</h1>
+    <div class="detail-meta">
+      <span>Browse the shared drive, name the exposure file, and import it.</span>
+    </div>
+  </div>
+
+  {% if errors %}
+  <div class="form-banner form-banner--error">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/edms/import" class="entity-import-form">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+    <div class="wf-field">
+      <label for="edm-name">NAME</label>
+      <input class="wf-field__input" type="text" id="edm-name" name="name"
+             value="{{ form.name }}" required
+             hx-get="/edms/name-check" hx-trigger="keyup changed delay:400ms"
+             hx-target="#name-collision" hx-swap="outerHTML">
+    </div>
+
+    {% include "partials/name_collision.html" %}
+
+    <div class="wf-field">
+      <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
+      <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+        Loading the shared drive…
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit">Import</button>
+      <a class="btn-sm" href="/submissions">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -112,21 +112,27 @@
         <button class="btn-sm" type="submit">Reassign</button>
       </form>
       {% endif %}
-
-      {# Packages — read-only placeholder this iteration (FR-028). #}
-      <div class="section-head" style="margin-top: 24px;"><h2>Packages</h2></div>
-      <div class="pkg-list">
-        {% for p in packages %}
-        <div class="pkg-item">
-          <span class="pkg-item__name">{{ p.name or 'Untitled package' }}</span>
-          <span class="pkg-item__count">
-            {{ p.member_count }} member{{ '' if p.member_count == 1 else 's' }}</span>
-        </div>
-        {% else %}
-        <span class="tag-empty">No packages attached.</span>
-        {% endfor %}
-      </div>
     </div>
   </div>
+
+  {# Packages — one full-width card per package (FR-022). #}
+  <div class="section-head" style="margin-top: 24px;">
+    <h2>Packages</h2>
+    {% if is_active %}
+    <button class="btn-sm btn-sm--primary" type="button"
+            hx-get="/submissions/{{ submission.id }}/packages/new"
+            hx-target="#package-modal-mount" hx-swap="innerHTML">New package</button>
+    {% endif %}
+  </div>
+
+  <div id="package-list" class="package-list">
+    {% for card in package_cards %}
+      {% include "partials/package_card.html" %}
+    {% else %}
+    <span class="tag-empty">No packages yet.</span>
+    {% endfor %}
+  </div>
+
+  <div id="package-modal-mount"></div>
 </div>
 {% endblock %}

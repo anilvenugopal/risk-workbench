@@ -1,0 +1,19 @@
+<div class="member-row member-row--{{ member.status or 'unknown' }}" id="member-{{ member.id }}">
+  <span class="member-row__kind">{{ member.kind|upper }}</span>
+  <span class="member-row__name">{{ member.name }}</span>
+  <span class="status-chip status-chip--{{ (member.status or 'unknown')|lower|replace(' ', '-') }}">
+    {{ member.status or 'unknown' }}</span>
+  {% if member.source_file_path %}
+  <span class="member-row__src" title="{{ member.source_file_path }}">
+    {{ member.source_file_path }}</span>
+  {% endif %}
+  {% if is_active and member.status == 'error' %}
+  <form method="post" action="/packages/{{ card.id }}/members/{{ member.id }}/retry"
+        class="inline-form" hx-post="/packages/{{ card.id }}/members/{{ member.id }}/retry"
+        hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="member_kind" value="{{ member.kind }}">
+    <button class="btn-xs" type="submit">Retry</button>
+  </form>
+  {% endif %}
+</div>
