@@ -1,0 +1,146 @@
+"""Re-run the unit-tier submission-service suite against a LIVE SQL Server.
+
+Article 12 tier 2. The unit tests (``tests/unit/test_submission_service.py``)
+run against a portable SQLite mirror; this module imports those exact test
+functions and re-collects them here, backed by a SQL-Server-connected
+``iteration1_db`` fixture. Same assertions, real driver + dialect — which is what
+actually proves the paths the SQLite mirror cannot vouch for:
+
+  * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
+    column,
+  * ``LIKE`` collation in cedant autocomplete / find_similar,
+  * status-history ``ORDER BY at DESC`` tie-breaking.
+
+Because ``import *`` pulls in every ``test_*`` name, new unit tests added later
+are automatically exercised here too — the seam stays closed as the suite grows.
+
+One path the reused suite does **not** cover, added explicitly below
+(``test_string_marker_round_trips_against_datetime2``): the reused tests read the
+concurrency marker via ``get_submission().updated_at``, which on SQL Server is a
+native ``datetime`` — but the web flow renders that value into a hidden field as
+``str(...)`` and submits it back as a **string**. So the string→DATETIME2 *match*
+(not just the always-mismatching stale-string arm) is only exercised by the
+dedicated test here.
+
+Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
+
+Isolation model: each test gets two throwaway analysts (fresh UUIDs); the kind
+tables are already seeded by the migration. Teardown deletes every row these
+tests create — all of it traces back to the two analyst ids — so each test sees
+only its own data (the global list/suggest/find_similar assertions depend on
+that). A freshly rebuilt DB is the assumed clean starting point.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date
+from types import SimpleNamespace
+
+import pytest
+
+from app.services import submission_service as svc
+from db import execute_command, get_engine
+
+# Re-collect the entire unit submission-service suite against the fixture below.
+from tests.unit.test_submission_service import *  # noqa: F401,F403
+
+pytestmark = pytest.mark.sqlserver
+
+
+def _cleanup(user_a: str, user_b: str) -> None:
+    """Delete, child-first, everything the reused tests created for these two
+    analysts, then the analysts themselves. Best-effort ordering respects the
+    real FKs (events/crm → submission → app_user)."""
+    ids = {"a": user_a, "b": user_b}
+    owned = ("SELECT id FROM submission "
+             "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)")
+    execute_command(
+        f"DELETE FROM submission_status_event WHERE submission_id IN ({owned})",
+        ids, connection="WORKBENCH")
+    execute_command(
+        f"DELETE FROM submission_crm_id WHERE submission_id IN ({owned})",
+        ids, connection="WORKBENCH")
+    execute_command(
+        "DELETE FROM submission "
+        "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)",
+        ids, connection="WORKBENCH")
+    execute_command("DELETE FROM app_user WHERE id IN (:a, :b)", ids,
+                    connection="WORKBENCH")
+
+
+@pytest.fixture()
+def iteration1_db() -> SimpleNamespace:
+    """SQL-Server-backed twin of the unit ``iteration1_db``: two throwaway
+    analysts on the live WORKBENCH DB (kind tables already seeded by the
+    migration). Overrides the SQLite fixture from the root conftest for the tests
+    collected in this module. Real WORKBENCH engine → the service SQL hits SQL
+    Server, not SQLite."""
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    for uid, tag in ((user_a, "A"), (user_b, "B")):
+        execute_command(
+            "INSERT INTO app_user (id, email, display_name, must_change_password, "
+            "is_active) VALUES (:id, :email, :dn, 0, 1)",
+            {"id": uid, "email": f"svc_{uid[:8]}@example.com",
+             "dn": f"Svc Analyst {tag}"},
+            connection="WORKBENCH")
+    try:
+        yield SimpleNamespace(engine=get_engine("WORKBENCH"),
+                              user_a=user_a, user_b=user_b)
+    finally:
+        _cleanup(user_a, user_b)
+
+
+def test_string_marker_round_trips_against_datetime2(iteration1_db):
+    """A form-supplied STRING marker must MATCH the DATETIME2 column (R1/FR-031).
+
+    The browser never sends a ``datetime``: the detail/edit templates render
+    ``submission.updated_at`` into a hidden field as ``str(...)`` and post it back
+    as a string, which the service binds verbatim into ``WHERE updated_at =
+    :expected``. The reused unit tests read the marker as ``get_submission()
+    .updated_at`` — a native ``datetime`` on SQL Server — so they never exercise
+    the string→DATETIME2 conversion the real flow depends on. If that conversion
+    ever failed to round-trip, every marker-guarded write (edit, status, reassign)
+    would raise a spurious ``ConcurrencyConflict`` in production.
+
+    Here each write reads the marker and ``str()``s it exactly as Jinja does, then
+    asserts the write is applied (no conflict) — covering all three guarded paths:
+    the in-place UPDATE (update_submission), the event-sourced transaction
+    (set_status), and reassign_owner.
+    """
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    sid = svc.create_submission(
+        name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        actor_id=a, confirmed=True,
+    ).submission_id
+
+    def marker() -> str:
+        """The hidden-field value the browser would submit: str(a datetime)."""
+        value = svc.get_submission(sid).updated_at
+        assert not isinstance(value, str), (
+            "precondition: on SQL Server the marker is a native datetime; if it is "
+            "already a string this test is not exercising the conversion it targets")
+        return str(value)
+
+    # 1) In-place UPDATE path — matches (does not 409) and applies the change.
+    res = svc.update_submission(
+        submission_id=sid, expected_updated_at=marker(), actor_id=a,
+        confirmed=True, directory_path="/staging/marker")
+    assert res.updated is True
+    assert svc.get_submission(sid).directory_path == "/staging/marker"
+
+    # 2) Event-sourced status transaction — same marker semantics inside conn.begin().
+    svc.set_status(submission_id=sid, to_status="COMPLETED", reason=None,
+                   expected_updated_at=marker(), actor_id=a)
+    assert svc.get_submission(sid).status_code == "COMPLETED"
+
+    # Reopen (reassign is gated to ACTIVE) — also a marker-guarded transition.
+    svc.set_status(submission_id=sid, to_status="ACTIVE", reason=None,
+                   expected_updated_at=marker(), actor_id=a)
+
+    # 3) Reassign path.
+    svc.reassign_owner(submission_id=sid, new_owner_id=b,
+                       expected_updated_at=marker(), actor_id=a)
+    assert svc.get_submission(sid).assigned_analyst_id == b

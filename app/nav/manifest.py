@@ -134,6 +134,20 @@ NODES: list[dict[str, Any]] = [
         "hidden": False,
         "bottom": False,
     },
+    {
+        # Parameterized detail node — routing/breadcrumb only, never rendered in
+        # the sidebar (hidden). Active-state + breadcrumb derive from position.
+        "key": "submissions.detail",
+        "label": "Detail",
+        "parent": "submissions",
+        "route": "/submissions",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": [],
+        "hidden": True,
+        "bottom": False,
+    },
     # ── Workflows sidebar ────────────────────────────────────────────────────
     {
         "key": "workflows.active",
@@ -207,8 +221,13 @@ def rail_nodes(bottom: bool = False) -> list[dict[str, Any]]:
 
 
 def children(key: str) -> list[dict[str, Any]]:
-    """Return all nodes whose parent == key, in NODES order."""
-    return [n for n in NODES if n["parent"] == key]
+    """Return nodes whose parent == key, in NODES order, excluding hidden nodes.
+
+    Hidden nodes (e.g. the parameterized ``submissions.detail`` entry) exist for
+    routing/breadcrumb resolution only and must never appear in sidebar
+    navigation. Breadcrumb/top_ancestor walk parent pointers directly, so hidden
+    nodes still resolve there."""
+    return [n for n in NODES if n["parent"] == key and not n.get("hidden")]
 
 
 def breadcrumb(key: str) -> list[dict[str, Any]]:

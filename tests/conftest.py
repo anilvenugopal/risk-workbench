@@ -15,11 +15,23 @@ flag is passed.
 
 from __future__ import annotations
 
+import sqlite3
+import uuid
+from datetime import date, datetime
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-from db.connection import register_engine
+from db.connection import register_engine, dispose_all, _ENGINE_OVERRIDES
+from tests.iteration1_mirror import ITERATION1_SCHEMA, STATUS_SEED, TREATY_SEED
+
+# Python 3.12+ removed the implicit sqlite3 date/datetime adapters (fully gone in
+# 3.14). The service layer binds native date/datetime (SQL Server wants those);
+# register explicit adapters so the SQLite unit tier can store them as ISO text.
+sqlite3.register_adapter(datetime, lambda v: v.isoformat(sep=" "))
+sqlite3.register_adapter(date, lambda v: v.isoformat())
 
 
 def pytest_addoption(parser):
@@ -46,6 +58,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_irp)
 
 
+# ── Deterministic engine disposal (all tiers) ────────────────────────────────
+# In-memory SQLite engines registered during a test keep their sqlite3
+# connection open until GC, which Python 3.13+ surfaces as a noisy
+# ResourceWarning (via pytest's unraisableexception plugin). Dispose and clear
+# every registered/cached engine after each test so connections close
+# deterministically and no engine state leaks across tests.
+
+@pytest.fixture(autouse=True)
+def _dispose_registered_engines():
+    yield
+    for engine in list(_ENGINE_OVERRIDES.values()):
+        engine.dispose()
+    _ENGINE_OVERRIDES.clear()
+    dispose_all()
+
+
 # ── SQLite engine fixture (unit tests) ───────────────────────────────────────
 # Injects a SQLite engine into the db/ package for the WORKBENCH connection.
 # Unit tests never touch SQL Server.
@@ -69,3 +97,39 @@ def sqlite_conn(sqlite_engine):
     with sqlite_engine.begin() as conn:
         yield conn
         conn.rollback()
+
+
+# ── Iteration-1 submission/package schema (unit tier) ────────────────────────
+# The portable SQLite mirror of the WORKBENCH tables the submission/package
+# services touch lives in tests/iteration1_mirror.py (single source, so the SQL
+# Server drift guard validates the exact same shape). This fixture builds it,
+# seeds the kind tables + two analysts, and registers it as WORKBENCH.
+
+
+@pytest.fixture()
+def iteration1_db() -> SimpleNamespace:
+    """Build the Iteration-1 WORKBENCH schema in SQLite, seed the kind tables and
+    two analysts, register it as the WORKBENCH connection, and return the two
+    analyst ids. Engine disposal is handled by the autouse root fixture."""
+    engine = create_engine("sqlite://")  # in-memory, SingletonThreadPool (shared)
+    user_a = str(uuid.uuid4())
+    user_b = str(uuid.uuid4())
+    with engine.begin() as conn:
+        for ddl in ITERATION1_SCHEMA:
+            conn.execute(text(ddl))
+        conn.execute(text(
+            "INSERT INTO app_user (id, email, display_name) VALUES "
+            "(:a, 'analyst.a@example.com', 'Analyst A'), "
+            "(:b, 'analyst.b@example.com', 'Analyst B')"
+        ), {"a": user_a, "b": user_b})
+        for code, label, order in STATUS_SEED:
+            conn.execute(text(
+                "INSERT INTO submission_status_kind (code, label, sort_order) "
+                "VALUES (:c, :l, :o)"), {"c": code, "l": label, "o": order})
+        for code, label, order in TREATY_SEED:
+            conn.execute(text(
+                "INSERT INTO treaty_type_kind (code, label, sort_order) "
+                "VALUES (:c, :l, :o)"), {"c": code, "l": label, "o": order})
+    register_engine("WORKBENCH", engine)
+    yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
+    engine.dispose()

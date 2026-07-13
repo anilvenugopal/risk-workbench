@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 
 import db
 from db import (execute, execute_one, execute_scalar, execute_command,
-                apply_scope, scoped_execute, register_engine)
+                register_engine)
 from db import scripts
 
 
@@ -70,14 +70,12 @@ def test_empty_connection_name_raises():
 def wb(monkeypatch):
     eng = create_engine("sqlite://")
     with eng.begin() as c:
-        c.execute(text("CREATE TABLE submission(id INT, customer_id INT, status_code TEXT)"))
-        for r in [(1, 10, "open"), (2, 10, "closed"), (3, 20, "open"), (4, 30, "open")]:
-            c.execute(text("INSERT INTO submission VALUES (:a,:b,:c)"),
-                      {"a": r[0], "b": r[1], "c": r[2]})
+        c.execute(text("CREATE TABLE submission(id INT, status_code TEXT)"))
+        for r in [(1, "open"), (2, "closed"), (3, "open"), (4, "open")]:
+            c.execute(text("INSERT INTO submission VALUES (:a,:b)"),
+                      {"a": r[0], "b": r[1]})
     register_engine("WORKBENCH", eng)
     yield
-    if hasattr(db, "_ENGINE_OVERRIDES"):
-        db._ENGINE_OVERRIDES.clear()
 
 
 def test_execute_returns_list_of_dicts(wb):
@@ -102,36 +100,9 @@ def test_execute_one_and_scalar(wb):
 
 
 def test_execute_command_rowcount(wb):
-    n = execute_command("UPDATE submission SET status_code='void' WHERE customer_id=:c",
-                        {"c": 30}, "WORKBENCH")
+    n = execute_command("UPDATE submission SET status_code='void' WHERE id=:i",
+                        {"i": 4}, "WORKBENCH")
     assert n == 1
-
-
-# ── scope (RLS) on the safe path ───────────────────────────────────────────────
-
-def test_scope_filters_by_customer(wb):
-    rows = scoped_execute("SELECT * FROM submission", values=[10],
-                          column="customer_id", is_admin=False, connection="WORKBENCH")
-    assert {r["customer_id"] for r in rows} == {10}
-
-
-def test_scope_admin_bypass(wb):
-    rows = scoped_execute("SELECT * FROM submission", values=[10],
-                          column="customer_id", is_admin=True, connection="WORKBENCH")
-    assert len(rows) == 4
-
-
-def test_scope_no_access_fails_closed(wb):
-    rows = scoped_execute("SELECT * FROM submission", values=[],
-                          column="customer_id", is_admin=False, connection="WORKBENCH")
-    assert rows == []
-
-
-def test_scope_uses_bound_params_not_text():
-    sql, params = apply_scope("SELECT * FROM submission", values=[10, 20], column="customer_id")
-    assert ":_scope_0" in sql and ":_scope_1" in sql
-    assert params["_scope_0"] == 10 and params["_scope_1"] == 20
-    assert " 10" not in sql and "(10" not in sql
 
 
 # ── trusted-script path: substitution + injection containment ──────────────────

@@ -2,16 +2,15 @@
 
 Every function here uses **bound parameters** (`:name` placeholders compiled to
 the driver's positional binds by SQLAlchemy `text()`), so values are sent to the
-server separately from the SQL text. SQL injection and scope-leakage are
-structurally impossible on this path, which is why it is the default and the only
-path that may ever receive user-derived values (customer ids, submission ids,
-search text, …).
+server separately from the SQL text. SQL injection is structurally impossible on
+this path, which is why it is the default and the only path that may ever receive
+user-derived values (submission ids, search text, …).
 
 Returns plain Python (`list[dict]`, a scalar, or a rowcount) — no pandas. The
-application repository and `apply_scope()` (see `db.scope`) sit on top of these.
+application repository sits on top of these.
 
-    rows  = execute("SELECT * FROM submission WHERE customer_id = :cid",
-                    {"cid": 42}, connection="WORKBENCH")
+    rows  = execute("SELECT * FROM submission WHERE status_code = :s",
+                    {"s": "open"}, connection="WORKBENCH")
     row   = execute_one("SELECT * FROM submission WHERE id = :id", {"id": 7}, "WORKBENCH")
     n     = execute_scalar("SELECT COUNT(*) FROM submission", connection="WORKBENCH")
     count = execute_command("UPDATE submission SET status_code = :s WHERE id = :id",

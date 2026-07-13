@@ -1,0 +1,93 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ 'Edit submission' if mode == 'edit' else 'New submission' }}{% endblock %}
+
+{% block page_actions %}
+{% if mode == 'edit' %}
+<a href="/submissions/{{ submission.id }}" class="btn-sm">← Back to deal</a>
+{% else %}
+<a href="/submissions" class="btn-sm">← Back to list</a>
+{% endif %}
+{% endblock %}
+
+{% block main %}
+{% set action = ('/submissions/' ~ submission.id) if mode == 'edit' else '/submissions' %}
+<div class="page-pad" style="max-width: 640px;">
+  <div class="detail-head">
+    <h1>{{ 'Edit submission' if mode == 'edit' else 'New submission' }}</h1>
+  </div>
+
+  {% if errors %}
+  <div class="form-banner form-banner--error">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if warnings %}
+    {% include "partials/dup_warning.html" %}
+  {% endif %}
+
+  <form method="post" action="{{ action }}">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    {% if mode == 'edit' %}
+    <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+    {% endif %}
+
+    <div class="wf-fields">
+      <div class="wf-field">
+        <label>NAME</label>
+        <input class="wf-field__input" type="text" name="name" required
+               value="{{ form.name or '' }}" placeholder="e.g. TY2604_AmericanFamily">
+      </div>
+      <div class="wf-field">
+        <label>CEDANT</label>
+        <input class="wf-field__input" type="text" name="cedant_name" required
+               list="cedant-list" autocomplete="off" value="{{ form.cedant_name or '' }}"
+               hx-get="/submissions/cedant-suggest" hx-trigger="input changed delay:200ms"
+               hx-target="#cedant-list" hx-swap="innerHTML">
+        <datalist id="cedant-list"></datalist>
+      </div>
+      <div class="wf-field">
+        <label>TREATY TYPE</label>
+        <select class="wf-field__input" name="treaty_type_code" required>
+          <option value="">Select…</option>
+          {% for code, label in treaty_types %}
+          <option value="{{ code }}"{% if form.treaty_type_code == code %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="wf-field">
+        <label>INCEPTION DATE</label>
+        <input class="wf-field__input" type="date" name="inception_date" required
+               value="{{ form.inception_date or '' }}">
+      </div>
+      <div class="wf-field">
+        <label>TREATY YEAR</label>
+        <input class="wf-field__input" type="number" name="treaty_year"
+               value="{{ form.treaty_year or '' }}" min="1900" max="2999">
+      </div>
+      <div class="wf-field">
+        <label>DIRECTORY PATH</label>
+        <input class="wf-field__input" type="text" name="directory_path"
+               value="{{ form.directory_path or '' }}" placeholder="optional shared-drive path">
+      </div>
+      <div class="wf-field">
+        <label>RENEWS FROM</label>
+        <input class="wf-field__input" type="text" name="renews_from_submission_id"
+               value="{{ form.renews_from_submission_id or '' }}"
+               placeholder="optional prior submission id">
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit">
+        {{ 'Save changes' if mode == 'edit' else 'Create submission' }}
+      </button>
+      {% if warnings %}
+      <button class="btn-sm" type="submit" name="confirmed" value="1">
+        {{ 'Save anyway' if mode == 'edit' else 'Create anyway' }}
+      </button>
+      {% endif %}
+    </div>
+  </form>
+</div>
+{% endblock %}

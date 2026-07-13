@@ -10,3 +10,4 @@ data/
 .pytest_cache/
 irp-workbench/*
 hb_demo.db
+.coverage

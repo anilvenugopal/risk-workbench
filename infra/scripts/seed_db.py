@@ -65,6 +65,39 @@ def main() -> int:
             """))
             print("  [role_kind] seeds OK")
 
+            # submission_status_kind seeds (idempotent via MERGE) — FR-010
+            conn.execute(text("""
+                MERGE submission_status_kind AS target
+                USING (VALUES
+                    ('ACTIVE',    'Active',    10),
+                    ('COMPLETED', 'Completed', 20),
+                    ('CANCELLED', 'Cancelled', 30)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [submission_status_kind] seeds OK")
+
+            # treaty_type_kind seeds (idempotent via MERGE) — FR-030 (provisional)
+            conn.execute(text("""
+                MERGE treaty_type_kind AS target
+                USING (VALUES
+                    ('cat_xol',       'Cat XoL',      10),
+                    ('quota_share',   'Quota Share',  20),
+                    ('surplus',       'Surplus',      30),
+                    ('per_risk_xol',  'Per-Risk XoL', 40),
+                    ('aggregate_xol', 'Aggregate XoL', 50),
+                    ('stop_loss',     'Stop Loss',    60)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [treaty_type_kind] seeds OK")
+
             app_env = os.environ.get("APP_ENV", "development")
             if app_env == "development":
                 # Dev fixture: admin@example.com — admin role, no forced change

@@ -113,6 +113,12 @@ def test_connection(connection_name: str, database: Optional[str] = None) -> boo
         return False
 
 
+# This is a connectivity probe, not a pytest test. Its ``test_`` name would
+# otherwise make pytest try to collect it (and its ``connection_name`` arg) as a
+# test wherever it is imported into a test module. Mark it non-collectible.
+test_connection.__test__ = False
+
+
 def dispose_all() -> None:
     """Dispose every pooled engine (call on app/worker shutdown)."""
     for eng in _ENGINES.values():

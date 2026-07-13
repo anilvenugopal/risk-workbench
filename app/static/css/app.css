@@ -6,6 +6,7 @@
 @import url("base.css");
 @import url("layout.css");
 @import url("components.css");
+@import url("submissions.css");
 
 [x-cloak] { display: none !important; }
 

@@ -25,12 +25,11 @@ from db.errors import SQLServerConnectionError
 
 @pytest.fixture(autouse=True)
 def _clear_overrides():
-    """Ensure engine overrides don't leak between tests."""
+    """Ensure engine overrides don't leak between tests (disposal is handled by
+    the root conftest autouse fixture)."""
     _ENGINE_OVERRIDES.clear()
     _ENGINES.clear()
     yield
-    _ENGINE_OVERRIDES.clear()
-    _ENGINES.clear()
 
 
 @pytest.fixture
@@ -39,7 +38,8 @@ def sqlite_engine():
     with eng.begin() as conn:
         conn.execute(text("CREATE TABLE t (x INTEGER)"))
         conn.execute(text("INSERT INTO t VALUES (42)"))
-    return eng
+    yield eng
+    eng.dispose()
 
 
 class TestRegisterAndGetEngine:

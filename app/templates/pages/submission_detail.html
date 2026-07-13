@@ -1,0 +1,132 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ submission.name }}{% endblock %}
+
+{% block page_actions %}
+{% if is_active %}
+<a href="/submissions/{{ submission.id }}/edit" class="btn-sm">Edit</a>
+{% endif %}
+{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+
+  <div class="detail-head">
+    <h1>{{ submission.name }}</h1>
+    <div class="detail-meta">
+      <span>{{ submission.cedant_name }}</span>
+      <span class="crumb__sep">·</span>
+      <span>{{ submission.treaty_type_label or submission.treaty_type_code }}</span>
+      <span class="crumb__sep">·</span>
+      <span>Inception {{ submission.inception_date }}</span>
+      <span class="crumb__sep">·</span>
+      <span class="detail-meta__handler">Owner: {{ submission.assigned_analyst_name or '—' }}</span>
+      <span class="status-chip status-chip--{{ submission.status_code|lower }}">
+        {{ submission.status_label or submission.status_code }}</span>
+    </div>
+  </div>
+
+  {% if not is_active %}
+  <div class="form-banner form-banner--readonly">
+    This deal is {{ submission.status_label or submission.status_code }} — read-only.
+    Reopen it to make changes.
+  </div>
+  {% endif %}
+
+  <div class="page-grid">
+    <div class="page-col--main">
+
+      <div class="section-head"><h2>Details</h2></div>
+      <div class="wf-fields">
+        <div class="wf-field"><label>TREATY YEAR</label>
+          <span class="wf-field__val">{{ submission.treaty_year or '—' }}</span></div>
+        <div class="wf-field"><label>DIRECTORY</label>
+          <span class="wf-field__val">{{ submission.directory_path or '—' }}</span></div>
+        <div class="wf-field"><label>RENEWS FROM</label>
+          <span class="wf-field__val">
+            {% if submission.renews_from_submission_id %}
+            <a href="/submissions/{{ submission.renews_from_submission_id }}">
+              {{ submission.renews_from_submission_id }}</a>
+            {% else %}—{% endif %}
+          </span></div>
+        <div class="wf-field"><label>CREATED</label>
+          <span class="wf-field__val">{{ submission.inserted_at }}</span></div>
+      </div>
+
+      <div class="section-head" style="margin-top: 24px;"><h2>Status</h2></div>
+      <div class="status-controls">
+        {% if is_active %}
+        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+          <input type="hidden" name="to_status" value="COMPLETED">
+          <button class="btn-sm" type="submit">Mark complete</button>
+        </form>
+        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+          <input type="hidden" name="to_status" value="CANCELLED">
+          <input class="status-form__reason" type="text" name="reason"
+                 placeholder="reason (optional)">
+          <button class="btn-sm btn-sm--danger" type="submit">Cancel deal</button>
+        </form>
+        {% else %}
+        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+          <input type="hidden" name="to_status" value="ACTIVE">
+          <button class="btn-sm btn-sm--primary" type="submit">Reopen</button>
+        </form>
+        {% endif %}
+      </div>
+
+      <ul class="status-history">
+        {% for e in status_history %}
+        <li class="status-history__item">
+          <span class="status-chip status-chip--{{ e.status_code|lower }}">
+            {{ e.status_label or e.status_code }}</span>
+          <span class="status-history__at">{{ e.at }}</span>
+          {% if e.inserted_by_name %}
+          <span class="status-history__by">by {{ e.inserted_by_name }}</span>{% endif %}
+          {% if e.reason %}<span class="status-history__reason">— {{ e.reason }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="page-col--side">
+      <div class="section-head"><h2>CRM IDs</h2></div>
+      {% include "partials/crm_tags.html" %}
+
+      {% if is_active %}
+      <div class="section-head" style="margin-top: 24px;"><h2>Owner</h2></div>
+      <form method="post" action="/submissions/{{ submission.id }}/reassign"
+            class="reassign-form">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+        <select class="wf-field__input" name="new_owner_id">
+          {% for a in analysts %}
+          <option value="{{ a.id }}"{% if a.id|string == submission.assigned_analyst_id %} selected{% endif %}>
+            {{ a.display_name }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn-sm" type="submit">Reassign</button>
+      </form>
+      {% endif %}
+
+      {# Packages — read-only placeholder this iteration (FR-028). #}
+      <div class="section-head" style="margin-top: 24px;"><h2>Packages</h2></div>
+      <div class="pkg-list">
+        {% for p in packages %}
+        <div class="pkg-item">
+          <span class="pkg-item__name">{{ p.name or 'Untitled package' }}</span>
+          <span class="pkg-item__count">
+            {{ p.member_count }} member{{ '' if p.member_count == 1 else 's' }}</span>
+        </div>
+        {% else %}
+        <span class="tag-empty">No packages attached.</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -12,11 +12,11 @@ ORM.** You keep writing SQL.
 
 | | Safe path (default) | Trusted-script path |
 |---|---|---|
-| Module | `db.execute`, `db.scope` | `db.scripts` |
+| Module | `db.execute` | `db.scripts` |
 | Parameters | **Bound** (`:name`) — sent separately from SQL | `{{ param }}` **substituted into text** |
 | Returns | `list[dict]`, scalar, rowcount | pandas DataFrame(s) |
 | May receive user input? | **Yes** — injection-safe by construction | **Never** — trusted/curated SQL only |
-| Use for | **All application data access** (incl. `apply_scope`) | External data scripts (Databridge), worker-side |
+| Use for | **All application data access** | External data scripts (Databridge), worker-side |
 | Multi-result-set / GO batches | no | yes |
 
 The split is by *safety*, not by target: both Databridge and the Workbench can be
@@ -24,7 +24,7 @@ queried by the safe path; the script path is reserved for curated external scrip
 that need DataFrames and multiple result sets. The script path is **not** exported
 from the top-level package — import it explicitly from `db.scripts` so its use is
 always visible in review. It must never be imported by the web layer and must
-never touch the app's own multi-tenant tables.
+never touch the app's own tables.
 
 ## Configuration (env)
 
@@ -66,14 +66,10 @@ KRB5_PASSWORD=...
 Application code (always the safe path):
 
 ```python
-from db import execute, execute_one, execute_command, scoped_execute
+from db import execute, execute_one, execute_command
 
 rows = execute("SELECT * FROM submission WHERE status_code = :s",
                {"s": "open"}, connection="WORKBENCH")
-
-# RLS — allowed customer ids are bound, never interpolated; empty = no rows
-rows = scoped_execute("SELECT * FROM submission",
-                      customer_ids=user.customer_ids, is_admin=user.is_admin)
 
 execute_command("UPDATE submission SET status_code = :s WHERE id = :id",
                 {"s": "closed", "id": 7}, connection="WORKBENCH")
@@ -102,7 +98,6 @@ db/
 ├── kerberos.py     Windows-auth ticket check/renew (logging, not prints)
 ├── connection.py   pooled SQLAlchemy engines (per target) + Kerberos hook
 ├── execute.py      SAFE bound-parameter path -> list[dict]/scalar/rowcount
-├── scope.py        apply_scope()/scoped_execute() on the safe path only
 └── scripts.py      TRUSTED {{param}} script path -> DataFrames (import explicitly)
 ```
 
