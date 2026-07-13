@@ -42,9 +42,9 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 **Purpose**: Configuration and error surface the rest of the iteration builds on. No new runtime dependencies (plan §Technical Context — all already in `pyproject.toml`).
 
-- [ ] T001 Add Iteration-2 settings to `app/config.py`: `RWB_HEARTBEAT_INTERVAL_SECS`, `RWB_HEARTBEAT_STALE_SECS`, `IRP_SUBMISSION_MAX_RETRIES` (no fixed default — deployment value, FR-029), `POLL_INTERVAL_SECS` (default ~15, FR-027/SC-001), `SHARED_DRIVE_ROOT`, and the notification-channel settings (Teams/email/desktop, R10).
-- [ ] T002 [P] Add the new Iteration-2 vars to `infra/.env.example`: the `RWB_HEARTBEAT_*`, `IRP_SUBMISSION_MAX_RETRIES`, `POLL_INTERVAL_SECS`, `SHARED_DRIVE_ROOT`, notification-channel, and `IRPClient()` env vars (quickstart §Prerequisites).
-- [ ] T003 [P] Add Iteration-2 service errors `InvalidSourceFile` (→422) and `JobSubmitError` to `app/services/errors.py` (contracts/data-access.md §errors); name-collision remains a non-blocking warning payload, **not** an error.
+- [X] T001 Add Iteration-2 settings to `app/config.py`: `RWB_HEARTBEAT_INTERVAL_SECS`, `RWB_HEARTBEAT_STALE_SECS`, `IRP_SUBMISSION_MAX_RETRIES` (no fixed default — deployment value, FR-029), `POLL_INTERVAL_SECS` (default ~15, FR-027/SC-001), `SHARED_DRIVE_ROOT`, and the notification-channel settings (Teams/email/desktop, R10).
+- [X] T002 [P] Add the new Iteration-2 vars to `infra/.env.example`: the `RWB_HEARTBEAT_*`, `IRP_SUBMISSION_MAX_RETRIES`, `POLL_INTERVAL_SECS`, `SHARED_DRIVE_ROOT`, notification-channel, and `IRPClient()` env vars (quickstart §Prerequisites).
+- [X] T003 [P] Add Iteration-2 service errors `InvalidSourceFile` (→422) and `JobSubmitError` to `app/services/errors.py` (contracts/data-access.md §errors); name-collision remains a non-blocking warning payload, **not** an error.
 
 ---
 
@@ -56,32 +56,32 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ### Schema & seeds (single revision, drop-create-seed — data-model §8)
 
-- [ ] T004 Add the five kind tables with inline seeds to `alembic/versions/0001_initial.py`: `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind` (seed rows per data-model §1/§13 — note **no `delete_rdm` irp_job_type**; `rwb_job_requestor_type_kind` = `irp_job`/`analyst_request`/`rwb_job`).
-- [ ] T005 Add the entity tables to `alembic/versions/0001_initial.py` in FK order (depends T004): `irp_job` (**without** `irp_portfolio_id`, §2 note), `irp_job_resource`, `rwb_job` (+ `UNIQUE(requestor_type, requestor_id, rwb_job_type)`), `rwb_job_heartbeat`; add the indexes (data-model §8) and the reverse-order downgrade drops. **No `ALTER`** on `irp_edm`/`irp_rdm` (§6).
-- [ ] T006 [P] Add idempotent `MERGE` seeds for the five new kind tables to `infra/scripts/seed_db.py` (same pattern as the existing kind-seed MERGEs).
+- [X] T004 Add the five kind tables with inline seeds to `alembic/versions/0001_initial.py`: `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind` (seed rows per data-model §1/§13 — note **no `delete_rdm` irp_job_type**; `rwb_job_requestor_type_kind` = `irp_job`/`analyst_request`/`rwb_job`).
+- [X] T005 Add the entity tables to `alembic/versions/0001_initial.py` in FK order (depends T004): `irp_job` (**without** `irp_portfolio_id`, §2 note), `irp_job_resource`, `rwb_job` (+ `UNIQUE(requestor_type, requestor_id, rwb_job_type)`), `rwb_job_heartbeat`; add the indexes (data-model §8) and the reverse-order downgrade drops. **No `ALTER`** on `irp_edm`/`irp_rdm` (§6).
+- [X] T006 [P] Add idempotent `MERGE` seeds for the five new kind tables to `infra/scripts/seed_db.py` (same pattern as the existing kind-seed MERGEs).
 
 ### IRP gateway + fake (Article 11 / Article 12)
 
-- [ ] T007 [P] Define the `irp_gateway` interface in `app/services/irp_gateway.py` — `submit_edm_import`, `submit_rdm_import`, `submit_delete_edm`, `delete_rdm_analyses` (synchronous), `get_import_job`, `get_delete_edm_job` (single-status-check only), `search_edms`, `search_rdms` — thin wrapper over `irp-integration`; the ONLY module importing it; signatures re-confirmed against the active wheel (R1). **No `poll_*_to_completion` ever wrapped.**
-- [ ] T008 Implement a fake IRP conforming to `irp_gateway` for the unit tier in `tests/unit/fakes/fake_irp.py` (+ a `conftest.py` fixture that injects it) (depends T007) — Article 12.
+- [X] T007 [P] Define the `irp_gateway` interface in `app/services/irp_gateway.py` — `submit_edm_import`, `submit_rdm_import`, `submit_delete_edm`, `delete_rdm_analyses` (synchronous), `get_import_job`, `get_delete_edm_job` (single-status-check only), `search_edms`, `search_rdms` — thin wrapper over `irp-integration`; the ONLY module importing it; signatures re-confirmed against the active wheel (R1). **No `poll_*_to_completion` ever wrapped.**
+- [X] T008 Implement a fake IRP conforming to `irp_gateway` for the unit tier in `tests/unit/fakes/fake_irp.py` (+ a `conftest.py` fixture that injects it) (depends T007) — Article 12.
 
 ### The SQL queue, heartbeat, bridge, poller skeleton (Article 10 / 11)
 
-- [ ] T009 [P] Create the Dramatiq broker (redis_url from config) in `app/workers/broker.py`.
-- [ ] T010 Implement the Article-10 queue in `app/services/rwb_job_service.py` (depends T005): `enqueue_rwb_job` (idempotent insert on the UNIQUE composite key → `None` on dedup hit), `claim_rwb_job` (atomic `UPDATE … WHERE status_code='pending'` → bool), `complete_rwb_job` (in-place succeeded/failed + payload + `completed_at`). All via the `db/` safe path.
-- [ ] T011 Implement worker runtime helpers in `app/workers/runtime.py` (depends T010): claim wrapper, heartbeat daemon thread upserting `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`, complete wrapper, and the **stub↔real worker-body switch** (FR-048).
-- [ ] T012 Implement the Article-11 bridge in `app/services/irp_job_service.py` (depends T005): `record_submitted_irp_job` (write `irp_job` status `QUEUED` + `irp_id` + any `irp_job_resource` with `resource_uri` captured at submit; on submit failure write `SUBMISSION FAILED`, `irp_id=null`, FR-029).
-- [ ] T013 Create the poller skeleton in `app/poller/run.py` (depends T010, T012): the `poll_once` loop shell running one pass per `POLL_INTERVAL_SECS`, the **reconciler** (reset `running` `rwb_job` rows with stale heartbeat to `pending`), and the `submission_retry` batch scaffold (`SUBMISSION FAILED` rows under `IRP_SUBMISSION_MAX_RETRIES`). No `poll_*_to_completion` (Article 11).
+- [X] T009 [P] Create the Dramatiq broker (redis_url from config) in `app/workers/broker.py`.
+- [X] T010 Implement the Article-10 queue in `app/services/rwb_job_service.py` (depends T005): `enqueue_rwb_job` (idempotent insert on the UNIQUE composite key → `None` on dedup hit), `claim_rwb_job` (atomic `UPDATE … WHERE status_code='pending'` → bool), `complete_rwb_job` (in-place succeeded/failed + payload + `completed_at`). All via the `db/` safe path.
+- [X] T011 Implement worker runtime helpers in `app/workers/runtime.py` (depends T010): claim wrapper, heartbeat daemon thread upserting `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`, complete wrapper, and the **stub↔real worker-body switch** (FR-048).
+- [X] T012 Implement the Article-11 bridge in `app/services/irp_job_service.py` (depends T005): `record_submitted_irp_job` (write `irp_job` status `QUEUED` + `irp_id` + any `irp_job_resource` with `resource_uri` captured at submit; on submit failure write `SUBMISSION FAILED`, `irp_id=null`, FR-029).
+- [X] T013 Create the poller skeleton in `app/poller/run.py` (depends T010, T012): the `poll_once` loop shell running one pass per `POLL_INTERVAL_SECS`, the **reconciler** (reset `running` `rwb_job` rows with stale heartbeat to `pending`), and the `submission_retry` batch scaffold (`SUBMISSION FAILED` rows under `IRP_SUBMISSION_MAX_RETRIES`). No `poll_*_to_completion` (Article 11).
 
 ### Shared-drive browse (used by US1/US2/US3)
 
-- [ ] T014 [P] Implement `app/services/shared_drive.py`: `browse(path)` (live read-only listing under `SHARED_DRIVE_ROOT`, no cached inventory) and `validate_selection(path)` (resolve + confirm within root and is a file, else `InvalidSourceFile`) — FR-008/FR-009/R11.
-- [ ] T015 Add the browse router `GET /browse` (HTMX fragment, multi-select) in `app/routers/shared_drive.py` + template `app/templates/partials/shared_drive_browse.html`; include the router in `app/main.py` (depends T014).
+- [X] T014 [P] Implement `app/services/shared_drive.py`: `browse(path)` (live read-only listing under `SHARED_DRIVE_ROOT`, no cached inventory) and `validate_selection(path)` (resolve + confirm within root and is a file, else `InvalidSourceFile`) — FR-008/FR-009/R11.
+- [X] T015 Add the browse router `GET /browse` (HTMX fragment, multi-select) in `app/routers/shared_drive.py` + template `app/templates/partials/shared_drive_browse.html`; include the router in `app/main.py` (depends T014).
 
 ### Foundational mandate tests (Article 10 / 12)
 
-- [ ] T016 [P] Unit-test the `rwb_job` state machine in `tests/unit/test_rwb_job_queue.py` (depends T010, T011, T013): atomic claim returns rowcount 1 then 0; heartbeat upsert (one row per job); reconciler reclaims a stale `running` row to `pending`.
-- [ ] T017 [P] SQL-Server test in `tests/sqlserver/test_job_tables_migration.py` (depends T005, T006): the extended migration builds the `irp_job`/`rwb_job` families with all FKs + the `rwb_job` UNIQUE key + seeds; atomic claim returns rowcount 1 then 0 under contention; the idempotent chained insert absorbs a duplicate exactly once.
+- [X] T016 [P] Unit-test the `rwb_job` state machine in `tests/unit/test_rwb_job_queue.py` (depends T010, T011, T013): atomic claim returns rowcount 1 then 0; heartbeat upsert (one row per job); reconciler reclaims a stale `running` row to `pending`.
+- [X] T017 [P] SQL-Server test in `tests/sqlserver/test_job_tables_migration.py` (depends T005, T006): the extended migration builds the `irp_job`/`rwb_job` families with all FKs + the `rwb_job` UNIQUE key + seeds; atomic claim returns rowcount 1 then 0 under contention; the idempotent chained insert absorbs a duplicate exactly once.
 
 **Checkpoint**: Schema rebuilds, the queue + heartbeat + reconciler + gateway/fake are in place. User stories can begin.
 
