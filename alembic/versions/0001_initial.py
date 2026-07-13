@@ -283,6 +283,176 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_rdm_package_id", "irp_rdm", ["package_id"])
 
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Iteration 2 — irp_job / rwb_job families (data-model §1–§5, §8, §13)
+    #  Created after the Iteration-1 tables, in FK order: kinds → irp_job →
+    #  irp_job_resource → rwb_job → rwb_job_heartbeat. No ALTER on irp_edm/irp_rdm
+    #  (their full shape already exists above — §6).
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── kind tables (Article 3) ─────────────────────────────────────────────────
+    for kind in (
+        "irp_job_type_kind",
+        "irp_job_resource_type_kind",
+        "rwb_job_type_kind",
+        "rwb_job_requestor_type_kind",
+        "rwb_job_status_kind",
+    ):
+        op.create_table(
+            kind,
+            sa.Column("code", sa.NVARCHAR(50), primary_key=True),
+            sa.Column("label", sa.NVARCHAR(255), nullable=False),
+            sa.Column("sort_order", sa.Integer, nullable=False),
+            sa.Column("inserted_at", DATETIME2, nullable=False,
+                      server_default=sa.text("GETUTCDATE()")),
+        )
+
+    # ── irp_job (one tracked IRP async op; grain = package; data-model §2) ───────
+    # NOTE: created WITHOUT irp_portfolio_id — irp_portfolio does not exist until a
+    # later iteration (data-model §2 note / research R13); the FK is added with it.
+    op.create_table(
+        "irp_job",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("package_id", sa.Uuid, nullable=True),
+        sa.Column("irp_edm_id", sa.Uuid, nullable=True),
+        sa.Column("irp_rdm_id", sa.Uuid, nullable=True),
+        sa.Column("irp_job_type", sa.NVARCHAR(50), nullable=False),
+        sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # IRP int id as string
+        # plain VARCHAR — external-status mirror (Article 3 carve-out).
+        sa.Column("status", sa.NVARCHAR(50), nullable=False,
+                  server_default=sa.text("'UNSUBMITTED'")),
+        sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
+        sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
+        sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
+        sa.Column("submission_attempt_count", sa.Integer, nullable=False,
+                  server_default="0"),
+        sa.Column("submitted_at", DATETIME2, nullable=True),
+        sa.Column("completed_at", DATETIME2, nullable=True),
+        sa.Column("last_tracked_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
+        sa.ForeignKeyConstraint(["irp_edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["irp_rdm_id"], ["irp_rdm.id"]),
+        sa.ForeignKeyConstraint(["irp_job_type"], ["irp_job_type_kind.code"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        # No scope/customer column (Article 6).
+    )
+    op.create_index("ix_irp_job_type_status", "irp_job", ["irp_job_type", "status"])
+    op.create_index("ix_irp_job_status", "irp_job", ["status"])
+    op.create_index("ix_irp_job_package_id", "irp_job", ["package_id"])
+
+    # ── irp_job_resource (typed submit payload — the resource URI; §3) ──────────
+    op.create_table(
+        "irp_job_resource",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("irp_job_id", sa.Uuid, nullable=False),
+        sa.Column("resource_type", sa.NVARCHAR(50), nullable=False),
+        sa.Column("resource_uri", sa.NVARCHAR(1024), nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.ForeignKeyConstraint(["irp_job_id"], ["irp_job.id"]),
+        sa.ForeignKeyConstraint(["resource_type"],
+                                ["irp_job_resource_type_kind.code"]),
+    )
+    op.create_index("ix_irp_job_resource_irp_job_id", "irp_job_resource",
+                    ["irp_job_id"])
+
+    # ── rwb_job (the SQL-backed work queue — Article 10; §4) ─────────────────────
+    op.create_table(
+        "rwb_job",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("requestor_type", sa.NVARCHAR(50), nullable=False),
+        # requestor_id has NO DB FK — its target varies by requestor_type
+        # (package / irp_job / rwb_job), data-model §4.
+        sa.Column("requestor_id", sa.Uuid, nullable=False),
+        sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
+        sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
+                  server_default=sa.text("'pending'")),
+        sa.Column("input_data", sa.NVARCHAR(None), nullable=True),
+        sa.Column("output_data", sa.NVARCHAR(None), nullable=True),
+        sa.Column("error_detail", sa.NVARCHAR(None), nullable=True),
+        sa.Column("attempt_count", sa.Integer, nullable=False, server_default="0"),
+        sa.Column("claimed_by", sa.NVARCHAR(128), nullable=True),
+        sa.Column("submitted_at", DATETIME2, nullable=True),
+        sa.Column("completed_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["requestor_type"],
+                                ["rwb_job_requestor_type_kind.code"]),
+        sa.ForeignKeyConstraint(["rwb_job_type"], ["rwb_job_type_kind.code"]),
+        sa.ForeignKeyConstraint(["status_code"], ["rwb_job_status_kind.code"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        # The A21 idempotency backbone — every chained enqueue is idempotent on it.
+        sa.UniqueConstraint("requestor_type", "requestor_id", "rwb_job_type",
+                            name="uq_rwb_job_requestor_type"),
+    )
+    op.create_index("ix_rwb_job_status_code", "rwb_job", ["status_code"])
+    op.create_index("ix_rwb_job_requestor", "rwb_job",
+                    ["requestor_type", "requestor_id"])
+
+    # ── rwb_job_heartbeat (per-job liveness — one row per job; §5) ───────────────
+    op.create_table(
+        "rwb_job_heartbeat",
+        sa.Column("rwb_job_id", sa.Uuid, primary_key=True),  # UNIQUE — one per job
+        sa.Column("worker_id", sa.NVARCHAR(128), nullable=False),
+        sa.Column("heartbeat_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.ForeignKeyConstraint(["rwb_job_id"], ["rwb_job.id"]),
+    )
+
+    # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
+    # irp_job_type_kind — NOTE: there is NO delete_rdm type (RDM delete is
+    # synchronous and creates no irp_job — A21 / research R6).
+    op.execute(sa.text(
+        "INSERT INTO irp_job_type_kind (code, label, sort_order) VALUES "
+        "('import_edm', 'Import EDM', 10), "
+        "('import_rdm', 'Import RDM', 20), "
+        "('delete_edm', 'Delete EDM', 30), "
+        "('geohaz', 'Geohazard', 40), "
+        "('analysis', 'Analysis', 50), "
+        "('grouping', 'Grouping', 60), "
+        "('export', 'Export', 70)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO irp_job_resource_type_kind (code, label, sort_order) VALUES "
+        "('portfolio', 'Portfolio', 10)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_type_kind (code, label, sort_order) VALUES "
+        "('upload_edm', 'Upload EDM', 10), "
+        "('upload_rdm', 'Upload RDM', 20), "
+        "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
+        "('download_export_file', 'Download Export File', 40), "
+        "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
+        "('notify_analyst', 'Notify Analyst', 60), "
+        "('delete_rdm', 'Delete RDM', 70), "
+        "('delete_edm', 'Delete EDM', 80)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
+        "('irp_job', 'IRP Job', 10), "
+        "('analyst_request', 'Analyst Request', 20), "
+        "('rwb_job', 'RWB Job', 30)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_status_kind (code, label, sort_order) VALUES "
+        "('pending', 'Pending', 10), "
+        "('running', 'Running', 20), "
+        "('succeeded', 'Succeeded', 30), "
+        "('failed', 'Failed', 40)"
+    ))
+
     # ── Seeds ─────────────────────────────────────────────────────────────────
     op.execute(sa.text(
         "INSERT INTO role_kind (code, label, sort_order, is_admin) VALUES "
@@ -309,6 +479,27 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Iteration-2 tables — reverse FK order (heartbeat → rwb_job →
+    # irp_job_resource → irp_job → the five kind tables), ahead of Iteration-1.
+    op.drop_table("rwb_job_heartbeat")
+    op.drop_index("ix_rwb_job_requestor", table_name="rwb_job")
+    op.drop_index("ix_rwb_job_status_code", table_name="rwb_job")
+    op.drop_table("rwb_job")
+    op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
+    op.drop_table("irp_job_resource")
+    op.drop_index("ix_irp_job_package_id", table_name="irp_job")
+    op.drop_index("ix_irp_job_status", table_name="irp_job")
+    op.drop_index("ix_irp_job_type_status", table_name="irp_job")
+    op.drop_table("irp_job")
+    for kind in (
+        "rwb_job_status_kind",
+        "rwb_job_requestor_type_kind",
+        "rwb_job_type_kind",
+        "irp_job_resource_type_kind",
+        "irp_job_type_kind",
+    ):
+        op.drop_table(kind)
+
     # Iteration-1 tables — reverse FK order.
     op.drop_index("ix_irp_rdm_package_id", table_name="irp_rdm")
     op.drop_table("irp_rdm")
