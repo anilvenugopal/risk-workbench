@@ -1,7 +1,8 @@
-{# Full package card (US5): upload progress, EDM + RDM status chips, source path(s),
-   and all/active/failed job counts each deep-linking to the package-filtered Jobs list.
-   Portfolio-summary/analysis areas render empty this iteration (R13). No rolled-up
-   package status (FR-018) — each member carries its own. #}
+{# Full package card (US5) — Option C layout: compact head with an inline
+   "N/N ready" caption + all/active/failed job counts, then stacked EDM/RDM groups of
+   expandable member rows. Each row expands to a portfolio/analysis area that renders a
+   deferred placeholder this iteration (R13). No rolled-up package status (FR-018) —
+   each member carries its own chip. #}
 <div class="package-card" id="package-card-{{ card.id }}">
   {% set members = card.edms + card.rdms %}
   {% set deleting = members | selectattr('status', 'equalto', 'delete_pending')
@@ -9,49 +10,37 @@
   {% set ready = members | selectattr('status', 'equalto', 'ready') | list | length %}
   {% set total = members | length %}
   <div class="package-card__head">
-    <h3 class="package-card__name">{{ card.name or 'Untitled package' }}</h3>
-    {% if card.deleted_at %}
-    <span class="status-chip status-chip--deleted">deleted</span>
-    {% elif deleting %}
-    <span class="status-chip status-chip--deleting">deleting…</span>
-    {% endif %}
-  </div>
-
-  <div class="package-card__progress" title="{{ ready }} of {{ total }} members ready">
-    <div class="package-card__progress-bar"
-         style="width: {{ (100 * ready / total) | round if total else 0 }}%"></div>
-    <span class="package-card__progress-label">{{ ready }}/{{ total }} ready</span>
-  </div>
-
-  <div class="package-card__members">
-    <div class="package-card__group">
-      <span class="package-card__group-title">EDMs</span>
-      {% for member in card.edms %}
-        {% include "partials/member_row.html" %}
-      {% else %}
-      <span class="tag-empty">No EDMs.</span>
-      {% endfor %}
-    </div>
-    <div class="package-card__group">
-      <span class="package-card__group-title">RDMs</span>
-      {% for member in card.rdms %}
-        {% include "partials/member_row.html" %}
-      {% else %}
-      <span class="tag-empty">No RDMs.</span>
-      {% endfor %}
+    <h3 class="package-card__name">{{ card.name or 'Untitled package' }}
+      {% if total %}
+      <span style="font-weight: var(--fw-regular); font-size: var(--fs-caption); color: var(--text-tertiary);">·
+        {{ ready }}/{{ total }} ready</span>
+      {% endif %}
+    </h3>
+    <div style="display: flex; gap: var(--space-2); align-items: center;">
+      {% if card.deleted_at %}
+      <span class="status-chip status-chip--deleted">deleted</span>
+      {% elif deleting %}
+      <span class="status-chip status-chip--deleting">deleting…</span>
+      {% endif %}
+      {% if card.job_counts %}
+        {% include "partials/package_job_counts.html" %}
+      {% endif %}
     </div>
   </div>
 
-  <div class="package-card__future">
-    <span class="package-card__group-title">Portfolio &amp; analysis</span>
-    <span class="tag-empty">Coming in a later iteration.</span>
-  </div>
+  <span class="package-card__group-title">EDMs · {{ card.edms | length }}</span>
+  {% for member in card.edms %}
+    {% include "partials/member_row.html" %}
+  {% else %}
+  <span class="tag-empty">No EDMs.</span>
+  {% endfor %}
 
-  {% if card.job_counts %}
-  <div class="package-card__counts">
-    {% include "partials/package_job_counts.html" %}
-  </div>
-  {% endif %}
+  <span class="package-card__group-title" style="margin-top: var(--space-3);">RDMs · {{ card.rdms | length }}</span>
+  {% for member in card.rdms %}
+    {% include "partials/member_row.html" %}
+  {% else %}
+  <span class="tag-empty">No RDMs.</span>
+  {% endfor %}
 
   {% if is_active and not card.deleted_at %}
   <div class="package-card__actions">

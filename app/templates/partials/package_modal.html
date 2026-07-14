@@ -1,13 +1,15 @@
-{# Package assembly modal (US3): browse the shared drive, multi-select files, name
-   each member and mark it EDM/RDM, then Save or Save-and-Sync. Alpine.js keeps the
-   member list across browse navigations; the server never caches drive state. #}
+{# Package assembly modal (US3, Option 3): one button opens the shared-drive browser;
+   ticked files land in a single flat list, each row carrying its own EDM/RDM toggle
+   (pre-set by naming convention, flippable in a click). Save attaches the package;
+   Save & Sync also enqueues the import. Alpine keeps the member list across browse
+   navigations; the server never caches drive state. #}
 <div class="modal" id="package-modal" x-data="packageModal">
   {% if closed %}
   <div class="modal__panel">
     <div class="form-banner form-banner--readonly">
       This submission is closed — packages are read-only. Reopen it to make changes.
     </div>
-    <div class="form-actions">
+    <div class="modal__actions">
       <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
     </div>
   </div>
@@ -23,46 +25,63 @@
     <div class="form-banner form-banner--error">{{ error }}</div>
     {% endif %}
 
-    <div class="wf-field">
+    <div class="wf-field" style="margin-bottom: var(--space-4);">
       <label for="pkg-name">PACKAGE NAME</label>
       <input class="wf-field__input" type="text" id="pkg-name" name="name"
-             placeholder="Optional">
+             placeholder="Optional — defaults to the deal name">
     </div>
 
-    <div class="wf-field">
-      <label>BROWSE &amp; SELECT FILES</label>
-      <div @change="onDriveChange($event)">
-        <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
-          Loading the shared drive…
-        </div>
+    <div @change="onDriveChange($event)">
+      <button class="browse-trigger" type="button" @click="browseOpen = !browseOpen">
+        <span class="browse-trigger__icon">🗂</span>
+        <span x-text="browseOpen ? 'Hide drive browser' : 'Browse shared drive…'">Browse shared drive…</span>
+      </button>
+      <span class="browse-hint"
+            x-text="members.length ? members.length + ' file' + (members.length === 1 ? '' : 's') + ' added' : 'tick files to add them below'"></span>
+      <div x-show="browseOpen" hx-get="/browse" hx-trigger="load"
+           hx-target="this" hx-swap="innerHTML">
+        Loading the shared drive…
       </div>
     </div>
 
-    <div class="wf-field">
-      <label>MEMBERS</label>
-      <template x-if="members.length === 0">
-        <span class="tag-empty">Tick files above to add them as members.</span>
-      </template>
-      <template x-for="(m, i) in members" :key="m.path">
-        <div class="member-editor">
-          <select name="member_kind" x-model="m.kind" class="member-editor__kind">
-            <option value="edm">EDM</option>
-            <option value="rdm">RDM</option>
-          </select>
-          <input type="text" name="member_name" x-model="m.name"
-                 class="member-editor__name" placeholder="name">
-          <input type="hidden" name="member_path" :value="m.path">
-          <span class="member-editor__path" x-text="m.path"></span>
-          <button type="button" class="btn-xs" @click="remove(i)">✕</button>
-        </div>
-      </template>
-    </div>
+    <template x-if="members.length">
+      <div class="auto-note">
+        <b>Auto-sorted by naming convention.</b>&nbsp;Flip any row that guessed wrong.
+      </div>
+    </template>
 
-    <div class="form-actions">
-      <button class="btn-sm btn-sm--primary" type="submit"
-              :disabled="members.length === 0"
-              hx-post="/submissions/{{ submission_id }}/packages">Save</button>
-      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+    <label style="font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-medium);">
+      MEMBERS <span x-text="members.length ? '· ' + members.length : ''"></span></label>
+    <template x-if="members.length === 0">
+      <div class="mlist" style="padding: var(--space-3);">
+        <span class="tag-empty">Open the drive browser and tick files to add them as members.</span>
+      </div>
+    </template>
+    <template x-if="members.length">
+      <div class="mlist">
+        <template x-for="(m, i) in members" :key="m.path">
+          <div class="mrow">
+            <span class="kind-toggle" role="group" aria-label="Member kind">
+              <button type="button" @click="m.kind = 'edm'" :aria-pressed="m.kind === 'edm'">EDM</button>
+              <button type="button" @click="m.kind = 'rdm'" :aria-pressed="m.kind === 'rdm'">RDM</button>
+            </span>
+            <input type="hidden" name="member_kind" :value="m.kind">
+            <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name">
+            <input type="hidden" name="member_path" :value="m.path">
+            <span class="mrow__file" x-text="m.path" :title="m.path"></span>
+            <button type="button" class="mrow__x" @click="remove(i)" title="Remove">✕</button>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+      <span class="spacer"></span>
+      <button class="btn-sm" type="submit" name="action" value="save"
+              :disabled="members.length === 0">Save</button>
+      <button class="btn-sm btn-sm--primary" type="submit" name="action" value="sync"
+              :disabled="members.length === 0">Save &amp; Sync</button>
     </div>
   </form>
   {% endif %}

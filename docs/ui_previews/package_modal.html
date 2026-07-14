@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Package Creation modal — options · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ============================================================================
+   APP CSS — copied VERBATIM from the real stylesheets, in @import order.
+   These are the exact classes the modal already uses today.
+   ============================================================================ */
+
+/* base */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+
+/* components.css — .btn-sm */
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.btn-sm--danger:hover{border-color:var(--color-danger);color:var(--color-danger)}
+
+/* submissions.css — form banners + actions */
+.form-banner{margin-bottom:var(--space-4);padding:var(--space-2) 14px;border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default)}
+.form-banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+.form-banner--readonly{color:var(--color-warning);background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+.form-actions{display:flex;gap:var(--space-2);margin-top:var(--space-4)}
+
+/* app.css — .wf-field / .tag-empty */
+.wf-field{display:grid;grid-template-columns:120px 1fr;align-items:center}
+.wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px}
+.tag-empty{color:var(--text-tertiary)}
+
+/* packages.css — status chips */
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:0.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--pending_import,.status-chip--importing{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--error{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+
+/* packages.css — modal shell + member-editor row */
+.modal{position:fixed;inset:0;background:rgba(15,22,41,0.4);display:flex;align-items:flex-start;justify-content:center;padding:var(--space-8) var(--space-4);z-index:50;overflow-y:auto}
+.modal__panel{background:var(--c-surface-1);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:var(--space-6);width:100%;max-width:640px}
+.modal__title{margin:0 0 var(--space-4);font-size:1.1rem}
+.member-editor{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--c-border-faint)}
+.member-editor__kind{width:84px}
+.member-editor__name{flex:0 0 160px}
+.member-editor__path{font-family:var(--font-mono);font-size:0.7rem;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+
+/* ============================================================================
+   PROPOSED — net-new classes this redesign introduces. Nothing below exists in
+   the app yet. NOTE: today the shared-drive browser (.drive-browse*) and the ✕
+   remove button (.btn-xs) have NO css at all — they render as bare markup.
+   Everything here would land in packages.css at wiring time.
+   ============================================================================ */
+
+/* preview page chrome (not part of the modal) */
+.pv-wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:70ch}
+.pv-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin:var(--space-4) 0 var(--space-6);max-width:90ch}
+.pv-note code{font-family:var(--font-mono)}
+.pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
+.pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:80ch}
+.pv-cap b{color:var(--text-primary)}
+/* render the fixed modal inline (in-flow) so several can sit on one page */
+.pv-stage{position:static;background:transparent;display:block;padding:0;margin-bottom:var(--space-6)}
+.pv-stage .modal__panel{margin:0}
+.pv-wide .modal__panel{max-width:880px}
+
+/* the single "open explorer" trigger */
+.browse-trigger{display:inline-flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer}
+.browse-trigger:hover{background:var(--surface-hover)}
+.browse-trigger__icon{font-size:15px}
+.browse-hint{color:var(--text-tertiary);font-size:var(--fs-caption);margin-left:var(--space-3)}
+
+/* server-rendered explorer overlay (styling .drive-browse, which today has none) */
+.drive-browse{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);overflow:hidden}
+.drive-browse__bar{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.drive-browse__crumb{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drive-browse__count{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.drive-browse__list{list-style:none;margin:0;padding:var(--space-1);max-height:260px;overflow-y:auto}
+.drive-browse__row{border-radius:var(--radius-sm)}
+.drive-browse__row:hover{background:var(--surface-hover)}
+.drive-browse__row label,.drive-browse__row a{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);cursor:pointer;text-decoration:none;color:var(--text-primary);font-size:var(--fs-label)}
+.drive-browse__row--dir a{color:var(--text-secondary);font-weight:var(--fw-medium)}
+.drive-browse__name{flex:1}
+.drive-browse__size{font-size:var(--fs-caption);color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+.drive-browse__row--picked{background:var(--color-brand-faint)}
+.drive-browse__foot{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-top:1px solid var(--border-default);background:var(--surface-recessed)}
+.drive-browse__foot-n{font-size:var(--fs-label);color:var(--text-secondary)}
+.drive-browse__foot-n b{color:var(--text-primary)}
+
+/* auto-classify banner shown after files are added */
+.auto-note{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info);font-size:var(--fs-caption);margin-bottom:var(--space-4)}
+.auto-note b{font-weight:var(--fw-semibold)}
+
+/* member sections (EDM / RDM buckets) */
+.mgroup-cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5)}
+@media (max-width:760px){.mgroup-cols{grid-template-columns:1fr}}
+.mgroup{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.mgroup__head{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);background:var(--surface-recessed);border-radius:var(--radius-md) var(--radius-md) 0 0}
+.mgroup__title{font-size:var(--fs-caption);font-weight:var(--fw-bold);letter-spacing:.06em;text-transform:uppercase;color:var(--text-secondary)}
+.mgroup__n{font-size:var(--fs-caption);color:var(--text-tertiary);background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-pill);padding:0 var(--space-2)}
+.mgroup__body{padding:var(--space-1) var(--space-3) var(--space-2)}
+.mgroup__drop{border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--text-tertiary);font-size:var(--fs-caption);text-align:center;padding:var(--space-3);margin:var(--space-2) 0}
+
+/* a member row, typed (kind implied by its section) */
+.mrow{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--c-border-faint)}
+.mrow:last-child{border-bottom:0}
+.mrow__name{flex:1;min-width:0;padding:5px 8px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);background:var(--surface-recessed);color:var(--text-primary)}
+.mrow__name:focus{outline:none;border-color:var(--color-brand);box-shadow:var(--ring-focus);background:var(--surface-panel)}
+.mrow__file{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%}
+.mrow__x{border:0;background:transparent;color:var(--text-tertiary);cursor:pointer;font-size:14px;line-height:1;padding:4px 6px;border-radius:var(--radius-sm)}
+.mrow__x:hover{background:var(--color-danger-bg);color:var(--color-danger)}
+.mrow--flag .mrow__name{border-color:var(--color-warning-border);background:var(--color-warning-bg)}
+
+/* per-row kind toggle (Option 3, single list) */
+.kind-toggle{display:inline-flex;border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden}
+.kind-toggle button{border:0;background:var(--surface-panel);color:var(--text-tertiary);font-size:var(--fs-caption);font-weight:var(--fw-semibold);padding:4px 10px;cursor:pointer}
+.kind-toggle button+button{border-left:1px solid var(--border-default)}
+.kind-toggle button[aria-pressed="true"]{background:var(--color-brand);color:var(--btn-primary-fg)}
+.mlist{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3)}
+
+/* footer with three actions, Close pushed to the left */
+.modal__actions{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-5)}
+.modal__actions .spacer{flex:1}
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <div class="pv-hero">Package Creation modal — 3 options</div>
+  <div class="pv-sub">Browse the shared drive from a single button, multi-select files, auto-sort them into EDM / RDM, rename in place, remove with ✕, then Save&nbsp;&amp;&nbsp;Sync / Save / Close. Built on the app's real classes; only the clearly-marked <b>PROPOSED</b> CSS is net-new.</div>
+
+  <div class="pv-note">
+    <strong>One real constraint to decide on — the "file explorer."</strong> The shared drive is mounted on the <b>server</b> (linux-box), and the app already reads it through a server endpoint (<code>GET /browse</code>) that returns server-side <em>paths</em>. A browser's native OS file picker can only see the <em>analyst's own machine</em> and hands back file <em>bytes</em>, not a path the server can open — so a truly "native" explorer can't feed this backend. What's shown below is therefore a <b>server-rendered explorer</b> in an overlay: one button opens it, you tick files, "Add" drops them into the modal. It behaves like a file browser and supports multi-select, but it's the app drawing the tree, not Windows Explorer. (If the drive is also mapped on every analyst's box and we'd rather use the native picker, that's a real fork worth a quick conversation — it changes how the backend gets the file.)
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       THE FILE EXPLORER (shared by all three options)
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">The file explorer · closed → open</div>
+  <p class="pv-cap">A <b>single button</b> in the modal. Clicking it opens the server-rendered drive browser as an overlay; tick any number of files across folders, then <b>Add</b>. Today <code>.drive-browse</code> has no CSS at all — this is the PROPOSED styling for it.</p>
+
+  <div class="pv-stage modal" style="margin-bottom:var(--space-6)">
+    <div class="modal__panel" style="max-width:560px">
+      <h2 class="modal__title">New package</h2>
+      <div class="wf-field" style="margin-bottom:var(--space-4)">
+        <label for="p1">PACKAGE NAME</label>
+        <input class="wf-field__input" id="p1" type="text" placeholder="Optional — defaults to the deal name">
+      </div>
+      <label style="font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)">FILES</label>
+      <div style="margin-top:var(--space-2)">
+        <button class="browse-trigger" type="button"><span class="browse-trigger__icon">🗂</span> Browse shared drive…</button>
+        <span class="browse-hint">or drag files onto the sections below</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="pv-stage" style="max-width:560px">
+    <div class="drive-browse">
+      <div class="drive-browse__bar">
+        <a href="#" class="btn-sm" style="text-decoration:none">↑ Up</a>
+        <span class="drive-browse__crumb" title="\\rms-share\intake\2026\meridian-re">\\rms-share\intake\2026\meridian-re</span>
+        <span class="drive-browse__count">6 files · 2 folders</span>
+      </div>
+      <ul class="drive-browse__list">
+        <li class="drive-browse__row drive-browse__row--dir"><a href="#">📁 archive</a></li>
+        <li class="drive-browse__row drive-browse__row--dir"><a href="#">📁 prior-year</a></li>
+        <li class="drive-browse__row drive-browse__row--picked"><label><input type="checkbox" checked> <span class="drive-browse__name">📄 meridian_edm_2026.bak</span><span class="drive-browse__size">418.2 MB</span></label></li>
+        <li class="drive-browse__row drive-browse__row--picked"><label><input type="checkbox" checked> <span class="drive-browse__name">📄 meridian_us_wind_edm.mdf</span><span class="drive-browse__size">96.4 MB</span></label></li>
+        <li class="drive-browse__row drive-browse__row--picked"><label><input type="checkbox" checked> <span class="drive-browse__name">📄 meridian_2026_results.bak</span><span class="drive-browse__size">211.0 MB</span></label></li>
+        <li class="drive-browse__row"><label><input type="checkbox"> <span class="drive-browse__name">📄 meridian_eu_flood_edm.mdf</span><span class="drive-browse__size">73.8 MB</span></label></li>
+        <li class="drive-browse__row"><label><input type="checkbox"> <span class="drive-browse__name">📄 meridian_cat_rdm.mdf</span><span class="drive-browse__size">44.1 MB</span></label></li>
+        <li class="drive-browse__row"><label><input type="checkbox"> <span class="drive-browse__name">📄 notes_underwriting.xlsx</span><span class="drive-browse__size">0.3 MB</span></label></li>
+      </ul>
+      <div class="drive-browse__foot">
+        <span class="drive-browse__foot-n"><b>3</b> files selected</span>
+        <span style="display:flex;gap:var(--space-2)">
+          <button class="btn-sm" type="button">Cancel</button>
+          <button class="btn-sm btn-sm--primary" type="button">Add 3 files</button>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       OPTION 1 — VERTICAL SPLIT
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Option 1 · Vertical split — EDMs over RDMs</div>
+  <p class="pv-cap"><b>Two stacked sections.</b> Reads top-to-bottom, so it stays comfortable in the current 640px modal and scales down to mobile without reflow. Best when a package usually has more EDMs than RDMs (the long list gets the full width).</p>
+
+  <div class="pv-stage modal">
+    <div class="modal__panel">
+      <h2 class="modal__title">New package · Meridian Property Cat XoL 2026</h2>
+
+      <div class="wf-field" style="margin-bottom:var(--space-4)">
+        <label for="p2">PACKAGE NAME</label>
+        <input class="wf-field__input" id="p2" type="text" value="meridian-2026-primary">
+      </div>
+
+      <div style="margin-bottom:var(--space-4)">
+        <button class="browse-trigger" type="button"><span class="browse-trigger__icon">🗂</span> Browse shared drive…</button>
+        <span class="browse-hint">4 files added</span>
+      </div>
+
+      <div class="auto-note"><b>Auto-sorted by naming convention.</b> 3 matched (<code>*edm*</code> → EDM, <code>*results*/*rdm*</code> → RDM) · 1 needs review.</div>
+
+      <div class="mgroup" style="margin-bottom:var(--space-4)">
+        <div class="mgroup__head"><span class="mgroup__title">EDMs</span><span class="mgroup__n">3</span></div>
+        <div class="mgroup__body">
+          <div class="mrow"><input class="mrow__name" value="meridian_edm_2026"><span class="mrow__file" title="\\rms-share\intake\2026\meridian-re\meridian_edm_2026.bak">meridian_edm_2026.bak</span><button class="mrow__x" title="Remove">✕</button></div>
+          <div class="mrow"><input class="mrow__name" value="meridian_us_wind_edm"><span class="mrow__file" title="\\rms-share\intake\2026\meridian-re\meridian_us_wind_edm.mdf">meridian_us_wind_edm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+          <div class="mrow mrow--flag"><input class="mrow__name" value="meridian_portfolio_final"><span class="mrow__file" title="\\rms-share\intake\2026\meridian-re\meridian_portfolio_final.mdf">meridian_portfolio_final.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+        </div>
+      </div>
+
+      <div class="mgroup">
+        <div class="mgroup__head"><span class="mgroup__title">RDMs</span><span class="mgroup__n">1</span></div>
+        <div class="mgroup__body">
+          <div class="mrow"><input class="mrow__name" value="meridian_2026_results"><span class="mrow__file" title="\\rms-share\intake\2026\meridian-re\meridian_2026_results.bak">meridian_2026_results.bak</span><button class="mrow__x" title="Remove">✕</button></div>
+        </div>
+      </div>
+
+      <div class="modal__actions">
+        <button class="btn-sm" type="button">Close</button>
+        <span class="spacer"></span>
+        <button class="btn-sm" type="button">Save</button>
+        <button class="btn-sm btn-sm--primary" type="button">Save &amp; Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       OPTION 2 — HORIZONTAL SPLIT
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Option 2 · Horizontal split — EDMs beside RDMs</div>
+  <p class="pv-cap"><b>Two side-by-side columns.</b> Both buckets are visible at once with less scrolling — good when a package mixes several of each. Needs a wider modal (<b>880px</b>, PROPOSED); collapses to stacked columns under 760px, so it degrades into Option 1 on narrow screens.</p>
+
+  <div class="pv-stage modal pv-wide">
+    <div class="modal__panel">
+      <h2 class="modal__title">New package · Meridian Property Cat XoL 2026</h2>
+
+      <div style="display:flex;align-items:center;gap:var(--space-4);margin-bottom:var(--space-4);flex-wrap:wrap">
+        <div class="wf-field" style="grid-template-columns:auto 1fr;gap:var(--space-3)">
+          <label for="p3">NAME</label>
+          <input class="wf-field__input" id="p3" type="text" value="meridian-2026-worldwide">
+        </div>
+        <button class="browse-trigger" type="button"><span class="browse-trigger__icon">🗂</span> Browse shared drive…</button>
+        <span class="browse-hint">7 files added</span>
+      </div>
+
+      <div class="auto-note"><b>Auto-sorted by naming convention.</b> 7 matched · 0 need review.</div>
+
+      <div class="mgroup-cols">
+        <div class="mgroup">
+          <div class="mgroup__head"><span class="mgroup__title">EDMs</span><span class="mgroup__n">4</span></div>
+          <div class="mgroup__body">
+            <div class="mrow"><input class="mrow__name" value="meridian_edm_2026"><span class="mrow__file" title="\\rms-share\intake\2026\meridian-re\meridian_edm_2026.bak">meridian_edm_2026.bak</span><button class="mrow__x" title="Remove">✕</button></div>
+            <div class="mrow"><input class="mrow__name" value="meridian_us_wind_edm"><span class="mrow__file" title="…\meridian_us_wind_edm.mdf">meridian_us_wind_edm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+            <div class="mrow"><input class="mrow__name" value="meridian_eu_flood_edm"><span class="mrow__file" title="…\meridian_eu_flood_edm.mdf">meridian_eu_flood_edm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+            <div class="mrow"><input class="mrow__name" value="meridian_apac_quake_edm"><span class="mrow__file" title="…\meridian_apac_quake_edm.mdf">meridian_apac_quake_edm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+          </div>
+        </div>
+        <div class="mgroup">
+          <div class="mgroup__head"><span class="mgroup__title">RDMs</span><span class="mgroup__n">3</span></div>
+          <div class="mgroup__body">
+            <div class="mrow"><input class="mrow__name" value="meridian_2026_results"><span class="mrow__file" title="…\meridian_2026_results.bak">meridian_2026_results.bak</span><button class="mrow__x" title="Remove">✕</button></div>
+            <div class="mrow"><input class="mrow__name" value="meridian_cat_rdm"><span class="mrow__file" title="…\meridian_cat_rdm.mdf">meridian_cat_rdm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+            <div class="mrow"><input class="mrow__name" value="meridian_retro_rdm"><span class="mrow__file" title="…\meridian_retro_rdm.mdf">meridian_retro_rdm.mdf</span><button class="mrow__x" title="Remove">✕</button></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal__actions">
+        <button class="btn-sm" type="button">Close</button>
+        <span class="spacer"></span>
+        <button class="btn-sm" type="button">Save</button>
+        <button class="btn-sm btn-sm--primary" type="button">Save &amp; Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════
+       OPTION 3 — SINGLE LIST + PER-ROW KIND CONTROL
+       ═══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Option 3 · One list, per-row EDM/RDM control</div>
+  <p class="pv-cap"><b>A single flat list</b> in the order files were added; each row carries its own EDM/RDM control, pre-set by the naming convention and flippable in one click. Least new layout — closest to the modal that exists today (which already uses a <code>&lt;select&gt;</code> per row). Shown here with a segmented toggle; the muted <code>&lt;select&gt;</code> variant is drawn underneath for comparison.</p>
+
+  <div class="pv-stage modal">
+    <div class="modal__panel">
+      <h2 class="modal__title">New package · Meridian Property Cat XoL 2026</h2>
+
+      <div style="margin-bottom:var(--space-4)">
+        <button class="browse-trigger" type="button"><span class="browse-trigger__icon">🗂</span> Browse shared drive…</button>
+        <span class="browse-hint">4 files added</span>
+      </div>
+
+      <div class="auto-note"><b>Auto-sorted by naming convention.</b> Flip any row that guessed wrong.</div>
+
+      <label style="font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)">MEMBERS · 4</label>
+      <div class="mlist" style="margin-top:var(--space-2)">
+        <div class="mrow">
+          <span class="kind-toggle"><button aria-pressed="true">EDM</button><button aria-pressed="false">RDM</button></span>
+          <input class="mrow__name" value="meridian_edm_2026"><span class="mrow__file" title="…\meridian_edm_2026.bak">meridian_edm_2026.bak</span><button class="mrow__x" title="Remove">✕</button>
+        </div>
+        <div class="mrow">
+          <span class="kind-toggle"><button aria-pressed="true">EDM</button><button aria-pressed="false">RDM</button></span>
+          <input class="mrow__name" value="meridian_us_wind_edm"><span class="mrow__file" title="…\meridian_us_wind_edm.mdf">meridian_us_wind_edm.mdf</span><button class="mrow__x" title="Remove">✕</button>
+        </div>
+        <div class="mrow">
+          <span class="kind-toggle"><button aria-pressed="false">EDM</button><button aria-pressed="true">RDM</button></span>
+          <input class="mrow__name" value="meridian_2026_results"><span class="mrow__file" title="…\meridian_2026_results.bak">meridian_2026_results.bak</span><button class="mrow__x" title="Remove">✕</button>
+        </div>
+        <div class="mrow">
+          <span class="kind-toggle"><button aria-pressed="false">EDM</button><button aria-pressed="true">RDM</button></span>
+          <input class="mrow__name" value="meridian_cat_rdm"><span class="mrow__file" title="…\meridian_cat_rdm.mdf">meridian_cat_rdm.mdf</span><button class="mrow__x" title="Remove">✕</button>
+        </div>
+      </div>
+
+      <p class="pv-cap" style="margin:var(--space-4) 0 var(--space-2);font-size:var(--fs-caption)">Same list, using the app's existing <code>&lt;select&gt;</code> (real <code>.member-editor</code> row):</p>
+      <div class="member-editor">
+        <select class="member-editor__kind"><option>EDM</option><option>RDM</option></select>
+        <input class="member-editor__name wf-field__input" value="meridian_edm_2026" style="min-width:0">
+        <span class="member-editor__path">meridian_edm_2026.bak</span>
+        <button class="mrow__x" title="Remove">✕</button>
+      </div>
+
+      <div class="modal__actions">
+        <button class="btn-sm" type="button">Close</button>
+        <span class="spacer"></span>
+        <button class="btn-sm" type="button">Save</button>
+        <button class="btn-sm btn-sm--primary" type="button">Save &amp; Sync</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:var(--space-9)"></div>
+</div>
+</body>
+</html>

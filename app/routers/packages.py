@@ -95,6 +95,7 @@ def save(
     member_kind: list[str] = Form(default=[]),
     member_name: list[str] = Form(default=[]),
     member_path: list[str] = Form(default=[]),
+    action: str = Form("save"),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
@@ -118,6 +119,10 @@ def save(
     package_service.attach_to_submission(
         submission_id=submission_id, package_id=result.package_id,
         actor_id=request.state.user.id)
+    # "Save & Sync" (action=sync) also enqueues the member import; plain "Save" just
+    # persists + attaches. No Risk Modeler call happens here either way (Article 11).
+    if action == "sync":
+        sync.save_and_sync(package_id=result.package_id, actor_id=request.state.user.id)
     return _card_partial(request, result.package_id)
 
 

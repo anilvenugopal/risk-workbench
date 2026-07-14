@@ -25,15 +25,19 @@
   border: 1px solid var(--border-default); color: var(--text-secondary);
   background: var(--surface-recessed);
 }
-.status-chip--active {
+/* Deal-status variants are doubled (`.status-chip.status-chip--x`) on purpose:
+   packages.css loads AFTER this file and redefines the base `.status-chip`, whose
+   equal specificity would otherwise clobber these colours and render deal chips
+   grey. The doubled selector (0,2,0) outranks that base rule (0,1,0). */
+.status-chip.status-chip--active {
   color: var(--color-info); background: var(--color-info-bg);
   border-color: var(--color-info-border);
 }
-.status-chip--completed {
+.status-chip.status-chip--completed {
   color: var(--color-positive); background: var(--color-positive-bg);
   border-color: var(--color-positive-border);
 }
-.status-chip--cancelled {
+.status-chip.status-chip--cancelled {
   color: var(--color-negative); background: var(--color-negative-bg);
   border-color: var(--color-negative-border);
 }

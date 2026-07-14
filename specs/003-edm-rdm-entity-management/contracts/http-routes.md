@@ -35,7 +35,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | Method | Path | Purpose | Success | Errors |
 |---|---|---|---|---|
 | GET | `/submissions/{id}/packages/new` | Package modal (browse + multi-select + per-member name) | modal partial | gate 409 if submission not ACTIVE |
-| POST | `/submissions/{id}/packages` | **Save** — persist package + member names, run collision check, submit nothing (FR-014) | package-card partial | `EmptyPackageError`→422; collision warning inline (non-blocking) |
+| POST | `/submissions/{id}/packages` | **Create** — persist package + member names, run collision check, attach to submission. Body carries `action`: `save` (default) submits nothing (FR-014); `save` **and** `sync` in one step (FR-013) — `action=sync` also enqueues member work via the same non-blocking path as `/packages/{pid}/sync` (FR-015/FR-042). | package-card partial (queued state when `action=sync`) | `EmptyPackageError`→422; `InvalidSourceFile`→422; collision warning inline (non-blocking) |
 | POST | `/packages/{pid}` | Edit a saved package (names/members) | card partial | `ConcurrencyConflict`→409 (FR-039); `EmptyPackageError`→422 |
 | POST | `/packages/{pid}/sync` | **Save and Sync** — enqueue member work, return immediately (FR-015/FR-042) | card partial (queued state) | gate 409; `EmptyPackageError`→422 |
 | POST | `/packages/{pid}/delete` | **Delete** — enqueue reverse-order removals (FR-019) | card partial (deleting state) | gate 409 |

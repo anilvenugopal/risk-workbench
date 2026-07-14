@@ -97,6 +97,13 @@
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }
+/* Compact deal header (submission detail, Option C): read-only metadata collapses
+   into a one-line strip + a lighter secondary substrip. */
+.deal-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--fs-label); color: var(--text-secondary); margin-bottom: 6px; }
+.deal-strip b { color: var(--text-primary); font-weight: var(--fw-medium); }
+.deal-substrip { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-tertiary); margin-bottom: 18px; }
+.deal-substrip b { color: var(--text-secondary); font-weight: var(--fw-medium); }
+.deal-substrip a { color: var(--color-brand); }
 .page-grid { display: grid; grid-template-columns: 1fr 320px; gap: var(--space-6); align-items: start; }
 .page-col--side { border-left: 1px solid var(--border-faint); padding-left: 22px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
