@@ -83,9 +83,14 @@ explicit = true
 irp-integration = [
     { index = "testpypi", group = "irp-testpypi" },
     # Local editable checkout. Path is relative to this repo root
-    # (Desktop/CIC/risk-workbench → Desktop/IRP/irp-integration). Adjust if your clone
-    # lives elsewhere; only consulted when the irp-local group is enabled.
-    { path = "../../IRP/irp-integration", editable = true, group = "irp-local" },
+    # (Desktop/CIC/risk-workbench → Desktop/IRP/irp-integration).
+    #
+    # COMMENTED OUT ON PURPOSE — do not commit this line uncommented. uv's universal
+    # locking resolves EVERY declared source, so an uncommented path here forces the
+    # clone to exist on ANY machine that re-resolves the lock (CI, prod, teammates),
+    # even when irp-local is not the active source. `make irp-local` uncomments it on
+    # demand (and checks the clone exists); `make irp-pypi`/`irp-testpypi` re-comment it.
+    # { path = "../../IRP/irp-integration", editable = true, group = "irp-local" },
 ]
 
 [tool.hatch.build.targets.wheel]
