@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI Preview Scaffold · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   Refresh this :root block whenever the app's tokens change.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+
+/* ── component kit (subset of components.css, built on the tokens) ──────────── */
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--brand{background:var(--color-brand-wash);color:var(--color-brand);border-color:var(--color-brand-border)}
+.badge--positive{background:var(--color-positive-wash);color:var(--color-positive);border-color:var(--color-positive-border)}
+.badge--warning{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
+.badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent;transition:background var(--dur-fast,120ms) ease}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
+.btn--secondary:hover:not(:disabled){background:var(--surface-hover)}
+.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg)}
+.btn--primary:hover:not(:disabled){background:var(--color-brand-hover)}
+.btn--danger{background:var(--color-danger);color:#fff;border-color:var(--color-danger)}
+
+.card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-4)}
+.field{display:flex;flex-direction:column;gap:var(--space-1);margin-bottom:var(--space-3)}
+.field label{font-size:var(--fs-caption);letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.field input{border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-recessed);padding:var(--space-2) var(--space-3);font:inherit;color:var(--text-primary)}
+.field input:focus{outline:none;border-color:var(--color-brand);box-shadow:var(--ring-focus)}
+
+/* mini modal (shared-kit convention: .modal-card / .modal-header / .modal-footer) */
+.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:340px;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
+.modal-title{flex:1;font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.modal-warning{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-warning);background:var(--color-warning-wash);border-bottom:1px solid var(--color-warning-border)}
+.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-2);min-height:96px}
+.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
+.modal-footer{display:flex;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
+
+.empty{color:var(--text-tertiary);font-size:var(--fs-label);text-align:center;padding:var(--space-4)}
+.spinner{width:18px;height:18px;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;animation:spin .7s linear infinite;margin:var(--space-3) auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.member{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);padding:var(--space-1) 0}
+.member .path{color:var(--text-tertiary);font-family:var(--font-mono);font-size:var(--fs-mono);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* states board */
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:var(--space-6);margin-top:var(--space-4)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.kit{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;margin-bottom:var(--space-4)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW SCAFFOLD.</strong> Copy this file to <code>&lt;screen&gt;.html</code>, build your screen
+    in the slot below, and show <em>every</em> state. Reuses real design tokens; IBM&nbsp;Plex falls back to
+    system fonts when offline or sandboxed. See <code>docs/UI_WORKFLOW.md</code>.
+  </div>
+
+  <div class="hero">UI Preview Scaffold</div>
+  <div class="sub">Risk Workbench — navy + amber DocIntel system. Build previews here before wiring anything.</div>
+
+  <!-- ── COMPONENT KIT (reference — reuse these, don't invent) ───────────────── -->
+  <div class="eyebrow">Component kit</div>
+  <div class="card">
+    <div class="kit">
+      <button class="btn btn--primary">Primary</button>
+      <button class="btn btn--secondary">Secondary</button>
+      <button class="btn btn--danger">Danger</button>
+      <button class="btn btn--primary" disabled>Disabled</button>
+    </div>
+    <div class="kit">
+      <span class="badge badge--neutral">pending_import</span>
+      <span class="badge badge--info">importing</span>
+      <span class="badge badge--positive">ready</span>
+      <span class="badge badge--warning">warning</span>
+      <span class="badge badge--negative">error</span>
+      <span class="badge badge--brand">brand</span>
+    </div>
+    <div class="field" style="max-width:260px;margin:0">
+      <label for="demo">Package name</label>
+      <input id="demo" type="text" placeholder="Optional">
+    </div>
+  </div>
+
+  <!-- ── WORKED EXAMPLE: one screen shown in every state ─────────────────────── -->
+  <div class="eyebrow">Worked example — "New package" modal, all states</div>
+  <div class="board">
+
+    <div class="tile">
+      <div class="tile__label">empty</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">New package</span></div>
+        <div class="modal-body"><div class="empty">No members yet.<br>Tick files above to add them.</div></div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary" disabled>Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">loading</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">New package</span></div>
+        <div class="modal-body"><div class="spinner"></div><div class="empty">Loading the shared drive…</div></div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary" disabled>Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">error</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">New package</span></div>
+        <div class="modal-body">
+          <div class="member"><span class="badge badge--neutral">EDM</span><span class="path">\\share\edm-2024.mdf</span></div>
+        </div>
+        <div class="modal-error">A package must have at least one valid member.</div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">populated</div>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">New package</span></div>
+        <div class="modal-warning">A name like "edm-2024" already exists in Risk Modeler.</div>
+        <div class="modal-body">
+          <div class="member"><span class="badge badge--neutral">EDM</span><span class="path">edm-2024.mdf</span><span class="badge badge--info badge--sm">importing</span></div>
+          <div class="member"><span class="badge badge--neutral">RDM</span><span class="path">results-q1.mdf</span><span class="badge badge--neutral badge--sm">pending</span></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn--secondary">Cancel</button>
+          <button class="btn btn--secondary">Save</button>
+          <button class="btn btn--primary">Save &amp; Sync</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ▲ Replace the worked example above with your screen. Keep one tile per state. -->
+
+</div>
+</body>
+</html>

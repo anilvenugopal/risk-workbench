@@ -14,6 +14,13 @@ Read these before any implementation work:
 - [docs/DATA_MODEL.md](docs/DATA_MODEL.md) — canonical entity and relationship definitions
 - [.specify/memory/constitution.md](.specify/memory/constitution.md) — 13 architectural rules (v3.0.0); all compliance gates
 
+## UI & Implementation Workflow
+
+Two rules for user-facing work — full detail in [docs/UI_WORKFLOW.md](docs/UI_WORKFLOW.md):
+
+1. **UI-first, for screens with real new layout.** Show a quick **rendered HTML preview** and get a 👍 before wiring it into templates/routes. Build previews from [docs/ui_previews/_scaffold.html](docs/ui_previews/_scaffold.html) (reuses the real tokens). **Skip the preview for trivial/derivative changes** — copy tweaks, adding a field to an already-styled component — just build those. Cover the states that matter (don't forget empty/error). Approval is informal; no tables, inventories, or status tracking.
+2. **One vertical slice at a time.** Implement a single user story end-to-end, then **stop** for the approver to click the running feature before starting the next. Don't batch many stories into one implement pass (bundle small related slices if splitting is silly).
+
 ## Development Environment
 
 **Two containers:**
