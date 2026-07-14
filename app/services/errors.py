@@ -11,6 +11,8 @@ the routers (contracts/data-access.md):
 - ``EmptyPackageError``    — a package would have zero members (R5/FR-024).
 - ``InvalidSourceFile``    — a browse selection is outside SHARED_DRIVE_ROOT,
                              missing, or not a file (FR-008/FR-009) → 422.
+- ``InvalidMemberName``    — an EDM/RDM name has disallowed characters or is too
+                             long (letters/digits/underscore/hyphen, ≤50) → 422.
 - ``JobSubmitError``       — a Risk Modeler submit failed on a request-path helper
                              (retry / replace-file). This iteration defers all
                              submits to workers, so it is raised only from the
@@ -52,6 +54,11 @@ class InvalidSourceFile(ServiceError):
     or is not a file. Mapped to HTTP 422 (FR-008/FR-009)."""
 
 
+class InvalidMemberName(ServiceError):
+    """Raised when an EDM/RDM name contains characters other than letters, digits,
+    underscores, or hyphens, or exceeds 50 characters. Mapped to HTTP 422."""
+
+
 class JobSubmitError(ServiceError):
     """Raised when a Risk Modeler submit fails on a request-path recovery helper
     (retry / replace-file). Normal submits are deferred to workers this iteration."""
@@ -64,5 +71,6 @@ __all__ = [
     "SelfRenewalError",
     "EmptyPackageError",
     "InvalidSourceFile",
+    "InvalidMemberName",
     "JobSubmitError",
 ]

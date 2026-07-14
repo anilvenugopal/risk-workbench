@@ -10,13 +10,16 @@ COMPLETED/CANCELLED submissions rejects with 409. Delete is added in US4 (T041).
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.services import package_service
 from app.services import package_sync_service as sync
-from app.services.errors import ConcurrencyConflict, EmptyPackageError, InvalidSourceFile
+from app.services.errors import (
+    ConcurrencyConflict, EmptyPackageError, InvalidMemberName, InvalidSourceFile)
 from db import execute_scalar
 
 router = APIRouter()
@@ -61,6 +64,15 @@ def _submission_active(submission_id: str) -> bool:
     return status == "ACTIVE"
 
 
+def _default_name(path: str) -> str:
+    """Fallback member name when the client sent none: the source filename with its
+    trailing extension dropped (``…/PORTFOLIO.BAK`` → ``PORTFOLIO``). Mirrors the
+    modal's client-side default; server-side validation still guards the result."""
+    base = os.path.basename(path.replace("\\", "/"))
+    stem, _dot, _ext = base.rpartition(".")
+    return stem or base
+
+
 def _parse_members(kinds, names, paths) -> list[sync.MemberSpec]:
     members: list[sync.MemberSpec] = []
     for kind, name, path in zip(kinds, names, paths):
@@ -68,7 +80,7 @@ def _parse_members(kinds, names, paths) -> list[sync.MemberSpec]:
             continue
         members.append(sync.MemberSpec(
             kind="rdm" if kind == "rdm" else "edm",
-            name=(name or "").strip() or path.rsplit("/", 1)[-1],
+            name=(name or "").strip() or _default_name(path),
             source_file_path=path))
     return members
 
@@ -112,7 +124,7 @@ def save(
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": False,
                          "error": "Add at least one EDM or RDM."}, status_code=422)
-    except InvalidSourceFile as exc:
+    except (InvalidSourceFile, InvalidMemberName) as exc:
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": False,
                          "error": str(exc)}, status_code=422)
@@ -150,7 +162,7 @@ def edit(
                           expected_updated_at=updated_at)
     except ConcurrencyConflict:
         return _card_partial(request, package_id, status_code=409)
-    except EmptyPackageError:
+    except (EmptyPackageError, InvalidSourceFile, InvalidMemberName):
         return _card_partial(request, package_id, status_code=422)
     return _card_partial(request, package_id)
 
