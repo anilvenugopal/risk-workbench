@@ -15,7 +15,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | GET | `/edms/{id}` / `/rdms/{id}` | Entity detail + import job status | Real URL (Article 8); visible to any analyst. |
 | GET | `/edms/import` / `/rdms/import` | Import form (browse/name) | Browse seeded from a submission's `directory_path` when arriving from one. |
 | POST | `/edms/import` | Create EDM + enqueue import | Returns detail/row partial (or dup-name warning). **No Risk Modeler call** (FR-042). |
-| POST | `/rdms/import` | Create RDM (applied / review-only) + enqueue | Body carries `applied_edm_ids` (empty → review-only, FR-002/FR-016). |
+| POST | `/rdms/import` | Create RDM (applied to ≥1 EDM) + enqueue | Body carries `applied_edm_ids` (**non-empty required**; review-only / RDM-only import is deferred — D3, 2026-07-14). |
 | POST | `/edms/{id}/retry` / `/rdms/{id}/retry` | Re-enqueue a failed import (FR-045) | Idempotent; single head row. |
 | POST | `/edms/{id}/replace-file` / `/rdms/{id}/replace-file` | Replace source file + retry (FR-046) | Re-browse → new path (validated) → re-import; carries `updated_at` (FR-039). |
 | GET | `/edms/name-check?name=` / `/rdms/name-check?name=` | HTMX name-collision check | Returns the **non-blocking** `name_collision` fragment (FR-012/SC-005); never blocks. |

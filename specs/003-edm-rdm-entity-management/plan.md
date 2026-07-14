@@ -26,7 +26,7 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack with impor
 - `dramatiq[redis]` + `redis` — worker process + broker for `rwb_job` execution (SQL table remains the queue of record, Article 10)
 - `sqlalchemy>=2.0` (Core only) + `pyodbc` (ODBC Driver 18) — engine/pool via the `db/` package
 - `alembic` — WORKBENCH schema (single `0001_initial.py` revision)
-- **`irp-integration[databridge]`** — the sole path to Risk Modeler; source-switchable across PyPI `0.2.0` (production default), TestPyPI (`0.2.1`/`…dev`), and a local editable checkout via uv dependency groups (`make irp-pypi | irp-testpypi | irp-local`). `IRPClient()` reads all config from env vars; the active wheel's method signatures are confirmed at implementation (research R1)
+- **`irp-integration[databridge]`** — the sole path to Risk Modeler; source-switchable across PyPI `0.2.0` (production default), TestPyPI (`0.2.1`/`…dev`), and a local editable checkout via uv dependency groups (`make irp-pypi | irp-testpypi | irp-local`). `IRPClient()` reads all config from env vars. **Confirmed against 0.2.0 on 2026-07-14 — the library is manager-based (`client.edm/.rdm/.import_job/.risk_data_job/.analysis`); the method/request-body matrix is in `contracts/worker-poller.md` (research R1 points to it). No library change is on the Iteration-2 critical path.**
 - `itsdangerous`, `bcrypt`, `msal`, `python-multipart` — auth (reused, unchanged); Alpine.js — package-modal / browse / filter-chip client slivers only
 
 **Storage**: SQL Server 2022 (`rwb_workbench`) — every Iteration-2 table lives in the `WORKBENCH` connection. **No EXPOSURE/LOSS/DATABRIDGE access this iteration** (results retrieval + repositories are Iteration 6+; DataBridge is never touched by this app). Risk Modeler holds the real EDM/RDM/analysis entities; the workbench stores only tracking rows.
@@ -53,7 +53,7 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack with impor
 - All SQL via the `db/` safe bound-parameter path (Article 7); the trusted-script path is **not** used this iteration (it is for EXPOSURE/LOSS external sources, Iteration 6+). CSRF on every state-changing route; function-level role gating server-side (Article 13).
 - Shared drive is **read-only** — browsing is a live directory listing; the app never writes/moves/deletes broker files (FR-008/FR-009). UUID PKs generated app-side (`uuid4()`) so the same code runs on SQLite and SQL Server.
 
-**Scale/Scope**: ~10–30 internal analysts; a package can hold 50+ members; a worldwide sync fans out to one `upload_edm` per EDM and one apply per (EDM × RDM) pair. ~9 new tables (4 entity + 5 kind), ~8 kind seeds, ~6 new services, ~4 new routers, the poller + worker bodies, the EDM/RDM libraries + Jobs list + package cards, folded into the single Alembic revision.
+**Scale/Scope**: ~10–30 internal analysts; a package can hold 50+ members; a worldwide sync fans out to one `upload_edm` per EDM and one apply per (EDM × RDM) pair. ~11 new tables (5 entity incl. `irp_analysis` + 6 kind), ~9 kind seeds, ~6 new services, ~4 new routers, the poller + worker bodies, the EDM/RDM libraries + Jobs list + package cards, folded into the single Alembic revision.
 
 ---
 
@@ -64,8 +64,8 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack with impor
 | Article | Title | Status | Notes |
 |---------|-------|--------|-------|
 | 1 | Navigation Manifest Is the One Versioned Source of Truth | ✅ | New destinations (EDM library, RDM library) and the now-real Jobs list are added as manifest nodes + handler + template. The Jobs list reuses the existing `workflows.irp_jobs` / `workflows.rwb_jobs` nodes (made real + filterable); EDM/RDM libraries are new nodes under the `irp` rail root (research R12). Rail/sidebar/breadcrumb/active-state/RBAC/search inherited — no scattered config. |
-| 2 | Sequencing Is Derived, Not Stored | ✅ | **Central to A21.** No stored DAG/stage machine. "What's next" is the prerequisite gate computed in code — the idempotent "are all siblings terminal?" query (fan-in) + per-pair "target EDM upload FINISHED?" check (fan-out). Coupling is name-based: `upload_rdm` resolves its target EDM via `search_edms` at submit time; `delete_rdm` resolves analyses by `rdmName`. `rwb_job.(requestor_type, requestor_id)` records a *trigger*, and `created_by_irp_job_irp_id` records lineage — neither is a persisted topology. |
-| 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | ✅ | Kind tables: `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind`. Plain VARCHAR (carve-out): `irp_job.status`, `irp_edm.status`, `irp_rdm.status` — they mirror IRP-controlled vocabularies that can drift; an unknown value must not crash the poller. `irp_job_type` / `rwb_job_type` are **kind tables** (closed, app-defined), per the Article 3 note. |
+| 2 | Sequencing Is Derived, Not Stored | ✅ | **Central to A21.** No stored DAG/stage machine. "What's next" is the prerequisite gate computed in code — the idempotent "are all siblings terminal?" query (fan-in) + per-pair "target EDM upload FINISHED?" check (fan-out). Coupling is name-based: `upload_rdm` resolves its target EDM via `search_edms` at submit time; `delete_rdm` resolves analyses from the local `irp_analysis` rows captured at import (`sourceRdmName`+`exposureName`). `rwb_job.(requestor_type, requestor_id)` records a *trigger*, and `created_by_irp_job_irp_id` records lineage — neither is a persisted topology. |
+| 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | ✅ | Kind tables: `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind`, `irp_analysis_status_kind`. Plain VARCHAR (carve-out): `irp_job.status`, `irp_edm.status`, `irp_rdm.status` — they mirror IRP-controlled vocabularies that can drift; an unknown value must not crash the poller. `irp_job_type` / `rwb_job_type` are **kind tables** (closed, app-defined), per the Article 3 note. |
 | 4 | Status Is Event-Sourced with Cached Current | ✅ | `submission.status_code` remains the sole event-sourced status (unchanged from Iteration 1). `irp_job.status`, `rwb_job.status_code`, `irp_edm.status`, `irp_rdm.status` are plain in-place updates; per-transition audit is the deferred general-auditing capability (CR-002), not built now. There is no stored `ERROR` status — failure is `FAILED` / `SUBMISSION FAILED`. `irp_job.last_tracked_at` records active tracking. |
 | 5 | Mechanical Follow-up Auto-fires; Judgment Waits for a Click | ✅ | **First iteration this applies.** Mechanical follow-ups auto-fire: import FINISHED → backfill `irp_id` + enqueue the dependent op (`import_edm` FINISHED → `upload_rdm`); all-RDM-removed → enqueue `delete_edm`; last-member-gone → package soft-delete. The judgment steps — which files to import, assembling a package, choosing Save-and-Sync vs Delete — always wait for an explicit analyst click. The auto-vs-click line is explicit per op in the worker/poller contract. |
 | 6 | No Row-Level Security; All Authenticated Analysts See All Deals | ✅ | FR-041: no `customer_id`, no `apply_scope`, no scope column on `irp_edm`/`irp_rdm`/`package`/`irp_job`/`rwb_job`. The EDM/RDM libraries list every entity to every analyst (FR-037/SC-009). Ownership reaches a submission only transitively via the package. Roles gate functions, not rows. |
@@ -75,7 +75,7 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack with impor
 | 10 | The SQL Table Is the Queue; Single Worker by Default | ✅ | **First iteration this applies.** `rwb_job` is the SQL-backed queue; a single Dramatiq worker by default with plain dequeue; atomic claim (`UPDATE … SET status_code='running' WHERE id=:id AND status_code='pending'`, rowcount 0 → already claimed); heartbeat via daemon thread (`rwb_job_heartbeat`); the stale-`running` reclaim (reconciler in the poller) is retained regardless of concurrency. Concurrency-safe claim + idempotent IRP submission are documented upgrade paths, not default complexity. |
 | 11 | IRP Polling and Result Work Behind Interface; Submission on Request Path Permitted | ✅ | **Central to this iteration.** The poller (`app/poller/run.py`) is a standalone process, never imported by a route handler; it uses single-status-check `get_*_job` only — `poll_*_to_completion` is forbidden everywhere. Result/notification work runs in Dramatiq workers, never the web process; `submission_retry` is a single-threaded batch, not a Dramatiq actor. The web layer never calls `get_*` / result-retrieval. Submit is permitted on the request path but is deliberately deferred to workers (FR-042) — within Article 11, which permits but does not require request-path submit. |
 | 12 | Test-First, Three Connected Strategies | ✅ | Unit (SQLite) covers the mandated prerequisite gate (Article 2) and `rwb_job` claim/heartbeat/reconciler state machine (Article 10), plus chaining/fan-in idempotency, per-pair sequencing, and recovery. A **fake IRP** implementing the interface backs the poller/worker in default CI; an opt-in `irp`-marked suite hits the sandbox. SQL-Server tier covers the extended migration + atomic claim + idempotent chained insert. |
-| 13 | Authentication & Secrets | ✅ | Reuses Iteration-0 auth; CSRF on every state-changing route (import, save, save-and-sync, delete, per-member retry, source-file replace); roles read from DB per request; role gating server-side. Risk Modeler credentials come from env via `IRPClient()` (no constructor args, no secrets in code/VCS); new config (`RWB_HEARTBEAT_*`, `IRP_SUBMISSION_MAX_RETRIES`, poll interval, notification channel, shared-drive root) is env-sourced. |
+| 13 | Authentication & Secrets | ✅ | Reuses Iteration-0 auth; CSRF on every state-changing route (import, save, save-and-sync, delete, per-member retry, source-file replace); roles read from DB per request; role gating server-side. Risk Modeler credentials come from env via `IRPClient()` — `RISK_MODELER_BASE_URL` / `RISK_MODELER_API_KEY` / `RISK_MODELER_RESOURCE_GROUP_ID` (no constructor args, no secrets in code/VCS); EDM-import `server_name` defaults to `databridge-1` (workbench config). **S3 upload uses temporary creds returned by Risk Modeler — no ambient AWS credentials; the worker host needs outbound S3 egress only.** Other new config (`RWB_HEARTBEAT_*`, `IRP_SUBMISSION_MAX_RETRIES`, poll interval, notification channel, shared-drive root) is env-sourced. |
 
 **Constitution Check: PASSED — no violations. No Complexity Tracking entries required.**
 
@@ -115,7 +115,7 @@ app/
 │   │                                #       warning, not an error; add InvalidSourceFile, JobSubmitError)
 │   ├── edm_service.py               # NEW: import EDM, name-collision check, list/get,
 │   │                                #      replace-source-file + retry, lifecycle status reads
-│   ├── rdm_service.py               # NEW: import RDM (applied / review-only), list/get, retry
+│   ├── rdm_service.py               # NEW: import RDM (applied to ≥1 EDM; RDM-only deferred D3), list/get, retry
 │   ├── package_sync_service.py      # NEW: save, save-and-sync (enqueue head rwb_jobs), delete
 │   │                                #      (enqueue delete rwb_jobs), per-member retry, idempotent
 │   │                                #      re-sync; builds on Iteration-1 package_service
@@ -128,8 +128,9 @@ app/
 │   ├── shared_drive.py              # NEW: live read-only directory listing (no cached inventory)
 │   ├── notification_service.py      # NEW: dispatch configured channel(s) (Teams/email/desktop);
 │   │                                #      per-action completion + per-member failure, not per success (R10)
-│   └── irp_gateway.py               # NEW: the thin interface over irp-integration (submit_*, get_*_job,
-│                                    #      search_edms/rdms, synchronous rdm-analysis delete); fake in CI
+│   └── irp_gateway.py               # NEW: thin interface over irp-integration 0.2.0 — submit_edm/rdm_import,
+│                                    #      submit_delete_edm, delete_analysis (sync), search_analyses,
+│                                    #      get_import_job, get_risk_data_job, search_edms/imported_rdms; fake in CI
 ├── poller/
 │   └── run.py                       # EDIT: implement poll_once — batch non-terminal irp_job by type,
 │                                    #       single-status get_*_job, mirror status, on terminal backfill
@@ -137,12 +138,12 @@ app/
 │                                    #       (stale rwb_job running reclaim) + submission_retry batch
 ├── workers/
 │   ├── broker.py                    # NEW: Dramatiq broker (redis_url from config)
-│   ├── package_jobs.py              # NEW: rwb_job actors — upload_edm, upload_rdm, delete_rdm,
-│   │                                #      delete_edm (+ app-side fan-in), notify_analyst
+│   ├── package_jobs.py              # NEW: rwb_job actors — upload_edm, upload_rdm, backfill_rdm_analyses,
+│   │                                #      delete_rdm, delete_edm (+ app-side fan-in), notify_analyst
 │   └── runtime.py                   # NEW: claim/heartbeat/complete helpers + stub↔real worker-body switch
 ├── routers/
 │   ├── edms.py                      # NEW: EDM library + import (browse/name/submit/track) + retry
-│   ├── rdms.py                      # NEW: RDM library + import (applied / review-only) + retry
+│   ├── rdms.py                      # NEW: RDM library + import (applied to ≥1 EDM; RDM-only deferred D3) + retry
 │   ├── packages.py                  # NEW: package modal, save, save-and-sync, delete, per-member retry,
 │   │                                #      source-file replace, package-card partials
 │   ├── jobs.py                      # NEW: Jobs list (query-string filters + chips), counts, SSE stream
@@ -169,8 +170,8 @@ app/
 │   └── jobs.css                     # NEW: job-status pills / filter chips via tokens
 
 alembic/versions/
-└── 0001_initial.py                  # EDIT: add irp_job, irp_job_resource, rwb_job, rwb_job_heartbeat
-                                     #       + 5 kind tables; seed the kind rows (data-model §13)
+└── 0001_initial.py                  # EDIT: add irp_job, irp_job_resource, rwb_job, rwb_job_heartbeat,
+                                     #       irp_analysis + 6 kind tables; seed the kind rows (data-model §13)
 
 infra/scripts/
 └── seed_db.py                       # EDIT: idempotent MERGE seeds for the new kind tables
@@ -181,7 +182,7 @@ infra/
 tests/
 ├── unit/
 │   ├── test_edm_service.py          # NEW: import, collision warning, replace-file+retry
-│   ├── test_rdm_service.py          # NEW: applied vs review-only import, retry
+│   ├── test_rdm_service.py          # NEW: applied import + RDM-only rejection (D3), retry
 │   ├── test_package_sync_service.py # NEW: per-pair fan-out set, idempotent re-sync, empty-package reject
 │   ├── test_job_chaining.py         # NEW: completion-chaining + fan-in idempotency (Article 2 gate)
 │   ├── test_rwb_job_queue.py        # NEW: atomic claim / heartbeat / reconciler (Article 10 mandate)
@@ -209,7 +210,7 @@ See [research.md](research.md). No `NEEDS CLARIFICATION` unknowns remained after
 
 ## Phase 1 — Design & Contracts
 
-- [data-model.md](data-model.md) — the `irp_job`, `irp_job_resource`, `rwb_job`, `rwb_job_heartbeat` tables and their five kind tables, derived from DATA_MODEL §5 (EDM/RDM lifecycle status now exercised) and §8, with the status vocabularies, the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` dedup key, the kind-table seeds (§13), and the migration/seed impact folded into `0001_initial.py`.
+- [data-model.md](data-model.md) — the `irp_job`, `irp_job_resource`, `rwb_job`, `rwb_job_heartbeat`, `irp_analysis` tables and their six kind tables, derived from DATA_MODEL §5 (EDM/RDM lifecycle status now exercised), §6/§6a (`irp_analysis` — D2), and §8, with the status vocabularies, the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` dedup key, the kind-table seeds (§13), and the migration/seed impact folded into `0001_initial.py`.
 - [contracts/data-access.md](contracts/data-access.md) — the service function contract (edm / rdm / package-sync / job / notification / shared-drive).
 - [contracts/http-routes.md](contracts/http-routes.md) — import, package-modal, save/save-and-sync/delete, per-member retry, source-file replace, Jobs list + filters + SSE, and library routes; CSRF + roles + HTMX conventions.
 - [contracts/worker-poller.md](contracts/worker-poller.md) — the A21 mechanism made concrete: each `rwb_job` worker body, the poller's batch/mirror/enqueue loop, the idempotent fan-in, the reconciler + submission-retry, and the `irp_gateway` interface (fake for CI).

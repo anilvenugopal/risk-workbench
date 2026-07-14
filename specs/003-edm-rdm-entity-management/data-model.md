@@ -4,7 +4,7 @@ Derived from **DATA_MODEL.md §5, §6, §8, §13** (the schema source of truth) 
 
 **Conventions** (DATA_MODEL §2): singular `snake_case`; `id` is a UUID surrogate PK generated app-side (`uuid4()`, bound param; `NEWID()` default retained as fallback); `*_code` FK → matching `*_kind`; `*_id` FK → entity; entity tables carry `inserted_at`/`updated_at`/`inserted_by`/`updated_by`; kind / junction / event / heartbeat tables carry `inserted_at` (+ `inserted_by` where a user is responsible) only. Types shown are SQL Server (`DATETIME2`, `NVARCHAR`, `Uuid`, `INT`); the SQLite unit tier maps these via SQLAlchemy.
 
-**Out of scope this iteration** (research R13): `irp_analysis`, `irp_analysis_status_kind`, `irp_portfolio`, `irp_treaty`, analysis templates/suites, `analysis_result_meta`, `result_export`, the IRP reference cache (§10), and Phase A validation (§11). RDM import creates analyses **in Risk Modeler**, but the app tracks none locally.
+**Out of scope this iteration** (research R13): `irp_portfolio`, `irp_treaty`, analysis templates/suites, `analysis_result_meta`, `result_export`, the IRP reference cache (§10), and Phase A validation (§11). **`irp_analysis` (+ `irp_analysis_status_kind`) ARE created this iteration** (revised 2026-07-14, D2) — a minimal subset of DATA_MODEL §6, populated at RDM-import completion so package delete can enumerate the analyses to remove (`delete_analysis`). Analysis **counts still render empty** on the card (FR-023 / D5); portfolios/treaties/results remain out.
 
 ---
 
@@ -20,14 +20,18 @@ All are `code` PK / `label` / `sort_order` / `inserted_at`, FK-referenced (Artic
 **Seed:** `portfolio` (only value confirmed today).
 
 ### `rwb_job_type_kind` — app-side worker types
-**Seed:** `upload_edm`, `upload_rdm`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `delete_rdm`, `delete_edm`.
-> Exercised this iteration: `upload_edm`, `upload_rdm`, `delete_rdm`, `delete_edm`, `notify_analyst`. The three result/export types are seeded but idle until Iteration 6.
+**Seed:** `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `delete_rdm`, `delete_edm`.
+> Exercised this iteration: `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `delete_rdm`, `delete_edm`, `notify_analyst`. `backfill_rdm_analyses` is new (D2): on `import_rdm` FINISHED it captures `irp_analysis` rows via `search_analyses`. The three result/export types are seeded but idle until Iteration 6.
 
 ### `rwb_job_requestor_type_kind` — chaining trigger discriminator
 **Seed:** `irp_job`, `analyst_request`, `rwb_job`.
 
 ### `rwb_job_status_kind` — app-side work lifecycle
 **Seed:** `pending`, `running`, `succeeded`, `failed`.
+
+### `irp_analysis_status_kind` — captured-analysis lifecycle (DATA_MODEL §6)
+**Seed:** `pending`, `running`, `ready`, `error`.
+> New this iteration (D2). Captured rows are written `ready`; a captured analysis is soft-removed via `irp_analysis.deleted_at` on `delete_analysis` success (no `deleted` code needed).
 
 > **Plain-string status columns (NOT kind tables), Article 3 carve-out:** `irp_job.status`, `irp_edm.status`, `irp_rdm.status` — all mirror IRP-controlled vocabularies that can drift; an unknown value must not crash the poller.
 
@@ -55,11 +59,11 @@ All are `code` PK / `label` / `sort_order` / `inserted_at`, FK-referenced (Artic
 | `inserted_at`/`updated_at` | DATETIME2 | not null | defaults `GETUTCDATE()` |
 | `inserted_by`/`updated_by` | Uuid | null | FK → `app_user.id` |
 
-**Entity-lineage population by type** (DATA_MODEL §8): EDM import → `irp_edm_id`; **RDM import/apply → `irp_rdm_id` + `irp_edm_id`, one job per EDM the RDM applies to** (review-only omits `irp_edm_id`); EDM delete → `irp_edm_id`. All carry `package_id`.
+**Entity-lineage population by type** (DATA_MODEL §8): EDM import → `irp_edm_id`; **RDM import/apply → `irp_rdm_id` + `irp_edm_id`, one job per EDM the RDM applies to** (review-only/RDM-only is deferred — D3 — so every apply has a target EDM); EDM delete → `irp_edm_id`. All carry `package_id`.
 
 **`status` vocabulary** (plain string, in-place `UPDATE` — never event-sourced):
-- RM non-terminal: `PENDING` / `QUEUED` / `RUNNING` / `CANCEL_REQUESTED` / `CANCELING`
-- RM terminal: `FINISHED` (**only** success) / `FAILED` / `CANCELED`
+- RM non-terminal: `PENDING` / `QUEUED` / `RUNNING` / `CANCEL_REQUESTED` / `CANCELLING`
+- RM terminal: `FINISHED` (**only** success) / `FAILED` / `CANCELLED` (double-L; matches `irp-integration` `WORKFLOW_COMPLETED_STATUSES`)
 - App-local non-terminal: `UNSUBMITTED` / `SUBMITTING` / `BLOCKED` — **reserved/future**: this iteration creates an `irp_job` only at submit time with `QUEUED`, so these pre-submit states (and the `UNSUBMITTED` column default) are not produced yet; do not build a state machine expecting them
 - App-local terminal: `SUBMISSION FAILED` (never reached RM — no `irp_id`; distinct from `FAILED`)
 
@@ -145,6 +149,35 @@ Both tables already exist with their full §5 shape (Iteration 1). This iteratio
 
 ---
 
+## 6a. `irp_analysis` — captured broker analyses (delete-enumeration only) — NEW (D2)
+
+A **minimal subset** of DATA_MODEL §6, added this iteration so package delete can enumerate the exact
+Moody's analyses an RDM produced (per (RDM × EDM) pair) and remove them via
+`client.analysis.delete_analysis`. Populated by the `backfill_rdm_analyses` worker when an `import_rdm`
+job reaches FINISHED, via `search_analyses('sourceRdmName="<rdm>" AND exposureName="<edm>"')`. Not
+surfaced on the card this iteration (counts stay empty, FR-023 / D5). Column names follow DATA_MODEL §6.
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| `id` | Uuid | PK | app-generated |
+| `rdm_id` | Uuid | not null | FK → `irp_rdm.id` — the RDM member whose import created this analysis |
+| `edm_id` | Uuid | null | FK → `irp_edm.id` — the pair's target EDM (§6 CHECK ≥1 of `edm_id`/`rdm_id`; always set this iteration, review-only deferred D3) |
+| `package_id` | Uuid | null | FK → `package.id` — scoping / card counts |
+| `irp_id` | NVARCHAR(64) | not null | Moody's `analysisId` **as string** — the `delete_analysis` key |
+| `name` | NVARCHAR(256) | null | `analysisName` from `search_analyses` |
+| `source_rdm_name` | NVARCHAR(256) | not null | the `sourceRdmName` used to enumerate (= the RDM name supplied at import) |
+| `status_code` | NVARCHAR(50) | not null | FK → `irp_analysis_status_kind.code`; written `ready` on capture |
+| `created_by_irp_job_irp_id` | NVARCHAR(64) | null | lineage — the `import_rdm` job's IRP id |
+| `deleted_at` | DATETIME2 | null | soft-delete stamp on `delete_analysis` success (idempotent/retryable delete) |
+| `inserted_at`/`updated_at` | DATETIME2 | not null | defaults `GETUTCDATE()` |
+| `inserted_by`/`updated_by` | Uuid | null | FK → `app_user.id` (nullable — worker-written) |
+
+**Enumeration/dedup:** delete reads `SELECT irp_id FROM irp_analysis WHERE rdm_id=:r AND edm_id=:e AND deleted_at IS NULL`,
+loops `delete_analysis(irp_id)`, then stamps `deleted_at`. `UNIQUE (rdm_id, edm_id, irp_id)` makes a
+duplicate backfill idempotent. Indexes: `(rdm_id, edm_id)`, `(package_id)`.
+
+---
+
 ## 7. Relationships (Iteration-2 additions)
 
 ```text
@@ -158,6 +191,9 @@ rwb_job_type_kind          1──∞ rwb_job          (rwb_job_type)
 rwb_job_requestor_type_kind 1──∞ rwb_job         (requestor_type)
 rwb_job_status_kind        1──∞ rwb_job          (status_code)
 rwb_job        1──0..1 rwb_job_heartbeat         (heartbeated by worker)
+irp_rdm        1──∞ irp_analysis        (rdm_id — captured at import; NEW D2)
+irp_edm        1──∞ irp_analysis        (edm_id — nullable; the pair's target EDM)
+irp_analysis_status_kind   1──∞ irp_analysis     (status_code)
 ```
 
 - **`irp_job` and `rwb_job` are fully decoupled — no FK between them.** The bridge is the poller writing an `rwb_job` keyed by `requestor_id = <finished irp_job.id>` (research R2/R4), not a foreign key.
@@ -168,13 +204,13 @@ rwb_job        1──0..1 rwb_job_heartbeat         (heartbeated by worker)
 ## 8. Migration & seed impact (single revision — drop-create-seed)
 
 **`alembic/versions/0001_initial.py`** — extend the one existing revision (after the Iteration-1 tables, in FK order):
-- **Add kind creates + seeds:** `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind` (with the §13 seed rows inline).
-- **Add entity creates:** `irp_job` (FKs to `package`/`irp_edm`/`irp_rdm`/`irp_job_type_kind`; **without** `irp_portfolio_id`, §2 note), `irp_job_resource`, `rwb_job` (+ the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` constraint), `rwb_job_heartbeat`.
-- **Add indexes:** `irp_job (irp_job_type, status)`, `irp_job (status)`, `irp_job (package_id)`; `irp_job_resource (irp_job_id)`; `rwb_job (status_code)`, `rwb_job (requestor_type, requestor_id)`; the `rwb_job` UNIQUE key.
-- **Downgrade:** drop the new tables in reverse FK order (heartbeat → rwb_job → irp_job_resource → irp_job → the five kind tables), ahead of the existing Iteration-1 drops.
+- **Add kind creates + seeds:** `irp_job_type_kind`, `irp_job_resource_type_kind`, `rwb_job_type_kind`, `rwb_job_requestor_type_kind`, `rwb_job_status_kind`, `irp_analysis_status_kind` (with the §13 seed rows inline).
+- **Add entity creates:** `irp_job` (FKs to `package`/`irp_edm`/`irp_rdm`/`irp_job_type_kind`; **without** `irp_portfolio_id`, §2 note), `irp_job_resource`, `rwb_job` (+ the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` constraint), `rwb_job_heartbeat`, `irp_analysis` (FKs to `irp_rdm`/`irp_edm`/`package`/`irp_analysis_status_kind`; + `UNIQUE(rdm_id, edm_id, irp_id)` — §6a).
+- **Add indexes:** `irp_job (irp_job_type, status)`, `irp_job (status)`, `irp_job (package_id)`; `irp_job_resource (irp_job_id)`; `rwb_job (status_code)`, `rwb_job (requestor_type, requestor_id)`; the `rwb_job` UNIQUE key; `irp_analysis (rdm_id, edm_id)`, `irp_analysis (package_id)`, the `irp_analysis` UNIQUE key.
+- **Downgrade:** drop the new tables in reverse FK order (`irp_analysis` → heartbeat → rwb_job → irp_job_resource → irp_job → the six kind tables), ahead of the existing Iteration-1 drops.
 - **No `ALTER`** on `irp_edm`/`irp_rdm` — their columns already exist (§6).
 
-**`infra/scripts/seed_db.py`** — add idempotent `MERGE` seeds for the five new kind tables (same pattern as the existing `role_kind`/`submission_status_kind`/`treaty_type_kind` MERGEs), so a re-seed without a full rebuild stays correct.
+**`infra/scripts/seed_db.py`** — add idempotent `MERGE` seeds for the six new kind tables (including `irp_analysis_status_kind`, and `backfill_rdm_analyses` in `rwb_job_type_kind` — D2; same pattern as the existing `role_kind`/`submission_status_kind`/`treaty_type_kind` MERGEs), so a re-seed without a full rebuild stays correct.
 
 **Dev DB strategy:** Rebuild (`make db-rebuild`) — drop, recreate, migrate, seed. Single revision until production cutover (FR-040). Run the DB-lifecycle prompt (Rebuild / Refresh / Skip) for WORKBENCH before this schema-affecting work.
 
@@ -190,9 +226,10 @@ Unit tier (SQLite via `register_engine`):
 - Idempotent re-sync skips `ready`/in-flight members; per-member retry enqueues exactly one head; source-file replacement updates `source_file_path` (SC-013).
 - Jobs-list filter parsing over the shared `submission/package/status/job_type` vocabulary; unknown params ignored.
 - Poller (fake IRP): terminal `FINISHED` backfills `irp_id` + flips entity `status`; `SUBMISSION FAILED` distinct from `FAILED`.
+- Analysis backfill (D2): `import_rdm` FINISHED enqueues `backfill_rdm_analyses`; the worker writes `irp_analysis` rows from a fake `search_analyses(sourceRdmName+exposureName)`; a duplicate backfill is idempotent on `UNIQUE(rdm_id, edm_id, irp_id)`. Delete enumeration reads those rows and loops `delete_analysis`, stamping `deleted_at`; a re-run skips already-`deleted_at` rows.
 
 SQL-Server tier (`--run-sqlserver`):
 - Extended migration builds the `irp_job`/`rwb_job` families + all FKs + the `rwb_job` UNIQUE key; seeds present.
 - The atomic claim `UPDATE … WHERE status_code='pending'` returns rowcount 1 then 0 under contention; the idempotent chained insert on the UNIQUE key raises/absorbs the duplicate exactly once.
 
-IRP tier (`--run-irp`, opt-in): real submit + single-status `get_*_job` for import and `delete_edm`; the synchronous RDM analysis-entity delete.
+IRP tier (`--run-irp`, opt-in): real submit + single-status getters (`get_import_job` for `import_edm`/`import_rdm`, `get_risk_data_job` for `delete_edm`); `search_analyses` backfill; the synchronous `delete_analysis` calls.

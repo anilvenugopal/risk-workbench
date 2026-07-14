@@ -6,7 +6,7 @@ The developer-facing interface this iteration exposes. Functions (not classes, m
 
 Shared typed errors (raised by services, mapped to HTTP by routers) — extends `app/services/errors.py`:
 - `SubmissionClosed` — action on a non-ACTIVE submission (inherited gate, FR-025) → 409.
-- `EmptyPackageError` — package would have zero members (FR-017) → 422. *(Iteration 1)*
+- `EmptyPackageError` — package would have zero members (FR-017), **or has no EDM member for a sync (RDM-only Save-and-Sync — deferred, D3/FR-016)** → 422. *(Iteration 1; D3 reuse 2026-07-14)*
 - `ConcurrencyConflict` — optimistic-concurrency marker mismatch on a name/package edit (FR-039) → 409. *(Iteration 1)*
 - `InvalidSourceFile` — a browse selection is outside `SHARED_DRIVE_ROOT`, missing, or not a file (FR-008/FR-009) → 422.
 - `JobSubmitError` — a Risk Modeler submit failed on the request path *(only used if a submit is ever done inline; this iteration defers all submits to workers, so services raise this only from the retry/replace helpers that touch the gateway)*.
@@ -18,28 +18,35 @@ Shared typed errors (raised by services, mapped to HTTP by routers) — extends 
 ## `irp_gateway` (the IRP interface — fake in CI)
 
 ```python
-# Thin wrapper over irp-integration. The ONLY module that imports it.
-# Re-confirm every signature against the INSTALLED wheel before use (R1).
+# Thin wrapper over irp-integration 0.2.0 (manager-based). The ONLY module that imports it.
+# Confirmed surface → contracts/worker-poller.md "IRP gateway — confirmed method surface".
+# Re-confirm signatures only if the active source is switched off 0.2.0 (R1).
 
-def submit_edm_import(*, name: str, source_file_path: str) -> SubmitResult:
-    """submit_edm_import_job(...) → (irp_job_id, request_body). Caller stores
-    request_body['resourceUri'] on irp_job_resource immediately (R1)."""
+def submit_edm_import(*, edm_name: str, source_file_path: str,
+                      server_name: str = "databridge-1") -> SubmitResult:
+    """edm.submit_edm_import_job(...) → (irp_job_id, request_body). Caller stores
+    request_body['resourceUri'] on irp_job_resource immediately."""
 
-def submit_rdm_import(*, name: str, source_file_path: str,
-                      edm_name: str | None) -> SubmitResult:
-    """submit_rdm_import_job(...). edm_name=None → review-only apply (no EDM)."""
+def submit_rdm_import(*, rdm_name: str, edm_name: str,
+                      source_file_path: str) -> SubmitResult:
+    """rdm.submit_rdm_import_job(...) → (irp_job_id, request_body). edm_name is REQUIRED
+    in 0.2.0 — review-only / no-EDM import is deferred (D3)."""
 
-def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
-    """submit_delete_edm_job(...) → pollable irp_job id (async; polled like import)."""
+def submit_delete_edm(*, exposure_id: int) -> SubmitResult:
+    """edm.submit_delete_edm_job(exposure_id) → pollable irp_job id (async)."""
 
-def delete_rdm_analyses(*, rdm_name: str) -> None:
-    """SYNCHRONOUS: resolve the RDM's analyses by rdmName and delete them inline.
-    No irp_job. Returns only when the delete has completed (R6)."""
+def delete_analysis(*, analysis_id: int) -> None:
+    """analysis.delete_analysis(id): SYNCHRONOUS single-analysis delete, no irp_job.
+    delete_rdm loops this over the pair's irp_analysis rows (D2/R6)."""
 
-def get_import_job(irp_id: str) -> JobStatus: ...          # single-status-check
-def get_delete_edm_job(irp_id: str) -> JobStatus: ...      # single-status-check (confirm getter, R1)
-def search_edms(name: str) -> list[EdmHit]: ...            # name-collision check
-def search_rdms(name: str) -> list[RdmHit]: ...
+def search_analyses(*, filter: str) -> list[AnalysisHit]:
+    """analysis.search_analyses(filter='sourceRdmName="…" AND exposureName="…"').
+    backfill_rdm_analyses uses this to capture irp_analysis rows (D2)."""
+
+def get_import_job(irp_id: int) -> JobStatus: ...          # import_edm & import_rdm (shared getter)
+def get_risk_data_job(irp_id: int) -> JobStatus: ...       # delete_edm getter
+def search_edms(*, filter: str) -> list[EdmHit]: ...       # EDM name-collision check
+def search_imported_rdms(*, filter: str) -> list[RdmHit]: ...   # RDM name-collision check
 ```
 
 > The poller/workers depend on this interface; `tests/unit` injects a **fake** implementing it (Article 12). `get_*` methods are single-status-check only — `poll_*_to_completion` is never wrapped (Article 11).
@@ -84,12 +91,12 @@ def retry_import(*, edm_id: UUID, actor_id: UUID) -> None:
 def import_rdm(*, name: str, source_file_path: str, package_id: UUID | None,
                applied_edm_ids: list[UUID] = (), actor_id: UUID) -> ImportResult:
     """Create an irp_rdm (status='pending_import') and enqueue its apply work.
-    applied_edm_ids empty → REVIEW-ONLY (a single apply with no EDM, FR-002/FR-016);
-    otherwise one apply per EDM (worker-submitted). Same validation + non-blocking
-    collision warning as edm_service. Broker results are one logical source across
-    EDMs (FR-002; no per-EDM duplication)."""
+    applied_edm_ids MUST be non-empty — review-only / no-EDM import is deferred (D3);
+    one apply per EDM (worker-submitted). Same validation + non-blocking collision
+    warning as edm_service. Broker results are one logical source across EDMs
+    (FR-002; no per-EDM duplication)."""
 
-def check_name_collision(name: str) -> list[str]: ...     # search_rdms
+def check_name_collision(name: str) -> list[str]: ...     # search_imported_rdms
 def list_rdms(*, package_id: UUID | None = None) -> list[RdmRow]: ...   # no scoping
 def get_rdm(rdm_id: UUID) -> Rdm | None: ...
 def replace_source_file(...): ...                          # FR-046, as edm_service
@@ -110,10 +117,11 @@ def save_package(*, package_id: UUID | None, name: str | None,
 def save_and_sync(*, package_id: UUID, actor_id: UUID) -> None:
     """FR-015/FR-042/FR-044: record the initial pending work items and RETURN
     IMMEDIATELY — no Risk Modeler call on the request path. Enqueues one upload_edm
-    head per EDM (requestor_type='analyst_request', requestor_id=package_id); a
-    review-only RDM (no EDM) enqueues one upload_rdm head directly. IDEMPOTENT:
-    re-run skips members already ready/in-flight, re-enqueues only unstarted/errored
-    ones (dedup key). Rejects an empty package (EmptyPackageError)."""
+    head per EDM (requestor_type='analyst_request', requestor_id=package_id). Every
+    apply targets an EDM (D3): an RDM-only package (no EDM) is REJECTED with
+    EmptyPackageError — review-only sync is deferred. IDEMPOTENT: re-run skips
+    members already ready/in-flight, re-enqueues only unstarted/errored ones (dedup
+    key). Rejects an empty package (EmptyPackageError)."""
 
 def delete_package(*, package_id: UUID, actor_id: UUID) -> None:
     """FR-019/FR-021: enqueue reverse-order removals — one delete_rdm head per RDM
@@ -237,7 +245,7 @@ Unit tier (SQLite + **fake IRP**):
 - `save_and_sync` enqueues one `upload_edm` per EDM; re-run is idempotent (skips ready/in-flight); empty package → `EmptyPackageError` (SC-006/SC-012/SC-013).
 - `enqueue_rwb_job` dedups on the composite key; a duplicate trigger returns `None` and inserts nothing (SC-014).
 - `claim_rwb_job` returns True once then False (atomic claim); reconciler reclaim tested in `test_rwb_job_queue` (Article 10).
-- `import_edm`/`import_rdm` create the entity + enqueue the worker but make **no** Risk Modeler call on the request path (FR-042); review-only RDM path (SC-004).
+- `import_edm`/`import_rdm` create the entity + enqueue the worker but make **no** Risk Modeler call on the request path (FR-042); an RDM import requires ≥1 target EDM, and an RDM-only `save_and_sync` is rejected with `EmptyPackageError` (review-only deferred — D3; SC-004).
 - `check_name_collision` returns colliding names and never raises/blocks (SC-005).
 - `browse`/`validate_selection` reject out-of-root and non-file paths (FR-008/FR-009).
 - `list_edms`/`list_rdms`/`list_jobs` apply no row scoping — all rows visible to any actor (SC-009).

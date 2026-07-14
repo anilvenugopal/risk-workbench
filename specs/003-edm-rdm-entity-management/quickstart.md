@@ -53,7 +53,7 @@ pytest tests/sqlserver --run-sqlserver
 pytest tests/irp --run-irp
 ```
 
-**Expected:** real submit + single-status `get_*_job` for `import_edm`/`import_rdm`/`delete_edm`; the synchronous `delete_rdm_analyses` call; and an assertion that `poll_*_to_completion` appears nowhere in the poller (Article 11).
+**Expected:** real submit + single-status getters (`get_import_job` for `import_edm`/`import_rdm`, `get_risk_data_job` for `delete_edm`); the synchronous `delete_analysis` calls; and an assertion that `poll_*_to_completion` (and the poll-inside convenience methods) appear nowhere in the poller/workers (Article 11).
 
 ## 5. Manual walkthrough (the analyst's day-to-day)
 

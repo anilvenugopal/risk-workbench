@@ -38,6 +38,17 @@ The mechanism by which a completed Risk Modeler job triggers the next queued app
 - **Q: How does the analyst recover from a partway failure?** → **All of: idempotent whole-package re-sync, per-member retry, and replace-the-source-file-and-retry.** Re-running Save-and-Sync skips members already imported/applied and re-submits only unstarted/errored ones; a failed member also exposes a per-member retry on its card; and — the expected most-common case — the analyst can **replace the failed member's source file** (a bad/incomplete broker `.bak`) by re-browsing the shared drive and retrying against the new file. Submit-side failures (never reached Risk Modeler) continue to be retried automatically by the single-threaded submission-retry batch.
 - **Delete crosses the same boundary, asymmetrically** (confirmed against `irp-integration`): **EDM delete is an asynchronous Risk Modeler job** (pollable, single-status-checked like imports); **RDM delete is synchronous** — an RDM import creates analysis entities rather than a first-class Risk Modeler object, so removing an RDM deletes those entities inline, completing within the worker with no tracked job and no polling. Delete still runs RDM-before-EDM (an EDM removal waits until all the package's RDM removals have succeeded), and the package row is soft-deleted once no live members remain.
 
+### irp-integration reconciliation + scope call (2026-07-14)
+
+`irp-integration` 0.2.0 (the committed PyPI default) was read end-to-end and its Risk-Modeler method surface confirmed; the authoritative method/request-body matrix lives in `contracts/worker-poller.md` → "IRP gateway — confirmed method surface" (research R1 points to it). Decisions:
+
+- **D1 — RDM delete** is `client.analysis.delete_analysis(id)` per analysis — **synchronous, no tracked job** (confirms the A21 asymmetry; the earlier "resolve analyses by `rdmName`" named the wrong field).
+- **D2 — Enumeration** is via local `irp_analysis` rows, captured at `import_rdm` completion by a `backfill_rdm_analyses` worker calling `search_analyses('sourceRdmName="…" AND exposureName="…"')`; delete drives off that table. This **reverses** the earlier "no local analysis tracking" scope note — `irp_analysis` (+ its status kind) is now created this iteration (analysis **counts still render empty**, D5).
+- **D3 — Review-only / RDM-only packages are DEFERRED to follow-up.** 0.2.0's `submit_rdm_import_job` requires a target EDM, so standalone-RDM import needs a library change. **This supersedes the review-only language elsewhere in this spec (FR-002, FR-016, US2, US3, SC-004, Edge Cases):** every package this iteration has ≥1 EDM, every RDM apply targets an EDM, and Save-and-Sync rejects an RDM-only package.
+- **D4 — Config:** `IRPClient()` reads `RISK_MODELER_BASE_URL` / `RISK_MODELER_API_KEY` / `RISK_MODELER_RESOURCE_GROUP_ID`; EDM import uses `server_name="databridge-1"`. S3 upload uses temporary creds from the RM response — no ambient AWS credentials; the worker host needs S3 egress only.
+- **D5 — Analysis counts stay empty on the card.** Although `irp_analysis` rows ARE captured this iteration (D2), the package card's portfolio-summary and analysis counts still render **empty** — the captured rows exist only for delete-enumeration and are not surfaced until a later iteration (FR-023).
+- **No `irp-integration` code change is on the Iteration-2 critical path;** deferred/nice-to-have library items are tracked in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Import an EDM from a broker file (Priority: P1)
@@ -61,16 +72,16 @@ An analyst has a broker exposure file (`.bak`, `.mdf`, or `.csv`) staged on the 
 
 ### User Story 2 - Import an RDM (broker results) from a file (Priority: P1)
 
-An analyst imports a broker-supplied results database (RDM) so the broker's own analyses can be reviewed and later compared. The RDM is applied to the EDM(s) it belongs with, or imported review-only when there is no exposure to run against. As with EDMs, the import is tracked to completion.
+An analyst imports a broker-supplied results database (RDM) so the broker's own analyses can be reviewed and later compared. The RDM is applied to the EDM(s) it belongs with. *(Importing an RDM review-only, with no exposure to run against, is deferred — D3, 2026-07-14.)* As with EDMs, the import is tracked to completion.
 
 **Why this priority**: Broker results are half of the comparison the workbench exists to support, and RDM import shares all the import/tracking machinery with EDM import, so it belongs in the same critical slice.
 
-**Independent Test**: Import an RDM applied to a ready EDM and, separately, a review-only RDM with no EDM; confirm each produces a tracked import job that reaches a terminal state, and that the review-only case still creates the broker analyses (with no owning EDM) so they can be reviewed later.
+**Independent Test**: Import an RDM applied to a ready EDM; confirm it produces a tracked import job that reaches a terminal state, one apply per applied EDM, and (on FINISHED) captured `irp_analysis` rows for later delete-enumeration (D2). *(The review-only / no-EDM case is deferred — D3, 2026-07-14.)*
 
 **Acceptance Scenarios**:
 
 1. **Given** a ready EDM, **When** the analyst imports an RDM applied to it, **Then** an RDM record is created, an import job is submitted and tracked, and on success the RDM becomes *ready*.
-2. **Given** no EDM to apply to, **When** the analyst imports an RDM review-only, **Then** the RDM import still succeeds and the broker's analyses exist for review (with no owning EDM required).
+2. *(Deferred — D3, 2026-07-14; review-only import needs a library change, 0.2.0 requires a target EDM.)* **Given** no EDM to apply to, **When** the analyst imports an RDM review-only, **Then** the RDM import still succeeds and the broker's analyses exist for review (with no owning EDM required).
 3. **Given** an RDM applied across more than one EDM, **When** it is imported, **Then** the broker's results are treated as a single source (not duplicated per EDM) while still being reachable from each EDM it was applied to.
 4. **Given** an RDM import reported as failed, **When** the poller observes it, **Then** the RDM shows *error* and the analyst is informed.
 
@@ -82,15 +93,15 @@ An analyst groups the files that arrived and are worked together into a **packag
 
 **Why this priority**: The package is how real broker submissions actually arrive ("take all five of these and move them"), and syncing a package is the point at which the workbench does the analyst's most repetitive, error-prone manual work for them. It is the headline capability of the iteration.
 
-**Independent Test**: Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing and multi-selecting files; confirm the ≥1-member rule holds, the name-collision warning appears when a member name already exists in Risk Modeler (without blocking), and Save-and-Sync on a both-package queues the correct set of member jobs with each RDM apply waiting for its target EDM's upload.
+**Independent Test**: Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing and multi-selecting files; confirm the ≥1-member rule holds, that an RDM-only package can be assembled/saved but its **Save-and-Sync is rejected (`EmptyPackageError`, D3)**, the name-collision warning appears when a member name already exists in Risk Modeler (without blocking), and Save-and-Sync on a both-package queues the correct set of member jobs with each RDM apply waiting for its target EDM's upload.
 
 **Acceptance Scenarios**:
 
-1. **Given** the package modal, **When** the analyst multi-selects member files from the shared drive, **Then** they form a bundle of one or more EDM and/or RDM members in any combination (EDM-only, RDM-only, or both).
+1. **Given** the package modal, **When** the analyst multi-selects member files from the shared drive, **Then** they form a bundle of one or more EDM and/or RDM members in any combination (EDM-only, RDM-only, or both) — though an RDM-only bundle's Save-and-Sync is deferred this iteration (D3).
 2. **Given** a member name the analyst is editing, **When** that name already exists in Risk Modeler, **Then** the name field is flagged with a non-blocking collision warning and the analyst may rename or override and proceed.
 3. **Given** a package with at least one member, **When** the analyst chooses Save, **Then** the package and its member names are persisted and the collision check runs, but nothing is submitted to Risk Modeler.
 4. **Given** a saved package with EDM and RDM members, **When** the analyst chooses Save and Sync, **Then** one upload job per EDM and one apply job per (EDM × RDM) pair are queued as real Risk Modeler jobs, and each RDM apply waits only for its target EDM's upload to finish (applies fan out per pair, not behind a single global step).
-5. **Given** a review-only package (RDM, no EDM), **When** the analyst syncs it, **Then** a single apply with no EDM is submitted.
+5. *(Deferred — D3, 2026-07-14.)* An RDM-only package (RDM, no EDM) cannot be synced this iteration; Save-and-Sync rejects it (0.2.0 requires a target EDM).
 6. **Given** an attempt to sync a package with no members, **When** the invariant is checked, **Then** the sync is rejected (at least one member is required).
 7. **Given** the browse dialog opened for a submission that has a directory path, **When** the analyst starts browsing, **Then** the browse location is seeded from that directory path.
 8. **Given** a package the analyst chooses to Save and Sync, **When** they confirm, **Then** the request records the member work and returns immediately (the work is queued), rather than holding the request open while Risk Modeler runs.
@@ -173,7 +184,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 
 - **Empty package**: a package can never be synced or persisted with zero members (app-enforced invariant; US3).
 - **Name collision override**: a member name that already exists in Risk Modeler warns but never blocks Save/Sync — the analyst may proceed or rename (US3).
-- **Review-only RDM (no EDM)**: syncs a single apply with no EDM; the broker analyses still exist for review (US2/US3).
+- **Review-only RDM (no EDM)** — **deferred to follow-up (D3, 2026-07-14)**: 0.2.0 requires a target EDM, so RDM-only packages are rejected at Save-and-Sync this iteration.
 - **RDM applied across multiple EDMs**: broker results are one logical source, retrieved/stored once rather than duplicated per EDM, while remaining reachable from each EDM (US2).
 - **Per-pair sync ordering**: each RDM apply waits only for *its* target EDM's upload; independent EDMs and applies proceed in parallel — there is no single global "EDM head job" gating everything (US3).
 - **Delete ordering**: delete reverses sync — RDM removals before EDM removals; deleting an EDM cascades to its analyses, deleting an RDM removes only the broker analyses it created (US4).
@@ -190,7 +201,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 ### Functional Requirements — EDM & RDM entities and import
 
 - **FR-001**: The system MUST let an authenticated analyst import an EDM by selecting an exposure file (`.bak`, `.mdf`, or `.csv`) from the shared drive, naming it, and submitting it to Risk Modeler, creating a tracked EDM record.
-- **FR-002**: The system MUST let an analyst import an RDM (broker results) either applied to one or more EDMs or review-only with no EDM; a review-only import MUST still create the broker analyses so they can be reviewed later.
+- **FR-002**: The system MUST let an analyst import an RDM (broker results) applied to one or more EDMs, creating the broker analyses in Risk Modeler. *(Review-only import with no EDM is **deferred** — D3, 2026-07-14; `irp-integration` 0.2.0 requires a target EDM.)*
 - **FR-003**: The system MUST allow the analyst to name an EDM/RDM (optionally pre-filled from submission context) and edit that name before submission; a system-generated naming scheme is not required this iteration (auto-naming tokens are finalized in a later iteration).
 - **FR-004**: The system MUST track each asynchronous import as a job with an observable, externally-mirrored status, and MUST expose the EDM/RDM lifecycle states: *pending import*, *importing*, *ready*, *error*, *delete pending*, *deleted*.
 - **FR-005**: The system MUST record the source file path each EDM/RDM was created from (a single path string, no versioning).
@@ -201,13 +212,13 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 
 ### Functional Requirements — Package assembly & sync
 
-- **FR-010**: The system MUST let an analyst assemble a package as a bundle of one or more EDM and/or RDM members in any combination (several of each, EDM-only, or RDM-only).
+- **FR-010**: The system MUST let an analyst assemble a package as a bundle of one or more EDM and/or RDM members in any combination (several of each, EDM-only, or RDM-only). *(An RDM-only package MAY be assembled/saved, but its Save-and-Sync is rejected this iteration — D3/FR-016.)*
 - **FR-011**: The system MUST let the analyst build a package by browsing the shared drive and multi-selecting the member files, with no separate prior tagging or file-registration step; the browse location MUST be seedable from the submission's directory path.
 - **FR-012**: The system MUST perform a name-collision check for each EDM/RDM member name against Risk Modeler and, on a collision, surface a **non-blocking** warning (highlight the name field) that the analyst may override or resolve by renaming; it MUST NOT block Save or Sync.
 - **FR-013**: The system MUST provide the package actions Cancel, Save, Save-and-Sync, and Delete.
 - **FR-014**: On Save, the system MUST persist the package and its member names and run the collision check, and MUST NOT submit anything to Risk Modeler.
 - **FR-015**: On Save-and-Sync, the system MUST perform **real** Risk Modeler work — one upload per EDM plus one apply per (EDM × RDM) pair in the bundle — with per-pair ordering such that each RDM apply waits only for its target EDM's upload to succeed (applies fan out per pair; there is no single global EDM head job). The submission mechanism is specified in FR-042–FR-043.
-- **FR-016**: The system MUST submit a single apply with no EDM for a review-only package (an RDM with no EDM in the bundle).
+- **FR-016**: *(Deferred — D3, 2026-07-14.)* Review-only sync (a single apply with no EDM for an RDM-only package) is **out of scope this iteration** — the library requires a target EDM. Save-and-Sync MUST reject an RDM-only package until this lands.
 - **FR-017**: The system MUST enforce, as an application-level invariant, that a package always has at least one member, and MUST reject any attempt to sync or persist an empty package.
 - **FR-018**: The system MUST NOT maintain an independent package status; the package card MUST display the member EDM status chip and RDM status chip rather than a rolled-up package status.
 
@@ -220,7 +231,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 ### Functional Requirements — Submission-detail package cards
 
 - **FR-022**: The system MUST show, on a submission's detail view, one full-width card per package (not a compact grid).
-- **FR-023**: Each package card MUST display: upload progress; the member EDM status chip and RDM status chip; the source file path(s) the members were created from; a portfolio summary and analysis counts that render empty for now (populated in later iterations); and IRP/RWB job counts (all / active / failed) scoped to that package's members.
+- **FR-023**: Each package card MUST display: upload progress; the member EDM status chip and RDM status chip; the source file path(s) the members were created from; a portfolio summary and analysis counts that render empty for now (analyses are captured internally for delete-enumeration this iteration — D2 — but the counts still render empty per D5; populated in later iterations); and IRP/RWB job counts (all / active / failed) scoped to that package's members.
 - **FR-024**: Each package card's job count MUST link to the Jobs list pre-filtered to that package.
 - **FR-025**: The system MUST block package create/sync/delete actions when the owning submission is COMPLETED or CANCELLED (inheriting the Iteration 1 read-only status gate), permitting only viewing until it is reopened to ACTIVE.
 
@@ -268,7 +279,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 ### Key Entities
 
 - **EDM (record)** — an exposure database as it exists in Risk Modeler, distinct from the source file that produced it. Carries a name, a Risk Modeler identifier (back-filled on import success), a lifecycle status, the source file path, package membership, and last-confirmed-against-Risk-Modeler trust signals. Ownership reaches a submission through its package.
-- **RDM (record)** — a broker-supplied results database tracked in Risk Modeler. Carries a name, a Risk Modeler identifier, a lifecycle status, the source file path, and package membership. Has no single owning EDM — a broker RDM is applied across every EDM in its bundle; review-only RDMs create broker analyses with no owning EDM.
+- **RDM (record)** — a broker-supplied results database tracked in Risk Modeler. Carries a name, a Risk Modeler identifier, a lifecycle status, the source file path, and package membership. Has no single owning EDM — a broker RDM is applied across every EDM in its bundle. *(Review-only / no-EDM RDMs are deferred — D3, 2026-07-14.)*
 - **Package** — a lightweight bundle of one or more EDM/RDM members worked together, created/named/synced/deleted as a unit, sharable across submissions, always non-empty, soft-removed rather than deleted, with no independent status of its own.
 - **Job (tracked external operation)** — one *asynchronous* Risk Modeler operation followed to completion by the background poller: an EDM import, an RDM apply, or an EDM removal. Has a type (which determines how it is polled), a mirrored status, and a Risk Modeler identifier once submitted. (An **RDM removal** is synchronous — it deletes the analysis entities the RDM created — so it is performed by a worker but is **not** a tracked, polled job.)
 - **App-side work item** — background work this app performs on analyst request or after a Risk Modeler job completes (e.g. submit the next member operation, deliver a notification), executed by a background worker and decoupled from the external job. Its trigger is recorded as either an analyst request or a specific completed job, which is also the idempotency/dedup key that makes completion-chaining and fan-in safe against repeats.
@@ -283,7 +294,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 - **SC-001**: An analyst can import an EDM from a shared-drive file and see it reach *ready* without ever manually polling; the tracked status reflects Risk Modeler within one poll interval (target ≤ ~15 seconds).
 - **SC-002**: No web request blocks on a Risk Modeler import or on polling — imports that run for minutes are tracked entirely by background processing, verified by importing while the UI stays responsive.
 - **SC-003**: A completion or failure notification is delivered on the configured channel for 100% of terminal analyst actions (standalone import / package sync / package delete) and for 100% of member failures; a successful multi-member sync produces a single completion notification rather than one per member job.
-- **SC-004**: All three package shapes — EDM-only, RDM-only, and EDM+RDM — can be created by browsing and multi-selecting files from the shared drive.
+- **SC-004**: Both **syncable** package shapes — EDM-only and EDM+RDM — can be created and synced by browsing and multi-selecting files from the shared drive. *(An RDM-only package may be assembled/saved, but its Save-and-Sync is rejected this iteration — D3, 2026-07-14.)*
 - **SC-005**: The member name-collision warning appears in 100% of collision cases and blocks Save/Sync in 0% of them.
 - **SC-006**: Save-and-Sync on an EDM+RDM package produces exactly one upload job per EDM and one apply job per (EDM × RDM) pair, with each apply starting only after its target EDM's upload succeeds — verified against the queued job set.
 - **SC-007**: Delete on a synced package runs member removals in RDM-before-EDM order and, on completion, soft-deletes the members and the package with zero hard-deletes.
@@ -303,12 +314,12 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 - **Linking an existing Risk Modeler EDM without re-import is out.** That entry point depends on IRP metadata sync (Iteration 4) and is not built here; this iteration's libraries cover import and status only.
 - **Phase A is out.** DataBridge validation, exposure profiling, exposure modification, and the Exposure Repository write (§10, §16.5) are not in scope this iteration.
 - **Search framework is out.** The global command-palette search (Ctrl/Cmd-J and its providers, §19) is Iteration 3; only the query-string-driven Jobs list filtering (§20.4) is built here.
-- **Analysis, grouping, results, repositories, and treaties are out.** Portfolio summary and analysis counts on the package card render empty this iteration and are populated later.
+- **Analysis, grouping, results, repositories, and treaties are out.** Portfolio summary and analysis counts on the package card render empty this iteration and are populated later. *(Exception: minimal `irp_analysis` rows ARE captured for delete-enumeration — D2 — but are not surfaced; counts stay empty.)*
 - **Notification channel is configurable.** At least one of Teams / email / desktop toast is delivered per the notifications configuration; the exact channel(s) enabled are a configuration choice, not a scope question.
 - **Poller scope is minimal.** This iteration polls only the import job types needed for EDM/RDM import (plus the package member operations); the remaining job types arrive with later iterations.
 - **No app-created temporary files this iteration.** Imports submit against the shared-drive path directly (no app-side file staging), so FR-008's optional "delete after transfer" behavior is inert until app-side staging exists; the read-only-drive guarantee — the app never writes, moves, or deletes broker files — still holds.
 - **Canonical schema lives in DATA_MODEL.md.** This spec defines observable behavior and constraints; the concrete tables, columns, job-type kinds, status vocabularies, and the exact member-job sequencing are derived in planning from DATA_MODEL.md (§3–§9), which is the schema source of truth.
-- **External library signatures are verified at implementation.** `irp-integration` is a pre-release library sourced switchably across PyPI (`0.2.0`, production default), TestPyPI (`0.2.1`/`…dev`), and a local editable checkout via uv dependency groups (`make irp-pypi | irp-testpypi | irp-local`; plan §Technical Context / research R1). Its method signatures are verified against the **active** wheel before implementing any Risk-Modeler-backed operation, and single-item Risk Modeler calls are preferred over fail-fast batch helpers.
+- **External library signatures are verified at implementation.** `irp-integration` is a pre-release library sourced switchably across PyPI (`0.2.0`, production default), TestPyPI (`0.2.1`/`…dev`), and a local editable checkout via uv dependency groups (`make irp-pypi | irp-testpypi | irp-local`; plan §Technical Context / research R1). Its method signatures are verified against the **active** wheel before implementing any Risk-Modeler-backed operation, and single-item Risk Modeler calls are preferred over fail-fast batch helpers. **Confirmed against 0.2.0 on 2026-07-14** — the library is manager-based (`client.edm/.rdm/.import_job/.risk_data_job/.analysis`); see `contracts/worker-poller.md`.
 - **Dev database strategy is rebuild.** Any schema needed this iteration is folded into the single existing initial migration; the dev database is dropped, recreated, and seeded (no incremental migration until production cutover). The DB-lifecycle prompt (Rebuild / Refresh / Skip) is run for the WORKBENCH database before schema-affecting work.
 
 ## Dependencies
@@ -318,5 +329,5 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 - **Risk Modeler (IRP) + `irp-integration`** — a live external dependency for submitting and polling every EDM/RDM import and package member operation; without it, operations that need it are simply not offered, while already-imported entities remain viewable.
 - **Shared drive** — mounted read-only into the host for live browsing and file upload; the app never mutates it.
 - **DATA_MODEL.md §3–§9** — canonical definitions for the EDM/RDM entities, package membership, the job model (tracked external jobs and app-side work items), member-job sequencing, and results storage referenced by the RDM dedup rule. Records the resolved A21 chaining model (§8) and the added `delete_edm` job-type kind (RDM delete is synchronous, so it has no `irp_job` type).
-- **`irp-integration` delete methods** — EDM delete relies on the asynchronous delete-job submit call and its single-status getter (candidates: the import/risk-data job getter), verified against the active library at implementation; **RDM delete is synchronous** (it removes the RDM's analysis entities inline) — the exact library call is confirmed at planning. The library source is switchable across PyPI (`0.2.0`, default) / TestPyPI (`0.2.1`/`…dev`) / local checkout (research R1), so signatures are re-confirmed against whichever wheel is active before implementing each Risk-Modeler-backed operation.
+- **`irp-integration` methods (confirmed vs 0.2.0, 2026-07-14)** — EDM delete = `edm.submit_delete_edm_job(exposure_id)` polled via `risk_data_job.get_risk_data_job`; **RDM delete = `analysis.delete_analysis(id)` per analysis (synchronous)**, enumerated from local `irp_analysis` rows (D2). Full method/request-body matrix in `contracts/worker-poller.md`. The source stays switchable (PyPI `0.2.0` default / TestPyPI / local, research R1); re-confirm signatures if the active source is switched off 0.2.0.
 - **CIC team** — confirmation of the notification channel(s) and any ratification of the provisional top-level model carried over from Iteration 1 can arrive after this iteration and be absorbed without a rebuild.

@@ -8,16 +8,13 @@ The canonical schema and the A21 mechanism live in **DATA_MODEL.md §5, §6, §8
 
 ## R1 — `irp-integration`: version reconciliation + the exact methods used
 
-**Decision**: Treat `irp-integration` as reachable **only** through a thin `app/services/irp_gateway.py` interface that names every method the app calls. `IRPClient()` reads all config from env vars (no constructor args). The methods the gateway wraps this iteration:
+**Decision**: Reach `irp-integration` **only** through a thin `app/services/irp_gateway.py` interface. `IRPClient()` reads all config from env vars (no constructor args). **The exact methods, signatures, and request bodies are now confirmed against the 0.2.0 wheel and recorded authoritatively in [contracts/worker-poller.md → "IRP gateway — confirmed method surface"](contracts/worker-poller.md); that table supersedes this one.** Confirmed 2026-07-14 — the library is **manager-based** (`client.edm` / `.rdm` / `.import_job` / `.risk_data_job` / `.analysis`), not the flat names this doc originally drafted. What changed from the original draft:
 
-| Operation | `irp-integration` call | Sync/async | Notes |
-|---|---|---|---|
-| EDM import | `submit_edm_import_job()` → job id (+ `request_body`) | async | store `request_body["resourceUri"]` on `irp_job_resource` at submit time |
-| RDM import/apply | `submit_rdm_import_job()` (per EDM, or review-only) → job id | async | one job per (EDM × RDM) pair; review-only omits the EDM |
-| EDM delete | `submit_delete_edm_job()` → pollable job id | async | polled like an import (R6) |
-| RDM delete | synchronous analysis-entity delete call (R6) | **sync** | no `irp_job`; resolves analyses by `rdmName` |
-| Name collision | `search_edms()` / `search_rdms()` | sync | non-blocking warning (R8) |
-| Poll status | `get_edm_import_job()` / `get_analysis_job()` / `get_delete_*` single-status getters | sync | **single-status-check only**; `poll_*_to_completion` forbidden |
+- EDM/RDM import and EDM delete names hold (`submit_edm_import_job`, `submit_rdm_import_job`, `submit_delete_edm_job`) but are **manager-scoped**, not top-level.
+- **RDM delete = `analysis.delete_analysis(id)` per analysis** (synchronous, no `irp_job`), enumerated from **local `irp_analysis` rows** captured at import via `search_analyses('sourceRdmName="…" AND exposureName="…"')` (R6/R13, D2). The earlier "resolve analyses by `rdmName`" named the wrong field.
+- **Poll getters collapse to two**: `import_job.get_import_job` (both imports — one shared endpoint) and `risk_data_job.get_risk_data_job` (EDM delete). No `get_edm_import_job`/`get_analysis_job`. Terminal set is `FINISHED/FAILED/CANCELLED` (double-L).
+- **RDM name search** is `rdm.search_imported_rdms` (there is no `search_rdms`).
+- **No `irp-integration` code change is required for Iteration 2** — every needed call exists in 0.2.0 behind the gateway. Deferred/nice-to-have library items are tracked in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
 
 **Version sourcing — RESOLVED 2026-07-13.** `irp-integration` is a pre-release library whose signatures still move, and it lives across three places at different versions: **PyPI `0.2.0`** (production target), **TestPyPI `0.2.1`/`…dev26`** (ahead-of-stable dev builds), and a **local editable checkout** at `../../IRP/irp-integration` (setuptools-scm dynamic; team-owned, sometimes patched). The old exact `==0.2.1.dev23` pin hard-wired the project to TestPyPI. It is replaced by three mutually-exclusive uv **dependency groups** — `irp-pypi` (`>=0.2,<1`), `irp-testpypi` (`>=0.2.1.dev0`, pre-release-allowing), `irp-local` (unpinned path source) — selected via `[tool.uv] default-groups` and switched with `make irp-pypi | irp-testpypi | irp-local`. `uv lock` holds all three simultaneously (a universal lock), so switching just installs the active group's variant; PyPI is the committed default (production-safe). Because the gateway is the **only** module that imports the library, **every method name + signature above MUST still be re-confirmed against the active wheel before its operation is implemented** (spec Assumptions; Dependencies); the CI fake (R2/Article 12) implements the same interface, so a signature change is a one-file edit plus a fake update — not a scatter across services.
 
@@ -29,7 +26,7 @@ The canonical schema and the A21 mechanism live in **DATA_MODEL.md §5, §6, §8
 
 ## R2 — Poller: batch single-status poll → terminal enqueue
 
-**Decision**: `poll_once()` (in the standalone `app/poller/run.py`) runs one pass: `SELECT` non-terminal `irp_job` rows (status not in the terminal set `FINISHED`/`FAILED`/`CANCELED`/`SUBMISSION FAILED`), **group by `irp_job_type`**, and for each call the matching single-status-check `get_*_job` once. Mirror the returned status onto `irp_job.status` (plain in-place `UPDATE`), stamp `last_tracked_at`, and on a **terminal** status: (a) backfill the produced entity's `irp_id` (`irp_edm`/`irp_rdm`) and flip its `status` (`ready`/`error`); (b) if `FINISHED`, **idempotently insert the dependent head `rwb_job`** via the composite key (R4). The pass never calls `poll_*_to_completion`.
+**Decision**: `poll_once()` (in the standalone `app/poller/run.py`) runs one pass: `SELECT` non-terminal `irp_job` rows (status not in the terminal set `FINISHED`/`FAILED`/`CANCELLED`/`SUBMISSION FAILED`), **group by `irp_job_type`**, and for each call the matching single-status-check getter once (`get_import_job` for imports, `get_risk_data_job` for `delete_edm`). Mirror the returned status onto `irp_job.status` (plain in-place `UPDATE`), stamp `last_tracked_at`, and on a **terminal** status: (a) backfill the produced entity's `irp_id` (`irp_edm`/`irp_rdm`) and flip its `status` (`ready`/`error`); (b) if `FINISHED`, **idempotently insert the dependent head `rwb_job`** via the composite key (R4). The pass never calls `poll_*_to_completion`.
 
 **Poller also owns** two batches that are not per-`irp_job`: the **reconciler** (reclaim stale `rwb_job` rows whose `rwb_job_heartbeat` is older than `RWB_HEARTBEAT_STALE_SECS`, back to `pending`) and the single-threaded **`submission_retry`** batch (re-attempt `SUBMISSION FAILED` rows with `submission_attempt_count < IRP_SUBMISSION_MAX_RETRIES` — a deployment config value with no fixed default, with backoff; a row that reaches the max stays parked as terminal `SUBMISSION FAILED` for analyst-driven recovery).
 
@@ -65,7 +62,7 @@ The canonical schema and the A21 mechanism live in **DATA_MODEL.md §5, §6, §8
 
 ## R5 — Per-pair sync fan-out sequencing
 
-**Decision**: Save-and-Sync enqueues **one `upload_edm` head per EDM** (not a single global "EDM head"). When an EDM's `import_edm` reaches FINISHED, the poller enqueues **one `upload_rdm`** keyed to that finished job; the `upload_rdm` worker submits an `import_rdm` **apply per RDM in the package onto that specific EDM** (resolved by name via `search_edms`, Article 2). Thus each RDM apply waits only for *its* target EDM's upload; independent EDMs and their applies proceed in parallel. A **review-only** package (RDM, no EDM) inserts one `upload_rdm` head directly on the request path and submits a single apply with no EDM (FR-016).
+**Decision**: Save-and-Sync enqueues **one `upload_edm` head per EDM** (not a single global "EDM head"). When an EDM's `import_edm` reaches FINISHED, the poller enqueues **one `upload_rdm`** keyed to that finished job; the `upload_rdm` worker submits an `import_rdm` **apply per RDM in the package onto that specific EDM** (resolved by name via `search_edms`, Article 2). Thus each RDM apply waits only for *its* target EDM's upload; independent EDMs and their applies proceed in parallel. A **review-only / RDM-only** package (an RDM with no EDM) is **deferred to follow-up** (D3, 2026-07-14): `submit_rdm_import_job` requires `edm_name` in 0.2.0, so every package this iteration has ≥1 EDM, every `import_rdm` apply has a target EDM, and Save-and-Sync rejects an RDM-only package.
 
 **Rationale**: FR-015 / SC-006 / spec Edge Cases ("per-pair sync ordering… no single global EDM head job"). DATA_MODEL §8 sets `irp_job` grain per (RDM × EDM) pair. Name-based coupling at submit time is Article 2.
 
@@ -75,7 +72,7 @@ The canonical schema and the A21 mechanism live in **DATA_MODEL.md §5, §6, §8
 
 ## R6 — Asymmetric delete: async EDM job vs synchronous RDM analysis-entity delete
 
-**Decision**: **EDM delete is asynchronous** — `delete_rdm`-gated `delete_edm` worker calls `submit_delete_edm_job()`, writes an `irp_job(irp_job_type='delete_edm')`, and the poller follows it to `FINISHED` with a single-status getter (the import/risk-data job getter — confirm the exact getter against the installed wheel, R1). **RDM delete is synchronous** — an RDM import produces **analysis entities**, not a first-class Risk Modeler RDM object, so removal is an inline delete of those entities: the `delete_rdm` worker resolves the RDM's analyses by `rdmName` and deletes them, writes **no `irp_job`**, and marks `irp_rdm.status='deleted'` only once the delete has completed. Delete order stays RDM-before-EDM (an EDM removal waits for all its RDM removals — R4 fan-in), because the RDM's analyses reference the EDM's exposure.
+**Decision**: **EDM delete is asynchronous** — the `delete_rdm`-gated `delete_edm` worker calls `client.edm.submit_delete_edm_job(exposure_id=irp_edm.irp_id)`, writes an `irp_job(irp_job_type='delete_edm')`, and the poller follows it to `FINISHED` via **`client.risk_data_job.get_risk_data_job`** (confirmed 2026-07-14). **RDM delete is synchronous** — an RDM import produces **analysis entities**, not a first-class Risk Modeler RDM object, so removal is an inline per-analysis delete: the `delete_rdm` worker reads the RDM's `irp_analysis` rows (captured at import, D2/R13) and loops **`client.analysis.delete_analysis(analysis_id)`**, writes **no `irp_job`**, and marks `irp_rdm.status='deleted'` only once the deletes complete. Delete order stays RDM-before-EDM (an EDM removal waits for all its RDM removals — R4 fan-in), because the RDM's analyses reference the EDM's exposure.
 
 **Rationale**: The user's 2026-07-13 clarification and DATA_MODEL §8 step 5 / §13 note. Because there is no RDM `irp_job`, the RDM→EDM fan-in must be app-side on worker success (R4), not poller-mediated. Only `delete_edm` is added to `irp_job_type_kind`; there is no `delete_rdm` job-type kind.
 
@@ -100,7 +97,7 @@ Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried automaticall
 
 ## R8 — Name-collision as a non-blocking warning
 
-**Decision**: Setting or renaming an EDM/RDM name runs `search_edms()` / `search_rdms()`; if the name already exists in Risk Modeler, the response carries a **non-blocking** warning fragment that highlights the name field and offers "rename" or "use anyway" — it never blocks Save or Save-and-Sync (FR-012). Same two-step HTMX shape as the Iteration-1 duplicate-warning (a `confirmed`/override marker skips re-warning on the second submit).
+**Decision**: Setting or renaming an EDM/RDM name runs `search_edms()` / `search_imported_rdms()`; if the name already exists in Risk Modeler, the response carries a **non-blocking** warning fragment that highlights the name field and offers "rename" or "use anyway" — it never blocks Save or Save-and-Sync (FR-012). Same two-step HTMX shape as the Iteration-1 duplicate-warning (a `confirmed`/override marker skips re-warning on the second submit).
 
 **Rationale**: FR-012 / SC-005 (warn in 100% of collisions, block in 0%); DATA_MODEL §5 ("a non-blocking warning if the name already exists in IRP"). Reuses the Iteration-1 warning UX so the pattern is consistent.
 
@@ -150,11 +147,11 @@ Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried automaticall
 
 ## R13 — Scope boundary: analyses are created in IRP but not tracked locally
 
-**Decision**: RDM import **creates broker analyses in Risk Modeler** (FR-002) and RDM delete **removes those analysis entities** (FR-020, via R6), but the workbench does **not** create local `irp_analysis` rows this iteration. The package card's "portfolio summary and analysis counts" render **empty** (FR-023), and the `delete_rdm` worker resolves analyses to delete by `rdmName` against Risk Modeler (DATA_MODEL §6) rather than from a local table. `irp_analysis` + `irp_analysis_status_kind` + `irp_portfolio`/`irp_treaty` are **not** created in the migration this iteration.
+**Decision (revised 2026-07-14, D2)**: RDM import **creates broker analyses in Risk Modeler** (FR-002); the workbench now **does** create local `irp_analysis` rows this iteration — populated when an `import_rdm` job reaches FINISHED, by the `backfill_rdm_analyses` worker calling `search_analyses('sourceRdmName="<rdm>" AND exposureName="<edm>"')` and storing each Moody's `analysisId` + metadata, keyed per (RDM × EDM) pair. RDM delete then enumerates from that local table and loops `delete_analysis` (R6) — no live query at delete time. **`irp_analysis` (+ `irp_analysis_status_kind`) ARE created in the migration this iteration**; `irp_portfolio` / `irp_treaty` remain out. The package card's portfolio summary and analysis **counts still render empty** (FR-023 / D5) — the rows exist for delete-enumeration only, not surfaced yet.
 
-**Rationale**: Spec Assumptions ("Analysis, grouping, results, repositories, and treaties are out… analysis counts render empty this iteration"). Tracking analyses is a later iteration; the synchronous RDM delete needs only the Risk Modeler-side query-by-`rdmName` (confirmed enumerable, DATA_MODEL §6/§14), not local rows. Keeps the migration surface to the `irp_job`/`rwb_job` families only.
+**Rationale**: A reliable synchronous RDM delete needs the exact `analysisId`s; capturing them into `irp_analysis` at import time makes delete a local-table read + `delete_analysis` loop, independent of the RM search still resolving at delete time. Full analysis *tracking* (portfolios, results, treaties) stays a later iteration — only the minimal `irp_analysis` rows needed for delete-enumeration are added now, and counts stay empty (D5) so no card work is pulled in.
 
-**Alternatives considered**: (a) Create `irp_analysis` now — rejected: out of scope, and unused until the analysis iteration. (b) Store a local analysis-id list for RDM delete — rejected: DATA_MODEL §6 confirms analyses are enumerable by `rdmName`, so no local mirror is needed.
+**Alternatives considered**: (a) Live-query analyses by `sourceRdmName` at delete time (no local table) — rejected: depends on the RM search resolving correctly at delete time and re-derives ids on every delete; the local `irp_analysis` capture is more robust and idempotent (D2). (b) Full analysis tracking now (portfolios / results / treaties) — rejected: out of scope; only the minimal delete-enumeration subset is added this iteration.
 
 ---
 
@@ -162,16 +159,16 @@ Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried automaticall
 
 | # | Area | Decision |
 |---|---|---|
-| R1 | IRP library | One `irp_gateway` interface; source switchable across PyPI(0.2.0)/TestPyPI(0.2.1.dev)/local via uv dependency groups + `make irp-*` (default PyPI); re-confirm every method/signature vs the active wheel; prefer single-item calls; fake in CI |
+| R1 | IRP library | One `irp_gateway` interface; **methods confirmed vs 0.2.0 (manager-based) — authoritative matrix in worker-poller.md**; source switchable PyPI(0.2.0)/TestPyPI/local via `make irp-*` (default PyPI); prefer single-item calls; fake in CI; **no library change needed this iteration** |
 | R2 | Poller | Batch non-terminal `irp_job` by type; single-status `get_*_job`; on terminal backfill + idempotent enqueue; owns reconciler + `submission_retry`; never `poll_*_to_completion` |
 | R3 | Queue | `rwb_job` SQL table is the queue of record; Dramatiq wakes the single worker; atomic claim `WHERE status_code='pending'`; heartbeat daemon; reconciler reclaim |
 | R4 | Chaining / fan-in | Completion-chaining keyed by `(requestor_type, requestor_id, rwb_job_type)` UNIQUE; idempotent inserts; fan-in via "all siblings terminal?" query under atomic guard — **no counter** |
-| R5 | Sync fan-out | One `upload_edm` per EDM; `import_edm` FINISHED → one `upload_rdm` → apply per RDM onto that EDM; per-pair, parallel; review-only = single apply, no EDM |
-| R6 | Delete asymmetry | EDM delete async (`delete_edm` `irp_job`, polled); RDM delete **synchronous** (delete analyses by `rdmName`, no `irp_job`); RDM-before-EDM; RDM→EDM fan-in app-side |
+| R5 | Sync fan-out | One `upload_edm` per EDM; `import_edm` FINISHED → one `upload_rdm` → apply per RDM onto that EDM; per-pair, parallel; **review-only/RDM-only deferred (D3)** — every package has ≥1 EDM |
+| R6 | Delete asymmetry | EDM delete async (`submit_delete_edm_job`; getter `get_risk_data_job`); RDM delete **synchronous** (`delete_analysis` per analysis from local `irp_analysis`, no `irp_job`); RDM-before-EDM; RDM→EDM fan-in app-side |
 | R7 | Recovery | Idempotent re-sync + per-member retry + source-file replacement; `SUBMISSION FAILED` auto-retried by the batch |
 | R8 | Name collision | `search_edms/rdms` → non-blocking warning; never blocks Save/Sync; two-step HTMX confirm |
 | R9 | Live status | SSE (`sse-starlette`) pushes server-rendered `job_row` fragments; filter = pure URL function; JS-off degrades |
 | R10 | Notifications | `notify_analyst` worker actor; configured channel(s) (Teams/email/desktop); per-action completion + per-member failure (not per successful member) |
 | R11 | Shared drive | Live read-only listing under `SHARED_DRIVE_ROOT` (traversal-guarded); path stored on the member; no inventory; never mutates broker files |
 | R12 | Nav | `irp.edm_library` / `irp.rdm_library` new nodes; Jobs list reuses `workflows.irp_jobs`/`rwb_jobs`, made filterable; shared `submission/package/status/job_type` vocabulary |
-| R13 | Scope | Analyses created in IRP but **not** tracked locally; card analysis counts empty; no `irp_analysis`/`irp_portfolio`/`irp_treaty` tables this iteration |
+| R13 | Scope | `irp_analysis` **tracked locally (D2)** — captured at import via `search_analyses(sourceRdmName+exposureName)` for delete-enumeration; card counts still empty (D5); `irp_portfolio`/`irp_treaty` still out |
