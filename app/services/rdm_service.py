@@ -13,6 +13,7 @@ only once every apply is ``FINISHED``; ``error`` if any apply fails.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -26,6 +27,8 @@ from app.services.errors import ConcurrencyConflict
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
+
+logger = logging.getLogger(__name__)
 
 PENDING = "pending_import"
 IMPORTING = "importing"
@@ -55,11 +58,17 @@ def _uid(value: Any) -> str | None:
 
 
 def check_name_collision(name: str) -> list[str]:
-    """Colliding IRP RDM names (empty = clear). Non-blocking (FR-012)."""
+    """Colliding IRP RDM names (empty = clear). Non-blocking (FR-012): best-effort —
+    if the gateway can't answer, log and report no collisions rather than raise."""
     trimmed = (name or "").strip()
     if not trimmed:
         return []
-    return [hit.name for hit in irp_gateway.search_rdms(trimmed)]
+    try:
+        return [hit.name for hit in irp_gateway.search_rdms(trimmed)]
+    except Exception:  # noqa: BLE001 — advisory check must never break the save
+        logger.warning("RDM name-collision check skipped (gateway unavailable)",
+                       exc_info=True)
+        return []
 
 
 def import_rdm(

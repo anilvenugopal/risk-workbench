@@ -15,6 +15,7 @@ as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,6 +26,8 @@ from app.services.errors import ConcurrencyConflict
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
+
+logger = logging.getLogger(__name__)
 
 # Entity-status lifecycle (plain string — Article 3 carve-out): pending_import →
 # importing → ready / error → delete_pending → deleted (data-model §6).
@@ -67,11 +70,18 @@ def _uid(value: Any) -> str | None:
 
 def check_name_collision(name: str) -> list[str]:
     """Colliding IRP EDM names for ``name`` (empty = clear). Non-blocking (FR-012):
-    the caller renders a warning, nothing is ever raised."""
+    the caller renders a warning, nothing is ever raised. If the gateway can't answer
+    (IRP unavailable, or the search not yet wired) the check is best-effort — we log
+    and report no collisions rather than fail the caller's save."""
     trimmed = (name or "").strip()
     if not trimmed:
         return []
-    return [hit.name for hit in irp_gateway.search_edms(trimmed)]
+    try:
+        return [hit.name for hit in irp_gateway.search_edms(trimmed)]
+    except Exception:  # noqa: BLE001 — advisory check must never break the save
+        logger.warning("EDM name-collision check skipped (gateway unavailable)",
+                       exc_info=True)
+        return []
 
 
 def import_edm(

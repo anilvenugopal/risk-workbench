@@ -1,7 +1,7 @@
 {# Package assembly modal (US3): browse the shared drive, multi-select files, name
    each member and mark it EDM/RDM, then Save or Save-and-Sync. Alpine.js keeps the
    member list across browse navigations; the server never caches drive state. #}
-<div class="modal" id="package-modal" x-data="packageModal()">
+<div class="modal" id="package-modal" x-data="packageModal">
   {% if closed %}
   <div class="modal__panel">
     <div class="form-banner form-banner--readonly">
@@ -60,31 +60,10 @@
 
     <div class="form-actions">
       <button class="btn-sm btn-sm--primary" type="submit"
+              :disabled="members.length === 0"
               hx-post="/submissions/{{ submission_id }}/packages">Save</button>
       <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
     </div>
   </form>
   {% endif %}
 </div>
-
-<script>
-  function packageModal() {
-    return {
-      members: [],
-      onDriveChange(e) {
-        const cb = e.target;
-        if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
-        const path = cb.value;
-        if (cb.checked) {
-          if (!this.members.some(m => m.path === path)) {
-            const base = path.split(/[\\/]/).pop();
-            this.members.push({ path, kind: 'edm', name: base });
-          }
-        } else {
-          this.members = this.members.filter(m => m.path !== path);
-        }
-      },
-      remove(i) { this.members.splice(i, 1); },
-    };
-  }
-</script>
