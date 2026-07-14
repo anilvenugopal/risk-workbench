@@ -1,11 +1,12 @@
 """RDM service — import broker results as an ``irp_rdm`` and track it (US2).
 
 Mirrors ``edm_service`` (same request-path discipline, non-blocking collision, no row
-scoping) with one shape difference: an RDM apply targets zero or more EDMs. ``import_rdm``
-creates the ``irp_rdm`` (``pending_import``) and enqueues **one** ``upload_rdm`` head; the
-worker fans it out to one apply per applied EDM (``applied_edm_ids`` empty → a single
-review-only apply with no EDM, FR-002/FR-016). Broker results are one logical source
-across the EDMs it applies to (no per-EDM duplication).
+scoping) with one shape difference: an RDM apply targets **one or more EDMs**.
+``import_rdm`` creates the ``irp_rdm`` (``pending_import``) and enqueues **one**
+``upload_rdm`` head; the worker fans it out to one apply per applied EDM. Every apply
+targets an EDM — a no-EDM (review-only) import is **rejected** (``EmptyPackageError``);
+RDM-only / review-only import is deferred (D3 / FR-016). Broker results are one logical
+source across the EDMs it applies to (no per-EDM duplication).
 
 ``irp_rdm.status`` is the **combined rollup** of its apply jobs (data-model §6): ``ready``
 only once every apply is ``FINISHED``; ``error`` if any apply fails.
@@ -23,7 +24,7 @@ from sqlalchemy import text
 
 from app.services import irp_gateway, rwb_job_service
 from app.services.edm_service import ImportResult  # shared DTO
-from app.services.errors import ConcurrencyConflict
+from app.services.errors import ConcurrencyConflict, EmptyPackageError
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -75,9 +76,16 @@ def import_rdm(
     *, name: str, source_file_path: str, package_id: Any | None = None,
     applied_edm_ids: Sequence[Any] = (), actor_id: Any,
 ) -> ImportResult:
-    """Create an ``irp_rdm`` (``pending_import``) and enqueue one ``upload_rdm`` head.
-    ``applied_edm_ids`` empty → review-only (single apply, no EDM). **No Risk Modeler
-    call here** (FR-042). Validates the source (else ``InvalidSourceFile``)."""
+    """Create an ``irp_rdm`` (``pending_import``) and enqueue one ``upload_rdm`` head
+    that fans out to one apply per applied EDM. ``applied_edm_ids`` **MUST** be
+    non-empty — every apply targets an EDM; a no-EDM (review-only) import is rejected
+    with ``EmptyPackageError`` (D3 / FR-016). **No Risk Modeler call here** (FR-042).
+    Validates the source (else ``InvalidSourceFile``)."""
+    edm_ids = [str(e) for e in applied_edm_ids if e]
+    if not edm_ids:
+        raise EmptyPackageError(
+            "An RDM import must be applied to at least one EDM "
+            "(review-only import is deferred).")
     canonical = validate_selection(source_file_path)
     collision = check_name_collision(name)
 
@@ -95,7 +103,6 @@ def import_rdm(
          "now": now, "by": actor},
         connection="WORKBENCH",
     )
-    edm_ids = [str(e) for e in applied_edm_ids]
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=rdm_id,
         rwb_job_type="upload_rdm",

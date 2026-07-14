@@ -2,7 +2,8 @@
 
 Save persists members + runs the collision check + submits nothing. Save-and-Sync
 enqueues one ``upload_edm`` per EDM (RDM applies arrive via chaining), is idempotent on
-re-sync (skips ready/in-flight), rejects an empty package, and handles review-only.
+re-sync (skips ready/in-flight), and rejects a package with no EDM — every apply targets
+an EDM (D3), so an RDM-only sync raises ``EmptyPackageError`` (review-only deferred).
 Editing with a stale marker raises ``ConcurrencyConflict``.
 """
 
@@ -109,17 +110,17 @@ def test_resync_skips_ready_members(iteration2_db, fake_irp, drive):
     assert still == 1  # left ready member alone (no reset to pending)
 
 
-def test_review_only_package_single_upload_rdm(iteration2_db, fake_irp, drive):
-    res = sync.save_package(package_id=None, name="RevPkg",
+def test_rdm_only_package_sync_rejected(iteration2_db, fake_irp, drive):
+    # An RDM-only package can be SAVED, but SYNC requires an EDM (D3 / FR-016).
+    res = sync.save_package(package_id=None, name="RdmOnly",
                             members=_members(drive, rdms=[("R1", "rdm1.mdf"),
                                                           ("R2", "rdm2.mdf")]),
                             actor_id=iteration2_db.user_a)
-    sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
-    heads = execute("SELECT input_data FROM rwb_job WHERE rwb_job_type='upload_rdm'",
-                    {}, connection="WORKBENCH")
-    assert len(heads) == 1  # single review-only head for the whole package
-    assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_edm'",
-                          {}, connection="WORKBENCH") == 0
+    with pytest.raises(EmptyPackageError):
+        sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
+    # nothing enqueued — review-only sync is deferred
+    assert execute_scalar("SELECT COUNT(*) FROM rwb_job", {},
+                          connection="WORKBENCH") == 0
 
 
 def test_sync_empty_package_raises(iteration2_db, fake_irp, drive):

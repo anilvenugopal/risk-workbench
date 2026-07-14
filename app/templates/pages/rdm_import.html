@@ -6,8 +6,7 @@
   <div class="detail-head">
     <h1>Import RDM</h1>
     <div class="detail-meta">
-      <span>Import broker results, applied to one or more ready EDMs — or
-        review-only with no EDM.</span>
+      <span>Import broker results, applied to one or more ready EDMs.</span>
     </div>
   </div>
 
@@ -31,7 +30,7 @@
     {% include "partials/name_collision.html" %}
 
     <div class="wf-field">
-      <label>APPLIED EDMs <span class="wf-field__hint">(none = review-only)</span></label>
+      <label>APPLIED EDMs <span class="wf-field__hint">(select at least one)</span></label>
       <div class="edm-apply-list">
         {% for e in edms %}
         <label class="edm-apply-list__row">
@@ -41,7 +40,7 @@
             {{ e.status or 'unknown' }}</span>
         </label>
         {% else %}
-        <span class="tag-empty">No EDMs yet — import review-only.</span>
+        <span class="tag-empty">No EDMs yet — import an EDM first.</span>
         {% endfor %}
       </div>
     </div>

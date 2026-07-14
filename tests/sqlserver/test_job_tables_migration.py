@@ -4,8 +4,8 @@ Run with: pytest tests/sqlserver --run-sqlserver  (requires live SQL Server)
 
 Covers:
   - the extended migration builds the irp_job / irp_job_resource / rwb_job /
-    rwb_job_heartbeat tables + the five kind tables, with FKs, the rwb_job UNIQUE
-    key, and the §13 kind seeds present;
+    rwb_job_heartbeat / irp_analysis tables + the six kind tables, with FKs, the
+    rwb_job + irp_analysis UNIQUE keys, and the §13 kind seeds present;
   - the atomic claim (UPDATE ... WHERE status_code='pending') returns rowcount 1
     then 0 under contention;
   - the idempotent chained insert on UNIQUE(requestor_type, requestor_id,
@@ -25,8 +25,8 @@ pytestmark = pytest.mark.sqlserver
 
 JOB_TABLES = [
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
-    "rwb_job_requestor_type_kind", "rwb_job_status_kind",
-    "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat",
+    "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
+    "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
 ]
 
 
@@ -69,8 +69,35 @@ class TestJobTablesMigration:
     def test_rwb_job_type_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
-        assert {"upload_edm", "upload_rdm", "delete_rdm", "delete_edm",
-                "notify_analyst"} <= codes
+        assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses", "delete_rdm",
+                "delete_edm", "notify_analyst"} <= codes  # backfill new this iter (D2)
+
+    def test_irp_analysis_status_kind_seeds(self):
+        codes = {r["code"] for r in execute(
+            "SELECT code FROM irp_analysis_status_kind", {}, connection="WORKBENCH")}
+        assert codes == {"pending", "running", "ready", "error"}  # D2, data-model §6
+
+    def test_irp_analysis_unique_constraint_present(self):
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.key_constraints "
+            "WHERE name = 'uq_irp_analysis_pair' "
+            "AND parent_object_id = OBJECT_ID('dbo.irp_analysis')",
+            {}, connection="WORKBENCH")
+        assert n == 1  # UNIQUE(rdm_id, edm_id, irp_id) — backfill idempotency (§6a)
+
+    def test_irp_analysis_foreign_keys_present(self):
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.foreign_keys "
+            "WHERE parent_object_id = OBJECT_ID('dbo.irp_analysis')",
+            {}, connection="WORKBENCH")
+        assert n >= 4  # rdm_id, edm_id, package_id, status_code (+ user FKs)
+
+    def test_irp_analysis_no_scope_column(self):
+        cols = {r["COLUMN_NAME"] for r in execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_analysis'", {}, connection="WORKBENCH")}
+        assert "customer_id" not in cols  # Article 6
+        assert {"rdm_id", "edm_id", "irp_id", "source_rdm_name", "deleted_at"} <= cols
 
     def test_rwb_job_requestor_and_status_seeds(self):
         req = {r["code"] for r in execute(

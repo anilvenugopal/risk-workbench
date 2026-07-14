@@ -8,9 +8,10 @@ services. Two request-path operations, both **non-blocking** (FR-042 / SC-014):
     (``EmptyPackageError``); optimistic concurrency on edit (``ConcurrencyConflict``).
   • ``save_and_sync`` — record the pending work and **return immediately**. Enqueues one
     ``upload_edm`` head per EDM; the poller chains one ``upload_rdm`` per finished EDM,
-    fanning out to one apply per (EDM × RDM) pair. A review-only package (RDMs, no EDMs)
-    enqueues a single ``upload_rdm`` head. Idempotent: re-sync skips ready/in-flight
-    members and re-enqueues only unstarted/errored ones.
+    fanning out to one apply per (EDM × RDM) pair. **Every apply targets an EDM (D3):**
+    an RDM-only package (no EDM) is rejected with ``EmptyPackageError`` — review-only
+    sync is deferred. Idempotent: re-sync skips ready/in-flight members and re-enqueues
+    only unstarted/errored ones.
 
 ``delete_package`` / ``get_package_cards`` are added in US4 / US5.
 """
@@ -169,45 +170,39 @@ def _member_count(package_id: str) -> int:
 
 def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
     """Record the pending work and return immediately (FR-015/FR-042/FR-044). No Risk
-    Modeler call here. Idempotent on the dedup key (re-sync skips ready/in-flight)."""
+    Modeler call here. **Every apply targets an EDM (D3):** an RDM-only package (no EDM)
+    is rejected with ``EmptyPackageError`` — review-only sync is deferred; this also
+    covers the empty-package case. Idempotent on the dedup key (re-sync skips
+    ready/in-flight)."""
     pid = str(package_id)
     actor = str(actor_id)
     edms = _live_members(pid, "irp_edm")
     rdms = _live_members(pid, "irp_rdm")
-    if not edms and not rdms:
-        raise EmptyPackageError("A package must have at least one member.")
+    if not edms:
+        raise EmptyPackageError(
+            "A package must include at least one EDM to sync "
+            "(RDM-only / review-only sync is deferred).")
 
     rdm_ids = [str(r["id"]) for r in rdms]
 
-    if edms:
-        for edm in edms:
-            edm_id = str(edm["id"])
-            if edm["status"] not in _LOCKED:
-                # pending/errored EDM → (re)enqueue its import; the poller chains the
-                # per-pair RDM applies once it FINISHES.
-                job_id = rwb_job_service.ensure_pending_rwb_job(
-                    requestor_type="analyst_request", requestor_id=edm_id,
-                    rwb_job_type="upload_edm",
-                    input_data={"edm_id": edm_id, "package_id": pid}, actor_id=actor)
-                dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-            elif edm["status"] == "ready" and rdm_ids:
-                # EDM already imported (e.g. RDMs added after) → apply the package RDMs
-                # to it directly; the body is idempotent per (EDM, RDM) pair.
-                job_id = rwb_job_service.ensure_pending_rwb_job(
-                    requestor_type="analyst_request", requestor_id=edm_id,
-                    rwb_job_type="upload_rdm",
-                    input_data={"rdm_ids": rdm_ids, "edm_ids": [edm_id],
-                                "package_id": pid}, actor_id=actor)
-                dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    else:
-        # Review-only package: RDMs, no EDMs → one upload_rdm head, no-EDM applies.
-        pending_rdms = [str(r["id"]) for r in rdms if r["status"] not in _LOCKED]
-        if pending_rdms:
+    for edm in edms:
+        edm_id = str(edm["id"])
+        if edm["status"] not in _LOCKED:
+            # pending/errored EDM → (re)enqueue its import; the poller chains the
+            # per-pair RDM applies once it FINISHES.
             job_id = rwb_job_service.ensure_pending_rwb_job(
-                requestor_type="analyst_request", requestor_id=pid,
+                requestor_type="analyst_request", requestor_id=edm_id,
+                rwb_job_type="upload_edm",
+                input_data={"edm_id": edm_id, "package_id": pid}, actor_id=actor)
+            dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
+        elif edm["status"] == "ready" and rdm_ids:
+            # EDM already imported (e.g. RDMs added after) → apply the package RDMs
+            # to it directly; the body is idempotent per (EDM, RDM) pair.
+            job_id = rwb_job_service.ensure_pending_rwb_job(
+                requestor_type="analyst_request", requestor_id=edm_id,
                 rwb_job_type="upload_rdm",
-                input_data={"rdm_ids": pending_rdms, "edm_ids": [], "package_id": pid},
-                actor_id=actor)
+                input_data={"rdm_ids": rdm_ids, "edm_ids": [edm_id],
+                            "package_id": pid}, actor_id=actor)
             dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
 
 

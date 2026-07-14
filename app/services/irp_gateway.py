@@ -60,6 +60,17 @@ EdmHit = EntityHit
 RdmHit = EntityHit
 
 
+@dataclass(frozen=True)
+class AnalysisHit:
+    """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
+    Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
+    are echoed back so the backfill worker can persist lineage on ``irp_analysis``."""
+    analysis_id: str
+    name: str | None = None
+    source_rdm_name: str | None = None
+    exposure_name: str | None = None
+
+
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
 
 @runtime_checkable
@@ -71,7 +82,9 @@ class IRPGateway(Protocol):
 
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult: ...
 
-    def delete_rdm_analyses(self, *, rdm_name: str) -> None: ...
+    def delete_analysis(self, *, analysis_id: int) -> None: ...
+
+    def search_analyses(self, *, filter: str) -> list[AnalysisHit]: ...
 
     def get_import_job(self, irp_id: str) -> JobStatus: ...
 
@@ -116,9 +129,15 @@ class _RealGateway:
         raise NotImplementedError(
             "Real EDM-delete submit is wired in US4 (T039) against the active wheel.")
 
-    def delete_rdm_analyses(self, *, rdm_name: str) -> None:
+    def delete_analysis(self, *, analysis_id: int) -> None:
         raise NotImplementedError(
-            "Real synchronous RDM-analysis delete is wired in US4 (T039).")
+            "Real synchronous analysis delete (client.analysis.delete_analysis) is "
+            "wired in US4 (T039) against the active wheel.")
+
+    def search_analyses(self, *, filter: str) -> list[AnalysisHit]:
+        raise NotImplementedError(
+            "Real analysis search (client.analysis.search_analyses) is wired in US2 "
+            "(T027a) against the active wheel.")
 
     def get_import_job(self, irp_id: str) -> JobStatus:
         raise NotImplementedError(
@@ -177,8 +196,12 @@ def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
     return _active().submit_delete_edm(edm_irp_id=edm_irp_id)
 
 
-def delete_rdm_analyses(*, rdm_name: str) -> None:
-    return _active().delete_rdm_analyses(rdm_name=rdm_name)
+def delete_analysis(*, analysis_id: int) -> None:
+    return _active().delete_analysis(analysis_id=analysis_id)
+
+
+def search_analyses(*, filter: str) -> list[AnalysisHit]:
+    return _active().search_analyses(filter=filter)
 
 
 def get_import_job(irp_id: str) -> JobStatus:
@@ -198,9 +221,9 @@ def search_rdms(name: str) -> list[EntityHit]:
 
 
 __all__ = [
-    "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "IRPGateway",
-    "configure", "reset",
+    "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
+    "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
-    "delete_rdm_analyses", "get_import_job", "get_delete_edm_job",
+    "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
 ]

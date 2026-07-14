@@ -72,11 +72,24 @@ def _handle_import_edm_terminal(conn, job: dict, status: str) -> None:
 
 
 def _handle_import_rdm_terminal(conn, job: dict, status: str) -> None:
-    """Roll the RDM's combined status up (data-model §6): ``ready`` once every apply is
-    ``FINISHED``, ``error`` if any failed. (Iteration 6 chains retrieve_analysis_results
-    here.)"""
-    rdm_service.rollup_on_terminal(
-        conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=job["irp_id"])
+    """On ``FINISHED`` idempotently enqueue this apply's ``backfill_rdm_analyses`` head
+    (D2) — the worker captures the pair's ``irp_analysis`` rows AND rolls ``irp_rdm.status``
+    up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
+    itself must NOT flip the RDM to ``ready``. Any other terminal → ``error`` here."""
+    if status == "FINISHED":
+        rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_job", requestor_id=job["id"],
+            rwb_job_type="backfill_rdm_analyses",
+            input_data={
+                "rdm_id": (str(job["irp_rdm_id"]) if job["irp_rdm_id"] else None),
+                "edm_id": (str(job["irp_edm_id"]) if job["irp_edm_id"] else None),
+                "package_id": (str(job["package_id"]) if job["package_id"] else None),
+                "apply_irp_id": job["irp_id"]},
+            conn=conn,
+        )
+    else:
+        rdm_service.rollup_on_terminal(
+            conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)
 
 
 def _handle_delete_edm_terminal(conn, job: dict, status: str) -> None:

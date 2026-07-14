@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import socket
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -35,7 +36,13 @@ from app.services import (
     rwb_job_service,
 )
 from app.workers import broker, dispatch, runtime
-from db import execute, execute_one, execute_scalar, get_connection
+from db import (
+    execute,
+    execute_command,
+    execute_one,
+    execute_scalar,
+    get_connection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,44 +108,37 @@ def upload_edm(rwb_job_id: str) -> None:
 
 # ── upload_rdm (US2) ─────────────────────────────────────────────────────────────
 
-def _apply_exists(rdm_id: Any, edm_id: Any | None) -> bool:
+def _apply_exists(rdm_id: Any, edm_id: Any) -> bool:
     """True if an ``import_rdm`` apply already exists for this (RDM, EDM) pair (a
     prior successful submit). Makes the fan-out idempotent per pair across re-runs."""
-    if edm_id is None:
-        n = execute_scalar(
-            "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm' "
-            "AND irp_rdm_id=:r AND irp_edm_id IS NULL AND status<>'SUBMISSION FAILED'",
-            {"r": str(rdm_id)}, connection="WORKBENCH")
-    else:
-        n = execute_scalar(
-            "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm' "
-            "AND irp_rdm_id=:r AND irp_edm_id=:e AND status<>'SUBMISSION FAILED'",
-            {"r": str(rdm_id), "e": str(edm_id)}, connection="WORKBENCH")
+    n = execute_scalar(
+        "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm' "
+        "AND irp_rdm_id=:r AND irp_edm_id=:e AND status<>'SUBMISSION FAILED'",
+        {"r": str(rdm_id), "e": str(edm_id)}, connection="WORKBENCH")
     return bool(n)
 
 
 def _upload_rdm_body(rwb_job_id: Any) -> dict:
-    """Fan out one apply per (RDM, EDM) pair — or a single review-only apply with no
-    EDM when ``edm_ids`` is empty (FR-002/FR-016). One ``irp_job(import_rdm)`` per
-    apply; idempotent per pair. The EDM is name-resolved (Article 2)."""
+    """Fan out one apply per (RDM, EDM) pair — every apply targets an EDM (D3;
+    review-only is deferred). One ``irp_job(import_rdm)`` per apply; idempotent per
+    pair. The EDM is name-resolved at submit time (Article 2)."""
     ctx = _load_input(rwb_job_id)
     rdm_ids = ctx.get("rdm_ids", [])
-    edm_ids = ctx.get("edm_ids", []) or []
+    edm_ids = [e for e in (ctx.get("edm_ids") or []) if e]
     package_id = ctx.get("package_id")
-    targets: list[Any] = list(edm_ids) if edm_ids else [None]  # [None] = review-only
 
     submitted = 0
     for rdm_id in rdm_ids:
         rdm = rdm_service.get_rdm(rdm_id)
         if rdm is None:
             continue
-        for edm_id in targets:
+        for edm_id in edm_ids:
             if _apply_exists(rdm_id, edm_id):
                 continue
-            edm_name = None
-            if edm_id is not None:
-                edm = edm_service.get_edm(edm_id)
-                edm_name = edm.name if edm is not None else None
+            edm = edm_service.get_edm(edm_id)
+            edm_name = edm.name if edm is not None else None
+            if edm_name is None:
+                continue  # target EDM vanished — nothing to apply against
             try:
                 res = irp_gateway.submit_rdm_import(
                     name=rdm.name, source_file_path=rdm.source_file_path,
@@ -167,21 +167,96 @@ def upload_rdm(rwb_job_id: str) -> None:
                     body=lambda: _upload_rdm_body(rwb_job_id))
 
 
+# ── backfill_rdm_analyses (US2, D2) ──────────────────────────────────────────────
+
+_INSERT_ANALYSIS_IF_ABSENT = """
+    INSERT INTO irp_analysis (id, rdm_id, edm_id, package_id, irp_id, name,
+        source_rdm_name, status_code, created_by_irp_job_irp_id,
+        inserted_at, updated_at)
+    SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, :now, :now
+    WHERE NOT EXISTS (
+        SELECT 1 FROM irp_analysis
+        WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+    )
+"""
+
+
+def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
+    """Capture this (RDM, EDM) pair's broker analyses as ``irp_analysis`` rows so a
+    later package delete can enumerate them (D2, data-model §6a). Enqueued by the
+    poller when an ``import_rdm`` apply reaches FINISHED. Idempotent on
+    ``UNIQUE(rdm_id, edm_id, irp_id)``. Once every apply of the RDM is FINISHED, roll
+    ``irp_rdm.status`` up to ``ready`` (combined rollup, worker-poller.md §2)."""
+    ctx = _load_input(rwb_job_id)
+    rdm_id = ctx.get("rdm_id")
+    edm_id = ctx.get("edm_id")
+    package_id = ctx.get("package_id")
+    apply_irp_id = ctx.get("apply_irp_id")
+    rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
+    edm = edm_service.get_edm(edm_id) if edm_id else None
+    if rdm is None or edm is None:
+        return {"skipped": "rdm/edm missing"}
+
+    hits = irp_gateway.search_analyses(
+        filter=f'sourceRdmName="{rdm.name}" AND exposureName="{edm.name}"')
+
+    now = _utcnow()
+    with get_connection("WORKBENCH") as conn:
+        with conn.begin():
+            for hit in hits:
+                conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
+                    "id": str(uuid.uuid4()),
+                    "rdm": str(rdm_id), "edm": str(edm_id),
+                    "pkg": (str(package_id) if package_id else None),
+                    "irp": str(hit.analysis_id), "name": hit.name,
+                    "srdm": rdm.name, "cby": (str(apply_irp_id)
+                                              if apply_irp_id is not None else None),
+                    "now": now})
+            # Combined rollup: irp_rdm → ready once all its applies are FINISHED.
+            rdm_service.rollup_on_terminal(
+                conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
+    return {"captured": len(hits)}
+
+
+@dramatiq.actor(max_retries=0)
+def backfill_rdm_analyses(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
+
+
 # ── delete_rdm (US4) — SYNCHRONOUS, no irp_job ───────────────────────────────────
 
 def _delete_rdm_body(rwb_job_id: Any) -> dict:
-    """Synchronously delete the RDM's analyses in Risk Modeler (no ``irp_job``, R6),
-    mark it ``deleted``, then run the RDM→EDM fan-in: once **all** the package's RDMs
-    are ``deleted``, enqueue the ``delete_edm`` heads (or finalize the package if it has
-    no EDMs). Idempotent — a duplicate success never double-enqueues."""
+    """Synchronously delete the RDM's captured analyses in Risk Modeler (no ``irp_job``,
+    R6), mark it ``deleted``, then run the RDM→EDM fan-in: once **all** the package's
+    RDMs are ``deleted``, enqueue the ``delete_edm`` heads (or finalize the package if it
+    has no EDMs). Idempotent — a duplicate success never double-enqueues.
+
+    Delete-enumeration reads the ``irp_analysis`` rows the ``backfill_rdm_analyses``
+    worker captured at import (D2): loop ``delete_analysis(analysis_id)`` over every
+    not-yet-deleted row and stamp its ``deleted_at`` — a re-run skips already-deleted
+    analyses, so it is safe under redelivery/reconcile."""
     ctx = _load_input(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     package_id = ctx.get("package_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
     if rdm is None:
         return {"skipped": "rdm missing"}
-    if rdm.status != "deleted":
-        irp_gateway.delete_rdm_analyses(rdm_name=rdm.name)  # synchronous
+
+    # Synchronous per-analysis delete (no irp_job). Stamp deleted_at per row so a
+    # redelivery skips analyses already removed.
+    deleted = 0
+    for row in execute(
+        "SELECT id, irp_id FROM irp_analysis "
+        "WHERE rdm_id = :r AND deleted_at IS NULL",
+        {"r": str(rdm_id)}, connection="WORKBENCH",
+    ):
+        irp_gateway.delete_analysis(analysis_id=int(row["irp_id"]))
+        execute_command(
+            "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now "
+            "WHERE id = :id",
+            {"now": _utcnow(), "id": str(row["id"])}, connection="WORKBENCH")
+        deleted += 1
 
     dispatch_edm_ids: list[str] = []
     finalize = False
@@ -215,7 +290,7 @@ def _delete_rdm_body(rwb_job_id: Any) -> dict:
                 package_sync_service.finalize_package(package_id=package_id, conn=conn)
     for jid in dispatch_edm_ids:
         dispatch.dispatch(rwb_job_id=jid, rwb_job_type="delete_edm")
-    return {"deleted_rdm": str(rdm_id)}
+    return {"deleted_rdm": str(rdm_id), "analyses_deleted": deleted}
 
 
 @dramatiq.actor(max_retries=0)
@@ -273,6 +348,7 @@ def delete_edm(rwb_job_id: str) -> None:
 _BODIES: dict[str, Callable[[Any], dict | None]] = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
+    "backfill_rdm_analyses": _backfill_rdm_analyses_body,
     "delete_rdm": _delete_rdm_body,
     "delete_edm": _delete_edm_body,
 }
@@ -307,6 +383,6 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "upload_edm", "upload_rdm", "delete_rdm", "delete_edm",
+    "upload_edm", "upload_rdm", "backfill_rdm_analyses", "delete_rdm", "delete_edm",
     "run_one", "run_pending",
 ]

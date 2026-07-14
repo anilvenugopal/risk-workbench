@@ -297,6 +297,7 @@ def upgrade() -> None:
         "rwb_job_type_kind",
         "rwb_job_requestor_type_kind",
         "rwb_job_status_kind",
+        "irp_analysis_status_kind",  # captured-analysis lifecycle (D2, data-model §6)
     ):
         op.create_table(
             kind,
@@ -411,6 +412,43 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["rwb_job_id"], ["rwb_job.id"]),
     )
 
+    # ── irp_analysis (captured broker analyses — delete-enumeration only; §6a) ───
+    # NEW this iteration (D2): a minimal subset of DATA_MODEL §6, populated by the
+    # backfill_rdm_analyses worker on import_rdm FINISHED so package delete can
+    # enumerate the exact Moody's analyses an RDM produced (per RDM×EDM pair).
+    op.create_table(
+        "irp_analysis",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("rdm_id", sa.Uuid, nullable=False),
+        sa.Column("edm_id", sa.Uuid, nullable=True),
+        sa.Column("package_id", sa.Uuid, nullable=True),
+        sa.Column("irp_id", sa.NVARCHAR(64), nullable=False),  # Moody's analysisId
+        sa.Column("name", sa.NVARCHAR(256), nullable=True),
+        sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=False),
+        # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
+        sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
+        sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
+        sa.Column("deleted_at", DATETIME2, nullable=True),  # soft-delete on delete_analysis
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["rdm_id"], ["irp_rdm.id"]),
+        sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
+        sa.ForeignKeyConstraint(["status_code"], ["irp_analysis_status_kind.code"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        # Idempotent backfill backbone — a duplicate search never double-inserts.
+        sa.UniqueConstraint("rdm_id", "edm_id", "irp_id",
+                            name="uq_irp_analysis_pair"),
+        # No scope/customer column (Article 6).
+    )
+    op.create_index("ix_irp_analysis_rdm_edm", "irp_analysis", ["rdm_id", "edm_id"])
+    op.create_index("ix_irp_analysis_package_id", "irp_analysis", ["package_id"])
+
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
     # irp_job_type_kind — NOTE: there is NO delete_rdm type (RDM delete is
     # synchronous and creates no irp_job — A21 / research R6).
@@ -432,6 +470,7 @@ def upgrade() -> None:
         "INSERT INTO rwb_job_type_kind (code, label, sort_order) VALUES "
         "('upload_edm', 'Upload EDM', 10), "
         "('upload_rdm', 'Upload RDM', 20), "
+        "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
@@ -451,6 +490,14 @@ def upgrade() -> None:
         "('running', 'Running', 20), "
         "('succeeded', 'Succeeded', 30), "
         "('failed', 'Failed', 40)"
+    ))
+    # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
+    op.execute(sa.text(
+        "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
+        "('pending', 'Pending', 10), "
+        "('running', 'Running', 20), "
+        "('ready', 'Ready', 30), "
+        "('error', 'Error', 40)"
     ))
 
     # ── Seeds ─────────────────────────────────────────────────────────────────
@@ -479,8 +526,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Iteration-2 tables — reverse FK order (heartbeat → rwb_job →
-    # irp_job_resource → irp_job → the five kind tables), ahead of Iteration-1.
+    # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
+    # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_index("ix_irp_analysis_package_id", table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_rdm_edm", table_name="irp_analysis")
+    op.drop_table("irp_analysis")
     op.drop_table("rwb_job_heartbeat")
     op.drop_index("ix_rwb_job_requestor", table_name="rwb_job")
     op.drop_index("ix_rwb_job_status_code", table_name="rwb_job")
@@ -492,6 +542,7 @@ def downgrade() -> None:
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")
     op.drop_table("irp_job")
     for kind in (
+        "irp_analysis_status_kind",
         "rwb_job_status_kind",
         "rwb_job_requestor_type_kind",
         "rwb_job_type_kind",

@@ -92,6 +92,9 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE rwb_job_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    """CREATE TABLE irp_analysis_status_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, package_id TEXT, irp_edm_id TEXT, irp_rdm_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT,
@@ -115,6 +118,16 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE rwb_job_heartbeat (
         rwb_job_id TEXT PRIMARY KEY, worker_id TEXT, heartbeat_at TEXT
     )""",
+    # irp_analysis (D2) — captured broker analyses for delete-enumeration (§6a).
+    # UNIQUE(rdm_id, edm_id, irp_id) is kept — the backfill idempotency backbone is
+    # exercised on the unit tier.
+    """CREATE TABLE irp_analysis (
+        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT, package_id TEXT,
+        irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
+        created_by_irp_job_irp_id TEXT, deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
+        UNIQUE (rdm_id, edm_id, irp_id)
+    )""",
 ]
 
 IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RDM", 20),
@@ -123,6 +136,7 @@ IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RD
                      ("export", "Export", 70)]
 IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
 RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
+                     ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
@@ -133,6 +147,8 @@ RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("rwb_job", "RWB Job", 30)]
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
+IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
+                            ("ready", "Ready", 30), ("error", "Error", 40)]
 
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────
 # Tables whose mirror must match the real migrated schema column-for-column. A new
@@ -142,8 +158,8 @@ EXACT_MATCH_TABLES = (
     "submission_crm_id", "submission_status_event", "submission_package",
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
-    "rwb_job_requestor_type_kind", "rwb_job_status_kind",
-    "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat",
+    "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
+    "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # package service touches; the real tables carry extra Iteration-2 IRP columns

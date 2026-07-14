@@ -16,7 +16,7 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 
 from __future__ import annotations
 
-from app.services.irp_gateway import EntityHit, JobStatus, SubmitResult
+from app.services.irp_gateway import AnalysisHit, EntityHit, JobStatus, SubmitResult
 
 
 class FakeIRP:
@@ -28,10 +28,12 @@ class FakeIRP:
         self.results: dict[str, dict] = {}
         # recorded calls for assertions
         self.submits: list[dict] = []
-        self.deleted_rdm_names: list[str] = []
+        self.deleted_analysis_ids: list[int] = []
         # seeded name-collision universe
         self._edm_names: set[str] = set()
         self._rdm_names: set[str] = set()
+        # seeded analyses for search_analyses (D2): list of dicts with the pair keys
+        self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
         self.raise_on_submit = False
 
@@ -42,6 +44,14 @@ class FakeIRP:
 
     def add_rdm_name(self, name: str) -> None:
         self._rdm_names.add(name)
+
+    def add_analysis(self, *, source_rdm_name: str, exposure_name: str,
+                     analysis_id: str, name: str | None = None) -> None:
+        """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
+        pair — the backfill worker captures it as an ``irp_analysis`` row (D2)."""
+        self._analyses.append({
+            "analysis_id": str(analysis_id), "name": name,
+            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name})
 
     def finish(self, irp_id: str, result: dict | None = None) -> None:
         self.jobs[irp_id] = "FINISHED"
@@ -81,9 +91,22 @@ class FakeIRP:
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
         return self._submit("delete_edm", edm_irp_id=edm_irp_id)
 
-    def delete_rdm_analyses(self, *, rdm_name: str) -> None:
-        # Synchronous — no irp_job (R6). Just record that it happened.
-        self.deleted_rdm_names.append(rdm_name)
+    def delete_analysis(self, *, analysis_id: int) -> None:
+        # Synchronous single-analysis delete — no irp_job (R6). Record the call.
+        self.deleted_analysis_ids.append(int(analysis_id))
+
+    def search_analyses(self, *, filter: str) -> list[AnalysisHit]:
+        # Return every seeded analysis whose pair markers appear in the filter,
+        # e.g. 'sourceRdmName="R" AND exposureName="E"'.
+        hits: list[AnalysisHit] = []
+        for a in self._analyses:
+            if (f'sourceRdmName="{a["source_rdm_name"]}"' in filter
+                    and f'exposureName="{a["exposure_name"]}"' in filter):
+                hits.append(AnalysisHit(
+                    analysis_id=a["analysis_id"], name=a["name"],
+                    source_rdm_name=a["source_rdm_name"],
+                    exposure_name=a["exposure_name"]))
+        return hits
 
     def get_import_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),

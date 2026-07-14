@@ -1,13 +1,20 @@
 """Delete ordering + fan-in idempotency (US4, T037).
 
-Delete is asymmetric (A21 / R6): RDM removal is **synchronous** (no ``irp_job``); EDM
-removal is **async** (a pollable ``irp_job(delete_edm)``). ``delete_edm`` is enqueued
-only once **all** the package's RDMs are ``deleted`` (RDM-before-EDM). A duplicate
-``delete_rdm`` success never double-enqueues, and the package soft-delete fires exactly
+Delete is asymmetric (A21 / R6): RDM removal is **synchronous** (no ``irp_job``) — the
+``delete_rdm`` worker loops ``delete_analysis`` over the RDM's captured ``irp_analysis``
+rows (D2) and stamps their ``deleted_at``; EDM removal is **async** (a pollable
+``irp_job(delete_edm)``). ``delete_edm`` is enqueued only once **all** the package's RDMs
+are ``deleted`` (RDM-before-EDM). A duplicate ``delete_rdm`` success never double-enqueues
+(and re-runs skip already-deleted analyses), and the package soft-delete fires exactly
 once — never a hard delete (SC-007/SC-014).
+
+The backfill worker does not run in these tests, so ``_ready_package`` seeds one
+``irp_analysis`` row per RDM directly (data-model §9).
 """
 
 from __future__ import annotations
+
+import uuid
 
 from app.poller import run as poller
 from app.services import package_sync_service as sync
@@ -19,7 +26,8 @@ MS = sync.MemberSpec
 
 def _ready_package(drive, actor, n_edms=1, n_rdms=1):
     """Build a package and force its members to ``ready`` with fake irp_ids, so a
-    delete has real members to remove."""
+    delete has real members to remove. Seed one captured ``irp_analysis`` per RDM
+    (backfill doesn't run here) so ``delete_rdm`` has an analysis to remove."""
     members = [MS(kind="edm", name=f"E{i}", source_file_path=str(drive / "edm1.bak"))
                for i in range(n_edms)]
     members += [MS(kind="rdm", name=f"R{i}", source_file_path=str(drive / "rdm1.mdf"))
@@ -31,10 +39,18 @@ def _ready_package(drive, actor, n_edms=1, n_rdms=1):
                        {"p": pid}, connection="WORKBENCH"):
         execute_command("UPDATE irp_edm SET status='ready', irp_id=:i WHERE id=:id",
                         {"i": next(seq), "id": str(row["id"])}, connection="WORKBENCH")
-    for row in execute("SELECT id FROM irp_rdm WHERE package_id=:p",
+    for row in execute("SELECT id, name FROM irp_rdm WHERE package_id=:p",
                        {"p": pid}, connection="WORKBENCH"):
+        rid = str(row["id"])
         execute_command("UPDATE irp_rdm SET status='ready', irp_id=:i WHERE id=:id",
-                        {"i": next(seq), "id": str(row["id"])}, connection="WORKBENCH")
+                        {"i": next(seq), "id": rid}, connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO irp_analysis (id, rdm_id, edm_id, package_id, irp_id, "
+            "source_rdm_name, status_code, inserted_at, updated_at) "
+            "VALUES (:id, :rdm, NULL, :p, :airp, :srdm, 'ready', :now, :now)",
+            {"id": str(uuid.uuid4()), "rdm": rid, "p": pid, "airp": str(next(seq)),
+             "srdm": row["name"], "now": "2026-01-01 00:00:00"},
+            connection="WORKBENCH")
     return pid
 
 
@@ -57,7 +73,11 @@ def test_delete_rdm_is_synchronous_no_irp_job(iteration2_db, fake_irp, drive):
     pid = _ready_package(drive, iteration2_db.user_a, n_edms=1, n_rdms=1)
     sync.delete_package(package_id=pid, actor_id=iteration2_db.user_a)
     package_jobs.run_pending()  # run the delete_rdm worker
-    assert fake_irp.deleted_rdm_names  # analyses deleted synchronously
+    assert fake_irp.deleted_analysis_ids  # the RDM's analyses deleted synchronously (D2)
+    # every captured analysis for the package is soft-deleted (deleted_at stamped)
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM irp_analysis WHERE package_id=:p AND deleted_at IS NULL",
+        {"p": pid}, connection="WORKBENCH") == 0
     assert execute_scalar(
         "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='delete_rdm'",
         {}, connection="WORKBENCH") == 0  # RDM delete never writes an irp_job (R6)
@@ -82,9 +102,12 @@ def test_duplicate_delete_rdm_success_never_double_enqueues(iteration2_db, fake_
                        {}, connection="WORKBENCH")[0]["id"]
     # run the delete_rdm body twice (e.g. a reconciler redelivery).
     package_jobs.run_one(rwb_job_id=rdm_head, rwb_job_type="delete_rdm")
+    n_after_first = len(fake_irp.deleted_analysis_ids)
     execute_command("UPDATE rwb_job SET status_code='pending' WHERE id=:id",
                     {"id": str(rdm_head)}, connection="WORKBENCH")  # simulate reclaim
     package_jobs.run_one(rwb_job_id=rdm_head, rwb_job_type="delete_rdm")
+    # re-run skips already-deleted analyses (deleted_at stamped) — no extra delete calls
+    assert len(fake_irp.deleted_analysis_ids) == n_after_first
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='delete_edm'",
                           {}, connection="WORKBENCH") == 1  # not doubled
 

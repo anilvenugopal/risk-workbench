@@ -131,6 +131,7 @@ def main() -> int:
                 USING (VALUES
                     ('upload_edm',                'Upload EDM',                10),
                     ('upload_rdm',                'Upload RDM',                20),
+                    ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
@@ -162,6 +163,20 @@ def main() -> int:
                     ('running',   'Running',   20),
                     ('succeeded', 'Succeeded', 30),
                     ('failed',    'Failed',    40)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            # irp_analysis_status_kind — captured-analysis lifecycle (D2).
+            conn.execute(text("""
+                MERGE irp_analysis_status_kind AS target
+                USING (VALUES
+                    ('pending', 'Pending', 10),
+                    ('running', 'Running', 20),
+                    ('ready',   'Ready',   30),
+                    ('error',   'Error',   40)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

@@ -1,8 +1,9 @@
-"""RDM routes — import (applied / review-only), detail, recovery, name check (US2).
+"""RDM routes — import (applied to ≥1 EDM), detail, recovery, name check (US2).
 
-Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` (empty → review-only,
-FR-002/FR-016). CSRF on every POST (Article 13); no Risk Modeler call on any route
-(Article 11); no row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
+every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
+POST (Article 13); no Risk Modeler call on any route (Article 11); no row scoping
+(Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
@@ -13,7 +14,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import edm_service, rdm_service
-from app.services.errors import ConcurrencyConflict, InvalidSourceFile
+from app.services.errors import (
+    ConcurrencyConflict,
+    EmptyPackageError,
+    InvalidSourceFile,
+)
 
 router = APIRouter()
 
@@ -70,18 +75,23 @@ def create_import(
         return RedirectResponse("/rdms/import", status_code=303)
 
     source = source_paths[0] if source_paths else ""
+    edm_ids = [e for e in applied_edm_ids if e]
     form = {"name": name}
     if not name.strip() or not source:
         return _render(request, "pages/rdm_import.html", {
             "form": form, "edms": edm_service.list_edms(),
             "errors": ["A name and a source file selection are required."],
             "collision": []}, status_code=422)
+    if not edm_ids:
+        return _render(request, "pages/rdm_import.html", {
+            "form": form, "edms": edm_service.list_edms(),
+            "errors": ["Select at least one EDM to apply the RDM to."],
+            "collision": []}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
-            applied_edm_ids=[e for e in applied_edm_ids if e],
-            actor_id=request.state.user.id)
-    except InvalidSourceFile as exc:
+            applied_edm_ids=edm_ids, actor_id=request.state.user.id)
+    except (InvalidSourceFile, EmptyPackageError) as exc:
         return _render(request, "pages/rdm_import.html",
                        {"form": form, "edms": edm_service.list_edms(),
                         "errors": [str(exc)], "collision": []}, status_code=422)
