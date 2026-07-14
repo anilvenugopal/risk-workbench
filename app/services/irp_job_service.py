@@ -103,21 +103,23 @@ def record_submitted_irp_job(
 
 # Terminal irp_job.status values (data-model §2). SUBMISSION FAILED is terminal
 # too — owned by the poller's submission_retry batch, never the status tracker.
-TERMINAL = frozenset({"FINISHED", "FAILED", "CANCELED", "SUBMISSION FAILED"})
+TERMINAL = frozenset({"FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED"})
 
 
 def list_non_terminal() -> list[dict]:
     """Poller-side: every ``irp_job`` still worth a single-status check — non-terminal
     and actually submitted (``irp_id`` present). Batched by the caller per type."""
+    params = {f"t{i}": s for i, s in enumerate(sorted(TERMINAL))}
+    placeholders = ", ".join(f":{k}" for k in params)
     rows = execute(
-        """
+        f"""
         SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id, package_id, status
         FROM irp_job
         WHERE irp_id IS NOT NULL
-          AND status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')
+          AND status NOT IN ({placeholders})
         ORDER BY irp_job_type
         """,
-        {}, connection="WORKBENCH",
+        params, connection="WORKBENCH",
     )
     return [dict(r) for r in rows]
 

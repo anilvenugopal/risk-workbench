@@ -48,13 +48,20 @@ _GETTERS = {
 }
 
 
-def _handle_import_edm_terminal(conn, job: dict, status: str) -> None:
-    """FINISHED → EDM ``ready`` + backfill ``irp_id``; then, for a package member,
-    idempotently enqueue the ``upload_rdm`` head that fans out to one apply per RDM of
-    THIS just-finished EDM (per-pair, FR-015/FR-043). Any other terminal → ``error``."""
-    entity_status = edm_service.READY if status == "FINISHED" else edm_service.ERROR
-    edm_service.backfill_on_terminal(
-        conn, edm_id=job["irp_edm_id"], status=entity_status, irp_id=job["irp_id"])
+def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    """FINISHED → EDM ``ready`` + backfill the RM ``exposureId`` (the durable entity id,
+    resolved by name into ``resolved['edm_exposure_id']``) as ``irp_id`` and the import
+    job id as ``created_by_irp_job_irp_id``; then, for a package member, idempotently
+    enqueue the ``upload_rdm`` head that fans out to one apply per RDM of THIS
+    just-finished EDM (per-pair, FR-015/FR-043). Any other terminal → ``error``."""
+    if status == "FINISHED":
+        edm_service.backfill_on_terminal(
+            conn, edm_id=job["irp_edm_id"], status=edm_service.READY,
+            irp_id=resolved.get("edm_exposure_id"),
+            created_by_irp_job_irp_id=job["irp_id"])
+    else:
+        edm_service.backfill_on_terminal(
+            conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)
     if status != "FINISHED" or not job.get("package_id"):
         return
     rdm_rows = conn.execute(text(
@@ -71,7 +78,7 @@ def _handle_import_edm_terminal(conn, job: dict, status: str) -> None:
     )
 
 
-def _handle_import_rdm_terminal(conn, job: dict, status: str) -> None:
+def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """On ``FINISHED`` idempotently enqueue this apply's ``backfill_rdm_analyses`` head
     (D2) — the worker captures the pair's ``irp_analysis`` rows AND rolls ``irp_rdm.status``
     up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
@@ -92,7 +99,7 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str) -> None:
             conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)
 
 
-def _handle_delete_edm_terminal(conn, job: dict, status: str) -> None:
+def _handle_delete_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """FINISHED → mark the EDM ``deleted`` and run the idempotent package-finalize
     fan-in (soft-delete the package + members once no live member remains, FR-021).
     Any other terminal → flip the EDM to ``error`` for analyst recovery."""
@@ -114,6 +121,41 @@ _TERMINAL_HANDLERS = {
 }
 
 
+def _resolve_edm_exposure_id(edm_id) -> str | None:
+    """Resolve a just-imported EDM's durable RM ``exposureId`` by name — the entity id
+    delete needs, NOT the import job id (see the ``irp_gateway`` caveat). Best-effort:
+    on miss/failure return ``None`` so the EDM still reaches ``ready`` and can be
+    recovered later. Names are not unique in RM (collision is a non-blocking warning),
+    so a search may return >1 — take the newest (highest ``exposureId``), which is the
+    just-created one."""
+    edm = edm_service.get_edm(edm_id)
+    if edm is None:
+        return None
+    try:
+        hits = irp_gateway.search_edms(edm.name)
+    except Exception:
+        logger.exception("exposureId resolve failed for edm=%s", edm_id)
+        return None
+    ids = [h.irp_id for h in hits if h.irp_id]
+    if not ids:
+        logger.warning("no exposureId found by name for edm=%s (%r)", edm_id, edm.name)
+        return None
+    try:
+        return max(ids, key=lambda x: int(x))
+    except (TypeError, ValueError):
+        return ids[-1]
+
+
+# Terminal-time entity-id lookups that need a Risk Modeler call — run OUTSIDE the DB
+# transaction (Article 11: never hold a txn across a network round-trip). Each returns
+# a dict merged into the handler's ``resolved`` argument.
+_TERMINAL_RESOLVERS = {
+    "import_edm": lambda job, result: (
+        {"edm_exposure_id": _resolve_edm_exposure_id(job["irp_edm_id"])}
+        if result.status == "FINISHED" else {}),
+}
+
+
 def _track_irp_jobs() -> None:
     """Track in-flight ``irp_job`` rows: one single-status ``get_*_job`` each, mirror
     the status in place, and on a terminal status backfill the entity + idempotently
@@ -121,6 +163,8 @@ def _track_irp_jobs() -> None:
     for job in irp_job_service.list_non_terminal():
         getter = _GETTERS.get(job["irp_job_type"])
         if getter is None:
+            logger.warning("No getter for irp_job_type=%s, skipping id=%s",
+                           job["irp_job_type"], job["id"])
             continue
         try:
             result = getter(job["irp_id"])
@@ -128,6 +172,17 @@ def _track_irp_jobs() -> None:
             logger.exception("get_%s_job failed for irp_id=%s",
                              job["irp_job_type"], job["irp_id"])
             continue
+        # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
+        # opening the DB transaction (Article 11 — never hold a txn across HTTP).
+        resolved: dict = {}
+        if result.status in irp_job_service.TERMINAL:
+            resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
+            if resolver is not None:
+                try:
+                    resolved = resolver(job, result) or {}
+                except Exception:
+                    logger.exception("terminal resolver failed for irp_job=%s",
+                                     job["id"])
         try:
             with get_connection("WORKBENCH") as conn:
                 with conn.begin():
@@ -137,7 +192,7 @@ def _track_irp_jobs() -> None:
                     if result.status in irp_job_service.TERMINAL:
                         handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
                         if handler is not None:
-                            handler(conn, job, result.status)
+                            handler(conn, job, result.status, resolved)
         except Exception:
             logger.exception("persisting tracking for irp_job=%s failed", job["id"])
 

@@ -226,12 +226,17 @@ def mark_importing(*, edm_id: Any, actor_id: Any | None = None) -> None:
 
 
 def backfill_on_terminal(conn, *, edm_id: Any, status: str,
-                         irp_id: str | None) -> None:
+                         irp_id: str | None,
+                         created_by_irp_job_irp_id: str | None = None) -> None:
     """Poller-side: on the import job's terminal status, flip the entity to
-    ``ready``/``error`` and (on ready) backfill ``irp_id`` + ``created_by_irp_job_irp_id``
-    (FR-006). Runs inside the poller's transaction (accepts ``conn``)."""
+    ``ready``/``error`` and (on ready) backfill two *distinct* identifiers (FR-006):
+    ``irp_id`` = the durable RM **entity id** (the EDM's ``exposureId``, resolved by
+    name — NOT the import job id; see the ``irp_gateway`` caveat), which delete later
+    uses to remove the exposure; ``created_by_irp_job_irp_id`` = the **import job's**
+    ``irp_id`` (audit / lineage). Runs inside the poller's transaction (accepts ``conn``)."""
     from sqlalchemy import text  # noqa: PLC0415 — local: keep module import surface small
-    numeric = int(irp_id) if (status == READY and irp_id is not None) else None
+    ready = status == READY
+    numeric = int(irp_id) if (ready and irp_id is not None) else None
     conn.execute(text(
         """
         UPDATE irp_edm
@@ -240,7 +245,8 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
         WHERE id = :id
         """
     ), {"s": status, "iid": numeric,
-        "cid": (str(irp_id) if status == READY and irp_id is not None else None),
+        "cid": (str(created_by_irp_job_irp_id)
+                if ready and created_by_irp_job_irp_id is not None else None),
         "now": _utcnow(), "id": str(edm_id)})
 
 

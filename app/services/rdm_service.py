@@ -235,13 +235,13 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
     remaining = conn.execute(text(
         "SELECT COUNT(*) FROM irp_job WHERE irp_rdm_id = :r "
         "AND irp_job_type = 'import_rdm' "
-        "AND status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')"
+        "AND status NOT IN ('FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED')"
     ), {"r": rid}).scalar()
     if remaining and int(remaining) > 0:
         return  # more applies still in flight — not ready yet
     failed = conn.execute(text(
         "SELECT COUNT(*) FROM irp_job WHERE irp_rdm_id = :r "
-        "AND irp_job_type = 'import_rdm' AND status IN ('FAILED', 'CANCELED')"
+        "AND irp_job_type = 'import_rdm' AND status IN ('FAILED', 'CANCELLED')"
     ), {"r": rid}).scalar()
     if failed and int(failed) > 0:
         conn.execute(text(

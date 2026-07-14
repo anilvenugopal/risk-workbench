@@ -26,14 +26,22 @@ def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str,
     return res.entity_id, str(row["irp_id"])
 
 
-def test_finished_backfills_irp_id_and_readies_edm(iteration2_db, fake_irp, drive):
-    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+def test_finished_backfills_exposure_id_and_readies_edm(iteration2_db, fake_irp, drive):
+    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a, name="EDM")
     assert edm_service.get_edm(edm_id).status == edm_service.IMPORTING
     fake_irp.finish(irp_id)
     poller.poll_once()
     edm = edm_service.get_edm(edm_id)
     assert edm.status == edm_service.READY
-    assert edm.irp_id == int(irp_id)
+    # irp_id is the RM *exposureId* (the durable entity id, resolved by name), NOT the
+    # import job id — the two live in different id spaces (see irp_gateway caveat).
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    assert exposure_id is not None and exposure_id != irp_id
+    assert edm.irp_id == int(exposure_id)
+    # the import job's id is recorded separately, as created_by_irp_job_irp_id.
+    row = execute_one("SELECT created_by_irp_job_irp_id FROM irp_edm WHERE id=:i",
+                      {"i": edm_id}, connection="WORKBENCH")
+    assert row["created_by_irp_job_irp_id"] == irp_id
     job = execute_one("SELECT status, completed_at, last_tracked_at FROM irp_job "
                       "WHERE irp_id=:i", {"i": irp_id}, connection="WORKBENCH")
     assert job["status"] == "FINISHED"

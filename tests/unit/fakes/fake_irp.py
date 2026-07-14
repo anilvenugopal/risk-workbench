@@ -32,6 +32,8 @@ class FakeIRP:
         # seeded name-collision universe
         self._edm_names: set[str] = set()
         self._rdm_names: set[str] = set()
+        # EDM name -> fake RM exposureId (the durable entity id; distinct from job ids)
+        self._edm_exposure_ids: dict[str, str] = {}
         # seeded analyses for search_analyses (D2): list of dicts with the pair keys
         self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
@@ -44,6 +46,18 @@ class FakeIRP:
 
     def add_rdm_name(self, name: str) -> None:
         self._rdm_names.add(name)
+
+    def _exposure_id_for(self, name: str) -> str:
+        """Stable fake RM exposureId for an EDM name — deliberately in a different
+        range from job ids (which start at 1) so tests can tell the durable *entity*
+        id apart from the import *job* id."""
+        if name not in self._edm_exposure_ids:
+            self._edm_exposure_ids[name] = str(90001 + len(self._edm_exposure_ids))
+        return self._edm_exposure_ids[name]
+
+    def edm_exposure_id(self, name: str) -> str | None:
+        """The exposureId assigned to a known/imported EDM (test assertion helper)."""
+        return self._edm_exposure_ids.get(name)
 
     def add_analysis(self, *, source_rdm_name: str, exposure_name: str,
                      analysis_id: str, name: str | None = None) -> None:
@@ -81,6 +95,11 @@ class FakeIRP:
     # ── IRPGateway protocol ─────────────────────────────────────────────────────
 
     def submit_edm_import(self, *, name: str, source_file_path: str) -> SubmitResult:
+        # A successful import makes the EDM discoverable by name and assigns it a
+        # durable exposureId — distinct from the returned job id — so the poller's
+        # by-name exposureId resolution is exercised (entity id != job id).
+        self._edm_names.add(name)
+        self._exposure_id_for(name)
         return self._submit("import_edm", name=name, source_file_path=source_file_path)
 
     def submit_rdm_import(self, *, name: str, source_file_path: str,
@@ -117,7 +136,9 @@ class FakeIRP:
                          result=self.results.get(irp_id))
 
     def search_edms(self, name: str) -> list[EntityHit]:
-        return ([EntityHit(irp_id=f"edm-{name}", name=name)]
+        # A known EDM (collision-seeded or imported) resolves to its fake exposureId —
+        # the durable entity id the poller stores as irp_edm.irp_id.
+        return ([EntityHit(irp_id=self._exposure_id_for(name), name=name)]
                 if name in self._edm_names else [])
 
     def search_rdms(self, name: str) -> list[EntityHit]:

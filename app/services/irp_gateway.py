@@ -19,10 +19,19 @@ same ``IRPGateway`` protocol, so a signature change never scatters across servic
 Injection: tests call ``configure(FakeIRP())``; production code calls the module
 free functions (``submit_edm_import(...)`` etc.), which delegate to the active
 implementation — the real, ``IRPClient``-backed one by default.
+
+**Caller caveat — EDM delete identifier (open defect).** ``submit_delete_edm``
+forwards its ``edm_irp_id`` to the wheel as the Risk Modeler *exposureId*
+(``DELETE /exposures/{exposureId}``) — NOT the import *job id*. Callers therefore
+MUST pass the EDM's exposureId, i.e. ``irp_edm.irp_id`` must be backfilled with the
+exposureId at import-FINISHED (name lookup via ``search_edms`` or from the import
+completion body), not with the import job id the submit returned. Until the poller
+does that, ``delete_edm`` targets the wrong resource.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -98,13 +107,15 @@ class IRPGateway(Protocol):
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
 class _RealGateway:
-    """Thin wrapper over ``irp-integration``. Every method name/signature MUST be
-    re-confirmed against the ACTIVE wheel before its operation is first exercised
-    (R1). ``IRPClient()`` reads all config from env vars — no constructor args.
+    """Thin wrapper over ``irp-integration`` 0.2.0 (manager-based). ``IRPClient()``
+    reads all config from env vars — no constructor args. The library is imported
+    lazily (inside ``_client``) so importing this module never requires the wheel;
+    unit tests inject a fake and never construct this class.
 
-    The library is imported lazily (inside ``_client``) so that importing this
-    module never requires the wheel to be installed — unit tests inject a fake and
-    never touch the real client.
+    Every call maps to exactly one manager method — all single-status-check;
+    ``poll_*_to_completion`` is never wrapped (Article 11). Method signatures were
+    re-confirmed against the active 0.2.0 wheel; re-confirm before trusting a new
+    source (``make irp-status``) since the wheel is pre-release (R1).
     """
 
     def __init__(self) -> None:
@@ -116,44 +127,79 @@ class _RealGateway:
             self._irp = IRPClient()
         return self._irp
 
+    # ── submits — unit of work is the submit; irp_id is the RM job id (R1) ────────
+
     def submit_edm_import(self, *, name: str, source_file_path: str) -> SubmitResult:
-        raise NotImplementedError(
-            "Real EDM-import submit is wired in US1 (T021) against the active wheel.")
+        from app.config import settings  # noqa: PLC0415 — lazy: keep imports minimal
+        job_id, body = self._client().edm.submit_edm_import_job(
+            edm_name=name, edm_file_path=source_file_path,
+            server_name=settings.irp_edm_import_server)
+        return SubmitResult(irp_id=str(job_id),
+                            resource_uri=body.get("resourceUri"), payload=body)
 
     def submit_rdm_import(self, *, name: str, source_file_path: str,
                           edm_name: str | None) -> SubmitResult:
-        raise NotImplementedError(
-            "Real RDM-import submit is wired in US2 (T027) against the active wheel.")
+        # D3: every RDM apply targets an EDM. The wheel requires edm_name — a
+        # no-EDM apply is a programming error, not a runtime IRP failure.
+        if not edm_name:
+            raise ValueError("submit_rdm_import requires an edm_name (D3).")
+        job_id, body = self._client().rdm.submit_rdm_import_job(
+            rdm_name=name, edm_name=edm_name, rdm_file_path=source_file_path)
+        return SubmitResult(irp_id=str(job_id),
+                            resource_uri=body.get("resourceUri"), payload=body)
 
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
-        raise NotImplementedError(
-            "Real EDM-delete submit is wired in US4 (T039) against the active wheel.")
+        # edm_irp_id is the RM exposureId (see the module docstring caveat), not the
+        # import job id. Returns only a job id (no request body / resource_uri).
+        job_id = self._client().edm.submit_delete_edm_job(exposure_id=edm_irp_id)
+        return SubmitResult(irp_id=str(job_id), payload={"exposure_id": edm_irp_id})
+
+    # ── synchronous analysis delete + search (no irp_job — R6 / D2) ───────────────
 
     def delete_analysis(self, *, analysis_id: int) -> None:
-        raise NotImplementedError(
-            "Real synchronous analysis delete (client.analysis.delete_analysis) is "
-            "wired in US4 (T039) against the active wheel.")
+        self._client().analysis.delete_analysis(analysis_id)
 
     def search_analyses(self, *, filter: str) -> list[AnalysisHit]:
-        raise NotImplementedError(
-            "Real analysis search (client.analysis.search_analyses) is wired in US2 "
-            "(T027a) against the active wheel.")
+        # Paginated so delete-enumeration captures every analysis for the pair (D2).
+        rows = self._client().analysis.search_analyses_paginated(filter=filter)
+        return [
+            AnalysisHit(
+                analysis_id=str(r["analysisId"]),
+                name=r.get("analysisName"),
+                source_rdm_name=r.get("sourceRdmName"),
+                exposure_name=r.get("exposureName"))
+            for r in rows if r.get("analysisId") is not None
+        ]
+
+    # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 
     def get_import_job(self, irp_id: str) -> JobStatus:
-        raise NotImplementedError(
-            "Real single-status import check is wired in US1 (T022).")
+        data = self._client().import_job.get_import_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
 
     def get_delete_edm_job(self, irp_id: str) -> JobStatus:
-        raise NotImplementedError(
-            "Real single-status delete-EDM check is wired in US4 (T040).")
+        # EDM delete is a platform risk-data job (DELETE /exposures/{id} → jobs/{id}),
+        # tracked via the unified risk-data job endpoint — same WORKFLOW vocabulary.
+        data = self._client().risk_data_job.get_risk_data_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    # ── name searches for the non-blocking collision warning (R8) ─────────────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
-        raise NotImplementedError(
-            "Real EDM name search is wired in US1 (T020) against the active wheel.")
+        rows = self._client().edm.search_edms(
+            filter=f"exposureName={json.dumps(name)}")
+        return [EntityHit(irp_id=str(r.get("exposureId")),
+                          name=(r.get("exposureName") or name)) for r in rows]
 
     def search_rdms(self, name: str) -> list[EntityHit]:
-        raise NotImplementedError(
-            "Real RDM name search is wired in US2 (T026) against the active wheel.")
+        # imported-rdms field names are less settled than the exposures ones; keep
+        # this defensive — the caller treats collision search as best-effort (R8).
+        rows = self._client().rdm.search_imported_rdms(
+            filter=f"rdmName={json.dumps(name)}")
+        return [EntityHit(
+            irp_id=str(r.get("rdmId") or r.get("databaseId") or ""),
+            name=(r.get("rdmName") or r.get("name") or r.get("sourceRdmName")
+                  or name)) for r in rows]
 
 
 # ── Active-implementation registry (the injection seam) ──────────────────────────

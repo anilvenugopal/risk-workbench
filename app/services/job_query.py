@@ -16,8 +16,8 @@ from typing import Any
 from db import execute
 
 # Terminal vocabularies per table.
-_IRP_TERMINAL = ("FINISHED", "FAILED", "CANCELED", "SUBMISSION FAILED")
-_IRP_FAILED = ("FAILED", "CANCELED", "SUBMISSION FAILED")
+_IRP_TERMINAL = ("FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED")
+_IRP_FAILED = ("FAILED", "CANCELLED", "SUBMISSION FAILED")
 
 
 @dataclass
