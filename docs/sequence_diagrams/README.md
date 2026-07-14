@@ -9,6 +9,15 @@ Sequence diagrams for the MVP spine (`../mvp-scope.md` §2), at two altitudes:
   an analyst clicks one thing that composes several granular activities
   (e.g. "Create submission" = EDM upload + RDM upload).
 
+A third folder sits at the **implementation/execution altitude**:
+
+- **`iteration2/`** — the user actions built in spec `003-edm-rdm-entity-management`,
+  shown **metamodel-full**: exactly which `rwb_job` / `irp_job` / entity rows get
+  written and when, what runs on the request vs. in the worker vs. in the poller,
+  and where the sync → async hand-offs are. Unlike `granular/` and `composite/`
+  below (which are deliberately metamodel-free), these flows *are* about the
+  metamodel. See [`iteration2/README.md`](iteration2/README.md).
+
 **These flows are deliberately metamodel-free.** They show only the real
 interactions between the app, Risk Modeler, S3, and Data Bridge — *not* where
 we write `Job` rows. That is intentional: we
