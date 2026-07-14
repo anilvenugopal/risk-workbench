@@ -120,7 +120,7 @@ wsl-app:   ## [WSL2] Start the web app (uvicorn with live reload on :8000)
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
 
 wsl-worker:   ## [WSL2] Start the Dramatiq background worker
-	@bash -c 'source infra/scripts/wsl-env.sh && uv run dramatiq app.workers --processes 1 --threads 2'
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run dramatiq app.workers.entrypoint --processes 1 --threads 2'
 
 wsl-poller:   ## [WSL2] Start the IRP job poller
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.poller.run --loop --interval 30'

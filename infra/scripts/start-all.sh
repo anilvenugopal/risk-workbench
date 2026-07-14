@@ -44,7 +44,7 @@ nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
 # ── 3. Dramatiq workers ───────────────────────────────────────────────────────
 echo "[start] Dramatiq workers..."
 WORKERS=${APP_WORKERS:-2}
-dramatiq app.workers \
+dramatiq app.workers.entrypoint \
     --processes 1 \
     --threads "$WORKERS" \
     >> "$LOG_DIR/worker.log" 2>&1 &

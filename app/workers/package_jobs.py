@@ -306,29 +306,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
     return count
 
 
-# ── real dispatch wiring (production entrypoints call this) ───────────────────────
-
-_ACTORS: dict[str, dramatiq.Actor] = {
-    "upload_edm": upload_edm,
-    "upload_rdm": upload_rdm,
-    "delete_rdm": delete_rdm,
-    "delete_edm": delete_edm,
-}
-
-
-def _send(*, rwb_job_id: str, rwb_job_type: str) -> None:
-    actor = _ACTORS.get(rwb_job_type)
-    if actor is not None:
-        actor.send(rwb_job_id)
-
-
-def setup_dispatch() -> None:
-    """Wire the Dramatiq sender into the enqueue seam (web/worker startup). The unit
-    tier never calls this, so ``dispatch`` stays a no-op there."""
-    dispatch.configure(_send)
-
-
 __all__ = [
     "upload_edm", "upload_rdm", "delete_rdm", "delete_edm",
-    "run_one", "run_pending", "setup_dispatch",
+    "run_one", "run_pending",
 ]

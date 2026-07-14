@@ -24,11 +24,11 @@ async def lifespan(app: FastAPI):
     # Startup: verify WORKBENCH connectivity.
     if not test_connection("WORKBENCH"):
         raise RuntimeError("WORKBENCH database is not reachable at startup.")
-    # Wire the Dramatiq dispatch seam so enqueued rwb_job rows are picked up
-    # immediately (the poller's reconciler is the fallback). Deferred import keeps
-    # dramatiq out of the request/test import path.
-    from app.workers import package_jobs  # noqa: PLC0415
-    package_jobs.setup_dispatch()
+    # Discover every job actor and wire the Dramatiq dispatch seam so enqueued
+    # rwb_job rows are picked up immediately. Deferred import keeps dramatiq out of
+    # the request/test import path (only this startup path pulls it in).
+    from app.workers import loader  # noqa: PLC0415
+    loader.bootstrap()
     yield
     # Shutdown: return pooled connections cleanly.
     dispose_all()
