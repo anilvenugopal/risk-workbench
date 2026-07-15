@@ -95,12 +95,17 @@ class _Heartbeat:
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
-        while not self._stop.is_set():
+        # __enter__ already beat once on the caller's thread (t=0), so wait a full
+        # interval before the first daemon-thread beat (cadence: t=interval, 2·interval, …).
+        # A job that finishes within one interval never opens a connection on this
+        # daemon thread — which matters under the unit tier's per-thread SQLite pool,
+        # where a connection opened here can only be closed from here, not by the
+        # main thread's engine.dispose() (it would otherwise leak until GC).
+        while not self._stop.wait(self._interval):
             try:
                 upsert_heartbeat(rwb_job_id=self._rwb_job_id, worker_id=self._worker_id)
             except Exception:  # noqa: BLE001 — a heartbeat blip must not kill the job
                 logger.exception("heartbeat upsert failed for %s", self._rwb_job_id)
-            self._stop.wait(self._interval)
 
     def __enter__(self) -> _Heartbeat:
         # Beat once immediately so a stale row can't trip the reconciler at t=0.
