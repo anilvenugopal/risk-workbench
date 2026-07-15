@@ -30,7 +30,8 @@ Examples:
 """
 
 from .errors import (SQLServerError, SQLServerConnectionError,
-                     SQLServerConfigurationError, SQLServerQueryError)
+                     SQLServerConfigurationError, SQLServerQueryError,
+                     is_unique_violation)
 from .config import (get_connection_config, build_odbc_connection_string,
                      build_sqlalchemy_url)
 from .connection import (get_engine, get_connection, test_connection,
@@ -42,7 +43,7 @@ from .execute import execute, execute_one, execute_scalar, execute_command
 __all__ = [
     # errors
     "SQLServerError", "SQLServerConnectionError", "SQLServerConfigurationError",
-    "SQLServerQueryError",
+    "SQLServerQueryError", "is_unique_violation",
     # config
     "get_connection_config", "build_odbc_connection_string", "build_sqlalchemy_url",
     # connection / pool

@@ -17,6 +17,7 @@ from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
     EmptyPackageError,
+    InvalidMemberName,
     InvalidSourceFile,
 )
 
@@ -108,7 +109,7 @@ def create_import(
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
             applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError) as exc:
+    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName) as exc:
         return _render(request, "pages/rdm_import.html",
                        {"form": form, "edms": edm_service.list_edms(),
                         "errors": [str(exc)], "collision": []}, status_code=422)

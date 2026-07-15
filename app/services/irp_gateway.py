@@ -93,7 +93,8 @@ class IRPGateway(Protocol):
 
     def delete_analysis(self, *, analysis_id: int) -> None: ...
 
-    def search_analyses(self, *, filter: str) -> list[AnalysisHit]: ...
+    def search_analyses(self, *, source_rdm_name: str,
+                        exposure_name: str) -> list[AnalysisHit]: ...
 
     def get_import_job(self, irp_id: str) -> JobStatus: ...
 
@@ -159,7 +160,13 @@ class _RealGateway:
     def delete_analysis(self, *, analysis_id: int) -> None:
         self._client().analysis.delete_analysis(analysis_id)
 
-    def search_analyses(self, *, filter: str) -> list[AnalysisHit]:
+    def search_analyses(self, *, source_rdm_name: str,
+                        exposure_name: str) -> list[AnalysisHit]:
+        # Build the pair filter here with json.dumps quoting (mirrors search_edms /
+        # search_rdms) so a name with a quote/space can never malform the filter —
+        # the callers pass raw names, never a pre-built filter string.
+        filter = (f"sourceRdmName={json.dumps(source_rdm_name)} "
+                  f"AND exposureName={json.dumps(exposure_name)}")
         # Paginated so delete-enumeration captures every analysis for the pair (D2).
         rows = self._client().analysis.search_analyses_paginated(filter=filter)
         return [
@@ -246,8 +253,10 @@ def delete_analysis(*, analysis_id: int) -> None:
     return _active().delete_analysis(analysis_id=analysis_id)
 
 
-def search_analyses(*, filter: str) -> list[AnalysisHit]:
-    return _active().search_analyses(filter=filter)
+def search_analyses(*, source_rdm_name: str,
+                    exposure_name: str) -> list[AnalysisHit]:
+    return _active().search_analyses(source_rdm_name=source_rdm_name,
+                                     exposure_name=exposure_name)
 
 
 def get_import_job(irp_id: str) -> JobStatus:

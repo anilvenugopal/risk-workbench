@@ -151,7 +151,14 @@ def record_submission_failure(
 ) -> str:
     """Worker-side: the submit never reached Risk Modeler — write the ``irp_job``
     as terminal ``SUBMISSION FAILED`` with ``irp_id=NULL`` (distinct from an RM-side
-    ``FAILED``, FR-029). The poller's ``submission_retry`` batch re-attempts it."""
+    ``FAILED``, FR-029). The poller's ``submission_retry`` batch re-attempts it.
+
+    NOTE (review item 5): this inserts a **new** row per failure, so an entity that
+    fails to submit N times accumulates N ``SUBMISSION FAILED`` rows for the same
+    (entity, type). The US6 ``submission_retry`` batch (descoped this iteration — the
+    poller stub is a no-op) MUST therefore select/retry per **entity**, not per row —
+    a per-row scan would re-submit the same head once per accumulated failure. Dedup
+    is left to that consumer (not enforced here) since nothing reads these rows yet."""
     job_id = str(uuid.uuid4())
     now = _utcnow()
     with _txn(conn) as c:

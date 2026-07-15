@@ -18,7 +18,6 @@ services. Two request-path operations, both **non-blocking** (FR-042 / SC-014):
 
 from __future__ import annotations
 
-import re
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -28,31 +27,14 @@ from typing import Any, Sequence
 from sqlalchemy import text
 
 from app.services import edm_service, rdm_service, rwb_job_service
-from app.services.errors import (
-    ConcurrencyConflict, EmptyPackageError, InvalidMemberName)
+from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.package_service import clean_member_name
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one, get_connection
 
 # entity statuses that mean "in flight or done" — a re-sync leaves these alone.
 _LOCKED = ("importing", "ready")
-
-# An EDM/RDM name may use only letters, digits, underscores, and hyphens, and is
-# capped at 50 characters. The modal derives a default from the source filename
-# (extension stripped) and enforces this client-side; this is the server backstop.
-_NAME_MAX = 50
-_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
-
-
-def _clean_name(name: str) -> str:
-    """Validate and normalise an EDM/RDM member name; raise ``InvalidMemberName``
-    if it is empty, too long, or carries disallowed characters."""
-    cleaned = (name or "").strip()
-    if not cleaned or len(cleaned) > _NAME_MAX or not _NAME_RE.fullmatch(cleaned):
-        raise InvalidMemberName(
-            "EDM/RDM names may use only letters, numbers, underscores, and "
-            f"hyphens, with a maximum of {_NAME_MAX} characters.")
-    return cleaned
 
 
 @contextmanager
@@ -130,8 +112,8 @@ def save_package(
     non-blocking collision warnings."""
     specs = list(members)
     for spec in specs:
-        validate_selection(spec.source_file_path)  # raises InvalidSourceFile
-        spec.name = _clean_name(spec.name)          # raises InvalidMemberName
+        validate_selection(spec.source_file_path)   # raises InvalidSourceFile
+        spec.name = clean_member_name(spec.name)     # raises InvalidMemberName
 
     now = _utcnow()
     actor = str(actor_id)

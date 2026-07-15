@@ -114,13 +114,15 @@ class FakeIRP:
         # Synchronous single-analysis delete — no irp_job (R6). Record the call.
         self.deleted_analysis_ids.append(int(analysis_id))
 
-    def search_analyses(self, *, filter: str) -> list[AnalysisHit]:
-        # Return every seeded analysis whose pair markers appear in the filter,
-        # e.g. 'sourceRdmName="R" AND exposureName="E"'.
+    def search_analyses(self, *, source_rdm_name: str,
+                        exposure_name: str) -> list[AnalysisHit]:
+        # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
+        # builds the filter string internally (safe json.dumps quoting), so the fake
+        # matches on the pair args directly rather than parsing a filter string.
         hits: list[AnalysisHit] = []
         for a in self._analyses:
-            if (f'sourceRdmName="{a["source_rdm_name"]}"' in filter
-                    and f'exposureName="{a["exposure_name"]}"' in filter):
+            if (a["source_rdm_name"] == source_rdm_name
+                    and a["exposure_name"] == exposure_name):
                 hits.append(AnalysisHit(
                     analysis_id=a["analysis_id"], name=a["name"],
                     source_rdm_name=a["source_rdm_name"],

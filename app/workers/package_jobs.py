@@ -10,9 +10,18 @@ Two entrypoints share the bodies:
   • ``run_pending`` — a synchronous drain of currently-``pending`` rows, used by the
     unit tier (drive the queue without Redis) and usable as a simple polling worker.
 
-Every body is **idempotent**: a reconciler re-dispatch or Dramatiq redelivery must
-not double-submit. Guards key off entity status (``pending_import`` gates a submit)
-and the idempotent ``enqueue_rwb_job`` / existing-``irp_job`` checks.
+Every body is **idempotent** for the common re-run: a reconciler re-dispatch or
+Dramatiq redelivery must not double-submit. Guards key off entity status
+(``pending_import`` gates a submit) and the idempotent ``enqueue_rwb_job`` /
+existing-``irp_job`` checks.
+
+**Known at-least-once window (accepted this iteration — review item 4).** The submit
+and the ``record_submitted_irp_job`` that flips the guard are two separate writes: a
+crash *after* the submit reached Risk Modeler but *before* the record leaves the entity
+still ``pending_import`` with no ``irp_job``, so a later retry re-submits and creates a
+duplicate resource in RM. Closing it needs a pre-submit guard (a ``SUBMITTING`` state,
+or a ``search_*``-by-name pre-check) — a larger change deferred to the US6 reconcile
+work. Flagged at each submit→record seam below rather than left silent.
 """
 
 from __future__ import annotations
@@ -42,6 +51,7 @@ from db import (
     execute_one,
     execute_scalar,
     get_connection,
+    is_unique_violation,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +107,9 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.fail(f"upload_edm submit failed: {exc}",
                                       submit_failed=str(exc))
 
+    # AT-LEAST-ONCE WINDOW (see module docstring): the submit above already reached RM.
+    # A crash before this record + mark_importing complete leaves the EDM pending_import
+    # with no irp_job → a retry re-submits (duplicate exposure). Accepted this iteration.
     irp_job_id = irp_job_service.record_submitted_irp_job(
         package_id=package_id, irp_job_type="import_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri,
@@ -166,6 +179,8 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                 rdm_service.mark_error(rdm_id=rdm_id)
                 failed += 1
                 continue
+            # AT-LEAST-ONCE WINDOW (see module docstring): the apply above reached RM;
+            # a crash before this record leaves the pair un-recorded → a retry re-applies.
             irp_job_service.record_submitted_irp_job(
                 package_id=package_id, irp_job_type="import_rdm",
                 irp_edm_id=edm_id, irp_rdm_id=rdm_id, irp_id=res.irp_id,
@@ -216,21 +231,33 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     if rdm is None or edm is None:
         return {"skipped": "rdm/edm missing"}
 
+    # Pass the raw pair names; the gateway builds the filter with safe json.dumps
+    # quoting (Article 11 boundary) — never interpolate names into a filter here.
     hits = irp_gateway.search_analyses(
-        filter=f'sourceRdmName="{rdm.name}" AND exposureName="{edm.name}"')
+        source_rdm_name=rdm.name, exposure_name=edm.name)
 
     now = _utcnow()
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             for hit in hits:
-                conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
-                    "id": str(uuid.uuid4()),
-                    "rdm": str(rdm_id), "edm": str(edm_id),
-                    "pkg": (str(package_id) if package_id else None),
-                    "irp": str(hit.analysis_id), "name": hit.name,
-                    "srdm": rdm.name, "cby": (str(apply_irp_id)
-                                              if apply_irp_id is not None else None),
-                    "now": now})
+                # The NOT EXISTS pre-check is not atomic under READ COMMITTED; a
+                # concurrent backfill of the same pair can win the race and leave this
+                # insert violating UNIQUE(rdm_id, edm_id, irp_id). Absorb that in a
+                # SAVEPOINT as a dedup hit so the outer txn (and the rollup) survives.
+                try:
+                    with conn.begin_nested():
+                        conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
+                            "id": str(uuid.uuid4()),
+                            "rdm": str(rdm_id), "edm": str(edm_id),
+                            "pkg": (str(package_id) if package_id else None),
+                            "irp": str(hit.analysis_id), "name": hit.name,
+                            "srdm": rdm.name,
+                            "cby": (str(apply_irp_id)
+                                    if apply_irp_id is not None else None),
+                            "now": now})
+                except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
+                    if not is_unique_violation(exc):
+                        raise
             # Combined rollup: irp_rdm → ready once all its applies are FINISHED.
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
@@ -353,6 +380,9 @@ def _delete_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.fail(f"delete_edm submit failed: {exc}",
                                       submit_failed=str(exc))
 
+    # AT-LEAST-ONCE WINDOW (see module docstring): the delete submit above reached RM;
+    # a crash before this record leaves the EDM delete_pending with no irp_job → a retry
+    # re-submits the delete (harmless-ish for delete, but the same seam). Accepted here.
     irp_job_id = irp_job_service.record_submitted_irp_job(
         package_id=package_id, irp_job_type="delete_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri, payload=res.payload,

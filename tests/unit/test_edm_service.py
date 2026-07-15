@@ -14,11 +14,14 @@ from __future__ import annotations
 import pytest
 
 from app.services import edm_service, rwb_job_service
-from app.services.errors import ConcurrencyConflict, InvalidSourceFile
+from app.services.errors import (
+    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile)
 from db import execute_command, execute_one, execute_scalar
 
 
-def _import(drive, actor, name="Alpha EDM", fname="edm1.bak"):
+# The name rule ([A-Za-z0-9_-]+, ≤50) is enforced on the standalone import path too
+# (review item 3), so the default here must be a valid name — a space would be rejected.
+def _import(drive, actor, name="Alpha_EDM", fname="edm1.bak"):
     return edm_service.import_edm(
         name=name, source_file_path=str(drive / fname), actor_id=actor)
 
@@ -43,6 +46,18 @@ def test_import_rejects_source_outside_root(iteration2_db, fake_irp, drive):
     with pytest.raises(InvalidSourceFile):
         edm_service.import_edm(name="X", source_file_path="/etc/passwd",
                                actor_id=iteration2_db.user_a)
+
+
+@pytest.mark.parametrize("bad_name", ['Alpha EDM', 'a"; DROP--', "x" * 51, "  "])
+def test_import_rejects_disallowed_name(iteration2_db, fake_irp, drive, bad_name):
+    # Standalone import must enforce the same rule as package members ([A-Za-z0-9_-]+,
+    # ≤50) so a name with a quote/space can't reach Risk Modeler or a search filter.
+    with pytest.raises(InvalidMemberName):
+        edm_service.import_edm(name=bad_name, source_file_path=str(drive / "edm1.bak"),
+                               actor_id=iteration2_db.user_a)
+    # rejected before any entity/head is created
+    assert execute_scalar("SELECT COUNT(*) FROM irp_edm", {},
+                          connection="WORKBENCH") == 0
 
 
 def test_import_is_idempotent_on_re_enqueue(iteration2_db, fake_irp, drive):

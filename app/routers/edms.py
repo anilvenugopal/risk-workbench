@@ -17,7 +17,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import edm_service
-from app.services.errors import ConcurrencyConflict, InvalidSourceFile
+from app.services.errors import (
+    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile)
 
 router = APIRouter()
 
@@ -98,7 +99,7 @@ def create_import(
     try:
         result = edm_service.import_edm(
             name=name.strip(), source_file_path=source, actor_id=request.state.user.id)
-    except InvalidSourceFile as exc:
+    except (InvalidSourceFile, InvalidMemberName) as exc:
         return _render(request, "pages/edm_import.html",
                        {"form": form, "errors": [str(exc)], "collision": []},
                        status_code=422)

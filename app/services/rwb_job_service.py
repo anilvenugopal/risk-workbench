@@ -24,7 +24,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from db import execute_command, get_connection
+from db import execute_command, get_connection, is_unique_violation
 
 
 def _utcnow() -> datetime:
@@ -59,15 +59,38 @@ _INSERT_IF_ABSENT = """
 """
 
 
+def _insert_head(params: dict, conn) -> bool:
+    """Run ``_INSERT_IF_ABSENT``, absorbing a UNIQUE-key violation as a dedup hit.
+    Returns ``True`` iff a row was inserted. The ``NOT EXISTS`` pre-check is not atomic
+    under READ COMMITTED (SQL Server's default): a genuine race lets both writers pass
+    it, and the loser violates ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``.
+    Catching that violation makes the UNIQUE key — not the pre-check — the real dedup
+    guarantee. On a caller-owned ``conn`` the insert runs in a SAVEPOINT so a caught
+    violation leaves the outer transaction intact; the request path (``conn is None``)
+    uses ``execute_command``'s own transaction, which rolls itself back cleanly."""
+    try:
+        if conn is not None:
+            with conn.begin_nested():
+                rows = conn.execute(text(_INSERT_IF_ABSENT), params).rowcount
+        else:
+            rows = execute_command(_INSERT_IF_ABSENT, params, connection="WORKBENCH")
+    except Exception as exc:  # noqa: BLE001 — a UNIQUE race is a dedup hit, not a failure
+        if is_unique_violation(exc):
+            return False
+        raise
+    return rows == 1
+
+
 def enqueue_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
     input_data: dict | None = None, actor_id: Any | None = None, conn=None,
 ) -> str | None:
     """Idempotent insert on ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``
     (FR-043 / SC-014). Returns the new job id, or ``None`` if a matching row already
-    exists (dedup hit) — a re-poll / redelivery / reconciler re-enqueue is a no-op.
-    Never resurrects a terminal row (that is the fan-in idempotency backbone the
-    poller/workers rely on); the request path uses ``ensure_pending_rwb_job``.
+    exists (dedup hit — pre-check or a lost UNIQUE-key race) — a re-poll / redelivery /
+    reconciler re-enqueue is a no-op. Never resurrects a terminal row (that is the
+    fan-in idempotency backbone the poller/workers rely on); the request path uses
+    ``ensure_pending_rwb_job``.
 
     ``conn`` lets a caller enqueue the chained tail in its own open transaction."""
     job_id = str(uuid.uuid4())
@@ -76,11 +99,7 @@ def enqueue_rwb_job(
         "jt": rwb_job_type, "input": _json(input_data), "now": _utcnow(),
         "by": (str(actor_id) if actor_id is not None else None),
     }
-    if conn is not None:
-        rows = conn.execute(text(_INSERT_IF_ABSENT), params).rowcount
-    else:
-        rows = execute_command(_INSERT_IF_ABSENT, params, connection="WORKBENCH")
-    return job_id if rows == 1 else None
+    return job_id if _insert_head(params, conn) else None
 
 
 def ensure_pending_rwb_job(
@@ -104,11 +123,15 @@ def ensure_pending_rwb_job(
                 "jt": rwb_job_type}).mappings().first()
             if row is None:
                 job_id = str(uuid.uuid4())
-                conn.execute(text(_INSERT_IF_ABSENT), {
+                # A concurrent writer may insert the head between our SELECT and this
+                # INSERT; _insert_head absorbs the UNIQUE-key race (→ False) as "already
+                # in flight", the same outcome as the pending/running skip below.
+                if _insert_head({
                     "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
                     "jt": rwb_job_type, "input": _json(input_data), "now": now,
-                    "by": (str(actor_id) if actor_id is not None else None)})
-                return job_id
+                    "by": (str(actor_id) if actor_id is not None else None)}, conn):
+                    return job_id
+                return None
             if row["status_code"] in ("pending", "running"):
                 return None  # already in flight — skip
             conn.execute(text(

@@ -13,6 +13,7 @@ timestamps, no dialect-only SQL).
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -21,7 +22,27 @@ from typing import Any, Sequence
 from sqlalchemy import text
 
 from db import execute, execute_scalar, execute_command, get_connection
-from app.services.errors import EmptyPackageError
+from app.services.errors import EmptyPackageError, InvalidMemberName
+
+# An EDM/RDM name may use only letters, digits, underscores, and hyphens, capped at
+# 50 characters. This is the ONE source of truth for the rule (review item 3): it is
+# enforced on every path that names an entity — package members
+# (``package_sync_service``) and standalone imports (``edm_service``/``rdm_service``) —
+# so the name that reaches Risk Modeler (and gets interpolated into search filters) is
+# always clean. Lives here because this module imports neither service (no cycle).
+_NAME_MAX = 50
+_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def clean_member_name(name: str) -> str:
+    """Validate and normalise an EDM/RDM name; raise ``InvalidMemberName`` if it is
+    empty, longer than 50 characters, or carries characters outside ``[A-Za-z0-9_-]``."""
+    cleaned = (name or "").strip()
+    if not cleaned or len(cleaned) > _NAME_MAX or not _NAME_RE.fullmatch(cleaned):
+        raise InvalidMemberName(
+            "EDM/RDM names may use only letters, numbers, underscores, and "
+            f"hyphens, with a maximum of {_NAME_MAX} characters.")
+    return cleaned
 
 
 @dataclass

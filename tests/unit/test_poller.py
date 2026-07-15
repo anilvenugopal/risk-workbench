@@ -11,8 +11,11 @@ from __future__ import annotations
 
 from app.poller import run as poller
 from app.services import edm_service
+from app.services import package_sync_service as sync
 from app.workers import package_jobs
 from db import execute_one
+
+MS = sync.MemberSpec
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:
@@ -75,3 +78,57 @@ def test_submission_failed_is_not_tracked_and_distinct_from_failed(
                         {"e": res.entity_id}, connection="WORKBENCH")
     assert after["status"] == "SUBMISSION FAILED"
     assert after["last_tracked_at"] is None
+
+
+def _import_edm_into_package(drive, actor, name="EDM", fname="edm1.bak"):
+    """Build an EDM-only package, sync it, and drive its import to ``ready`` with a
+    backfilled exposureId. Returns (package_id, edm_id)."""
+    pid = sync.save_package(
+        package_id=None, name="P",
+        members=[MS(kind="edm", name=name, source_file_path=str(drive / fname))],
+        actor_id=actor).package_id
+    sync.save_and_sync(package_id=pid, actor_id=actor)
+    package_jobs.run_pending(worker_id="w1")  # submit import_edm → irp_job QUEUED
+    import_irp = execute_one(
+        "SELECT irp_id FROM irp_job WHERE irp_job_type='import_edm'",
+        {}, connection="WORKBENCH")["irp_id"]
+    fake_edm_id = execute_one("SELECT id FROM irp_edm WHERE package_id=:p",
+                              {"p": pid}, connection="WORKBENCH")["id"]
+    return pid, str(fake_edm_id), str(import_irp)
+
+
+def test_failed_delete_edm_preserves_irp_id_and_can_resubmit(
+        iteration2_db, fake_irp, drive):
+    """A delete_edm that reaches a non-FINISHED terminal must flip the EDM to ``error``
+    WITHOUT nulling its exposureId (irp_id) — otherwise a re-triggered delete takes the
+    "never imported" inline branch and the RM exposure is orphaned (HIGH review item 1)."""
+    actor = iteration2_db.user_a
+    pid, edm_id, import_irp = _import_edm_into_package(drive, actor)
+    fake_irp.finish(import_irp)
+    poller.poll_once()  # EDM → ready, exposureId backfilled as irp_id
+    edm = edm_service.get_edm(edm_id)
+    assert edm.status == edm_service.READY and edm.irp_id is not None
+    exposure_id = edm.irp_id
+
+    # Delete the (EDM-only) package → the worker submits delete_edm against the exposure.
+    sync.delete_package(package_id=pid, actor_id=actor)
+    package_jobs.run_pending(worker_id="w1")
+    delete_irp = execute_one(
+        "SELECT irp_id FROM irp_job WHERE irp_job_type='delete_edm'",
+        {}, connection="WORKBENCH")["irp_id"]
+    assert len([s for s in fake_irp.submits if s["kind"] == "delete_edm"]) == 1
+
+    # The delete job fails on the RM side.
+    fake_irp.fail(str(delete_irp))
+    poller.poll_once()
+
+    edm = edm_service.get_edm(edm_id)
+    assert edm.status == edm_service.ERROR
+    assert edm.irp_id is not None            # exposureId preserved, not nulled
+    assert edm.irp_id == exposure_id
+
+    # A re-triggered delete must actually re-submit delete_edm (real exposure removal),
+    # not silently inline-delete + finalize because irp_id was wiped.
+    sync.delete_package(package_id=pid, actor_id=actor)
+    package_jobs.run_pending(worker_id="w1")
+    assert len([s for s in fake_irp.submits if s["kind"] == "delete_edm"]) == 2

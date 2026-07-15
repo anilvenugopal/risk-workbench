@@ -51,6 +51,50 @@ def test_enqueue_distinct_type_not_deduped(iteration2_db):
     assert a is not None and b is not None and a != b
 
 
+# ── concurrent-writer race: the UNIQUE key (not the pre-check) is the dedup guard ──
+# The unit tier is single-threaded, so a true race can't occur here; stripping the
+# NOT EXISTS guard reproduces the exact statement a losing concurrent writer runs
+# under READ COMMITTED once both pass the pre-check (review item 2).
+
+def _plain_insert_sql() -> str:
+    from app.services import rwb_job_service
+    return rwb_job_service._INSERT_IF_ABSENT.split("WHERE NOT EXISTS")[0]
+
+
+def test_enqueue_absorbs_unique_violation_request_path(iteration2_db, monkeypatch):
+    from app.services import rwb_job_service
+    rid = str(uuid.uuid4())
+    assert enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
+                           rwb_job_type="upload_edm") is not None
+    monkeypatch.setattr(rwb_job_service, "_INSERT_IF_ABSENT", _plain_insert_sql())
+    # The losing insert hits the UNIQUE key; it must be absorbed as a dedup hit, not
+    # raise (an unhandled IntegrityError would be a 500 on the request path).
+    dup = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
+                          rwb_job_type="upload_edm")
+    assert dup is None
+    assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
+                          {"r": rid}, connection="WORKBENCH") == 1
+
+
+def test_enqueue_absorbs_unique_violation_conn_path(iteration2_db, monkeypatch):
+    from app.services import rwb_job_service
+    from db import get_connection
+    rid = str(uuid.uuid4())
+    monkeypatch.setattr(rwb_job_service, "_INSERT_IF_ABSENT", _plain_insert_sql())
+    with get_connection("WORKBENCH") as conn:
+        with conn.begin():
+            first = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
+                                    rwb_job_type="upload_rdm", conn=conn)
+            dup = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
+                                  rwb_job_type="upload_rdm", conn=conn)
+            # the outer txn must survive the absorbed violation and still commit work.
+            other = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
+                                    rwb_job_type="delete_edm", conn=conn)
+    assert first is not None and dup is None and other is not None
+    assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
+                          {"r": rid}, connection="WORKBENCH") == 2
+
+
 # ── atomic claim (rowcount 1 → 0) ─────────────────────────────────────────────
 
 def test_atomic_claim_wins_once_then_loses(iteration2_db):

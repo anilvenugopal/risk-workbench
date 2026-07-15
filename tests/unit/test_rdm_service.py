@@ -14,7 +14,7 @@ import pytest
 
 from app.poller import run as poller
 from app.services import edm_service, rdm_service
-from app.services.errors import EmptyPackageError
+from app.services.errors import EmptyPackageError, InvalidMemberName
 from app.workers import package_jobs
 from db import execute, execute_scalar
 
@@ -49,6 +49,18 @@ def test_import_with_no_edm_rejected(iteration2_db, fake_irp, drive):
     with pytest.raises(EmptyPackageError):
         rdm_service.import_rdm(name="RevOnly", source_file_path=str(drive / "rdm1.mdf"),
                                applied_edm_ids=[], actor_id=iteration2_db.user_a)
+    assert execute_scalar("SELECT COUNT(*) FROM irp_rdm", {},
+                          connection="WORKBENCH") == 0
+
+
+@pytest.mark.parametrize("bad_name", ['Rev Only', 'r"; DROP--', "r" * 51, "  "])
+def test_import_rejects_disallowed_name(iteration2_db, fake_irp, drive, bad_name):
+    # Standalone import enforces the same rule as package members ([A-Za-z0-9_-]+, ≤50)
+    # so a name with a quote/space can't reach Risk Modeler or a search filter.
+    e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
+    with pytest.raises(InvalidMemberName):
+        rdm_service.import_rdm(name=bad_name, source_file_path=str(drive / "rdm1.mdf"),
+                               applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
     assert execute_scalar("SELECT COUNT(*) FROM irp_rdm", {},
                           connection="WORKBENCH") == 0
 

@@ -99,7 +99,8 @@ def import_edm(
     performs the submit — **no Risk Modeler call here** (FR-042). Validates the source
     is within ``SHARED_DRIVE_ROOT`` and is a file (else ``InvalidSourceFile``). Returns
     the new id alongside the non-blocking collision warning."""
-    canonical = validate_selection(source_file_path)  # raises InvalidSourceFile
+    name = package_service.clean_member_name(name)     # raises InvalidMemberName
+    canonical = validate_selection(source_file_path)   # raises InvalidSourceFile
     collision = check_name_collision(name)
 
     edm_id = str(uuid.uuid4())
@@ -112,7 +113,7 @@ def import_edm(
         VALUES (:id, :pkg, :src, :name, :status, :now, :now, :by, :by)
         """,
         {"id": edm_id, "pkg": (str(package_id) if package_id else None),
-         "src": canonical, "name": name.strip(), "status": PENDING,
+         "src": canonical, "name": name, "status": PENDING,
          "now": now, "by": actor},
         connection="WORKBENCH",
     )
@@ -340,10 +341,23 @@ def set_deleted(conn, *, edm_id: Any) -> None:
     ), {"s": DELETED, "now": _utcnow(), "id": str(edm_id)})
 
 
+def mark_delete_error(conn, *, edm_id: Any) -> None:
+    """Poller-side: a delete_edm job reached a non-FINISHED terminal — flip the EDM to
+    the recoverable ``error`` state but **preserve ``irp_id``** (the RM exposureId).
+    Unlike ``backfill_on_terminal`` (an import writer that nulls ``irp_id`` on a
+    non-ready terminal), delete must keep the exposureId so a re-triggered delete still
+    calls ``submit_delete_edm`` instead of the "never imported" inline branch (which
+    would orphan the exposure in Risk Modeler). Runs in the poller's txn."""
+    from sqlalchemy import text  # noqa: PLC0415
+    conn.execute(text(
+        "UPDATE irp_edm SET status = :s, updated_at = :now WHERE id = :id"
+    ), {"s": ERROR, "now": _utcnow(), "id": str(edm_id)})
+
+
 __all__ = [
     "ImportResult", "EdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED", "STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
-    "backfill_on_terminal", "claim_for_delete", "set_deleted",
+    "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
 ]

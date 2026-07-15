@@ -151,6 +151,14 @@ def edit(
     updated_at: str = Form(...),
     csrf_token: str = Form(...),
 ):
+    # UNUSED this iteration (review item 6, verified): no template posts here — the
+    # modal is create-only (GET .../packages/new → POST /submissions/{id}/packages with
+    # package_id=None); the card wires only /sync, /delete, /retry. Kept as the wired
+    # half of the FR-039/SC-010 package-edit concurrency guard (expected_updated_at).
+    # HAZARD before wiring an edit modal: save_package's edit path (package_id set) is
+    # INSERT-only for members — it never removes/reconciles — so posting existing
+    # members here would DUPLICATE them. A future edit flow MUST reconcile/replace
+    # members (or send none) before this route is reached with any member rows.
     if not validate_csrf_token(csrf_token):
         return RedirectResponse("/submissions", status_code=303)
     if not _package_actionable(package_id):

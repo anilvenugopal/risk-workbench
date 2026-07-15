@@ -107,15 +107,16 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
 def _handle_delete_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """FINISHED → mark the EDM ``deleted`` and run the idempotent package-finalize
     fan-in (soft-delete the package + members once no live member remains, FR-021).
-    Any other terminal → flip the EDM to ``error`` for analyst recovery."""
+    Any other terminal → flip the EDM to ``error`` for analyst recovery, PRESERVING
+    ``irp_id`` (the exposureId) so a re-triggered delete re-submits rather than taking
+    the "never imported" inline branch and orphaning the exposure."""
     if status == "FINISHED":
         edm_service.set_deleted(conn, edm_id=job["irp_edm_id"])
         if job.get("package_id"):
             package_sync_service.finalize_package(package_id=job["package_id"],
                                                   conn=conn)
     else:
-        edm_service.backfill_on_terminal(
-            conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)
+        edm_service.mark_delete_error(conn, edm_id=job["irp_edm_id"])
 
 
 # terminal irp_job.status → handler (extended per user story).

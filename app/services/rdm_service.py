@@ -92,6 +92,7 @@ def import_rdm(
         raise EmptyPackageError(
             "An RDM import must be applied to at least one EDM "
             "(review-only import is deferred).")
+    name = package_service.clean_member_name(name)     # raises InvalidMemberName
     canonical = validate_selection(source_file_path)
     collision = check_name_collision(name)
 
@@ -105,7 +106,7 @@ def import_rdm(
         VALUES (:id, :pkg, :src, :name, :status, :now, :now, :by, :by)
         """,
         {"id": rdm_id, "pkg": (str(package_id) if package_id else None),
-         "src": canonical, "name": name.strip(), "status": PENDING,
+         "src": canonical, "name": name, "status": PENDING,
          "now": now, "by": actor},
         connection="WORKBENCH",
     )
