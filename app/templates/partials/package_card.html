@@ -3,8 +3,19 @@
    expandable member rows. Each row expands to a portfolio/analysis area that renders a
    deferred placeholder this iteration (R13). No rolled-up package status (FR-018) —
    each member carries its own chip. #}
-<div class="package-card" id="package-card-{{ card.id }}">
-  {% set members = card.edms + card.rdms %}
+{# Live status (US-live): while any member is in flight or a job is active, the card
+   polls its own read-only render every 3s and swaps itself. The server stops emitting
+   the trigger once every member is terminal (ready/error/deleted), so polling ends on
+   its own — no page refresh needed to watch a Save & Sync progress. #}
+{% set members = card.edms + card.rdms %}
+{% set live_statuses = ['pending_import', 'importing', 'delete_pending'] %}
+{% set has_live = (members | selectattr('status', 'in', live_statuses) | list | length > 0)
+     or (card.job_counts and card.job_counts.active > 0) %}
+<div class="package-card" id="package-card-{{ card.id }}"
+  {%- if has_live and not card.deleted_at %}
+  hx-get="/packages/{{ card.id }}/card" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
   {% set deleting = members | selectattr('status', 'equalto', 'delete_pending')
        | list | length > 0 %}
   {% set ready = members | selectattr('status', 'equalto', 'ready') | list | length %}

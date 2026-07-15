@@ -2,6 +2,12 @@
    ITCSS component layer — colours/spacing/radii come from tokens.css only; no
    hardcoded hex (Article 9). */
 
+/* ── list ─────────────────────────────────────────────────────────────────── */
+/* The "No packages yet." placeholder is a sibling inside #package-list. When Save &
+   Sync appends the first card (hx-swap="beforeend"), the placeholder would otherwise
+   linger beside it — hide it once the list actually holds a card. */
+.package-list:has(.package-card) .package-list__empty { display: none; }
+
 /* ── card ─────────────────────────────────────────────────────────────────── */
 .package-card {
   background: var(--c-surface-1);

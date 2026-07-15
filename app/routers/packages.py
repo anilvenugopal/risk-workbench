@@ -182,6 +182,23 @@ def sync_package(request: Request, package_id: str, csrf_token: str = Form(...))
     return _card_partial(request, package_id)
 
 
+# ── Live card poll (self-terminating) ───────────────────────────────────────────
+
+@router.get("/packages/{package_id}/card", response_class=HTMLResponse)
+def card(request: Request, package_id: str):
+    """Read-only card render for HTMX polling. The template emits the ``every 3s``
+    trigger only while a member is still in flight (pending_import / importing /
+    delete_pending) or a job is active, so the browser keeps the EDM/RDM chips and
+    job counts fresh without a page reload — and polling stops on its own once every
+    member reaches a terminal status. No writes, no Risk Modeler call (Article 11)."""
+    card = sync.get_package_card(package_id, with_counts=True)
+    if card is None:
+        # Package hard-gone: an empty outerHTML swap removes the card and ends polling.
+        return HTMLResponse("")
+    return _partial(request, "partials/package_card.html",
+                    {"card": card, "is_active": _package_actionable(package_id)})
+
+
 # ── Delete ────────────────────────────────────────────────────────────────────
 
 @router.post("/packages/{package_id}/delete")
