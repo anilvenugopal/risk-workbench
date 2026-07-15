@@ -16,15 +16,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import text
 
-from app.services import irp_gateway, rwb_job_service
+from app.services import irp_gateway, package_service, rwb_job_service
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.package_service import SubmissionRef
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -36,6 +37,8 @@ IMPORTING = "importing"
 READY = "ready"
 ERROR = "error"
 _LOCKED = (IMPORTING, READY)
+# Ordered status vocabulary offered as the library status filter (US7 / T058).
+STATUSES = (PENDING, IMPORTING, READY, ERROR)
 
 
 @dataclass
@@ -48,6 +51,9 @@ class RdmRow:
     package_id: str | None
     inserted_at: Any
     updated_at: Any
+    # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
+    # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
+    submissions: list[SubmissionRef] = field(default_factory=list)
 
 
 def _utcnow() -> datetime:
@@ -129,16 +135,42 @@ def _to_row(row: dict) -> RdmRow:
     )
 
 
-def list_rdms(*, package_id: Any | None = None) -> list[RdmRow]:
-    """Every RDM (library), or one package's RDMs. NO row scoping (Article 6)."""
+def list_rdms(*, package_id: Any | None = None, name: str | None = None,
+              status: str | None = None) -> list[RdmRow]:
+    """Every RDM (library), one package's RDMs, or a filtered slice. NO row scoping
+    (Article 6). Soft-deleted rows excluded.
+
+    ``name`` narrows by case-insensitive substring (``LIKE``); ``status`` narrows to
+    the exact import status; both combine with AND; blank/``None`` are no-ops (US7 /
+    T058). Each row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"
     params: dict[str, Any] = {}
     if package_id is not None:
         where += " AND package_id = :pid"
         params["pid"] = str(package_id)
+    if name:
+        where += " AND name LIKE :q"
+        params["q"] = f"%{name}%"
+    if status:
+        where += " AND status = :status"
+        params["status"] = status
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
-    return [_to_row(r) for r in rows]
+    result = [_to_row(r) for r in rows]
+    _attach_submissions(result)
+    return result
+
+
+def _attach_submissions(rows: list[RdmRow]) -> None:
+    """Set each row's ``.submissions`` from the M:N ``submission_package`` join
+    (oldest-first). One query for the whole page; standalone rows keep the default []."""
+    package_ids = [r.package_id for r in rows if r.package_id]
+    if not package_ids:
+        return
+    refs = package_service.submission_refs_for_packages(package_ids)
+    for row in rows:
+        if row.package_id:
+            row.submissions = refs.get(row.package_id, [])
 
 
 def get_rdm(rdm_id: Any) -> RdmRow | None:
@@ -297,7 +329,7 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 
 
 __all__ = [
-    "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
+    "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "rollup_on_terminal",

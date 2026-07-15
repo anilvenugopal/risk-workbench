@@ -33,8 +33,51 @@ class Package:
     inserted_at: Any
 
 
+@dataclass(frozen=True)
+class SubmissionRef:
+    """A minimal owning-submission reference for the EDM/RDM libraries (US7):
+    the submission ``id`` (deep-link target) and its display ``name``."""
+    id: str
+    name: str | None
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def submission_refs_for_packages(
+    package_ids: Sequence[Any],
+) -> dict[str, list[SubmissionRef]]:
+    """Map each package id → its owning submissions (M:N ``submission_package``),
+    **oldest submission first** (``submission.inserted_at``), for the library
+    owning-submission column (US7 / T058).
+
+    Lives here (not in edm/rdm_service) because ``package_service`` imports neither
+    of those, so no import cycle. One portable query with a dynamically-built ``IN``
+    param set; the package→refs map is assembled app-side (no ``STRING_AGG``/``TOP``,
+    no row fan-out into the caller's list). Returns ``{}`` for empty input; keys are
+    lower-cased so a caller keyed on ``str(id).lower()`` always matches."""
+    ids = list(dict.fromkeys(str(p).lower() for p in package_ids if p))
+    if not ids:
+        return {}
+    params = {f"p{i}": pid for i, pid in enumerate(ids)}
+    placeholders = ", ".join(f":{k}" for k in params)
+    rows = execute(
+        f"""
+        SELECT sp.package_id AS package_id, s.id AS sub_id, s.name AS sub_name
+        FROM submission_package sp
+        JOIN submission s ON s.id = sp.submission_id
+        WHERE sp.package_id IN ({placeholders})
+        ORDER BY s.inserted_at ASC
+        """,
+        params, connection="WORKBENCH",
+    )
+    result: dict[str, list[SubmissionRef]] = {}
+    for row in rows:
+        key = str(row["package_id"]).lower()
+        result.setdefault(key, []).append(
+            SubmissionRef(id=str(row["sub_id"]), name=row["sub_name"]))
+    return result
 
 
 def _table_for_kind(member_kind: str) -> str:

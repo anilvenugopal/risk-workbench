@@ -22,7 +22,7 @@ from app.services.errors import (
 
 router = APIRouter()
 
-_NAV_KEY = "irp"  # elevated to irp.rdm_library in US7 (T060)
+_NAV_KEY = "irp.rdm_library"  # list / import / detail all activate this node (T060)
 
 
 def _templates(request: Request):
@@ -44,6 +44,23 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
         request, template, {"current_user": request.state.user, **ctx},
         status_code=status_code,
     )
+
+
+# ── Library list (literal path — declared before /rdms/{rdm_id}) ─────────────────
+
+@router.get("/rdms", response_class=HTMLResponse)
+def library(request: Request):
+    """Global RDM library — every RDM across all submissions, any analyst (no row
+    scoping, FR-037/SC-009), narrowable by a name search + status filter (US7). GET,
+    no CSRF."""
+    q = (request.query_params.get("q") or "").strip() or None
+    status = (request.query_params.get("status") or "").strip() or None
+    return _render(request, "pages/rdm_library.html", {
+        "rows": rdm_service.list_rdms(name=q, status=status),
+        "filter_values": {"q": request.query_params.get("q", ""),
+                          "status": request.query_params.get("status", "")},
+        "statuses": rdm_service.STATUSES,
+    })
 
 
 # ── Import form + name check ─────────────────────────────────────────────────────

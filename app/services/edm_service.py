@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services import irp_gateway, rwb_job_service
+from app.services import irp_gateway, package_service, rwb_job_service
 from app.services.errors import ConcurrencyConflict
+from app.services.package_service import SubmissionRef
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -39,6 +40,8 @@ DELETE_PENDING = "delete_pending"
 DELETED = "deleted"
 # statuses from which a (re)import must NOT be launched (in flight or already done).
 _LOCKED = (IMPORTING, READY)
+# Ordered status vocabulary offered as the library status filter (US7 / T058).
+STATUSES = (PENDING, IMPORTING, READY, ERROR, DELETE_PENDING, DELETED)
 
 
 @dataclass
@@ -58,6 +61,9 @@ class EdmRow:
     package_id: str | None
     inserted_at: Any
     updated_at: Any
+    # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
+    # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
+    submissions: list[SubmissionRef] = field(default_factory=list)
 
 
 def _utcnow() -> datetime:
@@ -139,17 +145,43 @@ _ROW_SELECT = (
 )
 
 
-def list_edms(*, package_id: Any | None = None) -> list[EdmRow]:
-    """Every EDM (library — no filter), or one package's EDMs. NO row scoping
-    (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded."""
+def list_edms(*, package_id: Any | None = None, name: str | None = None,
+              status: str | None = None) -> list[EdmRow]:
+    """Every EDM (library), one package's EDMs, or a filtered slice. NO row scoping
+    (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded.
+
+    ``name`` narrows by case-insensitive substring (``LIKE`` — case-insensitive on
+    SQL Server's default collation and on SQLite for ASCII); ``status`` narrows to the
+    exact import status; both combine with AND; blank/``None`` are no-ops (US7 / T058).
+    Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"
     params: dict[str, Any] = {}
     if package_id is not None:
         where += " AND package_id = :pid"
         params["pid"] = str(package_id)
+    if name:
+        where += " AND name LIKE :q"
+        params["q"] = f"%{name}%"
+    if status:
+        where += " AND status = :status"
+        params["status"] = status
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
-    return [_to_row(r) for r in rows]
+    result = [_to_row(r) for r in rows]
+    _attach_submissions(result)
+    return result
+
+
+def _attach_submissions(rows: list[EdmRow]) -> None:
+    """Set each row's ``.submissions`` from the M:N ``submission_package`` join
+    (oldest-first). One query for the whole page; standalone rows keep the default []."""
+    package_ids = [r.package_id for r in rows if r.package_id]
+    if not package_ids:
+        return
+    refs = package_service.submission_refs_for_packages(package_ids)
+    for row in rows:
+        if row.package_id:
+            row.submissions = refs.get(row.package_id, [])
 
 
 def get_edm(edm_id: Any) -> EdmRow | None:
@@ -310,7 +342,7 @@ def set_deleted(conn, *, edm_id: Any) -> None:
 
 __all__ = [
     "ImportResult", "EdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
-    "DELETE_PENDING", "DELETED",
+    "DELETE_PENDING", "DELETED", "STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal", "claim_for_delete", "set_deleted",

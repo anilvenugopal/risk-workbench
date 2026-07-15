@@ -26,12 +26,10 @@ Single server-rendered web app extending the existing `app/` tree (plan §Projec
 
 These files are touched by several tasks across phases; edits to them are **sequential**, never `[P]` against each other:
 
-- `app/main.py` — router includes (T015, T023, T029, T035, T054)
-- `app/poller/run.py` — T013 → T022 → T028 → T034 → T040 → T053
-- `app/workers/package_jobs.py` — T021 → T027 → T027a → T039 → T052 → T053
+- `app/main.py` — router includes (T015, T023, T029, T035)
+- `app/poller/run.py` — T013 → T017a → T022 → T028 → T034 → T040 (T017a touches the distinct `_submission_retry` function)
+- `app/workers/package_jobs.py` — T021 → T027 → T027a → T039
 - `app/services/package_sync_service.py` — T033 → T038 → T045
-- `app/services/job_query.py` — T044 → T050
-- `app/nav/manifest.py` — T055 → T060
 - `app/routers/edms.py` — T023 → T058; `app/routers/rdms.py` — T029 → T058
 - `app/templates/partials/package_card.html` — T036 → T042 → T047
 - `alembic/versions/0001_initial.py` — T004 → T005
@@ -91,7 +89,9 @@ These files are touched by several tasks across phases; edits to them are **sequ
 - [X] T016 [P] Unit-test the `rwb_job` state machine in `tests/unit/test_rwb_job_queue.py` (depends T010, T011, T013): atomic claim returns rowcount 1 then 0; heartbeat upsert (one row per job); reconciler reclaims a stale `running` row to `pending`.
 - [X] T017 [P] SQL-Server test in `tests/sqlserver/test_job_tables_migration.py` (depends T005, T006): the extended migration builds the `irp_job`/`rwb_job`/`irp_analysis` families with all FKs + the `rwb_job` UNIQUE key + the `irp_analysis` `UNIQUE(rdm_id, edm_id, irp_id)` + seeds (incl. `backfill_rdm_analyses` in `rwb_job_type_kind` and the `irp_analysis_status_kind` rows — D2); atomic claim returns rowcount 1 then 0 under contention; the idempotent chained insert absorbs a duplicate exactly once.
 
-**Checkpoint**: Schema rebuilds, the queue + heartbeat + reconciler + gateway/fake are in place. User stories can begin.
+- [ ] T017a Complete the `_submission_retry` batch in `app/poller/run.py` (depends T013, T012): the T013 scaffold is currently a no-op — implement the retry loop it stubs (FR-029/FR-047). Per pass, select `SUBMISSION FAILED` `irp_job` rows still under `IRP_SUBMISSION_MAX_RETRIES` (the retry count the T013 scaffold checks), re-drive their submit by re-enqueuing the originating `upload_edm`/`upload_rdm`/`delete_edm` head on its idempotent dedup key, and advance the attempt count; once a row reaches the configured limit, park it as terminal `SUBMISSION FAILED` with no further retry. **No `notify_analyst` enqueue** — the notify-on-park step is deferred with US6 (was old T053). Add the Article-12 retry state-machine unit test in `tests/unit/test_submission_retry.py`: retries re-drive up to the limit, then stop and park — asserting the stop-at-limit invariant whatever the configured value (FR-029). If attempt-tracking needs a column that isn't already present, fold it into the single `0001_initial.py` revision (FR-040, drop-create-seed).
+
+**Checkpoint**: Schema rebuilds, the queue + heartbeat + reconciler + gateway/fake are in place, and submit-side retry parks at the configured limit. User stories can begin.
 
 ---
 
@@ -208,46 +208,45 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 ---
 
-## Phase 8: User Story 6 - Monitor and filter jobs, and be notified on completion (Priority: P2)
+## Phase 8: User Story 6 — DESCOPED (2026-07-15)
 
-**Goal**: A URL-query-string-filtered Jobs list with clearable chips and live (SSE) status, plus notifications — one per terminal analyst action (standalone import / sync / delete) and one per member failure, never one per successful member.
+**User Story 6 (Monitor and filter jobs + completion notifications) is deferred out of Iteration 2.** Tasks **T048–T056** — the `job_query.list_jobs` filter, `notification_service`, the `notify_analyst` actor, the notification enqueue points, the `jobs.py` router + SSE stream, the real filterable Jobs-list nav nodes, and the jobs templates/CSS — are removed from this iteration. See the **"US6 (Jobs list + notifications) descoped"** decision in spec.md (Clarifications) and plan.md. Consequences carried by the rest of the iteration:
 
-**Independent Test**: Filter the Jobs list via the URL (submission/package/status/job_type); confirm exactly the matching jobs + chips, that refresh/bookmark/back-forward preserve the filter, that a job advances live without refresh, and that a multi-member sync yields exactly one action-completion notification (plus one per failed member).
+- **Jobs list**: the Iteration-0 `workflows.irp_jobs` / `workflows.rwb_jobs` nav stubs and their placeholder pages remain as-is (not elevated to filterable lists). US5's package-card job-count deep-links (FR-024, T047) therefore land on those placeholder pages rather than a pre-filtered live list — graceful, not a 404.
+- **Notifications**: no completion/failure notifications are delivered this iteration (FR-030/FR-031, SC-003 deferred).
+- **Submission-retry (FR-029/FR-047) stays in scope** as foundational reliability: automatic submit-side retry up to `IRP_SUBMISSION_MAX_RETRIES` and parking as terminal `SUBMISSION FAILED` (scaffolded in T013, **completed in the new foundational task T017a**). Only the *notify-on-park* step old T053 layered on top defers with US6.
 
-### Tests for User Story 6 ⚠️
-
-- [ ] T048 [P] [US6] Unit-test filter parsing in `tests/unit/test_jobs_filter.py`: the shared `submission/package/status/job_type` vocabulary parses from the query string as bound predicates; unknown params ignored; no row scoping (SC-008/SC-009).
-- [ ] T049 [P] [US6] Unit-test notification granularity in `tests/unit/test_notifications.py`: a multi-member sync where every member succeeds enqueues exactly ONE `action_complete` `notify_analyst` (not one per member); a failed member enqueues one `member_failure`; a repeated terminal trigger duplicates neither (idempotent on the action / member key) — FR-030/SC-003.
-
-### Implementation for User Story 6
-
-- [ ] T050 [US6] Add `list_jobs(submission/package/status/job_type)` to `app/services/job_query.py` (depends T044): the filtered union of `irp_job` + `rwb_job`, unknown params ignored, no scoping (FR-032/FR-033).
-- [ ] T051 [US6] Implement `app/services/notification_service.py` — `notify(notice_kind, ref, outcome, actor_id)` dispatching `action_complete` (one per terminal analyst action) or `member_failure` (one per failed member) to the configured channel(s) (R10); never one per successful member.
-- [ ] T052 [US6] Add the `notify_analyst` actor to `app/workers/package_jobs.py` (depends T051): claim the `notify_analyst` `rwb_job` and dispatch via `notification_service.notify`.
-- [ ] T053 [US6] Wire notification enqueue points across `app/poller/run.py` + `app/workers/package_jobs.py` (depends T040, T052): member-failure `notify_analyst` (`requestor_type='irp_job'`) on `FAILED`/exhausted `SUBMISSION FAILED`; action-completion fan-in (`requestor_type='analyst_request'`, `requestor_id=`the action anchor — package for sync/delete; the imported entity's own id for a standalone import (per-import this iteration; multi-file batch grouping deferred, no batch id)) when the action's member set is fully terminal; the delete action-completion on package soft-delete; and the `submission_retry` batch parking a row at the configured max + enqueuing a member-failure notify (FR-029/FR-047).
-- [ ] T054 [US6] Implement `app/routers/jobs.py` (depends T050): `GET /workflows/irp-jobs` + `/workflows/rwb-jobs` (query-string filters + clearable chips, same code path full-page or partial), and `GET /workflows/*-jobs/stream` SSE pushing server-rendered `job_row` fragments as the poller advances (FR-036/R9); include in `app/main.py`. The SSE generator learns of poller-driven changes by re-querying the filtered `job_query` each ~`POLL_INTERVAL_SECS` and emitting changed rows (cross-process — no shared in-process state; Redis pub/sub is a documented upgrade), bounded by SC-001 (R9).
-- [ ] T055 [US6] Wire the real `workflows.irp_jobs` / `workflows.rwb_jobs` nav nodes (elevate the Iteration-0 stubs to the filterable lists) in `app/nav/manifest.py` (Article 1).
-- [ ] T056 [P] [US6] Create `app/templates/pages/jobs.html`, `app/templates/partials/job_row.html` (SSE swap target), `filter_chips.html`, and `app/static/css/jobs.css` (job-status pills / filter chips via tokens).
-
-**Checkpoint**: All async work is observable, shareable via URL, live, and pushed on completion/failure at the right granularity.
+> Task IDs T057–T066 are retained (not renumbered) so downstream references stay stable.
 
 ---
 
 ## Phase 9: User Story 7 - Browse the global EDM and RDM libraries (Priority: P3)
 
-**Goal**: EDM and RDM libraries list every entity across all submissions to every analyst (no scoping), offer the same import entry point, and show each entity's import status.
+**Goal**: EDM and RDM libraries list every entity across all submissions to every analyst (no scoping), offer the same import entry point, show each entity's import status **and owning submission**, and are narrowable by a **name search + status filter**.
 
-**Independent Test**: Seed EDMs/RDMs under submissions owned by different analysts; confirm both libraries list all of them for any analyst, expose import, and show import status.
+**Independent Test**: Seed EDMs/RDMs under submissions owned by different analysts, plus one standalone import (no package); confirm both libraries list all of them for any analyst, expose the import entry point, show each entity's import-status chip and owning submission (deep-linked; `—` when standalone), and narrow correctly by the name + status filter (blank filters show all; a no-match search shows the filtered-empty state).
 
-### Tests for User Story 7 ⚠️
+> **⚠️ Scope refinement (2026-07-15, approver):** on top of the base "list + import + status" spec, US7 gains (1) a **name-search + status filter** (GET form, mirroring the submissions list) and (2) an **owning-submission column**. UI approved in `docs/ui_previews/edm_rdm_library.html`. The submission column resolves via the M:N `submission_package` join (an entity's `package_id` → package → submission_package → submission); a package can sit on several deals, so the cell shows **0 → `—`; 1 → deep-link; N → oldest deal linked + muted `+N more`**. These additions mean US7 now edits `edm_service`/`rdm_service`/`package_service` (all additive + defaulted — existing callers unaffected), not just routes/templates/nav.
 
-- [ ] T057 [P] [US7] Unit-test the libraries in `tests/unit/test_libraries.py`: `list_edms()`/`list_rdms()` with no filter return every entity regardless of owning submission/analyst (SC-009).
+### Tests for User Story 7 ⚠️ (write first, ensure they fail)
+
+- [X] T057 [P] [US7] Unit-test the libraries in `tests/unit/test_libraries.py` (SQLite unit tier + `iteration2_db` fixture; exercises T058's service extensions). For BOTH `edm_service.list_edms()` and `rdm_service.list_rdms()`:
+  - **No scoping (SC-009/FR-037):** with no filter, every non-deleted entity is returned regardless of owning submission or analyst; soft-deleted rows excluded.
+  - **Filters:** `name=` narrows by case-insensitive substring; `status=` narrows to the exact import status; the two combine with AND; blank/`None` filters are no-ops (return all).
+  - **Submission attach (M:N):** a row whose `package_id` is attached to one submission carries a single `SubmissionRef {id, name}` on `.submissions`; a standalone row (`package_id IS NULL`) carries an empty list; a package attached to ≥2 submissions carries all refs **ordered oldest-first** (`submission.inserted_at`). Seed `submission` / `package` / `submission_package` / `irp_edm` / `irp_rdm` in the fixture (attach via `package_service`).
 
 ### Implementation for User Story 7
 
-- [ ] T058 [US7] Add the library routes `GET /edms` and `GET /rdms` to `app/routers/edms.py` and `app/routers/rdms.py` (depends T023, T029): list all entities (no scoping), import entry point, per-entity import status (FR-037/FR-038).
-- [ ] T059 [P] [US7] Create `app/templates/pages/edm_library.html` and `rdm_library.html` (list + import affordance + status column).
-- [ ] T060 [US7] Add the `irp.edm_library` + `irp.rdm_library` nodes under the `irp` rail root in `app/nav/manifest.py` (depends T055) — breadcrumb/active-state derive from position (Article 1/R12).
+- [X] T058 [US7] Library **service extensions + routes** (depends T023, T029; extends the existing `package_service`). No row scoping anywhere (FR-037/FR-038); GET routes carry **no CSRF**.
+  - **(a) Service — filters + owning-submission attach** (do first; this is what T057 tests):
+    - Extend `edm_service.list_edms()` (`app/services/edm_service.py:142`) and `rdm_service.list_rdms()` (`app/services/rdm_service.py:132`) with kwargs `name: str | None = None`, `status: str | None = None`. Slot into the existing incremental `where`/`params` builder: `AND name LIKE :q` (bind `:q = f"%{name}%"` — case-insensitive on SQL Server's default collation and on SQLite for ASCII) and `AND status = :status`. Leave the `package_id` param and `ORDER BY inserted_at DESC, name` untouched.
+    - Add `submissions: list[SubmissionRef] = field(default_factory=list)` to `EdmRow` (`edm_service.py:51`) and `RdmRow` (`rdm_service.py:41`) — defaulted, so `get_edm`/`get_rdm` and every existing caller are unaffected. After building rows via `_to_row`, set each row's `.submissions`.
+    - Add a shared helper `submission_refs_for_packages(package_ids) -> dict[str, list[SubmissionRef]]` plus a `SubmissionRef` dataclass (`id`, `name`) to `app/services/package_service.py` (safe home — it does not import edm/rdm_service, so no circular dependency). One **portable** query: `SELECT sp.package_id, s.id AS sub_id, s.name AS sub_name FROM submission_package sp JOIN submission s ON s.id = sp.submission_id WHERE sp.package_id IN (:p0,:p1,…) ORDER BY s.inserted_at ASC` — build the `IN` params dict dynamically (`{f"p{i}": pid}`), assemble the map app-side (no `STRING_AGG`/`TOP`/`LIMIT`, no row fan-out into `list_edms`), return `{}` for empty input. `list_edms`/`list_rdms` map their rows' non-null `package_id`s through it and set `.submissions` (oldest-first).
+  - **(b) Routes** — model on `submissions._list_page` (`app/routers/submissions.py:127`):
+    - `GET /edms` in `app/routers/edms.py` and `GET /rdms` in `app/routers/rdms.py` (literal path — declare **before** the `/{id}` param route). Read `q` + `status` via `request.query_params.get(...)`, trim, coerce blank→`None`, pass as kwargs to `list_edms`/`list_rdms`.
+    - Build ctx `{rows, filter_values: {q, status}, statuses}` (status options from the service status constants — `edm_service.py:34-39` / `rdm_service.py:34-37`) and render `pages/edm_library.html` / `pages/rdm_library.html` via the router's existing `_render` (nav key wired in T060).
+- [X] T059 [P] [US7] Create the library templates + CSS (depends T058). `app/templates/pages/edm_library.html` and `rdm_library.html` each extend `base/shell.html`: `{% block page_actions %}` = the import button (`/edms/import` / `/rdms/import`); `{% block main %}` = the filter form (name `q` + status `<select>`, `method="get"` to `/edms`/`/rdms`) + a `Count: N` line + the entity table. Factor the table into a shared `app/templates/partials/library_table.html` (params: `rows`, entity-kind label, detail-route prefix) — the two pages differ only in entity type, crumb, and import route. Per row the table renders: name → detail link (`/edms/{id}` / `/rdms/{id}`), import-status chip (`status-chip status-chip--{{ status }}`), **Submission cell** (0 → `—`; 1 → deep-link `/submissions/{id}`; N → oldest linked + muted `+N more` whose `title` lists the rest), Risk Modeler id (`—` until set), source path (mono, tail-truncated), created. Include the **filtered-empty** row (`clear filters` link back to the unfiltered route) and the **true-empty** row. Approved markup/classes live in `docs/ui_previews/edm_rdm_library.html`; move its small `PROPOSED` rules (`.na`, `.lib-intro`, `.lib-src`/`.lib-deal` truncation, `.lib-clear`) into `app/static/css/app.css` — token-only, no hardcoded hex (Article 9). Keep the preview file in sync (add one multi-deal `+N more` row).
+- [X] T060 [US7] Add the `irp.edm_library` (route `/edms`, label "EDM Library") + `irp.rdm_library` (route `/rdms`, label "RDM Library") child nodes under the `irp` rail root in `app/nav/manifest.py` (`parent: "irp"`, `searchable: True`, `roles: []`, `hidden: False`, `bottom: False`) — this introduces the Moody's-IRP sidebar (empty today). Breadcrumb/active-state derive from manifest position, not URL: resolution is key-based (`app/nav/__init__.py` — `node["route"]` only builds hrefs), so `/edms` and `/rdms` work as children of `/irp` (Article 1/R12). Flip the router nav keys so the pages activate the new nodes: `app/routers/edms.py:24` `_NAV_KEY = "irp"` → `"irp.edm_library"`; `app/routers/rdms.py:25` → `"irp.rdm_library"` (the `# elevated … in US7 (T060)` markers). Reusing the library key across the list/import/detail routes keeps the sidebar item active and yields breadcrumb "Moody's IRP › EDM Library" (resp. RDM) — no separate hidden detail node needed. (Only Iteration-2 `manifest.py` edit; the US6 Jobs-list nav elevation was descoped, so the Iteration-0 `workflows.*` stubs stay as-is.)
 
 **Checkpoint**: All seven stories independently functional.
 
@@ -260,8 +259,8 @@ These files are touched by several tasks across phases; edits to them are **sequ
 - [ ] T063 Run `pytest tests/sqlserver --run-sqlserver` and confirm the migration + atomic-claim + idempotent-insert tier is green (quickstart §3).
 - [ ] T063a Run `pytest tests/irp --run-irp` and confirm the real `irp_gateway` path against the IRP sandbox: submit + single-status-check `get_*` round-trips for `import_edm`/`import_rdm` and `delete_edm`, plus the synchronous `delete_analysis` call. This is the one remaining formal gate on the Phase 1–7 import/delete path (code-complete + manually verified end-to-end 2026-07-15; see the ⚠️ Real Risk Modeler wiring status note in Phase 2). While here, confirm the deferred `search_imported_rdms` field names (`rdmName`/`rdmId`) and resolve the RDM-entity-id consistency item (`irp_rdm.irp_id` should be the RDM entity id, not the apply job id) if the sandbox confirms them.
 - [ ] T064 [P] Guard-test that `poll_*_to_completion` appears nowhere in `app/poller/` and no `customer`/scope construct exists on any EDM/RDM/package/job (Article 11 / Article 6 / FR-041) — add to `tests/unit/test_architecture_guards.py`.
-- [ ] T065 [P] ITCSS token audit of `app/static/css/packages.css` + `jobs.css` — no hardcoded hex, tokens layered correctly (Article 9).
-- [ ] T066 Run the quickstart §5 manual walkthrough (import → assemble → sync → cards → jobs/notify → delete → libraries → closed-submission gate) and confirm SC-001…SC-014.
+- [ ] T065 [P] ITCSS token audit of `app/static/css/packages.css` — no hardcoded hex, tokens layered correctly (Article 9). (`jobs.css` dropped — descoped with US6.)
+- [ ] T066 Run the quickstart §5 manual walkthrough (import → assemble → sync → cards → delete → libraries → closed-submission gate) and confirm the in-scope success criteria (SC-001…SC-014 except the descoped SC-003 notifications and SC-008 Jobs-list filter).
 
 ---
 
@@ -271,7 +270,7 @@ These files are touched by several tasks across phases; edits to them are **sequ
 
 - **Setup (Phase 1)**: no dependencies.
 - **Foundational (Phase 2)**: depends on Setup; **blocks all user stories**.
-- **User stories (Phases 3–9)**: all depend on Foundational. Priority order P1 (US1→US2→US3) → P2 (US4→US5→US6) → P3 (US7). US3 depends on US1+US2 services; US4/US5 depend on US3; US6 depends on US5 (`job_query`); US7 depends on US1/US2 routes.
+- **User stories (Phases 3–9)**: all depend on Foundational. Priority order P1 (US1→US2→US3) → P2 (US4→US5) → P3 (US7). US3 depends on US1+US2 services; US4/US5 depend on US3; US7 depends on US1/US2 routes. *(US6 descoped — 2026-07-15.)*
 - **Polish (Phase 10)**: depends on all targeted stories.
 
 ### Critical cross-story dependencies (beyond "after Foundational")
@@ -280,8 +279,7 @@ These files are touched by several tasks across phases; edits to them are **sequ
 - US3 (T033) uses `edm_service`/`rdm_service` (T020/T026); its chaining (T034) extends the US2 poller (T028) and uses the US2 `upload_rdm` actor (T027).
 - US4 extends US3's service (T038←T033), worker (T039←T027, plus T027a/T028 — reads the backfilled `irp_analysis` rows), poller (T040←T034), routes (T041←T035), card (T042←T036).
 - US5 `get_package_cards` (T045) extends US4's service (T038); the full card (T047) extends US4's card (T042).
-- US6 `list_jobs` (T050) extends US5's `job_query` (T044); notifications (T053) extend US4's poller (T040) + the notify actor (T052).
-- US7 library routes (T058) extend US1/US2 routers; the nav nodes (T060) extend US6's manifest edit (T055).
+- US7 (T058) extends the US1/US2 services (`list_edms`/`list_rdms` gain `name`/`status` filters + an owning-submission attach) and routers (the new `GET /edms`/`GET /rdms` list routes), plus adds a `submission_refs_for_packages` helper to the existing `package_service`; the nav nodes (T060) add the EDM/RDM library nodes to `app/nav/manifest.py` and flip the `edms.py`/`rdms.py` `_NAV_KEY` (the US6 nav elevation T060 formerly chained behind was descoped — 2026-07-15).
 
 ### Within each user story
 
@@ -320,7 +318,7 @@ Task: "T020 edm_service.py" → "T021 upload_edm actor" / "T022 poller body" →
 ### Incremental delivery (by priority)
 
 - **P1 core**: US1 → US2 → US3 (import both entity types, then real package sync — the headline). Deliverable: an analyst can import and sync a real package.
-- **P2**: US4 (delete) → US5 (cards) → US6 (jobs list + notifications). Deliverable: full lifecycle + observability.
+- **P2**: US4 (delete) → US5 (cards). Deliverable: full package lifecycle + package cards. *(US6 — jobs list + notifications — descoped 2026-07-15.)*
 - **P3**: US7 (libraries). Deliverable: cross-submission browse.
 - **Polish**: rebuild + all test tiers green + architecture guards + quickstart walkthrough.
 

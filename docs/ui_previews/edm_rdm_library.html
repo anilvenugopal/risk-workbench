@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDM / RDM Library (US7) — real classes · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+   TOKENS — verbatim from app/static/css/tokens.css
+   ════════════════════════════════════════════════════════════════════════════ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em; --dur-fast:120ms;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   APP CSS — copied VERBATIM from the real stylesheets (base → components →
+   submissions → packages → app), real @import order. Real cascade, real classes.
+   ════════════════════════════════════════════════════════════════════════════ */
+/* base.css */
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;padding:0}
+input,select{font-family:inherit;font-size:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-sm)}
+
+/* components.css */
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+
+/* submissions.css — base .status-chip (redefined below by packages.css) */
+
+/* packages.css (loaded AFTER submissions.css — redefines base .status-chip for the import lifecycle) */
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--pending_import,.status-chip--importing{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--error,.status-chip--submission-failed{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.status-chip--delete_pending,.status-chip--deleting{background:var(--c-amber-050);color:var(--c-amber-700);border-color:var(--c-amber-200)}
+.status-chip--deleted{background:var(--c-gray-bg);color:var(--text-tertiary)}
+
+/* app.css */
+.crumb{color:var(--text-secondary);text-decoration:none;white-space:nowrap}
+.crumb--current{color:var(--text-primary);font-weight:var(--fw-medium)}
+.crumb__sep{color:var(--text-tertiary)}
+.topbar__crumbs{flex:1;display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);min-width:0}
+.mk-pagehdr{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);min-height:40px;padding:var(--space-2) 22px;border-bottom:1px solid var(--border-default);background:var(--surface-panel);flex-shrink:0}
+.mk-pagehdr .topbar__crumbs{font-size:var(--fs-body)}
+.pagehdr__actions{display:flex;gap:var(--space-2);flex-shrink:0}
+.page-pad{padding:18px 22px}
+.filters{display:flex;gap:18px;margin-bottom:14px}
+.filters label{font-size:var(--fs-caption);color:var(--text-tertiary);display:flex;flex-direction:column;gap:4px}
+.filters select{min-width:150px}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px}
+.muted{color:var(--text-tertiary);font-size:var(--fs-label)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-secondary)}
+.empty{color:var(--text-tertiary);text-align:center;padding:var(--space-4)}
+.detail-empty{padding:var(--space-6) var(--space-4);color:var(--text-tertiary)}
+.mk-table{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
+.mk-table thead th{text-align:left;padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border-default);font-weight:var(--fw-medium)}
+.mk-table td{padding:9px var(--space-3);border-bottom:1px solid var(--border-faint);color:var(--text-primary)}
+.data-row{cursor:pointer}
+.data-row:hover td{background:var(--surface-hover)}
+.open-link{color:var(--color-brand);font-size:var(--fs-label)}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.section-head h2{font-size:14px;margin:0;color:var(--text-primary);font-weight:var(--fw-medium)}
+.tag-empty{color:var(--text-tertiary)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PROPOSED — NET-NEW for the libraries. Token-only (Article 9). Would land in
+   app.css at wiring time. Deliberately tiny — the library is a plain list view.
+   ════════════════════════════════════════════════════════════════════════════ */
+/* muted em-dash for "no value yet" cells (no Risk Modeler id until import finishes,
+   or no owning submission for a standalone import) */
+.na{color:var(--text-disabled)}
+/* one-line count above the table */
+.lib-intro{display:flex;align-items:baseline;gap:var(--space-2);margin-bottom:var(--space-4)}
+/* keep the name/submission columns from being crowded out by the source path */
+.lib-table td.lib-src{max-width:280px}
+.lib-table td.lib-deal{max-width:220px}
+.lib-table .lib-src .mono,
+.lib-table .lib-deal a{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+/* trailing "Clear filters" affordance on the filtered-empty row */
+.lib-clear{color:var(--color-brand);font-size:var(--fs-label)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PREVIEW CHROME — not part of the app.
+   ════════════════════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--c-amber-200);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.opt-head{margin:var(--space-9) 0 var(--space-4);padding-top:var(--space-6);border-top:2px solid var(--c-navy-200)}
+.opt-head:first-of-type{border-top:none;padding-top:0;margin-top:var(--space-4)}
+.opt-tag{display:inline-block;background:var(--c-navy-700);color:#fff;font-size:var(--fs-caption);font-weight:var(--fw-bold);letter-spacing:.06em;text-transform:uppercase;padding:2px 10px;border-radius:var(--radius-pill)}
+.opt-title{font-size:var(--fs-title);font-weight:var(--fw-semibold);margin:var(--space-2) 0 var(--space-1)}
+.opt-note{color:var(--text-secondary);font-size:var(--fs-label);max-width:820px}
+.frame{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);box-shadow:var(--shadow-sm);overflow:hidden}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW — EDM &amp; RDM libraries (US7 / T058–T060), on the app's REAL classes.</strong>
+    Everything except the small <em>PROPOSED</em> box in the CSS is copied verbatim from the app stylesheets in the real
+    <code>@import</code> order. Two sibling pages under <strong>Moody's IRP</strong> — <code>GET /edms</code> and
+    <code>GET /rdms</code> — same shape, same import entry point. They list <strong>every</strong> entity across
+    <strong>all</strong> submissions to <strong>any</strong> analyst — no row scoping (FR-037 / SC-009). Each row shows
+    its owning <strong>submission</strong> (deep-linked; blank for a standalone import), and the list is narrowable by a
+    <strong>name search + status filter</strong> (GET form, same pattern as the submissions list). Row → entity detail.
+    Names, ids and paths are mock; paths are shown tail-truncated.
+  </div>
+
+  <!-- ════════════════════════ EDM LIBRARY — POPULATED ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">EDM library</span>
+    <div class="opt-title">Populated — every EDM, all submissions</div>
+    <div class="opt-note">A plain <code>.mk-table</code> list (same as the submissions list). Columns: name (opens the
+      detail), import status chip, owning submission (deep-linked; a standalone import shows a dash), Risk Modeler id
+      (dash until the import finishes), source file, and created date. A <strong>name search + status filter</strong>
+      sits above the table; the <strong>Import EDM</strong> action sits in the page-header band, routing to the existing
+      <code>/edms/import</code> form. Newest first. Note the entities below sit under <strong>different deals</strong> —
+      the library shows them all regardless of owner.</div>
+  </div>
+
+  <div class="frame">
+    <div class="mk-pagehdr">
+      <div class="topbar__crumbs">
+        <a class="crumb" href="#">Moody's IRP</a>
+        <span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">EDM Library</span>
+      </div>
+      <div class="pagehdr__actions">
+        <a class="btn-sm btn-sm--primary" href="/edms/import">+ Import EDM</a>
+      </div>
+    </div>
+    <div class="page-pad">
+      <form class="filters" method="get" action="/edms">
+        <label>Search
+          <input class="wf-field__input" type="text" name="q" placeholder="name…" value="" autocomplete="off">
+        </label>
+        <label>Status
+          <select class="wf-field__input" name="status" style="min-width:150px">
+            <option value="">Any</option>
+            <option>ready</option>
+            <option>importing</option>
+            <option>pending_import</option>
+            <option>error</option>
+          </select>
+        </label>
+        <label style="justify-content:flex-end">&nbsp;
+          <button class="btn-sm" type="submit">Filter</button>
+        </label>
+      </form>
+
+      <div class="lib-intro">
+        <span class="muted">Count: 6</span>
+      </div>
+
+      <table class="mk-table lib-table">
+        <thead>
+          <tr><th>Name</th><th>Status</th><th>Submission</th><th>Risk Modeler ID</th><th>Source file</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/1">meridian_edm_2026</a></td>
+            <td><span class="status-chip status-chip--ready">ready</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/1" title="Meridian Property Cat XoL 2026">Meridian Property Cat XoL 2026</a></td>
+            <td class="mono">48201</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\meridian-re\meridian_edm_2026.bak">…\meridian-re\meridian_edm_2026.bak</span></td>
+            <td>2026-06-30</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/2">coastal_re_2026_q2</a></td>
+            <td><span class="status-chip status-chip--ready">ready</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/2" title="Coastal Re Marine QS 2026">Coastal Re Marine QS 2026</a></td>
+            <td class="mono">48355</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\coastal-re\coastal_2026_q2.mdf">…\coastal-re\coastal_2026_q2.mdf</span></td>
+            <td>2026-07-02</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/6">shared_book_edm</a></td>
+            <td><span class="status-chip status-chip--ready">ready</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/1" title="Meridian Property Cat XoL 2026">Meridian Property Cat XoL 2026</a> <span class="muted" title="Coastal Re Marine QS 2026">+1 more</span></td>
+            <td class="mono">48402</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\shared\shared_book.bak">…\shared\shared_book.bak</span></td>
+            <td>2026-07-05</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/3">northwind_intl_edm</a></td>
+            <td><span class="status-chip status-chip--importing">importing</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/3" title="Northwind Intl Multiline 2026">Northwind Intl Multiline 2026</a></td>
+            <td class="na">—</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\northwind\northwind_intl.bak">…\northwind\northwind_intl.bak</span></td>
+            <td>2026-07-14</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/4">atlas_cat_2025</a></td>
+            <td><span class="status-chip status-chip--error">error</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/4" title="Atlas Cat XoL 2025">Atlas Cat XoL 2025</a></td>
+            <td class="na">—</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2025\atlas\atlas_cat_2025.bak">…\atlas\atlas_cat_2025.bak</span></td>
+            <td>2026-07-13</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/edms/5">pilot_test_upload</a></td>
+            <td><span class="status-chip status-chip--pending_import">pending_import</span></td>
+            <td class="na" title="Standalone import — not attached to a submission">—</td>
+            <td class="na">—</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\scratch\pilot_test.csv">…\scratch\pilot_test.csv</span></td>
+            <td>2026-07-15</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ════════════════════════ EDM LIBRARY — FILTERED, NO MATCHES ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">EDM library · no matches</span>
+    <div class="opt-title">Filters active, nothing matched</div>
+    <div class="opt-note">The filter inputs keep their values so the analyst can see what they searched. The empty row
+      offers a one-click way back to the full list.</div>
+  </div>
+
+  <div class="frame">
+    <div class="mk-pagehdr">
+      <div class="topbar__crumbs">
+        <a class="crumb" href="#">Moody's IRP</a>
+        <span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">EDM Library</span>
+      </div>
+      <div class="pagehdr__actions">
+        <a class="btn-sm btn-sm--primary" href="/edms/import">+ Import EDM</a>
+      </div>
+    </div>
+    <div class="page-pad">
+      <form class="filters" method="get" action="/edms">
+        <label>Search
+          <input class="wf-field__input" type="text" name="q" value="zephyr" autocomplete="off">
+        </label>
+        <label>Status
+          <select class="wf-field__input" name="status" style="min-width:150px">
+            <option value="">Any</option>
+            <option selected>ready</option>
+            <option>importing</option>
+            <option>pending_import</option>
+            <option>error</option>
+          </select>
+        </label>
+        <label style="justify-content:flex-end">&nbsp;
+          <button class="btn-sm" type="submit">Filter</button>
+        </label>
+      </form>
+
+      <table class="mk-table lib-table">
+        <thead>
+          <tr><th>Name</th><th>Status</th><th>Submission</th><th>Risk Modeler ID</th><th>Source file</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="6" class="empty">No EDMs match — <a class="lib-clear" href="/edms">clear filters</a>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ════════════════════════ EDM LIBRARY — EMPTY ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">EDM library · empty</span>
+    <div class="opt-title">Nothing imported yet</div>
+    <div class="opt-note">First-run state. The import action stays in the header so there's always a way forward.</div>
+  </div>
+
+  <div class="frame">
+    <div class="mk-pagehdr">
+      <div class="topbar__crumbs">
+        <a class="crumb" href="#">Moody's IRP</a>
+        <span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">EDM Library</span>
+      </div>
+      <div class="pagehdr__actions">
+        <a class="btn-sm btn-sm--primary" href="/edms/import">+ Import EDM</a>
+      </div>
+    </div>
+    <div class="page-pad">
+      <table class="mk-table lib-table">
+        <thead>
+          <tr><th>Name</th><th>Status</th><th>Submission</th><th>Risk Modeler ID</th><th>Source file</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="6" class="empty">No EDMs imported yet. Import one to get started.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ════════════════════════ RDM LIBRARY — PARITY ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">RDM library</span>
+    <div class="opt-title">Same shape — the RDM sibling page</div>
+    <div class="opt-note">Identical layout, columns and filters; only the entity type, the crumb, and the import action
+      differ (<code>/rdms/import</code>). An RDM's status reflects its import/apply lifecycle — it reaches
+      <span class="status-chip status-chip--ready">ready</span> once all of its applies finish.</div>
+  </div>
+
+  <div class="frame">
+    <div class="mk-pagehdr">
+      <div class="topbar__crumbs">
+        <a class="crumb" href="#">Moody's IRP</a>
+        <span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">RDM Library</span>
+      </div>
+      <div class="pagehdr__actions">
+        <a class="btn-sm btn-sm--primary" href="/rdms/import">+ Import RDM</a>
+      </div>
+    </div>
+    <div class="page-pad">
+      <form class="filters" method="get" action="/rdms">
+        <label>Search
+          <input class="wf-field__input" type="text" name="q" placeholder="name…" value="" autocomplete="off">
+        </label>
+        <label>Status
+          <select class="wf-field__input" name="status" style="min-width:150px">
+            <option value="">Any</option>
+            <option>ready</option>
+            <option>importing</option>
+            <option>pending_import</option>
+            <option>error</option>
+          </select>
+        </label>
+        <label style="justify-content:flex-end">&nbsp;
+          <button class="btn-sm" type="submit">Filter</button>
+        </label>
+      </form>
+
+      <div class="lib-intro">
+        <span class="muted">Count: 4</span>
+      </div>
+
+      <table class="mk-table lib-table">
+        <thead>
+          <tr><th>Name</th><th>Status</th><th>Submission</th><th>Risk Modeler ID</th><th>Source file</th><th>Created</th></tr>
+        </thead>
+        <tbody>
+          <tr class="data-row">
+            <td><a class="open-link" href="/rdms/1">meridian_q4_results</a></td>
+            <td><span class="status-chip status-chip--ready">ready</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/1" title="Meridian Property Cat XoL 2026">Meridian Property Cat XoL 2026</a></td>
+            <td class="mono">77120</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\meridian-re\meridian_q4_results.rdm">…\meridian-re\meridian_q4_results.rdm</span></td>
+            <td>2026-06-30</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/rdms/2">coastal_re_view_2026</a></td>
+            <td><span class="status-chip status-chip--ready">ready</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/2" title="Coastal Re Marine QS 2026">Coastal Re Marine QS 2026</a></td>
+            <td class="mono">77340</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\coastal-re\coastal_view.rdm">…\coastal-re\coastal_view.rdm</span></td>
+            <td>2026-07-02</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/rdms/3">retro_2025_view</a></td>
+            <td><span class="status-chip status-chip--importing">importing</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/3" title="Northwind Intl Multiline 2026">Northwind Intl Multiline 2026</a></td>
+            <td class="na">—</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2026\retro\retro_2025_view.rdm">…\retro\retro_2025_view.rdm</span></td>
+            <td>2026-07-14</td>
+          </tr>
+          <tr class="data-row">
+            <td><a class="open-link" href="/rdms/4">atlas_broker_results</a></td>
+            <td><span class="status-chip status-chip--error">error</span></td>
+            <td class="lib-deal"><a class="crumb" href="/submissions/4" title="Atlas Cat XoL 2025">Atlas Cat XoL 2025</a></td>
+            <td class="na">—</td>
+            <td class="lib-src"><span class="mono" title="\\rms-share\intake\2025\atlas\atlas_results.mdf">…\atlas\atlas_results.mdf</span></td>
+            <td>2026-07-13</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

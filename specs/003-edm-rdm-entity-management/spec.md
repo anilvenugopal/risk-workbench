@@ -49,6 +49,15 @@ The mechanism by which a completed Risk Modeler job triggers the next queued app
 - **D5 — Analysis counts stay empty on the card.** Although `irp_analysis` rows ARE captured this iteration (D2), the package card's portfolio-summary and analysis counts still render **empty** — the captured rows exist only for delete-enumeration and are not surfaced until a later iteration (FR-023).
 - **No `irp-integration` code change is on the Iteration-2 critical path;** deferred/nice-to-have library items are tracked in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
 
+### US6 (Jobs list + notifications) descoped (2026-07-15)
+
+**User Story 6 — the URL-filtered Jobs list and completion/failure notifications — is deferred out of Iteration 2** and will be picked up in a later iteration. The async machinery it would have surfaced (the poller, the `irp_job`/`rwb_job` tables, completion-chaining/fan-in, and the package-card job counts) is all still built this iteration; what defers is only the *observability surface* layered on top:
+
+- **Deferred requirements:** FR-030, FR-031 (completion/failure notifications) and FR-032–FR-036 (the URL-filtered Jobs list, clearable filter chips, cross-page pre-filtered navigation, live SSE status). The measurable outcomes SC-003 (notification delivery) and SC-008 (Jobs-list URL filter) are deferred with them.
+- **Retained (foundational, not US6):** FR-029 and FR-047 — automatic retry of submit-side failures up to the configured limit and parking as terminal `SUBMISSION FAILED` — stay in scope and are completed by the new foundational task **T017a** (tasks.md). Only the *notification* emitted when a row is parked defers with US6.
+- **Consequence for US5:** the package-card job counts (FR-023) still compute, but their deep-links (FR-024) point at the pre-existing Iteration-0 Jobs-list placeholder pages rather than a live pre-filtered list — a graceful degradation (a placeholder page, not an error), reconciled when US6 lands.
+- **Notification channel** config (Teams/email/desktop) remains defined but unused this iteration.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Import an EDM from a broker file (Priority: P1)
@@ -146,7 +155,9 @@ On a submission's detail view, the analyst sees one full-width card per package 
 
 ---
 
-### User Story 6 - Monitor and filter jobs, and be notified on completion (Priority: P2)
+### User Story 6 - Monitor and filter jobs, and be notified on completion (Priority: P2) — DESCOPED (2026-07-15)
+
+> **Deferred out of Iteration 2 (2026-07-15).** The underlying async machinery (poller, `irp_job`/`rwb_job` tables, completion-chaining, package-card job counts) is still built this iteration; only the observability surface — the filterable Jobs list and completion/failure notifications — is deferred to a later iteration. FR-030–FR-036, SC-003, and SC-008 are deferred with it. See Clarifications → "US6 (Jobs list + notifications) descoped". The story text below is retained for when it is picked up.
 
 An analyst tracks all the asynchronous work in one place: a Jobs list whose filters live entirely in the URL, so a filtered view can be linked to, bookmarked, and navigated back to. Job status updates appear live as the poller advances them, and the analyst receives a notification when a job completes or fails.
 
@@ -241,10 +252,12 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 - **FR-027**: The system MUST poll each in-flight job with a single-status-check per pass, at a configured interval defaulting to ~15 seconds, and MUST NEVER use a blocking poll-to-completion call anywhere.
 - **FR-028**: The system MUST mirror each job's Risk Modeler status onto the tracked job (updated in place) and detect terminal states, treating only a "finished" terminal state as success and other terminal states as failure.
 - **FR-029**: The system MUST distinguish a submission failure (the operation never reached Risk Modeler, no Risk Modeler id) from a Risk-Modeler-side failure, and MUST make submission failures eligible for automatic retry up to a configured limit. The limit is a deployment configuration value with **no fixed default**; when it is reached the operation MUST be parked as terminal `SUBMISSION FAILED` for analyst-driven recovery (FR-045–FR-046), and the mandated retry state-machine test asserts that retries stop at the configured limit whatever its value.
-- **FR-030**: The system MUST notify the analyst on a configurable channel (Teams / email / desktop toast), delivered from a background worker, when an **analyst-initiated action** reaches a terminal state — a standalone import, a package Save-and-Sync, or a package Delete completing — and whenever **any member operation fails**. It MUST NOT emit a separate notification for each successfully-completed member job, so a multi-member package sync yields one completion notification (plus one per failed member), not one per member. A **standalone import** is anchored per imported entity this iteration; grouping a multi-file import into a single notification is deferred (no batch id is persisted).
-- **FR-031**: The system MUST provide a background worker scaffold with a working completion-notification worker, and MUST back the package member upload/apply/delete operations with real Risk Modeler jobs (the UI MAY first be built against short heartbeat stubs and wired to real Risk Modeler within this iteration).
+- **FR-030**: *(Deferred — US6 descope, 2026-07-15.)* The system MUST notify the analyst on a configurable channel (Teams / email / desktop toast), delivered from a background worker, when an **analyst-initiated action** reaches a terminal state — a standalone import, a package Save-and-Sync, or a package Delete completing — and whenever **any member operation fails**. It MUST NOT emit a separate notification for each successfully-completed member job, so a multi-member package sync yields one completion notification (plus one per failed member), not one per member. A **standalone import** is anchored per imported entity this iteration; grouping a multi-file import into a single notification is deferred (no batch id is persisted).
+- **FR-031**: *(Partially deferred — US6 descope, 2026-07-15: the completion-notification worker defers; the real-Risk-Modeler-backed member ops below stay in scope and are built.)* The system MUST provide a background worker scaffold with a working completion-notification worker, and MUST back the package member upload/apply/delete operations with real Risk Modeler jobs (the UI MAY first be built against short heartbeat stubs and wired to real Risk Modeler within this iteration).
 
 ### Functional Requirements — Jobs list & filtering
+
+> *(Entire section — FR-032 through FR-036 — deferred out of Iteration 2 with US6; see Clarifications → "US6 (Jobs list + notifications) descoped". Retained here for the later iteration that builds it.)*
 
 - **FR-032**: The system MUST provide a Jobs list whose active filters are read from the URL query string on every request (full page load or partial swap), using the same code path for both.
 - **FR-033**: The system MUST support a shared, fixed filter-param vocabulary across filterable lists — at minimum submission, package, status, and job type — where each list accepts the subset that applies to it and ignores the rest.
@@ -293,12 +306,12 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 
 - **SC-001**: An analyst can import an EDM from a shared-drive file and see it reach *ready* without ever manually polling; the tracked status reflects Risk Modeler within one poll interval (target ≤ ~15 seconds).
 - **SC-002**: No web request blocks on a Risk Modeler import or on polling — imports that run for minutes are tracked entirely by background processing, verified by importing while the UI stays responsive.
-- **SC-003**: A completion or failure notification is delivered on the configured channel for 100% of terminal analyst actions (standalone import / package sync / package delete) and for 100% of member failures; a successful multi-member sync produces a single completion notification rather than one per member job.
+- **SC-003**: *(Deferred — US6 descope, 2026-07-15.)* A completion or failure notification is delivered on the configured channel for 100% of terminal analyst actions (standalone import / package sync / package delete) and for 100% of member failures; a successful multi-member sync produces a single completion notification rather than one per member job.
 - **SC-004**: Both **syncable** package shapes — EDM-only and EDM+RDM — can be created and synced by browsing and multi-selecting files from the shared drive. *(An RDM-only package may be assembled/saved, but its Save-and-Sync is rejected this iteration — D3, 2026-07-14.)*
 - **SC-005**: The member name-collision warning appears in 100% of collision cases and blocks Save/Sync in 0% of them.
 - **SC-006**: Save-and-Sync on an EDM+RDM package produces exactly one upload job per EDM and one apply job per (EDM × RDM) pair, with each apply starting only after its target EDM's upload succeeds — verified against the queued job set.
 - **SC-007**: Delete on a synced package runs member removals in RDM-before-EDM order and, on completion, soft-deletes the members and the package with zero hard-deletes.
-- **SC-008**: Clicking a package card's job count lands on the Jobs list pre-filtered to that package, and refresh, bookmark, and browser back/forward all preserve that filter (filter state is fully carried in the URL).
+- **SC-008**: *(Deferred — US6 descope, 2026-07-15.)* Clicking a package card's job count lands on the Jobs list pre-filtered to that package, and refresh, bookmark, and browser back/forward all preserve that filter (filter state is fully carried in the URL).
 - **SC-009**: The EDM and RDM libraries each show 100% of entities across all submissions to every analyst, independent of deal ownership.
 - **SC-010**: Concurrent edits to the same EDM/RDM name or the same package never produce a silent lost update — the later save is reconciled or reported as a conflict.
 - **SC-011**: Package create/sync/delete actions are blocked on a COMPLETED or CANCELLED submission 100% of the time, and become available again after it is reopened to ACTIVE.

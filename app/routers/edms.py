@@ -21,7 +21,7 @@ from app.services.errors import ConcurrencyConflict, InvalidSourceFile
 
 router = APIRouter()
 
-_NAV_KEY = "irp"  # elevated to irp.edm_library in US7 (T060)
+_NAV_KEY = "irp.edm_library"  # list / import / detail all activate this node (T060)
 
 
 def _templates(request: Request):
@@ -43,6 +43,23 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
         request, template, {"current_user": request.state.user, **ctx},
         status_code=status_code,
     )
+
+
+# ── Library list (literal path — declared before /edms/{edm_id}) ─────────────────
+
+@router.get("/edms", response_class=HTMLResponse)
+def library(request: Request):
+    """Global EDM library — every EDM across all submissions, any analyst (no row
+    scoping, FR-037/SC-009), narrowable by a name search + status filter (US7). GET,
+    no CSRF."""
+    q = (request.query_params.get("q") or "").strip() or None
+    status = (request.query_params.get("status") or "").strip() or None
+    return _render(request, "pages/edm_library.html", {
+        "rows": edm_service.list_edms(name=q, status=status),
+        "filter_values": {"q": request.query_params.get("q", ""),
+                          "status": request.query_params.get("status", "")},
+        "statuses": edm_service.STATUSES,
+    })
 
 
 # ── Import form + name check (literal paths first) ───────────────────────────────

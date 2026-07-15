@@ -209,6 +209,36 @@ NODES: list[dict[str, Any]] = [
         "hidden": False,
         "bottom": False,
     },
+    # ── Moody's IRP sidebar (US7) ─────────────────────────────────────────────
+    # First children under the (previously empty) `irp` rail root. The EDM/RDM
+    # list / import / detail routes all resolve to these keys (edms.py / rdms.py
+    # `_NAV_KEY`), so the sidebar item stays active and the breadcrumb reads
+    # "Moody's IRP › EDM Library" (resp. RDM) across all three — no hidden detail
+    # node needed (Article 1 / R12).
+    {
+        "key": "irp.edm_library",
+        "label": "EDM Library",
+        "parent": "irp",
+        "route": "/edms",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
+    {
+        "key": "irp.rdm_library",
+        "label": "RDM Library",
+        "parent": "irp",
+        "route": "/rdms",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
 ]
 
 # Build index for O(1) lookup
