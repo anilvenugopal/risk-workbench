@@ -55,6 +55,14 @@ function appShell() {
 // swap. The package modal is injected via HTMX after load; defining its component
 // inline inside that fragment races Alpine's initializer and silently fails, so it
 // must live here and be referenced as x-data="packageModal" (no parens).
+// Default an EDM/RDM name from a source filename: drop the trailing extension
+// (PORTFOLIO.BAK → PORTFOLIO) and cap at the 50-char server limit. The name field
+// still enforces the [A-Za-z0-9_-] charset via its pattern; this only sets the guess.
+function defaultMemberName(base) {
+  const stem = base.replace(/\.[^.]+$/, '');
+  return (stem || base).slice(0, 50);
+}
+
 document.addEventListener('alpine:init', () => {
   Alpine.data('packageModal', () => ({
     members: [],
@@ -66,7 +74,10 @@ document.addEventListener('alpine:init', () => {
       if (cb.checked) {
         if (!this.members.some((m) => m.path === path)) {
           const base = path.split(/[\\/]/).pop();
-          this.members.push({ path, kind: /rdm/i.test(base) ? 'rdm' : 'edm', name: base });
+          this.members.push({
+            path, kind: /rdm/i.test(base) ? 'rdm' : 'edm',
+            name: defaultMemberName(base),
+          });
         }
       } else {
         this.members = this.members.filter((m) => m.path !== path);

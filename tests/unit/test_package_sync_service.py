@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 
 from app.services import package_sync_service as sync
-from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.errors import (
+    ConcurrencyConflict, EmptyPackageError, InvalidMemberName)
 from db import execute, execute_one, execute_scalar
 
 MS = sync.MemberSpec
@@ -134,3 +135,47 @@ def test_sync_empty_package_raises(iteration2_db, fake_irp, drive):
                     connection="WORKBENCH")
     with pytest.raises(EmptyPackageError):
         sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
+
+
+# ── member name: extension-stripped default + charset/length validation ───────────
+
+@pytest.mark.parametrize("filename, expected", [
+    ("PORTFOLIO.BAK", "PORTFOLIO"),        # trailing extension dropped
+    ("acme_re-2024.mdf", "acme_re-2024"),  # underscores/hyphens preserved
+    ("no_extension", "no_extension"),      # nothing to strip
+    ("multi.part.name.bak", "multi.part.name"),  # only the final extension goes
+])
+def test_default_name_strips_trailing_extension(filename, expected):
+    from app.routers.packages import _default_name
+    assert _default_name(f"C:\\share\\{filename}") == expected   # Windows path
+    assert _default_name(f"/mnt/share/{filename}") == expected    # POSIX path
+
+
+def test_save_rejects_name_with_disallowed_characters(iteration2_db, fake_irp, drive):
+    before = execute_scalar("SELECT COUNT(*) FROM package", {}, connection="WORKBENCH")
+    with pytest.raises(InvalidMemberName):
+        sync.save_package(
+            package_id=None, name="B",
+            members=_members(drive, edms=[("bad name!", "edm1.bak")]),
+            actor_id=iteration2_db.user_a)
+    # validation runs before the write txn — nothing is persisted.
+    after = execute_scalar("SELECT COUNT(*) FROM package", {}, connection="WORKBENCH")
+    assert after == before
+
+
+def test_save_rejects_overlong_name(iteration2_db, fake_irp, drive):
+    with pytest.raises(InvalidMemberName):
+        sync.save_package(
+            package_id=None, name="B",
+            members=_members(drive, edms=[("A" * 51, "edm1.bak")]),
+            actor_id=iteration2_db.user_a)
+
+
+def test_save_accepts_letters_digits_underscore_hyphen(iteration2_db, fake_irp, drive):
+    res = sync.save_package(
+        package_id=None, name="B",
+        members=_members(drive, edms=[("Acme_Re-2024", "edm1.bak")]),
+        actor_id=iteration2_db.user_a)
+    stored = execute_scalar("SELECT name FROM irp_edm WHERE package_id=:p",
+                            {"p": res.package_id}, connection="WORKBENCH")
+    assert stored == "Acme_Re-2024"

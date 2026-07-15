@@ -66,7 +66,9 @@
               <button type="button" @click="m.kind = 'rdm'" :aria-pressed="m.kind === 'rdm'">RDM</button>
             </span>
             <input type="hidden" name="member_kind" :value="m.kind">
-            <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name">
+            <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name"
+                   maxlength="50" pattern="[A-Za-z0-9_\-]+" required
+                   title="Letters, numbers, underscores, and hyphens only (max 50 characters).">
             <input type="hidden" name="member_path" :value="m.path">
             <span class="mrow__file" x-text="m.path" :title="m.path"></span>
             <button type="button" class="mrow__x" @click="remove(i)" title="Remove">✕</button>
