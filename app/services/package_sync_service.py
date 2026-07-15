@@ -30,7 +30,7 @@ from app.services import edm_service, rdm_service, rwb_job_service
 from app.services.errors import ConcurrencyConflict, EmptyPackageError
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
-from db import execute, execute_one, get_connection
+from db import execute, execute_command, execute_one, get_connection
 
 # entity statuses that mean "in flight or done" — a re-sync leaves these alone.
 _LOCKED = ("importing", "ready")
@@ -189,7 +189,16 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
         edm_id = str(edm["id"])
         if edm["status"] not in _LOCKED:
             # pending/errored EDM → (re)enqueue its import; the poller chains the
-            # per-pair RDM applies once it FINISHES.
+            # per-pair RDM applies once it FINISHES. Reset an errored EDM back to
+            # pending_import first — the worker body only advances a pending_import row,
+            # so without this an error → re-sync would be skipped by the worker.
+            if edm["status"] == edm_service.ERROR:
+                execute_command(
+                    "UPDATE irp_edm SET status = :p, updated_at = :now, updated_by = :by "
+                    "WHERE id = :id AND status = :err",
+                    {"p": edm_service.PENDING, "err": edm_service.ERROR,
+                     "now": _utcnow(), "by": actor, "id": edm_id},
+                    connection="WORKBENCH")
             job_id = rwb_job_service.ensure_pending_rwb_job(
                 requestor_type="analyst_request", requestor_id=edm_id,
                 rwb_job_type="upload_edm",
