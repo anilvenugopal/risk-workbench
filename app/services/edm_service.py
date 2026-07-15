@@ -164,6 +164,16 @@ def _current(edm_id: str) -> dict | None:
         {"id": edm_id}, connection="WORKBENCH")
 
 
+def _package_id(edm_id: str) -> str | None:
+    """The EDM's owning package (if any). A retry/replace re-enqueue MUST carry this so
+    the resulting ``import_edm`` job stays package-scoped — the poller chains the RDM
+    applies off ``job.package_id`` (``upload_rdm`` on FINISHED), and a null there silently
+    severs the EDM→RDM chain (no ``upload_rdm``, no ``import_rdm``)."""
+    row = execute_one("SELECT package_id FROM irp_edm WHERE id = :id",
+                      {"id": edm_id}, connection="WORKBENCH")
+    return str(row["package_id"]) if row and row["package_id"] else None
+
+
 def retry_import(*, edm_id: Any, actor_id: Any) -> None:
     """Re-enqueue a single EDM's ``upload_edm`` head (FR-045). Idempotent: a no-op
     when the EDM is already ``ready`` or in flight (``importing``); otherwise resets an
@@ -182,7 +192,8 @@ def retry_import(*, edm_id: Any, actor_id: Any) -> None:
     )
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm", input_data={"edm_id": eid, "package_id": None},
+        rwb_job_type="upload_edm",
+        input_data={"edm_id": eid, "package_id": _package_id(eid)},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
@@ -212,7 +223,8 @@ def replace_source_file(
             "This EDM changed since you opened it — reload and re-apply.")
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm", input_data={"edm_id": eid, "package_id": None},
+        rwb_job_type="upload_edm",
+        input_data={"edm_id": eid, "package_id": _package_id(eid)},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")

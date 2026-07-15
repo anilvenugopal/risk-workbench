@@ -153,6 +153,16 @@ def _current(rdm_id: str) -> dict | None:
         {"id": rdm_id}, connection="WORKBENCH")
 
 
+def _package_id(rdm_id: str) -> str | None:
+    """The RDM's owning package (if any). A retry/replace re-enqueue MUST carry this so
+    the resulting ``import_rdm`` applies stay package-scoped — the poller chains
+    ``backfill_rdm_analyses`` and the package finalize off ``job.package_id``; a null
+    there orphans the applies from their package."""
+    row = execute_one("SELECT package_id FROM irp_rdm WHERE id = :id",
+                      {"id": rdm_id}, connection="WORKBENCH")
+    return str(row["package_id"]) if row and row["package_id"] else None
+
+
 def retry_import(*, rdm_id: Any, actor_id: Any) -> None:
     """Re-enqueue a single RDM's ``upload_rdm`` head (FR-045). No-op when ready / in
     flight; otherwise resets an ``error`` entity back to ``pending_import`` **and** the
@@ -175,7 +185,8 @@ def retry_import(*, rdm_id: Any, actor_id: Any) -> None:
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=rid,
         rwb_job_type="upload_rdm",
-        input_data={"rdm_ids": [rid], "edm_ids": edm_ids, "package_id": None},
+        input_data={"rdm_ids": [rid], "edm_ids": edm_ids,
+                    "package_id": _package_id(rid)},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
@@ -209,7 +220,8 @@ def replace_source_file(
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=rid,
         rwb_job_type="upload_rdm",
-        input_data={"rdm_ids": [rid], "edm_ids": edm_ids, "package_id": None},
+        input_data={"rdm_ids": [rid], "edm_ids": edm_ids,
+                    "package_id": _package_id(rid)},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")

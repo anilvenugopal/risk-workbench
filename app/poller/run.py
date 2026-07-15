@@ -1,6 +1,6 @@
 """IRP job poller — standalone process, never imported by the web layer (Article 11).
 
-One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does three things:
+One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
 
 1. **Track in-flight ``irp_job`` rows** — batched by type, one single-status-check
    ``get_*_job`` each, mirror the status in place, and on a terminal status backfill
@@ -8,7 +8,11 @@ One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does three things:
    filled in per user story — US1 T022 onward; a stub here keeps the loop shape.)
 2. **Reconciler** (Article 10) — reclaim ``rwb_job`` rows a dead worker left
    ``running`` (heartbeat older than ``RWB_HEARTBEAT_STALE_SECS``) back to ``pending``.
-3. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
+3. **Dispatch pending heads** — wake a worker for every ``pending`` ``rwb_job``. The
+   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``) are
+   never dispatched at enqueue time (the poller is a separate process from the worker),
+   so without this the EDM→RDM chain stalls; this also delivers the rows step 2 reset.
+4. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
    under the configured max (a single-threaded batch, not a Dramatiq actor; scaffold
    here, wired in US6 T053).
 
@@ -36,7 +40,8 @@ from app.services import (
     rdm_service,
     rwb_job_service,
 )
-from db import get_connection
+from app.workers import dispatch
+from db import execute, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +202,28 @@ def _track_irp_jobs() -> None:
             logger.exception("persisting tracking for irp_job=%s failed", job["id"])
 
 
+def _dispatch_pending() -> None:
+    """Deliver every currently-``pending`` ``rwb_job`` to a worker.
+
+    The poller enqueues the chained heads (``upload_rdm`` when an ``import_edm`` reaches
+    FINISHED; ``backfill_rdm_analyses`` when an ``import_rdm`` does) but runs in its own
+    process — separate from the Dramatiq worker — so unlike the request path and the
+    worker's own follow-on enqueues, those rows are never dispatched at enqueue time.
+    Without this sweep they sit ``pending`` forever and the EDM→RDM chain silently stalls.
+
+    A Dramatiq message is only a wake-up (Article 10): re-sending one for a row already
+    in flight is harmless — the worker's atomic claim (``UPDATE ... WHERE
+    status_code='pending'``) admits exactly one runner. This is also the delivery half of
+    the reconciler contract: a row a dead worker left ``running`` is reset to ``pending``
+    and picked up here on the next pass. No-op when no dispatcher is wired (``dispatch``
+    stays unset in the unit tier, which drives worker bodies directly)."""
+    for row in execute(
+        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending'",
+        {}, connection="WORKBENCH",
+    ):
+        dispatch.dispatch(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"])
+
+
 def _submission_retry() -> None:
     """Re-attempt submit-side failures. Scaffold: with no ``IRP_SUBMISSION_MAX_RETRIES``
     configured there is nothing to do (FR-029); the full batch lands in US6 (T053)."""
@@ -221,6 +248,10 @@ def poll_once() -> None:
     except Exception:
         logger.exception("poll_once: reconciler failed")
     try:
+        _dispatch_pending()
+    except Exception:
+        logger.exception("poll_once: dispatch_pending failed")
+    try:
         _submission_retry()
     except Exception:
         logger.exception("poll_once: submission_retry failed")
@@ -234,6 +265,13 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    # Discover the job actors and wire the Dramatiq dispatch seam so _dispatch_pending
+    # can wake a worker for the heads this poller enqueues. Deferred import keeps dramatiq
+    # out of the request/test import path (only this startup path pulls it in), matching
+    # app.main's lifespan and app.workers.entrypoint.
+    from app.workers import loader  # noqa: PLC0415
+    loader.bootstrap()
     logger.info("Poller started (loop=%s interval=%ds)", args.loop, args.interval)
 
     if args.loop:
