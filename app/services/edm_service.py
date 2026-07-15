@@ -166,12 +166,20 @@ def _current(edm_id: str) -> dict | None:
 
 def retry_import(*, edm_id: Any, actor_id: Any) -> None:
     """Re-enqueue a single EDM's ``upload_edm`` head (FR-045). Idempotent: a no-op
-    when the EDM is already ``ready`` or in flight (``importing``); otherwise resets a
-    failed head back to ``pending`` so the worker re-submits."""
+    when the EDM is already ``ready`` or in flight (``importing``); otherwise resets an
+    ``error`` entity back to ``pending_import`` **and** the head back to ``pending`` so
+    the worker re-submits (the body only advances a ``pending_import`` row, so the
+    entity reset is required for the resubmit to actually fire)."""
     eid = str(edm_id)
     current = _current(eid)
     if current is None or current["status"] in _LOCKED:
         return
+    execute_command(
+        "UPDATE irp_edm SET status = :p, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status = :err",
+        {"p": PENDING, "err": ERROR, "now": _utcnow(), "by": str(actor_id), "id": eid},
+        connection="WORKBENCH",
+    )
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
         rwb_job_type="upload_edm", input_data={"edm_id": eid, "package_id": None},
@@ -221,6 +229,22 @@ def mark_importing(*, edm_id: Any, actor_id: Any | None = None) -> None:
         {"s": IMPORTING, "now": _utcnow(),
          "by": (str(actor_id) if actor_id is not None else None),
          "id": str(edm_id), "from_status": PENDING},
+        connection="WORKBENCH",
+    )
+
+
+def mark_error(*, edm_id: Any, actor_id: Any | None = None) -> None:
+    """Worker-side: a **submit-side** failure (never reached Risk Modeler) — flip an
+    import-in-progress EDM to the visible, analyst-recoverable ``error`` state, the same
+    state the poller uses for an RM-side terminal failure (worker-poller.md §3). Only
+    touches ``pending_import``/``importing`` so it never clobbers ``ready`` or a delete
+    (``delete_pending``/``deleted``); idempotent on re-run."""
+    execute_command(
+        "UPDATE irp_edm SET status = :s, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status IN (:p, :i)",
+        {"s": ERROR, "now": _utcnow(),
+         "by": (str(actor_id) if actor_id is not None else None),
+         "id": str(edm_id), "p": PENDING, "i": IMPORTING},
         connection="WORKBENCH",
     )
 
@@ -276,6 +300,6 @@ __all__ = [
     "ImportResult", "EdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
-    "retry_import", "replace_source_file", "mark_importing", "backfill_on_terminal",
-    "claim_for_delete", "set_deleted",
+    "retry_import", "replace_source_file", "mark_importing", "mark_error",
+    "backfill_on_terminal", "claim_for_delete", "set_deleted",
 ]

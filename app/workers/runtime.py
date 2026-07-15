@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -31,6 +32,34 @@ logger = logging.getLogger(__name__)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
+
+@dataclass
+class JobResult:
+    """The outcome a worker body reports back to ``run_job`` so the ``rwb_job`` row
+    reflects what actually happened (contract §1: *on success → succeeded; on failure
+    → failed + error_detail*).
+
+    A body signals a real failure **without raising** — e.g. an IRP submit that never
+    reached Risk Modeler is recorded as a ``SUBMISSION FAILED`` ``irp_job`` for the
+    poller's retry batch, yet the ``rwb_job`` itself did NOT accomplish its unit of work
+    and must be ``failed`` (not silently ``succeeded``). Use ``JobResult.fail`` for that.
+    Idempotent no-ops (entity vanished, already advanced) are ``JobResult.ok`` — the
+    body correctly did nothing. A body may still return a plain ``dict``/``None`` (stub
+    bodies, backfill): ``run_job`` treats that as ``succeeded`` for backward-compat."""
+    status: str                                  # 'succeeded' | 'failed'
+    output: dict = field(default_factory=dict)
+    error_detail: str | None = None
+
+    @classmethod
+    def ok(cls, **output: Any) -> "JobResult":
+        return cls(status="succeeded", output=output)
+
+    @classmethod
+    def fail(cls, error_detail: str, **output: Any) -> "JobResult":
+        return cls(status="failed", output=output, error_detail=error_detail)
 
 
 # ── heartbeat ────────────────────────────────────────────────────────────────
@@ -103,9 +132,16 @@ def stub_body(*, sleep_secs: float = 0.0) -> dict:
 # ── the shared claim → heartbeat → complete lifecycle ───────────────────────────
 
 def run_job(*, rwb_job_id: Any, worker_id: str,
-            body: Callable[[], dict | None]) -> bool:
-    """Claim the row; if won, run ``body`` under a heartbeat and complete it
-    (``succeeded`` with the body's dict output, or ``failed`` with the error).
+            body: Callable[[], "JobResult | dict | None"]) -> bool:
+    """Claim the row; if won, run ``body`` under a heartbeat and complete it in place.
+    The body's outcome drives the terminal status (contract §1):
+
+      • ``JobResult`` → its own ``status``/``output``/``error_detail`` (a body reports a
+        handled failure as ``JobResult.fail`` — no raise needed);
+      • a plain ``dict``/``None`` → ``succeeded`` with that dict as output (stub/backfill
+        bodies, backward-compat);
+      • an **unhandled** exception → ``failed`` with the exception text.
+
     Returns ``False`` without running when the row was already claimed."""
     if not rwb_job_service.claim_rwb_job(rwb_job_id=rwb_job_id, worker_id=worker_id):
         logger.debug("rwb_job %s already claimed — skipping", rwb_job_id)
@@ -113,18 +149,26 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
     with _Heartbeat(rwb_job_id=rwb_job_id, worker_id=worker_id,
                     interval_secs=settings.rwb_heartbeat_interval_secs):
         try:
-            output = body() or {}
+            result = body()
         except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
             logger.exception("rwb_job %s body failed", rwb_job_id)
             rwb_job_service.complete_rwb_job(
                 rwb_job_id=rwb_job_id, status="failed", error_detail=str(exc))
             return True
-        rwb_job_service.complete_rwb_job(
-            rwb_job_id=rwb_job_id, status="succeeded", output_data=output)
+        if isinstance(result, JobResult):
+            if result.status == "failed":
+                logger.warning("rwb_job %s failed: %s", rwb_job_id, result.error_detail)
+            rwb_job_service.complete_rwb_job(
+                rwb_job_id=rwb_job_id, status=result.status,
+                output_data=result.output, error_detail=result.error_detail)
+        else:
+            rwb_job_service.complete_rwb_job(
+                rwb_job_id=rwb_job_id, status="succeeded", output_data=result or {})
     return True
 
 
 __all__ = [
+    "JobResult",
     "upsert_heartbeat",
     "is_stub_mode",
     "stub_body",

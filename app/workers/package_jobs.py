@@ -69,18 +69,21 @@ def _load_input(rwb_job_id: Any) -> dict:
 
 # ── upload_edm (US1) ────────────────────────────────────────────────────────────
 
-def _upload_edm_body(rwb_job_id: Any) -> dict:
+def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Submit one EDM import and record the ``irp_job`` (the unit of work is the
     submit). Idempotent: only a ``pending_import`` EDM is submitted, so a redelivery
-    or reconciler re-run is a no-op."""
+    or reconciler re-run is a no-op (``JobResult.ok``). A submit that never reaches Risk
+    Modeler records a ``SUBMISSION FAILED`` ``irp_job`` (for the poller's retry batch),
+    flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
     ctx = _load_input(rwb_job_id)
     edm_id = ctx.get("edm_id")
     package_id = ctx.get("package_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
-        return {"skipped": "edm missing"}
+        return runtime.JobResult.ok(skipped="edm missing")
     if edm.status != edm_service.PENDING:
-        return {"skipped": f"edm status {edm.status}"}  # already submitted/imported
+        # already submitted/imported/errored — nothing to do this run.
+        return runtime.JobResult.ok(skipped=f"edm status {edm.status}")
 
     try:
         res = irp_gateway.submit_edm_import(
@@ -90,14 +93,16 @@ def _upload_edm_body(rwb_job_id: Any) -> dict:
         irp_job_service.record_submission_failure(
             package_id=package_id, irp_job_type="import_edm", irp_edm_id=edm_id,
             payload={"name": edm.name, "source_file_path": edm.source_file_path})
-        return {"submit_failed": str(exc)}
+        edm_service.mark_error(edm_id=edm_id)
+        return runtime.JobResult.fail(f"upload_edm submit failed: {exc}",
+                                      submit_failed=str(exc))
 
     irp_job_id = irp_job_service.record_submitted_irp_job(
         package_id=package_id, irp_job_type="import_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri,
         payload=res.payload, response=res.response)
     edm_service.mark_importing(edm_id=edm_id)
-    return {"irp_job_id": irp_job_id, "irp_id": res.irp_id}
+    return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
 @dramatiq.actor(max_retries=0)
@@ -118,16 +123,24 @@ def _apply_exists(rdm_id: Any, edm_id: Any) -> bool:
     return bool(n)
 
 
-def _upload_rdm_body(rwb_job_id: Any) -> dict:
+def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Fan out one apply per (RDM, EDM) pair — every apply targets an EDM (D3;
     review-only is deferred). One ``irp_job(import_rdm)`` per apply; idempotent per
-    pair. The EDM is name-resolved at submit time (Article 2)."""
+    pair. The EDM is name-resolved at submit time (Article 2).
+
+    Each apply that never reaches Risk Modeler is recorded as a ``SUBMISSION FAILED``
+    ``irp_job`` (for the retry batch) and flips the RDM to ``error`` — its combined
+    rollup is ``error`` if *any* apply fails (rdm_service). The ``rwb_job`` fails only
+    when the fan-out submitted nothing at all (every attempted apply failed); a partial
+    fan-out ``succeeds`` (the failures are carried by their ``irp_job`` rows + the RDM's
+    ``error`` state)."""
     ctx = _load_input(rwb_job_id)
     rdm_ids = ctx.get("rdm_ids", [])
     edm_ids = [e for e in (ctx.get("edm_ids") or []) if e]
     package_id = ctx.get("package_id")
 
     submitted = 0
+    failed = 0
     for rdm_id in rdm_ids:
         rdm = rdm_service.get_rdm(rdm_id)
         if rdm is None:
@@ -150,6 +163,8 @@ def _upload_rdm_body(rwb_job_id: Any) -> dict:
                     package_id=package_id, irp_job_type="import_rdm",
                     irp_edm_id=edm_id, irp_rdm_id=rdm_id,
                     payload={"name": rdm.name, "edm_name": edm_name})
+                rdm_service.mark_error(rdm_id=rdm_id)
+                failed += 1
                 continue
             irp_job_service.record_submitted_irp_job(
                 package_id=package_id, irp_job_type="import_rdm",
@@ -158,7 +173,11 @@ def _upload_rdm_body(rwb_job_id: Any) -> dict:
                 response=res.response)
             rdm_service.mark_importing(rdm_id=rdm_id)
             submitted += 1
-    return {"applies_submitted": submitted}
+    if failed and submitted == 0:
+        return runtime.JobResult.fail(
+            f"upload_rdm submitted no applies ({failed} failed)",
+            applies_submitted=0, applies_failed=failed)
+    return runtime.JobResult.ok(applies_submitted=submitted, applies_failed=failed)
 
 
 @dramatiq.actor(max_retries=0)
@@ -301,25 +320,28 @@ def delete_rdm(rwb_job_id: str) -> None:
 
 # ── delete_edm (US4) — async (pollable irp_job) ──────────────────────────────────
 
-def _delete_edm_body(rwb_job_id: Any) -> dict:
+def _delete_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Under the atomic ``delete_pending`` guard, submit the EDM delete and record a
     pollable ``irp_job(delete_edm)``. An EDM never imported to RM (no ``irp_id``) is
-    marked ``deleted`` inline and the package finalized (no async op to poll)."""
+    marked ``deleted`` inline and the package finalized (no async op to poll). A submit
+    that never reaches Risk Modeler records a ``SUBMISSION FAILED`` ``irp_job`` and fails
+    the ``rwb_job``; the EDM stays ``delete_pending`` (a visible, non-``deleted`` state,
+    so the package will not wrongly finalize) pending re-trigger."""
     ctx = _load_input(rwb_job_id)
     edm_id = ctx.get("edm_id")
     package_id = ctx.get("package_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
-        return {"skipped": "edm missing"}
+        return runtime.JobResult.ok(skipped="edm missing")
     if not edm_service.claim_for_delete(edm_id=edm_id):
-        return {"skipped": "already deleting/deleted"}
+        return runtime.JobResult.ok(skipped="already deleting/deleted")
 
     if edm.irp_id is None:
         with get_connection("WORKBENCH") as conn:
             with conn.begin():
                 edm_service.set_deleted(conn, edm_id=edm_id)
                 package_sync_service.finalize_package(package_id=package_id, conn=conn)
-        return {"deleted_edm": str(edm_id), "no_rm": True}
+        return runtime.JobResult.ok(deleted_edm=str(edm_id), no_rm=True)
 
     try:
         res = irp_gateway.submit_delete_edm(edm_irp_id=int(edm.irp_id))
@@ -328,13 +350,14 @@ def _delete_edm_body(rwb_job_id: Any) -> dict:
         irp_job_service.record_submission_failure(
             package_id=package_id, irp_job_type="delete_edm", irp_edm_id=edm_id,
             payload={"edm_irp_id": edm.irp_id})
-        return {"submit_failed": str(exc)}
+        return runtime.JobResult.fail(f"delete_edm submit failed: {exc}",
+                                      submit_failed=str(exc))
 
     irp_job_id = irp_job_service.record_submitted_irp_job(
         package_id=package_id, irp_job_type="delete_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri, payload=res.payload,
         response=res.response)
-    return {"irp_job_id": irp_job_id, "irp_id": res.irp_id}
+    return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
 @dramatiq.actor(max_retries=0)

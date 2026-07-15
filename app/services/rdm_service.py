@@ -155,11 +155,19 @@ def _current(rdm_id: str) -> dict | None:
 
 def retry_import(*, rdm_id: Any, actor_id: Any) -> None:
     """Re-enqueue a single RDM's ``upload_rdm`` head (FR-045). No-op when ready / in
-    flight; resets a failed head to ``pending`` otherwise."""
+    flight; otherwise resets an ``error`` entity back to ``pending_import`` **and** the
+    head to ``pending`` so the worker re-runs the fan-out (the body only advances a
+    ``pending_import`` row)."""
     rid = str(rdm_id)
     current = _current(rid)
     if current is None or current["status"] in _LOCKED:
         return
+    execute_command(
+        "UPDATE irp_rdm SET status = :p, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status = :err",
+        {"p": PENDING, "err": ERROR, "now": _utcnow(), "by": str(actor_id), "id": rid},
+        connection="WORKBENCH",
+    )
     edm_ids = [str(r["irp_edm_id"]) for r in execute(
         "SELECT DISTINCT irp_edm_id FROM irp_job "
         "WHERE irp_rdm_id = :r AND irp_job_type = 'import_rdm' "
@@ -221,6 +229,20 @@ def mark_importing(*, rdm_id: Any, actor_id: Any | None = None) -> None:
     )
 
 
+def mark_error(*, rdm_id: Any, actor_id: Any | None = None) -> None:
+    """Worker-side: a **submit-side** apply failure (never reached Risk Modeler) — flip
+    the RDM to ``error`` (the combined rollup is ``error`` if *any* apply fails). Only
+    touches ``pending_import``/``importing`` so it never clobbers a delete; idempotent."""
+    execute_command(
+        "UPDATE irp_rdm SET status = :s, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status IN (:p, :i)",
+        {"s": ERROR, "now": _utcnow(),
+         "by": (str(actor_id) if actor_id is not None else None),
+         "id": str(rdm_id), "p": PENDING, "i": IMPORTING},
+        connection="WORKBENCH",
+    )
+
+
 def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
                        irp_id: str | None) -> None:
     """Poller-side combined rollup (data-model §6): ``error`` if any apply failed;
@@ -241,7 +263,8 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
         return  # more applies still in flight — not ready yet
     failed = conn.execute(text(
         "SELECT COUNT(*) FROM irp_job WHERE irp_rdm_id = :r "
-        "AND irp_job_type = 'import_rdm' AND status IN ('FAILED', 'CANCELLED')"
+        "AND irp_job_type = 'import_rdm' "
+        "AND status IN ('FAILED', 'CANCELLED', 'SUBMISSION FAILED')"
     ), {"r": rid}).scalar()
     if failed and int(failed) > 0:
         conn.execute(text(
@@ -264,5 +287,6 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
-    "retry_import", "replace_source_file", "mark_importing", "rollup_on_terminal",
+    "retry_import", "replace_source_file", "mark_importing", "mark_error",
+    "rollup_on_terminal",
 ]
