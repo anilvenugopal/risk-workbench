@@ -171,13 +171,13 @@ _irp-show-local:
 irp-pypi:   ## irp-integration → PyPI (latest stable; production default) + re-sync
 	@$(MAKE) --no-print-directory _irp-hide-local
 	@sed -i 's/^default-groups = .*/default-groups = ["dev", "irp-pypi"]/' pyproject.toml
-	uv sync
+	uv --upgrade-package irp-integration
 	@$(MAKE) --no-print-directory irp-status
 
 irp-testpypi:   ## irp-integration → TestPyPI (newest pre-release build) + re-sync
 	@$(MAKE) --no-print-directory _irp-hide-local
 	@sed -i 's/^default-groups = .*/default-groups = ["dev", "irp-testpypi"]/' pyproject.toml
-	uv sync
+	uv sync --upgrade-package irp-integration
 	@$(MAKE) --no-print-directory irp-status
 
 irp-local:   ## irp-integration → your local editable checkout + re-sync
