@@ -129,6 +129,7 @@
   --surface-recessed:      var(--c-surface-2);
   --surface-hover:         var(--c-surface-3);
   --surface-nav:           var(--c-surface-nav);
+  --overlay-scrim:         rgba(15, 22, 41, 0.4);   /* modal / dialog backdrop */
 
   --border-default:        var(--c-border);
   --border-faint:          var(--c-border-faint);

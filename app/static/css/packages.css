@@ -194,7 +194,7 @@
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(15, 22, 41, 0.4);
+  background: var(--overlay-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
