@@ -19,14 +19,13 @@ services. Two request-path operations, both **non-blocking** (FR-042 / SC-014):
 from __future__ import annotations
 
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import text
 
 from app.services import edm_service, rdm_service, rwb_job_service
+from app.services._common import _txn, _utcnow
 from app.services.errors import ConcurrencyConflict, EmptyPackageError
 from app.services.package_service import clean_member_name
 from app.services.shared_drive import validate_selection
@@ -35,17 +34,6 @@ from db import execute, execute_command, execute_one, get_connection
 
 # entity statuses that mean "in flight or done" — a re-sync leaves these alone.
 _LOCKED = ("importing", "ready")
-
-
-@contextmanager
-def _txn(conn):
-    """Reuse the caller's transaction (poller) or open our own (worker)."""
-    if conn is not None:
-        yield conn
-    else:
-        with get_connection("WORKBENCH") as owned:
-            with owned.begin():
-                yield owned
 
 
 @dataclass
@@ -91,10 +79,6 @@ class PackageCard:
     job_counts: Any = None  # set by US5 get_package_cards
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 def _live_members(package_id: str, table: str) -> list[dict]:
     return [dict(r) for r in execute(
         f"SELECT id, name, status, source_file_path FROM {table} "
@@ -112,8 +96,8 @@ def save_package(
     non-blocking collision warnings."""
     specs = list(members)
     for spec in specs:
-        validate_selection(spec.source_file_path)   # raises InvalidSourceFile
-        spec.name = clean_member_name(spec.name)     # raises InvalidMemberName
+        spec.source_file_path = validate_selection(spec.source_file_path)  # canonical; raises InvalidSourceFile
+        spec.name = clean_member_name(spec.name)                           # strips; raises InvalidMemberName
 
     now = _utcnow()
     actor = str(actor_id)
@@ -148,8 +132,8 @@ def save_package(
                     "status, inserted_at, updated_at, inserted_by, updated_by) "
                     "VALUES (:id, :p, :src, :n, 'pending_import', :now, :now, :by, :by)"
                 ), {"id": str(uuid.uuid4()), "p": pid,
-                    "src": validate_selection(spec.source_file_path),
-                    "n": spec.name.strip(), "now": now, "by": actor})
+                    "src": spec.source_file_path,
+                    "n": spec.name, "now": now, "by": actor})
 
     if _member_count(pid) == 0:
         raise EmptyPackageError("A package must have at least one member.")

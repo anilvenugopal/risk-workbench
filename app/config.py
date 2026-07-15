@@ -62,11 +62,6 @@ class Settings(BaseSettings):
     rwb_heartbeat_interval_secs: int = 30
     rwb_heartbeat_stale_secs: int = 120
 
-    # Worker body switch (FR-048): 'stub' heartbeats + marks succeeded without
-    # calling Risk Modeler; 'real' calls the irp_gateway. Lets the package UI be
-    # built ahead of the real Risk Modeler wiring.
-    rwb_worker_mode: Literal["stub", "real"] = "real"
-
     # Poller pass cadence (FR-027 / SC-001). One single-status-check per
     # non-terminal irp_job per pass; never poll_*_to_completion.
     poll_interval_secs: int = 15

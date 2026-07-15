@@ -208,9 +208,9 @@ def _dispatch_pending() -> None:
 
     The poller enqueues the chained heads (``upload_rdm`` when an ``import_edm`` reaches
     FINISHED; ``backfill_rdm_analyses`` when an ``import_rdm`` does) but runs in its own
-    process — separate from the Dramatiq worker — so unlike the request path and the
-    worker's own follow-on enqueues, those rows are never dispatched at enqueue time.
-    Without this sweep they sit ``pending`` forever and the EDM→RDM chain silently stalls.
+    process, so — unlike the request path and the worker's own follow-on enqueues —
+    those rows are never dispatched at enqueue time. Without this sweep they sit
+    ``pending`` forever and the EDM→RDM chain stalls.
 
     A Dramatiq message is only a wake-up (Article 10): re-sending one for a row already
     in flight is harmless — the worker's atomic claim (``UPDATE ... WHERE

@@ -16,36 +16,14 @@ unit tier and SQL Server.
 
 from __future__ import annotations
 
-import json
 import uuid
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
 
+from app.services._common import _json, _utcnow
 from db import execute_command, get_connection, is_unique_violation
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _json(value: Any) -> str | None:
-    return None if value is None else json.dumps(value)
-
-
-@contextmanager
-def _txn(conn):
-    """Yield a working connection: reuse the caller's (so a worker/poller can span
-    ``irp_job`` + ``rwb_job`` in one transaction) or open our own when none given."""
-    if conn is not None:
-        yield conn
-    else:
-        with get_connection("WORKBENCH") as owned:
-            with owned.begin():
-                yield owned
-
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,

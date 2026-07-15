@@ -30,7 +30,6 @@ import json
 import logging
 import socket
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Callable
 
 import dramatiq
@@ -44,6 +43,7 @@ from app.services import (
     rdm_service,
     rwb_job_service,
 )
+from app.services._common import _utcnow
 from app.workers import broker, dispatch, runtime
 from db import (
     execute,
@@ -59,10 +59,6 @@ logger = logging.getLogger(__name__)
 # Importing this module registers the actors against the broker configured in
 # app.workers.broker (module import side effect — no Redis connection yet).
 _ = broker.redis_broker
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _worker_id() -> str:

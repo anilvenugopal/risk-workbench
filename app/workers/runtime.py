@@ -1,11 +1,7 @@
 """Worker runtime helpers — the Article-10 lifecycle every rwb_job actor shares.
 
 An actor's shape is always: **claim** the row atomically → run under a **heartbeat**
-daemon thread → **complete** in place. This module owns that scaffolding plus the
-**stub↔real worker-body switch** (FR-048): the same ``rwb_job_type`` and the whole
-chaining/fan-in shape are identical in either mode; only the body differs (a stub
-heartbeats and marks succeeded without calling Risk Modeler), so the package UI can
-be built ahead of the real gateway wiring.
+daemon thread → **complete** in place. This module owns that scaffolding.
 
 The heartbeat upsert keeps exactly one ``rwb_job_heartbeat`` row per job; the
 poller's reconciler (``rwb_job_service.reconcile_stale_rwb_jobs``) reads it to
@@ -16,22 +12,18 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Callable
 
 from sqlalchemy import text
 
 from app.config import settings
 from app.services import rwb_job_service
+from app.services._common import _utcnow
 from db import get_connection
 
 logger = logging.getLogger(__name__)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
@@ -118,22 +110,6 @@ class _Heartbeat:
         self._thread.join(timeout=self._interval)
 
 
-# ── worker-body switch (FR-048) ────────────────────────────────────────────────
-
-def is_stub_mode() -> bool:
-    """True when the deployment runs stub bodies (build the UI ahead of Risk
-    Modeler wiring). Real bodies call the ``irp_gateway``; stubs do not."""
-    return settings.rwb_worker_mode == "stub"
-
-
-def stub_body(*, sleep_secs: float = 0.0) -> dict:
-    """A no-op body a stub actor can run: optionally pause, then report success —
-    the chaining/fan-in shape is unchanged, only the Risk Modeler call is skipped."""
-    if sleep_secs:
-        time.sleep(sleep_secs)
-    return {"stub": True}
-
-
 # ── the shared claim → heartbeat → complete lifecycle ───────────────────────────
 
 def run_job(*, rwb_job_id: Any, worker_id: str,
@@ -175,7 +151,5 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
 __all__ = [
     "JobResult",
     "upsert_heartbeat",
-    "is_stub_mode",
-    "stub_body",
     "run_job",
 ]

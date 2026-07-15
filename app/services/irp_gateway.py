@@ -11,10 +11,10 @@ are forbidden everywhere — Article 11).
 
 **Version churn is quarantined here.** ``irp-integration`` is pre-release and its
 signatures move; it is source-switchable across PyPI / TestPyPI / a local checkout
-(``make irp-pypi | irp-testpypi | irp-local``, research R1). Because this is the
-only importer, re-confirming a method signature against the active wheel is a
-one-file edit, and the CI fake (``tests/unit/fakes/fake_irp.py``) implements the
-same ``IRPGateway`` protocol, so a signature change never scatters across services.
+(``make irp-pypi | irp-testpypi | irp-local``, research R1). Re-confirming a method
+signature against the active wheel is a one-file edit, and the CI fake
+(``tests/unit/fakes/fake_irp.py``) implements the same ``IRPGateway`` protocol, so a
+signature change never scatters across services.
 
 Injection: tests call ``configure(FakeIRP())``; production code calls the module
 free functions (``submit_edm_import(...)`` etc.), which delegate to the active

@@ -24,12 +24,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import text
 
 from db import execute, execute_one, execute_scalar, execute_command, get_connection
+from app.services._common import _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
     SelfRenewalError,
@@ -111,26 +112,6 @@ class UpdateResult:
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
-
-def _utcnow() -> datetime:
-    """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _uid(value: Any) -> str | None:
-    """Normalize a UUID/id to a lowercase string (``None`` passes through).
-
-    App-generated ids come from ``uuid4()`` (lowercase); SQL Server's
-    ``uniqueidentifier`` reads them back UPPERCASE. Lowercasing every id the
-    service hands out keeps app-generated, bound, and read-back ids
-    byte-identical, so Python-side equality (dedup sets, "is this the selected
-    row?" checks, redirect URLs) is stable across both backends. SQL Server
-    compares ``uniqueidentifier`` case-insensitively so lookups are unaffected,
-    and the SQLite unit tier stores strings verbatim so this is a no-op there."""
-    if value is None:
-        return None
-    return str(value).lower()
-
 
 def _as_date(value: Any) -> Any:
     """Normalize a date-ish value to a ``date`` for binding.

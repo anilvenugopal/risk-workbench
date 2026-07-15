@@ -18,10 +18,10 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from app.services import irp_gateway, package_service, rwb_job_service
+from app.services._common import _uid, _utcnow
 from app.services.errors import ConcurrencyConflict
 from app.services.package_service import SubmissionRef
 from app.services.shared_drive import validate_selection
@@ -64,14 +64,6 @@ class EdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _uid(value: Any) -> str | None:
-    return None if value is None else str(value).lower()
 
 
 def check_name_collision(name: str) -> list[str]:

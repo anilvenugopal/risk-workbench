@@ -17,12 +17,12 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import text
 
 from app.services import irp_gateway, package_service, rwb_job_service
+from app.services._common import _uid, _utcnow
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.errors import ConcurrencyConflict, EmptyPackageError
 from app.services.package_service import SubmissionRef
@@ -54,14 +54,6 @@ class RdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
     # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _uid(value: Any) -> str | None:
-    return None if value is None else str(value).lower()
 
 
 def check_name_collision(name: str) -> list[str]:

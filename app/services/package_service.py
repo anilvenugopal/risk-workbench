@@ -16,12 +16,12 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import text
 
 from db import execute, execute_scalar, execute_command, get_connection
+from app.services._common import _utcnow
 from app.services.errors import EmptyPackageError, InvalidMemberName
 
 # An EDM/RDM name may use only letters, digits, underscores, and hyphens, capped at
@@ -60,10 +60,6 @@ class SubmissionRef:
     the submission ``id`` (deep-link target) and its display ``name``."""
     id: str
     name: str | None
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def submission_refs_for_packages(

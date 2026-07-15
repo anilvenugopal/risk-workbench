@@ -13,35 +13,14 @@ With no ``conn`` it opens its own transaction. Portable across SQLite / SQL Serv
 
 from __future__ import annotations
 
-import json
 import uuid
-from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
 
-from db import execute, get_connection
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _json(value: Any) -> str | None:
-    return None if value is None else json.dumps(value)
-
-
-@contextmanager
-def _txn(conn):
-    """Yield a working connection: reuse the caller's (no new transaction) or open
-    our own ``get_connection(...) + begin()`` when none was supplied."""
-    if conn is not None:
-        yield conn
-    else:
-        with get_connection("WORKBENCH") as owned:
-            with owned.begin():
-                yield owned
+from app.services._common import _json, _txn, _utcnow
+from db import execute
 
 
 def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
