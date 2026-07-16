@@ -1,0 +1,842 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDM Detail — 3 options (real classes) · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════════════════════════════
+   TOKENS — verbatim from app/static/css/tokens.css
+   ════════════════════════════════════════════════════════════════════════════ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em; --dur-fast:120ms;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   APP CSS — copied VERBATIM from the real stylesheets (base → components →
+   submissions → packages → app). Real cascade, real classes.
+   ════════════════════════════════════════════════════════════════════════════ */
+/* base.css */
+button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;padding:0}
+input,textarea,select{font-family:inherit;font-size:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-sm)}
+
+/* components.css */
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--brand{background:var(--color-brand-wash);color:var(--color-brand);border-color:var(--color-brand-border)}
+.badge--sm{font-size:10px;padding:1px 6px}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.btn-sm--danger:hover{border-color:var(--color-danger);color:var(--color-danger)}
+
+/* submissions.css */
+.status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--border-default);color:var(--text-secondary);background:var(--surface-recessed)}
+.status-chip--active{color:var(--color-info);background:var(--color-info-bg);border-color:var(--color-info-border)}
+.status-chip--completed{color:var(--color-positive);background:var(--color-positive-bg);border-color:var(--color-positive-border)}
+
+/* packages.css (loaded AFTER submissions.css — redefines base .status-chip) */
+.package-card{background:var(--c-surface-1);border:1px solid var(--c-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-5);margin-bottom:var(--space-4);width:100%}
+.package-card__head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3)}
+.package-card__name{font-size:1rem;font-weight:600;color:var(--text-primary);margin:0}
+.package-card__group-title{display:block;font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:var(--space-2)}
+.member-row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--c-border-faint);font-size:.85rem}
+.member-row__kind{font-size:.65rem;font-weight:700;color:var(--text-tertiary);min-width:34px}
+.member-row__name{font-weight:500;color:var(--text-primary)}
+.member-row__src{font-family:var(--font-mono);font-size:.7rem;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--importing{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--error{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.job-counts{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.job-counts__pill{display:inline-flex;align-items:baseline;gap:var(--space-1);padding:var(--space-1) var(--space-3);border-radius:var(--radius-pill);font-size:.72rem;text-decoration:none;background:var(--c-surface-2);color:var(--text-secondary);border:1px solid var(--c-border)}
+.job-counts__pill--active{color:var(--c-navy-600)}
+.job-counts__n{font-weight:700;font-size:.85rem}
+
+/* app.css */
+.crumb__sep{color:var(--text-tertiary)}
+.page-pad{padding:18px 22px}
+.detail-head{margin-bottom:18px}
+.detail-head h1{font-size:20px;margin:0 0 5px;color:var(--text-primary);font-weight:var(--fw-medium)}
+.detail-meta{font-size:var(--fs-label);color:var(--text-secondary);display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.section-head h2{font-size:14px;margin:0;color:var(--text-primary);font-weight:var(--fw-medium)}
+.tag-empty{color:var(--text-tertiary)}
+
+/* PROPOSED already introduced in submission_detail.html preview (reused here) */
+.deal-ribbon{display:flex;flex-wrap:wrap;row-gap:var(--space-1);background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-3) 0;box-shadow:var(--shadow-sm);margin-bottom:18px}
+.deal-ribbon__cell{display:flex;flex-direction:column;padding:0 var(--space-4);border-right:1px solid var(--border-faint);min-width:0}
+.deal-ribbon__cell:last-child{border-right:none}
+.deal-ribbon__cell dt{font-size:var(--fs-eyebrow);letter-spacing:.06em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.deal-ribbon__cell dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.member-stats{display:flex;flex-wrap:wrap;gap:var(--space-2);margin:var(--space-2) 0}
+.member-stat{background:var(--c-surface-2);border:1px solid var(--c-border-faint);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-width:88px}
+.member-stat__n{font-size:var(--fs-title);font-weight:var(--fw-bold);font-variant-numeric:tabular-nums;line-height:1.2}
+.member-stat__l{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.member-attrs{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-5);margin:var(--space-2) 0;font-size:var(--fs-label)}
+.member-attrs__grp{display:flex;align-items:center;gap:var(--space-1);color:var(--text-secondary)}
+.member-attrs__k{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.member-xrow{border-bottom:1px solid var(--c-border-faint)}
+.member-xrow summary{list-style:none;cursor:pointer}
+.member-xrow summary::-webkit-details-marker{display:none}
+.member-xrow summary .member-row{border-bottom:none}
+.member-xrow summary .member-row::before{content:"▸";color:var(--text-tertiary);font-size:10px;transition:transform .15s}
+.member-xrow[open] summary .member-row::before{transform:rotate(90deg)}
+.member-row__inline{display:flex;gap:var(--space-3);color:var(--text-tertiary);font-size:var(--fs-caption)}
+.member-row__inline b{color:var(--text-secondary)}
+.member-row__spacer{margin-left:auto}
+.member-detail{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:var(--space-2) var(--space-4);padding:0 var(--space-2) var(--space-3) 34px}
+.member-detail dt{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.member-detail dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);font-variant-numeric:tabular-nums}
+.rail-grid{display:grid;grid-template-columns:270px 1fr;gap:var(--space-6);align-items:start}
+.rail-dl{display:grid;grid-template-columns:auto 1fr;gap:2px var(--space-3);font-size:var(--fs-label)}
+.rail-dl dt{color:var(--text-tertiary)}
+.rail-dl dd{margin:0;text-align:right;font-weight:var(--fw-medium);font-variant-numeric:tabular-nums}
+.member-table{width:100%;border-collapse:collapse;font-size:var(--fs-label)}
+.member-table th{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-default);white-space:nowrap}
+.member-table th:first-child,.member-table th:nth-child(2){text-align:left}
+.member-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--c-border-faint);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;vertical-align:top}
+.member-table td:first-child,.member-table td:nth-child(2){text-align:left}
+.member-table tr:last-child td{border-bottom:none}
+.member-table__sub{display:block;font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.na{color:var(--text-disabled)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PROPOSED — NET-NEW for EDM detail. Token-only (Article 9). Would land in
+   packages.css / app.css (or a new edm.css) at wiring time.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* breadcrumb: Deal › Package › EDM */
+.crumb{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:var(--fs-label);color:var(--text-secondary);margin-bottom:var(--space-3)}
+.crumb a{color:var(--color-brand)}
+
+/* generic detail section wrapper (lighter than .package-card) */
+.edm-sec{margin-bottom:var(--space-7)}
+
+/* portfolio name chips — count must equal the Portfolios stat */
+.portfolio-list{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.portfolio-chip{display:inline-flex;align-items:baseline;gap:var(--space-2);padding:var(--space-1) var(--space-3);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);font-size:var(--fs-label);font-weight:var(--fw-medium)}
+.portfolio-chip__id{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary)}
+
+/* treaty card — head + full attribute grid */
+.treaty-card{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-3) var(--space-4);margin-bottom:var(--space-3);box-shadow:var(--shadow-sm)}
+.treaty-card__head{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;margin-bottom:var(--space-3)}
+.treaty-card__num{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.treaty-card__name{font-weight:var(--fw-semibold);font-size:var(--fs-h3);color:var(--text-primary)}
+.treaty-card__spacer{margin-left:auto}
+.attr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--space-3) var(--space-4);margin:0}
+.attr-grid>div{min-width:0}
+.attr-grid dt{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.attr-grid dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* RDM grouping header for analyses (analyses are derived per-RDM) */
+.rdm-group{margin-bottom:var(--space-5)}
+.rdm-group__head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--border-default);margin-bottom:var(--space-1)}
+.rdm-group__title{font-size:var(--fs-label);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.rdm-group__ref{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary)}
+
+/* table subheader row that groups analyses under their RDM */
+.member-table__grouprow td{background:var(--surface-recessed);color:var(--text-secondary);font-weight:var(--fw-semibold);text-align:left;font-size:var(--fs-caption);letter-spacing:.03em}
+
+/* metric emphasis inside attr grids/tables */
+.metric{color:var(--text-primary);font-weight:var(--fw-semibold)}
+.pct{color:var(--text-secondary)}
+
+/* backend-logic note (how analyses map to RDMs) */
+.derive-note{background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);margin-bottom:var(--space-3)}
+
+/* sticky summary rail (Option C) */
+.edm-rail{position:sticky;top:var(--space-4)}
+.rail-stats{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2);margin-bottom:var(--space-4)}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   PREVIEW CHROME — not part of the app.
+   ════════════════════════════════════════════════════════════════════════════ */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--c-amber-200);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.opt-head{margin:var(--space-9) 0 var(--space-4);padding-top:var(--space-6);border-top:2px solid var(--c-navy-200)}
+.opt-head:first-of-type{border-top:none;padding-top:0;margin-top:var(--space-4)}
+.opt-tag{display:inline-block;background:var(--c-navy-700);color:#fff;font-size:var(--fs-caption);font-weight:var(--fw-bold);letter-spacing:.06em;text-transform:uppercase;padding:2px 10px;border-radius:var(--radius-pill)}
+.opt-title{font-size:var(--fs-title);font-weight:var(--fw-semibold);margin:var(--space-2) 0 var(--space-1)}
+.opt-note{color:var(--text-secondary);font-size:var(--fs-label);max-width:820px}
+.frame{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);box-shadow:var(--shadow-sm);overflow:hidden}
+@media (max-width:860px){.rail-grid{grid-template-columns:1fr}.edm-rail{position:static}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW — EDM detail, 3 options, on the app's REAL classes.</strong>
+    Everything except the boxes marked <em>PROPOSED</em> in the CSS is copied verbatim from the app stylesheets in
+    the real <code>@import</code> order. The summary block (counts / perils / geography / currency) reuses the exact
+    classes from the Package/Submission detail. All three options carry the <strong>same header + summary + portfolios</strong>;
+    they differ only in how <strong>Treaties</strong> and <strong>Analyses</strong> are laid out — that's the real decision.
+    Numbers are mock; file names are basenames only.
+  </div>
+
+  <!-- ════════════════════════ OPTION A ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">Option A</span>
+    <div class="opt-title">Review overview — cards + expandable rows</div>
+    <div class="opt-note">Scan-first. Each treaty is a card with its full attribute grid always visible. Analyses are
+      grouped under their source RDM; each row shows headline metrics collapsed and the full breakdown on click. Best
+      when a EDM has a handful of treaties and you're reviewing, not comparing.</div>
+  </div>
+
+  <div class="frame"><div class="page-pad">
+    <div class="crumb">
+      <a href="#">Meridian Property Cat XoL 2026</a><span class="crumb__sep">›</span>
+      <a href="#">meridian-2026-primary</a><span class="crumb__sep">›</span>
+      <span>EDM</span>
+    </div>
+    <div class="detail-head">
+      <h1>meridian_edm_2026 <span class="status-chip status-chip--ready">ready</span></h1>
+      <div class="detail-meta">
+        <span class="mono" title="\\rms-share\intake\2026\meridian-re\meridian_edm_2026.bak">…\meridian-re\meridian_edm_2026.bak</span>
+        <span class="crumb__sep">·</span><span>Imported 2026-06-30</span>
+        <span class="crumb__sep">·</span><span>EDM v18.0</span>
+      </div>
+    </div>
+
+    <!-- SUMMARY (shared) -->
+    <div class="edm-sec">
+      <div class="member-stats">
+        <div class="member-stat"><div class="member-stat__n">3</div><div class="member-stat__l">Portfolios</div></div>
+        <div class="member-stat"><div class="member-stat__n">12,480</div><div class="member-stat__l">Locations</div></div>
+        <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Accounts</div></div>
+        <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Policies</div></div>
+        <div class="member-stat"><div class="member-stat__n">3</div><div class="member-stat__l">Treaties</div></div>
+        <div class="member-stat"><div class="member-stat__n">6</div><div class="member-stat__l">Analyses</div></div>
+      </div>
+      <div class="member-attrs">
+        <span class="member-attrs__grp"><span class="member-attrs__k">Perils</span><span class="badge badge--neutral badge--sm">Wind</span><span class="badge badge--neutral badge--sm">Quake</span><span class="badge badge--neutral badge--sm">Flood</span></span>
+        <span class="member-attrs__grp"><span class="member-attrs__k">Geography</span><span class="badge badge--neutral badge--sm">US SE</span><span class="badge badge--neutral badge--sm">Gulf</span><span class="badge badge--neutral badge--sm">Northeast</span></span>
+        <span class="member-attrs__grp"><span class="member-attrs__k">Currency</span> USD</span>
+      </div>
+    </div>
+
+    <!-- PORTFOLIOS (shared) -->
+    <div class="edm-sec">
+      <div class="section-head"><h2>Portfolios <span class="badge badge--neutral">3</span></h2></div>
+      <div class="portfolio-list">
+        <span class="portfolio-chip">Meridian Primary 2026 <span class="portfolio-chip__id">#1</span></span>
+        <span class="portfolio-chip">Meridian Excess 2026 <span class="portfolio-chip__id">#2</span></span>
+        <span class="portfolio-chip">Meridian Facultative 2026 <span class="portfolio-chip__id">#3</span></span>
+      </div>
+    </div>
+
+    <!-- TREATIES (Option A: cards) -->
+    <div class="edm-sec">
+      <div class="section-head"><h2>Treaties <span class="badge badge--neutral">3</span></h2></div>
+
+      <div class="treaty-card">
+        <div class="treaty-card__head">
+          <span class="treaty-card__num">TR-1042</span>
+          <span class="treaty-card__name">Meridian Property Cat XoL</span>
+          <span class="badge badge--brand">Catastrophe</span>
+          <span class="treaty-card__spacer"></span>
+          <span class="mono">Meridian Re · USD</span>
+        </div>
+        <dl class="attr-grid">
+          <div><dt>Per Risk Limit</dt><dd class="na">—</dd></div>
+          <div><dt>Occurrence Limit</dt><dd class="metric">$100,000,000</dd></div>
+          <div><dt>Attachment Point</dt><dd>$25,000,000</dd></div>
+          <div><dt>Line of Business</dt><dd>Property</dd></div>
+          <div><dt>Cedant</dt><dd>Meridian Re</dd></div>
+          <div><dt>Inception</dt><dd>2026-01-01</dd></div>
+          <div><dt>Expiration</dt><dd>2026-12-31</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Attachment Basis</dt><dd>Losses Occurring</dd></div>
+          <div><dt>Exposure Level</dt><dd>Portfolio</dd></div>
+          <div><dt>% Covered</dt><dd class="pct">100%</dd></div>
+          <div><dt>% Placed</dt><dd class="pct">85%</dd></div>
+          <div><dt>% Share</dt><dd class="pct">20%</dd></div>
+          <div><dt>% Retention</dt><dd class="pct">15%</dd></div>
+          <div><dt>Premium</dt><dd class="metric">$4,200,000</dd></div>
+        </dl>
+      </div>
+
+      <div class="treaty-card">
+        <div class="treaty-card__head">
+          <span class="treaty-card__num">TR-1043</span>
+          <span class="treaty-card__name">Meridian Quota Share</span>
+          <span class="badge badge--brand">Quota Share</span>
+          <span class="treaty-card__spacer"></span>
+          <span class="mono">Meridian Re · USD</span>
+        </div>
+        <dl class="attr-grid">
+          <div><dt>Per Risk Limit</dt><dd class="metric">$10,000,000</dd></div>
+          <div><dt>Occurrence Limit</dt><dd class="na">—</dd></div>
+          <div><dt>Attachment Point</dt><dd>$0</dd></div>
+          <div><dt>Line of Business</dt><dd>Property</dd></div>
+          <div><dt>Cedant</dt><dd>Meridian Re</dd></div>
+          <div><dt>Inception</dt><dd>2026-01-01</dd></div>
+          <div><dt>Expiration</dt><dd>2026-12-31</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Attachment Basis</dt><dd>Risks Attaching</dd></div>
+          <div><dt>Exposure Level</dt><dd>Policy</dd></div>
+          <div><dt>% Covered</dt><dd class="pct">100%</dd></div>
+          <div><dt>% Placed</dt><dd class="pct">100%</dd></div>
+          <div><dt>% Share</dt><dd class="pct">40%</dd></div>
+          <div><dt>% Retention</dt><dd class="pct">60%</dd></div>
+          <div><dt>Premium</dt><dd class="metric">$12,500,000</dd></div>
+        </dl>
+      </div>
+
+      <div class="treaty-card">
+        <div class="treaty-card__head">
+          <span class="treaty-card__num">TR-1044</span>
+          <span class="treaty-card__name">Meridian Working Excess</span>
+          <span class="badge badge--brand">Working Excess</span>
+          <span class="treaty-card__spacer"></span>
+          <span class="mono">Meridian Re · USD</span>
+        </div>
+        <dl class="attr-grid">
+          <div><dt>Per Risk Limit</dt><dd class="metric">$5,000,000</dd></div>
+          <div><dt>Occurrence Limit</dt><dd>$15,000,000</dd></div>
+          <div><dt>Attachment Point</dt><dd>$2,000,000</dd></div>
+          <div><dt>Line of Business</dt><dd>Property</dd></div>
+          <div><dt>Cedant</dt><dd>Meridian Re</dd></div>
+          <div><dt>Inception</dt><dd>2026-01-01</dd></div>
+          <div><dt>Expiration</dt><dd>2026-12-31</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Attachment Basis</dt><dd>Losses Occurring</dd></div>
+          <div><dt>Exposure Level</dt><dd>Policy</dd></div>
+          <div><dt>% Covered</dt><dd class="pct">100%</dd></div>
+          <div><dt>% Placed</dt><dd class="pct">90%</dd></div>
+          <div><dt>% Share</dt><dd class="pct">25%</dd></div>
+          <div><dt>% Retention</dt><dd class="pct">10%</dd></div>
+          <div><dt>Premium</dt><dd class="metric">$2,800,000</dd></div>
+        </dl>
+      </div>
+    </div>
+
+    <!-- ANALYSES (Option A: grouped by RDM, expandable) -->
+    <div class="edm-sec">
+      <div class="section-head"><h2>Analyses <span class="badge badge--neutral">6</span></h2></div>
+      <div class="derive-note">Analyses are produced against each RDM and grouped here by their source RDM
+        (backend join). The RDM reference is shown so you can trace where each result came from.</div>
+
+      <div class="rdm-group">
+        <div class="rdm-group__head">
+          <span class="member-row__kind">RDM</span>
+          <span class="rdm-group__title">meridian_q4_results</span>
+          <span class="rdm-group__ref">RDM-88</span>
+          <span class="badge badge--neutral" style="margin-left:auto">4 analyses</span>
+        </div>
+
+        <details class="member-xrow" open><summary><div class="member-row">
+          <span class="member-row__name">Meridian AEP — All Perils</span>
+          <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+          <span class="member-row__inline"><span>DLM · RL23</span><span>ELT</span><span>PP <b>$3,120,000</b></span><span>CoV <b>2.64</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Description</dt><dd style="white-space:normal;font-weight:400">Aggregate EP across the full portfolio</dd></div>
+          <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+          <div><dt>Engine Type</dt><dd>DLM</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>ELT</dd></div>
+          <div><dt>Peril</dt><dd>Wind, Quake, Flood</dd></div>
+          <div><dt>Region</dt><dd>US SE</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Portfolio</dd></div>
+          <div><dt>Pure Premium</dt><dd>$3,120,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$8,240,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>2.64</dd></div>
+        </dl></details>
+
+        <details class="member-xrow"><summary><div class="member-row">
+          <span class="member-row__name">Meridian OEP — Wind</span>
+          <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+          <span class="member-row__inline"><span>DLM · RL23</span><span>ELT</span><span>PP <b>$1,850,000</b></span><span>CoV <b>2.76</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Description</dt><dd style="white-space:normal;font-weight:400">Occurrence EP, wind only</dd></div>
+          <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+          <div><dt>Engine Type</dt><dd>DLM</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>ELT</dd></div>
+          <div><dt>Peril</dt><dd>Wind</dd></div>
+          <div><dt>Region</dt><dd>Gulf</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Portfolio</dd></div>
+          <div><dt>Pure Premium</dt><dd>$1,850,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$5,100,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>2.76</dd></div>
+        </dl></details>
+
+        <details class="member-xrow"><summary><div class="member-row">
+          <span class="member-row__name">Meridian AAL — Portfolio</span>
+          <span class="badge badge--neutral badge--sm">Average Annual Loss</span>
+          <span class="member-row__inline"><span>DLM · RL23</span><span>PLT</span><span>PP <b>$3,050,000</b></span><span>CoV <b>0.42</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Type</dt><dd>Average Annual Loss</dd></div>
+          <div><dt>Engine Type</dt><dd>DLM</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>PLT</dd></div>
+          <div><dt>Peril</dt><dd>Wind, Quake, Flood</dd></div>
+          <div><dt>Region</dt><dd>US SE</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Portfolio</dd></div>
+          <div><dt>Pure Premium</dt><dd>$3,050,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$1,280,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>0.42</dd></div>
+        </dl></details>
+
+        <details class="member-xrow"><summary><div class="member-row">
+          <span class="member-row__name">Meridian OEP — Quake</span>
+          <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+          <span class="member-row__inline"><span>HD · RL23</span><span>ELT</span><span>PP <b>$1,120,000</b></span><span>CoV <b>3.05</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+          <div><dt>Engine Type</dt><dd>HD</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>ELT</dd></div>
+          <div><dt>Peril</dt><dd>Quake</dd></div>
+          <div><dt>Region</dt><dd>US SE</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Account</dd></div>
+          <div><dt>Pure Premium</dt><dd>$1,120,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$3,420,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>3.05</dd></div>
+        </dl></details>
+      </div>
+
+      <div class="rdm-group">
+        <div class="rdm-group__head">
+          <span class="member-row__kind">RDM</span>
+          <span class="rdm-group__title">retro_2025_view</span>
+          <span class="rdm-group__ref">RDM-71</span>
+          <span class="badge badge--neutral" style="margin-left:auto">2 analyses</span>
+        </div>
+
+        <details class="member-xrow"><summary><div class="member-row">
+          <span class="member-row__name">Retro AEP — Quake</span>
+          <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+          <span class="member-row__inline"><span>HD · RL23</span><span>PLT</span><span>PP <b>$940,000</b></span><span>CoV <b>3.21</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+          <div><dt>Engine Type</dt><dd>HD</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>PLT</dd></div>
+          <div><dt>Peril</dt><dd>Quake</dd></div>
+          <div><dt>Region</dt><dd>US West</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Account</dd></div>
+          <div><dt>Pure Premium</dt><dd>$940,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$3,020,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>3.21</dd></div>
+        </dl></details>
+
+        <details class="member-xrow"><summary><div class="member-row">
+          <span class="member-row__name">Retro AAL — Location</span>
+          <span class="badge badge--neutral badge--sm">Average Annual Loss</span>
+          <span class="member-row__inline"><span>HD · RL23</span><span>PLT</span><span>PP <b>$610,000</b></span><span>CoV <b>0.58</b></span></span>
+        </div></summary>
+        <dl class="member-detail">
+          <div><dt>Type</dt><dd>Average Annual Loss</dd></div>
+          <div><dt>Engine Type</dt><dd>HD</dd></div>
+          <div><dt>Engine Version</dt><dd>RL23</dd></div>
+          <div><dt>Framework</dt><dd>PLT</dd></div>
+          <div><dt>Peril</dt><dd>Quake</dd></div>
+          <div><dt>Region</dt><dd>US West</dd></div>
+          <div><dt>Currency</dt><dd>USD</dd></div>
+          <div><dt>Exposure Type</dt><dd>Location</dd></div>
+          <div><dt>Pure Premium</dt><dd>$610,000</dd></div>
+          <div><dt>Std Deviation</dt><dd>$354,000</dd></div>
+          <div><dt>Coeff. of Variation</dt><dd>0.58</dd></div>
+        </dl></details>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ════════════════════════ OPTION B ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">Option B</span>
+    <div class="opt-title">Data-dense tables — full spreadsheet</div>
+    <div class="opt-note">Treaties in one wide, horizontally-scrolling table (every attribute is a column); analyses in
+      one table with an RDM subheader row separating each group. Highest density — best for comparing many treaties or
+      analyses side by side. Right-aligned tabular numbers reuse the real <code>.member-table</code>.</div>
+  </div>
+
+  <div class="frame"><div class="page-pad">
+    <div class="crumb">
+      <a href="#">Meridian Property Cat XoL 2026</a><span class="crumb__sep">›</span>
+      <a href="#">meridian-2026-primary</a><span class="crumb__sep">›</span>
+      <span>EDM</span>
+    </div>
+    <div class="detail-head">
+      <h1>meridian_edm_2026 <span class="status-chip status-chip--ready">ready</span></h1>
+      <div class="detail-meta">
+        <span class="mono">…\meridian-re\meridian_edm_2026.bak</span>
+        <span class="crumb__sep">·</span><span>Imported 2026-06-30</span>
+        <span class="crumb__sep">·</span><span>EDM v18.0</span>
+      </div>
+    </div>
+
+    <div class="edm-sec">
+      <div class="member-stats">
+        <div class="member-stat"><div class="member-stat__n">3</div><div class="member-stat__l">Portfolios</div></div>
+        <div class="member-stat"><div class="member-stat__n">12,480</div><div class="member-stat__l">Locations</div></div>
+        <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Accounts</div></div>
+        <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Policies</div></div>
+        <div class="member-stat"><div class="member-stat__n">3</div><div class="member-stat__l">Treaties</div></div>
+        <div class="member-stat"><div class="member-stat__n">6</div><div class="member-stat__l">Analyses</div></div>
+      </div>
+      <div class="member-attrs">
+        <span class="member-attrs__grp"><span class="member-attrs__k">Perils</span><span class="badge badge--neutral badge--sm">Wind</span><span class="badge badge--neutral badge--sm">Quake</span><span class="badge badge--neutral badge--sm">Flood</span></span>
+        <span class="member-attrs__grp"><span class="member-attrs__k">Geography</span><span class="badge badge--neutral badge--sm">US SE</span><span class="badge badge--neutral badge--sm">Gulf</span><span class="badge badge--neutral badge--sm">Northeast</span></span>
+        <span class="member-attrs__grp"><span class="member-attrs__k">Currency</span> USD</span>
+      </div>
+    </div>
+
+    <div class="edm-sec">
+      <div class="section-head"><h2>Portfolios <span class="badge badge--neutral">3</span></h2></div>
+      <div class="portfolio-list">
+        <span class="portfolio-chip">Meridian Primary 2026 <span class="portfolio-chip__id">#1</span></span>
+        <span class="portfolio-chip">Meridian Excess 2026 <span class="portfolio-chip__id">#2</span></span>
+        <span class="portfolio-chip">Meridian Facultative 2026 <span class="portfolio-chip__id">#3</span></span>
+      </div>
+    </div>
+
+    <!-- TREATIES (Option B: wide table) -->
+    <div class="edm-sec">
+      <div class="section-head"><h2>Treaties <span class="badge badge--neutral">3</span></h2></div>
+      <div style="overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md)">
+        <table class="member-table">
+          <thead><tr>
+            <th>Number</th><th>Name</th><th>Type</th><th>Per Risk</th><th>Occ. Limit</th><th>Attach.</th>
+            <th>LoB</th><th>Cedant</th><th>Inception</th><th>Expiration</th><th>Ccy</th><th>Attach. Basis</th>
+            <th>Exp. Level</th><th>% Cov</th><th>% Plc</th><th>% Shr</th><th>% Ret</th><th>Premium</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <td class="mono">TR-1042</td><td class="member-row__name">Meridian Property Cat XoL</td>
+              <td style="text-align:left"><span class="badge badge--brand badge--sm">Catastrophe</span></td>
+              <td class="na">—</td><td class="metric">$100,000,000</td><td>$25,000,000</td>
+              <td style="text-align:left">Property</td><td style="text-align:left">Meridian Re</td>
+              <td>2026-01-01</td><td>2026-12-31</td><td>USD</td><td style="text-align:left">Losses Occurring</td>
+              <td style="text-align:left">Portfolio</td><td>100%</td><td>85%</td><td>20%</td><td>15%</td><td class="metric">$4,200,000</td>
+            </tr>
+            <tr>
+              <td class="mono">TR-1043</td><td class="member-row__name">Meridian Quota Share</td>
+              <td style="text-align:left"><span class="badge badge--brand badge--sm">Quota Share</span></td>
+              <td class="metric">$10,000,000</td><td class="na">—</td><td>$0</td>
+              <td style="text-align:left">Property</td><td style="text-align:left">Meridian Re</td>
+              <td>2026-01-01</td><td>2026-12-31</td><td>USD</td><td style="text-align:left">Risks Attaching</td>
+              <td style="text-align:left">Policy</td><td>100%</td><td>100%</td><td>40%</td><td>60%</td><td class="metric">$12,500,000</td>
+            </tr>
+            <tr>
+              <td class="mono">TR-1044</td><td class="member-row__name">Meridian Working Excess</td>
+              <td style="text-align:left"><span class="badge badge--brand badge--sm">Working Excess</span></td>
+              <td class="metric">$5,000,000</td><td>$15,000,000</td><td>$2,000,000</td>
+              <td style="text-align:left">Property</td><td style="text-align:left">Meridian Re</td>
+              <td>2026-01-01</td><td>2026-12-31</td><td>USD</td><td style="text-align:left">Losses Occurring</td>
+              <td style="text-align:left">Policy</td><td>100%</td><td>90%</td><td>25%</td><td>10%</td><td class="metric">$2,800,000</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ANALYSES (Option B: table grouped by RDM subheader) -->
+    <div class="edm-sec">
+      <div class="section-head"><h2>Analyses <span class="badge badge--neutral">6</span></h2></div>
+      <div class="derive-note">Rows are grouped under their source RDM (subheader rows). Analyses come from the
+        RDM → EDM backend join.</div>
+      <div style="overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md)">
+        <table class="member-table">
+          <thead><tr>
+            <th>Name</th><th>Type</th><th>Engine</th><th>Ver.</th><th>Fmwk</th><th>Peril</th><th>Region</th>
+            <th>Ccy</th><th>Exp. Type</th><th>Pure Premium</th><th>Std Dev</th><th>CoV</th>
+          </tr></thead>
+          <tbody>
+            <tr class="member-table__grouprow"><td colspan="12">RDM · meridian_q4_results · RDM-88 · 4 analyses</td></tr>
+            <tr>
+              <td class="member-row__name">Meridian AEP — All Perils<span class="member-table__sub">Aggregate EP, full portfolio</span></td>
+              <td style="text-align:left">Exceedance Probability</td><td>DLM</td><td>RL23</td><td>ELT</td>
+              <td style="text-align:left">Wind, Quake, Flood</td><td style="text-align:left">US SE</td><td>USD</td>
+              <td style="text-align:left">Portfolio</td><td class="metric">$3,120,000</td><td>$8,240,000</td><td>2.64</td>
+            </tr>
+            <tr>
+              <td class="member-row__name">Meridian OEP — Wind<span class="member-table__sub">Occurrence EP, wind only</span></td>
+              <td style="text-align:left">Exceedance Probability</td><td>DLM</td><td>RL23</td><td>ELT</td>
+              <td style="text-align:left">Wind</td><td style="text-align:left">Gulf</td><td>USD</td>
+              <td style="text-align:left">Portfolio</td><td class="metric">$1,850,000</td><td>$5,100,000</td><td>2.76</td>
+            </tr>
+            <tr>
+              <td class="member-row__name">Meridian AAL — Portfolio</td>
+              <td style="text-align:left">Average Annual Loss</td><td>DLM</td><td>RL23</td><td>PLT</td>
+              <td style="text-align:left">Wind, Quake, Flood</td><td style="text-align:left">US SE</td><td>USD</td>
+              <td style="text-align:left">Portfolio</td><td class="metric">$3,050,000</td><td>$1,280,000</td><td>0.42</td>
+            </tr>
+            <tr>
+              <td class="member-row__name">Meridian OEP — Quake</td>
+              <td style="text-align:left">Exceedance Probability</td><td>HD</td><td>RL23</td><td>ELT</td>
+              <td style="text-align:left">Quake</td><td style="text-align:left">US SE</td><td>USD</td>
+              <td style="text-align:left">Account</td><td class="metric">$1,120,000</td><td>$3,420,000</td><td>3.05</td>
+            </tr>
+            <tr class="member-table__grouprow"><td colspan="12">RDM · retro_2025_view · RDM-71 · 2 analyses</td></tr>
+            <tr>
+              <td class="member-row__name">Retro AEP — Quake</td>
+              <td style="text-align:left">Exceedance Probability</td><td>HD</td><td>RL23</td><td>PLT</td>
+              <td style="text-align:left">Quake</td><td style="text-align:left">US West</td><td>USD</td>
+              <td style="text-align:left">Account</td><td class="metric">$940,000</td><td>$3,020,000</td><td>3.21</td>
+            </tr>
+            <tr>
+              <td class="member-row__name">Retro AAL — Location</td>
+              <td style="text-align:left">Average Annual Loss</td><td>HD</td><td>RL23</td><td>PLT</td>
+              <td style="text-align:left">Quake</td><td style="text-align:left">US West</td><td>USD</td>
+              <td style="text-align:left">Location</td><td class="metric">$610,000</td><td>$354,000</td><td>0.58</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ════════════════════════ OPTION C ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">Option C</span>
+    <div class="opt-title">Sticky summary rail + focused lists</div>
+    <div class="opt-note">The summary (counts, perils/geo/currency, portfolios, totals) lives in a left rail that stays
+      pinned while you scroll the long treaty/analysis lists on the right. The "at a glance" picture never leaves the
+      screen. Treaties as compact cards; analyses as RDM-grouped expandable rows (same as A). Reuses the real
+      <code>.rail-grid</code> pattern from the submission detail.</div>
+  </div>
+
+  <div class="frame"><div class="page-pad">
+    <div class="crumb">
+      <a href="#">Meridian Property Cat XoL 2026</a><span class="crumb__sep">›</span>
+      <a href="#">meridian-2026-primary</a><span class="crumb__sep">›</span>
+      <span>EDM</span>
+    </div>
+    <div class="detail-head">
+      <h1>meridian_edm_2026 <span class="status-chip status-chip--ready">ready</span></h1>
+      <div class="detail-meta">
+        <span class="mono">…\meridian-re\meridian_edm_2026.bak</span>
+        <span class="crumb__sep">·</span><span>Imported 2026-06-30</span>
+      </div>
+    </div>
+
+    <div class="rail-grid">
+      <!-- RAIL -->
+      <aside class="edm-rail">
+        <div class="section-head"><h2>At a glance</h2></div>
+        <div class="rail-stats">
+          <div class="member-stat"><div class="member-stat__n">3</div><div class="member-stat__l">Portfolios</div></div>
+          <div class="member-stat"><div class="member-stat__n">12,480</div><div class="member-stat__l">Locations</div></div>
+          <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Accounts</div></div>
+          <div class="member-stat"><div class="member-stat__n">2,145</div><div class="member-stat__l">Policies</div></div>
+        </div>
+        <dl class="rail-dl" style="margin-bottom:var(--space-4)">
+          <dt>Treaties</dt><dd>3</dd>
+          <dt>Analyses</dt><dd>6</dd>
+          <dt>EDM version</dt><dd>18.0</dd>
+        </dl>
+
+        <div class="section-head"><h2>Coverage</h2></div>
+        <div class="member-attrs" style="flex-direction:column;gap:var(--space-2);align-items:flex-start;margin-bottom:var(--space-4)">
+          <span class="member-attrs__grp"><span class="member-attrs__k">Perils</span><span class="badge badge--neutral badge--sm">Wind</span><span class="badge badge--neutral badge--sm">Quake</span><span class="badge badge--neutral badge--sm">Flood</span></span>
+          <span class="member-attrs__grp"><span class="member-attrs__k">Geo</span><span class="badge badge--neutral badge--sm">US SE</span><span class="badge badge--neutral badge--sm">Gulf</span><span class="badge badge--neutral badge--sm">NE</span></span>
+          <span class="member-attrs__grp"><span class="member-attrs__k">Ccy</span> USD</span>
+        </div>
+
+        <div class="section-head"><h2>Portfolios <span class="badge badge--neutral">3</span></h2></div>
+        <div class="portfolio-list" style="flex-direction:column;align-items:stretch">
+          <span class="portfolio-chip">Meridian Primary 2026 <span class="portfolio-chip__id">#1</span></span>
+          <span class="portfolio-chip">Meridian Excess 2026 <span class="portfolio-chip__id">#2</span></span>
+          <span class="portfolio-chip">Meridian Facultative 2026 <span class="portfolio-chip__id">#3</span></span>
+        </div>
+      </aside>
+
+      <!-- MAIN -->
+      <div>
+        <div class="edm-sec">
+          <div class="section-head"><h2>Treaties <span class="badge badge--neutral">3</span></h2></div>
+
+          <div class="treaty-card">
+            <div class="treaty-card__head">
+              <span class="treaty-card__num">TR-1042</span>
+              <span class="treaty-card__name">Meridian Property Cat XoL</span>
+              <span class="badge badge--brand">Catastrophe</span>
+              <span class="treaty-card__spacer"></span><span class="mono">Meridian Re · USD</span>
+            </div>
+            <dl class="attr-grid">
+              <div><dt>Occurrence Limit</dt><dd class="metric">$100,000,000</dd></div>
+              <div><dt>Attachment Point</dt><dd>$25,000,000</dd></div>
+              <div><dt>Line of Business</dt><dd>Property</dd></div>
+              <div><dt>Inception</dt><dd>2026-01-01</dd></div>
+              <div><dt>Expiration</dt><dd>2026-12-31</dd></div>
+              <div><dt>Attach. Basis</dt><dd>Losses Occurring</dd></div>
+              <div><dt>Exposure Level</dt><dd>Portfolio</dd></div>
+              <div><dt>% Placed / Share</dt><dd class="pct">85% / 20%</dd></div>
+              <div><dt>Premium</dt><dd class="metric">$4,200,000</dd></div>
+            </dl>
+          </div>
+
+          <div class="treaty-card">
+            <div class="treaty-card__head">
+              <span class="treaty-card__num">TR-1043</span>
+              <span class="treaty-card__name">Meridian Quota Share</span>
+              <span class="badge badge--brand">Quota Share</span>
+              <span class="treaty-card__spacer"></span><span class="mono">Meridian Re · USD</span>
+            </div>
+            <dl class="attr-grid">
+              <div><dt>Per Risk Limit</dt><dd class="metric">$10,000,000</dd></div>
+              <div><dt>Attachment Point</dt><dd>$0</dd></div>
+              <div><dt>Line of Business</dt><dd>Property</dd></div>
+              <div><dt>Inception</dt><dd>2026-01-01</dd></div>
+              <div><dt>Expiration</dt><dd>2026-12-31</dd></div>
+              <div><dt>Attach. Basis</dt><dd>Risks Attaching</dd></div>
+              <div><dt>Exposure Level</dt><dd>Policy</dd></div>
+              <div><dt>% Placed / Share</dt><dd class="pct">100% / 40%</dd></div>
+              <div><dt>Premium</dt><dd class="metric">$12,500,000</dd></div>
+            </dl>
+          </div>
+
+          <p class="tag-empty" style="font-size:var(--fs-caption)">TR-1044 omitted here for brevity — the full grid is
+            shown in Options A &amp; B.</p>
+        </div>
+
+        <div class="edm-sec">
+          <div class="section-head"><h2>Analyses <span class="badge badge--neutral">6</span></h2></div>
+          <div class="derive-note">Grouped by source RDM.</div>
+
+          <div class="rdm-group">
+            <div class="rdm-group__head">
+              <span class="member-row__kind">RDM</span>
+              <span class="rdm-group__title">meridian_q4_results</span>
+              <span class="rdm-group__ref">RDM-88</span>
+              <span class="badge badge--neutral" style="margin-left:auto">4 analyses</span>
+            </div>
+            <details class="member-xrow" open><summary><div class="member-row">
+              <span class="member-row__name">Meridian AEP — All Perils</span>
+              <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+              <span class="member-row__inline"><span>DLM · RL23</span><span>PP <b>$3,120,000</b></span><span>CoV <b>2.64</b></span></span>
+            </div></summary>
+            <dl class="member-detail">
+              <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+              <div><dt>Engine</dt><dd>DLM · RL23</dd></div>
+              <div><dt>Framework</dt><dd>ELT</dd></div>
+              <div><dt>Peril</dt><dd>Wind, Quake, Flood</dd></div>
+              <div><dt>Region</dt><dd>US SE</dd></div>
+              <div><dt>Exposure Type</dt><dd>Portfolio</dd></div>
+              <div><dt>Pure Premium</dt><dd>$3,120,000</dd></div>
+              <div><dt>Std Deviation</dt><dd>$8,240,000</dd></div>
+              <div><dt>Coeff. of Variation</dt><dd>2.64</dd></div>
+            </dl></details>
+            <details class="member-xrow"><summary><div class="member-row">
+              <span class="member-row__name">Meridian OEP — Wind</span>
+              <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+              <span class="member-row__inline"><span>DLM · RL23</span><span>PP <b>$1,850,000</b></span><span>CoV <b>2.76</b></span></span>
+            </div></summary>
+            <dl class="member-detail">
+              <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+              <div><dt>Engine</dt><dd>DLM · RL23</dd></div>
+              <div><dt>Framework</dt><dd>ELT</dd></div>
+              <div><dt>Peril</dt><dd>Wind</dd></div>
+              <div><dt>Region</dt><dd>Gulf</dd></div>
+              <div><dt>Exposure Type</dt><dd>Portfolio</dd></div>
+              <div><dt>Pure Premium</dt><dd>$1,850,000</dd></div>
+              <div><dt>Std Deviation</dt><dd>$5,100,000</dd></div>
+              <div><dt>Coeff. of Variation</dt><dd>2.76</dd></div>
+            </dl></details>
+          </div>
+
+          <div class="rdm-group">
+            <div class="rdm-group__head">
+              <span class="member-row__kind">RDM</span>
+              <span class="rdm-group__title">retro_2025_view</span>
+              <span class="rdm-group__ref">RDM-71</span>
+              <span class="badge badge--neutral" style="margin-left:auto">2 analyses</span>
+            </div>
+            <details class="member-xrow"><summary><div class="member-row">
+              <span class="member-row__name">Retro AEP — Quake</span>
+              <span class="badge badge--neutral badge--sm">Exceedance Probability</span>
+              <span class="member-row__inline"><span>HD · RL23</span><span>PP <b>$940,000</b></span><span>CoV <b>3.21</b></span></span>
+            </div></summary>
+            <dl class="member-detail">
+              <div><dt>Type</dt><dd>Exceedance Probability</dd></div>
+              <div><dt>Engine</dt><dd>HD · RL23</dd></div>
+              <div><dt>Framework</dt><dd>PLT</dd></div>
+              <div><dt>Peril</dt><dd>Quake</dd></div>
+              <div><dt>Region</dt><dd>US West</dd></div>
+              <div><dt>Exposure Type</dt><dd>Account</dd></div>
+              <div><dt>Pure Premium</dt><dd>$940,000</dd></div>
+              <div><dt>Std Deviation</dt><dd>$3,020,000</dd></div>
+              <div><dt>Coeff. of Variation</dt><dd>3.21</dd></div>
+            </dl></details>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <!-- ════════════════════════ EDGE STATES ════════════════════════ -->
+  <div class="opt-head">
+    <span class="opt-tag">States</span>
+    <div class="opt-title">Edge cases (apply to whichever option wins)</div>
+    <div class="opt-note">The states that actually happen: an EDM still importing (no counts yet), an EDM with zero
+      treaties, and an EDM whose RDMs haven't produced analyses yet.</div>
+  </div>
+
+  <div class="frame"><div class="page-pad">
+    <div class="detail-head">
+      <h1>meridian_intl_edm <span class="status-chip status-chip--importing">importing</span></h1>
+      <div class="detail-meta"><span class="mono">…\meridian-re\meridian_intl_edm.bak</span></div>
+    </div>
+    <div class="edm-sec">
+      <div class="member-attrs"><span class="tag-empty">Counts, perils and geography are available once the import finishes.</span></div>
+    </div>
+    <div class="edm-sec">
+      <div class="section-head"><h2>Treaties</h2></div>
+      <span class="tag-empty">No treaties in this EDM.</span>
+    </div>
+    <div class="edm-sec">
+      <div class="section-head"><h2>Analyses</h2></div>
+      <span class="tag-empty">No analyses yet — none of this EDM's RDMs have completed an analysis run.</span>
+    </div>
+  </div></div>
+
+</div>
+</body>
+</html>

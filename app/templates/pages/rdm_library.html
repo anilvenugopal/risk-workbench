@@ -1,0 +1,39 @@
+{% extends "base/shell.html" %}
+{% block title %}RDM Library{% endblock %}
+
+{% block page_actions %}
+<a href="/rdms/import" class="btn-sm btn-sm--primary">+ Import RDM</a>
+{% endblock %}
+
+{% block main %}
+{% set list_route = '/rdms' %}
+{% set detail_prefix = '/rdms' %}
+{% set entity_label = 'RDM' %}
+<div class="page-pad">
+
+  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list) ── #}
+  <form class="filters" method="get" action="{{ list_route }}">
+    <label>Search
+      <input class="wf-field__input" type="text" name="q" placeholder="name…"
+             value="{{ filter_values.q }}" autocomplete="off">
+    </label>
+    <label>Status
+      <select class="wf-field__input" name="status" style="min-width:150px">
+        <option value="">Any</option>
+        {% for s in statuses %}
+        <option{% if filter_values.status == s %} selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="justify-content:flex-end">&nbsp;
+      <button class="btn-sm" type="submit">Filter</button>
+    </label>
+  </form>
+
+  {% if rows %}
+  <div class="lib-intro"><span class="muted">Count: {{ rows | length }}</span></div>
+  {% endif %}
+
+  {% include "partials/library_table.html" %}
+</div>
+{% endblock %}

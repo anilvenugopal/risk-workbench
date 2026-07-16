@@ -11,17 +11,34 @@
 <div class="page-pad">
 
   <div class="detail-head">
-    <h1>{{ submission.name }}</h1>
-    <div class="detail-meta">
-      <span>{{ submission.cedant_name }}</span>
+    <h1>{{ submission.name }}
+      <span class="status-chip status-chip--{{ submission.status_code|lower }}">
+        {{ submission.status_label or submission.status_code }}</span></h1>
+    <div class="deal-strip">
+      <b>{{ submission.cedant_name }}</b>
       <span class="crumb__sep">·</span>
       <span>{{ submission.treaty_type_label or submission.treaty_type_code }}</span>
+      {% if submission.treaty_year %}
+      <span class="crumb__sep">·</span><span>{{ submission.treaty_year }}</span>
+      {% endif %}
       <span class="crumb__sep">·</span>
-      <span>Inception {{ submission.inception_date }}</span>
+      <span>Inception <b>{{ submission.inception_date }}</b></span>
       <span class="crumb__sep">·</span>
-      <span class="detail-meta__handler">Owner: {{ submission.assigned_analyst_name or '—' }}</span>
-      <span class="status-chip status-chip--{{ submission.status_code|lower }}">
-        {{ submission.status_label or submission.status_code }}</span>
+      <span>Owner <b>{{ submission.assigned_analyst_name or '—' }}</b></span>
+    </div>
+    <div class="deal-substrip">
+      {% if submission.renews_from_submission_id %}
+      <span>Renews from
+        <b><a href="/submissions/{{ submission.renews_from_submission_id }}">
+          {{ submission.renews_from_submission_id }}</a></b></span>
+      {% endif %}
+      <span>Created <b>{{ submission.inserted_at }}</b></span>
+      {% if crm_tags %}
+      <span>CRM <b>{% for t in crm_tags %}{{ t.crm_id }}{% if not loop.last %} · {% endif %}{% endfor %}</b></span>
+      {% endif %}
+      {% if submission.directory_path %}
+      <span>Dir <b class="mono" title="{{ submission.directory_path }}">{{ submission.directory_path }}</b></span>
+      {% endif %}
     </div>
   </div>
 
@@ -35,24 +52,7 @@
   <div class="page-grid">
     <div class="page-col--main">
 
-      <div class="section-head"><h2>Details</h2></div>
-      <div class="wf-fields">
-        <div class="wf-field"><label>TREATY YEAR</label>
-          <span class="wf-field__val">{{ submission.treaty_year or '—' }}</span></div>
-        <div class="wf-field"><label>DIRECTORY</label>
-          <span class="wf-field__val">{{ submission.directory_path or '—' }}</span></div>
-        <div class="wf-field"><label>RENEWS FROM</label>
-          <span class="wf-field__val">
-            {% if submission.renews_from_submission_id %}
-            <a href="/submissions/{{ submission.renews_from_submission_id }}">
-              {{ submission.renews_from_submission_id }}</a>
-            {% else %}—{% endif %}
-          </span></div>
-        <div class="wf-field"><label>CREATED</label>
-          <span class="wf-field__val">{{ submission.inserted_at }}</span></div>
-      </div>
-
-      <div class="section-head" style="margin-top: 24px;"><h2>Status</h2></div>
+      <div class="section-head"><h2>Status</h2></div>
       <div class="status-controls">
         {% if is_active %}
         <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
@@ -112,21 +112,27 @@
         <button class="btn-sm" type="submit">Reassign</button>
       </form>
       {% endif %}
-
-      {# Packages — read-only placeholder this iteration (FR-028). #}
-      <div class="section-head" style="margin-top: 24px;"><h2>Packages</h2></div>
-      <div class="pkg-list">
-        {% for p in packages %}
-        <div class="pkg-item">
-          <span class="pkg-item__name">{{ p.name or 'Untitled package' }}</span>
-          <span class="pkg-item__count">
-            {{ p.member_count }} member{{ '' if p.member_count == 1 else 's' }}</span>
-        </div>
-        {% else %}
-        <span class="tag-empty">No packages attached.</span>
-        {% endfor %}
-      </div>
     </div>
   </div>
+
+  {# Packages — one full-width card per package (FR-022). #}
+  <div class="section-head" style="margin-top: 24px;">
+    <h2>Packages</h2>
+    {% if is_active %}
+    <button class="btn-sm btn-sm--primary" type="button"
+            hx-get="/submissions/{{ submission.id }}/packages/new"
+            hx-target="#package-modal-mount" hx-swap="innerHTML">New package</button>
+    {% endif %}
+  </div>
+
+  <div id="package-list" class="package-list">
+    {% for card in package_cards %}
+      {% include "partials/package_card.html" %}
+    {% else %}
+    <span class="tag-empty package-list__empty">No packages yet.</span>
+    {% endfor %}
+  </div>
+
+  <div id="package-modal-mount"></div>
 </div>
 {% endblock %}

@@ -24,6 +24,11 @@ async def lifespan(app: FastAPI):
     # Startup: verify WORKBENCH connectivity.
     if not test_connection("WORKBENCH"):
         raise RuntimeError("WORKBENCH database is not reachable at startup.")
+    # Discover every job actor and wire the Dramatiq dispatch seam so enqueued
+    # rwb_job rows are picked up immediately. Deferred import keeps dramatiq out of
+    # the request/test import path (only this startup path pulls it in).
+    from app.workers import loader  # noqa: PLC0415
+    loader.bootstrap()
     yield
     # Shutdown: return pooled connections cleanly.
     dispose_all()
@@ -57,12 +62,18 @@ templates.env.globals["generate_csrf_token"] = generate_csrf_token
 app.state.templates = templates
 
 # ── Routers ────────────────────────────────────────────────────────────────
-from app.routers import auth, shell, health, admin, submissions  # noqa: E402
+from app.routers import (  # noqa: E402
+    auth, shell, health, admin, submissions, shared_drive, edms, rdms, packages,
+)
 
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(submissions.router)
+app.include_router(shared_drive.router)
+app.include_router(edms.router)
+app.include_router(rdms.router)
+app.include_router(packages.router)
 app.include_router(shell.router)
 
 

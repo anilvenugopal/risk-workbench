@@ -9,9 +9,20 @@ the routers (contracts/data-access.md):
                              (updated_at, R1/FR-031) → 409, input preserved.
 - ``SelfRenewalError``     — renews_from_submission_id == id (R9/FR-007) → 422.
 - ``EmptyPackageError``    — a package would have zero members (R5/FR-024).
+- ``InvalidSourceFile``    — a browse selection is outside SHARED_DRIVE_ROOT,
+                             missing, or not a file (FR-008/FR-009) → 422.
+- ``InvalidMemberName``    — an EDM/RDM name has disallowed characters or is too
+                             long (letters/digits/underscore/hyphen, ≤50) → 422.
+- ``JobSubmitError``       — a Risk Modeler submit failed on a request-path helper
+                             (retry / replace-file). This iteration defers all
+                             submits to workers, so it is raised only from the
+                             gateway-touching recovery helpers (contracts/data-access.md).
 
 They deliberately carry no DB or HTTP coupling — the service raises, the router
 translates.
+
+> Name collision is deliberately NOT an error: it is a non-blocking warning
+> payload the service returns and the router renders (FR-012 / research R8).
 """
 
 from __future__ import annotations
@@ -38,10 +49,28 @@ class EmptyPackageError(ServiceError):
     """Raised when a package would be persisted with zero members."""
 
 
+class InvalidSourceFile(ServiceError):
+    """Raised when a shared-drive selection is outside SHARED_DRIVE_ROOT, missing,
+    or is not a file. Mapped to HTTP 422 (FR-008/FR-009)."""
+
+
+class InvalidMemberName(ServiceError):
+    """Raised when an EDM/RDM name contains characters other than letters, digits,
+    underscores, or hyphens, or exceeds 50 characters. Mapped to HTTP 422."""
+
+
+class JobSubmitError(ServiceError):
+    """Raised when a Risk Modeler submit fails on a request-path recovery helper
+    (retry / replace-file). Normal submits are deferred to workers this iteration."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
     "ConcurrencyConflict",
     "SelfRenewalError",
     "EmptyPackageError",
+    "InvalidSourceFile",
+    "InvalidMemberName",
+    "JobSubmitError",
 ]

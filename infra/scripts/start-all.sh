@@ -12,8 +12,9 @@
 #   uvicorn        → FOREGROUND (keeps the container alive; logs stream to stdout)
 #
 # Environment:
-#   APP_DEBUG=1    → start uvicorn under debugpy on port 5678 instead of direct
-#   APP_WORKERS    → number of dramatiq worker threads (default: 2)
+#   APP_DEBUG=1            → start uvicorn under debugpy on port 5678 instead of direct
+#   RWB_WORKER_PROCESSES   → dramatiq worker OS processes to fork (default: 1)
+#   RWB_WORKER_THREADS     → dramatiq worker threads per process (default: 2)
 
 set -euo pipefail
 
@@ -43,17 +44,18 @@ nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
 
 # ── 3. Dramatiq workers ───────────────────────────────────────────────────────
 echo "[start] Dramatiq workers..."
-WORKERS=${APP_WORKERS:-2}
-dramatiq app.workers \
-    --processes 1 \
-    --threads "$WORKERS" \
+PROCESSES=${RWB_WORKER_PROCESSES:-1}
+THREADS=${RWB_WORKER_THREADS:-2}
+dramatiq app.workers.entrypoint \
+    --processes "$PROCESSES" \
+    --threads "$THREADS" \
     >> "$LOG_DIR/worker.log" 2>&1 &
 echo $! > "$PID_DIR/worker.pid"
-echo "       worker PID=$(cat "$PID_DIR/worker.pid") threads=$WORKERS"
+echo "       worker PID=$(cat "$PID_DIR/worker.pid") processes=$PROCESSES threads=$THREADS"
 
 # ── 4. Poller ─────────────────────────────────────────────────────────────────
 echo "[start] Poller..."
-python -m app.poller.run --loop --interval 30 \
+python -m app.poller.run --loop \
     >> "$LOG_DIR/poller.log" 2>&1 &
 echo $! > "$PID_DIR/poller.pid"
 echo "       poller PID=$(cat "$PID_DIR/poller.pid")"

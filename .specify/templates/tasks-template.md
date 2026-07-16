@@ -41,6 +41,13 @@ description: "Task list template for feature implementation"
   - Tested independently
   - Delivered as an MVP increment
 
+  For a user story that introduces a screen with real new layout, add a UI preview task as
+  the first task in that story's phase: a quick rendered HTML preview
+  (docs/ui_previews/<screen>.html, from _scaffold.html) approved before wiring. SKIP it for
+  trivial/derivative UI (copy tweaks, adding a field to an already-styled component) — just
+  build those. Implement ONE story per pass; stop at the checkpoint for the approver to click
+  the running slice. See docs/UI_WORKFLOW.md.
+
   DO NOT keep these sample tasks in the generated tasks.md file.
   ============================================================================
 -->
@@ -87,6 +94,12 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T010 [P] [US1] Contract test for [endpoint] in tests/contract/test_[name].py
 - [ ] T011 [P] [US1] Integration test for [user journey] in tests/integration/test_[name].py
 
+### UI Preview for User Story 1 (only if it adds a screen with real new layout) 🎨
+
+> Skip for trivial/derivative UI — just build those. When kept, approval is informal (show → 👍). See docs/UI_WORKFLOW.md.
+
+- [ ] T0xx [US1] Quick rendered HTML preview for [screen] in docs/ui_previews/[screen].html (from _scaffold.html; reuse existing classes) — approved before wiring
+
 ### Implementation for User Story 1
 
 - [ ] T012 [P] [US1] Create [Entity1] model in src/models/[entity1].py
@@ -96,7 +109,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T016 [US1] Add validation and error handling
 - [ ] T017 [US1] Add logging for user story 1 operations
 
-**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
+**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. **STOP** — the approver clicks the running slice before User Story 2 begins.
 
 ---
 
@@ -180,10 +193,11 @@ Examples of foundational tasks (adjust based on your project):
 ### Within Each User Story
 
 - Tests (if included) MUST be written and FAIL before implementation
+- UI preview approved before wiring — only for screens with real new layout; skip trivial changes (see docs/UI_WORKFLOW.md)
 - Models before services
 - Services before endpoints
 - Core implementation before integration
-- Story complete before moving to next priority
+- Story complete AND clicked by the approver before moving to next priority
 
 ### Parallel Opportunities
 

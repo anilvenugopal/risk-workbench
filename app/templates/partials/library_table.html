@@ -1,0 +1,45 @@
+{# Shared EDM/RDM library table (US7, T059). The two library pages differ only in
+   entity type, crumb and import route, so the table lives here. The caller sets:
+     detail_prefix  — row → detail link prefix ("/edms" | "/rdms")
+     entity_label   — "EDM" | "RDM" (empty-state copy)
+     list_route     — the unfiltered list route (clear-filters target)
+   `rows` + `filter_values` come from the route context. #}
+<table class="mk-table lib-table">
+  <thead>
+    <tr>
+      <th>Name</th><th>Status</th><th>Submission</th>
+      <th>Risk Modeler ID</th><th>Source file</th><th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="data-row">
+      <td><a class="open-link" href="{{ detail_prefix }}/{{ row.id }}">{{ row.name }}</a></td>
+      <td><span class="status-chip status-chip--{{ row.status }}">{{ row.status }}</span></td>
+      <td class="lib-deal">
+        {% if row.submissions %}
+          {% set first = row.submissions[0] %}
+          <a class="crumb" href="/submissions/{{ first.id }}" title="{{ first.name }}">{{ first.name }}</a>
+          {% if row.submissions | length > 1 %}
+          <span class="muted"
+                title="{{ row.submissions[1:] | map(attribute='name') | join(', ') }}">
+            +{{ row.submissions | length - 1 }} more</span>
+          {% endif %}
+        {% else %}
+          <span class="na" title="Standalone import — not attached to a submission">—</span>
+        {% endif %}
+      </td>
+      <td>{% if row.irp_id %}<span class="mono">{{ row.irp_id }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
+      <td class="lib-src"><span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span></td>
+      <td>{{ (row.inserted_at | string)[:10] if row.inserted_at else '' }}</td>
+    </tr>
+    {% else %}
+      {% if filter_values.q or filter_values.status %}
+      <tr><td colspan="6" class="empty">No {{ entity_label }}s match —
+        <a class="lib-clear" href="{{ list_route }}">clear filters</a>.</td></tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No {{ entity_label }}s imported yet. Import one to get started.</td></tr>
+      {% endif %}
+    {% endfor %}
+  </tbody>
+</table>

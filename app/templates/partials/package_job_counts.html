@@ -1,0 +1,14 @@
+{# all / active / failed job counts, each deep-linking to the package-filtered Jobs
+   list (FR-024). The filter travels in the query string so refresh/bookmark/back
+   preserve it (US6). #}
+<div class="job-counts">
+  <a class="job-counts__pill job-counts__pill--all"
+     href="/workflows/irp-jobs?package={{ card.id }}">
+    <span class="job-counts__n">{{ card.job_counts.all }}</span> all</a>
+  <a class="job-counts__pill job-counts__pill--active"
+     href="/workflows/irp-jobs?package={{ card.id }}&amp;status=active">
+    <span class="job-counts__n">{{ card.job_counts.active }}</span> active</a>
+  <a class="job-counts__pill job-counts__pill--failed"
+     href="/workflows/irp-jobs?package={{ card.id }}&amp;status=failed">
+    <span class="job-counts__n">{{ card.job_counts.failed }}</span> failed</a>
+</div>

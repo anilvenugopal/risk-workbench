@@ -7,6 +7,7 @@
 @import url("layout.css");
 @import url("components.css");
 @import url("submissions.css");
+@import url("packages.css");
 
 [x-cloak] { display: none !important; }
 
@@ -91,11 +92,32 @@
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
 
+/* ── EDM / RDM libraries (US7) ─────────────────────────────────────────────── */
+/* muted em-dash for "no value yet" cells (no Risk Modeler id until import
+   finishes, or no owning submission for a standalone import). */
+.na { color: var(--text-disabled); }
+/* one-line count above the table */
+.lib-intro { display: flex; align-items: baseline; gap: var(--space-2); margin-bottom: var(--space-4); }
+/* keep the name/submission columns from being crowded out by the source path */
+.lib-table td.lib-src { max-width: 280px; }
+.lib-table td.lib-deal { max-width: 220px; }
+.lib-table .lib-src .mono,
+.lib-table .lib-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+/* trailing "clear filters" affordance on the filtered-empty row */
+.lib-clear { color: var(--color-brand); font-size: var(--fs-label); }
+
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }
+/* Compact deal header (submission detail, Option C): read-only metadata collapses
+   into a one-line strip + a lighter secondary substrip. */
+.deal-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--fs-label); color: var(--text-secondary); margin-bottom: 6px; }
+.deal-strip b { color: var(--text-primary); font-weight: var(--fw-medium); }
+.deal-substrip { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-tertiary); margin-bottom: 18px; }
+.deal-substrip b { color: var(--text-secondary); font-weight: var(--fw-medium); }
+.deal-substrip a { color: var(--color-brand); }
 .page-grid { display: grid; grid-template-columns: 1fr 320px; gap: var(--space-6); align-items: start; }
 .page-col--side { border-left: 1px solid var(--border-faint); padding-left: 22px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }

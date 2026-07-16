@@ -49,12 +49,19 @@ ITERATION1_SCHEMA = [
         submission_id TEXT, package_id TEXT, inserted_at TEXT, inserted_by TEXT,
         PRIMARY KEY (submission_id, package_id)
     )""",
+    # irp_edm / irp_rdm carry their full §5 shape from Iteration 1; this iteration
+    # EXERCISES the previously-inert columns (§6). The mirror is a subset of the
+    # real table (SUBSET_TABLES), so it lists every column a service now touches.
     """CREATE TABLE irp_edm (
-        id TEXT PRIMARY KEY, package_id TEXT, name TEXT, deleted_at TEXT,
+        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
+        server_name TEXT, status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE irp_rdm (
-        id TEXT PRIMARY KEY, package_id TEXT, name TEXT, deleted_at TEXT,
+        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
+        status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
 ]
@@ -65,12 +72,94 @@ TREATY_SEED = [("cat_xol", "Cat XoL", 10), ("quota_share", "Quota Share", 20),
                ("surplus", "Surplus", 30), ("per_risk_xol", "Per-Risk XoL", 40),
                ("aggregate_xol", "Aggregate XoL", 50), ("stop_loss", "Stop Loss", 60)]
 
+# ── Iteration-2 mirror: irp_job / rwb_job families (data-model §1–§5) ──────────
+# Column shapes match the migration exactly (types collapsed, FKs omitted). The
+# rwb_job UNIQUE(requestor_type, requestor_id, rwb_job_type) IS kept — the queue's
+# idempotency backbone is exercised on the unit tier.
+ITERATION2_SCHEMA = [
+    """CREATE TABLE irp_job_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE irp_job_resource_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE rwb_job_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE rwb_job_requestor_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE rwb_job_status_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE irp_analysis_status_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE irp_job (
+        id TEXT PRIMARY KEY, package_id TEXT, irp_edm_id TEXT, irp_rdm_id TEXT,
+        irp_job_type TEXT, irp_id TEXT, status TEXT,
+        last_submission_payload TEXT, last_submission_response TEXT,
+        last_completion_result TEXT, submission_attempt_count INTEGER,
+        submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
+    )""",
+    """CREATE TABLE irp_job_resource (
+        id TEXT PRIMARY KEY, irp_job_id TEXT, resource_type TEXT,
+        resource_uri TEXT, inserted_at TEXT
+    )""",
+    """CREATE TABLE rwb_job (
+        id TEXT PRIMARY KEY, requestor_type TEXT, requestor_id TEXT,
+        rwb_job_type TEXT, status_code TEXT, input_data TEXT, output_data TEXT,
+        error_detail TEXT, attempt_count INTEGER, claimed_by TEXT,
+        submitted_at TEXT, completed_at TEXT, inserted_at TEXT, updated_at TEXT,
+        inserted_by TEXT, updated_by TEXT,
+        UNIQUE (requestor_type, requestor_id, rwb_job_type)
+    )""",
+    """CREATE TABLE rwb_job_heartbeat (
+        rwb_job_id TEXT PRIMARY KEY, worker_id TEXT, heartbeat_at TEXT
+    )""",
+    # irp_analysis (D2) — captured broker analyses for delete-enumeration (§6a).
+    # UNIQUE(rdm_id, edm_id, irp_id) is kept — the backfill idempotency backbone is
+    # exercised on the unit tier.
+    """CREATE TABLE irp_analysis (
+        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT, package_id TEXT,
+        irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
+        created_by_irp_job_irp_id TEXT, deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
+        UNIQUE (rdm_id, edm_id, irp_id)
+    )""",
+]
+
+IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RDM", 20),
+                     ("delete_edm", "Delete EDM", 30), ("geohaz", "Geohazard", 40),
+                     ("analysis", "Analysis", 50), ("grouping", "Grouping", 60),
+                     ("export", "Export", 70)]
+IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
+RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
+                     ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
+                     ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
+                     ("download_export_file", "Download Export File", 40),
+                     ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
+                     ("notify_analyst", "Notify Analyst", 60),
+                     ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80)]
+RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
+                               ("analyst_request", "Analyst Request", 20),
+                               ("rwb_job", "RWB Job", 30)]
+RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
+                       ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
+IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
+                            ("ready", "Ready", 30), ("error", "Error", 40)]
+
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────
 # Tables whose mirror must match the real migrated schema column-for-column. A new
 # migration column here MUST be added to the mirror above or the guard fails.
 EXACT_MATCH_TABLES = (
     "treaty_type_kind", "submission_status_kind", "package", "submission",
     "submission_crm_id", "submission_status_event", "submission_package",
+    # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
+    "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
+    "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
+    "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # package service touches; the real tables carry extra Iteration-2 IRP columns
@@ -88,7 +177,7 @@ def mirror_columns() -> dict[str, set[str]]:
     parser, so this never drifts from the DDL the unit tier actually runs."""
     conn = sqlite3.connect(":memory:")
     try:
-        for ddl in ITERATION1_SCHEMA:
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA):
             conn.execute(ddl)
         return {
             table: {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}

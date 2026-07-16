@@ -1,0 +1,73 @@
+{# Full package card (US5) — Option C layout: compact head with an inline
+   "N/N ready" caption + all/active/failed job counts, then stacked EDM/RDM groups of
+   expandable member rows. Each row expands to a portfolio/analysis area that renders a
+   deferred placeholder this iteration (R13). No rolled-up package status (FR-018) —
+   each member carries its own chip. #}
+{# Live status (US-live): while any member is in flight or a job is active, the card
+   polls its own read-only render every 3s and swaps itself. The server stops emitting
+   the trigger once every member is terminal (ready/error/deleted), so polling ends on
+   its own — no page refresh needed to watch a Save & Sync progress. #}
+{% set members = card.edms + card.rdms %}
+{% set live_statuses = ['pending_import', 'importing', 'delete_pending'] %}
+{% set has_live = (members | selectattr('status', 'in', live_statuses) | list | length > 0)
+     or (card.job_counts and card.job_counts.active > 0) %}
+<div class="package-card" id="package-card-{{ card.id }}"
+  {%- if has_live and not card.deleted_at %}
+  hx-get="/packages/{{ card.id }}/card" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  {% set deleting = members | selectattr('status', 'equalto', 'delete_pending')
+       | list | length > 0 %}
+  {% set ready = members | selectattr('status', 'equalto', 'ready') | list | length %}
+  {% set total = members | length %}
+  <div class="package-card__head">
+    <h3 class="package-card__name">{{ card.name or 'Untitled package' }}
+      {% if total %}
+      <span style="font-weight: var(--fw-regular); font-size: var(--fs-caption); color: var(--text-tertiary);">·
+        {{ ready }}/{{ total }} ready</span>
+      {% endif %}
+    </h3>
+    <div style="display: flex; gap: var(--space-2); align-items: center;">
+      {% if card.deleted_at %}
+      <span class="status-chip status-chip--deleted">deleted</span>
+      {% elif deleting %}
+      <span class="status-chip status-chip--deleting">deleting…</span>
+      {% endif %}
+      {% if card.job_counts %}
+        {% include "partials/package_job_counts.html" %}
+      {% endif %}
+    </div>
+  </div>
+
+  <span class="package-card__group-title">EDMs · {{ card.edms | length }}</span>
+  {% for member in card.edms %}
+    {% include "partials/member_row.html" %}
+  {% else %}
+  <span class="tag-empty">No EDMs.</span>
+  {% endfor %}
+
+  <span class="package-card__group-title" style="margin-top: var(--space-3);">RDMs · {{ card.rdms | length }}</span>
+  {% for member in card.rdms %}
+    {% include "partials/member_row.html" %}
+  {% else %}
+  <span class="tag-empty">No RDMs.</span>
+  {% endfor %}
+
+  {% if is_active and not card.deleted_at %}
+  <div class="package-card__actions">
+    <form method="post" action="/packages/{{ card.id }}/sync" class="inline-form"
+          hx-post="/packages/{{ card.id }}/sync"
+          hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--primary" type="submit">Save &amp; Sync</button>
+    </form>
+    <form method="post" action="/packages/{{ card.id }}/delete" class="inline-form"
+          hx-post="/packages/{{ card.id }}/delete"
+          hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML"
+          hx-confirm="Delete this package and its Risk Modeler members?">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit">Delete</button>
+    </form>
+  </div>
+  {% endif %}
+</div>

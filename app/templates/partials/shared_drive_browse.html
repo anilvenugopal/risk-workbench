@@ -1,0 +1,36 @@
+<div id="shared-drive-browse" class="drive-browse">
+  {% if error %}
+  <div class="drive-browse__error">{{ error }}</div>
+  {% else %}
+  <div class="drive-browse__bar">
+    <span class="drive-browse__path" title="{{ listing.path }}">{{ listing.path }}</span>
+    {% if listing.parent %}
+    <a class="btn-sm" href="#" hx-get="/browse?path={{ listing.parent | urlencode }}"
+       hx-target="#shared-drive-browse" hx-swap="outerHTML">↑ Up</a>
+    {% endif %}
+  </div>
+
+  <ul class="drive-browse__list">
+    {% for entry in listing.entries %}
+      {% if entry.is_dir %}
+      <li class="drive-browse__row drive-browse__row--dir">
+        <a href="#" hx-get="/browse?path={{ entry.path | urlencode }}"
+           hx-target="#shared-drive-browse" hx-swap="outerHTML">📁 {{ entry.name }}</a>
+      </li>
+      {% else %}
+      <li class="drive-browse__row drive-browse__row--file">
+        <label>
+          <input type="checkbox" name="source_paths" value="{{ entry.path }}">
+          <span class="drive-browse__name">📄 {{ entry.name }}</span>
+          {% if entry.size is not none %}
+          <span class="drive-browse__size">{{ (entry.size / 1024) | round(1) }} KB</span>
+          {% endif %}
+        </label>
+      </li>
+      {% endif %}
+    {% else %}
+    <li class="drive-browse__empty">This folder is empty.</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>

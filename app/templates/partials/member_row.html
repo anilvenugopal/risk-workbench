@@ -1,0 +1,35 @@
+{# One package member as an expandable row (Option C). Collapsed: kind + name + status
+   chip + source path. Expanded: the portfolio/analysis breakdown — a deferred placeholder
+   this iteration (R13) — or the retry action for a failed import. The whole card is the
+   HTMX swap target, so retry re-renders the parent card. #}
+<details class="member-xrow" id="member-{{ member.id }}">
+  <summary>
+    <div class="member-row member-row--{{ member.status or 'unknown' }}">
+      <span class="member-row__kind">{{ member.kind|upper }}</span>
+      <span class="member-row__name">{{ member.name }}</span>
+      <span class="status-chip status-chip--{{ (member.status or 'unknown')|lower|replace(' ', '-') }}">
+        {{ member.status or 'unknown' }}</span>
+      {% if member.source_file_path %}
+      <span class="member-row__src member-row__spacer" title="{{ member.source_file_path }}">
+        {{ member.source_file_path }}</span>
+      {% endif %}
+    </div>
+  </summary>
+  <dl class="member-detail">
+    {% if is_active and member.status == 'error' %}
+    <div style="grid-column: 1 / -1;">
+      <form method="post" action="/packages/{{ card.id }}/members/{{ member.id }}/retry"
+            class="inline-form" hx-post="/packages/{{ card.id }}/members/{{ member.id }}/retry"
+            hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <input type="hidden" name="member_kind" value="{{ member.kind }}">
+        <button class="btn-sm" type="submit">Retry import</button>
+      </form>
+    </div>
+    {% else %}
+    <div style="grid-column: 1 / -1;">
+      <dd class="tag-empty" style="margin: 0;">Portfolio &amp; analysis counts coming in a later iteration.</dd>
+    </div>
+    {% endif %}
+  </dl>
+</details>

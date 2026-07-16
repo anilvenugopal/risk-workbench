@@ -1,0 +1,39 @@
+{% extends "base/shell.html" %}
+{% block title %}EDM Library{% endblock %}
+
+{% block page_actions %}
+<a href="/edms/import" class="btn-sm btn-sm--primary">+ Import EDM</a>
+{% endblock %}
+
+{% block main %}
+{% set list_route = '/edms' %}
+{% set detail_prefix = '/edms' %}
+{% set entity_label = 'EDM' %}
+<div class="page-pad">
+
+  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list) ── #}
+  <form class="filters" method="get" action="{{ list_route }}">
+    <label>Search
+      <input class="wf-field__input" type="text" name="q" placeholder="name…"
+             value="{{ filter_values.q }}" autocomplete="off">
+    </label>
+    <label>Status
+      <select class="wf-field__input" name="status" style="min-width:150px">
+        <option value="">Any</option>
+        {% for s in statuses %}
+        <option{% if filter_values.status == s %} selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label style="justify-content:flex-end">&nbsp;
+      <button class="btn-sm" type="submit">Filter</button>
+    </label>
+  </form>
+
+  {% if rows %}
+  <div class="lib-intro"><span class="muted">Count: {{ rows | length }}</span></div>
+  {% endif %}
+
+  {% include "partials/library_table.html" %}
+</div>
+{% endblock %}

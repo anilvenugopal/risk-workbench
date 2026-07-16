@@ -217,7 +217,7 @@ All commands are in the [Makefile](../Makefile). Run `make help` to list them.
 | `make wsl-stop` | Stop SQL Server container and Redis. |
 | `make wsl-app` | Start uvicorn with live reload on port 8000. |
 | `make wsl-worker` | Start Dramatiq background worker. |
-| `make wsl-poller` | Start IRP job poller (polls every 30s). |
+| `make wsl-poller` | Start IRP job poller (interval from `POLL_INTERVAL_SECS`, default 15s). |
 | `make wsl-test` | Run unit tests (no SQL Server needed, fast). |
 | `make wsl-test-sql` | Run SQL Server integration tests. |
 | `make wsl-db-bootstrap` | Create the 3 app databases (skips existing). |

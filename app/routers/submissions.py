@@ -20,14 +20,13 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from db import execute
-from app.services import submission_service
-from app.services import package_service
+from app.services import package_sync_service, submission_service
 from app.services.errors import (
     ConcurrencyConflict,
     SelfRenewalError,
     SubmissionClosed,
 )
+from db import execute
 
 router = APIRouter()
 
@@ -93,7 +92,7 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
-        "packages": package_service.get_packages_for_submission(submission_id),
+        "package_cards": package_sync_service.get_package_cards(submission_id),
         "analysts": analysts,
         "treaty_types": TREATY_TYPES,
         "is_active": submission.status_code == submission_service.ACTIVE,

@@ -51,6 +51,52 @@ class Settings(BaseSettings):
     # ── Paths ─────────────────────────────────────────────────────────────────
     submission_outputs_base: str = "/workspace/data/outputs"
 
+    # Read-only shared drive the broker files are browsed from (FR-008/FR-009/R11).
+    # The app never writes/moves/deletes under this root — browsing is a live
+    # directory listing. Empty in dev without a mounted drive.
+    shared_drive_root: str = ""
+
+    # ── Background queue / poller (Iteration 2, Article 10 / Article 11) ────────
+    # rwb_job heartbeat cadence + the staleness window the poller's reconciler uses
+    # to reclaim a dead worker's `running` row back to `pending`.
+    rwb_heartbeat_interval_secs: int = 30
+    rwb_heartbeat_stale_secs: int = 120
+
+    # Poller pass cadence (FR-027 / SC-001). One single-status-check per
+    # non-terminal irp_job per pass; never poll_*_to_completion.
+    poll_interval_secs: int = 15
+
+    # Submit-side retry ceiling for the submission_retry batch (FR-029). There is
+    # deliberately NO fixed default — it is a deployment decision; None means "not
+    # configured", and the batch parks SUBMISSION FAILED rows until it is set.
+    irp_submission_max_retries: int | None = None
+
+    # ── Risk Modeler / IRP gateway (Article 11) ─────────────────────────────────
+    # irp-integration's IRPClient() reads ALL of its own config straight from the
+    # environment (the gateway constructs it with no args), so those are NOT pydantic
+    # settings here — they must be exported into the process env (see
+    # infra/.env.example). Always required: RISK_MODELER_BASE_URL,
+    # RISK_MODELER_RESOURCE_GROUP_ID. Auth is auto-selected: RISK_MODELER_TENANT_NAME
+    # + _USERNAME + _PASSWORD for bearer login, or RISK_MODELER_API_KEY for the
+    # api-key strategy (the key wins if both are set). S3 import staging needs no
+    # ambient AWS creds — the wheel gets short-lived upload credentials from Risk
+    # Modeler per transfer.
+    #
+    # The one genuinely app-owned IRP setting is the EDM-import target DB-server
+    # *name* (RDM import + EDM delete resolve their server inside the wheel); the
+    # default matches irp-integration's own default.
+    irp_edm_import_server: str = "databridge-1"
+
+    # ── Notifications (Iteration 2, R10) ────────────────────────────────────────
+    # Comma-separated channels to deliver completion/failure notices on
+    # (any of: teams, email, desktop). Enabling a channel is a config edit.
+    notify_channels: str = ""
+    teams_webhook_url: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 25
+    smtp_from: str = ""
+    notify_email_to: str = ""
+
     @computed_field
     @property
     def is_production(self) -> bool:
