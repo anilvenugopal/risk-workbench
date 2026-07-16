@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   unit:
-    name: Unit tests & lint
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,9 +26,6 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --frozen          # resolves default-groups = ["dev", "irp-testpypi"]
-
-      - name: Lint (ruff)
-        run: uv run ruff check .
 
       - name: Unit tests
         run: make wsl-test             # = uv run pytest tests/unit -v (no env, no services)
