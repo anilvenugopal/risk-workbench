@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.6"          # matches infra/Dockerfile.dev
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen          # resolves default-groups = ["dev", "irp-testpypi"]
+
+      - name: Unit tests
+        run: make wsl-test             # = uv run pytest tests/unit -v (no env, no services)
+
+  sqlserver:
+    name: SQL Server integration tests
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: "Clarity0821!"   # matches infra/.env.example; disposable CI container, not a secret
+        ports:
+          - 1433:1433
+        # Mirrors the healthcheck in infra/docker-compose.yml so steps wait until SQL Server is ready.
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Clarity0821!' -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ODBC Driver 18 (required by pyodbc)
+        run: |
+          curl -sSL https://packages.microsoft.com/keys/microsoft.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc > /dev/null
+          curl -sSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list \
+            | sudo tee /etc/apt/sources.list.d/mssql-release.list > /dev/null
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.6"
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Materialize infra/.env
+        run: cp infra/.env.example infra/.env   # SA + all 3 MSSQL passwords already = Clarity0821!
+
+      - name: Create databases
+        run: make wsl-db-bootstrap              # create rwb_workbench / rwb_exposure / rwb_loss
+
+      - name: Run migrations
+        run: make wsl-db-migrate                # alembic upgrade head on WORKBENCH
+
+      - name: Seed kind tables
+        run: make wsl-db-seed                   # idempotent MERGE seed (analysts, kind tables)
+
+      - name: SQL Server integration tests
+        run: make wsl-test-sql                  # = uv run pytest tests/sqlserver -v --run-sqlserver

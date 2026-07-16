@@ -302,7 +302,28 @@ is not automatic while the debugger is attached.
 | SQL Server | `make wsl-test-sql` | SQL Server running |
 | IRP | `make wsl-test-irp` | Sandbox IRP credentials |
 
-Default CI runs unit tests only.
+### Continuous integration
+
+CI runs on GitHub Actions (`.github/workflows/ci.yml`) on every pull request
+into `main`, on every push to `main`, and on manual dispatch. Two jobs run in
+parallel:
+
+| Job (check name) | What it runs |
+|---|---|
+| **Unit tests** | `uv sync --frozen` → `make wsl-test` |
+| **SQL Server integration tests** | spins up a `mssql/server:2022` service container, installs ODBC Driver 18, then `make wsl-db-bootstrap` → `wsl-db-migrate` → `wsl-db-seed` → `make wsl-test-sql` |
+
+The workflow reuses the same Make targets developers run locally, so there is
+no separate CI-only test path. It materializes `infra/.env` from
+`infra/.env.example` (the disposable CI SQL Server uses the example's SA
+password), so no GitHub Secrets are required. The IRP tier is not in CI yet —
+`tests/irp/` has no tests and it needs sandbox credentials.
+
+**Branch protection (one-time, needs repo admin).** GitHub only lists a status
+check for protection *after* it has run once, so: merge the workflow to `main`
+first, then in **Settings → Branches** add a rule for `main` that requires a PR
+and requires both `Unit tests` and `SQL Server integration tests` to pass
+before merging (plus "require branches up to date").
 
 ### Writing a unit test
 
