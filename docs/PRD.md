@@ -793,7 +793,7 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 
 ### 14.4 The poller
 
-Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch operation by design: one pass per interval queries all non-terminal jobs in a single SELECT, groups them by `irp_job_type`, polls IRP for each, and writes results. Run `--loop --interval 30` in dev; a supervised service in production.
+Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch operation by design: one pass per interval queries all non-terminal jobs in a single SELECT, groups them by `irp_job_type`, polls IRP for each, and writes results. Run `--loop` in dev (interval from `POLL_INTERVAL_SECS`, default 15s); a supervised service in production.
 
 **Each pass:**
 1. **Query non-terminal jobs** from `WORKBENCH`: `WHERE status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')`, grouped by `irp_job_type`. App-local rows with no `irp_id` are skipped.
