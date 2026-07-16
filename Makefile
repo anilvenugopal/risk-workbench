@@ -21,7 +21,7 @@
         db-bootstrap db-migrate db-rebuild \
         test test-sql lint format \
         wsl-setup wsl-start wsl-stop \
-        wsl-db-bootstrap wsl-db-migrate wsl-db-rebuild \
+        wsl-db-bootstrap wsl-db-migrate wsl-db-seed wsl-db-rebuild \
         wsl-test wsl-test-sql \
         wsl-user-setup \
         irp-pypi irp-testpypi irp-local irp-status \
@@ -130,6 +130,9 @@ wsl-db-bootstrap:   ## [WSL2] Create the 3 app databases (safe to re-run — ski
 
 wsl-db-migrate:   ## [WSL2] Run pending Alembic migrations on WORKBENCH
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic upgrade head'
+
+wsl-db-seed:   ## [WSL2] Seed kind tables + dev admin (idempotent MERGE — safe to re-run)
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/seed_db.py'
 
 wsl-db-rebuild:   ## [WSL2] DESTRUCTIVE — drop and recreate all 3 app databases
 	@echo ""
