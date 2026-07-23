@@ -1,8 +1,8 @@
 # IRP Workbench — Design Notes: Data Organization — Open Questions & Findings
 
 **Source:** Design session, July 9, 2026 (Ben Bailey, Wendy Hayes, Cheryl TeHennepe)
-**Status:** The top-level data organization is **still open.** This session surfaced firm findings at the package/EDM/RDM level but did **not** settle how work is organized above the package. Ben committed to bringing wireframes with organization options to the next session; nothing about the submission/project/grouping model was decided.
-**Related:** `01_data_model_and_workbench_organization.md`, `02_cic_data_organization.md`, `../DATA_MODEL.md`, `../CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`, `../../../minutes/irp_workbench_design_minutes_7-9.md`
+**Status:** The top-level data organization is **still open.** This session surfaced firm findings at the package/EDM/RDM level but did **not** settle how work is organized above the package. Ben committed to bringing wireframes with organization options to the next session; nothing about the submission/project/grouping model was decided. **Follow-up (7/14, see `04`):** the wireframe review adopted layout **Option C** and a working **submission → package → EDM → portfolio** navigation, but **reopened the package's necessity** — "package" is not CIC terminology and Ben is "feeling like it adds too much organizational overhead" (Cheryl agreed). The top-level model and the package object both remain **open** (OQ-1/OQ-2, §9).
+**Related:** `01_data_model_and_workbench_organization.md`, `02_cic_data_organization.md`, `04_navigation_page_layout_and_ui_patterns.md`, `05_analysis_results_metadata_and_comparison.md`, `06_exposure_modification_subportfolios.md`, `07_analysis_execution_geohaz_currency_accumulation.md`, `../DATA_MODEL.md`, `../CR/CR_03__SUBMISSION_PACKAGE_MODEL.md`, `../../../minutes/IRP_Workbench_Design_Minutes_7-9-26.md`
 
 ---
 
@@ -31,10 +31,15 @@ Wendy explicitly declined to adjudicate the label — *"it doesn't matter what w
 **Supporting evidence — the file share already has this shape.** The shared-drive navigation mirrors a *submission → package → EDM/RDM* hierarchy almost exactly:
 
 ```
-Client  →  Treaty Year  →  Submission  →  submission contents (incl. an "RMS" folder)
-                                              └── RMS  →  package folders
-                                                            └── zip files  (one zip == one EDM/RDM)
+Client  →  Treaty Year  →  Submission  →  submission contents
+                                              └── "cat modeling"  →  [model vendor, e.g. "RMS"]
+                                                            └── package folders
+                                                                  └── zip files  (one zip == one EDM/RDM)
 ```
+
+*(Refined from the transcript: there is a **"cat modeling" folder** as the consistent entry point — Wendy "always start[s] by going to the cat modeling folder" — and beneath it data is organized **by model vendor**, of which "RMS" is one. The minutes' flat "RMS folder" understated this.)*
+
+**Navigation reality — the linked directory is often NOT where the working file is.** Edited/BAK data frequently lives on a **separate archive drive** ("goes to this L drive instead of this M drive… not organized in the same file folder structure"), sometimes split further into **in-force / projected** subfolders when there are many databases. So a single "open the deal folder" link is useful but insufficient: the file browser must support **free navigation to any location + file-name search** (Wendy: "as long as we can just navigate to wherever we need to be"). The 7/14 file-browse UI (two drives, folder-tree + search, BAK-name search) is detailed in `04` §8.
 
 Two design-relevant consequences:
 - The **"submission route" (option b) is not a new abstraction** — it re-expresses an organization analysts already browse. That is a point in its favor relative to a looser "project."
@@ -128,7 +133,7 @@ These were clarified with enough confidence to treat as design inputs (subject t
 
 ## 9. Open questions carried forward (design-blocking first)
 
-- **OQ-1 (blocking):** Is there a top-level organizing object, and is it "submission," "project," or nothing (attributes-on-package)? (§2)
+- **OQ-1 (blocking):** Is there a top-level organizing object, and is it "submission," "project," or nothing (attributes-on-package)? (§2) *Also unresolved at the 7/14 review: whether the **`package` object** survives at all, or EDMs/RDMs attach directly to the submission — Ben leans toward reducing organizational overhead (`04` §9). The import flow works either way.*
 - **OQ-2 (blocking):** Does a grouping level sit *above* per-CRM-ID submissions (three-tier project → submission → package), or is "submission = deal" with CRM as flat tags (two-tier)? Resolve the terminology collision before schema. (§3)
 - **OQ-3:** Given CRM ID is the only unique attribute but is manual/optional, what is the durable identity/key for the organizing object? (§4)
 - **OQ-4:** Does the treaty-type precedence ("cat treaty at the top") need to be modeled, or is it display-only? (§3)

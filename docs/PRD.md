@@ -8,9 +8,9 @@
 
 ## 0. How to use this PRD
 
-This document is **feature-organized** (§4–§17). Each feature section is self-contained — purpose, data, behavior, and rules in one place. §18 is the **build plan** (iterations, sequencing, exit criteria). §19 is an **adversarial review**. §20 logs locked decisions and external dependencies.
+This document is **feature-organized** (§4–§20). Each feature section is self-contained — purpose, data, behavior, and rules in one place. §21 is the **build plan** (iterations, sequencing, exit criteria). §22 is an **adversarial review**. §23 logs locked decisions, open decisions, and external dependencies. §24 is the **change log**.
 
-Three **declarative sources of truth** (§2.1) are the spine — most "add a thing" tasks are a one-place edit to one of them. Everything else follows from them.
+The **one declarative source of truth** (§2.1) — the navigation manifest — is the spine; "add a page" is a one-place edit to it (CR-002 removed the other two: the workflow-definition manifest and the type/port registry). Two companion documents carry the domain detail this PRD builds from: **`DATA_MODEL.md`** (canonical entities/relationships) and **`FUNCTIONAL_REQUIREMENTS.md`** (the reconciled statement of what the workbench does, edited line-by-line in the CIC design sessions). Where this PRD and `FUNCTIONAL_REQUIREMENTS.md` disagree, the functional requirements are the newer source of truth.
 
 ---
 
@@ -28,9 +28,9 @@ It is also **not** a multi-tenant SaaS and **not** a governance platform.
 
 Reinsurance catastrophe analysts who:
 - Receive broker submissions (EDM and/or RDM files)
-- Import exposure data into IRP, validate and profile it, create sub-portfolios
+- Import exposure data into IRP, review it, and create sub-portfolios (filtered breakouts)
 - Configure and run cat model analyses (potentially 50–150+ combinations per worldwide contract)
-- Review results (ELTs, EP curves, AAL), compare against broker results
+- Review results (ELTs, EP numbers, AAL), compare against broker results
 - Export finalized loss sets to downstream repositories
 
 Administrators manage users, roles, and system configuration.
@@ -39,21 +39,23 @@ Administrators manage users, roles, and system configuration.
 
 Every submission follows three sequential phases. The workbench covers all three.
 
-#### Phase A — Data Setup & Validation
-1. **File ingestion** — select EDM/RDM files from local filesystem or network shares; import into IRP via API. Auto-apply naming conventions from submission context.
-2. **Validation & profiling** — run SQL-based validation reports and exposure profiling against imported data via DataBridge. Check quality, completeness, consistency; summarize by portfolio, geography, line of business.
-3. **Exposure modification** — create sub-portfolios, modify data elements, create peril-specific portfolios via DataBridge. Re-validate after changes.
-4. **Load to Exposure Repository** — push pre-aggregated summary data to the on-prem Exposure Repository SQL Server.
+#### Phase A — Data Setup & Shaping
+1. **File ingestion** — select EDM/RDM files from network shares (never the local machine — §8.2); import into IRP via API. Auto-apply naming conventions from submission context.
+2. **Exposure review** — a fast textual snapshot of the imported exposure (counts, perils, geography, currency, record volume, treaties) so the analyst understands it without clicking through Risk Modeler (§2.2 of `FUNCTIONAL_REQUIREMENTS.md`; delivered as the EDM detail view, Iteration 3).
+3. **Exposure shaping** — create sub-portfolios by **filtering** the exposure (synchronous IRP `create_portfolio()`, §10A / §14.3 / §15.5) and one-click breakouts (by LOB, by geography, complement splits). This is the MVP path.
+
+> **MVP scope note (2026-07-21).** Of the earlier Phase A vision, only file ingestion, exposure review, and sub-portfolio **creation** are in the MVP. **Deferred / out of MVP:** SQL-based *validation reports and exposure profiling* via DataBridge, *data-element modification* (construction/currency normalization), *peril-specific portfolios* ("we don't have to split by peril" — FR §3), *merge/combine portfolios* (recombination happens on results, not exposure), and the *Exposure Repository load* (§10, §16.5). Sub-portfolio creation is the **synchronous IRP `create_portfolio()`** path (§10A), **not** the deferred DataBridge exposure-modification path (§10.3).
 
 #### Phase B — Analysis Execution
-1. **Analysis configuration** — select model profiles, output profiles, event rate schemes, currency. For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
-2. **Job submission & tracking** — submit analysis jobs via IRP API. Auto-poll for status. Surface progress, completion, and failures.
-3. **Notifications** — push notification (Teams, email, or desktop toast) on job completion or failure.
+1. **Hazard lookup (GeoHaz)** — optionally run hazard lookup on a portfolio before analysis (§10B). Broker geocoding is preserved; re-geocoding is not a workbench action.
+2. **Analysis configuration** — select model profiles, output profiles, event rate schemes, currency. For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
+3. **Job submission & tracking** — submit analysis jobs via IRP API. Auto-poll for status. Surface progress, completion, and failures.
+4. **Notifications** — push notification (Teams, email, or in-app center) on job completion or failure (Iteration 11; §18).
 
 #### Phase C — Results Management
-1. **Results review** — view analysis outputs (ELTs, EP curves, AAL, return periods). Compare own results against broker-supplied RDM results and prior-year benchmarks.
+1. **Results review** — view analysis outputs (ELT summary, EP numbers, AAL, return periods) per financial perspective. Compare own results against broker-supplied RDM results and prior-year benchmarks.
 2. **Results grouping** — combine or break out results by geography or other dimensions (e.g., county → state rollups).
-3. **Downstream upload** — push finalized loss sets to the Loss Repository SQL Server.
+3. **Downstream upload** — push finalized **own** loss sets to the Loss Repository SQL Server (pushing broker results to the Loss Repository is out of MVP — FR §7).
 
 ### 1.4 Core domain glossary
 
@@ -62,6 +64,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **EDM (Exposure Data Module)** — an exposure database, typically a `.bak` or `.mdf` file from a broker. First-class tracked entity in the workbench (name + IRP exposure ID). Imported into IRP, validated, and used as the basis for analysis.
 - **RDM (Risk Data Model)** — a results database from the broker (their own prior analysis). First-class tracked entity. Imported into IRP; used for comparison against the analyst's own results.
 - **Portfolio** — a named view within an EDM in IRP (all accounts, or a filtered subset). Analysis jobs run against portfolios, not EDMs directly. Each `irp_*` entity tracks its own Risk Modeler id in `irp_id`.
+- **Sub-portfolio (breakout)** — a portfolio created by **filtering** an EDM's exposure (e.g. isolate a state with a different retention, exclude an LOB), so it matches treaty terms the broker didn't break out. Created synchronously (`create_portfolio()`, HTTP 201, no job). Filter values are picked from the *real values present in the portfolio*, not free-text. One-click breakouts fan a portfolio out by LOB or geography, including complement ("X vs. not-X") splits (§10A). Creation granularity is capped at state/country; finer cuts (CRESTA, ZIP) are results, not portfolios.
 - **Analysis** — an analysis (or, when `is_group=true`, a **group** — a group *is* an analysis in Risk Modeler) belonging to an EDM. `rdm_id` set → the analysis came from importing that RDM (broker); null → a net-new analysis the analyst ran (own). Backed by `irp_analysis`.
 - **Treaty** — a reinsurance treaty belonging to an EDM, referenced by analyses by name. Create/edit is synchronous (no job). Backed by `irp_treaty`.
 - **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event rate scheme, treaty names, currency), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite`.
@@ -73,7 +76,8 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Job heartbeat** — a child-table row (`rwb_job_heartbeat`) stamped every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread while a worker holds a job. Proves the job is progressing, independent of which worker and independent of job duration.
 - **Reconciler** — a single-instance periodic sweep (folded into the poller process) that recovers `running` `rwb_job` rows whose heartbeat is stale. Stale = heartbeat older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the heartbeat interval; never a function of job size or duration). Resets `running → pending` and re-enqueues via Dramatiq. Does not scan `pending` rows (durable Redis covers those).
 - **IRP job type** — a kind-table discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`.
-- **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group.
+- **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group. DLM requires an event-rate scheme; HD makes it optional.
+- **GeoHaz (hazard lookup)** — an optional pre-analysis operation that runs Moody's hazard lookup on a portfolio (`irp_job_type = geohaz`, §10B). In this workbench it is **hazard lookup only** — geocoding is *not* re-run (broker geocoding is preserved); re-geocoding, if ever needed, is done intentionally inside the model, not here. Async (polled by the poller).
 - **Exposure Repository** — on-prem SQL Server that holds pre-aggregated exposure summary data (output of Phase A). Separate connection from the Workbench Metamodel DB.
 - **Loss Repository** — on-prem SQL Server that holds finalized loss sets / analysis results (output of Phase C). Separate connection from both other databases.
 - **Workbench Metamodel DB** — the app's own SQL Server (app state, job inventory, audit). One of three distinct database connections.
@@ -158,7 +162,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. Exact token set is finalized when Iteration 4 (analysis templates) is planned.
+Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. The draft analysis-naming convention draws on **portfolio name + near-term/long-term + event-rate scheme** (FR §4, O7-3) but is **not yet finalized**; the exact token set is locked when Iteration 7 (analysis templates) is planned.
 
 ---
 
@@ -221,7 +225,7 @@ A breadcrumb is a **pure function of the manifest position**, never of navigatio
 
 IDE-style, three zones:
 - **Left** — environment badge (loud in LOCAL/dev mode), signed-in user, active role
-- **Center** — background activity: "3 jobs running · 1 result worker pending" (wired when execution lands, §18)
+- **Center** — background activity: "3 jobs running · 1 result worker pending" (wired when execution lands, §14.7)
 - **Right** — last-action result ("EDM-123 imported") + HTMX request spinner (`htmx-indicator`)
 
 ### 4.5 Rail destinations (indicative)
@@ -493,7 +497,7 @@ This replaces the prior `authoring_status` field, whose three-value guess (`draf
 
 `submission.name` is **not unique.** The July 9 CIC session established that two genuinely distinct deals can share every naming-convention attribute — same cedant, same inception, same treaty type (e.g. a regional cat and a corporate cat incepting the same day) — and differ only by the **manual, optional CRM ID** (design note 03 §4). A DB-level `UNIQUE(name)` would therefore reject a legitimate second deal, or force analysts to mangle the label with a suffix at peak season. So identity rests on the surrogate `id` (UUID); `name` is a human label kept consistent by autocomplete. To still guard against *accidental* re-creation, create/rename runs a **non-blocking** "a similar deal already exists" check (same UX as the EDM/RDM name-collision warning, §9.4) — it warns and lets the analyst proceed, never hard-blocks. *(Resolves the OQ-3 identity/uniqueness tension from design note 03 in favor of a surrogate key + soft warning.)*
 
-> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 4, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
+> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 7, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
 ### 7.3 Submission UI
 
@@ -574,8 +578,8 @@ No `submission_id`/`customer_id` — same as the EDM (ownership through the pack
 
 **RDM operations:**
 - **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = import_rdm` (uploads to S3 first)
-- **Query via DataBridge** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; accessible via DataBridge for comparison queries (reading broker results tables directly)
-- **Export to Loss Repository** — push broker results to the Loss Repository for side-by-side comparison with own analysis (see §17)
+- **Retrieve broker results (REST)** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; their result data is retrieved via the **same REST result endpoints as own results** (§15.3), deduped once per `rdm_id` into `analysis_result_meta` (§16.1, §17.2). **Not** a DataBridge query.
+- ~~Export to Loss Repository~~ — pushing broker results to the Loss Repository is **out of MVP** (FR §7; §17.4).
 
 ### 9.3 EDM library & RDM library
 
@@ -607,11 +611,13 @@ Schema: DATA_MODEL.md §4 (`package`, `submission_package`) and §5 (`irp_edm.pa
 
 ---
 
-## 10. Feature: Phase A — Data validation & exposure modification
+## 10. Feature: Phase A — Data validation & exposure modification (DEFERRED — out of MVP)
+
+> **Out of MVP (`mvp-scope.md §6`).** This section is the *deferred* Phase A vision: SQL-based validation reports, exposure profiling, DataBridge data-element modification, and the Exposure Repository load. **None of it is built for the MVP.** The MVP data-shaping capability that *is* built — sub-portfolio creation and one-click breakouts — is a distinct, synchronous IRP path and lives in **§10A (Portfolio management)**, not here. This section is retained only so the deferred scope and its re-entry path stay documented (it slots back in as its own iteration if picked up — §21). Do not build from this section for the MVP.
 
 ### 10.1 Purpose
 
-Before any analysis runs, the analyst validates the quality of the imported EDM, creates sub-portfolios as needed, and loads summary data to the Exposure Repository. This is Phase A, and it runs entirely through DataBridge (`client.databridge`).
+Before any analysis runs, the analyst would (in the deferred vision) validate the quality of the imported EDM and load summary data to the Exposure Repository. This ran entirely through DataBridge (`client.databridge`). **Sub-portfolio creation is no longer part of this section** — it is the synchronous IRP path in §10A.
 
 ### 10.2 Validation & profiling
 
@@ -626,18 +632,93 @@ Validation categories (initial set, extensible):
 - **Completeness checks** — required fields, geographic coverage
 - **Portfolio summaries** — total insured value by portfolio, geography, LOB
 
-### 10.3 Exposure modification via DataBridge
+### 10.3 Exposure modification via DataBridge (deferred)
 
-The analyst can run exposure modification operations (also via DataBridge):
-- Create sub-portfolios (filter on portfolio criteria)
-- Modify data elements (e.g., construction class mapping, currency normalization)
-- Create peril-specific portfolios (e.g., earthquake-only portfolio from a combined EDM)
+In the deferred Phase A vision the analyst runs exposure modification operations via DataBridge:
+- ~~Create sub-portfolios~~ — **moved to §10A** and reimplemented as the **synchronous IRP `create_portfolio()`** path; it is *not* a DataBridge operation. (This resolves the earlier §1.3/§10.3-vs-§14.3/§15.5 contradiction in favor of the IRP path.)
+- Modify data elements (e.g., construction class mapping, currency normalization) — **out of MVP** (FR §3).
+- ~~Create peril-specific portfolios~~ — **out of MVP**: "we don't have to split it up by peril" (FR §3; verify separately whether RM adds a *missing* peril).
 
-These run as DataBridge SQL commands via `client.databridge.execute_command(query, params, ...)`. Results are logged in the audit log. After modification, the analyst re-runs validation.
+The remaining (deferred) operations would run as DataBridge SQL commands via `client.databridge.execute_command(query, params, ...)`, logged in the audit log.
 
-### 10.4 Load to Exposure Repository
+### 10.4 Load to Exposure Repository (deferred)
 
-After validation passes, the analyst pushes pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`). The workbench writes to a known schema in the Exposure Repository. This is a Dramatiq worker action: the poller triggers it via an `rwb_job` row (`requestor_type='analyst_request'`) when the analyst explicitly requests it from the Phase A UI.
+After validation passes, the analyst would push pre-aggregated exposure summaries to the **Exposure Repository** (separate SQL Server connection `EXPOSURE_REPO_URL`), via a Dramatiq worker action (`push_exposure_summary`, §16.5). **Out of MVP** with the rest of Phase A.
+
+---
+
+## 10A. Feature: Portfolio management (sub-portfolios & breakouts) — **IN MVP**
+
+> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits, peril splits, and merge/combine are out of MVP.
+
+### 10A.1 What this is
+
+Reshaping exposure to match treaty terms *before* analysis, by creating filtered sub-portfolios. This cannot be done in the current workflow tool (done in RiskLink today, which is slow); Risk Modeler makes it fast and synchronous, so it becomes a **preferred** path (FR §3). It is the fastest operation in the whole flow — HTTP 201, no job.
+
+### 10A.2 The portfolio model
+
+- Portfolios **arrive with the EDM** (broker-supplied — "sometimes 1 portfolio, sometimes 25", FR §2.2). An EDM drills down to its portfolios (§1.4 nav depth: Submission → Package → EDM → Portfolio); analyses run against a portfolio, never the whole EDM.
+- A **sub-portfolio** is a new portfolio created by **filtering** an existing one — e.g. isolate a state with a different retention, or exclude a line of business the treaty doesn't cover. Backed by `irp_portfolio` (§15.5): `edm_id` FK, `irp_id`, `name`; synchronous creation, so no `created_by_irp_job` lineage.
+- **Creation granularity is capped at state/country.** Finer cuts (CRESTA, ZIP) are saved as *results*, not portfolios — "too much to manage" (FR §3).
+- **Regions are not pre-defined constants.** "Northeast" is defined by the treaty / how the cedent writes the business; the analyst composes a region from states rather than picking a fixed list.
+
+### 10A.3 The current-split view
+
+Before deciding how to re-group, the analyst can see the EDM's **current portfolio split** — how many portfolios exist and what each covers (FR §3: "the current split is visible before deciding how to re-group"). This is the entry point for the breakout actions below.
+
+### 10A.4 Creating a sub-portfolio by filter
+
+- Filter values are picked from the **real values present in the portfolio** — a pick-list, **not free text** ("people put crazy things in the LOB field," and typing them exactly is messy — FR §3).
+- Filter dimensions in scope: **line of business**, **geography (state/country)**, and the other native account-filter fields Risk Modeler exposes.
+- The filter maps to a Risk Modeler **native account-filter**. The resulting portfolio is **account-bucketed**, so slices can double-count and cannot be made perfectly "pure" (memory / `moodys-portfolio-filter-lob`). This matters most for the geographic breakouts below.
+- Submission is **synchronous**: `create_portfolio()` returns `(portfolio_id, request_body)` (HTTP 201 + Location); the service writes `irp_portfolio.irp_id` inline (§14.3, §15.5). No `irp_job`, no poller.
+
+### 10A.5 One-click breakouts *(Ben to build, 7/16)*
+
+Beyond a single filtered sub-portfolio, the analyst can fan a source portfolio out in one action. Each generated portfolio is an ordinary synchronous `create_portfolio()` call; a breakout is an **app-side loop** over that call (the same pattern as batch analysis, §14.3), each producing its own `irp_portfolio` row.
+
+- **By line of business** — one sub-portfolio per LOB. Simplest case; unaffected by the geography problem below.
+- **By state/country** — one sub-portfolio per geography.
+- **Complement split ("X vs. not-X")** — one portfolio for a selected set (e.g. the Northeast states) and one for everything else, from a single action.
+- **"Do the opposite"** — produce the complement of a defined filter without re-coding it (define "Florida mobile home" once, and also get "everything that's not Florida mobile home").
+- **Breakouts sum to 100%** of the source portfolio — not "run the whole thing, then a subset, and subtract" (FR §3).
+
+> **Open question — commercial-policy geographic split (blocks the geography & complement breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed (a RiskLink "checkbox" recollection is not load-bearing). Output-side alternative: write losses to the state level and let the model allocate back. **Ben is investigating RM behavior; Cheryl is polling the team for the preferred default** (FR §3, O6-1/O6-2). The **LOB breakout is unblocked and can ship first**; the geography and complement breakouts wait on this resolution.
+
+### 10A.6 Prerequisite gate
+
+Sub-portfolio creation is enabled once an EDM with **≥1 portfolio** exists (portfolios arrive with the EDM), per the gate (§13.1). The gate rule for this op is built as part of the Iteration 4 slice (§21).
+
+### 10A.7 Out of scope (FR §3)
+
+Data-element modification (construction/currency normalization); peril-specific portfolios ("we don't have to split it up by peril" — verify separately whether RM adds a *missing* peril); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); finer-than-state/country granularity as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested).
+
+---
+
+## 10B. Feature: GeoHaz (hazard lookup) — **IN MVP**
+
+### 10B.1 What this is
+
+An **optional** pre-analysis operation that runs Moody's hazard lookup on a portfolio. In this workbench it is **hazard lookup only** — **geocoding is not re-run** (broker geocoding is preserved; Cheryl has never re-geocoded in this role). Re-geocoding, if ever needed, is done intentionally *inside the model*, not as a workbench action (FR §5).
+
+Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set against the installed `irp-integration` wheel before implementing — §14.3.)*
+
+### 10B.2 Parameters (defaults in **bold**)
+
+- **Data version** — defaults to the **latest** (v25 as of now).
+- **Model family** — defaults to **DLM (non-HD)**.
+- **Perils** — **earthquake and windstorm** selected by default; toggleable. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
+- **Missing locations** — not skipped; **overwritten** ("the more comprehensive the data, the better").
+
+### 10B.3 Result
+
+The hazard job returns a **summary of locations looked up per layer**, surfaced to the analyst when it completes.
+
+### 10B.4 Prerequisite gate & relationship to analysis
+
+Enabled once an **EDM + portfolio** exist (§13.1). Hazard lookup is **optional** and is **not a hard prerequisite for analysis** — broker exposure is usually already geocoded/hazarded, so analysis is not gated on a geohaz job having run. (This is why the Analysis gate row, §13.1, does not list geohaz.)
+
+> **Open questions (Cheryl investigating, FR §5).** (1) Whether hazard retrieval must be run ahead of time for **HD** models is unconfirmed (O7-1). (2) **Enhanced risk data** is not used today, may be HD-only, and its availability / whether CIC wants it is being checked (O7-2).
 
 ---
 
@@ -648,6 +729,19 @@ After validation passes, the analyst pushes pre-aggregated exposure summaries to
 ### 11.1 The batch problem
 
 A worldwide reinsurance contract may require 50–150+ individual model/region/peril/treaty combinations, each historically configured manually. This is the #1 analyst pain point. The workbench solves it with **analysis templates** and **template suites**.
+
+### 11.1a Profiles & per-analysis settings (FR §4)
+
+The configurable inputs a template captures, and how the builder exposes them:
+
+- **Model (DLM) profiles** — selected from a **pre-compiled list**; profiles are created and managed in Risk Modeler, the workbench only selects. **Multiple** model profiles can be selected for one portfolio/treaty combination (each yields its own analysis). **User-defined (UD) profiles** are supported and selectable (naming convention `UD` + initials, e.g. `UDCT`). Long profile lists are **filterable** ("just get to UDCT").
+- **Output profiles** — also from a pre-compiled Risk-Modeler-managed list.
+- **Event-rate scheme** — configurable per analysis (people are "very picky" about it). **DLM requires** an event-rate scheme; **HD makes it optional** — determined by the model profile, not the file (§11.4, §13.3).
+- **Exposed per-analysis toggles** — **franchise deductible** and **unrecognized construction / occupancy type**. These are the deliberate exceptions to holding advanced settings constant (deal-specific; the team wants direct access).
+- **Held at defaults, not surfaced** — **min loss threshold** and **max loss event** (`min_loss_threshold` / `num_max_loss_event` are stored on the template for completeness but are not exposed in the builder).
+- **Currency** — loss/analysis currency is selected per analysis. **Defaults to the exposure's native currency when the exposure is one-to-one** (a single currency present), and **to USD otherwise** (a US book must not default to Euros). The **latest currency scheme** (exchange rate at a point in time) is used by default when rerunning; a **custom scheme** can be selected when one exists. The workbench does not build or import schemes — those are built in Risk Modeler.
+- **Treaties** — selected **by name or pattern** (name-based coupling, §13.2).
+- **Tags** — set per analysis.
 
 ### 11.2 Analysis template
 
@@ -709,13 +803,19 @@ Synchronous single ops (create-subportfolio, treaty CRUD) create **no job and no
 Every async op is tracked as an `irp_job` row and polled by the poller (§14.4). Only the operations below are the MVP analysis spine (`mvp-scope.md §1–§3`); EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine and, if revived, map onto the same `irp_job_type` set.
 
 - **EDM import from .bak/.mdf** (the MVP spine) — `client.edm.submit_edm_import_job(edm_name, file_path, server_name)` → `irp_job_type = import_edm` (uploads to S3 first, inside the library — a **heavy** submit). `irp_edm.irp_id` is backfilled by the poller on import `FINISHED`.
-- **RDM import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = import_rdm` (also heavy). Once imported, the RDM's broker analyses appear as `irp_analysis` rows with `rdm_id` set (see DATA_MODEL §3c), readable via DataBridge for comparison.
+- **RDM import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` → `irp_job_type = import_rdm` (also heavy). Once imported, the RDM's broker analyses appear as `irp_analysis` rows with `rdm_id` set (see DATA_MODEL §3c); their results are retrieved via the **same REST result endpoints as own results**, deduped once per `rdm_id` (§16.1, §17.2) — not via DataBridge.
 
-### 12.4 Treaties (view / edit)
+### 12.4 Treaties (view in-app / edit via Risk Modeler pass-through)
 
-Analysts can **view and create/edit** reinsurance treaty details for the main treaty types directly in the UI. A **treaty belongs to an EDM** and is referenced by analyses **by name** (not by id), consistent with the name-based coupling used everywhere else. Backed by the `irp_treaty` entity (DATA_MODEL §3b).
+> **Reconciled to FR §5 (2026-07-21).** Adding or editing a treaty is a **pass-through to Risk Modeler**, not an in-app editor — "the workbench does not rebuild the RM treaty editor" (reconfirmed 7/16). Treaty **viewing** stays in-app; treaty **create/edit** hands off to RM. This reverses the earlier in-app `create_treaty`/`create_treaty_lob` CRUD design.
 
-All treaty IRP calls are **synchronous** and create **no job**: `treaty.search_treaties` (list / resolve by name), `treaty.create_treaty`, and `treaty.create_treaty_lob`. Creating a treaty with its lines of business is a **1 + N** call pattern and is **non-atomic** — a partial failure can leave a treaty with some LOBs missing; the UI surfaces this and lets the analyst retry the remaining LOBs. Because it is synchronous with no job, a treaty create/edit records an audit entry + a toast and **never appears in the job monitor**. Scope is **edit-only** (add/edit treaty + LOBs for the main types); cedant-ID checks, treaty-accuracy validation, and location-detail checks are out.
+A **treaty belongs to an EDM** and is referenced by analyses **by name** (not by id), consistent with the name-based coupling used everywhere else (§13.2). Backed by the `irp_treaty` entity (DATA_MODEL §3b) as a **read/cache** record.
+
+**Viewing (in-app, FR §2.2).** Treaty setup is shown at the **EDM level**. The analyst sees the **full treaty attribute detail** — Cheryl wants every attribute visible to catch mis-coding, not blindly trust it ("sometimes people put the wrong thing in the wrong field"). Treaties **expand and collapse** (a few shown expanded, many collapsed to focus one at a time); wide attribute sets **scroll horizontally** in the compact view; and treaties can be **exported to Excel** for extreme cases with too much to render cleanly. Resolving/listing treaties by name uses the synchronous `treaty.search_treaties` (no job).
+
+**Create / edit (Risk Modeler pass-through, FR §5).** Adding or editing a treaty — and adding or editing reinsurance more generally — **opens the Risk Modeler editor in a new window**; the analyst edits and saves there, returns, and the page refreshes (the general pass-through pattern, design note 04 §7: where the workbench would only re-skin RM, hand off to RM). A pass-through edit creates **no `irp_job`** and **never appears in the job monitor**; on return the treaty view re-reads from RM (`search_treaties`). Editing return periods / interpolation on results follows the same pass-through pattern (§16).
+
+**Out of scope:** cedant-ID checks, treaty-accuracy validation, and location-detail checks (treaty-accuracy is caught manually — the full-attribute display above is what helps the analyst catch it).
 
 ---
 
@@ -736,7 +836,7 @@ All treaty IRP calls are **synchronous** and create **no job**: `treaty.search_t
 | Grouping | member analyses/groups exist (`FINISHED`) |
 | Export → Loss Repo | analysis/group exists (`FINISHED`) |
 
-This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones.
+This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones. **GeoHaz (hazard lookup) is optional and deliberately *not* an Analysis prerequisite** — broker exposure is usually already geocoded/hazarded, so the Analysis row above does not require a geohaz job to have run (§10B.4, FR §5). *(Open: whether HD models need hazard run ahead — O7-1.)* **Subportfolio** creation needs `≥1 portfolio` because portfolios arrive with the EDM (§10A.2), and a sub-portfolio filters an existing one.
 
 **Auto-fires vs click-gated.** Mechanical follow-up **auto-fires** (a broker package is one intent, so EDM→RDM chains automatically); anything requiring judgment (picking analysis settings) **waits for a click**. This auto/click distinction is made explicit per op in the flow specs.
 
@@ -783,7 +883,7 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 | Grouping | `client.analysis.submit_analysis_grouping_job(group_name, analysis_names, ...)` | `grouping` |
 | File Export (Parquet) | `client.analysis.submit_analysis_export_job(analysis_id, loss_details)` | `export` |
 
-> **Subportfolio creation is synchronous** — `create_portfolio()` returns `(portfolio_id, request_body)` (HTTP 201 + Location), no job; the service writes `irp_portfolio.irp_id` inline. **Treaty CRUD is synchronous**, no job. EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine; if revived they map onto the same `irp_job_type` set.
+> **Subportfolio creation is synchronous** — `create_portfolio()` returns `(portfolio_id, request_body)` (HTTP 201 + Location), no job; the service writes `irp_portfolio.irp_id` inline (§10A, §15.5). One-click breakouts loop this call app-side. **Treaty create/edit is a Risk Modeler pass-through (§12.4)** — no IRP job from the workbench; `search_treaties` resolves names synchronously. EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine; if revived they map onto the same `irp_job_type` set.
 
 > **Resource URI must be captured at submission time.** `submit_portfolio_analysis_job()` returns `(job_id, request_body)` where `request_body["resourceUri"]` is the portfolio's IRP resource URI — needed later for `get_elt()`, `get_ep()`, etc. Store it as an `irp_job_resource` row (`resource_type='portfolio'`, `resource_uri=...`) immediately after submission — RM's completion response does not return it, so it is otherwise unrecoverable without a separate search call (DATA_MODEL §8).
 
@@ -822,7 +922,7 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 
 `rwb_job` is app-side work **this app executes** in-process (Dramatiq worker), fully decoupled from `irp_job` (no FK). Each row's `requestor_type` (kind-table FK) + `requestor_id` records what triggered it — an `irp_job` completion, an analyst action, or a parent `rwb_job` (chaining); the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` is the dedup/idempotency key (replacing `request_key`). `rwb_job_type` is a kind-table FK. See DATA_MODEL §8 for the full vocabulary.
 
-**Result workers** (triggered by the poller writing an `rwb_job` head row on terminal IRP status): `retrieve_analysis_results` → `push_results_to_loss_repo`; `push_rdm_to_loss_repo`; `notify_analyst`; `download_export_file`; plus the package `upload_edm`/`upload_rdm`/`delete_rdm`/`delete_edm` stubs (§7.4/§9.4; `delete_rdm` runs a synchronous removal, the others submit async Risk Modeler jobs). (`push_exposure_summary` is out of MVP — no Exposure Repository per `mvp-scope.md §6`.)
+**Result workers** (triggered by the poller writing an `rwb_job` head row on terminal IRP status): `retrieve_analysis_results` → `push_results_to_loss_repo`; `notify_analyst`; `download_export_file`; plus the package `upload_edm`/`upload_rdm`/`delete_rdm`/`delete_edm` stubs (§7.4/§9.4; `delete_rdm` runs a synchronous removal, the others submit async Risk Modeler jobs). **Out of MVP:** `push_rdm_to_loss_repo` (pushing **broker** results to the Loss Repository is out — FR §7; §17.4) and `push_exposure_summary` (no Exposure Repository — `mvp-scope.md §6`). Both remain defined `rwb_job_type`s for when they are picked up.
 
 **Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `push_results_to_loss_repo` never races `retrieve_analysis_results` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
 
@@ -885,9 +985,9 @@ These are called by the `retrieve_analysis_results` Dramatiq worker (§14.5), no
 
 `client.databridge.execute_query(query, params, connection, database)` → `pd.DataFrame`
 
-Used for: validation reports (§10.2), exposure profiling, exposure modification (§10.3), broker RDM queries (§17.2). Connection: `MSSQL_{NAME}_SERVER/USER/PASSWORD` env vars read by irp-integration.
+Used for: validation reports (§10.2), exposure profiling, and exposure modification (§10.3) — **all of which are the deferred Phase A** (§10, out of MVP). Connection: `MSSQL_{NAME}_SERVER/USER/PASSWORD` env vars read by irp-integration.
 
-DataBridge **cannot serve analysis results** — REST only for results.
+DataBridge **cannot serve analysis results** — **REST only for results, own *and* broker.** (Broker RDM results are retrieved via the same REST result endpoints as own results, deduped by `rdm_id`; §16.1, §17.2. There is no DataBridge query for broker results.)
 
 ### 15.5 Portfolio tracking
 
@@ -912,36 +1012,59 @@ Analysis job submission requires both `edm_name` and `portfolio_name` — IRP re
 
 ## 16. Feature: Results management & repositories
 
-### 16.1 Analysis results in Metamodel DB
+### 16.1 Analysis results storage — hybrid Parquet + SQL metadata
 
-When the `retrieve_analysis_results` worker completes, results are stored in the Metamodel DB:
-- `analysis_result` — one row per (analysis, perspective_code): AAL, EP curve points, ELT record count
-- `elt_record` — individual ELT loss events (may be large; paginated retrieval)
-- `ep_curve` — EP curve data points (OEP/AEP/CEP/TCE)
-- `plt_record` — PLT records (HD only)
+**DATA_MODEL §9 governs.** When the `retrieve_analysis_results` worker completes, results are stored as a **hybrid**: row-level data (ELT, EP, PLT) as **Parquet files on disk**, and a single **SQL metadata row** per result summarizing it and recording the file paths.
 
-These tables are the source for the results review UI.
+- **`analysis_result_meta`** — one row per (result, `perspective_code`): summary metrics (AAL, max event loss, ELT record count, standard deviation, the return-period losses, OEP/AEP points) plus the `*_file_path` pointers to the Parquet files. Exactly one of `analysis_id` / `rdm_id` is set (CHECK) — `analysis_id` for own results, `rdm_id` for broker results.
+- **Parquet files** (paths relative to `{OUTPUTS_BASE_DIR}/{submission.id}/`, §21 Iteration 0): the ELT records, EP-curve points (OEP/AEP/CEP/TCE), and PLT records (HD only). Large row-level data lives on disk, never in SQL rows.
+
+The metadata row is the index the results review UI reads; the Parquet files are opened on drill-down/export.
+
+> **Superseded:** earlier drafts of this section listed row-level SQL tables (`analysis_result`, `elt_record`, `ep_curve`, `plt_record`). Those predate the Parquet-hybrid decision (§23 locked decisions, 2026-07-10) and are **not** built — DATA_MODEL §9 (`analysis_result_meta` + Parquet) is authoritative.
 
 **Broker (RDM) results are deduplicated by `rdm_id`.** When a broker RDM is applied across M EDMs it produces M `irp_analysis` rows (§9.4 / DATA_MODEL §6), but the broker's result data is *static* and identical across them — so it is retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: the `retrieve_analysis_results` job fires once per `rdm_id`, and the metadata row + its Parquet files are shared by all M `irp_analysis` handles. Own results stay per-analysis. See DATA_MODEL §9 (`analysis_result_meta`) for the authoritative storage model — hybrid Parquet + SQL metadata, with `analysis_id`/`rdm_id` mutually exclusive (CHECK). *(The §16.1 row-level SQL tables above predate the Parquet-hybrid decision in DATA_MODEL §9 / §23 locked decisions; DATA_MODEL §9 governs.)*
 
 ### 16.2 Results review UI
 
-Rail: Results. Shows analysis outputs per submission:
-- ELT summary (AAL, max event loss, record count)
-- EP curves (plot or table, by perspective)
-- AAL by perspective
-- PLT (HD only)
-- Comparison panel: own analysis results vs. broker RDM results side by side
+Rail: Results. Shows analysis outputs per submission. Results are **grouped under the RDM that produced them** (matches the current workflow; the EDM↔RDM relationship is implied by the package). Metrics shown (FR §7):
+
+- **ELT summary** — AAL / pure premium, max event loss, record count.
+- **Standard deviation.**
+- **Return-period losses** — indicative set 1000 / 500 / 250 / 100 / ~20–25 year (exact points TBD, O5-2).
+- **OEP and AEP both** (Cheryl uses OEP more); a **TCE (tail conditional expectation) toggle** (not routine, nice to have).
+- **PLT** (HD only).
+- **No EP-curve graph is required** — "the drawing's not important… I want the numbers." Show numbers/tables, not a plotted curve.
+- **Analysis metadata** shown alongside (the same metadata list reused for broker-result review, §2.3): engine/model version, engine type (DLM vs HD) + version, analysis type/mode, peril (primary + secondary), region, currency, construction, LOB, group type, long-term vs near-term, event-rate scheme / rate vintage, loss amplification (PLA). Rate/event-rate detail sits one drill-down deeper than the rest.
+
+**Perspective switching is essential** — Gross (`GR`), Ground-Up (`GU`), and Reinsurance Layer / net (`RL`); "look at it from however you ran it."
+
+**Density.** Up to ~5 analyses are consumable on screen (a guideline, not a hard cap); beyond that, drill-down / export. A **full listing / full drill-down of all analyses remains available** — the on-screen cap must not be a step back from RiskLink, which lists them all.
+
+- **Comparison panel** — own analysis results vs. broker RDM results side by side, with a **percent-difference column** (§17).
+
+> **Open question — event-rate scheme round-trip (O5-1).** The event-rate scheme does not appear to survive a Risk Modeler export → re-import (exactly the broker scenario); near-term/long-term and rate vintage both matter. Ben investigating how to recover/carry it, and whether "vintage" is even a first-class RM concept (FR §7).
 
 ### 16.3 Loss Repository
 
 The Loss Repository (`LOSS_REPO_URL`) is the downstream destination for finalized loss sets. It is a **separately-connected SQL Server** with a known schema that downstream reporting systems read.
 
-The `push_results_to_loss_repo` Dramatiq worker writes to it after analysis results are retrieved. Schema for the Loss Repository is defined separately and versioned independently. The workbench app has write-only access to designated tables.
+The `push_results_to_loss_repo` Dramatiq worker writes to it after analysis results are retrieved. **ELTs are uploaded for downstream reporting — losses, financial perspective, and metadata** (FR §7). Schema for the Loss Repository is defined separately and versioned independently. The workbench app has write-only access to designated tables.
+
+**Own results only.** Pushing **broker** RDM results to the Loss Repository is **out of MVP** (FR §7; §17.4). Analysts can also **copy / paste** results out for ad-hoc use (FR §7). *(Open question — how to move data from DataBridge to the Loss Repository; and out of MVP: uploading loss sets to Analyze Re, which is a separate API.)*
 
 ### 16.4 Results grouping
 
-After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`submit_analysis_grouping_job` → `irp_job_type = grouping`). A group is an `irp_analysis` with `is_group=true` (not a separate entity). Groups can themselves be grouped (group-of-groups, supported by irp-integration). Results of grouped analyses are retrieved the same way as individual analyses.
+After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`submit_analysis_grouping_job` → `irp_job_type = grouping`). A group is an `irp_analysis` with `is_group=true` (not a separate entity). **Nested grouping (groups of groups) is supported.** A group is **treated like any other analysis** — viewed and exported the same way; results are retrieved the same way as individual analyses. **Group names are auto-generated from the deal.** **Invalid groupings show error messaging** — chiefly mixing DLM and HD analyses, caught by the homogeneity check (§13.3) when the op is composed.
+
+**Out of scope (FR §6):** creating ELTs by zone / county / country (done in SQL or the old tool today).
+
+### 16.4a Accumulation results
+
+Accumulation analyses are in scope (FR §5) and their output has its own shape (FR §7):
+- Output perspectives are **gross** and **pre-cat net** (Reinsurance-Layer retained).
+- **Ground-up is currently included** in accumulation output — a Risk Modeler UI constraint, not a preference; possibly droppable via the API (O7-5).
+- Accumulation shows how a **policy limit allocates by geographic area** (e.g. a $1M policy over $50M of buildings across several states).
 
 ### 16.5 Exposure Repository
 
@@ -955,45 +1078,49 @@ The Exposure Repository (`EXPOSURE_REPO_URL`) receives pre-aggregated exposure s
 
 Analysts must compare their own analysis results against the broker's results (provided as an RDM file) and against prior-year benchmarks. The workbench surfaces this comparison directly rather than requiring export and manual Excel work.
 
-### 17.2 Broker RDM import & query
+### 17.2 Broker RDM results — retrieval (REST, deduped by `rdm_id`)
 
-After importing a broker RDM into IRP (§9.2), the analyst can query it via DataBridge (broker results ARE available via DataBridge — unlike own analysis results). Standard queries extract:
-- ELT records from the RDM's loss tables
-- AAL and EP curve data (from aggregated results tables in the RDM)
+> **Reconciled (2026-07-21).** Broker RDM results are retrieved via the **same REST result endpoints as own results** (§15.3) — **not** DataBridge — and stored in **`analysis_result_meta`**, keyed on `rdm_id`. There is no `rdm_result` table and no DataBridge query for broker results. This aligns §17 with §15.3 ("results are REST-only, own *and* broker"), §16.1, and the 2026-07-10 locked dedup decision.
 
-These are stored in a `rdm_result` table in the Metamodel DB, tagged by `rdm_id`.
+Importing a broker RDM creates broker analyses as `irp_analysis` rows with `rdm_id` set (§9.2). Their result data is **static and identical** across the M EDM-copies a bundle produces, so `retrieve_analysis_results` fires **once per `rdm_id`** and stores one `analysis_result_meta` row (+ Parquet) per (RDM source analysis, perspective), shared by all M handles (§16.1). No analysis execution is required — the data exists from the RDM import path (viewable since Iteration 3).
 
 ### 17.3 Comparison view
 
-The results review UI shows a comparison panel:
-- **Own results** (from `analysis_result`) vs. **broker results** (from `rdm_result`)
-- Metrics: AAL, 100-year/250-year/500-year OEP, by perspective code
-- Visual: side-by-side table or overlay chart
+The results review UI shows a comparison panel (FR §7):
+- **Own results** (`analysis_result_meta` keyed by `analysis_id`) vs. **broker results** (keyed by `rdm_id`), viewable together in one view.
+- Analyses compared **side-by-side**, with a **percent-difference column** (e.g. CIC vs. broker — saves the manual Excel step). Metrics: AAL, return-period OEP/AEP, by perspective code.
+- Numbers, not a required overlay chart (no EP graph is required — §16.2). Ben has a prior comparison engine to build on.
 
-### 17.4 Push to Loss Repository
+> **Portfolio↔analysis linking is not solved — deliberately deferred** (FR §7). It doesn't exist today either; analysts rely on naming conventions and broker documentation to know which portfolio a result ran against. (See also DATA_MODEL §14: whether `analysis_result_meta` should carry an `irp_portfolio` FK is an open decision.)
 
-Broker results can also be pushed to the Loss Repository (`push_rdm_to_loss_repo` worker) to make them available alongside own results for downstream reporting.
+### 17.4 Push to Loss Repository — **out of MVP**
+
+Pushing **broker** results to the Loss Repository (`push_rdm_to_loss_repo`) is **out of MVP** (FR §7). Only **own** finalized results are pushed (§16.3). The worker name remains a defined `rwb_job_type` for when this is picked up.
+
+**Also out of MVP (FR §7):** Post-Analysis Treaty (PATE — adding a cat treaty onto broker results and re-simulating; rare, portfolio-level only, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); and carrying CRM-ID tags through to the repository upload.
 
 ---
 
 ## 18. Feature: Notifications
 
+> **Scheduled as Iteration 11 (2026-07-21).** Notifications were previously deferred (CR-002) and the earlier Iteration-2 "notification on completion" exit criterion was **not actually delivered** — the capability is **greenfield** and is built in full as Iteration 11 (§21). The poller/worker job-completion path it hangs off already exists. This reverses the CR-002 deferral note.
+
 ### 18.1 Async job completion notifications
 
-Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal status. Configured per-submission or per-user preference.
+Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal status. The analyst is notified **when a job completes** and **when a job fails** (FR §5).
 
 **Channels:**
 - **Teams webhook** — post a card to a configured channel with job name, status, and a deep link to the results
 - **Email** — SMTP, sent to `assigned_analyst.email`
-- **In-app** — a notification item in the status bar (polled via SSE)
+- **In-app** — an **in-app notification center** plus a status-bar item (polled via SSE)
 
 **Content:** job name, submission name, final status (`FINISHED`/`FAILED`/`CANCELED`/`SUBMISSION FAILED`), timestamp, deep link to the job.
 
-> **Notifications are deferred (CR-002).** The `notification_preference` table is dropped and notifications will be re-added in a future version. `notify_analyst` remains a defined `rwb_job_type` for when the feature is picked up.
+**Events:** terminal status of the tracked ops — import, analysis execution, grouping, export — both success and failure.
 
 ### 18.2 Configuration
 
-*(Deferred with the feature.)* Per-user preferences (`channel` teams/email/in_app, `enabled`, `on_success`, `on_failure`) and the Teams webhook URL will be re-specified when notifications are built; the `notification_preference` table is not carried in the current schema.
+The `notification_preference` table is re-introduced with this iteration. Per-user preferences (`channel` teams/email/in_app, `enabled`, `on_success`, `on_failure`). Two settings are **open decisions** to confirm with the team before locking (§23): whether the **Teams webhook URL** is per-submission or a single global config, and whether preferences are **per-user opt-in or always-on**.
 
 ---
 
@@ -1003,11 +1130,16 @@ Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal st
 
 - **Navigation** — reads the nav manifest; new nav items are searchable automatically
 - **Submissions** — name, cedant, treaty type
+- **Packages** — package name
 - **EDMs** — EDM name, submission
 - **RDMs** — RDM name, submission
+- **Portfolios** — portfolio name, EDM
+- **Treaties** — treaty name, EDM
 - **Analyses** — analysis/group name, submission, status
 - **Jobs** — IRP job / RWB job, by type and status
 - **Results** — analysis job name
+
+FR (7/14) also asks that **search, sort, and filter be available on every list section** — portfolios, treaties, analyses, and results, not just submissions — delivered via the shared list ergonomics (§20.4), with the command palette above spanning the same object set.
 
 Adding a searchable type = register one provider. There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
 
@@ -1059,7 +1191,7 @@ Two actors can touch the same row at once — for example two users editing the 
 
 ## 21. Build plan
 
-Each iteration ends runnable and demonstrable. Sequencing: infrastructure first; IRP operations before results; repositories last.
+Each iteration ends runnable and demonstrable. Sequencing follows the analyst's Risk Modeler workflow — import exposure → understand it → shape portfolios → geohaz → analyze → group → export — with cross-cutting ergonomics (global search, home dashboard) built last, over the complete entity set.
 
 ### 21.0 DB lifecycle prompt (applies to every iteration)
 
@@ -1125,47 +1257,119 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s); see the IRP name-collision warning; Save-and-Sync runs a real IRP sync with EDM-before-RDM ordering on a both-package, and Delete runs a real IRP delete with RDM-before-EDM ordering; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
 
-### Iteration 3 — Search framework
+> **Correction (2026-07-21).** The exit criterion "analyst receives a Teams/email notification on completion" was **not actually delivered** in this iteration; notification delivery is greenfield and is scheduled as **Iteration 11**. The poller/worker job-completion path it would hang off does exist.
 
-> **Reordered (2026-07-08).** Previously Iteration 2; the package pieces it used to carry now live in Iteration 2, so this iteration is the search framework on its own.
+### Iteration 3 — EDM/RDM details & backfill
 
-**In:** §19 search framework + navigation + submission, EDM, RDM, package, and jobs providers; §20 command palette (Ctrl/Cmd-J) and remaining query-string filtering beyond the Jobs list already built in Iteration 2.
+> **Rewritten (2026-07-21).** This slot was previously "Search framework"; search now moves to the end (Iteration 12) and is built once over the complete entity set. This iteration is the EDM/RDM detail-and-backfill work that FR §2.2 ("Exposure Details Viewing") never had a home for. Covers backlog #7 (post-import detail backfill) and #8 (EDM detail page redesign). Placed first so the analyst can *understand* imported exposure and broker results before acting on them.
 
-**Out:** analyses/results search providers (those entities don't exist yet — search is completed in the final iteration); analysis, grouping, results, repositories.
+**In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils/sub-perils, geography, currency, TIV/record volume, associated treaties — FR §2.2), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / analysis-result viewing** — RDM import already creates `irp_analysis` objects and broker result data (deduplicated by `rdm_id`, §16.1), surfaced on the RDM/analysis detail pages (§16.2 review UI, for broker-from-RDM results, retrieved via REST). No analysis execution is required — this data exists from the RDM import path built in Iteration 2.
 
-**Exit:** Ctrl/Cmd-J finds nav, submissions, EDMs, RDMs, packages, and jobs; providers return results and navigate correctly.
+**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 6); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iterations 6/7); broker side-by-side comparison (Iteration 9); Loss Repository export.
 
-### Iteration 4 — Analysis templates & template suites — **IN MVP**
+**Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler; open an imported RDM and see its analyses and broker loss results; a newly completed import backfills its detail data automatically via the poller/worker path.
 
-**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
+### Iteration 4 — Sub-portfolio creation & breakouts
 
-**Out:** analysis execution. *(In MVP per the 2026-07-06 practice-lead call, reversing the CR-002 deferral. IRP metadata sync can move earlier since analysis execution needs it too.)*
+> **New (2026-07-21).** Portfolio work previously appeared only as the word "portfolio" in the old Iteration 6 exit line and had no scoped iteration. Full §-body: **§10A**. Reconciled to FR §3 — "modification" is dropped (data-element edits and merge/combine are out of MVP); the capability is **filtered sub-portfolio creation + one-click breakouts**.
 
-**Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated; IRP metadata sync populates profile/server dropdowns.
+**In:** the current-**split view** of an EDM's portfolios (§10A.3); **sub-portfolio creation by filter** on the request path (`create_portfolio()` → synchronous HTTP 201, writes `irp_portfolio.irp_id` inline), with filter values picked from the **real values present in the portfolio** (§10A.4; account-bucketed native filter — slices can double-count, cannot be made "pure"); **one-click breakouts** (app-side loop over `create_portfolio()`) — **the LOB breakout is unblocked and ships here**; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
 
-### Iteration 5 — Prerequisite gate, name-based coupling & point-of-action validation
+**Out:** geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7).
 
-**In:** §12 (work model — submission → EDM/RDM → job; entity tables `irp_treaty`/`irp_analysis`), §13 (prerequisite gate computed in code, name-based coupling via IRP `search_*`, point-of-action validation: uniqueness, reference-data, grouping homogeneity). No workflow authoring, no manifest, no typed ports — those are removed (CR-002).
+> **Blocked sub-item — geography & complement breakouts.** The by-state/country and complement ("X vs. not-X" / "do the opposite") breakouts are **blocked on the commercial-policy geographic-split open question** (§10A.5, O6-1/O6-2 — Ben/Cheryl investigating RM keep-all-vs-matching-locations behavior). Ship them within this iteration if the question resolves in time; otherwise LOB-only ships and the geographic breakouts follow as a fast-follow.
 
-**Out:** actual IRP execution (next iteration).
+**Exit:** open an imported EDM and see its current portfolio split; create a sub-portfolio by filtering on real portfolio values; run a one-click LOB breakout that produces one sub-portfolio per LOB summing to 100% of the source; the prerequisite gate enables/disables the op correctly from entity state.
 
-**Exit:** the prerequisite gate correctly enables/disables each op from entity + job state; a duplicate EDM/analysis name is caught live via `search_*`; DLM+HD mixing is caught when composing a grouping op.
+### Iteration 5 — GeoHaz (hazard lookup)
 
-### Iteration 6 — Analysis execution, grouping & results
+> **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved).
 
-**In:** §14 (execution engine: `irp_job` as the tracked unit, synchronous submit, all poller `irp_job_type`s, `rwb_job` queue with heartbeat + reconciler, all Dramatiq worker types, single-threaded submission retry), §15.3 analysis results retrieval, §16.1 results in Metamodel DB, §16.2 results review UI, §16.3 Loss Repository write, §17 broker RDM comparison, §14.7 SSE monitoring.
+**In:** the hazard-lookup op against Risk Modeler on a portfolio — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the configurable parameters with their defaults (data version = latest, family = DLM, perils = EQ + windstorm, missing locations overwritten — §10B.2); the per-layer **"locations looked up" summary** surfaced on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.4).
 
-**Out:** export file download (Iteration 7).
+**Out:** analysis execution, grouping, results; geocoding (never a workbench action).
 
-**Exit:** run the full op sequence end-to-end (EDM upload → portfolio → geocode → analysis → grouping → results) driven by the prerequisite gate; results appear in review UI; Loss Repository populated; broker RDM comparison side-by-side.
+**Exit:** run hazard lookup on a portfolio with the default parameters; the job is tracked via the poller; on completion the per-layer locations-looked-up summary is shown; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1.)*
 
-### Iteration 7 — Export, search completion & polish
+### Iteration 6 — Analysis execution
 
-**In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker), §19 remaining search providers (analyses, results — submission/EDM/RDM/package/jobs providers already built in Iteration 3), notifications (§18, if picked up).
+> **Split (2026-07-21).** Carved out of the old monolithic Iteration 6 ("Analysis execution, grouping & results"). Execution comes *before* template authoring — build the ability to run a single analysis, then the batch/template layer on top (Iteration 7). Most of the job infrastructure already exists from Iteration 2; the remainder lands here.
+
+**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the per-analysis config surface (§11.1a — model/output profiles, event-rate scheme, franchise/construction toggles, currency defaulting, treaties by name); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); §14.7 SSE monitoring of running jobs; §15.3 analysis-results retrieval for **own** (executed) analyses, **extending the Iteration-3 detail views** to show newly-executed results; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
+
+**Out:** template suites & batch application (Iteration 7); grouping (Iteration 8); Loss Repository export (Iteration 10).
+
+**Exit:** configure and execute a single analysis against Risk Modeler driven by the prerequisite gate; run the same config across multiple selected portfolios in one action; a treaty edit hands off to the RM editor and the refreshed view reflects it; the job is tracked and a wedged job is recovered by the heartbeat/reconciler; SSE shows live status; results are retrieved and appear on the analysis detail view.
+
+### Iteration 7 — Analysis templates & template suites — **IN MVP**
+
+> **Reordered (2026-07-21).** Was the standalone old Iteration 4 (IN MVP); now follows execution so templates batch-apply a capability that already runs.
+
+**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming from submission context), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
+
+**Out:** grouping, results, export.
+
+**Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated and executed via the loop; IRP metadata sync populates profile/server dropdowns.
+
+### Iteration 8 — Grouping
+
+> **Split (2026-07-21).** Carved out of the old Iteration 6.
+
+**In:** §14 grouping op (a group is an `irp_analysis` with `is_group=true`, CR-002), §13.3 grouping homogeneity check (DLM+HD mixing caught when composing the op), the prerequisite-gate rule (member analyses must exist and be `FINISHED` — A2).
+
+**Out:** results export, broker comparison.
+
+**Exit:** compose a grouping over finished analyses; a DLM+HD mix is caught by the homogeneity check; the group runs and its result is retrievable.
+
+### Iteration 9 — Broker RDM comparison
+
+> **New placement (2026-07-21).** Promoted to its own iteration between grouping and results export (was bundled into the old Iteration 6).
+
+**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import, viewable since Iteration 3) against own executed/grouped results.
+
+**Out:** Loss Repository export.
+
+**Exit:** view a side-by-side comparison of broker RDM results and own results for a submission.
+
+### Iteration 10 — Results export
+
+> **Rescoped (2026-07-21).** Narrowed to the Moody's → Loss Repository export only; results *viewing* now lives in Iteration 3 (broker) and Iteration 6 (own).
+
+**In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker) to pull results out of Risk Modeler, and §16.3 the Loss Repository write through the thin adapter layer (A19); §16.1 results storage where it feeds the export.
+
+**Out:** results review UI (Iterations 3/6); an analyst-facing Parquet file download (not an MVP deliverable unless separately requested).
+
+**Exit:** export analysis results from Risk Modeler and write them to the Loss Repository via the adapter.
+
+### Iteration 11 — Notifications
+
+> **New (2026-07-21) — greenfield.** Notification delivery was listed in the old Iteration 2 exit criteria but was not actually delivered; the full capability is built here.
+
+**In:** §18 notifications — in-app notification center, delivery (Teams/email), per-event routing and preferences; wires the existing job-completion path (poller/worker terminal status) to notification events.
 
 **Out:** —
 
-**Exit:** export analysis results to Parquet; all search providers working.
+**Exit:** an analyst receives a notification on job completion (import, execution, grouping, export) via the configured channel and sees it in the in-app center.
+
+### Iteration 12 — Global search
+
+> **Consolidated (2026-07-21).** Was split across the old Iteration 3 (framework) and Iteration 7 (remaining providers). Built once here at the end, over the complete entity set — no half-built-then-finished split.
+
+**In:** §19 search framework + §20 command palette (Ctrl/Cmd-J); all providers — navigation, submission, EDM, RDM, package, jobs, analyses, groupings, and results.
+
+**Out:** per-table sort/filter ergonomics (tracked separately as a GitHub issue).
+
+**Exit:** Ctrl/Cmd-J finds nav, submissions, EDMs, RDMs, packages, jobs, analyses, groupings, and results; providers return results and navigate correctly.
+
+### Iteration 13 — Home dashboard
+
+> **New (2026-07-21).** Deferred to the end (backlog #6); content is defined once the surrounding capabilities exist to feed it.
+
+**In:** home page content — the empty landing page replaced with a useful dashboard (candidates: "my submissions," recent activity, running jobs); exact content decided at build time.
+
+**Out:** —
+
+**Exit:** the home page renders a useful dashboard instead of an empty page.
 
 ---
 
@@ -1231,6 +1435,12 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Analysis results hybrid storage** — Parquet files on disk for row-level data (ELT, EP, PLT); SQL metadata row for summaries and file paths (§16.1).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
 - **Styling extends the ITCSS design system via tokens** — never hardcoded hex (§2.4).
+- **2026-07-21 — FR reconciliation pass (feature specs updated to `FUNCTIONAL_REQUIREMENTS.md`).** Five feature-shaping decisions locked from the reconciled functional requirements:
+  - **Portfolio management is MVP (new §10A).** Sub-portfolio creation by **filtering** (synchronous IRP `create_portfolio()`, HTTP 201, no job) + one-click breakouts (LOB / geography / complement), values picked from real portfolio values. "Portfolio modification," data-element edits, peril-specific portfolios, and merge/combine are **out of MVP** (FR §3). The DataBridge exposure-modification path (§10.3) is the deferred Phase A route, not the MVP path.
+  - **GeoHaz is hazard lookup only (new §10B).** Geocoding is not re-run (broker geocoding preserved); hazard lookup is **optional** and **not** an analysis prerequisite (FR §5).
+  - **Treaty create/edit is a Risk Modeler pass-through (§12.4).** Viewing stays in-app (full attributes, expand/collapse, Excel export); create/edit opens the RM editor in a new window. Reverses the earlier in-app `create_treaty`/`create_treaty_lob` CRUD.
+  - **Broker RDM results are REST-retrieved, deduped by `rdm_id` (§16.1/§17.2).** Same REST endpoints as own results, stored in `analysis_result_meta`; **no `rdm_result` table, no DataBridge query for results.** Pushing broker results to the Loss Repository is **out of MVP** (§17.4).
+  - **No EP-curve graph (§16.2).** Results are numbers/tables — "I want the numbers"; OEP + AEP both, TCE toggle, PLT (HD only), perspective switching (GR/GU/RL) essential.
 
 ### Open decisions (need team input; do not block early iterations)
 
@@ -1243,6 +1453,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 - Exposure Repository schema (coordinates with reporting team)
 - Idle-timeout durations (sliding + absolute)
 - Export format beyond Parquet (CSV? Excel?)
+- **O6-1/O6-2 — commercial-policy geographic split (blocks the geography & complement portfolio breakouts, §10A.5).** Does RM keep all locations or only matching ones on a geographic split, and is there a toggle? Ben investigating RM behavior; Cheryl polling the team for the preferred default.
+- **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
+- **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
+- **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
+- **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
+- **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
+- **O7-5 — accumulation ground-up.** Whether ground-up can be dropped from accumulation output via the API (§16.4a).
+- **Portfolio↔analysis linking — deferred (§17.3).** Whether `analysis_result_meta` carries an `irp_portfolio` FK (DATA_MODEL §14); today analysts rely on naming conventions.
+- **DataBridge → Loss Repository movement.** How finalized loss data moves from DataBridge to the Loss Repository (§16.3, FR §7).
 
 ### External dependencies
 
@@ -1259,6 +1478,25 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-07-21 — Build-plan restructure + functional-requirements reconciliation
+
+Two same-day passes. **(1) Build plan (§21)** restructured into workflow-ordered Iterations 3–13 (details & backfill → portfolio → geohaz → analysis execution → templates → grouping → broker comparison → export → notifications → search → home); the old monolithic Iteration 6 was split, results *viewing* moved to Iteration 3, analysis execution placed before templates, broker comparison promoted to its own iteration, and notifications rescheduled as greenfield Iteration 11 (the Iteration-2 "notification on completion" exit was an overclaim). **(2) Feature specs reconciled to `FUNCTIONAL_REQUIREMENTS.md`** (the newer source of truth). Changes:
+
+- **§0** — corrected the stale section map (build plan §21, adversarial §22, decisions §23, change log §24) and the "three declarative sources of truth" → the one nav manifest (CR-002); noted FR is the newer source of truth on disagreement.
+- **§1.2/§1.3** — three-phase framing reconciled: Phase A validation/profiling/Exposure-Repo out of MVP; Phase A now "Data Setup & Shaping" (ingest → review → sub-portfolio creation); sub-portfolio creation is synchronous IRP, not DataBridge; GeoHaz added to Phase B; notification channel "desktop toast" → in-app center; broker-to-Loss-Repo push flagged out.
+- **§1.4** — glossary: added **Sub-portfolio (breakout)** and **GeoHaz (hazard lookup)**; DLM/HD gained the event-rate-scheme rule.
+- **New §10A — Portfolio management (sub-portfolios & breakouts, MVP).** Filtered sub-portfolio creation (values from real portfolio values), current-split view, one-click breakouts (LOB / geography / complement, "do the opposite", sum-to-100%), the account-bucketing double-count caveat, and the **commercial-policy geographic-split open question** (blocks geo/complement breakouts). "Modification" dropped.
+- **New §10B — GeoHaz (hazard lookup, MVP).** Hazard lookup only (geocoding preserved); parameters + defaults (data version latest, DLM, EQ+wind perils, overwrite missing); per-layer locations-looked-up summary; optional, not an analysis prerequisite; HD/enhanced-risk-data open questions.
+- **§10** — retitled to mark the whole Phase A section **deferred / out of MVP**; §10.3 sub-portfolio bullet moved to §10A; peril-specific & data-element mods marked out.
+- **§11.1a (new)** — profiles & per-analysis settings from FR §4 (multiple/UD profiles, filterable lists, franchise/construction toggles, min-loss/max-event held at defaults, currency defaulting, treaties by name/pattern). §2.6 auto-naming iteration ref 4→7 and draft convention flagged unfinalized (O7-3).
+- **§12.4 — treaties: flipped to RM pass-through** for create/edit (FR §5); viewing stays in-app (full attributes, expand/collapse, Excel export). §14.3 treaty note updated.
+- **§13.1** — clarified GeoHaz optional / not an analysis prerequisite; sub-portfolio ≥1-portfolio rationale.
+- **§16.1 — rewritten to the Parquet-hybrid model** (`analysis_result_meta` + Parquet; the row-level SQL tables retired). **§16.2** — FR §7 metric set (no EP graph, OEP+AEP, TCE toggle, std dev, return periods, PLT HD-only), perspective switching, ~5-on-screen density + full-listing, metadata list, percent-diff. **§16.3** — ELT upload contents; own-only; copy/paste; DataBridge→Loss-Repo open question. **§16.4/§16.4a** — grouping detail + accumulation output.
+- **§17 — broker comparison rewritten** to REST/`rdm_id`/`analysis_result_meta` (dropped `rdm_result` + DataBridge); percent-diff; portfolio↔analysis linking deferred; **§17.4 push-to-Loss-Repo out of MVP** (PATE / formal validation / CRM-tag carry also out). Reconciled §9.2/§12.3/§15.4/§14.5 accordingly.
+- **§18 — notifications de-deferred** (Iteration 11): channels (Teams/email/in-app center), complete+fail events, `notification_preference` re-introduced; per-user-vs-always-on and Teams-URL scope remain open decisions.
+- **§19** — search providers gained packages, portfolios, treaties; noted search/sort/filter on every list (FR 7/14).
+- **§23** — added five locked decisions (portfolio MVP, geohaz hazard-only, treaty pass-through, broker-results REST, no EP graph) and the FR open questions (O6-1/2, O7-1/2/3/5, O5-1/2, portfolio↔analysis linking, DataBridge→Loss-Repo).
 
 ### 2026-07-10 — Spec-002 clarify: §7.2a closed-state semantics (fully read-only; CANCELLED reopenable)
 
