@@ -13,7 +13,7 @@ from app.poller import run as poller
 from app.services import edm_service
 from app.services import package_sync_service as sync
 from app.workers import package_jobs
-from db import execute_one
+from db import execute, execute_one
 
 MS = sync.MemberSpec
 
@@ -78,6 +78,74 @@ def test_submission_failed_is_not_tracked_and_distinct_from_failed(
                         {"e": res.entity_id}, connection="WORKBENCH")
     assert after["status"] == "SUBMISSION FAILED"
     assert after["last_tracked_at"] is None
+
+
+# ── spec 004 (US1, T013): import_edm FINISHED also enqueues backfill_edm_detail ──
+
+def _rwb_jobs_of(rwb_job_type: str) -> list[dict]:
+    return execute(
+        "SELECT id, requestor_type, requestor_id, rwb_job_type, input_data "
+        "FROM rwb_job WHERE rwb_job_type = :t",
+        {"t": rwb_job_type}, connection="WORKBENCH")
+
+
+def test_finished_enqueues_both_upload_rdm_and_backfill_edm_detail(
+        iteration2_db, fake_irp, drive):
+    """A package member's import_edm FINISHED enqueues BOTH heads — the existing
+    upload_rdm fan-out AND the new backfill_edm_detail — as distinct rows under
+    UNIQUE(requestor_type, requestor_id, rwb_job_type); a re-poll re-inserts
+    neither (worker-poller.md §3)."""
+    actor = iteration2_db.user_a
+    pid = sync.save_package(
+        package_id=None, name="P",
+        members=[MS(kind="edm", name="EDM", source_file_path=str(drive / "edm1.bak")),
+                 MS(kind="rdm", name="RDM", source_file_path=str(drive / "rdm1.mdf"))],
+        actor_id=actor).package_id
+    sync.save_and_sync(package_id=pid, actor_id=actor)
+    package_jobs.run_pending(worker_id="w1")  # submit import_edm
+    job = execute_one(
+        "SELECT id, irp_id, irp_edm_id FROM irp_job WHERE irp_job_type='import_edm'",
+        {}, connection="WORKBENCH")
+    fake_irp.finish(str(job["irp_id"]))
+    poller.poll_once()
+
+    uploads = _rwb_jobs_of("upload_rdm")
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(uploads) == 1
+    assert len(backfills) == 1
+    # both keyed on the SAME finished irp_job (distinct rwb_job_type admits both)
+    assert uploads[0]["requestor_type"] == "irp_job"
+    assert backfills[0]["requestor_type"] == "irp_job"
+    assert uploads[0]["requestor_id"] == backfills[0]["requestor_id"] == str(job["id"])
+    assert str(job["irp_edm_id"]) in backfills[0]["input_data"]
+
+    poller.poll_once()  # re-poll: idempotent — no double backfill
+    assert len(_rwb_jobs_of("upload_rdm")) == 1
+    assert len(_rwb_jobs_of("backfill_edm_detail")) == 1
+
+
+def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
+        iteration2_db, fake_irp, drive):
+    """A standalone import (no package, no RDMs) gets its detail backfilled too —
+    the enqueue is independent of package_id and sits before the RDM guard."""
+    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    fake_irp.finish(irp_id)
+    poller.poll_once()
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(backfills) == 1
+    assert edm_id in backfills[0]["input_data"]
+    assert _rwb_jobs_of("upload_rdm") == []  # nothing to apply
+
+
+def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, drive):
+    """A FAILED/CANCELLED terminal flips the EDM to error and enqueues no
+    follow-up work — there is no detail to fetch."""
+    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    fake_irp.fail(irp_id)
+    poller.poll_once()
+    assert edm_service.get_edm(edm_id).status == edm_service.ERROR
+    assert _rwb_jobs_of("backfill_edm_detail") == []
+    assert _rwb_jobs_of("upload_rdm") == []
 
 
 def _import_edm_into_package(drive, actor, name="EDM", fname="edm1.bak"):

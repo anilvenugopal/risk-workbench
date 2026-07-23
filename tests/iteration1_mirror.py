@@ -120,13 +120,35 @@ ITERATION2_SCHEMA = [
     )""",
     # irp_analysis (D2) — captured broker analyses for delete-enumeration (§6a).
     # UNIQUE(rdm_id, edm_id, irp_id) is kept — the backfill idempotency backbone is
-    # exercised on the unit tier.
+    # exercised on the unit tier. Iteration 3 (spec 004): settings_metadata /
+    # is_group / exposure_resource_id detail columns (data-model §4).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT, package_id TEXT,
         irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
-        created_by_irp_job_irp_id TEXT, deleted_at TEXT,
+        created_by_irp_job_irp_id TEXT,
+        settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
+        deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, edm_id, irp_id)
+    )""",
+]
+
+# ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
+# Thin identity/lineage records + a JSON snapshot column each (R2). The
+# UNIQUE(edm_id, irp_id) keys ARE kept — the idempotent-upsert backbone is
+# exercised on the unit tier.
+ITERATION3_SCHEMA = [
+    """CREATE TABLE irp_portfolio (
+        id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
+        exposure_detail TEXT, as_of TEXT, deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
+        UNIQUE (edm_id, irp_id)
+    )""",
+    """CREATE TABLE irp_treaty (
+        id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
+        attributes TEXT, as_of TEXT, deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
+        UNIQUE (edm_id, irp_id)
     )""",
 ]
 
@@ -137,6 +159,7 @@ IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RD
 IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
 RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
+                     ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
@@ -160,6 +183,8 @@ EXACT_MATCH_TABLES = (
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
     "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
+    # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
+    "irp_portfolio", "irp_treaty",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # package service touches; the real tables carry extra Iteration-2 IRP columns
@@ -177,7 +202,7 @@ def mirror_columns() -> dict[str, set[str]]:
     parser, so this never drifts from the DDL the unit tier actually runs."""
     conn = sqlite3.connect(":memory:")
     try:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
             conn.execute(ddl)
         return {
             table: {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}

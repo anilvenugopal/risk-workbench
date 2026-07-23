@@ -16,7 +16,26 @@ Name-collision hits are seeded via ``add_edm_name`` / ``add_rdm_name``.
 
 from __future__ import annotations
 
-from app.services.irp_gateway import AnalysisHit, EntityHit, JobStatus, SubmitResult
+from app.services.irp_gateway import (
+    AnalysisHit,
+    AnalysisMetadata,
+    EntityHit,
+    ExposureDetail,
+    JobStatus,
+    PortfolioHit,
+    SubmitResult,
+    TreatyDetail,
+)
+
+# A small deterministic exposure payload (RM-shaped, data-model §2) used when a
+# seeded portfolio doesn't specify its own — enough for the rollup/graceful paths.
+DEFAULT_EXPOSURE = {
+    "location_count": 100, "account_count": 10, "policy_count": 12,
+    "record_volume": 100,
+    "perils": ["EQ"], "sub_perils": [],
+    "geography": {"regions": ["North America"], "states": ["CA"]},
+    "currencies": ["USD"],
+}
 
 
 class FakeIRP:
@@ -38,6 +57,17 @@ class FakeIRP:
         self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
         self.raise_on_submit = False
+        # ── spec-004 detail-read universe (worker backfill reads) ────────────
+        # EDM exposureId (str) -> [{irp_id, name, exposure}] seeded portfolios
+        self._portfolios: dict[str, list[dict]] = {}
+        # EDM exposureId (str) -> [TreatyDetail-shaped dicts] seeded treaties
+        self._treaties: dict[str, list[dict]] = {}
+        # failure knobs: whole-enumeration failure / per-portfolio exposure failure
+        self.raise_on_list_portfolios = False
+        self.raise_on_search_treaties = False
+        self.fail_exposure_for: set[str] = set()
+        # recorded detail-read calls for assertions
+        self.exposure_reads: list[str] = []
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -60,12 +90,42 @@ class FakeIRP:
         return self._edm_exposure_ids.get(name)
 
     def add_analysis(self, *, source_rdm_name: str, exposure_name: str,
-                     analysis_id: str, name: str | None = None) -> None:
+                     analysis_id: str, name: str | None = None,
+                     exposure_resource_id: str | None = None,
+                     exposure_resource_type: str | None = None,
+                     is_group: bool = False,
+                     metadata: dict | None = None) -> None:
         """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
-        pair — the backfill worker captures it as an ``irp_analysis`` row (D2)."""
+        pair — the backfill worker captures it as an ``irp_analysis`` row (D2).
+
+        Spec 004 (R9): optionally carries RM's exposure pointer — seed
+        ``exposure_resource_type="PORTFOLIO"`` for a linkable analysis, ``GROUP``/
+        another type or no pointer for the group / non-portfolio / unresolvable
+        paths — plus ``is_group`` and a ``metadata`` settings payload."""
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
-            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name})
+            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
+            "exposure_resource_id": (str(exposure_resource_id)
+                                     if exposure_resource_id is not None else None),
+            "exposure_resource_type": exposure_resource_type,
+            "is_group": is_group, "metadata": metadata})
+
+    def add_portfolio(self, *, edm_exposure_id: str | int, irp_id: str | int,
+                      name: str, exposure: dict | None = None) -> None:
+        """Seed a portfolio enumerable by ``list_portfolios`` for an EDM (by its RM
+        exposureId), with the canned exposure payload ``get_portfolio_exposure``
+        returns (``DEFAULT_EXPOSURE`` when omitted)."""
+        self._portfolios.setdefault(str(edm_exposure_id), []).append({
+            "irp_id": str(irp_id), "name": name,
+            "exposure": (exposure if exposure is not None else dict(DEFAULT_EXPOSURE))})
+
+    def add_treaty(self, *, edm_exposure_id: str | int, irp_id: str | int | None,
+                   name: str, attributes: dict | None = None) -> None:
+        """Seed a treaty returned by ``search_treaties`` for an EDM, with its full
+        attribute map (stored verbatim by the backfill worker)."""
+        self._treaties.setdefault(str(edm_exposure_id), []).append({
+            "irp_id": (str(irp_id) if irp_id is not None else None),
+            "name": name, "attributes": (attributes or {"treatyName": name})})
 
     def finish(self, irp_id: str, result: dict | None = None) -> None:
         self.jobs[irp_id] = "FINISHED"
@@ -126,8 +186,45 @@ class FakeIRP:
                 hits.append(AnalysisHit(
                     analysis_id=a["analysis_id"], name=a["name"],
                     source_rdm_name=a["source_rdm_name"],
-                    exposure_name=a["exposure_name"]))
+                    exposure_name=a["exposure_name"],
+                    exposure_resource_id=a.get("exposure_resource_id"),
+                    exposure_resource_type=a.get("exposure_resource_type")))
         return hits
+
+    # ── spec-004 detail reads (mirrors the extended IRPGateway surface) ─────────
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
+        if self.raise_on_list_portfolios:
+            raise RuntimeError("fake IRP: forced list_portfolios failure")
+        return [PortfolioHit(irp_id=p["irp_id"], name=p["name"])
+                for p in self._portfolios.get(str(edm_irp_id), [])]
+
+    def get_portfolio_exposure(self, *, edm_irp_id: int,
+                               portfolio_irp_id: int) -> ExposureDetail:
+        self.exposure_reads.append(str(portfolio_irp_id))
+        if str(portfolio_irp_id) in self.fail_exposure_for:
+            raise RuntimeError(
+                f"fake IRP: forced exposure failure for portfolio {portfolio_irp_id}")
+        for p in self._portfolios.get(str(edm_irp_id), []):
+            if p["irp_id"] == str(portfolio_irp_id):
+                return ExposureDetail(payload=p["exposure"])
+        raise RuntimeError(f"fake IRP: unknown portfolio {portfolio_irp_id}")
+
+    def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
+        if self.raise_on_search_treaties:
+            raise RuntimeError("fake IRP: forced search_treaties failure")
+        return [TreatyDetail(irp_id=t["irp_id"], name=t["name"],
+                             attributes=t["attributes"])
+                for t in self._treaties.get(str(edm_irp_id), [])]
+
+    def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
+        for a in self._analyses:
+            if a["analysis_id"] == str(analysis_id):
+                return AnalysisMetadata(
+                    payload=(a.get("metadata") or {}),
+                    exposure_resource_id=a.get("exposure_resource_id"),
+                    exposure_resource_type=a.get("exposure_resource_type"))
+        return AnalysisMetadata()
 
     def get_import_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
