@@ -1,0 +1,128 @@
+"""Portfolio service — per-portfolio detail: worker-side upsert + read model (US1).
+
+``irp_portfolio`` is a thin identity/lineage record plus a **JSON snapshot cache**
+column (``exposure_detail`` — research R2): the ``backfill_edm_detail`` worker
+stores Risk Modeler's per-portfolio figures verbatim and stamps ``as_of`` (the
+FR-052 trust signal); the web layer only ever reads the stored snapshot. The
+upsert is **idempotent** on ``UNIQUE(edm_id, irp_id)`` with an ``(edm_id, name)``
+match fallback (RM portfolio names are unique within an EDM) — a re-backfill
+overwrites the snapshot in place, never inserting a duplicate (FR-004).
+
+Read-only this iteration: no create/edit/split/filter (Iteration 4). No row
+scoping anywhere (Article 6). Portability matches the sibling services: app-side
+UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from dataclasses import dataclass
+from typing import Any
+
+from sqlalchemy import text
+
+from app.services._common import _json, _txn, _uid, _utcnow
+from db import execute, is_unique_violation
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PortfolioRow:
+    """One portfolio of an EDM with its parsed snapshot (``None`` ⇒ not yet
+    backfilled → the caller renders the graceful empty state)."""
+    id: str
+    edm_id: str
+    name: str
+    irp_id: str | None
+    exposure_detail: dict | None
+    as_of: Any
+
+
+# The two in-place overwrite paths of the idempotent upsert. The irp_id match is
+# primary (UNIQUE(edm_id, irp_id)); the name match is the fallback for a row
+# first written without its RM id (it backfills irp_id) — data-model §2.
+_UPDATE_BY_IRP = """
+    UPDATE irp_portfolio
+    SET name = :name, exposure_detail = :snap, as_of = :asof, updated_at = :now
+    WHERE edm_id = :edm AND irp_id = :irp
+"""
+_UPDATE_BY_NAME = """
+    UPDATE irp_portfolio
+    SET irp_id = :irp, exposure_detail = :snap, as_of = :asof, updated_at = :now
+    WHERE edm_id = :edm AND name = :name
+"""
+_INSERT = """
+    INSERT INTO irp_portfolio (id, edm_id, name, irp_id, exposure_detail, as_of,
+        inserted_at, updated_at)
+    VALUES (:id, :edm, :name, :irp, :snap, :asof, :now, :now)
+"""
+
+
+def _apply_upsert(conn, params: dict) -> None:
+    if params["irp"] is not None and conn.execute(
+            text(_UPDATE_BY_IRP), params).rowcount:
+        return
+    if conn.execute(text(_UPDATE_BY_NAME), params).rowcount:
+        return
+    try:
+        # A concurrent backfill of the same EDM can win the insert race; absorb
+        # the UNIQUE(edm_id, irp_id) violation in a SAVEPOINT and overwrite in
+        # place — the constraint, not the pre-check, is the real dedup guarantee.
+        with conn.begin_nested():
+            conn.execute(text(_INSERT), params)
+    except Exception as exc:  # noqa: BLE001 — a UNIQUE race is a dedup hit
+        if not is_unique_violation(exc):
+            raise
+        if params["irp"] is not None and conn.execute(
+                text(_UPDATE_BY_IRP), params).rowcount:
+            return
+        conn.execute(text(_UPDATE_BY_NAME), params)
+
+
+def upsert_portfolio_detail(*, edm_id: Any, irp_id: str | None, name: str,
+                            exposure_detail: dict, as_of: Any,
+                            conn=None) -> None:
+    """Worker-side (``backfill_edm_detail``). Insert the ``irp_portfolio`` row or
+    OVERWRITE ``exposure_detail`` (verbatim JSON) + ``as_of`` in place — never a
+    duplicate (R2/FR-004). Runs in the caller's transaction when ``conn`` is
+    given, else in its own short one (Article 7) — the caller must never hold a
+    transaction across a gateway round-trip (Article 11)."""
+    params = {
+        "id": str(uuid.uuid4()), "edm": str(edm_id),
+        "irp": (str(irp_id) if irp_id is not None else None), "name": name,
+        "snap": _json(exposure_detail), "asof": as_of, "now": _utcnow(),
+    }
+    with _txn(conn) as working:
+        _apply_upsert(working, params)
+
+
+def _parse_snapshot(raw: Any) -> dict | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("unparseable exposure_detail snapshot — rendering empty")
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
+    """Every portfolio of an EDM (read model), each with its parsed
+    ``exposure_detail`` (``None`` → graceful empty). No row scoping (Article 6);
+    read-only — no create/edit/split (Iteration 4)."""
+    rows = execute(
+        "SELECT id, edm_id, name, irp_id, exposure_detail, as_of "
+        "FROM irp_portfolio WHERE edm_id = :e AND deleted_at IS NULL "
+        "ORDER BY name",
+        {"e": str(edm_id)}, connection="WORKBENCH")
+    return [PortfolioRow(
+        id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
+        irp_id=r["irp_id"], exposure_detail=_parse_snapshot(r["exposure_detail"]),
+        as_of=r["as_of"]) for r in rows]
+
+
+__all__ = ["PortfolioRow", "upsert_portfolio_detail", "list_portfolios"]

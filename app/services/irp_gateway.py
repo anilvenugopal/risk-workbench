@@ -73,11 +73,55 @@ RdmHit = EntityHit
 class AnalysisHit:
     """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
     Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
-    are echoed back so the backfill worker can persist lineage on ``irp_analysis``."""
+    are echoed back so the backfill worker can persist lineage on ``irp_analysis``.
+
+    Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
+    ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
+    the backfill worker can promote the portfolio pointer to
+    ``irp_analysis.exposure_resource_id`` when the type is ``PORTFOLIO``."""
     analysis_id: str
     name: str | None = None
     source_rdm_name: str | None = None
     exposure_name: str | None = None
+    exposure_resource_id: str | None = None
+    exposure_resource_type: str | None = None
+
+
+# ── Detail-read value objects (spec 004 — R1/R2; typed hand-off, not a model) ────
+
+@dataclass(frozen=True)
+class PortfolioHit:
+    """One portfolio enumerated within an EDM. ``irp_id`` is RM's portfolioId as a
+    string; the exposure figures come separately via ``get_portfolio_exposure``."""
+    irp_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ExposureDetail:
+    """One portfolio's exposure figures — RM's ``/portfolios/{id}/metrics`` payload
+    **verbatim** (stored as the ``irp_portfolio.exposure_detail`` JSON snapshot, R2;
+    read defensively — field names are RM's own)."""
+    payload: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TreatyDetail:
+    """One treaty on an EDM: identity + the full attribute map **verbatim** (stored
+    as the ``irp_treaty.attributes`` JSON snapshot, R2)."""
+    irp_id: str | None
+    name: str
+    attributes: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AnalysisMetadata:
+    """One analysis's settings/metadata payload **verbatim** (stored as the
+    ``irp_analysis.settings_metadata`` JSON snapshot), plus the typed exposure
+    pointer the R9 linkage promotes when the type is ``PORTFOLIO``."""
+    payload: dict = field(default_factory=dict)
+    exposure_resource_id: str | None = None
+    exposure_resource_type: str | None = None
 
 
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
@@ -103,6 +147,17 @@ class IRPGateway(Protocol):
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
     def search_rdms(self, name: str) -> list[EntityHit]: ...
+
+    # ── spec-004 detail reads (worker-only; single-item, loop app-side) ──────────
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]: ...
+
+    def get_portfolio_exposure(self, *, edm_irp_id: int,
+                               portfolio_irp_id: int) -> ExposureDetail: ...
+
+    def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
+
+    def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -174,9 +229,67 @@ class _RealGateway:
                 analysis_id=str(r["analysisId"]),
                 name=r.get("analysisName"),
                 source_rdm_name=r.get("sourceRdmName"),
-                exposure_name=r.get("exposureName"))
+                exposure_name=r.get("exposureName"),
+                # R9: carry RM's exposure pointer (previously dropped) so the
+                # backfill can promote it when the type is PORTFOLIO.
+                exposure_resource_id=(
+                    str(r["exposureResourceId"])
+                    if r.get("exposureResourceId") is not None else None),
+                exposure_resource_type=r.get("exposureResourceType"))
             for r in rows if r.get("analysisId") is not None
         ]
+
+    # ── spec-004 detail reads (worker-only; single-item, loop app-side — R1) ──────
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios (paginated so a
+        # 25-portfolio EDM enumerates completely). Field names read defensively —
+        # the wheel is pre-release (R1).
+        rows = self._client().portfolio.search_portfolios_paginated(edm_irp_id)
+        hits: list[PortfolioHit] = []
+        for r in rows:
+            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
+            name = r.get("name") or r.get("portfolioName")
+            if pid is None or not name:
+                continue
+            hits.append(PortfolioHit(irp_id=str(pid), name=str(name)))
+        return hits
+
+    def get_portfolio_exposure(self, *, edm_irp_id: int,
+                               portfolio_irp_id: int) -> ExposureDetail:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics —
+        # needs BOTH ids (confirmed vs wheel 0.2.1; IRP_INTEGRATION_FOLLOWUPS.md).
+        # Payload stored verbatim as the JSON snapshot (R2).
+        data = self._client().portfolio.get_portfolio_metadata(
+            edm_irp_id, portfolio_irp_id)
+        return ExposureDetail(payload=data if isinstance(data, dict) else {})
+
+    def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/treaties (paginated).
+        # The whole row IS the attribute map — stored verbatim (R2).
+        rows = self._client().treaty.search_treaties_paginated(edm_irp_id)
+        hits: list[TreatyDetail] = []
+        for r in rows:
+            tid = (r.get("treatyId") if r.get("treatyId") is not None
+                   else r.get("id"))
+            name = r.get("treatyName") or r.get("name")
+            if not name:
+                continue
+            hits.append(TreatyDetail(
+                irp_id=(str(tid) if tid is not None else None),
+                name=str(name), attributes=r))
+        return hits
+
+    def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
+        # GET /platform/riskdata/v1/analyses/{analysisId} — the settings/metadata
+        # payload verbatim, plus the typed exposure pointer (R9).
+        data = self._client().analysis.get_analysis_by_id(analysis_id)
+        payload = data if isinstance(data, dict) else {}
+        rid = payload.get("exposureResourceId")
+        return AnalysisMetadata(
+            payload=payload,
+            exposure_resource_id=(str(rid) if rid is not None else None),
+            exposure_resource_type=payload.get("exposureResourceType"))
 
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 
@@ -275,10 +388,31 @@ def search_rdms(name: str) -> list[EntityHit]:
     return _active().search_rdms(name)
 
 
+def list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]:
+    return _active().list_portfolios(edm_irp_id=edm_irp_id)
+
+
+def get_portfolio_exposure(*, edm_irp_id: int,
+                           portfolio_irp_id: int) -> ExposureDetail:
+    return _active().get_portfolio_exposure(edm_irp_id=edm_irp_id,
+                                            portfolio_irp_id=portfolio_irp_id)
+
+
+def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:
+    return _active().search_treaties(edm_irp_id=edm_irp_id)
+
+
+def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
+    return _active().get_analysis_metadata(analysis_id=analysis_id)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
+    "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
+    "list_portfolios", "get_portfolio_exposure", "search_treaties",
+    "get_analysis_metadata",
 ]

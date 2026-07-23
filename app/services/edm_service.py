@@ -20,10 +20,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services import irp_gateway, package_service, rwb_job_service
+from app.services import irp_gateway, package_service, portfolio_service, rwb_job_service
 from app.services._common import _uid, _utcnow
 from app.services.errors import ConcurrencyConflict
 from app.services.package_service import SubmissionRef
+from app.services.portfolio_service import PortfolioRow
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -181,6 +182,95 @@ def get_edm(edm_id: Any) -> EdmRow | None:
     row = execute_one(f"{_ROW_SELECT} WHERE id = :id",
                       {"id": str(edm_id)}, connection="WORKBENCH")
     return _to_row(row) if row is not None else None
+
+
+# ── the redesigned detail page's single read (spec 004 US1 — R6) ─────────────────
+
+@dataclass
+class EdmDetail:
+    """The redesigned EDM detail page payload: a light header (FR-011 — MUST NOT
+    include cedant or line of business) + the per-portfolio read model (US1's
+    primary content) + the section state. US2/US3/US4 extend this with treaties,
+    analyses, and the derived aggregate."""
+    id: str
+    name: str
+    status: str | None
+    as_of: Any                      # last-synced trust signal (FR-052)
+    source_file_path: str | None
+    irp_id: int | None              # RM exposureId (durable entity id)
+    created_by_irp_job_irp_id: str | None
+    package_id: str | None
+    inserted_at: Any
+    updated_at: Any
+    portfolio_count: int
+    portfolios: list[PortfolioRow]
+    # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
+    detail_state: str
+
+
+def _latest_backfill_status(edm_id: str) -> str | None:
+    """The newest ``backfill_edm_detail`` job status for this EDM (poller-enqueued
+    heads key on the finished ``import_edm`` irp_job, hence the join). ``None``
+    when detail backfill never ran — the pre-capability / forward-only state."""
+    row = execute_one(
+        "SELECT rj.status_code FROM rwb_job rj "
+        "JOIN irp_job ij ON rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' AND ij.irp_edm_id = :e "
+        "ORDER BY rj.inserted_at DESC",
+        {"e": edm_id}, connection="WORKBENCH")
+    return row["status_code"] if row is not None else None
+
+
+def _detail_state(status: str | None, as_of: Any,
+                  portfolios: list[PortfolioRow], edm_id: str) -> str:
+    """Which graceful section state the page renders (ui.md §5) — never an error.
+    ``empty`` (a real zero-portfolio EDM, FR-015) is distinguished from
+    ``unavailable`` by the ``as_of`` stamp: the worker stamps it only after a real
+    enumeration, so a succeeded-as-skip run (no exposureId) stays unavailable."""
+    if status in (PENDING, IMPORTING):
+        return "importing"
+    if portfolios:
+        return "populated"
+    job_status = _latest_backfill_status(edm_id)
+    if job_status in ("pending", "running"):
+        return "pending"
+    if job_status == "failed":
+        return "failed"
+    if job_status == "succeeded" and as_of is not None:
+        return "empty"
+    return "unavailable"
+
+
+def get_edm_detail(edm_id: Any) -> EdmDetail | None:
+    """The redesigned EDM detail page's single read (contracts/data-access.md):
+    light header from the existing ``irp_edm`` columns + every portfolio with its
+    parsed snapshot (graceful empty when none). ``None`` only if the EDM itself
+    is missing (→ router 404). ``get_edm`` stays unchanged for the worker and
+    recovery paths."""
+    eid = str(edm_id)
+    row = execute_one(
+        "SELECT id, package_id, source_file_path, name, irp_id, "
+        "created_by_irp_job_irp_id, as_of, status, inserted_at, updated_at "
+        "FROM irp_edm WHERE id = :id",
+        {"id": eid}, connection="WORKBENCH")
+    if row is None:
+        return None
+    portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    return EdmDetail(
+        id=_uid(row["id"]),
+        name=row["name"],
+        status=row["status"],
+        as_of=row["as_of"],
+        source_file_path=row["source_file_path"],
+        irp_id=row["irp_id"],
+        created_by_irp_job_irp_id=row["created_by_irp_job_irp_id"],
+        package_id=_uid(row["package_id"]),
+        inserted_at=row["inserted_at"],
+        updated_at=row["updated_at"],
+        portfolio_count=len(portfolios),
+        portfolios=portfolios,
+        detail_state=_detail_state(row["status"], row["as_of"], portfolios, eid),
+    )
 
 
 def _current(edm_id: str) -> dict | None:
@@ -347,9 +437,9 @@ def mark_delete_error(conn, *, edm_id: Any) -> None:
 
 
 __all__ = [
-    "ImportResult", "EdmRow", "PENDING", "IMPORTING", "READY", "ERROR",
+    "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED", "STATUSES",
-    "check_name_collision", "import_edm", "list_edms", "get_edm",
+    "check_name_collision", "import_edm", "list_edms", "get_edm", "get_edm_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
 ]

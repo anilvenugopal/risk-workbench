@@ -109,7 +109,10 @@ def create_import(
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
 def _detail(request: Request, edm_id: str, status_code: int = 200):
-    edm = edm_service.get_edm(edm_id)
+    # The full spec-004 read model: light header + per-portfolio snapshot table
+    # (US2/US3/US4 extend the same payload). Reads STORED detail only — no Risk
+    # Modeler call on the request path (Article 11).
+    edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
