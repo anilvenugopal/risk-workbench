@@ -56,14 +56,26 @@ _GETTERS = {
 def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """FINISHED → EDM ``ready`` + backfill the RM ``exposureId`` (the durable entity id,
     resolved by name into ``resolved['edm_exposure_id']``) as ``irp_id`` and the import
-    job id as ``created_by_irp_job_irp_id``; then, for a package member, idempotently
-    enqueue the ``upload_rdm`` head that fans out to one apply per RDM of THIS
-    just-finished EDM (per-pair, FR-015/FR-043). Any other terminal → ``error``."""
+    job id as ``created_by_irp_job_irp_id``; then idempotently enqueue the
+    ``backfill_edm_detail`` head (spec 004 — independent of ``package_id``, so a
+    standalone/EDM-only import backfills its detail too) and, for a package member,
+    the ``upload_rdm`` head that fans out to one apply per RDM of THIS just-finished
+    EDM (per-pair, FR-015/FR-043). The two heads share the requestor key but carry
+    distinct ``rwb_job_type``s, so ``UNIQUE(requestor_type, requestor_id,
+    rwb_job_type)`` admits both. Any other terminal → ``error`` and NO backfill."""
     if status == "FINISHED":
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.READY,
             irp_id=resolved.get("edm_exposure_id"),
             created_by_irp_job_irp_id=job["irp_id"])
+        rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_job", requestor_id=job["id"],
+            rwb_job_type="backfill_edm_detail",
+            input_data={"edm_id": str(job["irp_edm_id"]),
+                        "package_id": (str(job["package_id"])
+                                       if job.get("package_id") else None)},
+            conn=conn,
+        )
     else:
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)

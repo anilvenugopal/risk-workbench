@@ -40,6 +40,7 @@ from app.services import (
     irp_gateway,
     irp_job_service,
     package_sync_service,
+    portfolio_service,
     rdm_service,
     rwb_job_service,
 )
@@ -266,6 +267,74 @@ def backfill_rdm_analyses(rwb_job_id: str) -> None:
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
 
 
+# ── backfill_edm_detail (spec 004 US1) ───────────────────────────────────────────
+
+def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Fetch a finished EDM's per-portfolio exposure detail from Risk Modeler and
+    idempotently upsert the ``irp_portfolio`` JSON snapshot rows (R2/R3), stamping
+    ``as_of``. Enqueued by the poller on ``import_edm`` FINISHED.
+
+    Discipline (contracts/worker-poller.md §1):
+      • single-item gateway reads, looped app-side — one portfolio's failed
+        exposure read is logged and skipped, the rest still backfill (a partial
+        snapshot beats none; an idempotent re-run completes it);
+      • no transaction held across a gateway round-trip — fetch, then persist
+        (each upsert runs its own short transaction);
+      • an enumeration failure fails the ``rwb_job`` (recoverable via the existing
+        retry machinery) but NEVER touches the EDM's ``ready`` status (FR-005);
+      • a missing EDM or one with no exposureId is a graceful skip — a
+        pre-capability/never-finished EDM stays in the empty state (R7)."""
+    ctx = _load_input(rwb_job_id)
+    edm_id = ctx.get("edm_id")
+    edm = edm_service.get_edm(edm_id) if edm_id else None
+    if edm is None:
+        return runtime.JobResult.ok(skipped="edm missing")
+    if edm.irp_id is None:
+        return runtime.JobResult.ok(skipped="edm has no exposureId — nothing to fetch")
+
+    try:
+        portfolios = irp_gateway.list_portfolios(edm_irp_id=int(edm.irp_id))
+    except Exception as exc:  # noqa: BLE001 — enumeration failed → recoverable job failure
+        logger.warning("backfill_edm_detail: portfolio enumeration failed for %s: %s",
+                       edm_id, exc)
+        return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
+
+    now = _utcnow()
+    stored = 0
+    exposure_failures = 0
+    for p in portfolios:
+        try:
+            exposure = irp_gateway.get_portfolio_exposure(
+                edm_irp_id=int(edm.irp_id), portfolio_irp_id=int(p.irp_id))
+        except Exception as exc:  # noqa: BLE001 — per-portfolio isolation
+            logger.warning("backfill_edm_detail: exposure read failed "
+                           "(edm=%s portfolio=%s): %s", edm_id, p.irp_id, exc)
+            exposure_failures += 1
+            continue  # skip — never overwrite a prior good snapshot with nothing
+        portfolio_service.upsert_portfolio_detail(
+            edm_id=edm_id, irp_id=p.irp_id, name=p.name,
+            exposure_detail=exposure.payload, as_of=now)
+        stored += 1
+
+    if portfolios and exposure_failures and stored == 0:
+        return runtime.JobResult.fail(
+            f"backfill_edm_detail stored nothing ({exposure_failures} exposure "
+            "reads failed)", portfolios=0, exposure_failures=exposure_failures)
+
+    # Stamp the EDM-level last-synced trust signal (FR-052) — the header's
+    # "synced <ts>"; per-portfolio truth is each row's own as_of.
+    execute_command(
+        "UPDATE irp_edm SET as_of = :now, updated_at = :now WHERE id = :id",
+        {"now": now, "id": str(edm_id)}, connection="WORKBENCH")
+    return runtime.JobResult.ok(portfolios=stored, exposure_failures=exposure_failures)
+
+
+@dramatiq.actor(max_retries=0)
+def backfill_edm_detail(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _backfill_edm_detail_body(rwb_job_id))
+
+
 # ── delete_rdm (US4) — SYNCHRONOUS, no irp_job ───────────────────────────────────
 
 def _delete_rdm_body(rwb_job_id: Any) -> dict:
@@ -398,6 +467,7 @@ _BODIES: dict[str, Callable[[Any], dict | None]] = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
+    "backfill_edm_detail": _backfill_edm_detail_body,
     "delete_rdm": _delete_rdm_body,
     "delete_edm": _delete_edm_body,
 }
@@ -432,6 +502,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "upload_edm", "upload_rdm", "backfill_rdm_analyses", "delete_rdm", "delete_edm",
+    "upload_edm", "upload_rdm", "backfill_rdm_analyses", "backfill_edm_detail",
+    "delete_rdm", "delete_edm",
     "run_one", "run_pending",
 ]
