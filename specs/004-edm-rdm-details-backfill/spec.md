@@ -44,6 +44,16 @@ A review of the design record corrected the *emphasis* of this spec. The **per-p
 
 - **Treaties remain an EDM-level section** (unchanged; §12.4 / design note §6): treaty setup is coded at the EDM level.
 
+### Session 2026-07-23 (follow-up — portfolio↔analysis linkage & page composition)
+
+A UI-alignment pass (rendered previews `docs/ui_previews/edm_detail.html` rev 7 / `rdm_detail.html` rev 3, iterated to approval) fixed the page composition and surfaced one substantive scope addition. Decisions taken:
+
+- **Broker analyses are linked to the portfolio they ran against, and appear on the EDM page.** Each analysis carries Risk Modeler's exposure pointer (`exposureResourceId` where `exposureResourceType = PORTFOLIO`), which resolves to the owning portfolio. The EDM detail page therefore shows analyses in **two** places: **inline under each portfolio** (the analyses run against it) and a **standalone section grouped by source RDM** carrying the resolved portfolio per row. This is a *display + linkage* addition to US3; the RDM page (also US3) shows the same analyses with an added EDM column. The linkage is **resolved at read time** (not a stored FK) and is import-order safe. *(Confirmed with the approver 7/23: "we need to associate analyses with the Portfolio they were run against; that linkage is important … it is possible for some imported analysis results will not link to a Portfolio.")*
+
+- **Some analyses will not link — that is normal, not an error.** A **group** (`is_group = true`) is a **single analysis** shown with Portfolio = **"Group"**; its contributing sub-analyses are **not knowable** from Risk Modeler, so no member breakdown is shown (groups appear only in the standalone section, never inside a portfolio). Any analysis whose exposure pointer does not resolve to a known portfolio shows **"— not linked."** Consequently the `irp_analysis.group_parent_id` column (DATA_MODEL §6) is **deferred** (nothing populates it this iteration).
+
+- **Page composition is fixed in `ui.md`.** A single reusable expandable-comparison table (`.dtable`: frozen identifying column, per-row expand, pinned + rail-connected expanded body) renders Portfolios, Treaties, and Broker analyses on both pages; sections default open, row-level drills default closed, with the rate/event-rate detail one drill deeper. Records are **not** a separate column (records == locations). All read-only (FR-014).
+
 ### Consequences carried from spec 003
 
 - **Analysis counts un-emptied.** Spec 003 D5 rendered the package-card analysis counts **empty** (the captured `irp_analysis` rows existed only for delete-enumeration). This iteration surfaces those rows, so analysis counts on the package card and EDM detail now render populated.
@@ -90,11 +100,11 @@ An analyst wants to confirm how reinsurance is coded on an EDM before trusting i
 
 ### User Story 3 - Review broker (RDM) analyses and their settings (Priority: P2)
 
-An analyst received a broker RDM in a package and imported it (Iteration 2). Before running any of their own analyses, they open the RDM to see what the broker already ran: the list of broker analyses and, for each, its settings/metadata — engine and model version, engine type (DLM vs HD), analysis type, peril, region, currency, construction, line of business, group type, long-term vs near-term, event-rate scheme, and loss amplification. This helps them decide how much work the RDM even needs — sometimes the broker already provides what's needed.
+An analyst received a broker RDM in a package and imported it (Iteration 2). Before running any of their own analyses, they open the RDM to see what the broker already ran: the list of broker analyses and, for each, its settings/metadata — engine and model version, engine type (DLM vs HD), analysis type, peril, region, currency, construction, line of business, group type, long-term vs near-term, event-rate scheme, and loss amplification. Crucially, each analysis shows **which portfolio it was run against**, so the analyst can see, on the EDM page, the analyses **linked to each portfolio** (inline) as well as the whole broker set **grouped by source RDM** — and judge how much work the RDM even needs (sometimes the broker already provides what's needed).
 
-**Why this priority**: Broker-result review is the second pillar of "understand before acting" and directly supports the delivery decision (remodel vs. just push losses). It is independently testable and, per this session's scope call, limited to analyses + settings (no loss numbers).
+**Why this priority**: Broker-result review is the second pillar of "understand before acting" and directly supports the delivery decision (remodel vs. just push losses). The portfolio linkage is what lets the analyst read a broker result *in the context of the portfolio it covers* — the same context in which they choose what to run (US1). It is independently testable and, per this session's scope call, limited to analyses + settings + portfolio linkage (no loss numbers).
 
-**Independent Test**: Open an imported RDM that produced broker analyses; confirm the analyses are listed and grouped by their source RDM, each showing its settings/metadata backfilled from Risk Modeler — with no loss numbers shown, no own-vs-broker comparison, and no analysis execution required.
+**Independent Test**: Open an imported RDM that produced broker analyses; confirm the analyses are listed and grouped by their source RDM, each showing its settings/metadata backfilled from Risk Modeler and the **portfolio it ran against** (or "Group" / "— not linked" where it doesn't resolve). On the EDM page, confirm each portfolio's linked analyses appear inline and the full broker set appears in a standalone RDM-grouped section — with no loss numbers, no own-vs-broker comparison, and no analysis execution required.
 
 **Acceptance Scenarios**:
 
@@ -102,6 +112,9 @@ An analyst received a broker RDM in a package and imported it (Iteration 2). Bef
 2. **Given** a broker analysis, **When** its detail is shown, **Then** its settings/metadata (engine/model version, engine type + version, analysis type/mode, peril primary+secondary, region, currency, construction, LOB, group type, long-term vs near-term, event-rate scheme / rate vintage, loss amplification) are displayed, with rate/event-rate detail available one drill-down deeper.
 3. **Given** a broker analysis whose metadata is not yet backfilled or partially available from Risk Modeler, **When** its detail is shown, **Then** the available fields render and missing fields show a graceful blank/unavailable state rather than an error.
 4. **Given** the broker-analysis view, **When** the analyst looks for loss numbers or a comparison against their own results, **Then** none are shown — loss numbers and own-vs-broker comparison are explicitly deferred to later iterations.
+5. **Given** a broker analysis that Risk Modeler ran against a portfolio (its `exposureResourceType` is `PORTFOLIO`), **When** its detail is shown, **Then** it is associated with the owning portfolio (resolved from the exposure pointer), the portfolio name is shown and links to it, and on the EDM page the analysis appears **inline under that portfolio**.
+6. **Given** the EDM detail page, **When** the analyst views it, **Then** broker analyses appear both inline under each portfolio (only the analyses linked to that portfolio) **and** in a standalone section grouped by source RDM that carries the resolved portfolio per row.
+7. **Given** a broker analysis that is a group (`is_group = true`), or one whose exposure pointer does not resolve to a known portfolio, **When** its detail is shown, **Then** it appears as a **single** row with Portfolio = **"Group"** (for a group; no member breakdown) or **"— not linked"** (for an unresolved one), shown only in the standalone section, never inside a portfolio, and never as an error.
 
 ---
 
@@ -133,7 +146,9 @@ An analyst scanning a submission wants a fast read on each EDM before drilling i
 - **Multi-currency EDM/portfolio.** All currencies present are shown per portfolio and combined into the aggregate currency set (currency defaulting for analysis is a later iteration's concern).
 - **Inapplicable peril / zero coverage for a peril.** Shown as covered-or-not per the Risk Modeler data; a zero layer is a value, not an error.
 - **Treaty with an unusually wide attribute set / an EDM with dozens of treaties.** Compact view scrolls horizontally; treaties collapse by default; Excel export handles the extreme case.
-- **A broker analysis that is a group (`is_group = true`).** Displayed as a group among the broker analyses; grouped-result numbers are still out of scope this iteration.
+- **A broker analysis that is a group (`is_group = true`).** Shown as a single row with Portfolio = "Group" in the standalone section only — no member breakdown (unknowable from Risk Modeler); grouped-result numbers are still out of scope this iteration.
+- **A broker analysis whose exposure does not resolve to a portfolio.** Shown as "— not linked" in the standalone section (never inside a portfolio); a normal state, never an error.
+- **An EDM portfolio with no linked analyses.** Its "Analyses" indicator reads "None"; the row still lists its exposure figures.
 - **The same broker RDM applied across M EDMs.** The broker analyses are grouped by `rdm_id` and shown once, not M times.
 
 ## Requirements *(mandatory)*
@@ -153,7 +168,7 @@ An analyst scanning a submission wants a fast read on each EDM before drilling i
 - **FR-010**: The redesigned EDM detail page MUST be the primary post-import view of an EDM, replacing the minimal Iteration-2 EDM detail, reachable from the EDM Library and from the submission's package cards.
 - **FR-011**: The EDM header MUST show the EDM's name, status, last-synced (`as_of`) trust signal, source file, and identifiers, and the portfolio count — and MUST NOT place cedant or line of business in the header (cedant is a submission-level attribute; LOB surfaces per portfolio).
 - **FR-012**: The EDM detail page MUST present, as its primary content, an **inline read-only list of every portfolio** in the EDM.
-- **FR-013**: For each portfolio, the system MUST show its location, account, and policy counts; perils and sub-perils covered; geography (regions and/or states, or a CIC-defined region label); currency; and record volume. (Total insured value MAY be shown per portfolio where available from Risk Modeler.)
+- **FR-013**: For each portfolio, the system MUST show its location, account, and policy counts; perils and sub-perils covered; geography (regions and/or states, or a CIC-defined region label); currency; and record volume. **Record volume == location count** — it is surfaced via the Locations figure, not a separate "Records" column (ui.md §2). (Total insured value MAY be shown per portfolio where available from Risk Modeler.)
 - **FR-014**: The per-portfolio view MUST be read-only — it MUST NOT offer sub-portfolio creation, one-click breakouts, filter pick-lists, or the interactive current-split view (all Iteration 4).
 - **FR-015**: An EDM reporting zero portfolios MUST show a clear "no portfolios" state.
 - **FR-016**: The exposure detail MUST be a fast textual snapshot — no map, and the existing Power BI exposure dashboards MUST NOT be rebuilt.
@@ -173,14 +188,16 @@ An analyst scanning a submission wants a fast read on each EDM before drilling i
 
 - **FR-030**: Opening an imported RDM MUST list its broker analyses (the captured `irp_analysis` rows with `rdm_id` set), **grouped by source RDM** so a broker analysis applied across M EDMs is shown once rather than M times.
 - **FR-031**: Each broker analysis MUST show its settings/metadata: engine/model version; engine type (DLM vs HD) and version; analysis type/mode; peril (primary and secondary); region; currency; construction; line of business; group type; long-term vs near-term; event-rate scheme / rate vintage; and loss amplification (PLA) — with rate/event-rate detail available one drill-down deeper than the rest.
-- **FR-032**: Broker analysis settings/metadata MUST be backfilled from Risk Modeler on the import-completion path (the same forward-only worker mechanism as EDM detail).
+- **FR-032**: Broker analysis settings/metadata MUST be backfilled from Risk Modeler on the same forward-only, import-completion-triggered path as EDM detail — captured when the RDM import reaches terminal FINISHED, never on a web request path.
 - **FR-033**: Broker **loss result numbers** — ELT summary (AAL, max event loss, record count), standard deviation, return-period losses, OEP/AEP/TCE points, PLT — and their storage (`analysis_result_meta` + Parquet) and the `retrieve_analysis_results` worker MUST NOT be built this iteration; they are deferred.
 - **FR-034**: The broker-analysis view MUST be standalone — no own-vs-broker side-by-side comparison (later iteration) and no own executed results (later iteration).
-- **FR-035**: A broker analysis that is a group (`is_group = true`) MUST be displayed as a group among the broker analyses.
+- **FR-035**: A broker analysis that is a group (`is_group = true`) MUST be displayed as a **single** row marked as a group with Portfolio = "Group". Its member breakdown MUST NOT be shown — a group is one analysis and its contributing sub-analyses are not available from Risk Modeler this iteration; groups appear only in the standalone (RDM-grouped) section, never inside a portfolio.
+- **FR-036**: Each broker analysis MUST be associated with the **portfolio it was run against**, resolved from Risk Modeler's exposure pointer (`exposureResourceId` where `exposureResourceType = PORTFOLIO`) to the owning `irp_portfolio`. The association MUST be **resolved at read time** (matched on the owning EDM + Risk Modeler portfolio id), not gated on backfill ordering. The linkage MAY be absent — a group analysis and any analysis whose exposure pointer does not resolve to a known portfolio MUST be shown as **"— not linked"** (a group as "Group"), never as an error.
+- **FR-037**: The EDM detail page MUST surface the broker analyses linked to the EDM in **two** views: **inline under each portfolio** (only the analyses linked to that portfolio, as a per-portfolio expansion) and a **standalone list grouped by source RDM** carrying the resolved portfolio per analysis. The per-portfolio "Analyses" indicator MUST show a descriptive count of the linked analyses (e.g. "2 broker analyses", "None").
 
 **EDM-aggregate quick-orientation rollup (US4)**
 
-- **FR-040**: The EDM detail page MUST show a **compact aggregate rollup strip** above the per-portfolio breakdown, rolling up the per-portfolio figures (total location/account/policy counts, portfolio count, union of perils/sub-perils, combined geography, currency set, total record volume) for quick orientation.
+- **FR-040**: The EDM detail page MUST show a **compact aggregate rollup strip** above the per-portfolio breakdown, rolling up the per-portfolio figures (total location/account/policy counts, portfolio count, union of perils/sub-perils, combined geography, currency set, total record volume — record volume == total locations, per FR-013) for quick orientation.
 - **FR-041**: The submission detail page MUST show a **per-EDM aggregate orientation line** in each EDM's package row, extending the spec-003 package cards.
 - **FR-042**: The aggregate figures MUST be derived from the stored per-portfolio detail (a roll-up), not a separate Risk Modeler fetch or a computation on the request path.
 - **FR-043**: When an EDM's detail is not backfilled, the aggregate strip and the submission-page line MUST show the same graceful pending/empty state as the rest of the detail, never an error.
@@ -196,7 +213,7 @@ An analyst scanning a submission wants a fast read on each EDM before drilling i
 - **Portfolio (`irp_portfolio`)**: the **primary unit** of the EDM detail page — a named exposure view within an EDM, arriving with the EDM. This iteration enumerates every portfolio and stores its per-portfolio exposure figures (location/account/policy counts, perils/sub-perils, geography, currency, record volume) for read-only inline display; it does not create, filter, or split them (Iteration 4).
 - **EDM (`irp_edm`) detail**: the EDM's light identity/context (name, status, `as_of`, source file, identifiers, portfolio count) plus the stored per-portfolio detail it owns. The EDM-aggregate rollup shown for orientation is a **roll-up of that per-portfolio detail**, not a separately stored figure. Populated forward-only on import completion.
 - **Treaty (`irp_treaty`)**: reinsurance belonging to an EDM, referenced by name — a read/cache record. This iteration backfills its full attribute detail for the EDM-level treaty view and Excel export; it does not create or edit treaties.
-- **Broker analysis (`irp_analysis`, `rdm_id` set)**: an analysis produced by importing a broker RDM (captured in Iteration 2 for delete-enumeration). This iteration backfills and surfaces its settings/metadata, grouped by `rdm_id`; own analyses (`rdm_id` null) and all loss result data are out of scope.
+- **Broker analysis (`irp_analysis`, `rdm_id` set)**: an analysis produced by importing a broker RDM (captured in Iteration 2 for delete-enumeration). This iteration backfills and surfaces its settings/metadata, grouped by `rdm_id`, and **links it to the portfolio it ran against** — captured as Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) on the row and resolved to the owning `irp_portfolio` at read time (not a stored FK). A group is a single analysis with no member breakdown; an unresolved analysis is "not linked." Own analyses (`rdm_id` null) and all loss result data are out of scope.
 - **Backfill work item (`rwb_job`)**: the background unit that performs a detail fetch, enqueued by the poller when an import reaches terminal `FINISHED`; idempotent, recoverable, decoupled from the `irp_job` it followed.
 
 ## Success Criteria *(mandatory)*
@@ -211,6 +228,7 @@ An analyst scanning a submission wants a fast read on each EDM before drilling i
 - **SC-006**: A detail fetch failure or a not-yet-backfilled entity never produces a broken or errored detail page — a clear unavailable/pending state is shown 100% of the time, and the entity's *ready* status is preserved.
 - **SC-007**: The EDM detail page renders within the normal page-load budget regardless of exposure size (including ~1M+ record portfolios), because figures are served from stored detail rather than computed on view.
 - **SC-008**: On the submission detail page, each imported EDM shows a per-EDM aggregate orientation line, and the EDM detail page shows a compact aggregate strip — both derived from the stored per-portfolio detail.
+- **SC-009**: For every broker analysis Risk Modeler ran against a portfolio, the analyst can see which portfolio it covers — inline under that portfolio on the EDM page and in the standalone RDM-grouped section — while groups and analyses with no resolvable portfolio are clearly shown as "Group" / "— not linked" rather than mislinked or errored.
 
 ## Assumptions
 

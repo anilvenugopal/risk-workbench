@@ -30,7 +30,7 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack — redesi
 
 **New Dependency** (one): **`openpyxl`** — server-side `.xlsx` generation for the treaty export (FR-024). Added to `[project.dependencies]`. No client-side or external service; the workbook is built in-process from stored treaty detail.
 
-**Storage**: SQL Server 2022 (`rwb_workbench`) — **WORKBENCH connection only** this iteration. New: `irp_portfolio`, `irp_treaty` tables (first created here — deferred in spec 003 / research R13); new detail columns on `irp_analysis` (`settings_metadata`, `is_group`, `group_parent_id`); one new `rwb_job_type_kind` seed row (`backfill_edm_detail`). **No EXPOSURE/LOSS access** (results retrieval + Loss Repository are Iteration 6+); **DATABRIDGE never touched.** Risk Modeler holds the source of truth; the workbench stores a **read/cache snapshot** of the detail.
+**Storage**: SQL Server 2022 (`rwb_workbench`) — **WORKBENCH connection only** this iteration. New: `irp_portfolio`, `irp_treaty` tables (first created here — deferred in spec 003 / research R13); new detail columns on `irp_analysis` (`settings_metadata`, `is_group`, `exposure_resource_id` — the portfolio-linkage pointer, R9; `group_parent_id` deferred); one new `rwb_job_type_kind` seed row (`backfill_edm_detail`). **No EXPOSURE/LOSS access** (results retrieval + Loss Repository are Iteration 6+); **DATABRIDGE never touched.** Risk Modeler holds the source of truth; the workbench stores a **read/cache snapshot** of the detail.
 
 **Testing** (Article 12, three tiers):
 - `pytest tests/unit` — SQLite via `db.register_engine` + the **fake IRP** (`tests/unit/fakes/fake_irp.py`, extended with the new read methods): the `backfill_edm_detail` worker (idempotent upsert of portfolios/treaties + JSON snapshot), the extended `backfill_rdm_analyses` metadata capture, the **aggregate-rollup derivation** (sum counts / union perils / combine geography+currency from per-portfolio snapshots), graceful-empty rendering (no snapshot → pending/unavailable state, no error), and the poller's extended `import_edm` FINISHED enqueue (both `upload_rdm` **and** `backfill_edm_detail`, idempotent).
@@ -91,8 +91,9 @@ Technical approach: extend the existing FastAPI + Jinja2 + HTMX stack — redesi
 ```text
 specs/004-edm-rdm-details-backfill/
 ├── plan.md              ← this file (/speckit-plan output)
-├── research.md          ← Phase 0 output (R1–R8: the decisions the spec/DATA_MODEL leave to planning)
+├── research.md          ← Phase 0 output (R1–R9: the decisions the spec/DATA_MODEL leave to planning)
 ├── data-model.md        ← Phase 1 output (irp_portfolio / irp_treaty + irp_analysis detail columns; JSON snapshot shape)
+├── ui.md                ← Phase 1 output (page-composition contract; unified .dtable; portfolio↔analysis linkage display; states)
 ├── quickstart.md        ← Phase 1 output (rebuild + test + manual end-to-end walkthrough)
 ├── contracts/           ← Phase 1 output
 │   ├── data-access.md    ← service/query contract (edm-detail read + rollup, treaty export, broker-analysis view)
@@ -115,19 +116,22 @@ app/
 │   │                                #      the per-portfolio read model + aggregate derivation helper
 │   ├── treaty_service.py            # NEW: upsert_treaty_detail (idempotent), list_treaties(edm_id),
 │   │                                #      build_treaty_workbook(edm_id) → .xlsx bytes (openpyxl)
-│   ├── analysis_service.py          # NEW: list_broker_analyses(rdm_id) grouped by rdm_id + parsed
-│   │                                #      settings_metadata; package/EDM analysis counts (un-empties FR-050)
+│   ├── analysis_service.py          # NEW: list_broker_analyses(rdm_id) + list_edm_analyses(edm_id) grouped by
+│   │                                #      rdm_id + parsed settings_metadata + is_group + RESOLVED portfolio
+│   │                                #      (read-time join on edm_id+exposure_resource_id, R9); analysis counts (FR-050)
 │   ├── rdm_service.py               # EDIT: broker-analysis view read helpers hang off here or analysis_service
 │   ├── package_sync_service.py      # EDIT: get_package_cards now includes the per-EDM aggregate line (FR-041)
 │   │                                #       + populated analysis counts (FR-050)
 │   └── irp_gateway.py               # EDIT: add read methods — list_portfolios / get_portfolio_exposure /
 │                                    #       search_treaties (+ attributes) / get_analysis_metadata; extend
-│                                    #       AnalysisHit or add a metadata getter. Single-status/read only;
+│                                    #       AnalysisHit to carry exposure_resource_id + type (stop dropping RM's
+│                                    #       exposureResourceId — R9). Single-status/read only;
 │                                    #       CONFIRM signatures vs the active wheel (R1). Fake mirrors them.
 ├── workers/
 │   └── package_jobs.py              # EDIT: NEW body _backfill_edm_detail_body + @actor backfill_edm_detail
 │                                    #       (fetch portfolios+exposure+treaties, idempotent upsert, stamp as_of);
-│                                    #       EXTEND _backfill_rdm_analyses_body to also capture settings_metadata
+│                                    #       EXTEND _backfill_rdm_analyses_body to also capture settings_metadata,
+│                                    #       is_group + exposure_resource_id (only when type==PORTFOLIO — R9)
 ├── poller/
 │   └── run.py                       # EDIT: in _handle_import_edm_terminal, on FINISHED ALSO idempotently
 │                                    #       enqueue backfill_edm_detail (independent of package_id/RDMs) —
@@ -141,13 +145,17 @@ app/
 ├── templates/
 │   ├── pages/
 │   │   ├── edm_detail.html          # EDIT: REDESIGN — minimal header + aggregate strip + inline per-portfolio
-│   │   │                            #       table + treaties section (replaces the minimal Iteration-2 page)
-│   │   └── rdm_detail.html          # EDIT: broker-analyses grouped by rdm_id + per-analysis settings/metadata
+│   │   │                            #       table (w/ linked-analyses expansion) + treaties + standalone
+│   │   │                            #       RDM-grouped broker-analyses section (matches ui.md / preview rev 7)
+│   │   └── rdm_detail.html          # EDIT: broker-analyses grouped by rdm_id + EDM + Portfolio columns
+│   │                                #       (resolved / Group / not-linked) + per-analysis settings/metadata
 │   └── partials/
-│       ├── portfolio_row.html       # NEW: one portfolio's exposure figures (per-portfolio table row/card)
+│       ├── portfolio_row.html       # NEW: one portfolio's exposure figures + descriptive Analyses count +
+│       │                            #      the inline linked-analyses panel (pinned/rail per ui.md, US3/FR-037)
 │       ├── edm_aggregate_strip.html # NEW: the compact EDM-page aggregate rollup strip (US4)
 │       ├── treaty_row.html          # NEW: one treaty, collapsed; expandable to full attributes; h-scroll
-│       ├── broker_analysis_row.html # NEW: one broker analysis + its settings/metadata (US3)
+│       ├── broker_analysis_row.html # NEW: one broker analysis + resolved portfolio + settings/metadata +
+│       │                            #      rate sub-drill (US3); shared by RDM page AND EDM standalone section
 │       └── package_card.html        # EDIT: add the per-EDM aggregate orientation line (FR-041) + populated
 │                                    #       analysis counts (FR-050)
 ├── static/css/
@@ -156,7 +164,7 @@ app/
 
 alembic/versions/
 └── 0001_initial.py                  # EDIT: add irp_portfolio + irp_treaty tables (FKs to irp_edm); add
-                                     #       settings_metadata + is_group + group_parent_id to irp_analysis;
+                                     #       settings_metadata + is_group + exposure_resource_id to irp_analysis (group_parent_id deferred);
                                      #       add exposure_detail (portfolio) / attributes (treaty) JSON columns;
                                      #       seed rwb_job_type_kind row 'backfill_edm_detail'; downgrade in FK order
 
@@ -174,7 +182,10 @@ tests/
 │   │                                #      combine geography+currency) from per-portfolio snapshots; graceful
 │   │                                #      empty when no snapshot (FR-017/FR-042/FR-043)
 │   ├── test_broker_analyses.py      # NEW: list_broker_analyses groups by rdm_id (shown once across M EDMs);
-│   │                                #      settings_metadata parsed; missing fields render blank not error
+│   │                                #      settings_metadata parsed; missing fields blank not error; portfolio
+│   │                                #      linkage resolves at read time (is_group→Group, unmatched→not-linked, R9)
+│   ├── test_edm_analyses.py         # NEW: list_edm_analyses groups by rdm_id + buckets linked analyses per
+│   │                                #      portfolio (group/unresolved stay standalone-only); resolution order-independent
 │   ├── test_treaty_export.py        # NEW: build_treaty_workbook produces a valid .xlsx over the treaty set
 │   └── test_poller.py               # EDIT: import_edm FINISHED enqueues BOTH upload_rdm and backfill_edm_detail
 │                                    #       (idempotent; standalone/EDM-only import still enqueues the detail head)
@@ -195,13 +206,14 @@ tests/
 
 ## Phase 0 — Research
 
-See [research.md](research.md). **No `NEEDS CLARIFICATION` unknowns remained after the spec** — the PRD (§9, §12.4, §16.2, §21), FUNCTIONAL_REQUIREMENTS §2.2/§2.3/§7, DATA_MODEL §5/§6, and the implemented Iteration-2 spine resolve the behavior. Research records the concrete decisions the spec/DATA_MODEL leave to planning: the `irp-integration` read-method surface for detail + confirm-against-wheel discipline (R1); **the storage shape for backfilled detail — the JSON snapshot cache — the central new design decision (R2)**; the backfill worker/poller wiring as a forward extension of the completion path (R3); the derived EDM-aggregate rollup (R4); the treaty `.xlsx` export mechanism + the `openpyxl` dependency (R5); the redesigned EDM detail page + broker-analysis view + no-new-nav reachability (R6); forward-only backfill + graceful empty/failure states (R7); and the broker-analysis grouping by `rdm_id` + un-emptying the analysis counts (R8).
+See [research.md](research.md). **No `NEEDS CLARIFICATION` unknowns remained after the spec** — the PRD (§9, §12.4, §16.2, §21), FUNCTIONAL_REQUIREMENTS §2.2/§2.3/§7, DATA_MODEL §5/§6, and the implemented Iteration-2 spine resolve the behavior. Research records the concrete decisions the spec/DATA_MODEL leave to planning: the `irp-integration` read-method surface for detail + confirm-against-wheel discipline (R1); **the storage shape for backfilled detail — the JSON snapshot cache — the central new design decision (R2)**; the backfill worker/poller wiring as a forward extension of the completion path (R3); the derived EDM-aggregate rollup (R4); the treaty `.xlsx` export mechanism + the `openpyxl` dependency (R5); the redesigned EDM detail page + broker-analysis view + no-new-nav reachability (R6); forward-only backfill + graceful empty/failure states (R7); the broker-analysis grouping by `rdm_id` + un-emptying the analysis counts (R8); and the portfolio↔analysis linkage — capture RM's exposure pointer, resolve the owning portfolio at read time (R9).
 
 ## Phase 1 — Design & Contracts
 
-- [data-model.md](data-model.md) — the new `irp_portfolio` / `irp_treaty` tables (DATA_MODEL §5 identity + the added `exposure_detail` / `attributes` JSON snapshot columns), the `irp_analysis` detail columns (`settings_metadata`, `is_group`, `group_parent_id` — DATA_MODEL §6), the JSON snapshot field shapes, the `backfill_edm_detail` kind seed, and the migration/seed impact folded into `0001_initial.py`.
-- [contracts/data-access.md](contracts/data-access.md) — the service/query contract: `edm_service.get_edm_detail` (+ the aggregate derivation), `portfolio_service` / `treaty_service` (upsert + read + workbook), `analysis_service.list_broker_analyses` (grouped-by-`rdm_id` + metadata), and the extended `irp_gateway` read surface.
-- [contracts/http-routes.md](contracts/http-routes.md) — the redesigned `/edms/{id}` detail, the extended `/rdms/{id}` broker-analysis view, the `/edms/{id}/treaties.xlsx` export download, the package-card per-EDM aggregate line, and the graceful-empty/pending states; CSRF/roles/HTMX conventions (no new state-changing route).
+- [data-model.md](data-model.md) — the new `irp_portfolio` / `irp_treaty` tables (DATA_MODEL §5 identity + the added `exposure_detail` / `attributes` JSON snapshot columns), the `irp_analysis` detail columns (`settings_metadata`, `is_group`, `exposure_resource_id` — the portfolio-linkage pointer, R9; `group_parent_id` deferred — DATA_MODEL §6), the JSON snapshot field shapes, the `backfill_edm_detail` kind seed, and the migration/seed impact folded into `0001_initial.py`.
+- [ui.md](ui.md) — the page-composition contract for the redesigned EDM/RDM detail pages, derived from the approved previews (`docs/ui_previews/edm_detail.html` rev 7, `rdm_detail.html` rev 3): the unified `.dtable` expandable-comparison component, collapse/expand rules, the pinned + rail-connected expanded body, the portfolio↔analysis linkage display, and every empty/pending/failed state.
+- [contracts/data-access.md](contracts/data-access.md) — the service/query contract: `edm_service.get_edm_detail` (+ the aggregate derivation + per-portfolio linked analyses), `portfolio_service` / `treaty_service` (upsert + read + workbook), `analysis_service.list_broker_analyses` / `list_edm_analyses` (grouped-by-`rdm_id` + metadata + read-time portfolio resolution, R9), and the extended `irp_gateway` read surface (incl. `AnalysisHit` carrying the exposure pointer).
+- [contracts/http-routes.md](contracts/http-routes.md) — the redesigned `/edms/{id}` detail (now incl. per-portfolio linked analyses + a standalone RDM-grouped broker-analyses section, FR-037), the extended `/rdms/{id}` broker-analysis view (EDM + resolved-Portfolio columns), the `/edms/{id}/treaties.xlsx` export download, the package-card per-EDM aggregate line, and the graceful-empty/pending states; CSRF/roles/HTMX conventions (no new state-changing route).
 - [contracts/worker-poller.md](contracts/worker-poller.md) — the backfill mechanism made concrete: the `backfill_edm_detail` worker body, the extended `backfill_rdm_analyses` metadata capture, the poller's `import_edm` FINISHED enqueue extension, idempotency, and the forward-only/graceful-failure behavior.
 - [quickstart.md](quickstart.md) — rebuild + test + end-to-end manual walkthrough (import an EDM → detail backfills automatically → per-portfolio breakdown + aggregate strip → treaties + Excel export → RDM broker analyses → graceful empty for a pre-capability entity).
 - Agent context updated: the `<!-- SPECKIT START/END -->` block in `CLAUDE.md` now points at this plan.

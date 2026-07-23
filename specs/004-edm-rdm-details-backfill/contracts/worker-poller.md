@@ -19,7 +19,7 @@ Added to `irp_gateway.py` and the `IRPGateway` protocol; the CI fake mirrors the
 | Enumerate an EDM's portfolios | `list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]` | id + name per portfolio |
 | Per-portfolio exposure figures | `get_portfolio_exposure(*, portfolio_irp_id: int) -> ExposureDetail` | counts / perils+sub-perils / geography / currency / record volume / (tiv?) |
 | Treaty attribute detail for an EDM | `search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]` | name + irp_id + full attribute map per treaty (§5) |
-| Broker-analysis settings/metadata | extend `AnalysisHit` with a metadata map, **or** `get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata` | the FR-031/§7 settings map |
+| Broker-analysis settings/metadata | extend `AnalysisHit` with a metadata map, **or** `get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata` | the FR-031/§7 settings map **+ `exposure_resource_id` + `exposure_resource_type`** (R9 — `AnalysisHit` currently **drops** RM's `exposureResourceId`; stop dropping it so the worker can promote the portfolio pointer) |
 
 - **Gateway discipline (unchanged):** expose ONLY read/`search`/`get` single-status methods; NEVER `poll_*_to_completion` or the poll-inside convenience methods.
 - **Value objects** (gateway-owned, like `SubmitResult`/`AnalysisHit`): `PortfolioHit`, `ExposureDetail`, `TreatyDetail`, `AnalysisMetadata` — plain dataclasses the worker serializes to the JSON snapshot (R2). The worker stores RM's payload **verbatim** in the snapshot; the value objects are the typed hand-off, not a normalized model.
@@ -59,7 +59,7 @@ Registered exactly like the existing actors: a `_backfill_edm_detail_body` funct
 
 ## 2. Extended `backfill_rdm_analyses` (existing worker — add metadata capture)
 
-The existing body (spec 003, `_backfill_rdm_analyses_body`) captures the pair's `irp_analysis` rows on `import_rdm` FINISHED and rolls `irp_rdm.status` up to `ready`. **Extension:** for each captured analysis, also fetch and store its `settings_metadata` (R3/R8) — either from richer `search_analyses` fields already returned, or via a single-item `gateway.get_analysis_metadata(analysis_id)`. The `is_group` flag is set from the payload. Still idempotent on `UNIQUE(rdm_id, edm_id, irp_id)`; a re-run overwrites `settings_metadata` in place. **No new poller enqueue and no new `rwb_job_type`** — this rides the existing `import_rdm` FINISHED → `backfill_rdm_analyses` chain.
+The existing body (spec 003, `_backfill_rdm_analyses_body`) captures the pair's `irp_analysis` rows on `import_rdm` FINISHED and rolls `irp_rdm.status` up to `ready`. **Extension:** for each captured analysis, also fetch and store its `settings_metadata` (R3/R8) — either from richer `search_analyses` fields already returned, or via a single-item `gateway.get_analysis_metadata(analysis_id)`. The `is_group` flag is set from the payload, and RM's `exposureResourceId` is promoted to the typed `irp_analysis.exposure_resource_id` column **only when `exposureResourceType == "PORTFOLIO"`** (R9 / FR-036) — the pointer the read layer later resolves to the owning portfolio; a group or non-portfolio exposure leaves it null. **No portfolio lookup happens here** — resolution is read-time in `analysis_service` (import-order safe), so the backfill just captures the pointer. Still idempotent on `UNIQUE(rdm_id, edm_id, irp_id)`; a re-run overwrites `settings_metadata` / `is_group` / `exposure_resource_id` in place. **No new poller enqueue and no new `rwb_job_type`** — this rides the existing `import_rdm` FINISHED → `backfill_rdm_analyses` chain.
 
 ---
 
@@ -105,7 +105,7 @@ Detail backfill is a **direct mechanical consequence** of one import intent, so 
 
 Unit tier (SQLite + **fake IRP**):
 - **`backfill_edm_detail`** (`test_backfill_edm_detail`): fetches (fake) → upserts `irp_portfolio`/`irp_treaty` + JSON snapshot + `as_of`; a re-run **overwrites in place** (no duplicate rows); a gateway failure fails the `rwb_job` but leaves the EDM `ready` (recoverable, FR-005); a single portfolio's failed exposure read does not abort the rest.
-- **Extended `backfill_rdm_analyses`**: `settings_metadata` written per captured analysis; idempotent with the existing pair capture.
+- **Extended `backfill_rdm_analyses`**: `settings_metadata` + `is_group` written per captured analysis, and `exposure_resource_id` promoted only when `exposureResourceType == "PORTFOLIO"` (null otherwise) — R9; idempotent with the existing pair capture.
 - **Poller** (`test_poller`, extended): `import_edm` FINISHED enqueues **both** `upload_rdm` and `backfill_edm_detail`; idempotent on re-poll; a standalone/EDM-only import (`package_id` null / no RDMs) still enqueues `backfill_edm_detail`; a `FAILED` terminal enqueues neither backfill.
 
 IRP tier (`--run-irp`, opt-in): the real `list_portfolios` / `get_portfolio_exposure` / `search_treaties` / analysis-metadata round-trips; an assertion that `poll_*_to_completion` and the poll-inside convenience methods appear nowhere in the new worker/gateway code.

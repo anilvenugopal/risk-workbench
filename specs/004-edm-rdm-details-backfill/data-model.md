@@ -78,13 +78,13 @@ Created for the first time this iteration. A **read/cache record**: identity per
 
 ## 4. `irp_analysis` — new detail columns (EDIT) — DATA_MODEL §6
 
-`irp_analysis` already exists (spec 003 / D2) with identity/lineage + `source_rdm_name` + `status_code`. This iteration **adds three columns** (by editing the existing `create_table` — single revision, no `ALTER`) so the broker-analysis view can show settings/metadata and group rows (US3):
+`irp_analysis` already exists (spec 003 / D2) with identity/lineage + `source_rdm_name` + `status_code`. This iteration **adds three columns** (by editing the existing `create_table` — single revision, no `ALTER`) so the broker-analysis view can show settings/metadata, mark group rows, and link each analysis to the portfolio it ran against (US3 / R9):
 
 | Column (new) | Type | Null | Notes |
 |---|---|---|---|
 | `settings_metadata` | NVARCHAR(MAX) | null | **JSON snapshot** — the analysis settings/metadata (§6 shape below); null ⇒ not yet backfilled (graceful blank) |
-| `is_group` | BIT | not null | default `0`; `1` ⇒ this row **is** a group (FR-035; DATA_MODEL §6) |
-| `group_parent_id` | Uuid | null | FK → `irp_analysis.id` (self-ref) — the group this belongs to (§6); populated only if RM exposes membership |
+| `is_group` | BIT | not null | default `0`; `1` ⇒ this row **is** a group (FR-035; DATA_MODEL §6). A group is a single analysis; member breakdown is not available (R9) |
+| `exposure_resource_id` | NVARCHAR(64) | null | RM `exposureResourceId` **as string** — the pointer to the portfolio the analysis ran against, stored **only when `exposureResourceType == "PORTFOLIO"`**; null ⇒ group / non-portfolio / unknown. The owning `irp_portfolio` is **resolved at read time** (join on `edm_id`+`irp_id`), not a stored FK (R9 / FR-036) |
 
 **Existing columns (unchanged):** `id`, `rdm_id` (FK `irp_rdm`), `edm_id` (FK `irp_edm`, nullable — always set this iteration, D3), `package_id`, `irp_id` (Moody's `analysisId`), `name`, `source_rdm_name`, `status_code` (FK `irp_analysis_status_kind`), `created_by_irp_job_irp_id`, `deleted_at`, audit; `UNIQUE(rdm_id, edm_id, irp_id)`.
 
@@ -96,10 +96,13 @@ Created for the first time this iteration. A **read/cache record**: identity per
   "peril": {"primary": "EQ", "secondary": ["fire_following"]},
   "region": "North America", "currency": "USD", "construction": "...",
   "line_of_business": "Commercial", "group_type": null,
-  "term": "long_term", "event_rate_scheme": "...", "loss_amplification": {"pla": false}
+  "term": "long_term", "event_rate_scheme": "...", "loss_amplification": {"pla": false},
+  "exposure_resource": {"id": 8814, "type": "PORTFOLIO"}   // R9: id promoted to the exposure_resource_id column when type == PORTFOLIO
 }
 ```
 - **Broker vs own is derived from `rdm_id`** (set ⇒ broker) — no stored `origin` column (§6). This iteration surfaces **broker** analyses (`rdm_id` set) grouped by `rdm_id` (R8).
+- **Portfolio linkage is captured then derived (R9 / FR-036).** RM's `exposureResourceId` is promoted to the typed `exposure_resource_id` column (only when `exposureResourceType == "PORTFOLIO"`); the owning `irp_portfolio` is **resolved at read time** by `analysis_service` (join on `edm_id`+`irp_id`) — no stored `portfolio_id` FK. `is_group` rows show **"Group"**; unresolved/non-portfolio show **"not linked"**. This requires the gateway `AnalysisHit` (which currently drops `exposureResourceId`) to carry `exposure_resource_id` + `exposure_resource_type`.
+- **`group_parent_id` is deferred this iteration.** RM does not expose which analyses composed a group, so the DATA_MODEL §6 self-ref column has nothing to populate it; it is **omitted** until membership is available (same discipline as `irp_job.irp_portfolio_id`, §6) — tracked here, not silently added.
 - **Loss result data stays out** (FR-033): no `analysis_result_meta`, no Parquet, no `retrieve_analysis_results` worker.
 
 ---
@@ -115,9 +118,11 @@ The redesigned EDM detail page's **light header** (name, status, `as_of`, source
 ```text
 irp_edm        1──∞ irp_portfolio     (edm_id — NEW; contains portfolios)
 irp_edm        1──∞ irp_treaty        (edm_id — NEW; holds treaties)
-irp_analysis   1──0..1 irp_analysis   (group_parent_id — NEW self-ref; group membership)
+irp_analysis   ∞──0..1 irp_portfolio  (DERIVED at read time: edm_id + exposure_resource_id↔irp_portfolio.irp_id; NOT an FK — R9)
 rwb_job_type_kind 1──∞ rwb_job        (rwb_job_type — existing; new 'backfill_edm_detail' value)
 ```
+- **The analysis→portfolio linkage is a derived read-time join, not a stored FK (R9 / FR-036).** `analysis_service` resolves each analysis's captured `exposure_resource_id` against `irp_portfolio` within the same `edm_id`; no column stores the resolved portfolio. This is import-order safe (portfolios and analyses backfill on different completion paths) and self-heals on re-import — consistent with the derived EDM-aggregate (R4).
+- **`irp_analysis.group_parent_id` (DATA_MODEL §6 self-ref) stays deferred.** Group membership is not exposed by RM (a group is a single analysis; contributing sub-analyses are unknowable), so nothing populates it this iteration; omitted until it can be populated, exactly like `irp_job.irp_portfolio_id` below.
 - **No FK from `irp_portfolio`/`irp_treaty` to `rwb_job`/`irp_job`.** They are backfilled by the `backfill_edm_detail` worker keyed off the finished `import_edm` job; lineage is the worker's `requestor_id`, not a stored FK.
 - **No `customer`/scope column anywhere** (Article 6). A portfolio/treaty reaches a submission only transitively: `irp_portfolio.edm_id → irp_edm.package_id → submission_package → submission`.
 - **`irp_job.irp_portfolio_id` stays deferred.** DATA_MODEL §8 defines this FK and `irp_portfolio` now exists, but no portfolio-scoped `irp_job` is created this iteration (portfolio-scoped analysis jobs are Iteration 6). The column continues to be omitted (spec 003 §2 note carried forward); it is added when a job actually populates it. Recorded here so the deviation stays tracked, not silent.
@@ -128,7 +133,7 @@ rwb_job_type_kind 1──∞ rwb_job        (rwb_job_type — existing; new 'bac
 
 **`alembic/versions/0001_initial.py`** — extend the one existing revision (after the Iteration-2 tables, in FK order):
 - **Add entity creates:** `irp_portfolio` (FK → `irp_edm`; `exposure_detail` JSON col; `UNIQUE(edm_id, irp_id)` + index `(edm_id)`), `irp_treaty` (FK → `irp_edm`; `attributes` JSON col; `UNIQUE(edm_id, irp_id)` + index `(edm_id)`).
-- **Edit the `irp_analysis` create:** add `settings_metadata NVARCHAR(MAX) null`, `is_group BIT not null default 0`, `group_parent_id Uuid null` (self-ref FK → `irp_analysis.id`).
+- **Edit the `irp_analysis` create:** add `settings_metadata NVARCHAR(MAX) null`, `is_group BIT not null default 0`, `exposure_resource_id NVARCHAR(64) null` (the RM portfolio pointer, R9). *(`group_parent_id` is **deferred** — nothing populates it this iteration; see §4/§6.)* No index is added for `exposure_resource_id` — the read-time resolve join is keyed by `edm_id` (already indexed on `irp_portfolio`) and the analysis set per view is small.
 - **Extend the `rwb_job_type_kind` seed:** add `('backfill_edm_detail', 'Backfill EDM Detail', 27)` (between `backfill_rdm_analyses`=25 and `retrieve_analysis_results`=30).
 - **Downgrade:** drop `irp_treaty`, `irp_portfolio` (and their indexes) in reverse FK order, ahead of the Iteration-2 drops; the `irp_analysis` column additions are inherent to its create (no separate drop). No change to the existing Iteration-2 downgrade steps.
 - **No `ALTER`** anywhere — every change is inside a `create_table` or a seed `INSERT` (drop-create-seed).
@@ -143,7 +148,8 @@ rwb_job_type_kind 1──∞ rwb_job        (rwb_job_type — existing; new 'bac
 
 Unit tier (SQLite via `register_engine` + **fake IRP** returning portfolio/treaty/analysis-metadata payloads):
 - **`backfill_edm_detail` worker:** fetches portfolios + per-portfolio exposure + treaties (fake), **idempotently upserts** `irp_portfolio`/`irp_treaty` with the JSON snapshot + `as_of`; a duplicate/re-run **overwrites in place** (no duplicate rows, on the `UNIQUE(edm_id, irp_id)` key); a fetch failure leaves the EDM `ready` and the `rwb_job` recoverable (FR-004/FR-005).
-- **Extended `backfill_rdm_analyses`:** also writes `settings_metadata` on each captured `irp_analysis`; idempotent with the existing pair capture.
+- **Extended `backfill_rdm_analyses`:** also writes `settings_metadata` and `is_group` on each captured `irp_analysis`, and promotes RM's `exposureResourceId` to `exposure_resource_id` **only when `exposureResourceType == "PORTFOLIO"`** (R9); idempotent with the existing pair capture.
+- **Analysis→portfolio linkage resolution (`analysis_service`):** an analysis whose `exposure_resource_id` matches an `irp_portfolio.irp_id` within the same `edm_id` resolves to that portfolio; `is_group` renders "Group"; a null/unmatched/non-portfolio pointer renders "not linked"; resolution is **order-independent** (correct whether the portfolio was backfilled before or after the analysis) — FR-036 / R9.
 - **Aggregate rollup (`edm_service.get_edm_detail`):** sums counts / unions perils / combines geography+currency from the per-portfolio snapshots; returns a graceful empty marker when no snapshot exists (FR-042/FR-043).
 - **Broker-analysis grouping:** `list_broker_analyses` groups by `rdm_id` (M-EDM analysis shown once); `is_group` surfaced; missing metadata renders blank not error (FR-030/FR-031/FR-035).
 - **Poller enqueue extension:** `import_edm` FINISHED enqueues **both** `upload_rdm` and `backfill_edm_detail` (idempotent); a standalone/EDM-only import still enqueues `backfill_edm_detail`.

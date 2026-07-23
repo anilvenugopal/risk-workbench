@@ -35,8 +35,9 @@ make db-rebuild        # drop + recreate 3 app DBs, run 0001_initial, seed
 
 **Expected:** no error; the new tables exist — `irp_portfolio`, `irp_treaty` — with their
 `exposure_detail` / `attributes` JSON columns and `UNIQUE(edm_id, irp_id)`; `irp_analysis`
-now has `settings_metadata`, `is_group`, `group_parent_id`; `rwb_job_type_kind` includes the
-new `backfill_edm_detail` row. `EXPOSURE`/`LOSS` untouched; DATABRIDGE never touched.
+now has `settings_metadata`, `is_group`, `exposure_resource_id` (`group_parent_id` deferred);
+`rwb_job_type_kind` includes the new `backfill_edm_detail` row. `EXPOSURE`/`LOSS` untouched;
+DATABRIDGE never touched.
 
 ## 2. Unit tests (SQLite + fake IRP — no external deps)
 
@@ -52,9 +53,11 @@ pytest tests/unit
 - `test_edm_detail_rollup.py` — `get_edm_detail` derives the aggregate (sum counts / union
   perils / combine geography+currency) from per-portfolio snapshots; graceful empty when no
   snapshot.
-- `test_broker_analyses.py` — `list_broker_analyses` groups by `rdm_id` (an analysis across
-  M EDMs shown once); `settings_metadata` parsed; missing fields blank not error; `is_group`
-  surfaced.
+- `test_broker_analyses.py` / `test_edm_analyses.py` — `list_broker_analyses` / `list_edm_analyses`
+  group by `rdm_id` (an analysis across M EDMs shown once); `settings_metadata` parsed; missing
+  fields blank not error; `is_group` surfaced; and the **portfolio linkage** resolves at read time
+  (match on `edm_id`+`exposure_resource_id`), `is_group` → "Group", unmatched → "not linked",
+  order-independent (R9/FR-036).
 - `test_treaty_export.py` — `build_treaty_workbook` produces a valid `.xlsx` over the treaty
   set (union of columns) from stored detail, no gateway call.
 - `test_poller.py` (extended) — `import_edm` FINISHED enqueues **both** `upload_rdm` and
@@ -103,10 +106,14 @@ Log in (dev fixture `admin@example.com`), with the poller + worker running, then
 4. **Review treaties + export (US2).** *Expect:* treaties at the EDM level, collapsed; expand
    one to its full attributes; a wide set scrolls horizontally; "Export to Excel" downloads a
    `.xlsx` of the full treaty set in one action (SC-004) — no create/edit control.
-5. **Review broker analyses on an RDM (US3).** Open an imported RDM. *Expect:* its broker
-   analyses **grouped by RDM** (one applied across M EDMs shown once), each with its
-   settings/metadata; a group shown as a group; **no loss numbers**, no own-vs-broker
-   comparison (SC-005). The package card's analysis counts now render **populated** (FR-050).
+5. **Review broker analyses + portfolio linkage (US3).** Open an imported RDM. *Expect:* its
+   broker analyses **grouped by RDM** (one applied across M EDMs shown once), with **EDM** and
+   **Portfolio** columns — each analysis shows the **portfolio it ran against** (resolved), or
+   **"Group"** (a single row, no member breakdown) / **"— not linked"** where it doesn't resolve;
+   each with its settings/metadata; **no loss numbers**, no own-vs-broker comparison (SC-005/SC-009).
+   Then open the **EDM** page: *Expect:* each portfolio expands to its **linked analyses inline**,
+   and a **standalone RDM-grouped Broker-analyses section** lists the full set with the resolved
+   portfolio per row. The package card's analysis counts now render **populated** (FR-050).
 6. **Submission-page orientation line (US4).** Open the submission. *Expect:* each imported
    EDM's package row shows a **per-EDM aggregate line** (SC-008), extending the spec-003 cards.
 7. **Graceful states (forward-only).** Open an EDM imported **before** this capability (or one
@@ -117,7 +124,7 @@ Log in (dev fixture `admin@example.com`), with the poller + worker running, then
 ## Done when
 
 - `make db-rebuild` clean; `pytest tests/unit` and `pytest tests/sqlserver --run-sqlserver` green.
-- The manual walkthrough matches the expected outcomes above (SC-001…SC-008).
+- The manual walkthrough matches the expected outcomes above (SC-001…SC-009).
 - **No Risk Modeler call occurs from a web request handler** (detail views + Excel export read
   stored detail), and **no `poll_*_to_completion`** exists in the new worker/gateway (Article 11).
 - **No `customer`/scope construct** appears on `irp_portfolio`/`irp_treaty`/`irp_analysis` or any

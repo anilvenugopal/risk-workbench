@@ -328,7 +328,7 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 |---|---|
 | Results are displayed grouped under the RDM that produced them. | Matches the current workflow; the EDM↔RDM relationship is already implied by the package. |
 | Broker results are deduped by RDM. | (`rdm_id`.) |
-| Portfolio↔analysis linking is not solved. | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. |
+| Portfolio↔analysis linking is not solved. | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 *does* surface by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3). |
 | Up to ~5 analyses are consumable on screen. | Default density guideline, not a hard cap. |
 | More than ~5 analyses are exportable / drill-down. | |
 | Full listing / full drill-down of all analyses remains available. | The on-screen cap must not become a step back from RiskLink, which lists them all. |
