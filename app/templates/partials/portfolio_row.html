@@ -1,0 +1,63 @@
+{# One portfolio's exposure figures — a .dtable row (spec 004 US1, FR-012/FR-013).
+   Context: `p` (portfolio_service.PortfolioRow). The snapshot is Risk Modeler's
+   payload verbatim (R2) — every field is read defensively; a missing field or a
+   not-yet-backfilled snapshot renders "—", never an error. Records == locations,
+   so there is no separate Records column (preview rev 7). Static (non-expandable)
+   this story — US3 (T041b) adds the Analyses count + inline linked-analyses panel. #}
+{%- macro num(v) -%}
+  {%- if v is none -%}<span class="na">&mdash;</span>
+  {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
+  {%- else -%}{{ v }}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro csv(vals) -%}
+  {%- if vals -%}{{ vals|join(', ') }}{%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+{%- endmacro -%}
+{%- set d = p.exposure_detail or {} -%}
+<div class="drow-static"{% if p.as_of %} title="synced {{ p.as_of }}"{% endif %}>
+  <span class="l">
+    <span class="dt-name">
+      <span class="dt-namecol">
+        <span class="dt-title">{{ p.name }}</span>
+        {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+      </span>
+    </span>
+  </span>
+  <span>{{ num(d.get('location_count')) }}</span>
+  <span>{{ num(d.get('account_count')) }}</span>
+  <span>{{ num(d.get('policy_count')) }}</span>
+  <span class="l">{{ csv(d.get('perils')) }}</span>
+  <span class="l">{{ csv(d.get('sub_perils')) }}</span>
+  <span class="l">
+    {%- set geo = d.get('geography') or {} -%}
+    {%- set states = geo.get('states') or [] -%}
+    {%- set regions = geo.get('regions') or [] -%}
+    {%- if states -%}
+      {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}
+    {%- elif regions -%}
+      {{ regions|join(', ') }}
+    {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+  </span>
+  <span class="l">
+    {%- set curr = d.get('currencies') or [] -%}
+    {%- if curr -%}
+      {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
+    {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+  </span>
+  <span>
+    {%- set t = d.get('tiv') or {} -%}
+    {%- set amt = t.get('amount') -%}
+    {%- if amt is none or amt is not number -%}<span class="na">&mdash;</span>
+    {%- else -%}
+      {%- set cur = t.get('currency') or '' -%}
+      {%- set pfx = '$' if cur == 'USD' else '' -%}
+      {%- set sfx = '' if cur == 'USD' else ' ' + cur -%}
+      <span title="{{ '{:,.0f}'.format(amt) }} {{ cur }}">
+        {%- if amt >= 1e9 -%}{{ pfx }}{{ '%.1f'|format(amt / 1e9) }}B{{ sfx }}
+        {%- elif amt >= 1e6 -%}{{ pfx }}{{ '%.1f'|format(amt / 1e6) }}M{{ sfx }}
+        {%- else -%}{{ pfx }}{{ '{:,.0f}'.format(amt) }}{{ sfx }}
+        {%- endif -%}
+      </span>
+    {%- endif -%}
+  </span>
+</div>
