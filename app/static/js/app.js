@@ -96,6 +96,38 @@ document.addEventListener('alpine:init', () => {
   }));
 });
 
+// ── Local-time stamps ──────────────────────────────────────────────────────────
+// The server stores and renders naive-UTC timestamps; <time data-utc="…"> elements
+// are rewritten here to the browser's timezone as "YYYY-MM-DD h:mm:ss AM/PM"
+// (second granularity — fractional seconds dropped). The raw UTC value stays in
+// the title tooltip. Runs at load and again on htmx:load, so stamps swapped in by
+// the live #edm-detail poll stay localized.
+function localizeUtcTimes(root) {
+  const scope = root instanceof Element ? root : document;
+  scope.querySelectorAll('time[data-utc]').forEach((el) => {
+    const raw = (el.dataset.utc || '').trim();
+    // "2026-07-24 18:03:11.482910" → ISO with an explicit Z; values that already
+    // carry a zone are parsed as-is.
+    const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(raw)
+      ? raw.replace(' ', 'T')
+      : raw.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
+    const d = new Date(iso);
+    if (isNaN(d)) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const time = d.toLocaleTimeString(undefined, {
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+    });
+    el.textContent = `${date} ${time}`;
+  });
+}
+if (document.readyState !== 'loading') {
+  localizeUtcTimes(document);
+} else {
+  document.addEventListener('DOMContentLoaded', () => localizeUtcTimes(document));
+}
+document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is

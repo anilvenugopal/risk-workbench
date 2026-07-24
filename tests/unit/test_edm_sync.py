@@ -340,6 +340,9 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     html = _client().get("/edms/edm-1/body").text
     assert "every 3s" not in html
     assert "synced" in html
+    # The stamp is a <time data-utc> element: app.js rewrites it to the
+    # browser's local timezone (h:mm:ss AM/PM), re-run after every HTMX swap.
+    assert '<time data-utc="2026-07-24 10:00:00"' in html
     assert ">Sync</button>" in html  # the button is offered again, enabled
 
 

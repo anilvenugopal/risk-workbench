@@ -40,7 +40,8 @@
       {% endif %}
       {% if edm.as_of %}
       <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot"></span> synced {{ edm.as_of }}</span>
+      <span class="synced"><span class="synced__dot"></span> synced
+        <time data-utc="{{ edm.as_of }}" title="{{ edm.as_of }} UTC">{{ edm.as_of }}</time></span>
       {% elif edm.detail_state == 'failed' %}
       <span class="crumb__sep">·</span>
       <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>

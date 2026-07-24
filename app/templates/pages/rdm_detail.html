@@ -30,7 +30,8 @@
       {% endif %}
       {% if rdm.as_of %}
       <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot"></span> synced {{ rdm.as_of }}</span>
+      <span class="synced"><span class="synced__dot"></span> synced
+        <time data-utc="{{ rdm.as_of }}" title="{{ rdm.as_of }} UTC">{{ rdm.as_of }}</time></span>
       {% endif %}
     </div>
   </div>
