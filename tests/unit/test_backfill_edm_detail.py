@@ -246,6 +246,107 @@ def test_summary_not_fetched_for_zero_portfolio_edm(iteration2_db, fake_irp, dri
     assert "summary" not in json.loads(job["output_data"])
 
 
+# ── the treaty path (spec 004 US2, T025) ──────────────────────────────────────────
+# The same worker, after the portfolio loop, fetches the EDM's treaties
+# (search_treaties) and idempotently upserts irp_treaty rows with the full
+# attribute map verbatim + as_of (R2). Attribute keys mirror the documented RM
+# treaty schema (GET /exposures/{id}/treaties — IRP knowledge base, 2026-07-23).
+
+TREATY_CAT = {
+    "treatyId": 1042, "treatyName": "Meridian Property Cat XoL",
+    "treatyNumber": "TR-1042", "treatyType": "CATA",
+    "attachmentBasis": "L", "attachmentLevel": "PORT",
+    "attachmentPoint": 25000000.0, "occurrenceLimit": 100000000.0,
+    "percentageRiShare": 20.0, "percentagePlaced": 85.0,
+    "premium": 4200000.0, "currency": {"code": "USD"},
+    "effectiveDate": "2026-01-01T00:00:00Z", "expirationDate": "2026-12-31T00:00:00Z",
+}
+TREATY_QS = {
+    "treatyId": 1043, "treatyName": "Meridian Quota Share",
+    "treatyNumber": "TR-1043", "treatyType": "QUOT",
+    "attachmentBasis": "R", "attachmentLevel": "POL",
+    "attachmentPoint": 0.0, "riskLimit": 10000000.0,
+    "percentageRiShare": 40.0, "currency": {"code": "USD"},
+}
+
+
+def _treaty_rows(edm_id: str) -> list[dict]:
+    return execute(
+        "SELECT name, irp_id, attributes, as_of FROM irp_treaty "
+        "WHERE edm_id=:e ORDER BY name",
+        {"e": edm_id}, connection="WORKBENCH")
+
+
+def test_backfill_upserts_treaties_with_snapshot_and_as_of(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Meridian Property Cat XoL", attributes=TREATY_CAT)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1043",
+                        name="Meridian Quota Share", attributes=TREATY_QS)
+
+    package_jobs.run_pending(worker_id="w1")  # runs backfill_edm_detail
+
+    rows = _treaty_rows(edm_id)
+    assert [r["name"] for r in rows] == [
+        "Meridian Property Cat XoL", "Meridian Quota Share"]
+    by_irp = {r["irp_id"]: r for r in rows}
+    assert json.loads(by_irp["1042"]["attributes"]) == TREATY_CAT  # verbatim (R2)
+    assert json.loads(by_irp["1043"]["attributes"]) == TREATY_QS
+    assert all(r["as_of"] is not None for r in rows)
+    job = _backfill_job()
+    assert job["status_code"] == "succeeded"
+    assert json.loads(job["output_data"])["treaties"] == 2
+
+
+def test_treaty_rerun_overwrites_in_place_no_duplicates(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Meridian Property Cat XoL", attributes=TREATY_CAT)
+    package_jobs.run_pending(worker_id="w1")
+    assert len(_treaty_rows(edm_id)) == 1
+
+    # RM's attributes change; a redelivery / reconciler re-run of the SAME job
+    # body must overwrite attributes/as_of in place — never insert a duplicate.
+    updated = dict(TREATY_CAT, occurrenceLimit=150000000.0)
+    fake_irp._treaties[str(exposure_id)][0]["attributes"] = updated
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+
+    rows = _treaty_rows(edm_id)
+    assert len(rows) == 1  # UNIQUE(edm_id, irp_id) — no duplicate row
+    assert json.loads(rows[0]["attributes"])["occurrenceLimit"] == 150000000.0
+
+
+def test_treaty_enumeration_failure_fails_job_but_keeps_portfolios(
+        iteration2_db, fake_irp, drive):
+    # Treaties are fetched AFTER the portfolio loop: an enumeration failure fails
+    # the rwb_job (recoverable) but the portfolio snapshots already written stay,
+    # and the EDM's ready status is never touched (FR-005).
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Meridian Property Cat XoL", attributes=TREATY_CAT)
+    fake_irp.raise_on_search_treaties = True
+
+    package_jobs.run_pending(worker_id="w1")
+
+    job = _backfill_job()
+    assert job["status_code"] == "failed"
+    assert edm_service.get_edm(edm_id).status == edm_service.READY
+    assert len(_portfolio_rows(edm_id)) == 1  # portfolios landed before the failure
+    assert _treaty_rows(edm_id) == []
+
+    # Recoverable: a re-run of the same body completes the treaty half.
+    fake_irp.raise_on_search_treaties = False
+    package_jobs._backfill_edm_detail_body(job["id"])
+    assert len(_treaty_rows(edm_id)) == 1
+
+
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):
     # An EDM that never finished importing has no irp_id (exposureId) — there is
     # nothing to fetch; the job succeeds as a skip and writes nothing (R7).

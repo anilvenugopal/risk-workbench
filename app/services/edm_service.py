@@ -20,11 +20,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services import irp_gateway, package_service, portfolio_service, rwb_job_service
+from app.services import (
+    irp_gateway, package_service, portfolio_service, rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
 from app.services.errors import ConcurrencyConflict
 from app.services.package_service import SubmissionRef
 from app.services.portfolio_service import PortfolioRow
+from app.services.treaty_service import TreatyRow
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -209,6 +211,9 @@ class EdmDetail:
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
+    # US2: the EDM-level treaty set (parsed attributes) for the expand/collapse
+    # view + Excel export; empty list ⇒ the section renders its own state.
+    treaties: list[TreatyRow] = field(default_factory=list)
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
@@ -264,6 +269,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     if row is None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    treaties = treaty_service.list_treaties(edm_id=eid)
     job_status = _latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
@@ -281,6 +287,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
         sync_running=job_status in ("pending", "running"),
+        treaties=treaties,
     )
 
 

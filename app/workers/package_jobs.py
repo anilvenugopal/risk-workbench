@@ -43,6 +43,7 @@ from app.services import (
     portfolio_service,
     rdm_service,
     rwb_job_service,
+    treaty_service,
 )
 from app.services._common import _utcnow
 from app.workers import broker, dispatch, runtime
@@ -360,12 +361,30 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
             f"backfill_edm_detail stored nothing ({exposure_failures} exposure "
             "reads failed)", portfolios=0, exposure_failures=exposure_failures)
 
+    # Treaties ride the same job (US2): one enumeration whose rows ARE the full
+    # attribute maps (no per-treaty round-trip), upserted idempotently. An
+    # enumeration failure fails the rwb_job (recoverable) AFTER the portfolio
+    # snapshots landed — a re-run overwrites both halves in place; the EDM's
+    # ready status and its already-written portfolio detail stay (FR-005).
+    try:
+        treaties = irp_gateway.search_treaties(edm_irp_id=int(edm_irp_id))
+    except Exception as exc:  # noqa: BLE001 — recoverable job failure
+        logger.warning("backfill_edm_detail: treaty enumeration failed for %s: %s",
+                       edm_id, exc)
+        return runtime.JobResult.fail(
+            f"treaty enumeration failed: {exc}",
+            portfolios=stored, exposure_failures=exposure_failures)
+    for t in treaties:
+        treaty_service.upsert_treaty_detail(
+            edm_id=edm_id, irp_id=t.irp_id, name=t.name,
+            attributes=t.attributes, as_of=now)
+
     # Stamp the EDM-level last-synced trust signal (FR-052) — the header's
-    # "synced <ts>"; per-portfolio truth is each row's own as_of.
+    # "synced <ts>"; per-portfolio/per-treaty truth is each row's own as_of.
     execute_command(
         "UPDATE irp_edm SET as_of = :now, updated_at = :now WHERE id = :id",
         {"now": now, "id": str(edm_id)}, connection="WORKBENCH")
-    out: dict[str, Any] = {"portfolios": stored,
+    out: dict[str, Any] = {"portfolios": stored, "treaties": len(treaties),
                            "exposure_failures": exposure_failures}
     if portfolios:
         out["summary"] = "ok" if summary_map is not None else "unavailable"

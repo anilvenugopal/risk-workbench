@@ -90,19 +90,19 @@ Single server-rendered web app extending the existing `app/` tree (FastAPI + Jin
 
 ### Tests for User Story 2 (write first — must FAIL before implementation) ⚠️
 
-- [ ] T025 [P] [US2] Extend `tests/unit/test_backfill_edm_detail.py` (treaty path) — worker fetches treaties (fake IRP) → idempotently upserts `irp_treaty` + `attributes` snapshot + `as_of`; re-run overwrites in place, no duplicate rows (FAIL first)
-- [ ] T026 [P] [US2] Write `tests/unit/test_treaty_export.py` — `build_treaty_workbook` produces a valid `.xlsx` over the treaty set (columns = union of attribute keys) from **stored** detail with **no** gateway call (FAIL first)
+- [X] T025 [P] [US2] Extend `tests/unit/test_backfill_edm_detail.py` (treaty path) — worker fetches treaties (fake IRP) → idempotently upserts `irp_treaty` + `attributes` snapshot + `as_of`; re-run overwrites in place, no duplicate rows (FAIL first)
+- [X] T026 [P] [US2] Write `tests/unit/test_treaty_export.py` — `build_treaty_workbook` produces a valid `.xlsx` over the treaty set (columns = union of attribute keys) from **stored** detail with **no** gateway call (FAIL first)
 
 ### Implementation for User Story 2
 
-- [ ] T027 [US2] Implement `treaty_service.upsert_treaty_detail(...)` (idempotent on `UNIQUE(edm_id, irp_id)`, fallback `(edm_id, name)`) and `treaty_service.list_treaties(edm_id)` (parsed `attributes`, read-only, no scoping) in `app/services/treaty_service.py`
-- [ ] T028 [US2] Extend `_backfill_edm_detail_body` in `app/workers/package_jobs.py` — after the portfolio loop, `search_treaties(edm_irp_id=...)` and `upsert_treaty_detail` per treaty (idempotent); update `JobResult.ok(portfolios=..., treaties=...)`
-- [ ] T029 [US2] Implement `treaty_service.build_treaty_workbook(edm_id) -> bytes` in `app/services/treaty_service.py` (openpyxl; one row per treaty; columns = union of attribute keys across the set) — reads stored detail only, no Risk Modeler call (R5/FR-024)
-- [ ] T030 [US2] Extend `edm_service.get_edm_detail` in `app/services/edm_service.py` to include `treaties` (from `list_treaties`) in the payload
-- [ ] T031 [US2] Add `GET /edms/{id}/treaties.xlsx` in `app/routers/treaties.py` (new router; register in the app) — authenticated file download streaming `build_treaty_workbook(id)` with `Content-Disposition: attachment; filename="<edm>-treaties.xlsx"` and the xlsx media type; a read/GET (no CSRF), no Risk Modeler call (contracts/http-routes.md)
-- [ ] T032 [US2] Add the treaties section to `app/templates/pages/edm_detail.html` — treaties at the EDM level, most collapsed, expand any to full attributes, horizontal scroll for wide sets, an "Export to Excel" link to `/edms/{id}/treaties.xlsx`; read-only (FR-020–FR-025)
-- [ ] T033 [P] [US2] Create `app/templates/partials/treaty_row.html` — one treaty collapsed, expandable to full attributes (Alpine.js sliver) with horizontal scroll; extend `app/static/css/details.css` with token-based treaty styling
-- [ ] T034 [US2] Run `pytest tests/unit/test_treaty_export.py` and the treaty path of `test_backfill_edm_detail.py` green; manually verify quickstart step 4 (expand/collapse + Excel export)
+- [X] T027 [US2] Implement `treaty_service.upsert_treaty_detail(...)` (idempotent on `UNIQUE(edm_id, irp_id)`, fallback `(edm_id, name)`) and `treaty_service.list_treaties(edm_id)` (parsed `attributes`, read-only, no scoping) in `app/services/treaty_service.py`
+- [X] T028 [US2] Extend `_backfill_edm_detail_body` in `app/workers/package_jobs.py` — after the portfolio loop, `search_treaties(edm_irp_id=...)` and `upsert_treaty_detail` per treaty (idempotent); update `JobResult.ok(portfolios=..., treaties=...)`
+- [X] T029 [US2] Implement `treaty_service.build_treaty_workbook(edm_id) -> bytes` in `app/services/treaty_service.py` (openpyxl; one row per treaty; columns = union of attribute keys across the set) — reads stored detail only, no Risk Modeler call (R5/FR-024)
+- [X] T030 [US2] Extend `edm_service.get_edm_detail` in `app/services/edm_service.py` to include `treaties` (from `list_treaties`) in the payload
+- [X] T031 [US2] Add `GET /edms/{id}/treaties.xlsx` in `app/routers/treaties.py` (new router; register in the app) — authenticated file download streaming `build_treaty_workbook(id)` with `Content-Disposition: attachment; filename="<edm>-treaties.xlsx"` and the xlsx media type; a read/GET (no CSRF), no Risk Modeler call (contracts/http-routes.md)
+- [X] T032 [US2] Add the treaties section to `app/templates/pages/edm_detail.html` — treaties at the EDM level, most collapsed, expand any to full attributes, horizontal scroll for wide sets, an "Export to Excel" link to `/edms/{id}/treaties.xlsx`; read-only (FR-020–FR-025)
+- [X] T033 [P] [US2] Create `app/templates/partials/treaty_row.html` — one treaty collapsed, expandable to full attributes (Alpine.js sliver) with horizontal scroll; extend `app/static/css/details.css` with token-based treaty styling
+- [X] T034 [US2] Run `pytest tests/unit/test_treaty_export.py` and the treaty path of `test_backfill_edm_detail.py` green; manually verify quickstart step 4 (expand/collapse + Excel export)
 
 **Checkpoint**: US1 AND US2 both work independently. **STOP** for the approver to click the running slice.
 
