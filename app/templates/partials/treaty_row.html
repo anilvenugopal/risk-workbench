@@ -4,8 +4,10 @@
    Limit · Share · Effective) read defensively from the documented RM treaty
    schema (treatyType / attachmentLevel / attachmentPoint / occurrenceLimit /
    percentageRiShare / effectiveDate — IRP knowledge base, search-treaties).
-   Expanded: the FULL attribute grid — every stored field — for mis-coding
-   checks (FR-021); the pinned .drow__body scrolls its own overflow (FR-023).
+   Expanded: the FULL attribute grid — every stored field (minus RM's internal
+   `uri`; sub-object/list values collapsed to display labels service-side) —
+   for mis-coding checks (FR-021); the pinned .drow__body scrolls its own
+   overflow (FR-023).
    Missing fields render "—", never an error. Read-only (FR-025). #}
 {%- macro money(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>

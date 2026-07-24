@@ -30,7 +30,8 @@ details.sec[open] > summary .sec__caret { transform: rotate(90deg); }
 .sec__title { font-size: 14px; color: var(--text-primary); font-weight: var(--fw-semibold); }
 .sec__spacer { margin-left: auto; }
 .sec__note { font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
-.sec__action { display: flex; justify-content: flex-end; margin-bottom: var(--space-3); }
+a.sec__note--link { color: var(--color-brand); font-weight: var(--fw-medium); }
+a.sec__note--link:hover { text-decoration: underline; }
 
 /* ── the unified expandable comparison table (ui.md §1) ───────────────────
    ONE pattern for Portfolios, Treaties, Broker analyses: frozen identifying

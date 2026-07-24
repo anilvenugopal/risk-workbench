@@ -43,6 +43,32 @@ def _humanize_key(key: str) -> str:
     return spaced[:1].upper() + spaced[1:]
 
 
+def _display_value(value: Any) -> Any:
+    """An RM attribute value shaped for DISPLAY: a sub-object collapses to its
+    human label — ``code`` first (currency ``{code: USD}``), else the first
+    non-empty ``*Name`` key (cedant ``{cedantId, cedantName}`` → the name, not
+    the "id, name" values join) — and a list of sub-objects to a comma-joined
+    label list (lobs → ``Lend, Prop``, never raw JSON). Scalars pass through
+    untouched; the template owns number/boolean formatting."""
+    if isinstance(value, dict):
+        code = value.get("code")
+        if isinstance(code, str) and code.strip():
+            return code
+        named = next((v for k, v in value.items()
+                      if k.lower().endswith("name")
+                      and isinstance(v, str) and v.strip()), None)
+        if named is not None:
+            return named
+        scalars = [str(v) for v in value.values()
+                   if isinstance(v, (str, int, float)) and str(v).strip()]
+        return ", ".join(scalars) or None
+    if isinstance(value, (list, tuple)):
+        parts = [str(p) for p in (_display_value(v) for v in value)
+                 if p not in (None, "")]
+        return ", ".join(parts) or None
+    return value
+
+
 @dataclass
 class TreatyRow:
     """One treaty on an EDM with its parsed snapshot (``None`` ⇒ not yet
@@ -55,9 +81,13 @@ class TreatyRow:
     as_of: Any
 
     def attribute_items(self) -> list[tuple[str, Any]]:
-        """The full attribute set as (display label, raw value) pairs for the
-        expanded grid (FR-021) — RM's camelCase keys humanized, values verbatim."""
-        return [(_humanize_key(k), v) for k, v in (self.attributes or {}).items()]
+        """The full attribute set as (display label, display value) pairs for
+        the expanded grid (FR-021) — RM's camelCase keys humanized, sub-object/
+        list values collapsed to their labels, RM's internal ``uri`` dropped.
+        The Excel export does NOT use this — it stays verbatim."""
+        return [(_humanize_key(k), _display_value(v))
+                for k, v in (self.attributes or {}).items()
+                if k.lower() != "uri"]
 
 
 # The two in-place overwrite paths of the idempotent upsert — same pattern as

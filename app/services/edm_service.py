@@ -19,7 +19,9 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote
 
+from app.config import settings
 from app.services import (
     analysis_service, irp_gateway, package_service, portfolio_service,
     rwb_job_service, treaty_service)
@@ -223,6 +225,10 @@ class EdmDetail:
     # US4 (FR-040/FR-042): the DERIVED quick-orientation rollup — None ⇒ no
     # snapshot yet ⇒ the strip renders the pending state (FR-043).
     aggregate: EdmAggregate | None = None
+    # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
+    # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
+    # not configured (the template falls back to the plain read-only note).
+    rm_treaties_url: str | None = None
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
@@ -264,6 +270,17 @@ def _analyses_backfill_running(edm_id: str) -> bool:
         "         AND irp_rdm_id IS NOT NULL)))",
         {"e": edm_id}, connection="WORKBENCH")
     return row is not None
+
+
+def _rm_treaties_url(name: str) -> str | None:
+    """The Risk Modeler UI deep link for this EDM's treaties screen —
+    ``<RISK_MODELER_BASE_URL>/riskmodeler/datasources/<edm-name>/treaties``
+    (RM's web UI shares the API host). A plain navigation link, never an API
+    call (Article 11). ``None`` when the base URL is not configured."""
+    base = settings.risk_modeler_base_url.strip().rstrip("/")
+    if not base:
+        return None
+    return f"{base}/riskmodeler/datasources/{quote(str(name), safe='')}/treaties"
 
 
 def _detail_state(status: str | None, as_of: Any,
@@ -328,6 +345,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         treaties=treaties,
         analyses=analyses,
         aggregate=portfolio_service.aggregate_exposure(portfolios),
+        rm_treaties_url=_rm_treaties_url(row["name"]),
     )
 
 

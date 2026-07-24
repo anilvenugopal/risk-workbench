@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # default matches irp-integration's own default.
     irp_edm_import_server: str = "databridge-1"
 
+    # The BASE_URL alone is ALSO mirrored here (read-only): the web layer builds
+    # deep links into Risk Modeler's own UI from it (e.g. the EDM treaties
+    # screen) — never an API call. Empty (unset) simply hides those links.
+    risk_modeler_base_url: str = ""
+
     # ── Notifications (Iteration 2, R10) ────────────────────────────────────────
     # Comma-separated channels to deliver completion/failure notices on
     # (any of: teams, email, desktop). Enabling a channel is a config edit.

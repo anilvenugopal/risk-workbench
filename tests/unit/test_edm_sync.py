@@ -186,6 +186,21 @@ def test_detail_state_prefers_most_recently_updated_head(
     assert detail.sync_running is True
 
 
+# ── the Risk Modeler treaties deep link (Treaties polish, 2026-07-24) ─────────────
+
+def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
+    # <RISK_MODELER_BASE_URL>/riskmodeler/datasources/<edm-name>/treaties —
+    # the EDM name is URL-encoded; an unset base URL yields None (link hidden).
+    edm_id = _legacy_edm(name="townsend edm")
+    monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url",
+                        "https://rm.example.com/")
+    assert edm_service.get_edm_detail(edm_id).rm_treaties_url == (
+        "https://rm.example.com/riskmodeler/datasources/townsend%20edm/treaties")
+
+    monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url", "")
+    assert edm_service.get_edm_detail(edm_id).rm_treaties_url is None
+
+
 # ── worker: pre-capability EDMs without an exposureId (name resolution) ───────────
 
 def test_sync_resolves_missing_exposure_id_by_name(iteration2_db, fake_irp, drive):
@@ -373,6 +388,37 @@ def test_body_poll_partial_when_edm_gone(monkeypatch):
     assert r.status_code == 200
     assert "no longer exists" in r.text
     assert "every 3s" not in r.text
+
+
+def test_treaties_header_holds_export_and_rm_link(monkeypatch):
+    # Treaties polish (2026-07-24): the Export button sits IN the header row
+    # (no sec__action block below it any more) and the old read-only note is a
+    # real deep link into Risk Modeler's treaties screen, opening a new tab.
+    from app.services.treaty_service import TreatyRow
+    t = TreatyRow(id="t1", edm_id="edm-1", name="Cat XoL", irp_id="1042",
+                  attributes={"treatyType": "CATA"}, as_of="2026-07-24")
+    rm_url = "https://rm.example.com/riskmodeler/datasources/legacy_edm/treaties"
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated",
+                            as_of="2026-07-24 10:00:00", treaties=[t],
+                            rm_treaties_url=rm_url))
+    html = _client().get("/edms/edm-1").text
+    assert 'href="/edms/edm-1/treaties.xlsx"' in html
+    assert "sec__action" not in html          # in-line with the header now
+    assert f'href="{rm_url}"' in html
+    assert 'target="_blank"' in html
+
+
+def test_treaties_header_without_treaties_or_rm_url(monkeypatch):
+    # No treaties → no Export offer; no configured base URL → the plain
+    # read-only note falls back in place of the link.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="empty", as_of="2026-07-24 10:00:00"))
+    html = _client().get("/edms/edm-1").text
+    assert "treaties.xlsx" not in html
+    assert "edit in Risk Modeler" in html
 
 
 def test_sync_button_rendered_by_state(monkeypatch):
