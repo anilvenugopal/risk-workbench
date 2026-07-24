@@ -1,0 +1,165 @@
+{# The whole RDM detail body (spec 004 US3 — matches docs/ui_previews/rdm_detail.html
+   rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with EDM +
+   Portfolio columns (resolved / Group / — not linked, FR-036), per-analysis
+   settings/metadata with the rate sub-drill (FR-031). NO loss numbers, no
+   own-vs-broker comparison (FR-033/FR-034); every missing field renders blank,
+   never an error. #}
+{# Live body (package-card pattern, mirrors edm_detail_body): while the manual
+   analyses backfill is in flight — or the import itself still is — the wrapper
+   polls its own read-only render every 3s and swaps itself, so the page updates
+   on its own when the rwb job lands. The server stops emitting the trigger once
+   the work is terminal, so polling ends without a reload. The Sync forms swap
+   this wrapper via HTMX (URL never changes, no re-submission prompt on refresh);
+   plain-POST fallback is PRG.
+   Context: rdm, analyses, sync_running, sync_status. #}
+{% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
+{% set edm_total = analyses | map(attribute='edm_count') | sum %}
+{% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
+<div class="page-pad" id="rdm-detail"
+  {%- if live %}
+  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  <div class="detail-head">
+    <h1>{{ rdm.name }}
+      <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
+        {{ rdm.status or 'unknown' }}</span>
+    </h1>
+    <div class="detail-meta">
+      <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>
+      {% if rdm.irp_id %}
+      <span class="crumb__sep">·</span>
+      <span>RM RDM #{{ rdm.irp_id }}</span>
+      {% endif %}
+      {% if analysis_total %}
+      <span class="crumb__sep">·</span>
+      <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}
+        across {{ edm_total }} EDM{{ '' if edm_total == 1 else 's' }}</span>
+      {% endif %}
+      {% if rdm.as_of %}
+      <span class="crumb__sep">·</span>
+      <span class="synced"><span class="synced__dot"></span> synced
+        <time data-utc="{{ rdm.as_of }}" title="{{ rdm.as_of }} UTC">{{ rdm.as_of }}</time></span>
+      {% elif sync_status == 'failed' %}
+      <span class="crumb__sep">·</span>
+      <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
+      {% endif %}
+      {# manual re-sync — re-runs backfill_rdm_analyses for every applied EDM;
+         hidden while the import itself is still in flight #}
+      {% if rdm.status == 'ready' %}
+      <span class="crumb__sep">·</span>
+      {% if sync_running %}
+      <button class="btn-sm" type="button" disabled>Syncing…</button>
+      {% else %}
+      <form method="post" action="/rdms/{{ rdm.id }}/sync" class="inline-form"
+            hx-post="/rdms/{{ rdm.id }}/sync" hx-target="#rdm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm" type="submit"
+                title="Re-fetch this RDM's broker-analysis settings from Risk Modeler">Sync</button>
+      </form>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── import-error recovery (unchanged Iteration-2 behavior) ── #}
+  {% if rdm.status == 'error' %}
+  <div class="form-banner form-banner--error">
+    One or more applies failed in Risk Modeler. Retry, or replace the source file and
+    re-import.
+  </div>
+  <div class="form-actions">
+    <form method="post" action="/rdms/{{ rdm.id }}/retry" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--primary" type="submit">Retry import</button>
+    </form>
+  </div>
+
+  <div class="section-head" style="margin-top: 24px;"><h2>Replace source file</h2></div>
+  <form method="post" action="/rdms/{{ rdm.id }}/replace-file" class="entity-import-form">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="updated_at" value="{{ rdm.updated_at }}">
+    <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+      Loading the shared drive…
+    </div>
+    <div class="form-actions">
+      <button class="btn-sm" type="submit">Replace &amp; re-import</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {# ── Broker analyses (US3) — grouped by rdm_id, EDM + Portfolio columns ── #}
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Broker analyses</span>
+      {% if analysis_total %}
+      <span class="badge badge--neutral">{{ analysis_total }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
+    </summary>
+
+    {% if analysis_total %}
+    <div class="derive-note"><strong>Settings &amp; metadata only this iteration</strong> —
+      no loss numbers (ELT / EP / AAL / return-period / PLT) and no own-vs-broker
+      comparison; those arrive with the results iteration. Each analysis links to the
+      <strong>Portfolio it ran against</strong>; a <strong>group</strong> shows
+      Portfolio = <em>Group</em> (no member breakdown), and unresolved results show
+      <em>“— not linked”</em>.</div>
+
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:210px 150px 160px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1260px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Portfolio</span><span class="l">Type</span>
+          <span class="l">Peril</span><span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span>
+          <span class="l">Term</span><span class="l">PLA</span><span class="l">Rate</span>
+        </div>
+        {% for group in analyses %}
+        {% for a in group.analyses %}
+        {% with show_edm = true %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+        {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+    {% elif rdm.status in ('pending_import', 'importing') %}
+    <div class="state-box">Broker-analysis settings appear within ~1 minute of the
+      RDM import finishing.</div>
+    {% elif sync_running %}
+    <div class="state-box">Broker-analysis settings are being fetched from Risk
+      Modeler — they appear here shortly.</div>
+    {% elif rdm.status == 'ready' and rdm.as_of %}
+    <div class="state-box">No broker analyses in this RDM.</div>
+    {% elif sync_status == 'failed' %}
+    <div class="state-box state-box--warn"><strong>Settings not available.</strong><br>
+      The last sync from Risk Modeler failed. The RDM is still <em>ready</em>.
+      {% if rdm.status == 'ready' %}
+      <form method="post" action="/rdms/{{ rdm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)"
+            hx-post="/rdms/{{ rdm.id }}/sync" hx-target="#rdm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="state-box"><strong>Settings not available.</strong><br>
+      This RDM was imported before backfill shipped.
+      {% if rdm.status == 'ready' %}
+      Sync now to fetch its broker-analysis settings from Risk Modeler.
+      <form method="post" action="/rdms/{{ rdm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)"
+            hx-post="/rdms/{{ rdm.id }}/sync" hx-target="#rdm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% else %}
+      Re-import to populate its broker-analysis settings.
+      {% endif %}
+    </div>
+    {% endif %}
+  </details>
+</div>

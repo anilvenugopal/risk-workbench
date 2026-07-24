@@ -255,6 +255,73 @@ def replace_source_file(
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
 
 
+# ── manual analysis-details sync (spec 004 follow-up, 2026-07-24) ─────────────────
+
+def latest_backfill_status(rdm_id: Any) -> str | None:
+    """The newest ``backfill_rdm_analyses`` job status touching this RDM across
+    BOTH enqueue sources: the poller's per-apply heads key on the finished
+    ``import_rdm`` irp_job (hence the join), the manual Sync's on
+    ``(analyst_request, rdm_id)`` directly. Newest ``updated_at`` wins — a
+    revived (re-synced) row keeps its ``inserted_at``, so insert order would
+    lie. ``None`` when the capture never ran (pre-capability RDMs)."""
+    row = execute_one(
+        "SELECT rj.status_code FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
+        "AND (ij.irp_rdm_id = :r "
+        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :r)) "
+        "ORDER BY rj.updated_at DESC",
+        {"r": str(rdm_id)}, connection="WORKBENCH")
+    return row["status_code"] if row is not None else None
+
+
+def sync_detail(*, rdm_id: Any, actor_id: Any) -> str | None:
+    """Analyst-triggered re-run of ``backfill_rdm_analyses`` for one RDM — the
+    recovery path for RDMs imported before the settings/pointer capture shipped
+    (the automatic backfill runs only when an ``import_rdm`` apply FINISHES, so
+    older rows stay name-only forever without this). Keyed ``(analyst_request,
+    rdm_id)``; the input carries NO ``edm_id``, which tells the worker body to
+    derive every applied (RDM, EDM) pair from the ``import_rdm`` irp_job rows
+    and re-capture each. Skips (→ ``None``) when the RDM is missing/deleted,
+    the import is still in flight, or a backfill under EITHER key is already
+    pending/running."""
+    rid = str(rdm_id)
+    current = _current(rid)
+    if current is None or current["status"] in (PENDING, IMPORTING):
+        return None
+    if latest_backfill_status(rid) in ("pending", "running"):
+        return None
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=rid,
+        rwb_job_type="backfill_rdm_analyses",
+        input_data={"rdm_id": rid, "package_id": _package_id(rid)},
+        actor_id=str(actor_id),
+    )
+    if job_id is None:
+        return None  # lost an enqueue race — the winner's run is in flight
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_rdm_analyses")
+    return job_id
+
+
+def sync_analyses_for_edm(*, edm_id: Any, actor_id: Any) -> list[str]:
+    """The EDM detail page shows RDM-sourced analyses too, so its Sync refreshes
+    both: one ``sync_detail`` per RDM ever applied to this EDM (pairs from the
+    ``import_rdm`` irp_job rows). Per-RDM guards apply — an in-flight or
+    still-importing RDM is skipped, never stacked. Returns the enqueued ids."""
+    rdm_ids = [str(r["irp_rdm_id"]) for r in execute(
+        "SELECT DISTINCT irp_rdm_id FROM irp_job "
+        "WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm' "
+        "AND irp_rdm_id IS NOT NULL",
+        {"e": str(edm_id)}, connection="WORKBENCH")]
+    jobs: list[str] = []
+    for rid in rdm_ids:
+        job_id = sync_detail(rdm_id=rid, actor_id=actor_id)
+        if job_id is not None:
+            jobs.append(job_id)
+    return jobs
+
+
 # ── worker / poller status writers ───────────────────────────────────────────────
 
 def mark_importing(*, rdm_id: Any, actor_id: Any | None = None) -> None:
@@ -327,6 +394,7 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
-    "retry_import", "replace_source_file", "mark_importing", "mark_error",
+    "retry_import", "replace_source_file", "latest_backfill_status",
+    "sync_detail", "sync_analyses_for_edm", "mark_importing", "mark_error",
     "rollup_on_terminal",
 ]

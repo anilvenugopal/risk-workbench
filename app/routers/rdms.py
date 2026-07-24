@@ -8,7 +8,7 @@ POST (Article 13); no Risk Modeler call on any route (Article 11); no row scopin
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
@@ -118,23 +118,75 @@ def create_import(
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
-def _detail(request: Request, rdm_id: str, status_code: int = 200):
+def _body_ctx(rdm_id: str) -> dict | None:
+    """The RDM detail read model — shared by the full page and the live #rdm-detail
+    body partial. STORED detail only, no Risk Modeler call (Article 11): the broker
+    analyses grouped by rdm_id + resolved portfolios (US3), plus the newest
+    ``backfill_rdm_analyses`` status (either key) driving the Sync button state and
+    the self-poll trigger. ``None`` ⇒ the RDM is gone."""
     rdm = rdm_service.get_rdm(rdm_id)
     if rdm is None:
+        return None
+    sync_status = rdm_service.latest_backfill_status(rdm_id)
+    return {"rdm": rdm,
+            "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
+            "sync_status": sync_status,
+            "sync_running": sync_status in ("pending", "running")}
+
+
+def _detail(request: Request, rdm_id: str, status_code: int = 200):
+    ctx = _body_ctx(rdm_id)
+    if ctx is None:
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That RDM does not exist."}, status_code=404)
-    # US3: the broker analyses grouped by rdm_id + resolved portfolios — a read
-    # of STORED detail only, no Risk Modeler call (Article 11).
-    return _render(request, "pages/rdm_detail.html",
-                   {"rdm": rdm,
-                    "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id)},
-                   status_code=status_code)
+    return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
+
+
+def _body_partial(request: Request, rdm_id: str):
+    """The shell-less #rdm-detail wrapper — the HTMX swap/poll unit."""
+    ctx = _body_ctx(rdm_id)
+    if ctx is None:
+        # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (package-card precedent).
+        return HTMLResponse(
+            '<div class="page-pad" id="rdm-detail">'
+            '<div class="state-box state-box--warn">This RDM no longer exists.'
+            '</div></div>')
+    return _partial(request, "partials/rdm_detail_body.html", ctx)
 
 
 @router.get("/rdms/{rdm_id}", response_class=HTMLResponse)
 def detail(request: Request, rdm_id: str):
     return _detail(request, rdm_id)
+
+
+@router.get("/rdms/{rdm_id}/body", response_class=HTMLResponse)
+def detail_body(request: Request, rdm_id: str):
+    # The live body's poll target (GET, read-only, no CSRF) — re-renders the
+    # #rdm-detail wrapper; the template stops emitting its own hx-trigger once
+    # the backfill lands, so polling self-terminates.
+    return _body_partial(request, rdm_id)
+
+
+@router.post("/rdms/{rdm_id}/sync")
+def sync(request: Request, rdm_id: str, csrf_token: str = Form(...)):
+    # Manual analysis-details re-sync: enqueues the backfill_rdm_analyses worker
+    # for every applied (RDM, EDM) pair — the fetch itself never runs on this
+    # request path (Article 11). HTMX path: swap the #rdm-detail wrapper in place
+    # (it then self-polls until the head lands). No-JS fallback: Post/Redirect/
+    # Get, so a refresh never re-prompts a form re-submission.
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            # Never swap a redirect-followed full page into the wrapper — force
+            # a clean reload (which also mints fresh tokens).
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
+    if is_htmx:
+        return _body_partial(request, rdm_id)
+    return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
 
 
 @router.post("/rdms/{rdm_id}/retry")

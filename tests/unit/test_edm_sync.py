@@ -23,7 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.poller import run as poller
-from app.services import edm_service
+from app.services import edm_service, rdm_service
 from app.workers import dispatch, package_jobs
 from db import execute, execute_command, execute_one
 from tests.unit.test_backfill_edm_detail import EXPOSURE_A
@@ -280,14 +280,19 @@ def test_sync_route_nonhtmx_post_redirects_prg(monkeypatch):
     # No-JS fallback: Post/Redirect/Get back to the canonical URL — the browser
     # never parks on /sync, so refreshing never re-prompts a form re-submission.
     calls: list[dict] = []
+    rdm_calls: list[dict] = []
     monkeypatch.setattr(edm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
+    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm",
+                        lambda **kw: rdm_calls.append(kw) or [])
     from app.auth.csrf import generate_csrf_token
     r = _client().post("/edms/edm-1/sync",
                        data={"csrf_token": generate_csrf_token()})
     assert r.status_code == 303
     assert r.headers["location"] == "/edms/edm-1"
     assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
+    # The EDM page shows RDM-sourced analyses too — its Sync refreshes both.
+    assert rdm_calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
 
 
 def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
@@ -295,8 +300,11 @@ def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
     # the swapped-in render shows the disabled Syncing… button AND carries the
     # self-poll trigger because the head is now in flight.
     calls: list[dict] = []
+    rdm_calls: list[dict] = []
     monkeypatch.setattr(edm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
+    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm",
+                        lambda **kw: rdm_calls.append(kw) or [])
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(detail_state="pending",
                                                    sync_running=True))
@@ -306,6 +314,7 @@ def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
                        headers={"HX-Request": "true"})
     assert r.status_code == 200
     assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
+    assert rdm_calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
     assert 'id="edm-detail"' in r.text
     assert 'hx-get="/edms/edm-1/body"' in r.text and "every 3s" in r.text
     assert "Syncing" in r.text and "disabled" in r.text

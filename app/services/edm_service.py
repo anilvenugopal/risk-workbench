@@ -244,6 +244,28 @@ def _latest_backfill_status(edm_id: str) -> str | None:
     return row["status_code"] if row is not None else None
 
 
+def _analyses_backfill_running(edm_id: str) -> bool:
+    """True while ANY ``backfill_rdm_analyses`` touching this EDM is in flight —
+    the poller's heads key on the pair's ``import_rdm`` apply (joined to its
+    EDM), a manual RDM Sync's on the RDM id (paired to this EDM via the same
+    applies). Folded into ``EdmDetail.sync_running`` so the live body keeps
+    polling (and the Sync button stays disabled) until the analyses land too —
+    the EDM page's Sync refreshes both (2026-07-24)."""
+    row = execute_one(
+        "SELECT rj.id FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
+        "AND rj.status_code IN ('pending', 'running') "
+        "AND (ij.irp_edm_id = :e "
+        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id IN ("
+        "         SELECT irp_rdm_id FROM irp_job "
+        "         WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm' "
+        "         AND irp_rdm_id IS NOT NULL)))",
+        {"e": edm_id}, connection="WORKBENCH")
+    return row is not None
+
+
 def _detail_state(status: str | None, as_of: Any,
                   portfolios: list[PortfolioRow], job_status: str | None) -> str:
     """Which graceful section state the page renders (ui.md §5) — never an error.
@@ -301,7 +323,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         portfolios=portfolios,
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
-        sync_running=job_status in ("pending", "running"),
+        sync_running=(job_status in ("pending", "running")
+                      or _analyses_backfill_running(eid)),
         treaties=treaties,
         analyses=analyses,
         aggregate=portfolio_service.aggregate_exposure(portfolios),
