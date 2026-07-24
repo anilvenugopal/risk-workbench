@@ -128,6 +128,8 @@ def scratch_edm():
     yield edm_id
     execute_command("DELETE FROM irp_portfolio WHERE edm_id = :e",
                     {"e": edm_id}, connection="WORKBENCH")
+    execute_command("DELETE FROM irp_treaty WHERE edm_id = :e",
+                    {"e": edm_id}, connection="WORKBENCH")
     execute_command("DELETE FROM irp_edm WHERE id = :i",
                     {"i": edm_id}, connection="WORKBENCH")
 
@@ -149,6 +151,27 @@ class TestDetailUpsertBehavior:
             "WHERE edm_id = :e", {"e": scratch_edm}, connection="WORKBENCH")
         assert len(rows) == 1  # UNIQUE(edm_id, irp_id) — overwrite, not insert
         assert json.loads(rows[0]["exposure_detail"]) == second
+        assert rows[0]["as_of"] > t1
+
+    def test_treaty_upsert_overwrites_in_place_no_duplicate(self, scratch_edm):
+        # US2 (data-model §8): the treaty half of the same idempotent contract —
+        # a re-backfill overwrites attributes/as_of in place, never a duplicate.
+        from app.services import treaty_service
+        first = {"treatyType": "CATA", "occurrenceLimit": 100000000.0}
+        second = {"treatyType": "CATA", "occurrenceLimit": 150000000.0}
+        t1 = datetime.utcnow()
+        treaty_service.upsert_treaty_detail(
+            edm_id=scratch_edm, irp_id="7001", name="T1",
+            attributes=first, as_of=t1)
+        treaty_service.upsert_treaty_detail(
+            edm_id=scratch_edm, irp_id="7001", name="T1",
+            attributes=second, as_of=t1 + timedelta(minutes=5))
+
+        rows = execute(
+            "SELECT irp_id, attributes, as_of FROM irp_treaty "
+            "WHERE edm_id = :e", {"e": scratch_edm}, connection="WORKBENCH")
+        assert len(rows) == 1  # UNIQUE(edm_id, irp_id) — overwrite, not insert
+        assert json.loads(rows[0]["attributes"]) == second
         assert rows[0]["as_of"] > t1
 
     def test_name_fallback_backfills_irp_id(self, scratch_edm):

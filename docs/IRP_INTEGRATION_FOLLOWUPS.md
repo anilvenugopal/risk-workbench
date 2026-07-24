@@ -166,6 +166,80 @@ that's needed to light the columns up.
 
 ---
 
+## Spec-004 US2/US3 read surface — confirmations + gaps (2026-07-24)
+
+Reconciled against the **IRP knowledge base** (`IRP/knowledge/` — documented-label
+assertions from the preserved Moody's reference pages, confidence 0.99) while
+implementing the treaty view/export (US2) and the broker-analysis settings +
+portfolio linkage (US3). Wheel source unchanged (TestPyPI `0.2.1`).
+
+**Confirmed (documented):**
+
+- **Treaty row schema** — `GET /platform/riskdata/v1/exposures/{exposureId}/treaties`
+  (`treaty.search_treaties_paginated`): `treatyId`, `treatyName`, `treatyNumber`,
+  `treatyType` (`CATA|CORP|NCAT|QUOT|STOP|SURP|WORK`), `attachmentBasis` (`L|R`),
+  `attachmentLevel` (`ACCT|LOC|POL|PORT`), `attachmentPoint`, `occurrenceLimit`,
+  `riskLimit`, `retentionAmount`, `percentagePlaced`, `percentageRetention`,
+  `percentageRiShare`, `percentageCovered`, `premium`, `priority`,
+  `numberOfReinstatements`, `reinstatementCharge`, `aggregateDeductible`,
+  `aggregateLimit`, `maolAmount`, `effectiveDate`, `expirationDate`, `isValid`,
+  `userId1`, `userId2`; **`currency` / `cedant` / `producer` are OBJECTS**, not
+  strings. The workbench treaty summary columns map on these names (read
+  defensively); the snapshot stores each row verbatim.
+- **Analysis metadata fields** — documented on `search_analyses` / `get_analysis_by_id`
+  (`GET /analyses[/{analysisId}]`): `analysisId`, `analysisName`, `analysisType`,
+  `analysisFramework`, `engineType`, `engineVersion`, `engineSubTypeCode`,
+  `currencyCode`, `currencyName`, `peril`/`perilCode`, `subperil`,
+  `region`/`regionCode`, `description`, `createDate`, `sourceRdmName`,
+  `exposureName`, `lossAmplificationId`, `modeId`. The workbench's curated
+  settings view (`analysis_service.AnalysisSettings`) reads exactly these,
+  blank-on-missing.
+- **`exposureResourceType` vocabulary** includes `PORTFOLIO` / `POLICY` / `TREATY`
+  (EP-metrics request-configuration table) — validating the R9 rule (promote the
+  pointer only for `PORTFOLIO`) and confirming non-portfolio exposures are a
+  normal *not-linked* state, not an anomaly.
+- **`analysis.get_analysis_by_id(analysis_id)`** present in 0.2.1 — used by the
+  extended `backfill_rdm_analyses` as a per-analysis single-item read (looped
+  app-side; a single failed read leaves that row's settings blank, never aborts).
+
+### 7. Group marker — NO documented field (confirm in sandbox)
+
+Nothing in the documented `search_analyses` / `get_analysis_by_id` property
+sets marks an analysis result as a **group** (no `isGroup`; `groupType` appears
+in no documented response schema; grouping-job docs describe inputs, not the
+result marker). The gateway derives `AnalysisMetadata.is_group` defensively —
+any of `groupType` / `analysisFramework` / `analysisType` /
+`exposureResourceType` equal to `"GROUP"` — quarantined in
+`_RealGateway.get_analysis_metadata` so correcting it is a one-file edit.
+**Confirm the real marker at the next `--run-irp` pass** (import an RDM that
+carries a grouped analysis and inspect the payload).
+
+### 8. `exposureResourceId` on the analysis payload — unconfirmed
+
+`exposureResourceId`/`exposureResourceType` are documented only as **request**
+parameters (EP-metrics, export-job) — no preserved reference page documents them
+as **response** properties of `GET /analyses/{id}` or the `search_analyses`
+rows. The R9 linkage capture reads them defensively from both (hit first,
+per-analysis metadata preferred); if the sandbox shows neither carries them,
+the fallback source is the per-analysis reads Moody's documents ("Get regions /
+cedants / treaties by analysis result" family) or the EP-metrics configuration.
+**Blocking only for the Portfolio column lighting up with live data** — every
+unresolved pointer renders the normal "— not linked" state.
+
+### 9. Term / PLA / event-rate / rate-vintage fields — undocumented (FR-031 tail)
+
+FR-031 lists long-term-vs-near-term, loss amplification (PLA), event-rate
+scheme, and rate vintage among the settings to show; none has a documented
+field on the analysis-result payload (only `lossAmplificationId` — an id, not a
+label). The workbench reads `term`/`timeDependency`, `lossAmplification`/`pla`,
+`eventRateScheme`/`rateScheme`, `rateVintage` defensively and renders
+*"not provided"* when absent. **Confirm actual spellings in the sandbox** — or
+whether they require the legacy `/analysis-settings/*` reads (knowledge-base
+open question #19; Platform-first policy says find a Platform source before
+adopting those).
+
+---
+
 ## To confirm against the sandbox (verification, not library changes)
 Owner's `--run-irp` environment; results may turn some of the above into concrete tickets:
 - `search_analyses` supports the `sourceRdmName` filter field on `/platform/riskdata/v1/analyses`
