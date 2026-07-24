@@ -303,22 +303,27 @@ class _RealGateway:
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
         # GET /platform/riskdata/v1/analyses/{analysisId} — the settings/metadata
         # payload verbatim, plus the typed exposure pointer (R9) and the group
-        # marker (FR-035). The marker is read defensively across the plausible
-        # spellings — no field is DOCUMENTED as the group flag (knowledge-base
-        # sweep 2026-07-24; gap tracked in IRP_INTEGRATION_FOLLOWUPS.md).
+        # marker (FR-035). The live payload (first real sync, 2026-07-24) carries
+        # a first-class ``isGroup`` boolean — authoritative when present; a plain
+        # analysis says groupType='ANLS', so the 'GROUP'-literal spellings below
+        # stay only as fallback for payloads that omit isGroup
+        # (IRP_INTEGRATION_FOLLOWUPS.md §7).
         data = self._client().analysis.get_analysis_by_id(analysis_id)
         payload = data if isinstance(data, dict) else {}
         rid = payload.get("exposureResourceId")
-        group_markers = (payload.get("groupType"),
-                         payload.get("analysisFramework"),
-                         payload.get("analysisType"),
-                         payload.get("exposureResourceType"))
+        is_group = payload.get("isGroup")
+        if not isinstance(is_group, bool):
+            group_markers = (payload.get("groupType"),
+                             payload.get("analysisFramework"),
+                             payload.get("analysisType"),
+                             payload.get("exposureResourceType"))
+            is_group = any(str(m).upper() == "GROUP"
+                           for m in group_markers if m is not None)
         return AnalysisMetadata(
             payload=payload,
             exposure_resource_id=(str(rid) if rid is not None else None),
             exposure_resource_type=payload.get("exposureResourceType"),
-            is_group=any(str(m).upper() == "GROUP"
-                         for m in group_markers if m is not None))
+            is_group=is_group)
 
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 

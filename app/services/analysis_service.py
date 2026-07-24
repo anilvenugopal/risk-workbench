@@ -137,11 +137,18 @@ def _first(payload: dict, *keys: str) -> Any:
 
 def _text(value: Any) -> str | None:
     """A display string from a defensive read: dicts collapse to their code/
-    name (RM returns currency as an object in some payloads); bools to On/Off."""
+    name (the live payload's ``currency`` object is keyed ``currencyCode``/
+    ``currencyName`` — confirmed 2026-07-24); lists join, empty → blank
+    (``eventRateSchemeNames``); bools to On/Off."""
     if value is None:
         return None
     if isinstance(value, dict):
-        return value.get("code") or value.get("name") or None
+        return (value.get("code") or value.get("name")
+                or value.get("currencyCode") or value.get("currencyName")
+                or None)
+    if isinstance(value, (list, tuple)):
+        parts = [t for t in (_text(v) for v in value) if t]
+        return ", ".join(parts) or None
     if isinstance(value, bool):
         return "On" if value else "Off"
     return str(value)
@@ -164,7 +171,10 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
         line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
         term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
         pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        event_rate_scheme=_text(_first(p, "eventRateScheme", "rateScheme")),
+        # eventRateSchemeNames (a LIST) is the live spelling (2026-07-24);
+        # the scalar guesses stay first so a truthy scalar wins if both appear.
+        event_rate_scheme=_text(_first(p, "eventRateScheme", "rateScheme",
+                                       "eventRateSchemeNames")),
         rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
     )
 

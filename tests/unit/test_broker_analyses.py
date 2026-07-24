@@ -30,6 +30,22 @@ SETTINGS_FULL = {
 }
 SETTINGS_PARTIAL = {"analysisType": "EP", "peril": "Wind"}
 
+# The LIVE payload shape confirmed 2026-07-24 (first real sync against the RM
+# tenant): currency arrives as an OBJECT keyed currencyCode/currencyName, the
+# event-rate scheme as the eventRateSchemeNames LIST, and PLA as the
+# lossAmplification label. The curated view must read all three.
+SETTINGS_LIVE = {
+    "analysisType": "Exceedance Probability", "analysisFramework": "ELT",
+    "engineType": "DLM", "engineVersion": "RL23",
+    "peril": "Windstorm", "subPeril": "Surge Only",
+    "region": "North Atlantic (including Hawaii)",
+    "currency": {"currencyName": "US Dollar", "currencyCode": "USD"},
+    "lossAmplification": "Building, Contents, BI",
+    "eventRateSchemeNames": ["LT 2026"],
+    "analysisMode": "Distributed",
+    "exposureResourceId": 3, "exposureResourceType": "PORTFOLIO",
+}
+
 
 def _mk(table: str, **cols) -> str:
     row_id = cols.pop("id", str(uuid.uuid4()))
@@ -117,6 +133,25 @@ def test_settings_metadata_parsed_and_missing_fields_blank_not_error(
     empty = by_irp["3"]                              # no snapshot → still renders
     assert empty.settings is None
     assert empty.display.analysis_type is None
+
+
+def test_live_payload_shape_currency_object_rate_list_pla_label(iteration2_db):
+    rdm, edm = _rdm("R"), _edm("E")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", settings=SETTINGS_LIVE)
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="2",
+              settings=dict(SETTINGS_LIVE, eventRateSchemeNames=[]))
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    by_irp = {a.irp_id: a for a in g.analyses}
+
+    a = by_irp["1"]
+    assert a.display.currency == "USD"                # object → its code
+    assert a.display.pla == "Building, Contents, BI"  # the real label field
+    assert a.display.event_rate_scheme == "LT 2026"   # list → joined
+    assert a.display.peril_secondary == "Surge Only"
+    assert a.display.engine == "DLM · RL23"
+    assert a.display.analysis_mode == "Distributed"
+    assert by_irp["2"].display.event_rate_scheme is None  # empty list → blank
 
 
 def test_group_analysis_surfaced_as_group_never_resolved(iteration2_db):
