@@ -118,10 +118,14 @@ class TreatyDetail:
 class AnalysisMetadata:
     """One analysis's settings/metadata payload **verbatim** (stored as the
     ``irp_analysis.settings_metadata`` JSON snapshot), plus the typed exposure
-    pointer the R9 linkage promotes when the type is ``PORTFOLIO``."""
+    pointer the R9 linkage promotes when the type is ``PORTFOLIO`` and the
+    group marker (FR-035). ``is_group`` is derived HERE from RM's payload so
+    the how-to-detect-a-group question lives in one file — the exact marker
+    field is unconfirmed against the sandbox (IRP_INTEGRATION_FOLLOWUPS.md)."""
     payload: dict = field(default_factory=dict)
     exposure_resource_id: str | None = None
     exposure_resource_type: str | None = None
+    is_group: bool = False
 
 
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
@@ -298,14 +302,23 @@ class _RealGateway:
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
         # GET /platform/riskdata/v1/analyses/{analysisId} — the settings/metadata
-        # payload verbatim, plus the typed exposure pointer (R9).
+        # payload verbatim, plus the typed exposure pointer (R9) and the group
+        # marker (FR-035). The marker is read defensively across the plausible
+        # spellings — no field is DOCUMENTED as the group flag (knowledge-base
+        # sweep 2026-07-24; gap tracked in IRP_INTEGRATION_FOLLOWUPS.md).
         data = self._client().analysis.get_analysis_by_id(analysis_id)
         payload = data if isinstance(data, dict) else {}
         rid = payload.get("exposureResourceId")
+        group_markers = (payload.get("groupType"),
+                         payload.get("analysisFramework"),
+                         payload.get("analysisType"),
+                         payload.get("exposureResourceType"))
         return AnalysisMetadata(
             payload=payload,
             exposure_resource_id=(str(rid) if rid is not None else None),
-            exposure_resource_type=payload.get("exposureResourceType"))
+            exposure_resource_type=payload.get("exposureResourceType"),
+            is_group=any(str(m).upper() == "GROUP"
+                         for m in group_markers if m is not None))
 
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 

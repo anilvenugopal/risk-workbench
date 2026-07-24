@@ -54,6 +54,9 @@ class RdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
     # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
+    # Last-synced trust signal (FR-052, spec 004 US3) — stamped by the
+    # backfill_rdm_analyses worker when the analysis capture lands.
+    as_of: Any = None
 
 
 def check_name_collision(name: str) -> list[str]:
@@ -114,7 +117,7 @@ def import_rdm(
 
 
 _ROW_SELECT = (
-    "SELECT id, package_id, source_file_path, name, irp_id, status, "
+    "SELECT id, package_id, source_file_path, name, irp_id, status, as_of, "
     "inserted_at, updated_at FROM irp_rdm"
 )
 
@@ -124,7 +127,7 @@ def _to_row(row: dict) -> RdmRow:
         id=_uid(row["id"]), name=row["name"], status=row["status"],
         source_file_path=row["source_file_path"], irp_id=row["irp_id"],
         package_id=_uid(row["package_id"]), inserted_at=row["inserted_at"],
-        updated_at=row["updated_at"],
+        updated_at=row["updated_at"], as_of=row["as_of"],
     )
 
 

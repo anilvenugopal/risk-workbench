@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service
+from app.services import analysis_service, edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
     EmptyPackageError,
@@ -124,7 +124,11 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That RDM does not exist."}, status_code=404)
-    return _render(request, "pages/rdm_detail.html", {"rdm": rdm},
+    # US3: the broker analyses grouped by rdm_id + resolved portfolios — a read
+    # of STORED detail only, no Risk Modeler call (Article 11).
+    return _render(request, "pages/rdm_detail.html",
+                   {"rdm": rdm,
+                    "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id)},
                    status_code=status_code)
 
 

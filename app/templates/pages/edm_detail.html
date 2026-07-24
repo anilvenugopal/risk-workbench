@@ -97,11 +97,11 @@
 
     {% if edm.detail_state == 'populated' %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 92px 84px 84px 130px 170px minmax(150px,1fr) 120px 92px;min-width:1152px">
+      <div class="dtable" style="--cols:230px 92px 84px 84px 130px 170px minmax(150px,1fr) 120px 92px 200px;min-width:1352px">
         <div class="dtable__head">
           <span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span>
           <span class="l">Perils</span><span class="l">Sub-perils</span><span class="l">Geography</span>
-          <span class="l">Currency</span><span>TIV</span>
+          <span class="l">Currency</span><span>TIV</span><span class="l">Analyses</span>
         </div>
         {% for p in edm.portfolios %}
         {% include "partials/portfolio_row.html" %}
@@ -110,7 +110,9 @@
     </div>
     <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
       Name column stays pinned while you scroll sideways. Perils shown are the
-      perils <em>present</em> per portfolio; absence isn't inferred as a defect.</p>
+      perils <em>present</em> per portfolio; absence isn't inferred as a defect.
+      A portfolio expands to the analyses linked to it; full settings for every
+      analysis are in the Broker analyses section below.</p>
     {% elif edm.detail_state == 'importing' %}
     <div class="state-box">Per-portfolio detail appears within ~1 minute of the
       import finishing.</div>
@@ -191,7 +193,52 @@
     {% endif %}
   </details>
 
-  {# ── Broker analyses section slot — US3 (T041b) ── #}
+  {# ── Broker analyses (US3) — standalone, grouped by source RDM (FR-030/FR-037) ── #}
+  {% set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum %}
+  <details class="sec" open id="edm-broker-analyses">
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Broker analyses</span>
+      {% if analysis_total %}
+      <span class="badge badge--neutral">{{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ analysis_total }} analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
+    </summary>
+
+    {% if analysis_total %}
+    <div class="derive-note"><strong>Linkage &amp; scope:</strong> each analysis is linked to the
+      <strong>Portfolio it was run against</strong> (resolved from Risk Modeler’s <code>exposureResourceId</code>).
+      A <strong>group</strong> is a single analysis shown with Portfolio = <em>Group</em> — its member breakdown
+      isn’t available; results whose exposure can’t be matched show <em>“— not linked”</em>.
+      Settings/metadata only this iteration — <strong>no loss numbers</strong>.</div>
+
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:230px 170px 70px minmax(130px,1fr) 120px 80px 120px 90px 60px 110px;min-width:1180px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Type</span><span class="l">Peril</span>
+          <span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span><span class="l">Term</span>
+          <span class="l">PLA</span><span class="l">Rate</span>
+        </div>
+        {% for group in edm.analyses %}
+        <div class="dtable__group">
+          <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
+          {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
+          <a class="link" href="/rdms/{{ group.rdm_id }}">Open RDM →</a>
+        </div>
+        {% for a in group.analyses %}
+        {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+        {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+    {% elif edm.detail_state == 'importing' %}
+    <div class="state-box">Broker analyses appear after the package's RDM imports
+      finish.</div>
+    {% else %}
+    <div class="state-box">No broker analyses on this EDM.</div>
+    {% endif %}
+  </details>
 
 </div>
 {% endblock %}

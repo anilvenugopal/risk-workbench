@@ -203,13 +203,28 @@ def upload_rdm(rwb_job_id: str) -> None:
 
 _INSERT_ANALYSIS_IF_ABSENT = """
     INSERT INTO irp_analysis (id, rdm_id, edm_id, package_id, irp_id, name,
-        source_rdm_name, status_code, created_by_irp_job_irp_id,
+        source_rdm_name, status_code, created_by_irp_job_irp_id, is_group,
         inserted_at, updated_at)
-    SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, :now, :now
+    SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, 0, :now, :now
     WHERE NOT EXISTS (
         SELECT 1 FROM irp_analysis
         WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
     )
+"""
+
+# The spec-004 detail overwrite (idempotent in place, R2): settings_metadata +
+# is_group only when the metadata fetch succeeded (never null a prior good
+# snapshot on a failed re-run); the promoted pointer is always refreshed.
+_UPDATE_ANALYSIS_DETAIL = """
+    UPDATE irp_analysis
+    SET settings_metadata = :sm, is_group = :grp, exposure_resource_id = :x,
+        updated_at = :now
+    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+"""
+_UPDATE_ANALYSIS_POINTER = """
+    UPDATE irp_analysis
+    SET exposure_resource_id = :x, updated_at = :now
+    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
 """
 
 
@@ -218,7 +233,15 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     later package delete can enumerate them (D2, data-model §6a). Enqueued by the
     poller when an ``import_rdm`` apply reaches FINISHED. Idempotent on
     ``UNIQUE(rdm_id, edm_id, irp_id)``. Once every apply of the RDM is FINISHED, roll
-    ``irp_rdm.status`` up to ``ready`` (combined rollup, worker-poller.md §2)."""
+    ``irp_rdm.status`` up to ``ready`` (combined rollup, worker-poller.md §2).
+
+    Spec 004 US3 extension (R3/R9): per captured analysis, also fetch its
+    settings/metadata (single-item ``get_analysis_metadata``, looped app-side)
+    and store the ``settings_metadata`` snapshot + ``is_group``, promoting RM's
+    ``exposureResourceId`` to the typed column ONLY when the resource type is
+    PORTFOLIO (null otherwise). One analysis's failed metadata read leaves its
+    fields blank and never aborts the capture (blank, not error). No portfolio
+    lookup here — resolution is read-time in ``analysis_service``."""
     ctx = _load_input(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     edm_id = ctx.get("edm_id")
@@ -233,6 +256,19 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     # quoting (Article 11 boundary) — never interpolate names into a filter here.
     hits = irp_gateway.search_analyses(
         source_rdm_name=rdm.name, exposure_name=edm.name)
+
+    # Fetch every analysis's metadata BEFORE opening the transaction (no txn
+    # across a gateway round-trip, Article 11); per-analysis isolation.
+    meta_by_id: dict[str, Any] = {}
+    metadata_failures = 0
+    for hit in hits:
+        try:
+            meta_by_id[hit.analysis_id] = irp_gateway.get_analysis_metadata(
+                analysis_id=int(hit.analysis_id))
+        except Exception as exc:  # noqa: BLE001 — blank, never error (US3 acc. 3)
+            logger.warning("backfill_rdm_analyses: metadata read failed "
+                           "(analysis=%s): %s", hit.analysis_id, exc)
+            metadata_failures += 1
 
     now = _utcnow()
     with get_connection("WORKBENCH") as conn:
@@ -256,10 +292,34 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                 except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
                     if not is_unique_violation(exc):
                         raise
-            # Combined rollup: irp_rdm → ready once all its applies are FINISHED.
+                # Detail overwrite (US3): the pointer prefers the per-analysis
+                # metadata, falling back to the search hit; promoted ONLY for
+                # exposureResourceType == "PORTFOLIO" (R9).
+                meta = meta_by_id.get(hit.analysis_id)
+                rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
+                if meta is not None and meta.exposure_resource_id is not None:
+                    rid, rtype = meta.exposure_resource_id, meta.exposure_resource_type
+                pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
+                key = {"rdm": str(rdm_id), "edm": str(edm_id),
+                       "irp": str(hit.analysis_id), "x": pointer, "now": now}
+                if meta is not None:
+                    conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
+                        **key,
+                        "sm": (json.dumps(meta.payload) if meta.payload else None),
+                        "grp": (1 if meta.is_group else 0)})
+                else:
+                    conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
+            # Combined rollup: irp_rdm → ready once all its applies are FINISHED;
+            # stamp the RDM's last-synced trust signal alongside (FR-052).
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
-    return {"captured": len(hits)}
+            conn.execute(text(
+                "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
+            ), {"now": now, "id": str(rdm_id)})
+    out: dict[str, Any] = {"captured": len(hits)}
+    if metadata_failures:
+        out["metadata_failures"] = metadata_failures
+    return out
 
 
 @dramatiq.actor(max_retries=0)

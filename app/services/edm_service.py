@@ -21,8 +21,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services import (
-    irp_gateway, package_service, portfolio_service, rwb_job_service, treaty_service)
+    analysis_service, irp_gateway, package_service, portfolio_service,
+    rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
+from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import ConcurrencyConflict
 from app.services.package_service import SubmissionRef
 from app.services.portfolio_service import PortfolioRow
@@ -214,6 +216,10 @@ class EdmDetail:
     # US2: the EDM-level treaty set (parsed attributes) for the expand/collapse
     # view + Excel export; empty list ⇒ the section renders its own state.
     treaties: list[TreatyRow] = field(default_factory=list)
+    # US3 (FR-037): the standalone RDM-grouped broker-analyses list; each
+    # portfolio in `portfolios` additionally carries its LINKED analyses
+    # (bucketed by the R9 resolution — group/unresolved stay standalone-only).
+    analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
@@ -270,6 +276,12 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
     treaties = treaty_service.list_treaties(edm_id=eid)
+    analyses = analysis_service.list_edm_analyses(edm_id=eid)
+    # Attach each portfolio's LINKED analyses inline (US3/FR-037): the R9
+    # bucketing keeps group/unresolved rows standalone-only (ui.md §4).
+    buckets = analysis_service.bucket_by_portfolio(analyses)
+    for p in portfolios:
+        p.analyses = buckets.get(p.id, [])
     job_status = _latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
@@ -288,6 +300,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
                                    job_status),
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
+        analyses=analyses,
     )
 
 

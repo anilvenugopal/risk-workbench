@@ -134,6 +134,84 @@ def test_import_rdm_finished_backfills_analyses_and_readies_rdm(
     assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
 
 
+def test_backfill_captures_settings_metadata_and_promotes_portfolio_pointer(
+        iteration2_db, fake_irp, drive):
+    """Spec 004 US3 (T036): the extended worker also writes settings_metadata +
+    is_group per captured analysis, and promotes RM's exposureResourceId to the
+    typed exposure_resource_id column ONLY when exposureResourceType ==
+    'PORTFOLIO' (null otherwise — R9); idempotent with the pair capture."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    meta = {"analysisType": "EP", "engineType": "DLM", "engineVersion": "23.0",
+            "peril": "Earthquake", "region": "North America",
+            "currencyCode": "USD"}
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP", metadata=meta,
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="901", name="Treaty EP",
+                          exposure_resource_id="1042",
+                          exposure_resource_type="TREATY")  # non-portfolio → null
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="902", name="Suite", is_group=True,
+                          metadata={"analysisType": "Group"})
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    rows = {str(r["irp_id"]): r for r in execute(
+        "SELECT irp_id, settings_metadata, is_group, exposure_resource_id "
+        "FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")}
+    assert set(rows) == {"900", "901", "902"}
+    import json as _json
+    assert _json.loads(rows["900"]["settings_metadata"])["engineType"] == "DLM"
+    assert rows["900"]["exposure_resource_id"] == "501"     # PORTFOLIO → promoted
+    assert not rows["900"]["is_group"]
+    assert rows["901"]["exposure_resource_id"] is None      # TREATY → null (R9)
+    assert rows["902"]["exposure_resource_id"] is None      # group → null
+    assert rows["902"]["is_group"]
+
+    # Idempotent: a redelivery re-run overwrites in place — no dupes, same values.
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    package_jobs._backfill_rdm_analyses_body(head)
+    again = execute("SELECT COUNT(*) AS n FROM irp_analysis WHERE rdm_id=:r",
+                    {"r": res.entity_id}, connection="WORKBENCH")[0]["n"]
+    assert again == 3
+
+
+def test_backfill_metadata_fetch_failure_leaves_fields_null_not_error(
+        iteration2_db, fake_irp, drive):
+    """One analysis's failed metadata read never aborts the capture — the row
+    still lands (blank settings render 'not provided', US3 acceptance 3)."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    fake_irp.raise_on_analysis_metadata = True
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    row = execute(
+        "SELECT settings_metadata, exposure_resource_id, status_code "
+        "FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")[0]
+    assert row["settings_metadata"] is None       # blank, not an error
+    assert row["exposure_resource_id"] == "501"   # pointer still promoted (hit)
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
+
+
 def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
     e1 = _edm(drive, a, "E1", "edm1.bak")

@@ -74,6 +74,8 @@ class FakeIRP:
         self._summaries: dict[str, dict[str, dict]] = {}
         self.raise_on_exposure_summary = False
         self.summary_reads: list[str] = []
+        # per-analysis metadata failure knob (US3 — blank, never error)
+        self.raise_on_analysis_metadata = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -238,12 +240,15 @@ class FakeIRP:
                 for t in self._treaties.get(str(edm_irp_id), [])]
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
+        if self.raise_on_analysis_metadata:
+            raise RuntimeError("fake IRP: forced analysis-metadata failure")
         for a in self._analyses:
             if a["analysis_id"] == str(analysis_id):
                 return AnalysisMetadata(
                     payload=(a.get("metadata") or {}),
                     exposure_resource_id=a.get("exposure_resource_id"),
-                    exposure_resource_type=a.get("exposure_resource_type"))
+                    exposure_resource_type=a.get("exposure_resource_type"),
+                    is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
 
     def get_import_job(self, irp_id: str) -> JobStatus:
