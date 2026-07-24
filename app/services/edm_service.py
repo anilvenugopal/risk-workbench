@@ -19,7 +19,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
@@ -274,13 +274,19 @@ def _analyses_backfill_running(edm_id: str) -> bool:
 
 def _rm_treaties_url(name: str) -> str | None:
     """The Risk Modeler UI deep link for this EDM's treaties screen —
-    ``<RISK_MODELER_BASE_URL>/riskmodeler/datasources/<edm-name>/treaties``
-    (RM's web UI shares the API host). A plain navigation link, never an API
-    call (Article 11). ``None`` when the base URL is not configured."""
-    base = settings.risk_modeler_base_url.strip().rstrip("/")
-    if not base:
+    ``https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
+    <edm-name>/treaties``, where ``<rm-domain>`` is the registrable domain of
+    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
+    RM's web UI lives on the TENANT subdomain, not the API host. A plain
+    navigation link, never an API call (Article 11). ``None`` when the tenant
+    name or base URL is not configured (e.g. api-key auth deployments)."""
+    tenant = settings.risk_modeler_tenant_name.strip()
+    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
+    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
+    if not tenant or not domain:
         return None
-    return f"{base}/riskmodeler/datasources/{quote(str(name), safe='')}/treaties"
+    return (f"https://{tenant}.{domain}/riskmodeler/datasources/"
+            f"{quote(str(name), safe='')}/treaties")
 
 
 def _detail_state(status: str | None, as_of: Any,

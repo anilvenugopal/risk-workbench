@@ -189,15 +189,19 @@ def test_detail_state_prefers_most_recently_updated_head(
 # ── the Risk Modeler treaties deep link (Treaties polish, 2026-07-24) ─────────────
 
 def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
-    # <RISK_MODELER_BASE_URL>/riskmodeler/datasources/<edm-name>/treaties —
-    # the EDM name is URL-encoded; an unset base URL yields None (link hidden).
+    # https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
+    # <edm-name>/treaties — the RM web UI lives on the TENANT subdomain of the
+    # API base URL's domain (rms-ppe.com in the sandbox, rms.com in prod), NOT
+    # on the API host itself. The EDM name is URL-encoded; a missing tenant or
+    # base URL yields None (link hidden).
     edm_id = _legacy_edm(name="townsend edm")
     monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url",
-                        "https://rm.example.com/")
+                        "https://api-euw1.rms-ppe.com/")
+    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "acme")
     assert edm_service.get_edm_detail(edm_id).rm_treaties_url == (
-        "https://rm.example.com/riskmodeler/datasources/townsend%20edm/treaties")
+        "https://acme.rms-ppe.com/riskmodeler/datasources/townsend%20edm/treaties")
 
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url", "")
+    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "")
     assert edm_service.get_edm_detail(edm_id).rm_treaties_url is None
 
 
