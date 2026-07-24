@@ -11,7 +11,7 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
@@ -126,6 +126,29 @@ def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
 
 
+def _body_partial(request: Request, edm_id: str):
+    """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
+    edm = edm_service.get_edm_detail(edm_id)
+    if edm is None:
+        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (package-card precedent).
+        return HTMLResponse(
+            '<div class="page-pad" id="edm-detail">'
+            '<div class="state-box state-box--warn">This EDM no longer exists.'
+            '</div></div>')
+    return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
+
+
+@router.get("/edms/{edm_id}/body", response_class=HTMLResponse)
+def detail_body(request: Request, edm_id: str):
+    """Read-only body render for HTMX polling. The template emits the ``every 3s``
+    trigger only while the backfill head is in flight (``sync_running``) or the
+    import itself still is, so the page updates on its own when the rwb job lands —
+    and polling stops once the work is terminal. No writes, no Risk Modeler call
+    (Article 11)."""
+    return _body_partial(request, edm_id)
+
+
 @router.post("/edms/{edm_id}/retry")
 def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
     if not validate_csrf_token(csrf_token):
@@ -138,10 +161,20 @@ def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
 def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
     # Manual detail re-sync (FR-003 as amended): enqueues the backfill_edm_detail
     # worker — the fetch itself never runs on this request path (Article 11).
+    # HTMX path: swap the #edm-detail wrapper in place (it then self-polls until
+    # the head lands). No-JS fallback: Post/Redirect/Get, so a refresh never
+    # re-prompts a form re-submission.
+    is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            # Never swap a redirect-followed full page into the wrapper — force
+            # a clean reload (which also mints fresh tokens).
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     edm_service.sync_detail(edm_id=edm_id, actor_id=request.state.user.id)
-    return _detail(request, edm_id)
+    if is_htmx:
+        return _body_partial(request, edm_id)
+    return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
 
 @router.post("/edms/{edm_id}/replace-file")

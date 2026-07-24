@@ -8,7 +8,9 @@ detail page's Sync button re-runs ``backfill_edm_detail`` on demand.
 ``irp_job``-keyed rows (newest ``updated_at`` wins) so ``detail_state`` and
 ``EdmDetail.sync_running`` stay truthful whichever path ran last. The worker
 name-resolves a missing exposureId (pre-capability EDMs) exactly like the
-poller. Route: ``POST /edms/{edm_id}/sync`` (CSRF, retry-pattern).
+poller. Routes: ``POST /edms/{edm_id}/sync`` (CSRF; HTMX swap of the live
+``#edm-detail`` body, PRG fallback) + ``GET /edms/{edm_id}/body`` (the
+self-terminating poll target, package-card pattern).
 """
 
 from __future__ import annotations
@@ -215,12 +217,15 @@ def test_sync_skips_gracefully_when_name_unresolvable(
     assert _analyst_heads(edm_id)[0]["status_code"] == "succeeded"
 
 
-# ── route: POST /edms/{edm_id}/sync (retry pattern — CSRF + re-render) ────────────
+# ── route: POST /edms/{edm_id}/sync + GET /edms/{edm_id}/body (live UX) ───────────
 #
-# The route contract (CSRF gate → service call → full re-render) is tested with
-# edm_service monkeypatched: the fixture SQLite engine is thread-local and
-# TestClient dispatches handlers on a worker thread, and the service behavior is
-# already covered above — the route tests only own the HTTP surface.
+# The route contract is tested with edm_service monkeypatched: the fixture SQLite
+# engine is thread-local and TestClient dispatches handlers on a worker thread, and
+# the service behavior is already covered above — the route tests only own the HTTP
+# surface. The Sync UX mirrors the package-card live pattern: an HTMX POST swaps the
+# ``#edm-detail`` body partial, which self-polls ``GET /edms/{id}/body`` every 3s
+# while the backfill head is in flight and stops emitting the trigger once it lands.
+# The no-JS fallback is Post/Redirect/Get, so a refresh never re-prompts the form.
 
 class _InjectUser(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -271,7 +276,24 @@ def test_sync_route_bad_csrf_redirects_without_service_call(monkeypatch):
     assert calls == []
 
 
-def test_sync_route_good_csrf_calls_service_and_rerenders(monkeypatch):
+def test_sync_route_nonhtmx_post_redirects_prg(monkeypatch):
+    # No-JS fallback: Post/Redirect/Get back to the canonical URL — the browser
+    # never parks on /sync, so refreshing never re-prompts a form re-submission.
+    calls: list[dict] = []
+    monkeypatch.setattr(edm_service, "sync_detail",
+                        lambda **kw: calls.append(kw) or "job-1")
+    from app.auth.csrf import generate_csrf_token
+    r = _client().post("/edms/edm-1/sync",
+                       data={"csrf_token": generate_csrf_token()})
+    assert r.status_code == 303
+    assert r.headers["location"] == "/edms/edm-1"
+    assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
+
+
+def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
+    # HTMX path: the POST swaps the #edm-detail wrapper in place (URL untouched);
+    # the swapped-in render shows the disabled Syncing… button AND carries the
+    # self-poll trigger because the head is now in flight.
     calls: list[dict] = []
     monkeypatch.setattr(edm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
@@ -280,18 +302,75 @@ def test_sync_route_good_csrf_calls_service_and_rerenders(monkeypatch):
                                                    sync_running=True))
     from app.auth.csrf import generate_csrf_token
     r = _client().post("/edms/edm-1/sync",
-                       data={"csrf_token": generate_csrf_token()})
+                       data={"csrf_token": generate_csrf_token()},
+                       headers={"HX-Request": "true"})
     assert r.status_code == 200
     assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
-    assert "Syncing" in r.text  # re-render reflects the in-flight run
+    assert 'id="edm-detail"' in r.text
+    assert 'hx-get="/edms/edm-1/body"' in r.text and "every 3s" in r.text
+    assert "Syncing" in r.text and "disabled" in r.text
+    assert "</html>" not in r.text  # a partial — no shell around it
+
+
+def test_sync_route_htmx_bad_csrf_forces_full_refresh(monkeypatch):
+    # A stale/garbage token on the HTMX path must not swap a nested full page
+    # into the wrapper — HX-Refresh reloads the page (and its fresh tokens).
+    calls: list[dict] = []
+    monkeypatch.setattr(edm_service, "sync_detail",
+                        lambda **kw: calls.append(kw))
+    r = _client().post("/edms/edm-1/sync", data={"csrf_token": "garbage"},
+                       headers={"HX-Request": "true"})
+    assert r.status_code == 204
+    assert r.headers["hx-refresh"] == "true"
+    assert calls == []
+
+
+def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
+    # In flight → the wrapper emits its own every-3s poll; landed → the trigger
+    # disappears (polling self-terminates) and the fresh synced stamp is shown.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(detail_state="pending",
+                                                   sync_running=True))
+    html = _client().get("/edms/edm-1/body").text
+    assert 'hx-get="/edms/edm-1/body"' in html and "every 3s" in html
+
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(detail_state="populated",
+                                                   as_of="2026-07-24 10:00:00"))
+    html = _client().get("/edms/edm-1/body").text
+    assert "every 3s" not in html
+    assert "synced" in html
+    assert ">Sync</button>" in html  # the button is offered again, enabled
+
+
+def test_body_poll_partial_live_while_importing(monkeypatch):
+    # The same wrapper keeps the page fresh through an in-flight import too —
+    # the import statuses are live exactly like the package card's.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(status="pending_import",
+                                                   detail_state="importing"))
+    html = _client().get("/edms/edm-1/body").text
+    assert "every 3s" in html
+
+
+def test_body_poll_partial_when_edm_gone(monkeypatch):
+    # EDM hard-gone mid-poll: swap in a terminal notice with no trigger, so
+    # polling ends instead of 404-looping.
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: None)
+    r = _client().get("/edms/edm-1/body")
+    assert r.status_code == 200
+    assert "no longer exists" in r.text
+    assert "every 3s" not in r.text
 
 
 def test_sync_button_rendered_by_state(monkeypatch):
-    # ready + unavailable → the Sync form is offered (header + state box)
+    # ready + unavailable → the Sync form is offered (header + state box),
+    # wired as an HTMX swap of the #edm-detail wrapper
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj())
     html = _client().get("/edms/edm-1").text
-    assert "/edms/edm-1/sync" in html
+    assert 'hx-post="/edms/edm-1/sync"' in html
+    assert 'hx-target="#edm-detail"' in html
     assert "Sync now" in html  # the unavailable state box offers the action
     # importing → no Sync form (the import is still in flight)
     monkeypatch.setattr(edm_service, "get_edm_detail",

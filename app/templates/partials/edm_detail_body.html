@@ -1,0 +1,257 @@
+{# The whole EDM detail body (spec 004 US1–US4 — matches docs/ui_previews/
+   edm_detail.html rev 7 + ui.md §2): minimal header (FR-011 — NO cedant/LOB),
+   inline read-only per-portfolio table as the PRIMARY content, aggregate strip
+   (US4), treaties (US2), broker analyses (US3). Read-only — no create/edit/
+   split/filter control, no map (FR-014/FR-016); every unavailable state renders
+   gracefully (ui.md §5), never an error. #}
+{# Live body (package-card pattern): while the backfill head is in flight — or
+   the import itself still is — the wrapper polls its own read-only render every
+   3s and swaps itself, so the page updates on its own when the rwb job lands.
+   The server stops emitting the trigger once the work is terminal, so polling
+   ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
+   changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
+{% set live = edm.sync_running
+     or edm.status in ('pending_import', 'importing', 'delete_pending') %}
+<div class="page-pad" id="edm-detail"
+  {%- if live %}
+  hx-get="/edms/{{ edm.id }}/body" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+
+  {# ── minimal header (FR-011) — name, status, source, identifiers, count, as_of ── #}
+  <div class="detail-head">
+    <h1>{{ edm.name }}
+      <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
+        {{ edm.status or 'unknown' }}</span>
+    </h1>
+    <div class="detail-meta">
+      <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
+      {% if edm.irp_id %}
+      <span class="crumb__sep">·</span>
+      <span>RM EDM #{{ edm.irp_id }}</span>
+      {% endif %}
+      {% if edm.created_by_irp_job_irp_id %}
+      <span class="crumb__sep">·</span>
+      <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>
+      {% endif %}
+      {% if edm.detail_state in ('populated', 'empty') %}
+      <span class="crumb__sep">·</span>
+      <span>{{ edm.portfolio_count }} portfolio{{ '' if edm.portfolio_count == 1 else 's' }}</span>
+      {% endif %}
+      {% if edm.as_of %}
+      <span class="crumb__sep">·</span>
+      <span class="synced"><span class="synced__dot"></span> synced {{ edm.as_of }}</span>
+      {% elif edm.detail_state == 'failed' %}
+      <span class="crumb__sep">·</span>
+      <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
+      {% endif %}
+      {# manual re-sync (FR-003 as amended 2026-07-23) — re-runs the backfill
+         worker; hidden while the import itself is still in flight #}
+      {% if edm.status == 'ready' %}
+      <span class="crumb__sep">·</span>
+      {% if edm.sync_running %}
+      <button class="btn-sm" type="button" disabled>Syncing…</button>
+      {% else %}
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
+            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm" type="submit"
+                title="Re-fetch this EDM's detail from Risk Modeler">Sync</button>
+      </form>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── import-error recovery (unchanged Iteration-2 behavior) ── #}
+  {% if edm.status == 'error' %}
+  <div class="form-banner form-banner--error">
+    This import failed in Risk Modeler. Retry it, or replace the source file and
+    re-import.
+  </div>
+  <div class="form-actions">
+    <form method="post" action="/edms/{{ edm.id }}/retry" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--primary" type="submit">Retry import</button>
+    </form>
+  </div>
+
+  <div class="section-head" style="margin-top: 24px;"><h2>Replace source file</h2></div>
+  <form method="post" action="/edms/{{ edm.id }}/replace-file" class="entity-import-form">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="updated_at" value="{{ edm.updated_at }}">
+    <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+      Loading the shared drive…
+    </div>
+    <div class="form-actions">
+      <button class="btn-sm" type="submit">Replace &amp; re-import</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {# ── compact 3-domain rollup strip (US4 — FR-040/FR-042/FR-043) ── #}
+  {% include "partials/edm_aggregate_strip.html" %}
+
+  {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Portfolios</span>
+      {% if edm.detail_state in ('populated', 'empty') %}
+      <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Read-only snapshot · split / breakout arrive Iteration 4</span>
+    </summary>
+
+    {% if edm.detail_state == 'populated' %}
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:230px 92px 84px 84px 130px 170px minmax(150px,1fr) 120px 92px 200px;min-width:1352px">
+        <div class="dtable__head">
+          <span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span>
+          <span class="l">Perils</span><span class="l">Sub-perils</span><span class="l">Geography</span>
+          <span class="l">Currency</span><span>TIV</span><span class="l">Analyses</span>
+        </div>
+        {% for p in edm.portfolios %}
+        {% include "partials/portfolio_row.html" %}
+        {% endfor %}
+      </div>
+    </div>
+    <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
+      Name column stays pinned while you scroll sideways. Perils shown are the
+      perils <em>present</em> per portfolio; absence isn't inferred as a defect.
+      A portfolio expands to the analyses linked to it; full settings for every
+      analysis are in the Broker analyses section below.</p>
+    {% elif edm.detail_state == 'importing' %}
+    <div class="state-box">Per-portfolio detail appears within ~1 minute of the
+      import finishing.</div>
+    {% elif edm.detail_state == 'pending' %}
+    <div class="state-box">Exposure detail is being fetched from Risk Modeler —
+      it appears here shortly.</div>
+    {% elif edm.detail_state == 'failed' %}
+    <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
+      The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
+      {% if edm.status == 'ready' %}
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)"
+            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% endif %}
+    </div>
+    {% elif edm.detail_state == 'empty' %}
+    <div class="state-box">No portfolios in this EDM.</div>
+    {% else %}
+    <div class="state-box"><strong>Detail not available.</strong><br>
+      Imported before exposure backfill shipped.
+      {% if edm.status == 'ready' %}
+      Sync now to fetch its per-portfolio detail from Risk Modeler.
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)"
+            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
+            hx-swap="outerHTML" hx-disabled-elt="find button">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% else %}
+      Re-import to populate its per-portfolio detail.
+      {% endif %}
+    </div>
+    {% endif %}
+  </details>
+
+  {# ── Treaties (US2) — EDM-level, expand/collapse, Excel export (FR-020–FR-025) ── #}
+  <details class="sec" open>
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Treaties</span>
+      {% if edm.treaties %}
+      <span class="badge badge--neutral">{{ edm.treaties | length }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Read-only · edit in Risk Modeler</span>
+    </summary>
+
+    {% if edm.treaties %}
+    <div class="sec__action">
+      <a class="btn-sm btn-sm--primary" href="/edms/{{ edm.id }}/treaties.xlsx"
+         title="Download the full treaty set as .xlsx">⭳ Export to Excel</a>
+    </div>
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:230px 130px 130px 110px 120px 130px 80px minmax(150px,1fr);min-width:1080px">
+        <div class="dtable__head">
+          <span class="l">Treaty</span><span class="l">Type</span><span class="l">Applies at</span><span class="l">Currency</span>
+          <span>Attachment</span><span>Limit</span><span>Share</span><span class="l">Effective</span>
+        </div>
+        {% for t in edm.treaties %}
+        {% include "partials/treaty_row.html" %}
+        {% endfor %}
+      </div>
+    </div>
+    {% elif edm.detail_state in ('populated', 'empty') %}
+    <div class="state-box">No treaties on this EDM.</div>
+    {% elif edm.detail_state == 'importing' %}
+    <div class="state-box">Treaty detail appears within ~1 minute of the import
+      finishing.</div>
+    {% elif edm.detail_state == 'pending' %}
+    <div class="state-box">Treaty detail is being fetched from Risk Modeler.</div>
+    {% elif edm.detail_state == 'failed' %}
+    <div class="state-box state-box--warn"><strong>Treaty detail unavailable.</strong><br>
+      The last sync from Risk Modeler failed.</div>
+    {% else %}
+    <div class="state-box"><strong>Detail not available.</strong><br>
+      Imported before exposure backfill shipped.</div>
+    {% endif %}
+  </details>
+
+  {# ── Broker analyses (US3) — standalone, grouped by source RDM (FR-030/FR-037) ── #}
+  {% set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum %}
+  <details class="sec" open id="edm-broker-analyses">
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Broker analyses</span>
+      {% if analysis_total %}
+      <span class="badge badge--neutral">{{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ analysis_total }} analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
+    </summary>
+
+    {% if analysis_total %}
+    <div class="derive-note"><strong>Linkage &amp; scope:</strong> each analysis is linked to the
+      <strong>Portfolio it was run against</strong> (resolved from Risk Modeler’s <code>exposureResourceId</code>).
+      A <strong>group</strong> is a single analysis shown with Portfolio = <em>Group</em> — its member breakdown
+      isn’t available; results whose exposure can’t be matched show <em>“— not linked”</em>.
+      Settings/metadata only this iteration — <strong>no loss numbers</strong>.</div>
+
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:230px 170px 70px minmax(130px,1fr) 120px 80px 120px 90px 60px 110px;min-width:1180px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Type</span><span class="l">Peril</span>
+          <span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span><span class="l">Term</span>
+          <span class="l">PLA</span><span class="l">Rate</span>
+        </div>
+        {% for group in edm.analyses %}
+        <div class="dtable__group">
+          <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
+          {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
+          <a class="link" href="/rdms/{{ group.rdm_id }}">Open RDM →</a>
+        </div>
+        {% for a in group.analyses %}
+        {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+        {% endfor %}
+        {% endfor %}
+      </div>
+    </div>
+    {% elif edm.detail_state == 'importing' %}
+    <div class="state-box">Broker analyses appear after the package's RDM imports
+      finish.</div>
+    {% else %}
+    <div class="state-box">No broker analyses on this EDM.</div>
+    {% endif %}
+  </details>
+
+</div>
