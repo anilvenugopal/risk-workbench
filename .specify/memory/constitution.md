@@ -2,6 +2,21 @@
   Sync Impact Report
   ==================
 
+  --- 2026-07-23 (spec 004 Addendum A) ---
+  Version change: 3.0.0 → 3.1.0  (MINOR — new permission clause added to
+  Article 11; no article redefined or removed; 13-article numbering stable)
+
+  Added: Article 11 "DataBridge access" clause — read-only Data Bridge SQL is
+  permitted, worker-side only, exclusively via irp-integration client methods
+  (never raw SQL from app code, never DDL/migrations). Motivated by spec-004
+  Addendum A: RM REST exposes no TIV/currency/geography at any level (wheel
+  0.2.1 + sandbox confirmed); a per-EDM DataBridge aggregate is the sanctioned
+  source. Supersedes the absolute "DATABRIDGE is never touched by this app"
+  wording in CLAUDE.md / docs/DATA_MODEL.md (both softened in the same pass).
+
+  Templates: no plan-template Constitution Check title changes (Article 11
+  title unchanged).
+
   --- CR-003 (2026-07-08) ---
   Version change: 2.0.0 → 3.0.0  (MAJOR — CR-003: drop customer/program
   hierarchy and row-level security; submission becomes the deal root)
@@ -277,6 +292,15 @@ through a queue adds no benefit. A service called from a route handler MAY call
 workers. The `poll_*_to_completion` blocking variants MUST NEVER be called
 inside the poller — use single-status-check `get_*` methods only.
 
+**DataBridge access (added v3.1.0, 2026-07-23):** Moody's Data Bridge SQL is
+reachable **read-only**, **worker-side only**, and **exclusively through
+`irp-integration` client methods** (e.g. `client.databridge.*` behind
+`irp_gateway`). App code MUST NEVER send raw SQL to DataBridge — not through
+`db.execute`, not through the `db.scripts` trusted path — and MUST NEVER run
+DDL, migrations, or bootstrap against it. Moody's EDM schema knowledge lives in
+the integration library, not this codebase. A DataBridge read failure is
+enrichment degradation, never a page error (the graceful-empty doctrine applies).
+
 ### Article 12 — Test-First, with Three Connected Strategies
 
 Behavior MUST be covered by tests across three tiers:
@@ -342,4 +366,4 @@ research begins.
 
 ---
 
-**Version**: 3.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-08
+**Version**: 3.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-23

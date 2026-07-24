@@ -1,9 +1,13 @@
 {# One portfolio's exposure figures — a .dtable row (spec 004 US1, FR-012/FR-013).
-   Context: `p` (portfolio_service.PortfolioRow). The snapshot is Risk Modeler's
-   payload verbatim (R2) — every field is read defensively; a missing field or a
-   not-yet-backfilled snapshot renders "—", never an error. Records == locations,
-   so there is no separate Records column (preview rev 7). Static (non-expandable)
-   this story — US3 (T041b) adds the Analyses count + inline linked-analyses panel. #}
+   Context: `p` (portfolio_service.PortfolioRow). The snapshot is namespaced
+   (data-model §2): "metrics" = RM /metrics verbatim (counts + perilsExposed
+   string); "summary" = the DataBridge aggregate (TIV/geo/currency/sub-perils),
+   null until the wheel method lands. Rows written before 2026-07-23 hold the
+   flat /metrics payload — `m` falls back to the flat shape. Every field is read
+   defensively; a missing field renders "—", never an error. Records ==
+   locations, so there is no separate Records column (preview rev 7). Static
+   (non-expandable) this story — US3 (T041b) adds the Analyses count + inline
+   linked-analyses panel. #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -14,6 +18,8 @@
   {%- if vals -%}{{ vals|join(', ') }}{%- else -%}<span class="na">&mdash;</span>{%- endif -%}
 {%- endmacro -%}
 {%- set d = p.exposure_detail or {} -%}
+{%- set m = d.get('metrics') or d -%}
+{%- set s = d.get('summary') or {} -%}
 <div class="drow-static"{% if p.as_of %} title="synced {{ p.as_of }}"{% endif %}>
   <span class="l">
     <span class="dt-name">
@@ -23,40 +29,45 @@
       </span>
     </span>
   </span>
-  <span>{{ num(d.get('location_count')) }}</span>
-  <span>{{ num(d.get('account_count')) }}</span>
-  <span>{{ num(d.get('policy_count')) }}</span>
-  <span class="l">{{ csv(d.get('perils')) }}</span>
-  <span class="l">{{ csv(d.get('sub_perils')) }}</span>
+  <span>{{ num(m.get('totalLocations')) }}</span>
+  <span>{{ num(m.get('totalAccounts')) }}</span>
+  <span>{{ num(m.get('totalPolicies')) }}</span>
   <span class="l">
-    {%- set geo = d.get('geography') or {} -%}
-    {%- set states = geo.get('states') or [] -%}
-    {%- set regions = geo.get('regions') or [] -%}
+    {#- perilsExposed is a comma-style string, e.g. "WS, EQ" -#}
+    {%- set perils = (m.get('perilsExposed') or '').split(',') | map('trim') | select | list -%}
+    {{ csv(perils) }}
+  </span>
+  <span class="l">{{ csv(s.get('sub_perils')) }}</span>
+  <span class="l">
+    {%- set states = s.get('states') or [] -%}
+    {%- set countries = s.get('countries') or [] -%}
     {%- if states -%}
       {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}
-    {%- elif regions -%}
-      {{ regions|join(', ') }}
+    {%- elif countries -%}
+      {{ countries|join(', ') }}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {%- set curr = d.get('currencies') or [] -%}
+    {%- set curr = s.get('currencies') or [] -%}
     {%- if curr -%}
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span>
-    {%- set t = d.get('tiv') or {} -%}
-    {%- set amt = t.get('amount') -%}
-    {%- if amt is none or amt is not number -%}<span class="na">&mdash;</span>
+    {#- tiv_by_currency: {currency: amount}; amounts in different currencies are
+        never summed — show the largest compactly, the rest in the title. -#}
+    {%- set tivs = (s.get('tiv_by_currency') or {}).items() | selectattr(1, 'number') | sort(attribute=1, reverse=true) | list -%}
+    {%- if not tivs -%}<span class="na">&mdash;</span>
     {%- else -%}
-      {%- set cur = t.get('currency') or '' -%}
+      {%- set cur, amt = tivs[0] -%}
       {%- set pfx = '$' if cur == 'USD' else '' -%}
       {%- set sfx = '' if cur == 'USD' else ' ' + cur -%}
-      <span title="{{ '{:,.0f}'.format(amt) }} {{ cur }}">
+      <span title="{% for c, a in tivs %}{{ '{:,.0f}'.format(a) }} {{ c }}{% if not loop.last %} · {% endif %}{% endfor %}">
         {%- if amt >= 1e9 -%}{{ pfx }}{{ '%.1f'|format(amt / 1e9) }}B{{ sfx }}
         {%- elif amt >= 1e6 -%}{{ pfx }}{{ '%.1f'|format(amt / 1e6) }}M{{ sfx }}
         {%- else -%}{{ pfx }}{{ '{:,.0f}'.format(amt) }}{{ sfx }}
         {%- endif -%}
+        {%- if tivs|length > 1 %} <span class="dt-geo-sub">+{{ tivs|length - 1 }}</span>{% endif -%}
       </span>
     {%- endif -%}
   </span>

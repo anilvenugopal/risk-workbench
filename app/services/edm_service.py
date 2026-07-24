@@ -206,23 +206,32 @@ class EdmDetail:
     portfolios: list[PortfolioRow]
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
+    # a backfill head (either key) is pending/running — drives the "Syncing…"
+    # button state even when the table is already populated
+    sync_running: bool = False
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
-    """The newest ``backfill_edm_detail`` job status for this EDM (poller-enqueued
-    heads key on the finished ``import_edm`` irp_job, hence the join). ``None``
-    when detail backfill never ran — the pre-capability / forward-only state."""
+    """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
+    enqueue sources: the poller's heads key on the finished ``import_edm``
+    irp_job (hence the join), the manual Sync's key on ``(analyst_request,
+    edm_id)`` directly. Newest ``updated_at`` wins — a revived (re-synced) row
+    keeps its ``inserted_at``, so insert order would lie. ``None`` when detail
+    backfill never ran — the pre-capability / forward-only state."""
     row = execute_one(
         "SELECT rj.status_code FROM rwb_job rj "
-        "JOIN irp_job ij ON rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' AND ij.irp_edm_id = :e "
-        "ORDER BY rj.inserted_at DESC",
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
+        "AND (ij.irp_edm_id = :e "
+        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e)) "
+        "ORDER BY rj.updated_at DESC",
         {"e": edm_id}, connection="WORKBENCH")
     return row["status_code"] if row is not None else None
 
 
 def _detail_state(status: str | None, as_of: Any,
-                  portfolios: list[PortfolioRow], edm_id: str) -> str:
+                  portfolios: list[PortfolioRow], job_status: str | None) -> str:
     """Which graceful section state the page renders (ui.md §5) — never an error.
     ``empty`` (a real zero-portfolio EDM, FR-015) is distinguished from
     ``unavailable`` by the ``as_of`` stamp: the worker stamps it only after a real
@@ -231,7 +240,6 @@ def _detail_state(status: str | None, as_of: Any,
         return "importing"
     if portfolios:
         return "populated"
-    job_status = _latest_backfill_status(edm_id)
     if job_status in ("pending", "running"):
         return "pending"
     if job_status == "failed":
@@ -256,6 +264,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     if row is None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    job_status = _latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -269,8 +278,34 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         updated_at=row["updated_at"],
         portfolio_count=len(portfolios),
         portfolios=portfolios,
-        detail_state=_detail_state(row["status"], row["as_of"], portfolios, eid),
+        detail_state=_detail_state(row["status"], row["as_of"], portfolios,
+                                   job_status),
+        sync_running=job_status in ("pending", "running"),
     )
+
+
+def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
+    """Analyst-triggered re-run of ``backfill_edm_detail`` for one EDM (FR-003 as
+    amended 2026-07-23) — the recovery path for pre-capability EDMs and failed
+    fetches; its scope grows with the worker (portfolios now, treaties with US2).
+    Keyed ``(analyst_request, edm_id)`` so it works for EVERY EDM, including those
+    with no FINISHED import irp_job; ``ensure_pending_rwb_job`` revives a terminal
+    head in place. Skips (→ ``None``) when the EDM is missing/deleted, the import
+    is still in flight, or a backfill head under EITHER key is pending/running."""
+    eid = str(edm_id)
+    current = _current(eid)
+    if current is None or current["status"] in (PENDING, IMPORTING):
+        return None
+    if _latest_backfill_status(eid) in ("pending", "running"):
+        return None
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=eid,
+        rwb_job_type="backfill_edm_detail",
+        input_data={"edm_id": eid, "package_id": _package_id(eid)},
+        actor_id=str(actor_id),
+    )
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")
+    return job_id
 
 
 def _current(edm_id: str) -> dict | None:
@@ -440,6 +475,7 @@ __all__ = [
     "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED", "STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm", "get_edm_detail",
+    "sync_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
 ]

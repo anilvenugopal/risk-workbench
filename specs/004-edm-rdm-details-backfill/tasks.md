@@ -169,8 +169,20 @@ Single server-rendered web app extending the existing `app/` tree (FastAPI + Jin
 
 - [ ] T051 [P] Confirm the shell conventions (FR-051 — breadcrumb/active-state as a function of manifest position, `hx-boost` nav, status-bar last-action) are inherited on the redesigned EDM detail and extended RDM detail pages, AND the `as_of` last-synced trust signal (FR-052) is surfaced wherever detail is shown — EDM header, per-portfolio and per-treaty rows — across the detail templates
 - [ ] T052 [P] Add/confirm the Article-6 no-scope assertion (the `test_no_scope` pattern — no `customer`/scope column or filter on `irp_portfolio`/`irp_treaty`/`irp_analysis` or any detail read) and the Article-11 `--run-irp` assertion that `poll_*_to_completion` and the poll-inside convenience methods appear nowhere in the new worker/gateway code (`tests/irp/`)
-- [ ] T053 Run the full `pytest tests/unit` and `pytest tests/sqlserver --run-sqlserver` green, then walk `quickstart.md` end-to-end (SC-001…SC-009), confirming forward-only behavior (no bulk sweep, no manual refresh), the portfolio↔analysis linkage on both pages (SC-009), and that no Risk Modeler call occurs on any web request handler
+- [ ] T053 Run the full `pytest tests/unit` and `pytest tests/sqlserver --run-sqlserver` green, then walk `quickstart.md` end-to-end (SC-001…SC-009), confirming forward-only automatic backfill (no bulk sweep; the per-EDM manual Sync is the only manual path, FR-003 as amended), the portfolio↔analysis linkage on both pages (SC-009), and that no Risk Modeler call occurs on any web request handler
 - [ ] T054 [P] Update `docs/IRP_INTEGRATION_FOLLOWUPS.md` with any gateway method gaps/confirmations discovered during implementation (close the R1 loop)
+
+---
+
+## Addendum A — approved mid-iteration changes (2026-07-23, post-US1 checkpoint)
+
+Approved at the US1 checkpoint after the sandbox exposed the real `/metrics` payload shape
+(plan record: FR-003/FR-013 amendments, research R1/R7 amendments, data-model §2 rewrite,
+constitution Art. 11 DataBridge clause).
+
+- [X] T055 [ADD] Fix `portfolio_row.html` to read the real RM `/metrics` keys (`totalLocations`/`totalAccounts`/`totalPolicies`/`perilsExposed`); store snapshots namespaced as `{"metrics", "summary"}` in `_backfill_edm_detail_body`; reshape the fake `DEFAULT_EXPOSURE` + `tests/unit/test_backfill_edm_detail.py` to the real shape
+- [X] T056 [ADD] Per-EDM manual Sync (FR-003 as amended): `edm_service.sync_detail` (`ensure_pending_rwb_job` keyed `analyst_request`+`edm_id` + dispatch), broadened `_latest_backfill_status` (both requestor keys, `updated_at DESC`), `EdmDetail.sync_running`, worker name-resolution for `irp_id`-less EDMs, `POST /edms/{edm_id}/sync` (CSRF), header/state-box Sync buttons, `tests/unit/test_edm_sync.py`
+- [X] T057 [ADD] DataBridge exposure summary: `irp_gateway.get_edm_exposure_summary(*, edm_name)` → wheel `client.databridge.get_portfolio_exposure_summary` (contract in `docs/IRP_INTEGRATION_FOLLOWUPS.md`); worker merges per-portfolio `summary` with graceful `null` degradation (`output_data.summary = ok|unavailable`); fake knobs + tests. Workbench side ships before the wheel method exists (blocked only for live data)
 
 ---
 
@@ -232,5 +244,5 @@ US1 (MVP: per-portfolio breakdown) → US2 (treaties + Excel) → US3 (broker an
 
 - Backfill is a **forward extension** of the Iteration-2 completion path — no new poller, no new async spine; every Risk Modeler detail read runs in the worker behind `irp_gateway` (Article 11), never on a web request path.
 - Detail is a **JSON snapshot cache** (`exposure_detail` / `attributes` / `settings_metadata`), overwritten idempotently in place; the EDM-aggregate is **derived**, never stored (research R2/R4).
-- No new state-changing route and no new nav node this iteration; viewing + the `.xlsx` export are authenticated GETs.
+- One new state-changing route this iteration (Addendum A: `POST /edms/{edm_id}/sync`, CSRF-protected); no new nav node; viewing + the `.xlsx` export are authenticated GETs.
 - Commit after each task or logical group. Confirm tests FAIL before implementing. Stop at each checkpoint to validate the story independently.

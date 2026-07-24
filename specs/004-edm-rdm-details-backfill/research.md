@@ -11,7 +11,7 @@ The canonical schema lives in **DATA_MODEL §5 (EDM/RDM/portfolio/treaty), §6 (
 **Decision**: Reach Risk Modeler only through the existing `app/services/irp_gateway.py`, **extended with read methods** for the detail this iteration backfills:
 
 - **Portfolio enumeration for an EDM** — the portfolios that arrived with the EDM.
-- **Per-portfolio exposure figures** — location/account/policy counts, perils + sub-perils, geography, currency, record volume (TIV where available).
+- **Per-portfolio exposure figures** — location/account/policy counts, perils + sub-perils, geography, currency, record volume (TIV where available). *(Amended 2026-07-23 after wheel/sandbox confirmation: the RM `/metrics` read supplies only the counts + a `perilsExposed` string; **no RM REST endpoint returns TIV/currency/geography/sub-perils at any level**. Those fields come from a **per-EDM DataBridge SQL aggregate** via a new irp-integration method — `client.databridge.get_portfolio_exposure_summary` — one read-only query per EDM. This is a documented exception to the single-item-loop rule below: it is a SQL aggregate, where N per-portfolio queries would just be N ODBC round-trips. Contract + wheel gaps recorded in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.)*
 - **Treaty attribute detail** — the treaties on the EDM and their full attribute set (DATA_MODEL §5 names `search_treaties`).
 - **Broker-analysis settings/metadata** — engine/model version, engine type (DLM/HD) + version, analysis type/mode, peril (primary/secondary), region, currency, construction, LOB, group type, long-term vs near-term, event-rate scheme / rate vintage, loss amplification (PLA).
 
@@ -88,13 +88,13 @@ The DATA_MODEL §5/§6 tables are thin **identity/lineage records**; they carry 
 
 ## R7 — Forward-only backfill + graceful empty/failure states
 
-**Decision**: Backfill is **forward-only** (FR-003): only imports reaching `FINISHED` after this capability deploys enqueue `backfill_edm_detail` / the extended analysis capture. **No bulk sweep** of previously-imported entities and **no per-entity manual "refresh from Risk Modeler" action** this iteration. Every detail view degrades gracefully:
+**Decision**: *Automatic* backfill is **forward-only** (FR-003): only imports reaching `FINISHED` after this capability deploys enqueue `backfill_edm_detail` / the extended analysis capture. **No bulk sweep** of previously-imported entities. *(Amended 2026-07-23 post-US1: a per-EDM manual **Sync** action — alternative (b) below, now adopted — re-runs the same worker on demand, keyed `analyst_request` + `edm_id` via `ensure_pending_rwb_job`; it covers pre-capability EDMs and failed fetches.)* Every detail view degrades gracefully:
 - **No snapshot** (imported before this capability, or fetch pending/failed) → the per-portfolio section, treaty section, aggregate strip, and package-card line render a **"detail not available — re-import to populate" / pending** state; the EDM's core record (name, status, source file, identifiers) still displays (FR-017/FR-043/SC-006).
 - **Backfill fetch fails/times out** → the `backfill_edm_detail` `rwb_job` fails via the existing worker-failure path (it is **recoverable** through the reconciler/retry machinery), the EDM's *ready* status is **not** reverted (FR-005), and the view shows "detail unavailable." Re-fetch is idempotent (overwrites the snapshot, R2).
 
 **Rationale**: Matches the Iteration-3 exit wording ("a newly completed import backfills its detail data automatically") and the spec's forward-only scope call; reuses the Iteration-2 `rwb_job` failure/reconcile machinery so no new recovery mechanism is built.
 
-**Alternatives considered**: (a) One-time bulk backfill of existing entities — rejected (spec scope call): deferred as a later addition; the demo path uses an EDM imported after deploy. (b) A manual per-EDM "refresh" button — rejected this iteration (same scope call); trivial to add later on the same worker.
+**Alternatives considered**: (a) One-time bulk backfill of existing entities — rejected (spec scope call): deferred as a later addition; the demo path uses an EDM imported after deploy. (b) A manual per-EDM "refresh" button — originally rejected, **adopted 2026-07-23** as the EDM detail page's Sync action (same worker, as anticipated: "trivial to add later on the same worker").
 
 ---
 
@@ -129,12 +129,12 @@ The DATA_MODEL §5/§6 tables are thin **identity/lineage records**; they carry 
 
 | # | Area | Decision |
 |---|------|----------|
-| R1 | IRP read surface | Extend `irp_gateway` with single-item read methods (portfolio enumeration + per-portfolio exposure, treaty attributes, analysis metadata); loop app-side; fake mirrors them; **confirm signatures vs the active wheel before implementing** (pre-release); gaps → `IRP_INTEGRATION_FOLLOWUPS.md` |
+| R1 | IRP read surface | Extend `irp_gateway` with single-item read methods (portfolio enumeration + per-portfolio exposure, treaty attributes, analysis metadata); loop app-side; fake mirrors them; **confirm signatures vs the active wheel before implementing** (pre-release); gaps → `IRP_INTEGRATION_FOLLOWUPS.md`. TIV/geo/currency/sub-perils: per-EDM DataBridge aggregate (`get_edm_exposure_summary`, documented single-item exception) |
 | R2 | **Storage shape** | **JSON snapshot cache** columns — `irp_portfolio.exposure_detail` / `irp_treaty.attributes` / `irp_analysis.settings_metadata` (nullable; null = graceful empty); identity columns stay typed; overwrite-in-place idempotent; external RM vocabularies stored verbatim (no kind table); normalized/filterable model deferred to Iteration 4 |
 | R3 | Backfill wiring | Forward extension of the completion path: new `backfill_edm_detail` `rwb_job_type` enqueued alongside `upload_rdm` on `import_edm` FINISHED (independent of package/RDMs); analysis metadata rides the **existing** `backfill_rdm_analyses`; idempotent on the existing dedup key |
 | R4 | Aggregate rollup | **Derived in `edm_service`** from per-portfolio snapshots (sum counts / union perils / combine geography+currency); feeds both the EDM strip and the submission package-card line; never stored, never fetched on the request path |
 | R5 | Treaty export | Add **`openpyxl`**; server-side `.xlsx` from stored treaty snapshots (union of attribute keys); authenticated GET download; no Risk Modeler call |
 | R6 | Pages / nav | Redesign the existing `edm_detail.html` (minimal header + aggregate strip + inline per-portfolio table + treaties) and extend `rdm_detail.html` (broker analyses); **no new nav nodes**; no dedicated portfolio page this iteration |
-| R7 | Forward-only / graceful | Only post-deploy imports backfill; no bulk sweep, no manual refresh; no-snapshot → pending/unavailable state; fetch failure preserves *ready* + recoverable via the existing `rwb_job` machinery; re-fetch idempotent |
+| R7 | Forward-only / graceful | Only post-deploy imports backfill automatically; no bulk sweep; per-EDM manual **Sync** re-runs the worker on demand (amended 2026-07-23); no-snapshot → pending/unavailable state; fetch failure preserves *ready* + recoverable via the existing `rwb_job` machinery; re-fetch idempotent |
 | R8 | Broker analyses | Group `irp_analysis` by `rdm_id` (shown once across M EDMs); surface `settings_metadata`; `is_group` shown as a group; un-empty the analysis counts (FR-050); zero-EDM RDM-only stays deferred (D3) |
 | R9 | **Portfolio↔analysis linkage** | Capture RM's `exposureResourceId` as a light typed `irp_analysis.exposure_resource_id` (only when type = PORTFOLIO); **resolve the owning portfolio at read time** (join `irp_portfolio` on `edm_id`+`irp_id`) — derived, not a stored FK (import-order safe, R4-style); `is_group` -> "Group", unresolved -> "not linked"; `group_parent_id` deferred (members unknowable); extend gateway `AnalysisHit` to stop dropping the pointer |

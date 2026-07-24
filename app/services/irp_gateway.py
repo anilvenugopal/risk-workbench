@@ -155,6 +155,8 @@ class IRPGateway(Protocol):
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail: ...
 
+    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]: ...
+
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
@@ -263,6 +265,20 @@ class _RealGateway:
         data = self._client().portfolio.get_portfolio_metadata(
             edm_irp_id, portfolio_irp_id)
         return ExposureDetail(payload=data if isinstance(data, dict) else {})
+
+    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]:
+        # Per-EDM DataBridge SQL aggregate (TIV/geography/currency/sub-perils —
+        # none of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS
+        # §6). Read-only, exclusively via the wheel's databridge extra —
+        # never raw SQL from app code (constitution Art. 11 v3.1.0). One call
+        # per EDM: a deliberate exception to the single-item-loop rule — this
+        # is a SQL aggregate, where N per-portfolio queries would just be N
+        # ODBC round-trips. Raises on ANY failure (missing wheel method /
+        # databridge extra / env / SQL) — graceful degradation lives in one
+        # place, the worker's try/except.
+        data = self._client().databridge.get_portfolio_exposure_summary(
+            edm_data_source_name=edm_name)
+        return {str(k): v for k, v in (data or {}).items() if isinstance(v, dict)}
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
         # GET /platform/riskdata/v1/exposures/{exposureId}/treaties (paginated).
@@ -398,6 +414,10 @@ def get_portfolio_exposure(*, edm_irp_id: int,
                                             portfolio_irp_id=portfolio_irp_id)
 
 
+def get_edm_exposure_summary(*, edm_name: str) -> dict[str, dict]:
+    return _active().get_edm_exposure_summary(edm_name=edm_name)
+
+
 def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:
     return _active().search_treaties(edm_irp_id=edm_irp_id)
 
@@ -413,6 +433,6 @@ __all__ = [
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
-    "list_portfolios", "get_portfolio_exposure", "search_treaties",
-    "get_analysis_metadata",
+    "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
+    "search_treaties", "get_analysis_metadata",
 ]

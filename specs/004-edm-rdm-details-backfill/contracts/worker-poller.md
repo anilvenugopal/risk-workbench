@@ -17,7 +17,8 @@ Added to `irp_gateway.py` and the `IRPGateway` protocol; the CI fake mirrors the
 | Op | Gateway method (illustrative; confirm vs wheel) | Returns |
 |---|---|---|
 | Enumerate an EDM's portfolios | `list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]` | id + name per portfolio |
-| Per-portfolio exposure figures | `get_portfolio_exposure(*, portfolio_irp_id: int) -> ExposureDetail` | counts / perils+sub-perils / geography / currency / record volume / (tiv?) |
+| Per-portfolio exposure figures | `get_portfolio_exposure(*, edm_irp_id: int, portfolio_irp_id: int) -> ExposureDetail` (confirmed vs wheel 0.2.1 — the `/metrics` endpoint needs BOTH ids) | counts + `perilsExposed` string (the `/metrics` ceiling — no TIV/geo/currency here) |
+| Per-EDM exposure summary (TIV/geo/currency/sub-perils) | `get_edm_exposure_summary(*, edm_name: str) -> dict[str, dict]` — DataBridge SQL aggregate via `client.databridge.get_portfolio_exposure_summary`; **documented exception to single-item-loop** (one read-only query per EDM); raises on any failure, worker degrades to `summary: null` | `{portfolioId(str): {portfolio_name, tiv_by_currency, currencies, states, countries, sub_perils}}` |
 | Treaty attribute detail for an EDM | `search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]` | name + irp_id + full attribute map per treaty (§5) |
 | Broker-analysis settings/metadata | extend `AnalysisHit` with a metadata map, **or** `get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata` | the FR-031/§7 settings map **+ `exposure_resource_id` + `exposure_resource_type`** (R9 — `AnalysisHit` currently **drops** RM's `exposureResourceId`; stop dropping it so the worker can promote the portfolio pointer) |
 
@@ -36,10 +37,17 @@ receive rwb_job(backfill_edm_detail) for edm_id (input_data: {edm_id, package_id
       (irp_id is the exposureId the poller backfilled at import FINISHED; without it there is
        nothing to fetch — a pre-capability/never-finished EDM stays in the graceful empty state)
   → portfolios = gateway.list_portfolios(edm_irp_id=int(edm.irp_id))
+  → summary_map = gateway.get_edm_exposure_summary(edm_name=edm.name)   # ONE DataBridge
+      # aggregate per EDM; ANY failure → summary_map = None (logged) — enrichment only,
+      # the job continues; affected snapshots get "summary": null and cells render "—"
     for each p in portfolios:                              # app-side loop (single-item reads)
-        exposure = gateway.get_portfolio_exposure(portfolio_irp_id=int(p.irp_id))
+        exposure = gateway.get_portfolio_exposure(edm_irp_id=int(edm.irp_id),
+                                                  portfolio_irp_id=int(p.irp_id))
         portfolio_service.upsert_portfolio_detail(edm_id=edm_id, irp_id=p.irp_id,
-            name=p.name, exposure_detail=exposure, as_of=now)   # idempotent overwrite (R2)
+            name=p.name,                                    # idempotent overwrite (R2)
+            exposure_detail={"metrics": exposure.payload,
+                             "summary": summary_map.get(p.irp_id)},   # id key, name fallback
+            as_of=now)
   → treaties = gateway.search_treaties(edm_irp_id=int(edm.irp_id))
     for each t in treaties:
         treaty_service.upsert_treaty_detail(edm_id=edm_id, irp_id=t.irp_id,
@@ -82,6 +90,7 @@ if status == "FINISHED":
 - **Idempotent** (SC / FR-004): a re-poll of the same terminal job re-inserts nothing (dedup hit) — no double backfill.
 - Both heads are delivered by the poller's existing `_dispatch_pending` sweep (the poller runs in its own process, so heads it enqueues are dispatched here, not at enqueue time — unchanged from spec 003).
 - **Non-FINISHED terminal** (`FAILED`/`CANCELLED`): unchanged — the EDM flips to `error`, and **no** `backfill_edm_detail` is enqueued (there is no detail to fetch).
+- **Second enqueue source (added 2026-07-23): the manual Sync action.** `edm_service.sync_detail` enqueues the same `rwb_job_type` keyed **`(requestor_type='analyst_request', requestor_id=<edm_id>)`** via `ensure_pending_rwb_job` (which revives a terminal row back to `pending`), then `dispatch.dispatch(...)` for immediate pickup. The distinct requestor key coexists with the poller's `irp_job`-keyed row under the UNIQUE constraint; `edm_service._latest_backfill_status` considers **both** keys ordered by `updated_at DESC`. The worker body is unchanged — it reads only `input_data.edm_id` and every upsert is idempotent, so concurrent heads are safe.
 
 Analysis metadata needs **no** poller change — it rides the existing `_handle_import_rdm_terminal` → `backfill_rdm_analyses` enqueue.
 

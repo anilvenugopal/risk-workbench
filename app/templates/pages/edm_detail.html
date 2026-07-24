@@ -38,6 +38,20 @@
       <span class="crumb__sep">·</span>
       <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
       {% endif %}
+      {# manual re-sync (FR-003 as amended 2026-07-23) — re-runs the backfill
+         worker; hidden while the import itself is still in flight #}
+      {% if edm.status == 'ready' %}
+      <span class="crumb__sep">·</span>
+      {% if edm.sync_running %}
+      <button class="btn-sm" type="button" disabled>Syncing…</button>
+      {% else %}
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm" type="submit"
+                title="Re-fetch this EDM's detail from Risk Modeler">Sync</button>
+      </form>
+      {% endif %}
+      {% endif %}
     </div>
   </div>
 
@@ -105,14 +119,31 @@
       it appears here shortly.</div>
     {% elif edm.detail_state == 'failed' %}
     <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
-      The last sync from Risk Modeler failed. The EDM is still <em>ready</em>; the
-      fetch retries via the existing job machinery.</div>
+      The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
+      {% if edm.status == 'ready' %}
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% endif %}
+    </div>
     {% elif edm.detail_state == 'empty' %}
     <div class="state-box">No portfolios in this EDM.</div>
     {% else %}
     <div class="state-box"><strong>Detail not available.</strong><br>
-      Imported before exposure backfill shipped. Re-import to populate its
-      per-portfolio detail.</div>
+      Imported before exposure backfill shipped.
+      {% if edm.status == 'ready' %}
+      Sync now to fetch its per-portfolio detail from Risk Modeler.
+      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
+            style="margin-top: var(--space-2)">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
+      </form>
+      {% else %}
+      Re-import to populate its per-portfolio detail.
+      {% endif %}
+    </div>
     {% endif %}
   </details>
 

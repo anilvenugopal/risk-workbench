@@ -18,20 +18,19 @@ from app.services import edm_service, rwb_job_service
 from app.workers import package_jobs
 from db import execute, execute_one
 
+# Real RM /metrics payloads (sandbox-confirmed shape, data-model §2) — stored
+# verbatim under the snapshot's "metrics" namespace.
 EXPOSURE_A = {
-    "location_count": 8240, "account_count": 1120, "policy_count": 1180,
-    "record_volume": 8240,
-    "perils": ["WS", "EQ"], "sub_perils": ["storm_surge"],
-    "geography": {"regions": ["North America"], "states": ["FL", "TX", "LA"]},
-    "currencies": ["USD"],
-    "tiv": {"amount": 2.8e9, "currency": "USD"},
+    "totalAccounts": 1120, "totalLocations": 8240, "totalPolicies": 1180,
+    "perilsExposed": "WS, EQ",
+    "name": "Primary 2026", "number": "Primary 2026",
+    "geocodeVersion": "23.0", "hazardVersion": "23.0",
 }
 EXPOSURE_B = {
-    "location_count": 3900, "account_count": 720, "policy_count": 760,
-    "record_volume": 3900,
-    "perils": ["WS", "FL"], "sub_perils": ["storm_surge", "sprinkler_leakage"],
-    "geography": {"regions": ["North America"], "states": ["NY", "NJ"]},
-    "currencies": ["USD"],
+    "totalAccounts": 720, "totalLocations": 3900, "totalPolicies": 760,
+    "perilsExposed": "WS, FL",
+    "name": "Excess 2026", "number": "Excess 2026",
+    "geocodeVersion": "23.0", "hazardVersion": "23.0",
 }
 
 
@@ -79,8 +78,12 @@ def test_backfill_upserts_portfolios_with_snapshot_and_as_of(
     assert [r["name"] for r in rows] == ["Excess 2026", "Primary 2026"]
     assert {r["irp_id"] for r in rows} == {"501", "502"}
     by_irp = {r["irp_id"]: r for r in rows}
-    assert json.loads(by_irp["501"]["exposure_detail"]) == EXPOSURE_A
-    assert json.loads(by_irp["502"]["exposure_detail"]) == EXPOSURE_B
+    # namespaced snapshot: /metrics verbatim under "metrics"; no DataBridge summary
+    # seeded → "summary" is null (cells render "—"), never a stale/absent key
+    assert json.loads(by_irp["501"]["exposure_detail"]) == {
+        "metrics": EXPOSURE_A, "summary": None}
+    assert json.loads(by_irp["502"]["exposure_detail"]) == {
+        "metrics": EXPOSURE_B, "summary": None}
     assert all(r["as_of"] is not None for r in rows)
     # the EDM-level last-synced trust signal is stamped on success (FR-052)
     edm = execute_one("SELECT as_of, status FROM irp_edm WHERE id=:i",
@@ -104,14 +107,14 @@ def test_rerun_overwrites_snapshot_in_place_no_duplicates(
 
     # RM's figures change; a redelivery / reconciler re-run of the SAME job body
     # must overwrite exposure_detail/as_of in place — never insert a duplicate.
-    updated = dict(EXPOSURE_A, location_count=9999)
+    updated = dict(EXPOSURE_A, totalLocations=9999)
     fake_irp._portfolios[str(exposure_id)][0]["exposure"] = updated
     job = _backfill_job()
     package_jobs._backfill_edm_detail_body(job["id"])
 
     rows = _portfolio_rows(edm_id)
     assert len(rows) == 1  # UNIQUE(edm_id, irp_id) — no duplicate row
-    assert json.loads(rows[0]["exposure_detail"])["location_count"] == 9999
+    assert json.loads(rows[0]["exposure_detail"])["metrics"]["totalLocations"] == 9999
 
 
 def test_gateway_failure_fails_job_but_edm_stays_ready_and_recoverable(
@@ -159,6 +162,88 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
     out = json.loads(job["output_data"])
     assert out["portfolios"] == 2
     assert out["exposure_failures"] == 1
+
+
+# ── the DataBridge exposure summary (Addendum A T057) ─────────────────────────────
+# One aggregate read per EDM supplies TIV/geography/currency/sub-perils (the RM
+# /metrics ceiling carries none of them). Enrichment only: ANY summary failure
+# degrades to "summary": null — the job still succeeds and metrics still land.
+
+SUMMARY_A = {
+    "portfolio_name": "Primary 2026",
+    "tiv_by_currency": {"USD": 2.8e9},
+    "currencies": ["USD"],
+    "states": ["FL", "TX", "LA"], "countries": ["US"],
+    "sub_perils": ["WS", "SU"],
+}
+
+
+def test_backfill_merges_databridge_summary_per_portfolio(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="502",
+                           name="Excess 2026", exposure=EXPOSURE_B)
+    fake_irp.set_exposure_summary("EDM", {"501": SUMMARY_A})  # 502: no coverage
+
+    package_jobs.run_pending(worker_id="w1")
+
+    by_irp = {r["irp_id"]: r for r in _portfolio_rows(edm_id)}
+    assert json.loads(by_irp["501"]["exposure_detail"]) == {
+        "metrics": EXPOSURE_A, "summary": SUMMARY_A}
+    assert json.loads(by_irp["502"]["exposure_detail"]) == {
+        "metrics": EXPOSURE_B, "summary": None}  # uncovered → null, never absent
+    assert json.loads(_backfill_job()["output_data"])["summary"] == "ok"
+
+
+def test_summary_matches_by_name_when_ids_diverge(iteration2_db, fake_irp, drive):
+    # The DataBridge aggregate keys on portinfo.PORTINFOID, which is only assumed
+    # to equal RM's portfolioId — portfolio_name is the contract's fallback key.
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.set_exposure_summary("EDM", {"9999": SUMMARY_A})  # id mismatch
+
+    package_jobs.run_pending(worker_id="w1")
+
+    rows = _portfolio_rows(edm_id)
+    assert json.loads(rows[0]["exposure_detail"])["summary"] == SUMMARY_A
+
+
+def test_summary_failure_degrades_to_null_and_job_still_succeeds(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.set_exposure_summary("EDM", {"501": SUMMARY_A})
+    fake_irp.raise_on_exposure_summary = True  # missing wheel method / env / SQL
+
+    package_jobs.run_pending(worker_id="w1")
+
+    job = _backfill_job()
+    assert job["status_code"] == "succeeded"  # enrichment only — never fails the job
+    out = json.loads(job["output_data"])
+    assert out["portfolios"] == 1
+    assert out["summary"] == "unavailable"
+    snap = json.loads(_portfolio_rows(edm_id)[0]["exposure_detail"])
+    assert snap["metrics"] == EXPOSURE_A  # metrics landed regardless
+    assert snap["summary"] is None
+
+
+def test_summary_not_fetched_for_zero_portfolio_edm(iteration2_db, fake_irp, drive):
+    _edm_ready(drive, fake_irp, iteration2_db.user_a)  # no portfolios seeded
+    fake_irp.raise_on_exposure_summary = True  # would raise if called
+
+    package_jobs.run_pending(worker_id="w1")
+
+    job = _backfill_job()
+    assert job["status_code"] == "succeeded"
+    assert fake_irp.summary_reads == []  # no pointless DataBridge round-trip
+    assert "summary" not in json.loads(job["output_data"])
 
 
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):

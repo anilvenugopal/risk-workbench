@@ -116,10 +116,12 @@ Log in (dev fixture `admin@example.com`), with the poller + worker running, then
    portfolio per row. The package card's analysis counts now render **populated** (FR-050).
 6. **Submission-page orientation line (US4).** Open the submission. *Expect:* each imported
    EDM's package row shows a **per-EDM aggregate line** (SC-008), extending the spec-003 cards.
-7. **Graceful states (forward-only).** Open an EDM imported **before** this capability (or one
-   whose backfill is pending/failed). *Expect:* the per-portfolio/treaty/aggregate sections show
-   **"detail not available — re-import to populate" / pending** — never an error — and the
-   header still displays; the EDM keeps its `ready` status (SC-006).
+7. **Graceful states + manual Sync (forward-only automatic backfill).** Open an EDM imported
+   **before** this capability (or one whose backfill is pending/failed). *Expect:* the
+   per-portfolio/treaty/aggregate sections show a **"detail not available" / pending** state —
+   never an error — with a **Sync** action; the header still displays; the EDM keeps its
+   `ready` status (SC-006). Click **Sync**: the backfill job re-runs and the sections populate
+   on reload; clicking Sync again while a run is in flight is a no-op ("Syncing…").
 
 ## Done when
 
@@ -129,4 +131,5 @@ Log in (dev fixture `admin@example.com`), with the poller + worker running, then
   stored detail), and **no `poll_*_to_completion`** exists in the new worker/gateway (Article 11).
 - **No `customer`/scope construct** appears on `irp_portfolio`/`irp_treaty`/`irp_analysis` or any
   detail view (Article 6).
-- Backfill is **forward-only** — no bulk sweep, no manual refresh action (FR-003).
+- Automatic backfill is **forward-only** — no bulk sweep; the per-EDM **Sync** action is the
+  only manual path and re-runs the same worker (FR-003, amended 2026-07-23).

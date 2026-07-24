@@ -38,17 +38,29 @@ The **primary unit** of the EDM detail page. Created for the first time this ite
 | `inserted_at`/`updated_at` | DATETIME2 | not null | defaults `GETUTCDATE()` |
 | `inserted_by`/`updated_by` | Uuid | null | FK → `app_user.id` (nullable — worker-written) |
 
-**`exposure_detail` JSON shape** (illustrative; the exact keys mirror the Risk Modeler payload confirmed in R1 — stored verbatim, read defensively):
+**`exposure_detail` JSON shape** (confirmed against the sandbox 2026-07-23 — two namespaced sources, each stored **verbatim**, read defensively):
 ```json
 {
-  "location_count": 12043, "account_count": 318, "policy_count": 402,
-  "record_volume": 12043,
-  "perils": ["EQ", "WS", "FL"], "sub_perils": ["storm_surge", "sprinkler_leakage"],
-  "geography": {"regions": ["North America"], "states": ["FL", "TX", "LA"]},
-  "currencies": ["USD"],
-  "tiv": {"amount": 4.2e9, "currency": "USD"}   // MAY be present (FR-013); absent ⇒ not shown
+  "metrics": {                                  // RM GET .../portfolios/{id}/metrics — verbatim
+    "totalAccounts": 318, "totalLocations": 12043, "totalPolicies": 402,
+    "perilsExposed": "WS, EQ",                  // comma-style string, split for display
+    "name": "usfl_commercial", "number": "usfl_commercial",
+    "description": "...", "owner": "...", "createDate": "...",
+    "geocodeVersion": "23.0", "hazardVersion": "23.0"
+  },
+  "summary": {                                  // DataBridge per-EDM aggregate — verbatim;
+    "portfolio_name": "usfl_commercial",        // null/absent ⇒ summary unavailable ⇒ "—" cells
+    "tiv_by_currency": {"USD": 4200000000.0},
+    "currencies": ["USD"],
+    "states": ["FL", "TX", "LA"], "countries": ["US"],
+    "sub_perils": ["WS", "SU"]
+  }
 }
 ```
+Record volume == `metrics.totalLocations` (FR-013). Rows written before 2026-07-23 hold the flat
+`/metrics` payload (no namespaces); readers fall back to the flat shape and a re-backfill/Sync
+overwrites it. On summary-fetch failure the worker stores `"summary": null` rather than
+preserving a stale prior — the row's `as_of` then never overstates the summary's freshness.
 - **Read-only display** (FR-012/FR-014): no create/edit/split/filter this iteration.
 - **UNIQUE (`edm_id`, `irp_id`)** — the idempotent-upsert key; a re-backfill overwrites `exposure_detail`/`as_of` in place, never inserting a duplicate. Where `irp_id` is unavailable at first write, fall back to **UNIQUE (`edm_id`, `name`)** (RM portfolio names are unique within an EDM). Index `(edm_id)`.
 

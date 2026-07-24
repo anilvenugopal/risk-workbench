@@ -134,6 +134,16 @@ def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
     return _detail(request, edm_id)
 
 
+@router.post("/edms/{edm_id}/sync")
+def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
+    # Manual detail re-sync (FR-003 as amended): enqueues the backfill_edm_detail
+    # worker — the fetch itself never runs on this request path (Article 11).
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=request.state.user.id)
+    return _detail(request, edm_id)
+
+
 @router.post("/edms/{edm_id}/replace-file")
 def replace_file(
     request: Request,

@@ -27,14 +27,15 @@ from app.services.irp_gateway import (
     TreatyDetail,
 )
 
-# A small deterministic exposure payload (RM-shaped, data-model §2) used when a
-# seeded portfolio doesn't specify its own — enough for the rollup/graceful paths.
+# The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
+# used when a seeded portfolio doesn't specify its own. Counts + a perilsExposed
+# STRING — RM returns no TIV/geography/currency/sub-perils here (those come from the
+# DataBridge exposure summary).
 DEFAULT_EXPOSURE = {
-    "location_count": 100, "account_count": 10, "policy_count": 12,
-    "record_volume": 100,
-    "perils": ["EQ"], "sub_perils": [],
-    "geography": {"regions": ["North America"], "states": ["CA"]},
-    "currencies": ["USD"],
+    "totalAccounts": 10, "totalLocations": 100, "totalPolicies": 12,
+    "perilsExposed": "EQ",
+    "name": "portfolio", "number": "portfolio",
+    "geocodeVersion": "23.0", "hazardVersion": "23.0",
 }
 
 
@@ -68,6 +69,11 @@ class FakeIRP:
         self.fail_exposure_for: set[str] = set()
         # recorded detail-read calls for assertions
         self.exposure_reads: list[str] = []
+        # ── DataBridge exposure summary (Addendum A T057) ────────────────────
+        # EDM name -> {portfolioId(str): summary dict} — the per-EDM aggregate
+        self._summaries: dict[str, dict[str, dict]] = {}
+        self.raise_on_exposure_summary = False
+        self.summary_reads: list[str] = []
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -118,6 +124,14 @@ class FakeIRP:
         self._portfolios.setdefault(str(edm_exposure_id), []).append({
             "irp_id": str(irp_id), "name": name,
             "exposure": (exposure if exposure is not None else dict(DEFAULT_EXPOSURE))})
+
+    def set_exposure_summary(self, edm_name: str,
+                             by_portfolio: dict[str, dict]) -> None:
+        """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
+        returns — ``{portfolioId(str): summary dict}`` (contract in
+        docs/IRP_INTEGRATION_FOLLOWUPS.md §6c). Unseeded EDMs return ``{}``."""
+        self._summaries[edm_name] = {str(k): dict(v)
+                                     for k, v in by_portfolio.items()}
 
     def add_treaty(self, *, edm_exposure_id: str | int, irp_id: str | int | None,
                    name: str, attributes: dict | None = None) -> None:
@@ -209,6 +223,12 @@ class FakeIRP:
             if p["irp_id"] == str(portfolio_irp_id):
                 return ExposureDetail(payload=p["exposure"])
         raise RuntimeError(f"fake IRP: unknown portfolio {portfolio_irp_id}")
+
+    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]:
+        self.summary_reads.append(edm_name)
+        if self.raise_on_exposure_summary:
+            raise RuntimeError("fake IRP: forced exposure-summary failure")
+        return self._summaries.get(edm_name, {})
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
         if self.raise_on_search_treaties:

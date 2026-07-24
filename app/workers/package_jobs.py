@@ -289,15 +289,44 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
         return runtime.JobResult.ok(skipped="edm missing")
-    if edm.irp_id is None:
-        return runtime.JobResult.ok(skipped="edm has no exposureId — nothing to fetch")
+    edm_irp_id = edm.irp_id
+    if edm_irp_id is None:
+        # Pre-capability EDMs may lack the exposureId (normally backfilled at
+        # import FINISHED). A manual Sync resolves it by name exactly like the
+        # poller; zero or ambiguous hits keep the graceful skip (R7).
+        try:
+            hits = irp_gateway.search_edms(edm.name)
+        except Exception as exc:  # noqa: BLE001 — resolution is best-effort
+            logger.warning("backfill_edm_detail: exposureId resolution failed "
+                           "for %s (%s): %s", edm_id, edm.name, exc)
+            hits = []
+        if len(hits) != 1:
+            return runtime.JobResult.ok(
+                skipped="edm has no exposureId — nothing to fetch")
+        edm_irp_id = int(hits[0].irp_id)
+        execute_command(
+            "UPDATE irp_edm SET irp_id = :x, updated_at = :now WHERE id = :id",
+            {"x": edm_irp_id, "now": _utcnow(), "id": str(edm_id)},
+            connection="WORKBENCH")
 
     try:
-        portfolios = irp_gateway.list_portfolios(edm_irp_id=int(edm.irp_id))
+        portfolios = irp_gateway.list_portfolios(edm_irp_id=int(edm_irp_id))
     except Exception as exc:  # noqa: BLE001 — enumeration failed → recoverable job failure
         logger.warning("backfill_edm_detail: portfolio enumeration failed for %s: %s",
                        edm_id, exc)
         return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
+
+    # ONE DataBridge aggregate per EDM (TIV/geography/currency/sub-perils —
+    # absent from every RM REST read; Addendum A T057). Enrichment only: ANY
+    # failure (missing wheel method / databridge extra / env / SQL) degrades to
+    # "summary": null — the metrics half of the snapshot must still land.
+    summary_map: dict[str, dict] | None = None
+    if portfolios:
+        try:
+            summary_map = irp_gateway.get_edm_exposure_summary(edm_name=edm.name)
+        except Exception as exc:  # noqa: BLE001 — enrichment only
+            logger.warning("backfill_edm_detail: exposure summary unavailable "
+                           "(edm=%s): %s", edm_id, exc)
 
     now = _utcnow()
     stored = 0
@@ -305,15 +334,25 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     for p in portfolios:
         try:
             exposure = irp_gateway.get_portfolio_exposure(
-                edm_irp_id=int(edm.irp_id), portfolio_irp_id=int(p.irp_id))
+                edm_irp_id=int(edm_irp_id), portfolio_irp_id=int(p.irp_id))
         except Exception as exc:  # noqa: BLE001 — per-portfolio isolation
             logger.warning("backfill_edm_detail: exposure read failed "
                            "(edm=%s portfolio=%s): %s", edm_id, p.irp_id, exc)
             exposure_failures += 1
             continue  # skip — never overwrite a prior good snapshot with nothing
+        # The aggregate keys on portinfo.PORTINFOID (assumed == RM portfolioId);
+        # portfolio_name is the contract's fallback join key if they diverge.
+        summary = (summary_map or {}).get(str(p.irp_id))
+        if summary is None and summary_map:
+            summary = next((s for s in summary_map.values()
+                            if s.get("portfolio_name") == p.name), None)
+        # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
+        # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
+        # never a stale prior, so the row's as_of can't overstate its freshness).
         portfolio_service.upsert_portfolio_detail(
             edm_id=edm_id, irp_id=p.irp_id, name=p.name,
-            exposure_detail=exposure.payload, as_of=now)
+            exposure_detail={"metrics": exposure.payload, "summary": summary},
+            as_of=now)
         stored += 1
 
     if portfolios and exposure_failures and stored == 0:
@@ -326,7 +365,11 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     execute_command(
         "UPDATE irp_edm SET as_of = :now, updated_at = :now WHERE id = :id",
         {"now": now, "id": str(edm_id)}, connection="WORKBENCH")
-    return runtime.JobResult.ok(portfolios=stored, exposure_failures=exposure_failures)
+    out: dict[str, Any] = {"portfolios": stored,
+                           "exposure_failures": exposure_failures}
+    if portfolios:
+        out["summary"] = "ok" if summary_map is not None else "unavailable"
+    return runtime.JobResult.ok(**out)
 
 
 @dramatiq.actor(max_retries=0)
