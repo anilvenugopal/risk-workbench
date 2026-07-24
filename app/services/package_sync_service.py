@@ -63,6 +63,11 @@ class MemberCard:
     name: str
     status: str | None
     source_file_path: str | None
+    # Spec 004 US4 (EDM members only): the per-EDM aggregate orientation line
+    # (FR-041 — same aggregate_exposure rollup as the EDM-page strip; None ⇒
+    # graceful pending, FR-043) and the now-POPULATED analysis counts (FR-050).
+    aggregate: Any = None
+    analysis_counts: Any = None
 
 
 @dataclass
@@ -281,8 +286,11 @@ def _member_card(row: dict, kind: str) -> MemberCard:
 
 def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCard | None:
     """Card data for one package: members + their status chips, and (US5) the all/active/
-    failed job counts scoped to the package's members. Portfolio/analysis areas are left
-    empty (R13); no rolled-up package status (FR-018). ``None`` if the package is gone."""
+    failed job counts scoped to the package's members. Spec 004 US4: each EDM
+    member now carries the per-EDM aggregate orientation line (FR-041 — the same
+    derived rollup as the EDM-page strip; ``None`` ⇒ graceful pending, FR-043)
+    and populated analysis counts (FR-050). No rolled-up package status (FR-018).
+    ``None`` if the package is gone."""
     pid = str(package_id)
     row = execute_one(
         "SELECT id, name, deleted_at FROM package WHERE id = :id",
@@ -294,6 +302,12 @@ def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCa
         edms=[_member_card(m, "edm") for m in _live_members(pid, "irp_edm")],
         rdms=[_member_card(m, "rdm") for m in _live_members(pid, "irp_rdm")],
     )
+    from app.services import analysis_service, portfolio_service  # noqa: PLC0415 — cycle guard
+    for member in card.edms:
+        member.aggregate = portfolio_service.aggregate_exposure(
+            portfolio_service.list_portfolios(edm_id=member.id))
+        member.analysis_counts = analysis_service.analysis_counts(
+            edm_id=member.id)
     if with_counts:
         from app.services import job_query  # noqa: PLC0415 — avoid an import cycle
         card.job_counts = job_query.package_job_counts(pid)

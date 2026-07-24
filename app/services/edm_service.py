@@ -27,7 +27,7 @@ from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import ConcurrencyConflict
 from app.services.package_service import SubmissionRef
-from app.services.portfolio_service import PortfolioRow
+from app.services.portfolio_service import EdmAggregate, PortfolioRow
 from app.services.treaty_service import TreatyRow
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
@@ -220,6 +220,9 @@ class EdmDetail:
     # portfolio in `portfolios` additionally carries its LINKED analyses
     # (bucketed by the R9 resolution — group/unresolved stay standalone-only).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
+    # US4 (FR-040/FR-042): the DERIVED quick-orientation rollup — None ⇒ no
+    # snapshot yet ⇒ the strip renders the pending state (FR-043).
+    aggregate: EdmAggregate | None = None
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
@@ -301,6 +304,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
+        aggregate=portfolio_service.aggregate_exposure(portfolios),
     )
 
 

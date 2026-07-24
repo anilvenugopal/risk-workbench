@@ -115,6 +115,78 @@ def _parse_snapshot(raw: Any) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+@dataclass
+class EdmAggregate:
+    """The quick-orientation EDM rollup (US4 — FR-040/FR-041/FR-042), derived
+    from the per-portfolio snapshots at read time (R4): SUM counts (record
+    volume == locations, FR-013), UNION perils/sub-perils, COMBINE geography +
+    the currency set. Never stored; never a request-path fetch."""
+    portfolio_count: int
+    with_snapshot: int                     # portfolios that contributed figures
+    locations: int | None = None
+    accounts: int | None = None
+    policies: int | None = None
+    perils: list[str] = None               # union, sorted
+    sub_perils: list[str] = None
+    states: list[str] = None
+    countries: list[str] = None
+    currencies: list[str] = None
+    tiv_by_currency: dict[str, float] = None  # per-currency sums (never cross-summed)
+
+
+def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
+    """Derive the EDM-aggregate (R4) — a pure function over the already-fetched
+    snapshots (no DB, no Risk Modeler). ``None`` when no portfolio carries a
+    snapshot → the caller renders the pending/unavailable state (FR-042/FR-043).
+    Reads both snapshot shapes defensively: the namespaced {"metrics","summary"}
+    form and the flat pre-2026-07-23 /metrics payload."""
+    snaps = [p.exposure_detail for p in portfolios if p.exposure_detail]
+    if not snaps:
+        return None
+
+    counts: dict[str, int | None] = {"totalLocations": None,
+                                     "totalAccounts": None,
+                                     "totalPolicies": None}
+    perils: set[str] = set()
+    sub_perils: set[str] = set()
+    states: set[str] = set()
+    countries: set[str] = set()
+    currencies: set[str] = set()
+    tiv: dict[str, float] = {}
+    for snap in snaps:
+        metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) \
+            else snap  # flat fallback (pre-capability rows)
+        for key in counts:
+            value = metrics.get(key)
+            if isinstance(value, (int, float)):
+                counts[key] = int(value) + (counts[key] or 0)
+        perils.update(p.strip() for p in str(metrics.get("perilsExposed") or "")
+                      .split(",") if p.strip())
+        summary = snap.get("summary") if isinstance(snap.get("summary"), dict) \
+            else {}
+        sub_perils.update(v for v in (summary.get("sub_perils") or []) if v)
+        states.update(v for v in (summary.get("states") or []) if v)
+        countries.update(v for v in (summary.get("countries") or []) if v)
+        currencies.update(v for v in (summary.get("currencies") or []) if v)
+        for cur, amount in (summary.get("tiv_by_currency") or {}).items():
+            if isinstance(amount, (int, float)):
+                tiv[cur] = tiv.get(cur, 0.0) + float(amount)
+
+    return EdmAggregate(
+        portfolio_count=len(portfolios),
+        with_snapshot=len(snaps),
+        locations=counts["totalLocations"],
+        accounts=counts["totalAccounts"],
+        policies=counts["totalPolicies"],
+        perils=sorted(perils),
+        sub_perils=sorted(sub_perils),
+        states=sorted(states),
+        countries=sorted(countries),
+        currencies=sorted(currencies),
+        tiv_by_currency=tiv,
+    )
+
+
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty). No row scoping (Article 6);
@@ -130,4 +202,5 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         as_of=r["as_of"]) for r in rows]
 
 
-__all__ = ["PortfolioRow", "upsert_portfolio_detail", "list_portfolios"]
+__all__ = ["PortfolioRow", "EdmAggregate", "upsert_portfolio_detail",
+           "list_portfolios", "aggregate_exposure"]

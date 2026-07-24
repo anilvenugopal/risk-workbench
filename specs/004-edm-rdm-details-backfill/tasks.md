@@ -148,16 +148,16 @@ Single server-rendered web app extending the existing `app/` tree (FastAPI + Jin
 
 ### Tests for User Story 4 (write first — must FAIL before implementation) ⚠️
 
-- [ ] T044 [P] [US4] Write `tests/unit/test_edm_detail_rollup.py` — `aggregate_exposure` derives sum counts / union perils+sub-perils / combine geography + currency set / portfolio count from per-portfolio snapshots; returns `None` when no snapshot; `get_edm_detail` surfaces it; graceful empty renders the pending state (FR-040/FR-042/FR-043) (FAIL first)
+- [X] T044 [P] [US4] Write `tests/unit/test_edm_detail_rollup.py` — `aggregate_exposure` derives sum counts / union perils+sub-perils / combine geography + currency set / portfolio count from per-portfolio snapshots; returns `None` when no snapshot; `get_edm_detail` surfaces it; graceful empty renders the pending state (FR-040/FR-042/FR-043) (FAIL first)
 
 ### Implementation for User Story 4
 
-- [ ] T045 [US4] Implement `portfolio_service.aggregate_exposure(portfolios) -> EdmAggregate | None` in `app/services/portfolio_service.py` — pure function over the already-fetched snapshots (no DB, no RM); `None` when no snapshot (research R4)
-- [ ] T046 [US4] Extend `edm_service.get_edm_detail` in `app/services/edm_service.py` to include the derived `aggregate` (`aggregate_exposure(portfolios)`); pending state when `None`
-- [ ] T047 [P] [US4] Create `app/templates/partials/edm_aggregate_strip.html` — compact rollup strip above the per-portfolio table (total counts, portfolio count, union of perils, combined geography, currency set, total record volume); extend `app/static/css/details.css`; wire into the aggregate-strip slot in `edm_detail.html`
-- [ ] T048 [US4] Extend `package_sync_service.get_package_cards` in `app/services/package_sync_service.py` — add the per-EDM aggregate orientation line (FR-041, from the same `aggregate_exposure` rollup, graceful pending when no snapshot) and the now-**populated** analysis counts (FR-050, via `analysis_service.analysis_counts`)
-- [ ] T049 [US4] Extend `app/templates/partials/package_card.html` — render the per-EDM aggregate line + populated analysis counts (extends the spec-003 cards; graceful pending line when an EDM has no snapshot)
-- [ ] T050 [US4] Run `pytest tests/unit/test_edm_detail_rollup.py` green; manually verify quickstart steps 3 and 6 (EDM aggregate strip; submission per-EDM line)
+- [X] T045 [US4] Implement `portfolio_service.aggregate_exposure(portfolios) -> EdmAggregate | None` in `app/services/portfolio_service.py` — pure function over the already-fetched snapshots (no DB, no RM); `None` when no snapshot (research R4)
+- [X] T046 [US4] Extend `edm_service.get_edm_detail` in `app/services/edm_service.py` to include the derived `aggregate` (`aggregate_exposure(portfolios)`); pending state when `None`
+- [X] T047 [P] [US4] Create `app/templates/partials/edm_aggregate_strip.html` — compact rollup strip above the per-portfolio table (total counts, portfolio count, union of perils, combined geography, currency set, total record volume); extend `app/static/css/details.css`; wire into the aggregate-strip slot in `edm_detail.html`
+- [X] T048 [US4] Extend `package_sync_service.get_package_cards` in `app/services/package_sync_service.py` — add the per-EDM aggregate orientation line (FR-041, from the same `aggregate_exposure` rollup, graceful pending when no snapshot) and the now-**populated** analysis counts (FR-050, via `analysis_service.analysis_counts`)
+- [X] T049 [US4] Extend `app/templates/partials/package_card.html` — render the per-EDM aggregate line + populated analysis counts (extends the spec-003 cards; graceful pending line when an EDM has no snapshot)
+- [X] T050 [US4] Run `pytest tests/unit/test_edm_detail_rollup.py` green; manually verify quickstart steps 3 and 6 (EDM aggregate strip; submission per-EDM line)
 
 **Checkpoint**: All four user stories independently functional.
 

@@ -140,6 +140,14 @@
   margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
+/* per-EDM aggregate orientation line (spec 004 US4 — FR-041) */
+.member-agg {
+  font-size: var(--fs-caption); color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.member-agg strong { color: var(--text-primary); font-weight: var(--fw-semibold); }
+.member-agg a, .member-detail a { color: var(--color-brand); font-weight: var(--fw-medium); }
+.member-row__name a:hover { text-decoration: underline; }
 
 /* ── status chips (import/delete lifecycle) ───────────────────────────────── */
 .status-chip {
