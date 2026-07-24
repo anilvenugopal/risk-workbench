@@ -25,7 +25,7 @@
 {%- set cur = a.get('currency') -%}
 {%- set share = a.get('percentageRiShare') -%}
 {%- set limit = a.get('occurrenceLimit') if a.get('occurrenceLimit') is not none else a.get('riskLimit') -%}
-<details class="drow"{% if t.as_of %} title="synced {{ t.as_of }}"{% endif %}>
+<details class="drow">
   <summary>
     <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">

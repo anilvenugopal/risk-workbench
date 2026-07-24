@@ -24,7 +24,7 @@
 {%- set m = d.get('metrics') or d -%}
 {%- set s = d.get('summary') or {} -%}
 {%- set n_linked = p.analyses | length -%}
-<details class="drow" id="portfolio-{{ p.id }}"{% if p.as_of %} title="synced {{ p.as_of }}"{% endif %}>
+<details class="drow" id="portfolio-{{ p.id }}">
   <summary>
   <span class="l">
     <span class="dt-name"><span class="dt-caret">▸</span>
