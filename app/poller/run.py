@@ -76,12 +76,14 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     rdm_ids = [str(r["id"]) for r in rdm_rows]
     if not rdm_ids:
         return  # EDM-only package — nothing to apply
-    rwb_job_service.enqueue_rwb_job(
+    jid = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"], rwb_job_type="upload_rdm",
         input_data={"rdm_ids": rdm_ids, "edm_ids": [str(job["irp_edm_id"])],
                     "package_id": str(job["package_id"])},
         conn=conn,
     )
+    if jid:
+        logger.info("chained upload_rdm head (%d rdm(s) to apply)", len(rdm_ids))
 
 
 def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
@@ -90,7 +92,7 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
     up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
     itself must NOT flip the RDM to ``ready``. Any other terminal → ``error`` here."""
     if status == "FINISHED":
-        rwb_job_service.enqueue_rwb_job(
+        jid = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
             input_data={
@@ -100,6 +102,8 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
                 "apply_irp_id": job["irp_id"]},
             conn=conn,
         )
+        if jid:
+            logger.info("chained backfill_rdm_analyses head")
     else:
         rdm_service.rollup_on_terminal(
             conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)

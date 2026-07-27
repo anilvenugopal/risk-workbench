@@ -18,6 +18,7 @@ services. Two request-path operations, both **non-blocking** (FR-042 / SC-014):
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Sequence
@@ -31,6 +32,8 @@ from app.services.package_service import clean_member_name
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one, get_connection
+
+logger = logging.getLogger(__name__)
 
 # entity statuses that mean "in flight or done" — a re-sync leaves these alone.
 _LOCKED = ("importing", "ready")
@@ -137,6 +140,8 @@ def save_package(
 
     if _member_count(pid) == 0:
         raise EmptyPackageError("A package must have at least one member.")
+    logger.info("package %s %s by analyst %s (%d member(s) added)",
+                pid, "created" if creating else "updated", actor, len(specs))
 
     # Collision check (outside the txn — it reaches the gateway). Non-blocking (R8).
     warnings: list[MemberCollision] = []
@@ -171,6 +176,7 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
 
     rdm_ids = [str(r["id"]) for r in rdms]
 
+    heads = 0
     for edm in edms:
         edm_id = str(edm["id"])
         if edm["status"] not in _LOCKED:
@@ -190,6 +196,7 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
                 rwb_job_type="upload_edm",
                 input_data={"edm_id": edm_id, "package_id": pid}, actor_id=actor)
             dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
+            heads += 1
         elif edm["status"] == "ready" and rdm_ids:
             # EDM already imported (e.g. RDMs added after) → apply the package RDMs
             # to it directly; the body is idempotent per (EDM, RDM) pair.
@@ -199,6 +206,9 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
                 input_data={"rdm_ids": rdm_ids, "edm_ids": [edm_id],
                             "package_id": pid}, actor_id=actor)
             dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
+            heads += 1
+    logger.info("package %s sync requested by analyst %s (%d upload head(s))",
+                pid, actor, heads)
 
 
 def delete_package(*, package_id: Any, actor_id: Any) -> None:
@@ -210,6 +220,7 @@ def delete_package(*, package_id: Any, actor_id: Any) -> None:
     actor = str(actor_id)
     rdms = _live_members(pid, "irp_rdm")
     edms = _live_members(pid, "irp_edm")
+    heads = 0
     if rdms:
         for rdm in rdms:
             job_id = rwb_job_service.ensure_pending_rwb_job(
@@ -218,6 +229,7 @@ def delete_package(*, package_id: Any, actor_id: Any) -> None:
                 input_data={"rdm_id": str(rdm["id"]), "package_id": pid},
                 actor_id=actor)
             dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="delete_rdm")
+            heads += 1
     elif edms:
         for edm in edms:
             job_id = rwb_job_service.ensure_pending_rwb_job(
@@ -226,8 +238,11 @@ def delete_package(*, package_id: Any, actor_id: Any) -> None:
                 input_data={"edm_id": str(edm["id"]), "package_id": pid},
                 actor_id=actor)
             dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="delete_edm")
+            heads += 1
     else:
         finalize_package(package_id=pid)  # nothing live → soft-delete the shell
+    logger.info("package %s delete requested by analyst %s (%d delete head(s))",
+                pid, actor, heads)
 
 
 def finalize_package(*, package_id: Any, conn=None) -> bool:
@@ -259,6 +274,8 @@ def finalize_package(*, package_id: Any, conn=None) -> bool:
         c.execute(text("UPDATE irp_rdm SET deleted_at = :now, updated_at = :now "
                        "WHERE package_id = :p AND deleted_at IS NULL"),
                   {"now": now, "p": pid})
+        if rows:
+            logger.info("package %s finalized (soft-deleted with members)", pid)
         return rows > 0
 
 
