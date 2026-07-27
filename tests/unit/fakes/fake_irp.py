@@ -8,6 +8,7 @@ deterministically. Tests drive job outcomes explicitly:
     irp_gateway.configure(fake)
     res = fake.submit_edm_import(name="A", source_file_path="/x.bak")
     assert fake.get_import_job(res.irp_id).status == "QUEUED"
+    fake.run(res.irp_id)                    # → RUNNING
     fake.finish(res.irp_id)                 # → FINISHED
     fake.fail(res.irp_id)                   # → FAILED
 
@@ -66,6 +67,9 @@ class FakeIRP:
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
             "source_rdm_name": source_rdm_name, "exposure_name": exposure_name})
+
+    def run(self, irp_id: str) -> None:
+        self.jobs[irp_id] = "RUNNING"
 
     def finish(self, irp_id: str, result: dict | None = None) -> None:
         self.jobs[irp_id] = "FINISHED"

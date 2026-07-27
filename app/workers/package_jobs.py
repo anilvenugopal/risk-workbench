@@ -111,6 +111,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         irp_id=res.irp_id, resource_uri=res.resource_uri,
         payload=res.payload, response=res.response)
     edm_service.mark_importing(edm_id=edm_id)
+    logger.info("import_edm submitted for edm=%s (irp_id=%s)", edm_id, res.irp_id)
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
@@ -183,6 +184,8 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                 resource_uri=res.resource_uri, payload=res.payload,
                 response=res.response)
             rdm_service.mark_importing(rdm_id=rdm_id)
+            logger.info("import_rdm submitted (rdm=%s edm=%s irp_id=%s)",
+                        rdm_id, edm_id, res.irp_id)
             submitted += 1
     if failed and submitted == 0:
         return runtime.JobResult.fail(
@@ -257,6 +260,8 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             # Combined rollup: irp_rdm → ready once all its applies are FINISHED.
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
+    logger.info("captured %d analysis row(s) for rdm=%s edm=%s",
+                len(hits), rdm_id, edm_id)
     return {"captured": len(hits)}
 
 
@@ -332,6 +337,8 @@ def _delete_rdm_body(rwb_job_id: Any) -> dict:
                 package_sync_service.finalize_package(package_id=package_id, conn=conn)
     for jid in dispatch_edm_ids:
         dispatch.dispatch(rwb_job_id=jid, rwb_job_type="delete_edm")
+    logger.info("rdm %s deleted (%d analysis delete(s) in RM, %d delete_edm head(s))",
+                rdm_id, deleted, len(dispatch_edm_ids))
     return {"deleted_rdm": str(rdm_id), "analyses_deleted": deleted}
 
 
@@ -364,6 +371,7 @@ def _delete_edm_body(rwb_job_id: Any) -> runtime.JobResult:
             with conn.begin():
                 edm_service.set_deleted(conn, edm_id=edm_id)
                 package_sync_service.finalize_package(package_id=package_id, conn=conn)
+        logger.info("edm %s deleted inline (never imported to RM)", edm_id)
         return runtime.JobResult.ok(deleted_edm=str(edm_id), no_rm=True)
 
     try:
@@ -383,6 +391,7 @@ def _delete_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         package_id=package_id, irp_job_type="delete_edm", irp_edm_id=edm_id,
         irp_id=res.irp_id, resource_uri=res.resource_uri, payload=res.payload,
         response=res.response)
+    logger.info("delete_edm submitted for edm=%s (irp_id=%s)", edm_id, res.irp_id)
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 

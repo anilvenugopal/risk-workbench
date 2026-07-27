@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
 from sqlalchemy import text
 
+from app import log_context
 from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _utcnow
@@ -79,14 +81,22 @@ def upsert_heartbeat(*, rwb_job_id: Any, worker_id: str,
 class _Heartbeat:
     """Daemon thread that upserts the job's heartbeat every interval until stopped."""
 
-    def __init__(self, *, rwb_job_id: Any, worker_id: str, interval_secs: int) -> None:
+    def __init__(self, *, rwb_job_id: Any, worker_id: str, interval_secs: int,
+                 correlation_id: str | None = None) -> None:
         self._rwb_job_id = rwb_job_id
         self._worker_id = worker_id
+        self._correlation_id = correlation_id
         self._interval = max(1, interval_secs)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
 
     def _run(self) -> None:
+        # A new thread starts with an empty contextvars context — re-bind here so
+        # the failure line below carries the job's ids. No clear needed: the
+        # context dies with the thread.
+        log_context.bind(rwb_job_id=str(self._rwb_job_id),
+                         worker_id=self._worker_id,
+                         correlation_id=self._correlation_id)
         # __enter__ already beat once on the caller's thread (t=0), so wait a full
         # interval before the first daemon-thread beat (cadence: t=interval, 2·interval, …).
         # A job that finishes within one interval never opens a connection on this
@@ -127,25 +137,46 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
     if not rwb_job_service.claim_rwb_job(rwb_job_id=rwb_job_id, worker_id=worker_id):
         logger.debug("rwb_job %s already claimed — skipping", rwb_job_id)
         return False
-    with _Heartbeat(rwb_job_id=rwb_job_id, worker_id=worker_id,
-                    interval_secs=settings.rwb_heartbeat_interval_secs):
-        try:
-            result = body()
-        except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
-            logger.exception("rwb_job %s body failed", rwb_job_id)
-            rwb_job_service.complete_rwb_job(
-                rwb_job_id=rwb_job_id, status="failed", error_detail=str(exc))
-            return True
-        if isinstance(result, JobResult):
-            if result.status == "failed":
-                logger.warning("rwb_job %s failed: %s", rwb_job_id, result.error_detail)
-            rwb_job_service.complete_rwb_job(
-                rwb_job_id=rwb_job_id, status=result.status,
-                output_data=result.output, error_detail=result.error_detail)
-        else:
-            rwb_job_service.complete_rwb_job(
-                rwb_job_id=rwb_job_id, status="succeeded", output_data=result or {})
-    return True
+    # claim keeps its bool contract; a separate read supplies the log context
+    # (correlation_id inherited from the enqueuing request/chain — issue #28).
+    row = rwb_job_service.get_rwb_job(rwb_job_id=rwb_job_id) or {}
+    token = log_context.bind(
+        correlation_id=row.get("correlation_id"), rwb_job_id=str(rwb_job_id),
+        rwb_job_type=row.get("rwb_job_type"), worker_id=worker_id)
+    started = time.monotonic()
+
+    def _finished(status: str) -> None:
+        log_context.add(duration_ms=round((time.monotonic() - started) * 1000, 1))
+        logger.info("rwb_job %s", status)
+
+    try:
+        logger.info("rwb_job claimed (attempt %s)", row.get("attempt_count"))
+        with _Heartbeat(rwb_job_id=rwb_job_id, worker_id=worker_id,
+                        interval_secs=settings.rwb_heartbeat_interval_secs,
+                        correlation_id=row.get("correlation_id")):
+            try:
+                result = body()
+            except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
+                logger.exception("rwb_job %s body failed", rwb_job_id)
+                rwb_job_service.complete_rwb_job(
+                    rwb_job_id=rwb_job_id, status="failed", error_detail=str(exc))
+                _finished("failed")
+                return True
+            if isinstance(result, JobResult):
+                if result.status == "failed":
+                    logger.warning("rwb_job %s failed: %s",
+                                   rwb_job_id, result.error_detail)
+                rwb_job_service.complete_rwb_job(
+                    rwb_job_id=rwb_job_id, status=result.status,
+                    output_data=result.output, error_detail=result.error_detail)
+                _finished(result.status)
+            else:
+                rwb_job_service.complete_rwb_job(
+                    rwb_job_id=rwb_job_id, status="succeeded", output_data=result or {})
+                _finished("succeeded")
+        return True
+    finally:
+        log_context.clear(token)
 
 
 __all__ = [
