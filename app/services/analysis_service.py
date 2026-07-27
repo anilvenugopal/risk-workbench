@@ -30,15 +30,11 @@ Read-only; no loss numbers (FR-033); no row scoping (Article 6).
 
 from __future__ import annotations
 
-import json
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services._common import _uid
+from app.services._common import _parse_json_dict, _uid
 from db import execute
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -117,14 +113,7 @@ class AnalysisCounts:
 
 
 def _parse_settings(raw: Any) -> dict | None:
-    if not raw:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        logger.warning("unparseable settings_metadata snapshot — rendering blank")
-        return None
-    return parsed if isinstance(parsed, dict) else None
+    return _parse_json_dict(raw, "settings_metadata")
 
 
 def _first(payload: dict, *keys: str) -> Any:
@@ -236,7 +225,10 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 existing.settings = settings
                 existing.display = _to_display(settings)
         if existing.portfolio is None and resolved is not None:
-            # prefer the handle that actually resolves (ui.md §4 link cell)
+            # prefer the handle that actually resolves (ui.md §4 link cell) —
+            # re-point the WHOLE representative, not just the display fields
+            existing.id = _uid(r["id"])
+            existing.exposure_resource_id = r["exposure_resource_id"]
             existing.portfolio = resolved
             existing.edm_id = _uid(r["edm_id"])
             existing.edm_name = r["edm_name"]
@@ -296,21 +288,13 @@ def bucket_by_portfolio(
     return buckets
 
 
-def analysis_counts(*, package_id: Any | None = None,
-                    edm_id: Any | None = None) -> AnalysisCounts:
-    """FR-050: populated counts for the package card / EDM detail. ``total``
-    dedups on (rdm_id, irp_id) — one per broker analysis, not per handle;
-    ``linked`` counts distinct analyses whose pointer resolves (non-group)."""
-    where = "a.deleted_at IS NULL AND a.rdm_id IS NOT NULL"
-    params: dict[str, Any] = {}
-    if package_id is not None:
-        where += " AND a.package_id = :p"
-        params["p"] = str(package_id)
-    if edm_id is not None:
-        where += " AND a.edm_id = :e"
-        params["e"] = str(edm_id)
+def analysis_counts(*, edm_id: Any) -> AnalysisCounts:
+    """FR-050: populated counts for one EDM (the package card renders these
+    per member, the EDM detail directly). ``total`` dedups on (rdm_id, irp_id)
+    — one per broker analysis, not per handle; ``linked`` counts distinct
+    analyses whose pointer resolves (non-group)."""
     rows = execute(
-        f"""
+        """
         SELECT a.rdm_id, a.irp_id, a.is_group,
                CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END AS resolved
         FROM irp_analysis a
@@ -318,9 +302,10 @@ def analysis_counts(*, package_id: Any | None = None,
                ON pf.edm_id = a.edm_id
               AND pf.irp_id = a.exposure_resource_id
               AND pf.deleted_at IS NULL
-        WHERE {where}
+        WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
+          AND a.edm_id = :e
         """,
-        params, connection="WORKBENCH")
+        {"e": str(edm_id)}, connection="WORKBENCH")
     # Dedup app-side on (rdm_id, irp_id) — the handle → analysis collapse (R8);
     # an analysis is 'linked' when ANY handle resolves. Portable (no dialect
     # string-concat in aggregates); the per-view row count is small.

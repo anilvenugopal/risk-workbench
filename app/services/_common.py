@@ -9,6 +9,7 @@ services (irp_portfolio / irp_treaty) share.
 from __future__ import annotations
 
 import json
+import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -16,6 +17,8 @@ from typing import Any
 from sqlalchemy import text
 
 from db import get_connection, is_unique_violation
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -77,7 +80,28 @@ def _snapshot_upsert(conn, params: dict, *, update_by_irp: str,
         if params["irp"] is not None and conn.execute(
                 text(update_by_irp), params).rowcount:
             return
-        conn.execute(text(update_by_name), params)
+        if conn.execute(text(update_by_name), params).rowcount:
+            return
+        # Neither recovery update matched — e.g. SQL Server treats two NULL
+        # irp_ids as equal, so a second id-less row violates the constraint yet
+        # matches nothing by name. Re-raise: a loud, recoverable job failure
+        # beats silently dropping the row.
+        raise
 
 
-__all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert"]
+def _parse_json_dict(raw: Any, what: str) -> dict | None:
+    """A stored JSON snapshot column parsed to a dict, ``None`` on NULL /
+    unparseable / non-dict content — the read models render the graceful empty
+    state instead of erroring (R2)."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        logger.warning("unparseable %s snapshot — rendering empty", what)
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+__all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
+           "_parse_json_dict"]

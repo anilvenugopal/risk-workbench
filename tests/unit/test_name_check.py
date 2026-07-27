@@ -73,3 +73,19 @@ def test_ttl_expiry_requeries(fake_irp, monkeypatch):
     name_check.check_edm_name("Fresh")
     name_check.check_edm_name("Fresh")  # entry already expired → gateway again
     assert len(fake_irp.search_calls) == 2
+
+
+def test_cache_bound_evicts_and_never_grows_past_max(fake_irp, monkeypatch):
+    monkeypatch.setattr(name_check, "_MAX_ENTRIES", 2)
+    for name in ("A", "B", "C", "D"):
+        name_check.check_edm_name(name)
+    assert len(name_check._cache) <= 2  # bound holds (soonest-to-expire evicted)
+    # ... and expired entries are preferred for eviction over live ones.
+    monkeypatch.setattr(settings, "name_check_cache_ttl_secs", 0)
+    name_check.clear_cache()
+    name_check.check_edm_name("expired-1")   # TTL 0 → instantly stale
+    monkeypatch.setattr(settings, "name_check_cache_ttl_secs", 30)
+    name_check.check_edm_name("live-1")      # evicts the expired entry
+    name_check.check_edm_name("live-2")
+    assert ("edm", "expired-1") not in name_check._cache
+    assert len(name_check._cache) <= 2

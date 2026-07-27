@@ -7,8 +7,9 @@ detail page's Sync button re-runs ``backfill_edm_detail`` on demand.
 ``_latest_backfill_status`` reads BOTH that key and the poller's
 ``irp_job``-keyed rows (newest ``updated_at`` wins) so ``detail_state`` and
 ``EdmDetail.sync_running`` stay truthful whichever path ran last. The worker
-name-resolves a missing exposureId (pre-capability EDMs) exactly like the
-poller. Routes: ``POST /edms/{edm_id}/sync`` (CSRF; HTMX swap of the live
+name-resolves a missing exposureId (pre-capability EDMs) — stricter than the
+poller: zero or ambiguous hits skip gracefully rather than taking the newest.
+Routes: ``POST /edms/{edm_id}/sync`` (CSRF; HTMX swap of the live
 ``#edm-detail`` body, PRG fallback) + ``GET /edms/{edm_id}/body`` (the
 self-terminating poll target, package-card pattern).
 """
@@ -372,6 +373,29 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     # browser's local timezone (h:mm:ss AM/PM), re-run after every HTMX swap.
     assert '<time data-utc="2026-07-24 10:00:00"' in html
     assert ">Sync</button>" in html  # the button is offered again, enabled
+
+
+def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
+    # Re-syncing an already-populated page: a 3s outerHTML swap would collapse
+    # every <details> the analyst opened, so the poll target answers 204 (htmx
+    # swaps nothing, the poll keeps ticking) until the sync lands — then the
+    # fresh body renders exactly once (trigger gone, poll ends).
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(detail_state="populated",
+                                                   sync_running=True,
+                                                   as_of="2026-07-24 10:00:00"))
+    r = _client().get("/edms/edm-1/body")
+    assert r.status_code == 204
+
+    # The sync POST itself still renders the body — it wires the poll up.
+    monkeypatch.setattr(edm_service, "sync_detail", lambda **kw: "job-1")
+    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm", lambda **kw: [])
+    from app.auth.csrf import generate_csrf_token
+    r = _client().post("/edms/edm-1/sync",
+                       data={"csrf_token": generate_csrf_token()},
+                       headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    assert "every 3s" in r.text
 
 
 def test_body_poll_partial_live_while_importing(monkeypatch):

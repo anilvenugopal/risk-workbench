@@ -222,7 +222,8 @@ _INSERT_ANALYSIS_IF_ABSENT = """
 
 # The spec-004 detail overwrite (idempotent in place, R2): settings_metadata +
 # is_group only when the metadata fetch succeeded (never null a prior good
-# snapshot on a failed re-run); the promoted pointer is always refreshed.
+# snapshot on a failed re-run); the same rule guards the promoted pointer —
+# a failed re-read that learned nothing must not null a prior good pointer.
 _UPDATE_ANALYSIS_DETAIL = """
     UPDATE irp_analysis
     SET settings_metadata = :sm, is_group = :grp, exposure_resource_id = :x,
@@ -337,7 +338,9 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                             **key,
                             "sm": (json.dumps(meta.payload) if meta.payload else None),
                             "grp": (1 if meta.is_group else 0)})
-                    else:
+                    elif pointer is not None:
+                        # metadata read failed — refresh the pointer only when
+                        # the search hit actually carried one
                         conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
             # Combined rollup: irp_rdm → ready once all its applies are FINISHED;
             # stamp the RDM's last-synced trust signal alongside (FR-052).
@@ -386,8 +389,11 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     edm_irp_id = edm.irp_id
     if edm_irp_id is None:
         # Pre-capability EDMs may lack the exposureId (normally backfilled at
-        # import FINISHED). A manual Sync resolves it by name exactly like the
-        # poller; zero or ambiguous hits keep the graceful skip (R7).
+        # import FINISHED). A manual Sync resolves it by name — but stricter
+        # than the poller: the poller takes the newest of multiple hits (it
+        # KNOWS the just-created one is newest), while here ambiguity means we
+        # can't tell which entity is ours, so zero or >1 hits keep the graceful
+        # skip (R7).
         try:
             hits = irp_gateway.search_edms(edm.name)
         except Exception as exc:  # noqa: BLE001 — resolution is best-effort

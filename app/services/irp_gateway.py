@@ -266,10 +266,16 @@ class _RealGateway:
                                portfolio_irp_id: int) -> ExposureDetail:
         # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics —
         # needs BOTH ids (confirmed vs wheel 0.2.1; IRP_INTEGRATION_FOLLOWUPS.md).
-        # Payload stored verbatim as the JSON snapshot (R2).
+        # Payload stored verbatim as the JSON snapshot (R2). A non-dict response
+        # is a FAILED read, never an empty success — the worker's per-portfolio
+        # except must skip it rather than overwrite a prior good snapshot.
         data = self._client().portfolio.get_portfolio_metadata(
             edm_irp_id, portfolio_irp_id)
-        return ExposureDetail(payload=data if isinstance(data, dict) else {})
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"unexpected portfolio metrics shape for {portfolio_irp_id}: "
+                f"{type(data).__name__}")
+        return ExposureDetail(payload=data)
 
     def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]:
         # Per-EDM DataBridge SQL aggregate (TIV/geography/currency/sub-perils —
@@ -310,7 +316,12 @@ class _RealGateway:
         # stay only as fallback for payloads that omit isGroup
         # (IRP_INTEGRATION_FOLLOWUPS.md §7).
         data = self._client().analysis.get_analysis_by_id(analysis_id)
-        payload = data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            # A failed read, never an empty success — the worker counts it as a
+            # metadata failure and leaves the stored snapshot alone.
+            raise ValueError(f"unexpected analysis metadata shape for "
+                             f"{analysis_id}: {type(data).__name__}")
+        payload = data
         rid = payload.get("exposureResourceId")
         is_group = payload.get("isGroup")
         if not isinstance(is_group, bool):

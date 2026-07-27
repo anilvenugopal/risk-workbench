@@ -251,6 +251,43 @@ def test_backfill_metadata_fetch_failure_leaves_fields_null_not_error(
     assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
 
 
+def test_failed_metadata_reread_preserves_prior_pointer(
+        iteration2_db, fake_irp, drive):
+    """The never-null-on-a-failed-re-run invariant guards the pointer too: a
+    re-sync whose metadata read fails AND whose search hit carries no pointer
+    must leave a previously promoted exposure_resource_id in place — not wipe
+    the FR-037 portfolio link until some later successful sync."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    def _pointer() -> str | None:
+        return execute("SELECT exposure_resource_id FROM irp_analysis "
+                       "WHERE rdm_id=:r", {"r": res.entity_id},
+                       connection="WORKBENCH")[0]["exposure_resource_id"]
+
+    assert _pointer() == "501"
+
+    # The flaky re-sync: metadata read fails, and the hit lost its pointer.
+    fake_irp._analyses[0]["exposure_resource_id"] = None
+    fake_irp._analyses[0]["exposure_resource_type"] = None
+    fake_irp.raise_on_analysis_metadata = True
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    package_jobs._backfill_rdm_analyses_body(head)
+
+    assert _pointer() == "501"  # survived the failed re-read
+
+
 def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
     e1 = _edm(drive, a, "E1", "edm1.bak")

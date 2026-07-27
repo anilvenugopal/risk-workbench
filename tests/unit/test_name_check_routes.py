@@ -224,6 +224,27 @@ def test_modal_save_clean_has_no_toast_header(monkeypatch):
     assert "HX-Trigger" not in r.headers
 
 
+def test_modal_save_sync_leg_collision_returns_card_200(monkeypatch):
+    # The sync leg runs AFTER the package is saved+attached. A 422 here would
+    # be dropped by htmx — the card never appended to #package-list, the modal
+    # left open over stale members (a re-submit then duplicates the package).
+    # The card must land with 200: its banner names the reason and the modal's
+    # `< 300` after-request guard closes it.
+    monkeypatch.setattr(psync, "save_package",
+                        lambda **kw: psync.SaveResult(package_id="p1"))
+
+    def _raise(**kw):
+        raise NameCollisionError("Sync blocked — name taken: Dupe (EDM) now "
+                                 "exist(s) in Risk Modeler.")
+    monkeypatch.setattr(psync, "save_and_sync", _raise)
+    r = _pkg_client(monkeypatch).post("/submissions/s1/packages",
+                                      data=_modal_form(action="sync"))
+    assert r.status_code == 200
+    assert 'id="package-modal"' not in r.text   # the card, not the modal
+    assert "form-banner--error" in r.text
+    assert "Dupe (EDM)" in r.text
+
+
 def test_resync_collision_renders_422_card_with_banner(monkeypatch):
     def _raise(**kw):
         raise NameCollisionError("Sync blocked — name taken: E1 (EDM) now "

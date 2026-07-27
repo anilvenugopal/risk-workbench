@@ -26,7 +26,7 @@ from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
-    analysis_service, irp_gateway, name_check, package_service,
+    analysis_service, name_check, package_service,
     portfolio_service, rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
@@ -401,7 +401,7 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
         rwb_job_type="backfill_edm_detail",
-        input_data={"edm_id": eid, "package_id": _package_id(eid)},
+        input_data={"edm_id": eid},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")

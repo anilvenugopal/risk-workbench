@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import Response
 
 from app.services import edm_service, treaty_service
@@ -29,7 +29,7 @@ def _safe_filename(name: str) -> str:
 
 
 @router.get("/edms/{edm_id}/treaties.xlsx")
-def export_treaties(request: Request, edm_id: str):
+def export_treaties(edm_id: str):
     """Download the EDM's full treaty set as one ``.xlsx`` (FR-024/SC-004).
     Reads stored detail only; a treaty set not yet backfilled exports as an
     empty (header-only) workbook rather than erroring."""

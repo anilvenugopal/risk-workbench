@@ -53,13 +53,10 @@
       {% if edm.sync_running %}
       <button class="btn-sm" type="button" disabled>Syncing…</button>
       {% else %}
-      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
-            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
-            hx-swap="outerHTML" hx-disabled-elt="find button">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <button class="btn-sm" type="submit"
-                title="Re-fetch this EDM's detail from Risk Modeler">Sync</button>
-      </form>
+      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+              sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
+      {% include "partials/sync_form.html" %}
+      {% endwith %}
       {% endif %}
       {% endif %}
     </div>
@@ -67,31 +64,11 @@
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if edm.status == 'error' %}
-  <div class="form-banner form-banner--error">
-    This import failed in Risk Modeler{% if edm.import_error %} —
-    {{ edm.import_error }}{% endif %}.
-    Retry it, or replace the source file and re-import.
-    {%- if edm.import_error %} If the name is already taken in Risk Modeler,
-    re-import under a different name.{% endif %}
-  </div>
-  <div class="form-actions">
-    <form method="post" action="/edms/{{ edm.id }}/retry" class="inline-form">
-      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-      <button class="btn-sm btn-sm--primary" type="submit">Retry import</button>
-    </form>
-  </div>
-
-  <div class="section-head" style="margin-top: 24px;"><h2>Replace source file</h2></div>
-  <form method="post" action="/edms/{{ edm.id }}/replace-file" class="entity-import-form">
-    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <input type="hidden" name="updated_at" value="{{ edm.updated_at }}">
-    <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
-      Loading the shared drive…
-    </div>
-    <div class="form-actions">
-      <button class="btn-sm" type="submit">Replace &amp; re-import</button>
-    </div>
-  </form>
+  {% with rec_lead='This import failed in Risk Modeler',
+          rec_error=edm.import_error, rec_base='/edms/' ~ edm.id,
+          rec_updated_at=edm.updated_at %}
+  {% include "partials/entity_recovery.html" %}
+  {% endwith %}
   {% endif %}
 
   {# ── compact 3-domain rollup strip (US4 — FR-040/FR-042/FR-043) ── #}
@@ -137,13 +114,10 @@
     <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
       The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
       {% if edm.status == 'ready' %}
-      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
-            style="margin-top: var(--space-2)"
-            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
-            hx-swap="outerHTML" hx-disabled-elt="find button">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
-      </form>
+      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
+      {% include "partials/sync_form.html" %}
+      {% endwith %}
       {% endif %}
     </div>
     {% elif edm.detail_state == 'empty' %}
@@ -153,13 +127,10 @@
       Imported before exposure backfill shipped.
       {% if edm.status == 'ready' %}
       Sync now to fetch its per-portfolio detail from Risk Modeler.
-      <form method="post" action="/edms/{{ edm.id }}/sync" class="inline-form"
-            style="margin-top: var(--space-2)"
-            hx-post="/edms/{{ edm.id }}/sync" hx-target="#edm-detail"
-            hx-swap="outerHTML" hx-disabled-elt="find button">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <button class="btn-sm btn-sm--primary" type="submit">Sync now</button>
-      </form>
+      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
+      {% include "partials/sync_form.html" %}
+      {% endwith %}
       {% else %}
       Re-import to populate its per-portfolio detail.
       {% endif %}

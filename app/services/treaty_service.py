@@ -21,16 +21,13 @@ from __future__ import annotations
 
 import io
 import json
-import logging
 import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.services._common import _json, _snapshot_upsert, _txn, _uid, _utcnow
+from app.services._common import _json, _parse_json_dict, _snapshot_upsert, _txn, _uid, _utcnow
 from db import execute
-
-logger = logging.getLogger(__name__)
 
 
 def _humanize_key(key: str) -> str:
@@ -124,17 +121,6 @@ def upsert_treaty_detail(*, edm_id: Any, irp_id: str | None, name: str,
                          update_by_name=_UPDATE_BY_NAME, insert=_INSERT)
 
 
-def _parse_snapshot(raw: Any) -> dict | None:
-    if not raw:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        logger.warning("unparseable treaty attributes snapshot — rendering empty")
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def list_treaties(*, edm_id: Any) -> list[TreatyRow]:
     """Every treaty on an EDM (read model), each with its parsed ``attributes``
     (``None`` → graceful empty) for the expand/collapse view (FR-020/FR-021).
@@ -146,7 +132,8 @@ def list_treaties(*, edm_id: Any) -> list[TreatyRow]:
         {"e": str(edm_id)}, connection="WORKBENCH")
     return [TreatyRow(
         id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
-        irp_id=r["irp_id"], attributes=_parse_snapshot(r["attributes"]),
+        irp_id=r["irp_id"],
+        attributes=_parse_json_dict(r["attributes"], "treaty attributes"),
         as_of=r["as_of"]) for r in rows]
 
 

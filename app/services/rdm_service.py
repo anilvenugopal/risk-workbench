@@ -22,7 +22,8 @@ from typing import Any, Sequence
 
 from sqlalchemy import text
 
-from app.services import irp_gateway, name_check, package_service, rwb_job_service
+from app.services import (
+    analysis_service, name_check, package_service, rwb_job_service)
 from app.services._common import _uid, _utcnow
 from app.services.edm_service import ImportResult  # shared DTO
 from app.services.errors import (
@@ -322,10 +323,29 @@ def sync_detail(*, rdm_id: Any, actor_id: Any) -> str | None:
         input_data={"rdm_id": rid, "package_id": _package_id(rid)},
         actor_id=str(actor_id),
     )
-    if job_id is None:
-        return None  # lost an enqueue race — the winner's run is in flight
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_rdm_analyses")
     return job_id
+
+
+def get_rdm_detail(rdm_id: Any) -> dict | None:
+    """The RDM detail read model — shared by the full page and the live
+    #rdm-detail body partial (mirrors ``edm_service.get_edm_detail``). STORED
+    detail only, no Risk Modeler call (Article 11): the broker analyses grouped
+    by rdm_id + resolved portfolios (US3), plus the newest
+    ``backfill_rdm_analyses`` status (either key) driving the Sync button state
+    and the self-poll trigger. ``None`` ⇒ the RDM is gone."""
+    rdm = get_rdm(rdm_id)
+    if rdm is None:
+        return None
+    sync_status = latest_backfill_status(rdm_id)
+    return {"rdm": rdm,
+            "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
+            "sync_status": sync_status,
+            "sync_running": sync_status in ("pending", "running"),
+            # Issue #17 backstop surfacing: the failed upload head's specific
+            # Risk Modeler message, shown in the error banner when present.
+            "import_error": (latest_import_error(rdm_id)
+                             if rdm.status == ERROR else None)}
 
 
 def sync_analyses_for_edm(*, edm_id: Any, actor_id: Any) -> list[str]:
@@ -418,7 +438,7 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
-    "latest_import_error",
+    "get_rdm_detail", "latest_import_error",
     "retry_import", "replace_source_file", "latest_backfill_status",
     "sync_detail", "sync_analyses_for_edm", "mark_importing", "mark_error",
     "rollup_on_terminal",

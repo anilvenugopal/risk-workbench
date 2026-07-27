@@ -179,10 +179,12 @@ def save(
                                             actor_id=request.state.user.id)
         except NameCollisionError as exc:
             # Vanishingly rare (the save-time check just passed and is cached),
-            # but the package IS saved+attached by now — return the card, not the
-            # modal, so the error names what actually happened.
-            return _card_partial(request, result.package_id, status_code=422,
-                                 error=str(exc))
+            # but the package IS saved+attached by now — return the card WITH
+            # 200, not 422: htmx drops non-2xx bodies, so a 422 would leave the
+            # saved package invisible and the modal open over stale members
+            # (inviting a duplicate save). 200 appends the card — whose banner
+            # names what actually happened — and closes the modal.
+            return _card_partial(request, result.package_id, error=str(exc))
     return _with_unchecked_toast(
         _card_partial(request, result.package_id), unchecked)
 

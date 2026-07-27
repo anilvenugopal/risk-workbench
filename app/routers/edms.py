@@ -137,7 +137,7 @@ def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
 
 
-def _body_partial(request: Request, edm_id: str):
+def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
@@ -147,6 +147,12 @@ def _body_partial(request: Request, edm_id: str):
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></div>')
+    if poll and edm.sync_running and edm.detail_state == "populated":
+        # A populated page mid-sync: swapping the body every 3s would collapse
+        # every <details> the analyst opened. 204 → htmx swaps nothing and the
+        # poll keeps ticking; the first post-sync poll returns the fresh body
+        # (whose trigger is gone), rendering the result exactly once.
+        return Response(status_code=204)
     return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
 
 
@@ -155,9 +161,10 @@ def detail_body(request: Request, edm_id: str):
     """Read-only body render for HTMX polling. The template emits the ``every 3s``
     trigger only while the backfill head is in flight (``sync_running``) or the
     import itself still is, so the page updates on its own when the rwb job lands —
-    and polling stops once the work is terminal. No writes, no Risk Modeler call
-    (Article 11)."""
-    return _body_partial(request, edm_id)
+    and polling stops once the work is terminal. A populated page mid-sync gets a
+    204 (poll continues, nothing swaps) so open rows aren't collapsed. No writes,
+    no Risk Modeler call (Article 11)."""
+    return _body_partial(request, edm_id, poll=True)
 
 
 @router.post("/edms/{edm_id}/retry")

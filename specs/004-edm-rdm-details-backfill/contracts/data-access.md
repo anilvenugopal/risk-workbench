@@ -95,10 +95,10 @@ def resolve_portfolio(*, edm_id: UUID, exposure_resource_id: str | None,
     analysis backfilled first; no stored FK. Usually resolved in the same query as the
     list functions (LEFT JOIN irp_portfolio ON edm_id + irp_id); shown here as the contract."""
 
-def analysis_counts(*, package_id: UUID | None = None,
-                    edm_id: UUID | None = None) -> AnalysisCounts:
-    """FR-050: populated analysis counts for the package card + EDM detail (spec 003
-    D5 rendered these EMPTY; this un-empties them from the captured irp_analysis rows)."""
+def analysis_counts(*, edm_id: UUID) -> AnalysisCounts:
+    """FR-050: populated analysis counts for one EDM (spec 003 D5 rendered these
+    EMPTY; this un-empties them from the captured irp_analysis rows). The package
+    card renders them per EDM member — no package-level variant exists."""
 ```
 
 ## `edm_service` (EDIT — add the detail read model)

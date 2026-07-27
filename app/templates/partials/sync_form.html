@@ -1,0 +1,13 @@
+{# One manual-sync form — shared by the EDM/RDM detail bodies (six call sites:
+   the header action and the failed/unavailable state boxes on each page).
+   Context (via {% with %}): sync_url, sync_target; optional sync_label
+   (default 'Sync'), sync_primary (primary button), sync_boxed (state-box
+   spacing), sync_title (button tooltip). #}
+<form method="post" action="{{ sync_url }}" class="inline-form"
+      {% if sync_boxed %}style="margin-top: var(--space-2)"{% endif %}
+      hx-post="{{ sync_url }}" hx-target="{{ sync_target }}"
+      hx-swap="outerHTML" hx-disabled-elt="find button">
+  <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+  <button class="btn-sm{% if sync_primary %} btn-sm--primary{% endif %}" type="submit"
+          {% if sync_title %}title="{{ sync_title }}"{% endif %}>{{ sync_label or 'Sync' }}</button>
+</form>

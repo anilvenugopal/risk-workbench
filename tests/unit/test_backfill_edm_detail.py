@@ -14,9 +14,9 @@ from __future__ import annotations
 import json
 
 from app.poller import run as poller
-from app.services import edm_service, rwb_job_service
+from app.services import edm_service, portfolio_service, rwb_job_service, treaty_service
 from app.workers import package_jobs
-from db import execute, execute_one
+from db import execute, execute_command, execute_one
 
 # Real RM /metrics payloads (sandbox-confirmed shape, data-model §2) — stored
 # verbatim under the snapshot's "metrics" namespace.
@@ -345,6 +345,32 @@ def test_treaty_enumeration_failure_fails_job_but_keeps_portfolios(
     fake_irp.raise_on_search_treaties = False
     package_jobs._backfill_edm_detail_body(job["id"])
     assert len(_treaty_rows(edm_id)) == 1
+
+
+def test_malformed_stored_snapshot_renders_empty_not_error(
+        iteration2_db, fake_irp, drive):
+    # The read models' whole defensive-parse contract: a corrupted stored
+    # snapshot degrades to the graceful empty state (detail None), never an
+    # exception on the page render.
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Cat XoL", attributes=TREATY_CAT)
+    package_jobs.run_pending(worker_id="w1")
+    execute_command("UPDATE irp_portfolio SET exposure_detail = 'not json'",
+                    {}, connection="WORKBENCH")
+    execute_command("UPDATE irp_treaty SET attributes = '{'",
+                    {}, connection="WORKBENCH")
+
+    portfolios = portfolio_service.list_portfolios(edm_id=edm_id)
+    treaties = treaty_service.list_treaties(edm_id=edm_id)
+    assert [p.exposure_detail for p in portfolios] == [None]
+    assert [t.attributes for t in treaties] == [None]
+    # ... and the derived layers stay graceful too
+    assert portfolio_service.aggregate_exposure(portfolios) is None
+    assert treaties[0].attribute_items() == []
 
 
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):

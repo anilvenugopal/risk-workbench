@@ -10,11 +10,15 @@ from __future__ import annotations
 
 import io
 import uuid
+from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
 from openpyxl import load_workbook
+from starlette.testclient import TestClient
 
-from app.services import treaty_service
+from app.routers import treaties
+from app.services import edm_service, treaty_service
 from app.services._common import _utcnow
 from db import execute_command
 
@@ -116,3 +120,35 @@ def test_list_treaties_parses_snapshot_and_none_when_missing(
     assert [t.name for t in rows] == ["Cat XoL", "Quota Share"]
     assert rows[0].attributes["treatyType"] == "CATA"
     assert all(t.as_of is not None for t in rows)
+
+
+# ── route: GET /edms/{edm_id}/treaties.xlsx (the HTTP surface) ─────────────────────
+# The workbook builder is covered above; these own the route contract only, with
+# the services monkeypatched (the fixture SQLite engine is thread-local and
+# TestClient dispatches on a worker thread — same pattern as test_edm_sync.py).
+
+def _route_client() -> TestClient:
+    app = FastAPI()
+    app.include_router(treaties.router)
+    return TestClient(app)
+
+
+def test_export_route_missing_edm_404s(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm", lambda edm_id: None)
+    r = _route_client().get("/edms/nope/treaties.xlsx")
+    assert r.status_code == 404
+
+
+def test_export_route_streams_xlsx_with_safe_filename(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm",
+                        lambda edm_id: SimpleNamespace(name='town"send: edm'))
+    monkeypatch.setattr(treaty_service, "build_treaty_workbook",
+                        lambda *, edm_id: b"xlsx-bytes")
+    r = _route_client().get("/edms/edm-1/treaties.xlsx")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    # quote/control/path characters are stripped from the download stem
+    assert (r.headers["content-disposition"]
+            == 'attachment; filename="town_send_ edm-treaties.xlsx"')
+    assert r.content == b"xlsx-bytes"

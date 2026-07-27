@@ -170,10 +170,18 @@ def save_package(
 def _check_member_names(kinds_and_names) -> tuple[list[str], list[str]]:
     """Run the blocking collision check over ``(kind, name)`` pairs. Returns
     ``(colliding, unchecked)``: names found in Risk Modeler (labelled with their
-    kind, e.g. ``"E1 (EDM)"``) and names the gateway couldn't verify (fail open)."""
+    kind, e.g. ``"E1 (EDM)"``) and names the gateway couldn't verify (fail open).
+    A name repeated WITHIN the batch is also a collision — neither exists in RM
+    yet, so the per-name check passes both, but the first submit creates the
+    name and the second would fail minutes later at the worker backstop."""
     colliding: list[str] = []
     unchecked: list[str] = []
+    seen: set[tuple[str, str]] = set()
     for kind, name in kinds_and_names:
+        if (kind, name) in seen:
+            colliding.append(f"{name} ({kind.upper()}, duplicated in this package)")
+            continue
+        seen.add((kind, name))
         check = name_check.check_member_name(kind, name)
         if check.collides:
             colliding.append(f"{name} ({kind.upper()})")

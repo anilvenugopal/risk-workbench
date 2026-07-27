@@ -66,6 +66,34 @@ def test_save_blocks_on_collision_and_persists_nothing(iteration2_db, fake_irp, 
                           connection="WORKBENCH") == 0
 
 
+def test_save_blocks_duplicate_names_within_one_batch(
+        iteration2_db, fake_irp, drive):
+    # Two files auto-named identically in one save: neither exists in RM yet,
+    # so the per-name check passes both — but the first submit would create the
+    # name and the second would fail minutes later at the worker backstop.
+    # The batch itself must block (issue #17's whole point), persisting nothing.
+    with pytest.raises(NameCollisionError, match="duplicated in this package"):
+        sync.save_package(
+            package_id=None, name="B",
+            members=_members(drive, edms=[("EXPOSURE", "edm1.bak"),
+                                          ("EXPOSURE", "edm2.bak")]),
+            actor_id=iteration2_db.user_a)
+    assert execute_scalar("SELECT COUNT(*) FROM irp_edm", {},
+                          connection="WORKBENCH") == 0
+
+
+def test_same_name_across_kinds_is_not_a_batch_duplicate(
+        iteration2_db, fake_irp, drive):
+    # EDM and RDM names live in separate RM namespaces (the check is
+    # kind-dispatched) — one save may reuse a name across kinds.
+    res = sync.save_package(
+        package_id=None, name="B",
+        members=_members(drive, edms=[("townsend", "edm1.bak")],
+                         rdms=[("townsend", "rdm1.mdf")]),
+        actor_id=iteration2_db.user_a)
+    assert res.package_id is not None
+
+
 def test_save_fail_open_returns_unchecked_names(iteration2_db, fake_irp, drive):
     fake_irp.raise_on_search = True
     res = sync.save_package(

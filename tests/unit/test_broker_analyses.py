@@ -69,18 +69,52 @@ def _rdm(name: str, irp_id: int | None = None) -> str:
 
 def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
               settings: dict | None = None, is_group: bool = False,
-              exposure_resource_id: str | None = None) -> str:
-    return _mk("irp_analysis", rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
-               name=name, status_code="ready",
-               settings_metadata=(json.dumps(settings) if settings else None),
-               is_group=(1 if is_group else 0),
-               exposure_resource_id=exposure_resource_id)
+              exposure_resource_id: str | None = None,
+              row_id: str | None = None) -> str:
+    cols: dict = dict(rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
+                      name=name, status_code="ready",
+                      settings_metadata=(json.dumps(settings) if settings
+                                         else None),
+                      is_group=(1 if is_group else 0),
+                      exposure_resource_id=exposure_resource_id)
+    if row_id is not None:
+        cols["id"] = row_id  # pin ORDER BY a.id ties for deterministic tests
+    return _mk("irp_analysis", **cols)
 
 
 def _portfolio(edm_id: str, irp_id: str, name: str) -> None:
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm_id, irp_id=irp_id, name=name,
         exposure_detail={"metrics": {}}, as_of=_utcnow())
+
+
+def test_dedup_merges_settings_and_repoints_representative(iteration2_db):
+    """The two _dedup_handles merge branches: settings come from ANY handle
+    that has them, and when a later handle resolves a portfolio the WHOLE
+    representative re-points to it (id + pointer + EDM), not just the display
+    fields — the first consumer of ``a.id`` must get the resolving handle."""
+    rdm = _rdm("R")
+    e1, e2 = _edm("edm_a"), _edm("edm_b")
+    # first-seen handle (row_id pins the ORDER BY a.id tie): no settings, no
+    # resolvable pointer
+    _analysis(rdm_id=rdm, edm_id=e1, irp_id="5521", name="AEP",
+              row_id="00000000-0000-0000-0000-000000000001")
+    # later handle: carries the settings AND resolves a portfolio in e2
+    h2 = _analysis(rdm_id=rdm, edm_id=e2, irp_id="5521", name="AEP",
+                   settings=SETTINGS_PARTIAL, exposure_resource_id="501",
+                   row_id="ffffffff-ffff-ffff-ffff-ffffffffffff")
+    _portfolio(e2, "501", "Primary 2026")
+
+    groups = analysis_service.list_broker_analyses(rdm_id=rdm)
+
+    assert len(groups) == 1 and len(groups[0].analyses) == 1
+    a = groups[0].analyses[0]
+    assert a.display.analysis_type == "EP"          # settings merged in
+    assert a.portfolio and a.portfolio.name == "Primary 2026"
+    assert a.edm_id == e2 and a.edm_name == "edm_b"  # re-pointed …
+    assert a.id == h2                                # … including the row id
+    assert a.exposure_resource_id == "501"
+    assert sorted(a.edm_names) == ["edm_a", "edm_b"]  # both EDMs still listed
 
 
 def test_analysis_across_m_edms_shown_once_grouped_by_rdm(iteration2_db):

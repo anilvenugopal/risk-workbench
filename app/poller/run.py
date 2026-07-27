@@ -9,9 +9,10 @@ One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
 2. **Reconciler** (Article 10) — reclaim ``rwb_job`` rows a dead worker left
    ``running`` (heartbeat older than ``RWB_HEARTBEAT_STALE_SECS``) back to ``pending``.
 3. **Dispatch pending heads** — wake a worker for every ``pending`` ``rwb_job``. The
-   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``) are
-   never dispatched at enqueue time (the poller is a separate process from the worker),
-   so without this the EDM→RDM chain stalls; this also delivers the rows step 2 reset.
+   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``,
+   ``backfill_edm_detail``) are never dispatched at enqueue time (the poller is a
+   separate process from the worker), so without this the EDM→RDM chain stalls; this
+   also delivers the rows step 2 reset.
 4. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
    under the configured max (a single-threaded batch, not a Dramatiq actor; scaffold
    here, wired in US6 T053).
@@ -74,9 +75,7 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_edm_detail",
-            input_data={"edm_id": str(job["irp_edm_id"]),
-                        "package_id": (str(job["package_id"])
-                                       if job.get("package_id") else None)},
+            input_data={"edm_id": str(job["irp_edm_id"])},
             conn=conn,
         )
     else:
@@ -270,10 +269,11 @@ def _track_irp_jobs() -> None:
 def _dispatch_pending() -> None:
     """Deliver every currently-``pending`` ``rwb_job`` to a worker.
 
-    The poller enqueues the chained heads (``upload_rdm`` when an ``import_edm`` reaches
-    FINISHED; ``backfill_rdm_analyses`` when an ``import_rdm`` does) but runs in its own
-    process, so — unlike the request path and the worker's own follow-on enqueues —
-    those rows are never dispatched at enqueue time. Without this sweep they sit
+    The poller enqueues the chained heads (``upload_rdm`` + ``backfill_edm_detail``
+    when an ``import_edm`` reaches FINISHED; ``backfill_rdm_analyses`` when an
+    ``import_rdm`` does) but runs in its own process, so — unlike the request path
+    and the worker's own follow-on enqueues — those rows are never dispatched at
+    enqueue time. Without this sweep they sit
     ``pending`` forever and the EDM→RDM chain stalls.
 
     A Dramatiq message is only a wake-up (Article 10): re-sending one for a row already

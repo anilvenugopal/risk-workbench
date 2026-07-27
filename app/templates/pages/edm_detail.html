@@ -6,15 +6,6 @@
    import is in flight (GET /edms/{id}/body — package-card live pattern). #}
 
 {% block main %}
-{% if nc_unchecked %}
-{# Fail-open notice (issue #17) — outside the polled #edm-detail wrapper so the
-   3s body swap doesn't wipe it. #}
-<div class="page-pad" style="padding-bottom: 0;">
-  <div class="state-box state-box--warn">
-    Risk Modeler couldn't be reached to check this name for duplicates — the
-    import will fail if the name is already taken there.
-  </div>
-</div>
-{% endif %}
+{% include "partials/nc_unchecked_notice.html" %}
 {% include "partials/edm_detail_body.html" %}
 {% endblock %}

@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import analysis_service, edm_service, rdm_service
+from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
     EmptyPackageError,
@@ -124,28 +124,8 @@ def create_import(
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
-def _body_ctx(rdm_id: str) -> dict | None:
-    """The RDM detail read model — shared by the full page and the live #rdm-detail
-    body partial. STORED detail only, no Risk Modeler call (Article 11): the broker
-    analyses grouped by rdm_id + resolved portfolios (US3), plus the newest
-    ``backfill_rdm_analyses`` status (either key) driving the Sync button state and
-    the self-poll trigger. ``None`` ⇒ the RDM is gone."""
-    rdm = rdm_service.get_rdm(rdm_id)
-    if rdm is None:
-        return None
-    sync_status = rdm_service.latest_backfill_status(rdm_id)
-    return {"rdm": rdm,
-            "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
-            "sync_status": sync_status,
-            "sync_running": sync_status in ("pending", "running"),
-            # Issue #17 backstop surfacing: the failed upload head's specific
-            # Risk Modeler message, shown in the error banner when present.
-            "import_error": (rdm_service.latest_import_error(rdm_id)
-                             if rdm.status == rdm_service.ERROR else None)}
-
-
 def _detail(request: Request, rdm_id: str, status_code: int = 200):
-    ctx = _body_ctx(rdm_id)
+    ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
@@ -157,9 +137,9 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
     return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
 
 
-def _body_partial(request: Request, rdm_id: str):
+def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
     """The shell-less #rdm-detail wrapper — the HTMX swap/poll unit."""
-    ctx = _body_ctx(rdm_id)
+    ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
         # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
         # every-3s poll ends instead of 404-looping (package-card precedent).
@@ -167,6 +147,12 @@ def _body_partial(request: Request, rdm_id: str):
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'
             '</div></div>')
+    if poll and ctx["sync_running"] and any(g.analyses for g in ctx["analyses"]):
+        # A populated page mid-sync: swapping the body every 3s would collapse
+        # every <details> the analyst opened. 204 → htmx swaps nothing and the
+        # poll keeps ticking; the first post-sync poll returns the fresh body
+        # (whose trigger is gone), rendering the result exactly once.
+        return Response(status_code=204)
     return _partial(request, "partials/rdm_detail_body.html", ctx)
 
 
@@ -179,8 +165,9 @@ def detail(request: Request, rdm_id: str):
 def detail_body(request: Request, rdm_id: str):
     # The live body's poll target (GET, read-only, no CSRF) — re-renders the
     # #rdm-detail wrapper; the template stops emitting its own hx-trigger once
-    # the backfill lands, so polling self-terminates.
-    return _body_partial(request, rdm_id)
+    # the backfill lands, so polling self-terminates. A populated page mid-sync
+    # gets a 204 (poll continues, nothing swaps) so open rows aren't collapsed.
+    return _body_partial(request, rdm_id, poll=True)
 
 
 @router.post("/rdms/{rdm_id}/sync")

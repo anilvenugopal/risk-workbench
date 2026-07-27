@@ -15,16 +15,12 @@ UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 
 from __future__ import annotations
 
-import json
-import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services._common import _json, _snapshot_upsert, _txn, _uid, _utcnow
+from app.services._common import _json, _parse_json_dict, _snapshot_upsert, _txn, _uid, _utcnow
 from db import execute
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -82,34 +78,25 @@ def upsert_portfolio_detail(*, edm_id: Any, irp_id: str | None, name: str,
                          update_by_name=_UPDATE_BY_NAME, insert=_INSERT)
 
 
-def _parse_snapshot(raw: Any) -> dict | None:
-    if not raw:
-        return None
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        logger.warning("unparseable exposure_detail snapshot — rendering empty")
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 @dataclass
 class EdmAggregate:
     """The quick-orientation EDM rollup (US4 — FR-040/FR-041/FR-042), derived
     from the per-portfolio snapshots at read time (R4): SUM counts (record
     volume == locations, FR-013), UNION perils/sub-perils, COMBINE geography +
-    the currency set. Never stored; never a request-path fetch."""
+    the currency set. Never stored; never a request-path fetch. Only the three
+    counts are nullable (no snapshot carried them); the collections are always
+    present, possibly empty."""
     portfolio_count: int
     with_snapshot: int                     # portfolios that contributed figures
-    locations: int | None = None
-    accounts: int | None = None
-    policies: int | None = None
-    perils: list[str] | None = None               # union, sorted
-    sub_perils: list[str] | None = None
-    states: list[str] | None = None
-    countries: list[str] | None = None
-    currencies: list[str] | None = None
-    tiv_by_currency: dict[str, float] | None = None  # per-currency sums (never cross-summed)
+    locations: int | None
+    accounts: int | None
+    policies: int | None
+    perils: list[str]                      # union, sorted
+    sub_perils: list[str]
+    states: list[str]
+    countries: list[str]
+    currencies: list[str]
+    tiv_by_currency: dict[str, float]      # per-currency sums (never cross-summed)
 
 
 def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
@@ -176,7 +163,8 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         {"e": str(edm_id)}, connection="WORKBENCH")
     return [PortfolioRow(
         id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
-        irp_id=r["irp_id"], exposure_detail=_parse_snapshot(r["exposure_detail"]),
+        irp_id=r["irp_id"],
+        exposure_detail=_parse_json_dict(r["exposure_detail"], "exposure_detail"),
         as_of=r["as_of"]) for r in rows]
 
 

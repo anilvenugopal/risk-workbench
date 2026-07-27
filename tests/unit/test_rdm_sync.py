@@ -361,6 +361,20 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     assert ">Sync</button>" in html  # the button is offered again, enabled
 
 
+def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
+    # Re-syncing an already-populated page: a 3s outerHTML swap would collapse
+    # every open <details> (analysis drills), so the poll target answers 204
+    # until the sync lands — then the fresh body renders exactly once.
+    grp = analysis_service.BrokerAnalysisGroup(
+        rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
+        analyses=[analysis_service.BrokerAnalysis(
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
+            edm_id="e1", edm_name="E1")])
+    _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
+    r = _client().get("/rdms/rdm-1/body")
+    assert r.status_code == 204
+
+
 def test_body_poll_partial_live_while_importing(monkeypatch):
     _stub_reads(monkeypatch, rdm=_rdm_obj(status="pending_import"))
     html = _client().get("/rdms/rdm-1/body").text
