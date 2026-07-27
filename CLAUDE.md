@@ -6,6 +6,10 @@ at specs/003-edm-rdm-entity-management/plan.md
 
 # Risk Analysis Workbench — Claude Code Context
 
+## Git
+
+- **No AI attribution in git history**: never add `Co-Authored-By: Claude ...` trailers or "Generated with Claude Code" lines to commits or PR bodies (enforced via `includeCoAuthoredBy: false` in `.claude/settings.json`).
+
 ## Source of Truth Documents
 
 Read these before any implementation work:
