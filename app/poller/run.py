@@ -28,10 +28,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
+from app import log_context
 from app.config import settings
+from app.logging_setup import setup_logging
 from app.services import (
     edm_service,
     irp_gateway,
@@ -75,12 +78,14 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     rdm_ids = [str(r["id"]) for r in rdm_rows]
     if not rdm_ids:
         return  # EDM-only package — nothing to apply
-    rwb_job_service.enqueue_rwb_job(
+    jid = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"], rwb_job_type="upload_rdm",
         input_data={"rdm_ids": rdm_ids, "edm_ids": [str(job["irp_edm_id"])],
                     "package_id": str(job["package_id"])},
         conn=conn,
     )
+    if jid:
+        logger.info("chained upload_rdm head (%d rdm(s) to apply)", len(rdm_ids))
 
 
 def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
@@ -89,7 +94,7 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
     up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
     itself must NOT flip the RDM to ``ready``. Any other terminal → ``error`` here."""
     if status == "FINISHED":
-        rwb_job_service.enqueue_rwb_job(
+        jid = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
             input_data={
@@ -99,6 +104,8 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
                 "apply_irp_id": job["irp_id"]},
             conn=conn,
         )
+        if jid:
+            logger.info("chained backfill_rdm_analyses head")
     else:
         rdm_service.rollup_on_terminal(
             conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)
@@ -162,45 +169,90 @@ _TERMINAL_RESOLVERS = {
 }
 
 
+def _fmt_elapsed(submitted_at) -> str:
+    """``4m22s``-style elapsed time since a naive-UTC stamp — a ``datetime`` from
+    SQL Server, an ISO string from the SQLite unit tier; ``?`` when unparseable."""
+    if isinstance(submitted_at, str):
+        try:
+            submitted_at = datetime.fromisoformat(submitted_at)
+        except ValueError:
+            return "?"
+    if not isinstance(submitted_at, datetime):
+        return "?"
+    secs = (datetime.now(timezone.utc).replace(tzinfo=None)
+            - submitted_at).total_seconds()
+    if secs < 0:
+        return "?"
+    mins, s = divmod(int(secs), 60)
+    hours, mins = divmod(mins, 60)
+    if hours:
+        return f"{hours}h{mins:02d}m{s:02d}s"
+    return f"{mins}m{s:02d}s" if mins else f"{s}s"
+
+
 def _track_irp_jobs() -> None:
     """Track in-flight ``irp_job`` rows: one single-status ``get_*_job`` each, mirror
     the status in place, and on a terminal status backfill the entity + idempotently
-    enqueue the dependent head — all in one transaction per job. Batched by type."""
-    for job in irp_job_service.list_non_terminal():
-        getter = _GETTERS.get(job["irp_job_type"])
-        if getter is None:
-            logger.warning("No getter for irp_job_type=%s, skipping id=%s",
-                           job["irp_job_type"], job["id"])
-            continue
+    enqueue the dependent head — all in one transaction per job. Batched by type.
+
+    Observed status *transitions* log at INFO (terminal ones with elapsed-since-submit);
+    every check logs at DEBUG. A transition seen across one pass may collapse
+    intermediate RM states (QUEUED -> FINISHED), so the log is not a full history."""
+    jobs = irp_job_service.list_non_terminal()
+    logger.debug("tracking %d in-flight irp_job(s)", len(jobs))
+    for job in jobs:
+        # Per-job log context: the chained enqueue_rwb_job calls inside the
+        # terminal handlers inherit correlation_id through this bind, so the
+        # whole chain keeps one id (issue #28).
+        token = log_context.bind(
+            correlation_id=job.get("correlation_id"), irp_job_id=str(job["id"]),
+            irp_job_type=job["irp_job_type"], irp_id=job["irp_id"])
         try:
-            result = getter(job["irp_id"])
-        except Exception:
-            logger.exception("get_%s_job failed for irp_id=%s",
-                             job["irp_job_type"], job["irp_id"])
-            continue
-        # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
-        # opening the DB transaction (Article 11 — never hold a txn across HTTP).
-        resolved: dict = {}
-        if result.status in irp_job_service.TERMINAL:
-            resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
-            if resolver is not None:
-                try:
-                    resolved = resolver(job, result) or {}
-                except Exception:
-                    logger.exception("terminal resolver failed for irp_job=%s",
-                                     job["id"])
-        try:
-            with get_connection("WORKBENCH") as conn:
-                with conn.begin():
-                    irp_job_service.update_tracking(
-                        conn, irp_job_id=job["id"], status=result.status,
-                        result=result.result)
-                    if result.status in irp_job_service.TERMINAL:
-                        handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
-                        if handler is not None:
-                            handler(conn, job, result.status, resolved)
-        except Exception:
-            logger.exception("persisting tracking for irp_job=%s failed", job["id"])
+            getter = _GETTERS.get(job["irp_job_type"])
+            if getter is None:
+                logger.warning("No getter for irp_job_type=%s, skipping id=%s",
+                               job["irp_job_type"], job["id"])
+                continue
+            try:
+                result = getter(job["irp_id"])
+            except Exception:
+                logger.exception("get_%s_job failed for irp_id=%s",
+                                 job["irp_job_type"], job["irp_id"])
+                continue
+            logger.debug("irp_job status check: %s", result.status)
+            # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
+            # opening the DB transaction (Article 11 — never hold a txn across HTTP).
+            resolved: dict = {}
+            if result.status in irp_job_service.TERMINAL:
+                resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
+                if resolver is not None:
+                    try:
+                        resolved = resolver(job, result) or {}
+                    except Exception:
+                        logger.exception("terminal resolver failed for irp_job=%s",
+                                         job["id"])
+            try:
+                with get_connection("WORKBENCH") as conn:
+                    with conn.begin():
+                        irp_job_service.update_tracking(
+                            conn, irp_job_id=job["id"], status=result.status,
+                            result=result.result)
+                        if result.status in irp_job_service.TERMINAL:
+                            handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
+                            if handler is not None:
+                                handler(conn, job, result.status, resolved)
+                if result.status in irp_job_service.TERMINAL:
+                    logger.info("irp_job terminal: %s -> %s (after %s)",
+                                job["status"], result.status,
+                                _fmt_elapsed(job["submitted_at"]))
+                elif result.status != job["status"]:
+                    logger.info("irp_job status: %s -> %s",
+                                job["status"], result.status)
+            except Exception:
+                logger.exception("persisting tracking for irp_job=%s failed",
+                                 job["id"])
+        finally:
+            log_context.clear(token)
 
 
 def _dispatch_pending() -> None:
@@ -219,10 +271,18 @@ def _dispatch_pending() -> None:
     and picked up here on the next pass. No-op when no dispatcher is wired (``dispatch``
     stays unset in the unit tier, which drives worker bodies directly)."""
     for row in execute(
-        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending'",
+        "SELECT id, rwb_job_type, correlation_id FROM rwb_job "
+        "WHERE status_code = 'pending'",
         {}, connection="WORKBENCH",
     ):
-        dispatch.dispatch(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"])
+        token = log_context.bind(correlation_id=row["correlation_id"],
+                                 rwb_job_id=str(row["id"]),
+                                 rwb_job_type=row["rwb_job_type"])
+        try:
+            dispatch.dispatch(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"])
+            logger.debug("dispatched pending rwb_job")
+        finally:
+            log_context.clear(token)
 
 
 def _submission_retry() -> None:
@@ -265,7 +325,7 @@ def main() -> None:
                         help="Seconds between passes (default: POLL_INTERVAL_SECS)")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    setup_logging("poller")
 
     # Discover the job actors and wire the Dramatiq dispatch seam so _dispatch_pending
     # can wake a worker for the heads this poller enqueues. Deferred import keeps dramatiq

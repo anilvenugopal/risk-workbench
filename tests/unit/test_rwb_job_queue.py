@@ -13,10 +13,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app import log_context
 from app.services.rwb_job_service import (
     claim_rwb_job,
     complete_rwb_job,
     enqueue_rwb_job,
+    ensure_pending_rwb_job,
+    get_rwb_job,
     reconcile_stale_rwb_jobs,
 )
 from app.workers.runtime import upsert_heartbeat
@@ -172,3 +175,103 @@ def test_complete_sets_terminal_status_and_payload(iteration2_db):
     assert row["status_code"] == "succeeded"
     assert '"ok": true' in row["output_data"]
     assert row["completed_at"] is not None
+
+
+# ── correlation_id stamping (issue #28) ───────────────────────────────────────
+# The chain id defaults from the bound log context (request middleware / poller /
+# worker binds it), so no enqueue call site passes it explicitly.
+
+def _correlation_of(job_id: str) -> str | None:
+    return execute_scalar("SELECT correlation_id FROM rwb_job WHERE id = :id",
+                          {"id": job_id}, connection="WORKBENCH")
+
+
+def test_enqueue_stamps_bound_context_correlation(iteration2_db):
+    token = log_context.bind(correlation_id="chain-1")
+    try:
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="upload_edm")
+    finally:
+        log_context.clear(token)
+    assert _correlation_of(job_id) == "chain-1"
+
+
+def test_enqueue_explicit_correlation_wins_over_context(iteration2_db):
+    token = log_context.bind(correlation_id="context-id")
+    try:
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()),
+                                 rwb_job_type="upload_edm",
+                                 correlation_id="explicit-id")
+    finally:
+        log_context.clear(token)
+    assert _correlation_of(job_id) == "explicit-id"
+
+
+def test_enqueue_without_context_leaves_null(iteration2_db):
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()),
+                             rwb_job_type="upload_edm")
+    assert _correlation_of(job_id) is None
+
+
+def test_ensure_pending_restamps_on_retry(iteration2_db):
+    # An analyst retry is a NEW causal chain — the revived row is re-stamped.
+    rid = str(uuid.uuid4())
+    token = log_context.bind(correlation_id="first-request")
+    try:
+        job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                        requestor_id=rid, rwb_job_type="upload_edm")
+    finally:
+        log_context.clear(token)
+    assert _correlation_of(job_id) == "first-request"
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="x")
+    token = log_context.bind(correlation_id="retry-request")
+    try:
+        revived = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                         requestor_id=rid, rwb_job_type="upload_edm")
+    finally:
+        log_context.clear(token)
+    assert revived == job_id
+    assert _correlation_of(job_id) == "retry-request"
+
+
+def test_ensure_pending_in_flight_skip_keeps_original_chain(iteration2_db):
+    rid = str(uuid.uuid4())
+    token = log_context.bind(correlation_id="original")
+    try:
+        job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                        requestor_id=rid, rwb_job_type="upload_edm")
+    finally:
+        log_context.clear(token)
+    token = log_context.bind(correlation_id="second")
+    try:
+        assert ensure_pending_rwb_job(requestor_type="analyst_request",
+                                      requestor_id=rid,
+                                      rwb_job_type="upload_edm") is None
+    finally:
+        log_context.clear(token)
+    assert _correlation_of(job_id) == "original"
+
+
+def test_get_rwb_job_returns_row_or_none(iteration2_db):
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()),
+                             rwb_job_type="upload_edm", correlation_id="c-9")
+    row = get_rwb_job(rwb_job_id=job_id)
+    assert row["rwb_job_type"] == "upload_edm"
+    assert row["correlation_id"] == "c-9"
+    assert row["status_code"] == "pending"
+    assert get_rwb_job(rwb_job_id=str(uuid.uuid4())) is None
+
+
+def test_reconciler_preserves_original_chain(iteration2_db):
+    # A reclaimed row is the SAME causal chain retrying — never re-stamped.
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()),
+                             rwb_job_type="upload_edm", correlation_id="chain-1")
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated → stale
+    assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
+    assert _correlation_of(job_id) == "chain-1"

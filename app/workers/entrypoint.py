@@ -16,6 +16,11 @@ and the web app's lifespan pull the full worker stack in.
 
 from __future__ import annotations
 
+from app.logging_setup import setup_logging
 from app.workers import loader
 
+# Before bootstrap so discovery logs are already formatted. Dramatiq has
+# basicConfig-ed the root logger in this fork by now — setup adopts its handler
+# (keeping the line-atomic multiprocess pipe) rather than adding a second one.
+setup_logging("worker")
 loader.bootstrap()

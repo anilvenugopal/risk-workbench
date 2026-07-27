@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Form, Request, Response
@@ -23,6 +24,10 @@ from app.services.auth_service import (
 from db import execute_command
 
 router = APIRouter()
+
+# Auth events log the user UUID only — never the email address or credentials
+# (constitution Article 13). Failure reasons are our own codes, safe to log.
+logger = logging.getLogger(__name__)
 
 
 def _templates(request: Request):
@@ -94,6 +99,7 @@ def login_submit(
     ua = request.headers.get("User-Agent", "")[:512]
 
     def fail(msg: str):
+        logger.warning("login failed (%s)", msg)
         log_attempt(email, "password", False, msg, ip, ua)
         return templates.TemplateResponse(request, "auth/login_page.html", {
             "error": "Invalid email or password.",
@@ -118,6 +124,7 @@ def login_submit(
     session_id = create_session(str(user["id"]), ip, ua)
     log_attempt(email, "password", True, None, ip, ua)
     update_last_login(str(user["id"]))
+    logger.info("login succeeded for user %s (method=password)", user["id"])
 
     redirect_to = _safe_next(next)
     response = RedirectResponse(redirect_to, status_code=302)
@@ -141,6 +148,7 @@ def logout(
 
     if current_user and current_user.session_id:
         invalidate_session(current_user.session_id)
+        logger.info("logout for user %s", current_user.id)
 
         # OIDC accounts: redirect to Entra logout endpoint
         if current_user.entra_oid and settings.oidc_auth_enabled:
@@ -191,6 +199,7 @@ def oidc_callback(request: Request):
     from app.auth.provisioning import jit_provision_oidc_user
 
     def _abort(reason: str):
+        logger.warning("oidc login aborted (%s)", reason)
         response = RedirectResponse(f"/auth/login?error={reason}", status_code=302)
         response.delete_cookie("rwb_oidc_state", path="/")
         return response
@@ -233,6 +242,7 @@ def oidc_callback(request: Request):
     if user:
         update_last_login(str(user["id"]))
         log_attempt(email, "oidc", True, None, ip, ua)
+        logger.info("login succeeded for user %s (method=oidc)", user["id"])
         session_id = create_session(str(user["id"]), ip, ua)
         response = RedirectResponse("/", status_code=302)
         _set_session_cookie(response, session_id)
@@ -241,6 +251,7 @@ def oidc_callback(request: Request):
     else:
         user_id = jit_provision_oidc_user(oid, email, display_name)
         log_attempt(email, "oidc", True, None, ip, ua)
+        logger.info("provisioned new user %s via oidc (access pending)", user_id)
         session_id = create_session(user_id, ip, ua)
         response = RedirectResponse("/auth/access-pending", status_code=302)
         _set_session_cookie(response, session_id)

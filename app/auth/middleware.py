@@ -16,6 +16,7 @@ from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from app import log_context
 from app.services.auth_service import validate_session
 
 # Paths that are accessible without a valid session
@@ -78,4 +79,8 @@ class SessionMiddleware(BaseHTTPMiddleware):
             return _redirect_response(request, "/auth/access-pending")
 
         request.state.user = current_user
+        # add() (in-place merge), not bind(): BaseHTTPMiddleware runs this in a
+        # child task whose context is a copy, so only mutation reaches the outer
+        # RequestContextMiddleware's access-log line.
+        log_context.add(user_id=str(current_user.id))
         return await call_next(request)

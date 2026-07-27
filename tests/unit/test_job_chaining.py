@@ -9,6 +9,7 @@ must never double-enqueue (SC-014).
 
 from __future__ import annotations
 
+from app import log_context
 from app.poller import run as poller
 from app.services import edm_service
 from app.services import package_sync_service as sync
@@ -141,3 +142,37 @@ def test_per_pair_fanout_across_multiple_edms(iteration2_db, fake_irp, drive):
         "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm' AND package_id=:p",
         {"p": pid}, connection="WORKBENCH")
     assert applies == 4  # 2 EDMs × 2 RDMs — one apply per pair (SC-006)
+
+
+def test_correlation_id_spans_the_whole_chain(iteration2_db, fake_irp, drive):
+    """Issue #28 acceptance: ONE correlation id, stamped by the request-scoped
+    context at save-and-sync time, is carried across every hop — request-path
+    enqueue (upload_edm) → worker submit (import_edm irp_job) → poller chaining
+    (upload_rdm head) → fan-out worker (import_rdm irp_job) → poller chaining
+    again (backfill_rdm_analyses head). Grep that one id → the full lifecycle."""
+    a = iteration2_db.user_a
+    token = log_context.bind(correlation_id="chain-e2e")  # what the middleware does
+    try:
+        _build(drive, a, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
+    finally:
+        log_context.clear(token)
+
+    package_jobs.run_pending()                 # worker: submit import_edm
+    _finish_all_import_edm(fake_irp)
+    poller.poll_once()                         # poller: chain the upload_rdm head
+    package_jobs.run_pending()                 # worker: fan out → submit import_rdm
+    for row in execute("SELECT irp_id FROM irp_job WHERE irp_job_type='import_rdm'",
+                       {}, connection="WORKBENCH"):
+        fake_irp.finish(str(row["irp_id"]))
+    poller.poll_once()                         # poller: chain backfill_rdm_analyses
+    package_jobs.run_pending()                 # worker: run the backfill
+
+    rwb = execute("SELECT rwb_job_type, correlation_id FROM rwb_job", {},
+                  connection="WORKBENCH")
+    irp = execute("SELECT irp_job_type, correlation_id FROM irp_job", {},
+                  connection="WORKBENCH")
+    assert {r["rwb_job_type"] for r in rwb} == {
+        "upload_edm", "upload_rdm", "backfill_rdm_analyses"}
+    assert {r["irp_job_type"] for r in irp} == {"import_edm", "import_rdm"}
+    assert {r["correlation_id"] for r in rwb} == {"chain-e2e"}
+    assert {r["correlation_id"] for r in irp} == {"chain-e2e"}

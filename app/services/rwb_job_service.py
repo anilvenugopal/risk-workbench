@@ -22,14 +22,15 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app import log_context
 from app.services._common import _json, _utcnow
-from db import execute_command, get_connection, is_unique_violation
+from db import execute_command, execute_one, get_connection, is_unique_violation
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
-        status_code, input_data, attempt_count, inserted_at, updated_at,
-        inserted_by, updated_by)
-    SELECT :id, :rt, :rid, :jt, 'pending', :input, 0, :now, :now, :by, :by
+        status_code, input_data, attempt_count, correlation_id, inserted_at,
+        updated_at, inserted_by, updated_by)
+    SELECT :id, :rt, :rid, :jt, 'pending', :input, 0, :cid, :now, :now, :by, :by
     WHERE NOT EXISTS (
         SELECT 1 FROM rwb_job
         WHERE requestor_type = :rt AND requestor_id = :rid AND rwb_job_type = :jt
@@ -61,7 +62,8 @@ def _insert_head(params: dict, conn) -> bool:
 
 def enqueue_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
-    input_data: dict | None = None, actor_id: Any | None = None, conn=None,
+    input_data: dict | None = None, actor_id: Any | None = None,
+    correlation_id: str | None = None, conn=None,
 ) -> str | None:
     """Idempotent insert on ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``
     (FR-043 / SC-014). Returns the new job id, or ``None`` if a matching row already
@@ -70,11 +72,16 @@ def enqueue_rwb_job(
     fan-in idempotency backbone the poller/workers rely on); the request path uses
     ``ensure_pending_rwb_job``.
 
+    ``correlation_id`` defaults to the bound log context's — the request middleware
+    (web tier) or the per-job bind (poller/worker chaining) has stamped it, so call
+    sites don't pass it explicitly (issue #28).
+
     ``conn`` lets a caller enqueue the chained tail in its own open transaction."""
     job_id = str(uuid.uuid4())
     params = {
         "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
         "jt": rwb_job_type, "input": _json(input_data), "now": _utcnow(),
+        "cid": correlation_id or log_context.correlation_id(),
         "by": (str(actor_id) if actor_id is not None else None),
     }
     return job_id if _insert_head(params, conn) else None
@@ -83,14 +90,19 @@ def enqueue_rwb_job(
 def ensure_pending_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
     input_data: dict | None = None, actor_id: Any | None = None,
+    correlation_id: str | None = None,
 ) -> str | None:
     """Request-path (re)enqueue for retry / re-sync (FR-044/FR-045). Insert a fresh
     ``pending`` head if none exists; if the existing head is **terminal**
     (``succeeded``/``failed``) reset it to ``pending`` for a new attempt; if it is
     already ``pending``/``running`` skip it (return ``None``). This is the deliberate
     counterpart to ``enqueue_rwb_job`` — that one never revives a terminal row so a
-    mechanical re-poll cannot; this one does, because an analyst asked for it."""
+    mechanical re-poll cannot; this one does, because an analyst asked for it.
+
+    A revived row is re-stamped with the *retrying* request's correlation id
+    (default: the bound log context's) — a retry is a new causal chain."""
     now = _utcnow()
+    correlation_id = correlation_id or log_context.correlation_id()
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             row = conn.execute(text(
@@ -107,6 +119,7 @@ def ensure_pending_rwb_job(
                 if _insert_head({
                     "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
                     "jt": rwb_job_type, "input": _json(input_data), "now": now,
+                    "cid": correlation_id,
                     "by": (str(actor_id) if actor_id is not None else None)}, conn):
                     return job_id
                 return None
@@ -118,10 +131,10 @@ def ensure_pending_rwb_job(
                 SET status_code = 'pending', claimed_by = NULL, output_data = NULL,
                     error_detail = NULL, completed_at = NULL, submitted_at = NULL,
                     input_data = :input, attempt_count = attempt_count + 1,
-                    updated_at = :now, updated_by = :by
+                    correlation_id = :cid, updated_at = :now, updated_by = :by
                 WHERE id = :id
                 """
-            ), {"input": _json(input_data), "now": now,
+            ), {"input": _json(input_data), "now": now, "cid": correlation_id,
                 "by": (str(actor_id) if actor_id is not None else None),
                 "id": str(row["id"])})
             return str(row["id"])
@@ -142,6 +155,21 @@ def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
         connection="WORKBENCH",
     )
     return rows == 1
+
+
+def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
+    """Read one queue row (post-claim, the worker runtime binds its log context
+    from this — ``claim_rwb_job`` deliberately keeps its bool contract). Returns
+    ``None`` when the id is unknown."""
+    return execute_one(
+        """
+        SELECT id, requestor_type, requestor_id, rwb_job_type, status_code,
+               attempt_count, correlation_id
+        FROM rwb_job WHERE id = :id
+        """,
+        {"id": str(rwb_job_id)},
+        connection="WORKBENCH",
+    )
 
 
 def complete_rwb_job(
@@ -194,6 +222,7 @@ __all__ = [
     "enqueue_rwb_job",
     "ensure_pending_rwb_job",
     "claim_rwb_job",
+    "get_rwb_job",
     "complete_rwb_job",
     "reconcile_stale_rwb_jobs",
 ]

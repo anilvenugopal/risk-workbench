@@ -322,6 +322,9 @@ def upgrade() -> None:
         # plain VARCHAR — external-status mirror (Article 3 carve-out).
         sa.Column("status", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'UNSUBMITTED'")),
+        # Operational log-trace id inherited from the rwb_job whose worker
+        # submitted this op (issue #28). Provenance only — never a predicate.
+        sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
@@ -380,6 +383,9 @@ def upgrade() -> None:
         sa.Column("error_detail", sa.NVARCHAR(None), nullable=True),
         sa.Column("attempt_count", sa.Integer, nullable=False, server_default="0"),
         sa.Column("claimed_by", sa.NVARCHAR(128), nullable=True),
+        # Operational log-trace id: the HTTP request (or chain) that caused this
+        # job (issue #28). Provenance only — never a predicate.
+        sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("submitted_at", DATETIME2, nullable=True),
         sa.Column("completed_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,

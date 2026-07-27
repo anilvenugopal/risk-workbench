@@ -8,6 +8,8 @@ get_user_by_email, etc.) are monkeypatched — no real DB.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -584,3 +586,60 @@ class TestSetupProfile:
         })
         assert resp.status_code == 200
         assert any("pw" in p for p in executed)
+
+
+# ── Auth event log emissions (issue #28) ──────────────────────────────────────
+
+class TestAuthEventLogs:
+    """Auth events log the user UUID and a reason code only — never the email
+    address (constitution Article 13)."""
+
+    def _msgs(self, caplog):
+        return [r.getMessage() for r in caplog.records
+                if r.name == "app.routers.auth"]
+
+    def test_failed_login_logs_reason_without_email(self, monkeypatch, caplog):
+        import app.routers.auth as auth_mod
+        monkeypatch.setattr(auth_mod, "get_user_by_email", lambda e: None)
+        monkeypatch.setattr(auth_mod, "log_attempt", lambda *a, **k: None)
+        monkeypatch.setattr(auth_mod, "validate_csrf_token", lambda t: True)
+        with caplog.at_level(logging.WARNING, logger="app.routers.auth"):
+            TestClient(_make_app(), follow_redirects=False).post(
+                "/auth/login",
+                data={"email": "someone@example.com", "password": "x",
+                      "csrf_token": _valid_csrf()})
+        msgs = self._msgs(caplog)
+        assert any("login failed (account_not_found)" in m for m in msgs)
+        assert all("someone@example.com" not in m for m in msgs)
+
+    def test_successful_login_logs_user_id_not_email(self, monkeypatch, caplog):
+        import app.routers.auth as auth_mod
+        fake_user = {"id": "u1", "password_hash": "hash", "is_active": True,
+                     "email": "u@x.com"}
+        monkeypatch.setattr(auth_mod, "get_user_by_email", lambda e: fake_user)
+        monkeypatch.setattr(auth_mod, "verify_password", lambda pw, h: True)
+        monkeypatch.setattr(auth_mod, "validate_csrf_token", lambda t: True)
+        monkeypatch.setattr(auth_mod, "create_session", lambda uid, ip, ua: "sid")
+        monkeypatch.setattr(auth_mod, "log_attempt", lambda *a, **k: None)
+        monkeypatch.setattr(auth_mod, "update_last_login", lambda uid: None)
+        with caplog.at_level(logging.INFO, logger="app.routers.auth"):
+            resp = TestClient(_make_app(), follow_redirects=False).post(
+                "/auth/login",
+                data={"email": "u@x.com", "password": "pw",
+                      "csrf_token": _valid_csrf()})
+        assert resp.status_code == 302
+        msgs = self._msgs(caplog)
+        assert any("login succeeded for user u1 (method=password)" in m
+                   for m in msgs)
+        assert all("u@x.com" not in m for m in msgs)
+
+    def test_logout_logs_user_id(self, monkeypatch, caplog):
+        import app.routers.auth as auth_mod
+        monkeypatch.setattr(auth_mod, "validate_csrf_token", lambda t: True)
+        monkeypatch.setattr(auth_mod, "invalidate_session", lambda sid: None)
+        with caplog.at_level(logging.INFO, logger="app.routers.auth"):
+            TestClient(_make_app(user=_make_user()), follow_redirects=False).post(
+                "/auth/logout", data={"csrf_token": "t"})
+        msgs = self._msgs(caplog)
+        assert any("logout for user u1" in m for m in msgs)
+        assert all("u@x.com" not in m for m in msgs)
