@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # configured", and the batch parks SUBMISSION FAILED rows until it is set.
     irp_submission_max_retries: int | None = None
 
+    # TTL for the in-process Risk Modeler name-collision cache (issue #11) — shared
+    # by the as-you-type check endpoints and the save-time blocking check.
+    name_check_cache_ttl_secs: int = 30
+
     # ── Risk Modeler / IRP gateway (Article 11) ─────────────────────────────────
     # irp-integration's IRPClient() reads ALL of its own config straight from the
     # environment (the gateway constructs it with no args), so those are NOT pydantic

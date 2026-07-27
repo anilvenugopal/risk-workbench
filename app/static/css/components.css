@@ -284,7 +284,32 @@
   border-color: var(--color-danger-border);
   color: var(--color-danger);
 }
+.toast--warning {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+  color: var(--color-warning);
+}
 .toast--out {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* ── Name-collision fragment (as-you-type check under EDM/RDM name fields) ── */
+.name-collision__error,
+.name-collision__warn {
+  margin: var(--space-1) 0 var(--space-3);
+  padding: var(--space-2) 14px;
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-caption);
+}
+.name-collision__error {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+}
+.name-collision__warn {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
+  color: var(--color-warning);
 }

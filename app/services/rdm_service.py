@@ -1,7 +1,8 @@
 """RDM service — import broker results as an ``irp_rdm`` and track it (US2).
 
-Mirrors ``edm_service`` (same request-path discipline, non-blocking collision, no row
-scoping) with one shape difference: an RDM apply targets **one or more EDMs**.
+Mirrors ``edm_service`` (same request-path discipline, blocking name collision per
+issue #17, no row scoping) with one shape difference: an RDM apply targets **one or
+more EDMs**.
 ``import_rdm`` creates the ``irp_rdm`` (``pending_import``) and enqueues **one**
 ``upload_rdm`` head; the worker fans it out to one apply per applied EDM. Every apply
 targets an EDM — a no-EDM (review-only) import is **rejected** (``EmptyPackageError``);
@@ -21,10 +22,12 @@ from typing import Any, Sequence
 
 from sqlalchemy import text
 
-from app.services import irp_gateway, package_service, rwb_job_service
+from app.services import irp_gateway, name_check, package_service, rwb_job_service
 from app.services._common import _uid, _utcnow
 from app.services.edm_service import ImportResult  # shared DTO
-from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.errors import (
+    ConcurrencyConflict, EmptyPackageError, NameCollisionError)
+from app.services.name_check import CollisionCheck
 from app.services.package_service import SubmissionRef
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
@@ -59,18 +62,11 @@ class RdmRow:
     as_of: Any = None
 
 
-def check_name_collision(name: str) -> list[str]:
-    """Colliding IRP RDM names (empty = clear). Non-blocking (FR-012): best-effort —
-    if the gateway can't answer, log and report no collisions rather than raise."""
-    trimmed = (name or "").strip()
-    if not trimmed:
-        return []
-    try:
-        return [hit.name for hit in irp_gateway.search_rdms(trimmed)]
-    except Exception:  # noqa: BLE001 — advisory check must never break the save
-        logger.warning("RDM name-collision check skipped (gateway unavailable)",
-                       exc_info=True)
-        return []
+def check_name_collision(name: str) -> CollisionCheck:
+    """Check ``name`` against Risk Modeler (empty = clear). A hit blocks the save
+    (issue #17); ``checked=False`` means the gateway couldn't answer — the caller
+    fails open with a warning. Cached briefly in-process (issue #11)."""
+    return name_check.check_rdm_name(name)
 
 
 def import_rdm(
@@ -80,8 +76,10 @@ def import_rdm(
     """Create an ``irp_rdm`` (``pending_import``) and enqueue one ``upload_rdm`` head
     that fans out to one apply per applied EDM. ``applied_edm_ids`` **MUST** be
     non-empty — every apply targets an EDM; a no-EDM (review-only) import is rejected
-    with ``EmptyPackageError`` (D3 / FR-016). **No Risk Modeler call here** (FR-042).
-    Validates the source (else ``InvalidSourceFile``)."""
+    with ``EmptyPackageError`` (D3 / FR-016). The only Risk Modeler call here is the
+    cached name-collision *read* (permitted, Article 11); raises
+    ``NameCollisionError`` — before persisting anything — when the name already
+    exists there (issue #17). Validates the source (else ``InvalidSourceFile``)."""
     edm_ids = [str(e) for e in applied_edm_ids if e]
     if not edm_ids:
         raise EmptyPackageError(
@@ -89,7 +87,11 @@ def import_rdm(
             "(review-only import is deferred).")
     name = package_service.clean_member_name(name)     # raises InvalidMemberName
     canonical = validate_selection(source_file_path)
-    collision = check_name_collision(name)
+    check = check_name_collision(name)
+    if check.collides:
+        raise NameCollisionError(
+            f"An RDM named '{name}' already exists in Risk Modeler. "
+            "Choose a different name.")
 
     rdm_id = str(uuid.uuid4())
     now = _utcnow()
@@ -113,7 +115,7 @@ def import_rdm(
         actor_id=actor,
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    return ImportResult(entity_id=rdm_id, collision=collision)
+    return ImportResult(entity_id=rdm_id, collision_unchecked=not check.checked)
 
 
 _ROW_SELECT = (

@@ -59,6 +59,10 @@ class FakeIRP:
         self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
         self.raise_on_submit = False
+        # force name-collision searches to fail (fail-open tests, issue #17)
+        self.raise_on_search = False
+        # recorded (kind, name) collision searches — cache assertions (issue #11)
+        self.search_calls: list[tuple[str, str]] = []
         # ── spec-004 detail-read universe (worker backfill reads) ────────────
         # EDM exposureId (str) -> [{irp_id, name, exposure}] seeded portfolios
         self._portfolios: dict[str, list[dict]] = {}
@@ -264,11 +268,17 @@ class FakeIRP:
                          result=self.results.get(irp_id))
 
     def search_edms(self, name: str) -> list[EntityHit]:
+        self.search_calls.append(("edm", name))
+        if self.raise_on_search:
+            raise RuntimeError("fake IRP: forced search failure")
         # A known EDM (collision-seeded or imported) resolves to its fake exposureId —
         # the durable entity id the poller stores as irp_edm.irp_id.
         return ([EntityHit(irp_id=self._exposure_id_for(name), name=name)]
                 if name in self._edm_names else [])
 
     def search_rdms(self, name: str) -> list[EntityHit]:
+        self.search_calls.append(("rdm", name))
+        if self.raise_on_search:
+            raise RuntimeError("fake IRP: forced search failure")
         return ([EntityHit(irp_id=f"rdm-{name}", name=name)]
                 if name in self._rdm_names else [])

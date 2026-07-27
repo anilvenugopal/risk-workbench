@@ -5,9 +5,12 @@ creates the ``irp_edm`` (``status='pending_import'``) and enqueues one ``upload_
 head — **no gateway call on the request path**. The worker submits; the poller
 mirrors status and flips the entity to ``ready``/``error`` (worker-poller.md).
 
-Name collision is a **non-blocking warning** (FR-012 / R8): ``check_name_collision``
-returns colliding IRP names and never raises. No function applies row scoping — every
-analyst sees every EDM (Article 6 / FR-037).
+Name collision **blocks the save** (FR-012 as amended by issue #17): ``import_edm``
+raises ``NameCollisionError`` before persisting anything when the name already exists
+in Risk Modeler. When the gateway can't answer, the check fails OPEN — the save
+proceeds with ``ImportResult.collision_unchecked=True`` (the router warns) and the
+worker-side submit validation is the backstop. No function applies row scoping —
+every analyst sees every EDM (Article 6 / FR-037).
 
 Portability matches ``submission_service`` / ``package_service``: app-side UUIDs bound
 as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
@@ -23,11 +26,12 @@ from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
-    analysis_service, irp_gateway, package_service, portfolio_service,
-    rwb_job_service, treaty_service)
+    analysis_service, irp_gateway, name_check, package_service,
+    portfolio_service, rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
-from app.services.errors import ConcurrencyConflict
+from app.services.errors import ConcurrencyConflict, NameCollisionError
+from app.services.name_check import CollisionCheck
 from app.services.package_service import SubmissionRef
 from app.services.portfolio_service import EdmAggregate, PortfolioRow
 from app.services.treaty_service import TreatyRow
@@ -53,9 +57,11 @@ STATUSES = (PENDING, IMPORTING, READY, ERROR, DELETE_PENDING, DELETED)
 
 @dataclass
 class ImportResult:
-    """The id of the created entity plus any non-blocking name-collision warning."""
+    """The id of the created entity. ``collision_unchecked=True`` means Risk Modeler
+    was unreachable for the blocking name check — the save proceeded fail-open and
+    the router should warn (a real collision then fails at the worker submit)."""
     entity_id: str
-    collision: list[str] = field(default_factory=list)
+    collision_unchecked: bool = False
 
 
 @dataclass
@@ -73,20 +79,11 @@ class EdmRow:
     submissions: list[SubmissionRef] = field(default_factory=list)
 
 
-def check_name_collision(name: str) -> list[str]:
-    """Colliding IRP EDM names for ``name`` (empty = clear). Non-blocking (FR-012):
-    the caller renders a warning, nothing is ever raised. If the gateway can't answer
-    (IRP unavailable, or the search not yet wired) the check is best-effort — we log
-    and report no collisions rather than fail the caller's save."""
-    trimmed = (name or "").strip()
-    if not trimmed:
-        return []
-    try:
-        return [hit.name for hit in irp_gateway.search_edms(trimmed)]
-    except Exception:  # noqa: BLE001 — advisory check must never break the save
-        logger.warning("EDM name-collision check skipped (gateway unavailable)",
-                       exc_info=True)
-        return []
+def check_name_collision(name: str) -> CollisionCheck:
+    """Check ``name`` against Risk Modeler (empty = clear). A hit blocks the save
+    (issue #17); ``checked=False`` means the gateway couldn't answer — the caller
+    fails open with a warning. Cached briefly in-process (issue #11)."""
+    return name_check.check_edm_name(name)
 
 
 def import_edm(
@@ -95,12 +92,18 @@ def import_edm(
 ) -> ImportResult:
     """Create an ``irp_edm`` (``pending_import``) and enqueue one ``upload_edm`` head
     (``requestor_type='analyst_request'``, ``requestor_id=irp_edm.id``). The worker
-    performs the submit — **no Risk Modeler call here** (FR-042). Validates the source
-    is within ``SHARED_DRIVE_ROOT`` and is a file (else ``InvalidSourceFile``). Returns
-    the new id alongside the non-blocking collision warning."""
+    performs the submit; the only Risk Modeler call here is the cached name-collision
+    *read* (permitted, Article 11). Validates the source is within
+    ``SHARED_DRIVE_ROOT`` and is a file (else ``InvalidSourceFile``). Raises
+    ``NameCollisionError`` — before persisting anything — when the name already
+    exists in Risk Modeler (issue #17)."""
     name = package_service.clean_member_name(name)     # raises InvalidMemberName
     canonical = validate_selection(source_file_path)   # raises InvalidSourceFile
-    collision = check_name_collision(name)
+    check = check_name_collision(name)
+    if check.collides:
+        raise NameCollisionError(
+            f"An EDM named '{name}' already exists in Risk Modeler. "
+            "Choose a different name.")
 
     edm_id = str(uuid.uuid4())
     now = _utcnow()
@@ -123,7 +126,7 @@ def import_edm(
         actor_id=actor,
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    return ImportResult(entity_id=edm_id, collision=collision)
+    return ImportResult(entity_id=edm_id, collision_unchecked=not check.checked)
 
 
 def _to_row(row: dict) -> EdmRow:

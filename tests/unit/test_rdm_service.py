@@ -1,8 +1,9 @@
 """Unit tests for app/services/rdm_service.py (US2, T025 + T027a backfill).
 
 Applied import fans out one apply per EDM; **every apply targets an EDM** — a no-EDM
-(review-only) import is rejected with ``EmptyPackageError`` (D3 / FR-016). Collision
-warning is non-blocking; ``retry_import`` idempotent; ``list_rdms`` applies no scoping.
+(review-only) import is rejected with ``EmptyPackageError`` (D3 / FR-016). Name
+collision blocks the import (issue #17), failing open when the gateway is down;
+``retry_import`` idempotent; ``list_rdms`` applies no scoping.
 On ``import_rdm`` FINISHED the poller enqueues ``backfill_rdm_analyses``, whose worker
 captures ``irp_analysis`` rows (D2) and rolls the RDM up to ``ready``. Runs on the SQLite
 mirror with the fake IRP; the worker fan-out is exercised via ``package_jobs.run_pending``.
@@ -14,7 +15,8 @@ import pytest
 
 from app.poller import run as poller
 from app.services import edm_service, rdm_service
-from app.services.errors import EmptyPackageError, InvalidMemberName
+from app.services.errors import (
+    EmptyPackageError, InvalidMemberName, NameCollisionError)
 from app.workers import package_jobs
 from db import execute, execute_scalar
 
@@ -80,13 +82,27 @@ def test_fanout_is_idempotent_per_pair(iteration2_db, fake_irp, drive):
     assert n == 1
 
 
-def test_check_name_collision_non_blocking(iteration2_db, fake_irp, drive):
+def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
     fake_irp.add_rdm_name("Dupe")
     e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
-    res = rdm_service.import_rdm(name="Dupe", source_file_path=str(drive / "rdm1.mdf"),
+    with pytest.raises(NameCollisionError):
+        rdm_service.import_rdm(name="Dupe", source_file_path=str(drive / "rdm1.mdf"),
+                               applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
+    # blocked BEFORE persisting anything — no irp_rdm, no upload_rdm head
+    assert execute_scalar("SELECT COUNT(*) FROM irp_rdm", {},
+                          connection="WORKBENCH") == 0
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_rdm'", {},
+        connection="WORKBENCH") == 0
+
+
+def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
+    e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
+    fake_irp.raise_on_search = True
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
                                  applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
-    assert res.collision == ["Dupe"]
-    assert rdm_service.get_rdm(res.entity_id) is not None
+    assert res.collision_unchecked is True
+    assert rdm_service.get_rdm(res.entity_id) is not None  # save proceeded
 
 
 def test_list_rdms_no_scoping(iteration2_db, fake_irp, drive):

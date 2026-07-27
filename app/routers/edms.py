@@ -1,9 +1,11 @@
-"""EDM routes — import, detail, recovery, and the non-blocking name check (US1).
+"""EDM routes — import, detail, recovery, and the blocking name check (US1, #17).
 
 Server-rendered FastAPI + Jinja2 + HTMX (Article 8). Every state-changing route
-validates a CSRF token (Article 13); no route calls Risk Modeler (Article 11) —
-import only *enqueues* the upload work and returns. No row scoping (Article 6):
-every analyst may load and act on every EDM.
+validates a CSRF token (Article 13). Risk Modeler *submits* stay worker-side —
+import only *enqueues* the upload work and returns; the one RM call on a request
+path is the name-collision **read** (permitted by Article 11, cached per
+``name_check``). No row scoping (Article 6): every analyst may load and act on
+every EDM.
 
 Route order matters: the literal ``/edms/import`` and ``/edms/name-check`` paths are
 declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
@@ -18,7 +20,8 @@ from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import edm_service, rdm_service
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile)
+    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
+    NameCollisionError)
 
 router = APIRouter()
 
@@ -68,14 +71,14 @@ def library(request: Request):
 @router.get("/edms/import", response_class=HTMLResponse)
 def import_form(request: Request):
     return _render(request, "pages/edm_import.html",
-                   {"form": {"name": ""}, "errors": [], "collision": []})
+                   {"form": {"name": ""}, "errors": [], "check": None})
 
 
 @router.get("/edms/name-check", response_class=HTMLResponse)
 def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
-                    {"collision": edm_service.check_name_collision(name),
+                    {"check": edm_service.check_name_collision(name),
                      "kind": "EDM"})
 
 
@@ -95,15 +98,18 @@ def create_import(
         return _render(request, "pages/edm_import.html", {
             "form": form,
             "errors": ["A name and a source file selection are required."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     try:
         result = edm_service.import_edm(
             name=name.strip(), source_file_path=source, actor_id=request.state.user.id)
-    except (InvalidSourceFile, InvalidMemberName) as exc:
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _render(request, "pages/edm_import.html",
-                       {"form": form, "errors": [str(exc)], "collision": []},
+                       {"form": form, "errors": [str(exc)], "check": None},
                        status_code=422)
-    return RedirectResponse(f"/edms/{result.entity_id}", status_code=303)
+    # Fail-open marker (issue #17): the collision check couldn't reach Risk
+    # Modeler — the detail page shows a warning banner once, via the query flag.
+    suffix = "?nc=unchecked" if result.collision_unchecked else ""
+    return RedirectResponse(f"/edms/{result.entity_id}{suffix}", status_code=303)
 
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
@@ -117,8 +123,13 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That EDM does not exist."}, status_code=404)
+    # Rendered by the page shell (not the polled #edm-detail body, which would
+    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
-                   {"edm": edm}, status_code=status_code)
+                   {"edm": edm,
+                    "nc_unchecked": request.query_params.get("nc") == "unchecked"},
+                   status_code=status_code)
 
 
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)

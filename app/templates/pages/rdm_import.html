@@ -23,8 +23,8 @@
       <label for="rdm-name">NAME</label>
       <input class="wf-field__input" type="text" id="rdm-name" name="name"
              value="{{ form.name }}" required
-             hx-get="/rdms/name-check" hx-trigger="keyup changed delay:400ms"
-             hx-target="#name-collision" hx-swap="outerHTML">
+             hx-get="/rdms/name-check" hx-trigger="keyup changed delay:500ms"
+             hx-target="next .name-collision" hx-swap="outerHTML">
     </div>
 
     {% include "partials/name_collision.html" %}

@@ -17,12 +17,15 @@ the routers (contracts/data-access.md):
                              (retry / replace-file). This iteration defers all
                              submits to workers, so it is raised only from the
                              gateway-touching recovery helpers (contracts/data-access.md).
+- ``NameCollisionError``   — an EDM/RDM name already exists in Risk Modeler
+                             (FR-012 as amended by issue #17) → 422, blocking.
+                             Raised only when the check actually reached Risk
+                             Modeler; an unreachable gateway fails OPEN with a
+                             warning instead (the worker-side submit validation
+                             is the backstop).
 
 They deliberately carry no DB or HTTP coupling — the service raises, the router
 translates.
-
-> Name collision is deliberately NOT an error: it is a non-blocking warning
-> payload the service returns and the router renders (FR-012 / research R8).
 """
 
 from __future__ import annotations
@@ -64,6 +67,12 @@ class JobSubmitError(ServiceError):
     (retry / replace-file). Normal submits are deferred to workers this iteration."""
 
 
+class NameCollisionError(ServiceError):
+    """Raised when a save would create an EDM/RDM whose name already exists in
+    Risk Modeler (blocking — issue #17). Mapped to HTTP 422. Raised only when the
+    check reached Risk Modeler; an unreachable gateway fails open instead."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -73,4 +82,5 @@ __all__ = [
     "InvalidSourceFile",
     "InvalidMemberName",
     "JobSubmitError",
+    "NameCollisionError",
 ]

@@ -1,10 +1,18 @@
-<div id="name-collision" class="name-collision">
-  {% if collision %}
+{# As-you-type name-collision fragment (issue #17): a hit means Save WILL be
+   refused; check.checked == False means Risk Modeler was unreachable — the save
+   fails open with a warning. No fixed id: the swap target is positional
+   (hx-target="next .name-collision"), so the same fragment serves the standalone
+   import pages and, later, per package-modal row. `check` is None on first paint. #}
+<div class="name-collision">
+  {% if check and check.names %}
+  <div class="name-collision__error" role="alert">
+    <strong>Name taken:</strong> an {{ kind or 'entity' }} with this name already
+    exists in Risk Modeler. Saving is blocked — choose a different name.
+  </div>
+  {% elif check and not check.checked %}
   <div class="name-collision__warn" role="status">
-    <strong>Heads up:</strong> {{ collision|length }} existing
-    {{ kind or 'entity' }}{{ '' if collision|length == 1 else 's' }} in Risk Modeler
-    share this name ({{ collision|join(', ') }}). You can still proceed — names need
-    not be unique.
+    Couldn't reach Risk Modeler to check this name. You can still save, but the
+    import will fail if the name is already taken.
   </div>
   {% endif %}
 </div>

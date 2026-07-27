@@ -2,8 +2,9 @@
 
 Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
 every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
-POST (Article 13); no Risk Modeler call on any route (Article 11); no row scoping
-(Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+POST (Article 13). Risk Modeler *submits* stay worker-side; the one RM call on a
+request path is the name-collision **read** (permitted by Article 11, cached per
+``name_check``). No row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from app.services.errors import (
     EmptyPackageError,
     InvalidMemberName,
     InvalidSourceFile,
+    NameCollisionError,
 )
 
 router = APIRouter()
@@ -69,7 +71,7 @@ def library(request: Request):
 @router.get("/rdms/import", response_class=HTMLResponse)
 def import_form(request: Request):
     return _render(request, "pages/rdm_import.html",
-                   {"form": {"name": ""}, "errors": [], "collision": [],
+                   {"form": {"name": ""}, "errors": [], "check": None,
                     "edms": edm_service.list_edms()})
 
 
@@ -77,7 +79,7 @@ def import_form(request: Request):
 def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
-                    {"collision": rdm_service.check_name_collision(name),
+                    {"check": rdm_service.check_name_collision(name),
                      "kind": "RDM"})
 
 
@@ -99,21 +101,25 @@ def create_import(
         return _render(request, "pages/rdm_import.html", {
             "form": form, "edms": edm_service.list_edms(),
             "errors": ["A name and a source file selection are required."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     if not edm_ids:
         return _render(request, "pages/rdm_import.html", {
             "form": form, "edms": edm_service.list_edms(),
             "errors": ["Select at least one EDM to apply the RDM to."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
             applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName) as exc:
+    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName,
+            NameCollisionError) as exc:
         return _render(request, "pages/rdm_import.html",
                        {"form": form, "edms": edm_service.list_edms(),
-                        "errors": [str(exc)], "collision": []}, status_code=422)
-    return RedirectResponse(f"/rdms/{result.entity_id}", status_code=303)
+                        "errors": [str(exc)], "check": None}, status_code=422)
+    # Fail-open marker (issue #17): the collision check couldn't reach Risk
+    # Modeler — the detail page shows a warning banner once, via the query flag.
+    suffix = "?nc=unchecked" if result.collision_unchecked else ""
+    return RedirectResponse(f"/rdms/{result.entity_id}{suffix}", status_code=303)
 
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
@@ -140,6 +146,10 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That RDM does not exist."}, status_code=404)
+    # Rendered by the page shell (not the polled #rdm-detail body, which would
+    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # name-collision check couldn't reach Risk Modeler.
+    ctx["nc_unchecked"] = request.query_params.get("nc") == "unchecked"
     return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
 
 

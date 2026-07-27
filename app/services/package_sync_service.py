@@ -148,14 +148,15 @@ def save_package(
     logger.info("package %s %s by analyst %s (%d member(s) added)",
                 pid, "created" if creating else "updated", actor, len(specs))
 
-    # Collision check (outside the txn — it reaches the gateway). Non-blocking (R8).
+    # Collision check (outside the txn — it reaches the gateway). Still non-blocking
+    # here; the package flows adopt the blocking contract in the next slice (#17).
     warnings: list[MemberCollision] = []
     for spec in specs:
-        hits = (edm_service.check_name_collision(spec.name) if spec.kind == "edm"
-                else rdm_service.check_name_collision(spec.name))
-        if hits:
+        check = (edm_service.check_name_collision(spec.name) if spec.kind == "edm"
+                 else rdm_service.check_name_collision(spec.name))
+        if check.collides:
             warnings.append(MemberCollision(kind=spec.kind, name=spec.name,
-                                            collision=hits))
+                                            collision=list(check.names)))
     return SaveResult(package_id=pid, warnings=warnings)
 
 
