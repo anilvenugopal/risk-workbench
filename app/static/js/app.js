@@ -66,7 +66,7 @@ function defaultMemberName(base) {
 document.addEventListener('alpine:init', () => {
   Alpine.data('packageModal', () => ({
     members: [],
-    browseOpen: false,
+    browseOpen: true,
     onDriveChange(e) {
       const cb = e.target;
       if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
