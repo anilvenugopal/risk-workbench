@@ -18,7 +18,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | POST | `/rdms/import` | Create RDM (applied to ≥1 EDM) + enqueue | Body carries `applied_edm_ids` (**non-empty required**; review-only / RDM-only import is deferred — D3, 2026-07-14). |
 | POST | `/edms/{id}/retry` / `/rdms/{id}/retry` | Re-enqueue a failed import (FR-045) | Idempotent; single head row. |
 | POST | `/edms/{id}/replace-file` / `/rdms/{id}/replace-file` | Replace source file + retry (FR-046) | Re-browse → new path (validated) → re-import; carries `updated_at` (FR-039). |
-| GET | `/edms/name-check?name=` / `/rdms/name-check?name=` | HTMX name-collision check | Returns the **non-blocking** `name_collision` fragment (FR-012/SC-005); never blocks. |
+| GET | `/edms/name-check?name=` / `/rdms/name-check?name=` | HTMX name-collision check | Returns the `name_collision` fragment (FR-012/SC-005 as amended 2026-07-27 — issue #17): a hit renders a **blocking** error (disables submit); an unreachable gateway renders the fail-open warning. `/packages/member-name-check?member_kind=&member_name=` is the per-row modal variant. |
 
 ---
 
@@ -35,7 +35,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | Method | Path | Purpose | Success | Errors |
 |---|---|---|---|---|
 | GET | `/submissions/{id}/packages/new` | Package modal (browse + multi-select + per-member name) | modal partial | gate 409 if submission not ACTIVE |
-| POST | `/submissions/{id}/packages` | **Create** — persist package + member names, run collision check, attach to submission. Body carries `action`: `save` (default) submits nothing (FR-014); `save` **and** `sync` in one step (FR-013) — `action=sync` also enqueues member work via the same non-blocking path as `/packages/{pid}/sync` (FR-015/FR-042). | package-card partial (queued state when `action=sync`) | `EmptyPackageError`→422; `InvalidSourceFile`→422; collision warning inline (non-blocking) |
+| POST | `/submissions/{id}/packages` | **Create** — persist package + member names, run collision check, attach to submission. Body carries `action`: `save` (default) submits nothing (FR-014); `save` **and** `sync` in one step (FR-013) — `action=sync` also enqueues member work via the same non-blocking path as `/packages/{pid}/sync` (FR-015/FR-042). | package-card partial (queued state when `action=sync`) | `EmptyPackageError`→422; `InvalidSourceFile`→422; `NameCollisionError`→422 modal re-render (blocking — issue #17) |
 | POST | `/packages/{pid}` | Edit a saved package (names/members) | card partial | `ConcurrencyConflict`→409 (FR-039); `EmptyPackageError`→422 |
 | POST | `/packages/{pid}/sync` | **Save and Sync** — enqueue member work, return immediately (FR-015/FR-042) | card partial (queued state) | gate 409; `EmptyPackageError`→422 |
 | POST | `/packages/{pid}/delete` | **Delete** — enqueue reverse-order removals (FR-019) | card partial (deleting state) | gate 409 |
@@ -43,7 +43,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 **Save-and-Sync / Delete are non-blocking (FR-042 / SC-014):** the POST records `rwb_job` head rows and returns the card in a "queued/syncing/deleting" state. The card then advances live as the poller/workers progress (SSE, below). **No Risk Modeler submit happens in any of these handlers.**
 
-**Name-collision (FR-012):** each member name field runs `/…/name-check`; a hit highlights the field with a non-blocking warning and an override — Save/Sync are never blocked (SC-005).
+**Name-collision (FR-012 as amended 2026-07-27 — issue #17):** each member name field runs the name-check as-you-type; a hit renders a blocking error, disables Save / Save-and-Sync, and a submitted save is rejected 422 (`NameCollisionError`) before anything persists. An unreachable gateway fails open — the save proceeds with a visible warning (SC-005).
 
 **Read-only gate (FR-025 / SC-011):** package create/sync/delete/retry routes reject with `SubmissionClosed` (409) when the owning submission is COMPLETED/CANCELLED; the detail view hides the affordances. Only viewing is permitted until reopened (inherits the Iteration-1 gate).
 

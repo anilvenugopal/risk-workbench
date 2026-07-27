@@ -23,6 +23,12 @@
   <dl class="member-detail">
     {% if is_active and member.status == 'error' %}
     <div style="grid-column: 1 / -1;">
+      {% if member.error_detail %}
+      <div class="form-banner form-banner--error">
+        {{ member.error_detail }} — if the name is already taken in Risk Modeler,
+        re-import under a different name.
+      </div>
+      {% endif %}
       <form method="post" action="/packages/{{ card.id }}/members/{{ member.id }}/retry"
             class="inline-form" hx-post="/packages/{{ card.id }}/members/{{ member.id }}/retry"
             hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML">

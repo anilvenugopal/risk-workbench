@@ -65,11 +65,14 @@
     </div>
   </div>
 
-  {# ── import-error recovery (unchanged Iteration-2 behavior) ── #}
+  {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if edm.status == 'error' %}
   <div class="form-banner form-banner--error">
-    This import failed in Risk Modeler. Retry it, or replace the source file and
-    re-import.
+    This import failed in Risk Modeler{% if edm.import_error %} —
+    {{ edm.import_error }}{% endif %}.
+    Retry it, or replace the source file and re-import.
+    {%- if edm.import_error %} If the name is already taken in Risk Modeler,
+    re-import under a different name.{% endif %}
   </div>
   <div class="form-actions">
     <form method="post" action="/edms/{{ edm.id }}/retry" class="inline-form">

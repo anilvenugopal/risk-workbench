@@ -105,6 +105,29 @@ def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
     assert rdm_service.get_rdm(res.entity_id) is not None  # save proceeded
 
 
+def test_latest_import_error_surfaces_apply_submit_failure(
+        iteration2_db, fake_irp, drive):
+    """Backstop surfacing (issue #17 Slice 3): a fan-out that submitted nothing
+    fails its head under the ``upload_rdm submit failed: `` framing, and the
+    read strips it back to the Risk Modeler reason."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.ERROR
+    assert (rdm_service.latest_import_error(res.entity_id)
+            == "fake IRP: forced submit failure")
+
+
+def test_latest_import_error_none_without_failed_head(iteration2_db, fake_irp, drive):
+    e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
+    assert rdm_service.latest_import_error(res.entity_id) is None
+
+
 def test_list_rdms_no_scoping(iteration2_db, fake_irp, drive):
     a, b = iteration2_db.user_a, iteration2_db.user_b
     ea = _edm(drive, a, "EA", "edm1.bak")

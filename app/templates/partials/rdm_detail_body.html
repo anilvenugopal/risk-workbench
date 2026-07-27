@@ -11,7 +11,7 @@
    the work is terminal, so polling ends without a reload. The Sync forms swap
    this wrapper via HTMX (URL never changes, no re-submission prompt on refresh);
    plain-POST fallback is PRG.
-   Context: rdm, analyses, sync_running, sync_status. #}
+   Context: rdm, analyses, sync_running, sync_status, import_error. #}
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set edm_total = analyses | map(attribute='edm_count') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
@@ -63,11 +63,14 @@
     </div>
   </div>
 
-  {# ── import-error recovery (unchanged Iteration-2 behavior) ── #}
+  {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if rdm.status == 'error' %}
   <div class="form-banner form-banner--error">
-    One or more applies failed in Risk Modeler. Retry, or replace the source file and
-    re-import.
+    One or more applies failed in Risk Modeler{% if import_error %} —
+    {{ import_error }}{% endif %}.
+    Retry, or replace the source file and re-import.
+    {%- if import_error %} If the name is already taken in Risk Modeler,
+    re-import under a different name.{% endif %}
   </div>
   <div class="form-actions">
     <form method="post" action="/rdms/{{ rdm.id }}/retry" class="inline-form">

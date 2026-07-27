@@ -95,13 +95,13 @@ Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried automaticall
 
 ---
 
-## R8 — Name-collision as a non-blocking warning
+## R8 — Name-collision blocks the save (amended 2026-07-27 — issue #17)
 
-**Decision**: Setting or renaming an EDM/RDM name runs `search_edms()` / `search_imported_rdms()`; if the name already exists in Risk Modeler, the response carries a **non-blocking** warning fragment that highlights the name field and offers "rename" or "use anyway" — it never blocks Save or Save-and-Sync (FR-012). Same two-step HTMX shape as the Iteration-1 duplicate-warning (a `confirmed`/override marker skips re-warning on the second submit).
+**Decision**: Setting or renaming an EDM/RDM name runs `search_edms()` / `search_imported_rdms()` (cached ~30s in-process — issue #11); a hit **blocks Save and Save-and-Sync** with an error naming the member — nothing is persisted or enqueued. The same check renders as-you-type as a blocking-error fragment that disables the submit buttons. When the check cannot reach Risk Modeler it **fails open**: the save proceeds with a visible warning and the worker-side submit validation (irp-integration ≥ 0.2.1 `validate_unique_edms`) is the backstop, whose specific message is surfaced on the entity page and package-card member row.
 
-**Rationale**: FR-012 / SC-005 (warn in 100% of collisions, block in 0%); DATA_MODEL §5 ("a non-blocking warning if the name already exists in IRP"). Reuses the Iteration-1 warning UX so the pattern is consistent.
+**Rationale**: irp-integration 0.2.1 validates uniqueness at submit time — an overridden warning can no longer produce the duplicate the analyst asked for; it fails minutes later in the worker with a graceless generic error (issue #17). Duplicate names also break the poller's by-name exposureId resolution. Surfacing the collision at save time is strictly better; failing open preserves availability during a Risk Modeler outage.
 
-**Alternatives considered**: (a) Hard-block on collision — rejected: Risk Modeler allows duplicate names and analysts sometimes want them (M&A/test variants); FR-012 forbids blocking. (b) Auto-suffix — rejected: mangles the analyst's chosen name.
+**Alternatives considered**: (a) **Non-blocking warning with a "use anyway" override** — the original R8 decision, **superseded 2026-07-27**: it predates 0.2.1's submit-side uniqueness validation, which turned the override into a delayed failure rather than a real choice. (b) Auto-suffix — still rejected: mangles the analyst's chosen name. (c) Fail closed when Risk Modeler is unreachable — rejected: would block every save during an outage; the worker backstop already catches the rare real collision.
 
 ---
 
@@ -166,7 +166,7 @@ Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried automaticall
 | R5 | Sync fan-out | One `upload_edm` per EDM; `import_edm` FINISHED → one `upload_rdm` → apply per RDM onto that EDM; per-pair, parallel; **review-only/RDM-only deferred (D3)** — every package has ≥1 EDM |
 | R6 | Delete asymmetry | EDM delete async (`submit_delete_edm_job`; getter `get_risk_data_job`); RDM delete **synchronous** (`delete_analysis` per analysis from local `irp_analysis`, no `irp_job`); RDM-before-EDM; RDM→EDM fan-in app-side |
 | R7 | Recovery | Idempotent re-sync + per-member retry + source-file replacement; `SUBMISSION FAILED` auto-retried by the batch |
-| R8 | Name collision | `search_edms/rdms` → non-blocking warning; never blocks Save/Sync; two-step HTMX confirm |
+| R8 | Name collision *(amended 2026-07-27 — issue #17)* | `search_edms/rdms` (cached ~30s) → **blocks** Save/Save-and-Sync on a hit; fails open with a warning when RM unreachable (worker submit is the backstop) |
 | R9 | Live status | SSE (`sse-starlette`) pushes server-rendered `job_row` fragments; filter = pure URL function; JS-off degrades |
 | R10 | Notifications | `notify_analyst` worker actor; configured channel(s) (Teams/email/desktop); per-action completion + per-member failure (not per successful member) |
 | R11 | Shared drive | Live read-only listing under `SHARED_DRIVE_ROOT` (traversal-guarded); path stored on the member; no inventory; never mutates broker files |

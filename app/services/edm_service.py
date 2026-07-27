@@ -193,6 +193,26 @@ def get_edm(edm_id: Any) -> EdmRow | None:
     return _to_row(row) if row is not None else None
 
 
+def latest_import_error(edm_id: Any) -> str | None:
+    """The specific message behind an ``error`` EDM, when one was recorded: the
+    failed ``upload_edm`` head's ``error_detail`` (at most one row per entity —
+    the queue dedups on requestor + type), with the worker's ``"upload_edm
+    submit failed: "`` framing stripped so the page shows the Risk Modeler
+    message itself — e.g. the wheel's "already exist(s)" name backstop (issue
+    #17). ``None`` when nothing was recorded: an RM-side terminal failure flips
+    the entity via the poller while the head itself *succeeded*."""
+    row = execute_one(
+        "SELECT error_detail FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :e "
+        "AND rwb_job_type = 'upload_edm' AND status_code = 'failed'",
+        {"e": str(edm_id)}, connection="WORKBENCH")
+    detail = row["error_detail"] if row is not None else None
+    if not detail:
+        return None
+    prefix = "upload_edm submit failed: "
+    return detail[len(prefix):] if detail.startswith(prefix) else detail
+
+
 # ── the redesigned detail page's single read (spec 004 US1 — R6) ─────────────────
 
 @dataclass
@@ -232,6 +252,10 @@ class EdmDetail:
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
     rm_treaties_url: str | None = None
+    # Issue #17 backstop surfacing: the failed upload head's specific Risk
+    # Modeler message (``latest_import_error``) — set only when status ==
+    # 'error'; None when the failure recorded no submit detail.
+    import_error: str | None = None
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
@@ -355,6 +379,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         analyses=analyses,
         aggregate=portfolio_service.aggregate_exposure(portfolios),
         rm_treaties_url=_rm_treaties_url(row["name"]),
+        import_error=(latest_import_error(eid) if row["status"] == ERROR
+                      else None),
     )
 
 
@@ -551,8 +577,8 @@ def mark_delete_error(conn, *, edm_id: Any) -> None:
 __all__ = [
     "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED", "STATUSES",
-    "check_name_collision", "import_edm", "list_edms", "get_edm", "get_edm_detail",
-    "sync_detail",
+    "check_name_collision", "import_edm", "list_edms", "get_edm",
+    "latest_import_error", "get_edm_detail", "sync_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
 ]

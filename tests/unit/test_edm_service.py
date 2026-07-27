@@ -19,6 +19,7 @@ from app.services import edm_service, rwb_job_service
 from app.services.errors import (
     ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
     NameCollisionError)
+from app.workers import package_jobs
 from db import execute_command, execute_one, execute_scalar
 
 
@@ -102,6 +103,29 @@ def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
     res = _import(drive, iteration2_db.user_a)
     assert res.collision_unchecked is True
     assert edm_service.get_edm(res.entity_id) is not None  # save proceeded
+
+
+# ── backstop surfacing (issue #17 Slice 3) ────────────────────────────────────────
+
+def test_latest_import_error_surfaces_submit_failure(iteration2_db, fake_irp, drive):
+    """The worker backstop's specific reason reaches the detail read: the failed
+    ``upload_edm`` head's message, worker framing stripped — this is where the
+    wheel's "already exist(s)" collision text lands when a fail-open save races
+    a real duplicate."""
+    res = _import(drive, iteration2_db.user_a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()
+    assert edm_service.get_edm(res.entity_id).status == edm_service.ERROR
+    assert (edm_service.latest_import_error(res.entity_id)
+            == "fake IRP: forced submit failure")
+    assert (edm_service.get_edm_detail(res.entity_id).import_error
+            == "fake IRP: forced submit failure")
+
+
+def test_latest_import_error_none_without_failed_head(iteration2_db, fake_irp, drive):
+    res = _import(drive, iteration2_db.user_a)   # head still pending
+    assert edm_service.latest_import_error(res.entity_id) is None
+    assert edm_service.get_edm_detail(res.entity_id).import_error is None
 
 
 # ── list: no row scoping ─────────────────────────────────────────────────────────

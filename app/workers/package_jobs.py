@@ -153,6 +153,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
 
     submitted = 0
     failed = 0
+    last_error: str | None = None
     for rdm_id in rdm_ids:
         rdm = rdm_service.get_rdm(rdm_id)
         if rdm is None:
@@ -176,6 +177,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                     irp_edm_id=edm_id, irp_rdm_id=rdm_id,
                     payload={"name": rdm.name, "edm_name": edm_name})
                 rdm_service.mark_error(rdm_id=rdm_id)
+                last_error = str(exc)
                 failed += 1
                 continue
             # AT-LEAST-ONCE WINDOW (see module docstring): the apply above reached RM;
@@ -190,8 +192,11 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                         rdm_id, edm_id, res.irp_id)
             submitted += 1
     if failed and submitted == 0:
+        # Same framing as upload_edm so the read-side surfacing
+        # (rdm_service.latest_import_error) strips it uniformly and the page
+        # shows the Risk Modeler reason itself (issue #17).
         return runtime.JobResult.fail(
-            f"upload_rdm submitted no applies ({failed} failed)",
+            f"upload_rdm submit failed: {last_error}",
             applies_submitted=0, applies_failed=failed)
     return runtime.JobResult.ok(applies_submitted=submitted, applies_failed=failed)
 

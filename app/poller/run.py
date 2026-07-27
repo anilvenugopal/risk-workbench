@@ -150,9 +150,9 @@ def _resolve_edm_exposure_id(edm_id) -> str | None:
     """Resolve a just-imported EDM's durable RM ``exposureId`` by name — the entity id
     delete needs, NOT the import job id (see the ``irp_gateway`` caveat). Best-effort:
     on miss/failure return ``None`` so the EDM still reaches ``ready`` and can be
-    recovered later. Names are not unique in RM (collision is a non-blocking warning),
-    so a search may return >1 — take the newest (highest ``exposureId``), which is the
-    just-created one."""
+    recovered later. Names are not unique in RM (duplicates can pre-date the blocking
+    collision check, or slip through its fail-open window — issue #17), so a search may
+    return >1 — take the newest (highest ``exposureId``), which is the just-created one."""
     edm = edm_service.get_edm(edm_id)
     if edm is None:
         return None

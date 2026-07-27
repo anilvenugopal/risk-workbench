@@ -177,6 +177,25 @@ def get_rdm(rdm_id: Any) -> RdmRow | None:
     return _to_row(row) if row is not None else None
 
 
+def latest_import_error(rdm_id: Any) -> str | None:
+    """Mirror of ``edm_service.latest_import_error`` keyed on ``upload_rdm``: the
+    failed head's ``error_detail`` with the worker framing stripped, or ``None``
+    when nothing was recorded. Note a *partial* fan-out (some applies submitted,
+    one failed) leaves the head ``succeeded`` — the RDM is ``error`` via the
+    rollup but there is no head detail to show (the per-apply reason lives only
+    in logs this iteration)."""
+    row = execute_one(
+        "SELECT error_detail FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :r "
+        "AND rwb_job_type = 'upload_rdm' AND status_code = 'failed'",
+        {"r": str(rdm_id)}, connection="WORKBENCH")
+    detail = row["error_detail"] if row is not None else None
+    if not detail:
+        return None
+    prefix = "upload_rdm submit failed: "
+    return detail[len(prefix):] if detail.startswith(prefix) else detail
+
+
 def _current(rdm_id: str) -> dict | None:
     return execute_one(
         "SELECT status, updated_at FROM irp_rdm WHERE id = :id AND deleted_at IS NULL",
@@ -399,6 +418,7 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
+    "latest_import_error",
     "retry_import", "replace_source_file", "latest_backfill_status",
     "sync_detail", "sync_analyses_for_edm", "mark_importing", "mark_error",
     "rollup_on_terminal",

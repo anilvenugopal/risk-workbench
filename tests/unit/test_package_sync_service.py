@@ -211,6 +211,57 @@ def test_sync_empty_package_raises(iteration2_db, fake_irp, drive):
         sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
 
 
+# ── card backstop surfacing (issue #17 Slice 3) ───────────────────────────────────
+
+def test_card_surfaces_member_error_detail(iteration2_db, fake_irp, drive):
+    """An ``error`` member's card carries the specific submit-failure message
+    (failed upload head, worker framing stripped); a member that never
+    submitted stays ``None``."""
+    from app.workers import package_jobs
+    a = iteration2_db.user_a
+    res = sync.save_package(
+        package_id=None, name="P",
+        members=_members(drive, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")]),
+        actor_id=a)
+    sync.save_and_sync(package_id=res.package_id, actor_id=a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()          # upload_edm submit fails → EDM error
+
+    card = sync.get_package_card(res.package_id)
+    assert card.edms[0].status == "error"
+    assert card.edms[0].error_detail == "fake IRP: forced submit failure"
+    # the RDM never had a failed analyst-keyed head — nothing to attribute
+    assert card.rdms[0].error_detail is None
+
+
+def test_card_surfaces_rdm_error_detail_from_failed_head(iteration2_db, fake_irp, drive):
+    """The RDM arm of the batched read: a failed analyst-keyed ``upload_rdm``
+    head (standalone import / member-retry key) surfaces on the card member."""
+    from app.services import rwb_job_service
+    from db import execute_command
+    a = iteration2_db.user_a
+    res = sync.save_package(
+        package_id=None, name="P",
+        members=_members(drive, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")]),
+        actor_id=a)
+    rid = execute_one("SELECT id FROM irp_rdm WHERE package_id=:p",
+                      {"p": res.package_id}, connection="WORKBENCH")["id"]
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="analyst_request", requestor_id=rid,
+        rwb_job_type="upload_rdm", input_data={})
+    execute_command(
+        "UPDATE rwb_job SET status_code='failed', "
+        "error_detail='upload_rdm submit failed: RDM name taken' "
+        "WHERE requestor_id=:r AND rwb_job_type='upload_rdm'",
+        {"r": str(rid)}, connection="WORKBENCH")
+    execute_command("UPDATE irp_rdm SET status='error' WHERE id=:id",
+                    {"id": str(rid)}, connection="WORKBENCH")
+
+    card = sync.get_package_card(res.package_id)
+    assert card.rdms[0].error_detail == "RDM name taken"
+    assert card.edms[0].error_detail is None   # healthy member untouched
+
+
 # ── member name: extension-stripped default + charset/length validation ───────────
 
 @pytest.mark.parametrize("filename, expected", [

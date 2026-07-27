@@ -11,7 +11,7 @@ Shared typed errors (raised by services, mapped to HTTP by routers) — extends 
 - `InvalidSourceFile` — a browse selection is outside `SHARED_DRIVE_ROOT`, missing, or not a file (FR-008/FR-009) → 422.
 - `JobSubmitError` — a Risk Modeler submit failed on the request path *(only used if a submit is ever done inline; this iteration defers all submits to workers, so services raise this only from the retry/replace helpers that touch the gateway)*.
 
-> **Name collision is NOT an error** — it is a non-blocking warning payload (FR-012 / research R8); services return it, routers render it, nothing is raised.
+> **Name collision IS an error** *(amended 2026-07-27 — issue #17)*: `NameCollisionError` → 422, raised before anything is persisted or enqueued (FR-012 / research R8 as amended). Only the fail-open case (Risk Modeler unreachable) is a non-error payload — the save proceeds and the caller renders a warning.
 
 ---
 
@@ -65,9 +65,10 @@ def import_edm(*, name: str, source_file_path: str, package_id: UUID | None,
     Validates source_file_path is within SHARED_DRIVE_ROOT and is a file (else
     InvalidSourceFile). Returns the collision warning (if any) alongside the id."""
 
-def check_name_collision(name: str) -> list[str]:
-    """search_edms(name); return existing IRP names that collide. Empty = clear.
-    Non-blocking (FR-012) — the caller renders a warning, never blocks."""
+def check_name_collision(name: str) -> CollisionCheck:
+    """search_edms(name), cached ~30s in-process (issue #11). A hit blocks the save
+    (FR-012 as amended 2026-07-27 — issue #17); checked=False means the gateway
+    couldn't answer — the caller fails open with a warning."""
 
 def list_edms(*, package_id: UUID | None = None) -> list[EdmRow]:
     """Every EDM (library = no filter), or one package's EDMs. NO row scoping
@@ -92,9 +93,9 @@ def import_rdm(*, name: str, source_file_path: str, package_id: UUID | None,
                applied_edm_ids: list[UUID] = (), actor_id: UUID) -> ImportResult:
     """Create an irp_rdm (status='pending_import') and enqueue its apply work.
     applied_edm_ids MUST be non-empty — review-only / no-EDM import is deferred (D3);
-    one apply per EDM (worker-submitted). Same validation + non-blocking collision
-    warning as edm_service. Broker results are one logical source across EDMs
-    (FR-002; no per-EDM duplication)."""
+    one apply per EDM (worker-submitted). Same validation + blocking collision
+    check as edm_service (issue #17). Broker results are one logical source across
+    EDMs (FR-002; no per-EDM duplication)."""
 
 def check_name_collision(name: str) -> list[str]: ...     # search_imported_rdms
 def list_rdms(*, package_id: UUID | None = None) -> list[RdmRow]: ...   # no scoping

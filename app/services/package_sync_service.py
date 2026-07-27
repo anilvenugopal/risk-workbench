@@ -75,6 +75,10 @@ class MemberCard:
     # graceful pending, FR-043) and the now-POPULATED analysis counts (FR-050).
     aggregate: Any = None
     analysis_counts: Any = None
+    # Issue #17 backstop surfacing: an ``error`` member's specific Risk Modeler
+    # submit-failure message (failed upload head, worker framing stripped) —
+    # None when the failure recorded no detail (RM-side terminal failure).
+    error_detail: str | None = None
 
 
 @dataclass
@@ -337,6 +341,40 @@ def _member_card(row: dict, kind: str) -> MemberCard:
                       status=row["status"], source_file_path=row["source_file_path"])
 
 
+def _attach_error_details(card: PackageCard) -> None:
+    """One batched read over the failed upload heads (issue #17 backstop
+    surfacing): give each ``error`` member the specific Risk Modeler message its
+    submit failure recorded (``rwb_job.error_detail``, worker framing stripped —
+    same read as ``edm_service.latest_import_error``). Members whose failure was
+    RM-side (the head itself succeeded) keep ``None``."""
+    wanted: dict[tuple[str, str], MemberCard] = {}
+    for member in card.edms:
+        if member.status == "error":
+            wanted[("upload_edm", member.id)] = member
+    for member in card.rdms:
+        if member.status == "error":
+            wanted[("upload_rdm", member.id)] = member
+    if not wanted:
+        return
+    params = {f"m{i}": mid for i, (_jt, mid) in enumerate(wanted)}
+    placeholders = ", ".join(f":{k}" for k in params)
+    rows = execute(
+        "SELECT requestor_id, rwb_job_type, error_detail FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND status_code = 'failed' "
+        "AND rwb_job_type IN ('upload_edm', 'upload_rdm') "
+        f"AND requestor_id IN ({placeholders})",
+        params, connection="WORKBENCH")
+    for row in rows:
+        member = wanted.get((row["rwb_job_type"],
+                             str(row["requestor_id"]).lower()))
+        detail = row["error_detail"]
+        if member is None or not detail:
+            continue
+        prefix = f"{row['rwb_job_type']} submit failed: "
+        member.error_detail = (detail[len(prefix):]
+                               if detail.startswith(prefix) else detail)
+
+
 def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCard | None:
     """Card data for one package: members + their status chips, and (US5) the all/active/
     failed job counts scoped to the package's members. Spec 004 US4: each EDM
@@ -355,6 +393,7 @@ def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCa
         edms=[_member_card(m, "edm") for m in _live_members(pid, "irp_edm")],
         rdms=[_member_card(m, "rdm") for m in _live_members(pid, "irp_rdm")],
     )
+    _attach_error_details(card)
     from app.services import analysis_service, portfolio_service  # noqa: PLC0415 — cycle guard
     for member in card.edms:
         member.aggregate = portfolio_service.aggregate_exposure(

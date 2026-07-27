@@ -60,7 +60,8 @@ class JobStatus:
 
 @dataclass(frozen=True)
 class EntityHit:
-    """A name-search hit used for the non-blocking collision warning (R8)."""
+    """A name-search hit used for the blocking collision check (R8 as amended
+    2026-07-27 — issue #17)."""
     irp_id: str
     name: str
 
@@ -337,7 +338,7 @@ class _RealGateway:
         data = self._client().risk_data_job.get_risk_data_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    # ── name searches for the non-blocking collision warning (R8) ─────────────────
+    # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
         rows = self._client().edm.search_edms(

@@ -137,7 +137,11 @@ def _body_ctx(rdm_id: str) -> dict | None:
     return {"rdm": rdm,
             "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
             "sync_status": sync_status,
-            "sync_running": sync_status in ("pending", "running")}
+            "sync_running": sync_status in ("pending", "running"),
+            # Issue #17 backstop surfacing: the failed upload head's specific
+            # Risk Modeler message, shown in the error banner when present.
+            "import_error": (rdm_service.latest_import_error(rdm_id)
+                             if rdm.status == rdm_service.ERROR else None)}
 
 
 def _detail(request: Request, rdm_id: str, status_code: int = 200):

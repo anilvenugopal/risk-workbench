@@ -595,11 +595,11 @@ A **package** is a *bundle* of one or more EDMs and/or RDMs that an analyst crea
 
 **Creation flow (CR-003 O9, updated for the bundle model):** in the package modal the analyst **browses the shared drive and multi-selects** the EDM/RDM files that make up the bundle (§8.1) — several at once is expected (design note 03 §6.1). This selection *is* the file handling — there is no prior tagging step and no `file_artifact` row. A modal is chosen over a full page — a package is a lightweight grouping plus per-member name fields and status display, not enough surface area to justify dedicated navigation and breadcrumb machinery.
 
-**Name-collision check.** EDM and RDM names must not be duplicated on Risk Modeler. Whenever the analyst edits an EDM/RDM name inside the package modal, the app checks the proposed name against Risk Modeler (`client.edm.search_edms()` / `client.rdm.search_rdms()`) — a REST search that needs no local file row, run at create/edit time as a non-blocking warning (DATA_MODEL.md §5). A collision highlights the name field as an error (existing CSS error state), but does not block Save — the analyst can override and proceed, or rename.
+**Name-collision check *(amended 2026-07-27 — issue #17, spec 003 FR-012)*.** EDM and RDM names must not be duplicated on Risk Modeler — irp-integration ≥ 0.2.1 validates uniqueness at submit time, so an override could no longer produce the duplicate it offered, only a delayed worker failure. Whenever the analyst edits an EDM/RDM name (package-modal rows and the standalone import forms), the app checks the proposed name against Risk Modeler as they type (`client.edm.search_edms()` / `client.rdm.search_rdms()` — a REST search that needs no local file row, cached ~30s in-process per issue #11); a collision renders a blocking error, disables the submit buttons, and **blocks Save and Save-and-Sync** — the analyst must rename. When Risk Modeler cannot be reached the check **fails open**: the save proceeds with a visible warning and the worker-side submit validation is the backstop, whose specific failure message is surfaced on the entity detail page and the package-card member row (DATA_MODEL.md §5). *(The original non-blocking "override and proceed" behavior is superseded.)*
 
 **Actions — Cancel / Save / Save and Sync / Delete:**
 - **Cancel** — discard, no write.
-- **Save** — persists the package and any name edits; runs the collision check; does not submit anything to IRP.
+- **Save** — persists the package and any name edits; runs the blocking collision check (a hit rejects the save — issue #17); does not submit anything to IRP.
 - **Save and Sync** — Save, then queues **one `upload_edm` job per EDM plus one `upload_rdm` (apply) job per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `upload_rdm(R→E)` waits only for `E`'s `upload_edm` to succeed, so applications fan out in parallel as each EDM lands — the old "EDM is always *the* single head job" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `upload_rdm` with no EDM. Per the §21 build-plan reorder these are **real** `upload_edm`/`upload_rdm` IRP jobs (the UI may be built against 60-second heartbeat stubs first and wired to real IRP within Iteration 2). See DATA_MODEL.md §4 for the exact sequencing, and DATA_MODEL.md §8 → *Package sync/delete chaining* for how an IRP-job completion triggers the next RWB job (A21, **resolved** 2026-07-13).
 - **Delete** — the two sides are independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker) — an **asynchronous** Risk Modeler job; deleting an **RDM** removes only the broker analyses it created across EDMs — a **synchronous** operation (an RDM is not a first-class Risk Modeler object, so its removal deletes those analysis entities inline). Deletes run RDM-before-EDM; when the last member removal completes, the linked EDMs/RDMs are soft-deleted and the `package` row itself is soft-deleted (kept for audit — same no-hard-delete posture as Submission, §7.2a). See DATA_MODEL.md §4 (sequencing) and §8 → *Package sync/delete chaining* (A21).
 
@@ -1478,6 +1478,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-07-27 — Spec 003 amendment (issues #17 + #11): name collision blocks the save
+
+Scope: §9.4 name-collision paragraph + Save bullet, this log — reconciles the PRD with the amended spec-003 FR-012/SC-005 and superseded research R8 (approver-confirmed 2026-07-27). No CR (behavior refinement forced by irp-integration ≥ 0.2.1, which validates EDM name uniqueness at submit time — the old non-blocking override could no longer produce the duplicate it offered, only a graceless worker failure minutes later).
+
+- **Collision → blocking error at save time** on every surface (standalone EDM/RDM import, package-modal Save **and** Save-and-Sync, package re-sync), with as-you-type validation (debounced ~500ms, results cached ~30s in-process — issue #11) that disables the submit buttons while a collision error is showing. Re-sync checks only members it will actually (re)submit — a `ready` member never self-collides.
+- **Fail open when Risk Modeler is unreachable:** the save proceeds with a visible warning; the worker-side submit validation is the backstop, and its specific failure message is surfaced on the EDM/RDM detail pages and package-card member rows.
+- **Delete-the-existing-Risk-Modeler-entity-and-reimport** as a collision remedy is deferred to a follow-up issue.
+- The submission-level "similar deal already exists" warning (§7.2b) is unrelated and stays non-blocking.
 
 ### 2026-07-23 — Spec 004 (Iteration 3): broker analyses linked to the portfolio they ran against
 
