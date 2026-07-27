@@ -51,11 +51,6 @@ def templates_page(request: Request):
     return _render(request, "pages/templates.html", "templates")
 
 
-@router.get("/irp", response_class=HTMLResponse)
-def irp(request: Request):
-    return _render(request, "pages/irp.html", "irp")
-
-
 @router.get("/account", response_class=HTMLResponse)
 def account(request: Request):
     return _render(request, "pages/account.html", "account")
