@@ -11,8 +11,10 @@
 {% set entity_label = 'EDM' %}
 <div class="page-pad">
 
-  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list) ── #}
-  <form class="filters" method="get" action="{{ list_route }}">
+  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list;
+        applied on change, GET action is the no-JS fallback) ── #}
+  <form class="filters" method="get" action="{{ list_route }}"
+        hx-get="{{ list_route }}" hx-trigger="change" hx-target="body" hx-push-url="true">
     <label>Search
       <input class="wf-field__input" type="text" name="q" placeholder="name…"
              value="{{ filter_values.q }}" autocomplete="off">
@@ -24,9 +26,6 @@
         <option{% if filter_values.status == s %} selected{% endif %}>{{ s }}</option>
         {% endfor %}
       </select>
-    </label>
-    <label style="justify-content:flex-end">&nbsp;
-      <button class="btn-sm" type="submit">Filter</button>
     </label>
   </form>
 
