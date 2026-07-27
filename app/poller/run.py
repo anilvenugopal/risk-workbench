@@ -31,6 +31,7 @@ import logging
 
 from sqlalchemy import text
 
+from app import log_context
 from app.config import settings
 from app.services import (
     edm_service,
@@ -167,40 +168,53 @@ def _track_irp_jobs() -> None:
     the status in place, and on a terminal status backfill the entity + idempotently
     enqueue the dependent head — all in one transaction per job. Batched by type."""
     for job in irp_job_service.list_non_terminal():
-        getter = _GETTERS.get(job["irp_job_type"])
-        if getter is None:
-            logger.warning("No getter for irp_job_type=%s, skipping id=%s",
-                           job["irp_job_type"], job["id"])
-            continue
+        # Per-job log context: the chained enqueue_rwb_job calls inside the
+        # terminal handlers inherit correlation_id through this bind, so the
+        # whole chain keeps one id (issue #28).
+        token = log_context.bind(
+            correlation_id=job.get("correlation_id"), irp_job_id=str(job["id"]),
+            irp_job_type=job["irp_job_type"], irp_id=job["irp_id"])
         try:
-            result = getter(job["irp_id"])
-        except Exception:
-            logger.exception("get_%s_job failed for irp_id=%s",
-                             job["irp_job_type"], job["irp_id"])
-            continue
-        # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
-        # opening the DB transaction (Article 11 — never hold a txn across HTTP).
-        resolved: dict = {}
-        if result.status in irp_job_service.TERMINAL:
-            resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
-            if resolver is not None:
-                try:
-                    resolved = resolver(job, result) or {}
-                except Exception:
-                    logger.exception("terminal resolver failed for irp_job=%s",
-                                     job["id"])
-        try:
-            with get_connection("WORKBENCH") as conn:
-                with conn.begin():
-                    irp_job_service.update_tracking(
-                        conn, irp_job_id=job["id"], status=result.status,
-                        result=result.result)
-                    if result.status in irp_job_service.TERMINAL:
-                        handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
-                        if handler is not None:
-                            handler(conn, job, result.status, resolved)
-        except Exception:
-            logger.exception("persisting tracking for irp_job=%s failed", job["id"])
+            getter = _GETTERS.get(job["irp_job_type"])
+            if getter is None:
+                logger.warning("No getter for irp_job_type=%s, skipping id=%s",
+                               job["irp_job_type"], job["id"])
+                continue
+            try:
+                result = getter(job["irp_id"])
+            except Exception:
+                logger.exception("get_%s_job failed for irp_id=%s",
+                                 job["irp_job_type"], job["irp_id"])
+                continue
+            # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
+            # opening the DB transaction (Article 11 — never hold a txn across HTTP).
+            resolved: dict = {}
+            if result.status in irp_job_service.TERMINAL:
+                resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
+                if resolver is not None:
+                    try:
+                        resolved = resolver(job, result) or {}
+                    except Exception:
+                        logger.exception("terminal resolver failed for irp_job=%s",
+                                         job["id"])
+            try:
+                with get_connection("WORKBENCH") as conn:
+                    with conn.begin():
+                        irp_job_service.update_tracking(
+                            conn, irp_job_id=job["id"], status=result.status,
+                            result=result.result)
+                        if result.status in irp_job_service.TERMINAL:
+                            handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
+                            if handler is not None:
+                                handler(conn, job, result.status, resolved)
+                if result.status in irp_job_service.TERMINAL:
+                    logger.info("irp_job terminal: %s -> %s",
+                                job["status"], result.status)
+            except Exception:
+                logger.exception("persisting tracking for irp_job=%s failed",
+                                 job["id"])
+        finally:
+            log_context.clear(token)
 
 
 def _dispatch_pending() -> None:
@@ -219,10 +233,18 @@ def _dispatch_pending() -> None:
     and picked up here on the next pass. No-op when no dispatcher is wired (``dispatch``
     stays unset in the unit tier, which drives worker bodies directly)."""
     for row in execute(
-        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending'",
+        "SELECT id, rwb_job_type, correlation_id FROM rwb_job "
+        "WHERE status_code = 'pending'",
         {}, connection="WORKBENCH",
     ):
-        dispatch.dispatch(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"])
+        token = log_context.bind(correlation_id=row["correlation_id"],
+                                 rwb_job_id=str(row["id"]),
+                                 rwb_job_type=row["rwb_job_type"])
+        try:
+            dispatch.dispatch(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"])
+            logger.debug("dispatched pending rwb_job")
+        finally:
+            log_context.clear(token)
 
 
 def _submission_retry() -> None:
@@ -265,7 +287,8 @@ def main() -> None:
                         help="Seconds between passes (default: POLL_INTERVAL_SECS)")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from app.logging_setup import setup_logging  # noqa: PLC0415
+    setup_logging("poller")
 
     # Discover the job actors and wire the Dramatiq dispatch seam so _dispatch_pending
     # can wake a worker for the heads this poller enqueues. Deferred import keeps dramatiq

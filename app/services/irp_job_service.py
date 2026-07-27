@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from app import log_context
 from app.services._common import _json, _txn, _utcnow
 from db import execute
 
@@ -30,11 +31,11 @@ def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
     conn.execute(text(
         """
         INSERT INTO irp_job (id, package_id, irp_edm_id, irp_rdm_id, irp_job_type,
-            irp_id, status, last_submission_payload, last_submission_response,
-            submission_attempt_count, submitted_at, inserted_at, updated_at,
-            inserted_by, updated_by)
-        VALUES (:id, :pkg, :edm, :rdm, :jt, :irp_id, :status, :payload, :response,
-            :attempts, :now, :now, :now, :by, :by)
+            irp_id, status, correlation_id, last_submission_payload,
+            last_submission_response, submission_attempt_count, submitted_at,
+            inserted_at, updated_at, inserted_by, updated_by)
+        VALUES (:id, :pkg, :edm, :rdm, :jt, :irp_id, :status, :cid, :payload,
+            :response, :attempts, :now, :now, :now, :by, :by)
         """
     ), {
         "id": job_id,
@@ -44,6 +45,9 @@ def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
         "jt": irp_job_type,
         "irp_id": irp_id,
         "status": status,
+        # Inherited from the worker's bound per-job context (issue #28) — both
+        # writers (submit + submission-failure) run inside run_job's bind.
+        "cid": log_context.correlation_id(),
         "payload": _json(payload),
         "response": _json(response),
         "attempts": attempt_count,
@@ -92,7 +96,8 @@ def list_non_terminal() -> list[dict]:
     placeholders = ", ".join(f":{k}" for k in params)
     rows = execute(
         f"""
-        SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id, package_id, status
+        SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id, package_id,
+               status, correlation_id
         FROM irp_job
         WHERE irp_id IS NOT NULL
           AND status NOT IN ({placeholders})

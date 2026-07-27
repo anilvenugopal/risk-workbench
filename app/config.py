@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     app_title: str = "Risk Analysis Workbench"
     app_version: str = "0.1.0"
 
+    # ── Logging (app/logging_setup.py — shared by app, worker, and poller) ─────
+    # log_level is a plain str (normalized with .upper() in setup_logging) so
+    # LOG_LEVEL=info in an env file can't fail startup the way a case-sensitive
+    # Literal would. log_format="" means auto: console in development, json in
+    # production.
+    log_level: str = "INFO"
+    log_format: Literal["console", "json", ""] = ""
+
     # ── Auth ──────────────────────────────────────────────────────────────────
     # AUTH_MODE controls the login page and which auth paths are active:
     #   password — password form only (non-Entra users, e.g. contractors)
