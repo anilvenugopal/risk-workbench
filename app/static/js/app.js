@@ -67,6 +67,10 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('packageModal', () => ({
     members: [],
     browseOpen: false,
+    nameBlocked: false,
+    get canSubmit() {
+      return this.members.length > 0 && !this.nameBlocked;
+    },
     onDriveChange(e) {
       const cb = e.target;
       if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
@@ -92,6 +96,16 @@ document.addEventListener('alpine:init', () => {
         if (cb) cb.checked = false;
       }
       this.members.splice(i, 1);
+      // The removed row may have carried the only blocking error — re-derive
+      // after Alpine has flushed the DOM update.
+      this.$nextTick(() => this.onSwap());
+    },
+    onSwap() {
+      // Any HTMX swap inside the modal (a row's collision fragment, browse
+      // navigation) re-derives the blocked state from what is actually rendered
+      // — Save / Save & Sync stay disabled while any row shows the blocking
+      // error (issue #17, packageModal parity with importForm).
+      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
     },
     initRow(row) {
       // Alpine-cloned x-for rows are invisible to htmx (it only processes

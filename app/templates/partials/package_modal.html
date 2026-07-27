@@ -18,6 +18,7 @@
         action="/submissions/{{ submission_id }}/packages"
         hx-post="/submissions/{{ submission_id }}/packages"
         hx-target="#package-list" hx-swap="beforeend"
+        @htmx:after-swap="onSwap()"
         @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <h2 class="modal__title">New package</h2>
@@ -94,9 +95,9 @@
       <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
       <span class="spacer"></span>
       <button class="btn-sm" type="submit" name="action" value="save"
-              :disabled="members.length === 0">Save</button>
+              :disabled="!canSubmit">Save</button>
       <button class="btn-sm btn-sm--primary" type="submit" name="action" value="sync"
-              :disabled="members.length === 0">Save &amp; Sync</button>
+              :disabled="!canSubmit">Save &amp; Sync</button>
     </div>
   </form>
   {% endif %}
