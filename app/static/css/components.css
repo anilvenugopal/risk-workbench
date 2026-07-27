@@ -47,6 +47,7 @@
 }
 .btn-sm--primary { background: var(--color-brand); color: var(--btn-primary-fg); border-color: var(--color-brand); }
 .btn-sm--danger:hover { border-color: var(--color-danger); color: var(--color-danger); }
+.btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Modal ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
