@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import text
 
@@ -168,11 +169,38 @@ _TERMINAL_RESOLVERS = {
 }
 
 
+def _fmt_elapsed(submitted_at) -> str:
+    """``4m22s``-style elapsed time since a naive-UTC stamp — a ``datetime`` from
+    SQL Server, an ISO string from the SQLite unit tier; ``?`` when unparseable."""
+    if isinstance(submitted_at, str):
+        try:
+            submitted_at = datetime.fromisoformat(submitted_at)
+        except ValueError:
+            return "?"
+    if not isinstance(submitted_at, datetime):
+        return "?"
+    secs = (datetime.now(timezone.utc).replace(tzinfo=None)
+            - submitted_at).total_seconds()
+    if secs < 0:
+        return "?"
+    mins, s = divmod(int(secs), 60)
+    hours, mins = divmod(mins, 60)
+    if hours:
+        return f"{hours}h{mins:02d}m{s:02d}s"
+    return f"{mins}m{s:02d}s" if mins else f"{s}s"
+
+
 def _track_irp_jobs() -> None:
     """Track in-flight ``irp_job`` rows: one single-status ``get_*_job`` each, mirror
     the status in place, and on a terminal status backfill the entity + idempotently
-    enqueue the dependent head — all in one transaction per job. Batched by type."""
-    for job in irp_job_service.list_non_terminal():
+    enqueue the dependent head — all in one transaction per job. Batched by type.
+
+    Observed status *transitions* log at INFO (terminal ones with elapsed-since-submit);
+    every check logs at DEBUG. A transition seen across one pass may collapse
+    intermediate RM states (QUEUED -> FINISHED), so the log is not a full history."""
+    jobs = irp_job_service.list_non_terminal()
+    logger.debug("tracking %d in-flight irp_job(s)", len(jobs))
+    for job in jobs:
         # Per-job log context: the chained enqueue_rwb_job calls inside the
         # terminal handlers inherit correlation_id through this bind, so the
         # whole chain keeps one id (issue #28).
@@ -191,6 +219,7 @@ def _track_irp_jobs() -> None:
                 logger.exception("get_%s_job failed for irp_id=%s",
                                  job["irp_job_type"], job["irp_id"])
                 continue
+            logger.debug("irp_job status check: %s", result.status)
             # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
             # opening the DB transaction (Article 11 — never hold a txn across HTTP).
             resolved: dict = {}
@@ -213,7 +242,11 @@ def _track_irp_jobs() -> None:
                             if handler is not None:
                                 handler(conn, job, result.status, resolved)
                 if result.status in irp_job_service.TERMINAL:
-                    logger.info("irp_job terminal: %s -> %s",
+                    logger.info("irp_job terminal: %s -> %s (after %s)",
+                                job["status"], result.status,
+                                _fmt_elapsed(job["submitted_at"]))
+                elif result.status != job["status"]:
+                    logger.info("irp_job status: %s -> %s",
                                 job["status"], result.status)
             except Exception:
                 logger.exception("persisting tracking for irp_job=%s failed",

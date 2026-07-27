@@ -97,7 +97,7 @@ def list_non_terminal() -> list[dict]:
     rows = execute(
         f"""
         SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id, package_id,
-               status, correlation_id
+               status, correlation_id, submitted_at
         FROM irp_job
         WHERE irp_id IS NOT NULL
           AND status NOT IN ({placeholders})

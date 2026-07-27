@@ -9,6 +9,9 @@ from an RM-side ``FAILED`` and is never tracked. Driven by the fake IRP.
 
 from __future__ import annotations
 
+import logging
+import re
+
 from app.poller import run as poller
 from app.services import edm_service
 from app.services import package_sync_service as sync
@@ -78,6 +81,41 @@ def test_submission_failed_is_not_tracked_and_distinct_from_failed(
                         {"e": res.entity_id}, connection="WORKBENCH")
     assert after["status"] == "SUBMISSION FAILED"
     assert after["last_tracked_at"] is None
+
+
+def test_transition_logged_once_and_terminal_line_carries_duration(
+        iteration2_db, fake_irp, drive, caplog):
+    """Business-level poller logs (#28 follow-up): an observed status change logs one
+    INFO line, an unchanged status logs nothing at INFO, and the terminal line carries
+    the elapsed time since submit."""
+    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    with caplog.at_level(logging.INFO, logger="app.poller.run"):
+        fake_irp.run(irp_id)
+        poller.poll_once()
+        assert sum("irp_job status: QUEUED -> RUNNING" in r.getMessage()
+                   for r in caplog.records) == 1
+        caplog.clear()
+        poller.poll_once()  # still RUNNING — an observation, not a transition
+        assert not any("irp_job status:" in r.getMessage() for r in caplog.records)
+        fake_irp.finish(irp_id)
+        poller.poll_once()
+    terminal = [r.getMessage() for r in caplog.records
+                if "irp_job terminal:" in r.getMessage()]
+    assert len(terminal) == 1
+    assert "RUNNING -> FINISHED" in terminal[0]
+    assert re.search(r"\(after \d+[hms]", terminal[0])
+
+
+def test_every_status_check_logged_at_debug(iteration2_db, fake_irp, drive, caplog):
+    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    with caplog.at_level(logging.DEBUG, logger="app.poller.run"):
+        poller.poll_once()
+    checks = [r for r in caplog.records
+              if r.levelno == logging.DEBUG
+              and "irp_job status check" in r.getMessage()]
+    assert len(checks) == 1
+    assert any("tracking 1 in-flight irp_job(s)" in r.getMessage()
+               for r in caplog.records)
 
 
 def _import_edm_into_package(drive, actor, name="EDM", fname="edm1.bak"):
