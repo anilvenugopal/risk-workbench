@@ -33,6 +33,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
+from app.logging_setup import setup_logging
 from app.services import (
     edm_service,
     irp_gateway,
@@ -291,7 +292,6 @@ def main() -> None:
                         help="Seconds between passes (default: POLL_INTERVAL_SECS)")
     args = parser.parse_args()
 
-    from app.logging_setup import setup_logging  # noqa: PLC0415
     setup_logging("poller")
 
     # Discover the job actors and wire the Dramatiq dispatch seam so _dispatch_pending

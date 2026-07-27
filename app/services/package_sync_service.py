@@ -275,7 +275,7 @@ def finalize_package(*, package_id: Any, conn=None) -> bool:
                        "WHERE package_id = :p AND deleted_at IS NULL"),
                   {"now": now, "p": pid})
         if rows:
-            logger.info("package %s finalized (soft-deleted with members)", pid)
+            logger.info("package %s finalized (soft-deleted)", pid)
         return rows > 0
 
 

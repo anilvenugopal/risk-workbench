@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 import time
 import uuid
@@ -36,6 +37,11 @@ _access_logger = logging.getLogger("app.access")
 _RESERVED_RECORD_FIELDS = frozenset(
     vars(logging.LogRecord("", 0, "", 0, "", (), None))
 ) | {"message", "asctime", "process_name", "log_context"}
+
+# An inbound X-Request-ID is client-controlled — accept only ids we'd mint
+# ourselves (uuid-ish charset) so arbitrary bytes never reach logs or the
+# correlation_id columns.
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 class ContextFilter(logging.Filter):
@@ -73,7 +79,11 @@ class JsonFormatter(logging.Formatter):
             "pid": record.process,
             "message": record.getMessage(),
         }
-        payload.update(getattr(record, "log_context", None) or {})
+        # setdefault: a context key can never overwrite the envelope
+        # (ts/level/logger/process/pid/message) — _RESERVED_RECORD_FIELDS
+        # protects record attributes, not this dict.
+        for key, value in (getattr(record, "log_context", None) or {}).items():
+            payload.setdefault(key, value)
         if record.exc_info and not record.exc_text:
             record.exc_text = self.formatException(record.exc_info)
         if record.exc_text:
@@ -111,8 +121,9 @@ class RequestContextMiddleware:
     """Pure-ASGI (no starlette import) outermost middleware: binds the request's
     log context and emits one access-log line per request.
 
-    - Correlation id: inbound ``X-Request-ID`` (reverse proxy) if present, else a
-      fresh uuid4; echoed back as the ``X-Request-ID`` response header.
+    - Correlation id: inbound ``X-Request-ID`` (reverse proxy) if present and
+      uuid-ish (``_REQUEST_ID_RE``), else a fresh uuid4; echoed back as the
+      ``X-Request-ID`` response header (replacing any the app set).
     - ``/static/*`` is skipped entirely (noise).
     - An exception escaping the inner app is logged as status 500 and re-raised —
       Starlette's ServerErrorMiddleware sits outside this one and renders the 500,
@@ -130,9 +141,9 @@ class RequestContextMiddleware:
         request_id = ""
         for key, value in scope.get("headers") or ():
             if key == b"x-request-id":
-                request_id = value.decode("latin-1").strip()[:64]
+                request_id = value.decode("latin-1").strip()
                 break
-        if not request_id:
+        if not _REQUEST_ID_RE.fullmatch(request_id):
             request_id = str(uuid.uuid4())
 
         method = scope.get("method", "-")
@@ -142,7 +153,9 @@ class RequestContextMiddleware:
         async def send_with_request_id(message: dict) -> None:
             if message["type"] == "http.response.start":
                 status["code"] = message["status"]
-                headers = list(message.get("headers") or [])
+                # Replace, don't append — the response must carry exactly one.
+                headers = [(k, v) for k, v in message.get("headers") or []
+                           if k.lower() != b"x-request-id"]
                 headers.append((b"x-request-id", request_id.encode("latin-1")))
                 message = {**message, "headers": headers}
             await send(message)
@@ -179,10 +192,14 @@ def setup_logging(process_name: str) -> None:
         return
     _configured = process_name
 
-    level = getattr(logging, settings.log_level.upper(), None)
+    level = getattr(logging, settings.log_level.strip().upper(), None)
     if not isinstance(level, int):
         level = logging.INFO
-    format_name = settings.log_format or ("json" if settings.is_production else "console")
+    # Normalized like log_level — an unrecognized LOG_FORMAT falls back to
+    # auto (json in production, console otherwise) rather than failing startup.
+    format_name = settings.log_format.strip().lower()
+    if format_name not in ("console", "json"):
+        format_name = "json" if settings.is_production else "console"
     formatter = JsonFormatter() if format_name == "json" else ConsoleFormatter()
 
     root = logging.getLogger()

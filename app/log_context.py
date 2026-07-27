@@ -22,8 +22,12 @@ _context: ContextVar[dict[str, Any] | None] = ContextVar("rwb_log_context", defa
 
 
 def bind(**fields: Any) -> Token:
-    """Bind a fresh context for the current unit of work. Pair with ``clear``."""
-    return _context.set(dict(fields))
+    """Bind a fresh context for the current unit of work. Pair with ``clear``.
+
+    ``None`` values are dropped (here and in ``add``): callers bind straight from
+    nullable DB columns (e.g. a NULL ``correlation_id``), and an absent key beats
+    ``correlation_id=None`` noise on every line."""
+    return _context.set({k: v for k, v in fields.items() if v is not None})
 
 
 def clear(token: Token) -> None:
@@ -37,7 +41,7 @@ def add(**fields: Any) -> None:
     any bound unit of work (scripts, tests)."""
     ctx = _context.get()
     if ctx is not None:
-        ctx.update(fields)
+        ctx.update((k, v) for k, v in fields.items() if v is not None)
 
 
 def get() -> dict[str, Any]:

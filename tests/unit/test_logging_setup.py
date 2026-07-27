@@ -17,7 +17,7 @@ import sys
 import uuid
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
@@ -88,6 +88,18 @@ class TestLogContext:
         try:
             log_context.get()["a"] = 999
             assert log_context.get()["a"] == 1
+        finally:
+            log_context.clear(token)
+
+    def test_none_values_dropped(self):
+        # Callers bind straight from nullable DB columns — a NULL must yield an
+        # absent key, not "correlation_id=None" on every line.
+        token = log_context.bind(correlation_id=None, rwb_job_id="j1")
+        try:
+            assert log_context.get() == {"rwb_job_id": "j1"}
+            assert log_context.correlation_id() is None
+            log_context.add(user_id=None, status=200)
+            assert log_context.get() == {"rwb_job_id": "j1", "status": 200}
         finally:
             log_context.clear(token)
 
@@ -164,6 +176,20 @@ class TestJsonFormatter:
         finally:
             log_context.clear(token)
         assert self._format(record)["some_id"] == str(some_id)
+
+    def test_context_cannot_overwrite_envelope_keys(self):
+        # _RESERVED_RECORD_FIELDS protects record attributes; the JSON envelope
+        # (ts/level/logger/process/pid/message) needs its own protection.
+        token = log_context.bind(message="evil", level="evil", ts="evil")
+        try:
+            record = _make_record("app.x", "real message")
+            ContextFilter("app").filter(record)
+        finally:
+            log_context.clear(token)
+        payload = self._format(record)
+        assert payload["message"] == "real message"
+        assert payload["level"] == "INFO"
+        assert payload["ts"] != "evil"
 
 
 class TestConsoleFormatter:
@@ -265,6 +291,23 @@ class TestSetupLogging:
                        if type(h) is logging.StreamHandler)
         assert isinstance(handler.formatter, JsonFormatter)
 
+    def test_log_format_normalized_case_insensitively(self, fresh_logging, monkeypatch):
+        monkeypatch.setattr(settings, "log_format", "JSON")
+        setup_logging("app")
+        handler = next(h for h in logging.getLogger().handlers
+                       if type(h) is logging.StreamHandler)
+        assert isinstance(handler.formatter, JsonFormatter)
+
+    def test_unrecognized_log_format_falls_back_to_auto(self, fresh_logging, monkeypatch):
+        # Never fail startup over a config typo — fall back to the auto default
+        # (console outside production).
+        monkeypatch.setattr(settings, "app_env", "development")
+        monkeypatch.setattr(settings, "log_format", "yaml")
+        setup_logging("app")
+        handler = next(h for h in logging.getLogger().handlers
+                       if type(h) is logging.StreamHandler)
+        assert isinstance(handler.formatter, ConsoleFormatter)
+
 
 # ── RequestContextMiddleware ──────────────────────────────────────────────────
 
@@ -283,6 +326,11 @@ def _build_app(stamp_user: bool = False) -> FastAPI:
     @app.get("/boom")
     def boom():
         raise RuntimeError("kaput")
+
+    @app.get("/own-header")
+    def own_header(response: Response):
+        response.headers["X-Request-ID"] = "route-set"
+        return {"ok": True}
 
     if stamp_user:
         class _StampUser(BaseHTTPMiddleware):
@@ -326,6 +374,28 @@ class TestRequestContextMiddleware:
             "/ping", headers={"X-Request-ID": "proxy-abc-123"})
         assert resp.headers["x-request-id"] == "proxy-abc-123"
         assert resp.json()["correlation_id"] == "proxy-abc-123"
+
+    @pytest.mark.parametrize("bad_id", [
+        "spaces are not allowed",
+        "curly{braces}",
+        "x" * 65,  # over the 64-char cap → rejected wholesale, not truncated
+    ])
+    def test_invalid_inbound_request_id_replaced(self, bad_id):
+        # The header is client-controlled — anything outside the uuid-ish
+        # charset is discarded for a generated id, never logged or persisted.
+        resp = TestClient(_build_app()).get(
+            "/ping", headers={"X-Request-ID": bad_id})
+        echoed = resp.headers["x-request-id"]
+        assert echoed != bad_id
+        uuid.UUID(echoed)
+        assert resp.json()["correlation_id"] == echoed
+
+    def test_app_supplied_request_id_header_replaced_not_duplicated(self):
+        resp = TestClient(_build_app()).get("/own-header")
+        values = resp.headers.get_list("x-request-id")
+        assert len(values) == 1
+        assert values[0] != "route-set"
+        uuid.UUID(values[0])  # the middleware's id wins
 
     def test_static_paths_skipped(self, access_capture):
         resp = TestClient(_build_app()).get("/static/thing.css")
