@@ -13,7 +13,8 @@
   </thead>
   <tbody>
     {% for row in rows %}
-    <tr class="data-row">
+    <tr class="data-row"
+        onclick="if (!event.target.closest('a')) location.href='{{ detail_prefix }}/{{ row.id }}'">
       <td><a class="open-link" href="{{ detail_prefix }}/{{ row.id }}">{{ row.name }}</a></td>
       <td><span class="status-chip status-chip--{{ row.status }}">{{ row.status }}</span></td>
       <td class="lib-deal">
