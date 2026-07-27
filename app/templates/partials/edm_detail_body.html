@@ -173,7 +173,8 @@
       <span class="badge badge--neutral">{{ edm.treaties | length }}</span>
       {% endif %}
       <span class="sec__spacer"></span>
-      {% if edm.rm_treaties_url %}
+      {# RM's datasource URL is name-based and 404s until the import FINISHES #}
+      {% if edm.rm_treaties_url and edm.status == 'ready' %}
       <a class="sec__note sec__note--link" href="{{ edm.rm_treaties_url }}"
          target="_blank" rel="noopener" onclick="event.stopPropagation()"
          title="Open this EDM's treaties in Risk Modeler (new tab)">Edit in Risk Modeler ↗</a>

@@ -425,6 +425,20 @@ def test_treaties_header_without_treaties_or_rm_url(monkeypatch):
     assert "edit in Risk Modeler" in html
 
 
+def test_treaties_rm_link_hidden_until_import_finishes(monkeypatch):
+    # The RM datasource URL is name-based and 404s until the import job
+    # finishes, so the deep link only appears once the EDM is ready — the
+    # plain read-only note holds its place while the import is in flight.
+    rm_url = "https://rm.example.com/riskmodeler/datasources/legacy_edm/treaties"
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            status="importing", detail_state="importing",
+                            rm_treaties_url=rm_url))
+    html = _client().get("/edms/edm-1").text
+    assert rm_url not in html
+    assert "edit in Risk Modeler" in html
+
+
 def test_sync_button_rendered_by_state(monkeypatch):
     # ready + unavailable → the Sync form is offered (header + state box),
     # wired as an HTMX swap of the #edm-detail wrapper
