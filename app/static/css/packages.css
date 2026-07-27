@@ -210,6 +210,9 @@
   padding: var(--space-6);
   width: 100%;
   max-width: 640px;
+  /* Center in the viewport; unlike align-items:center this keeps the top
+     reachable when the panel is taller than the viewport (.modal scrolls). */
+  margin: auto;
 }
 
 .modal__title { margin: 0 0 var(--space-4); font-size: 1.1rem; }
