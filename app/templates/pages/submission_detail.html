@@ -33,11 +33,33 @@
           {{ submission.renews_from_submission_id }}</a></b></span>
       {% endif %}
       <span>Created <b>{{ submission.inserted_at }}</b></span>
-      {% if crm_tags %}
-      <span>CRM <b>{% for t in crm_tags %}{{ t.crm_id }}{% if not loop.last %} · {% endif %}{% endfor %}</b></span>
-      {% endif %}
       {% if submission.directory_path %}
       <span>Dir <b class="mono" title="{{ submission.directory_path }}">{{ submission.directory_path }}</b></span>
+      {% endif %}
+    </div>
+    {# CRM IDs + owner reassign live inline in the header band (#21); the CRM
+       chips render read-only via the same partial when the deal is closed. #}
+    <div class="detail-band">
+      <div class="detail-band__group">
+        <span class="detail-band__label">CRM</span>
+        {% include "partials/crm_tags.html" %}
+      </div>
+      {% if is_active %}
+      <div class="detail-band__group">
+        <span class="detail-band__label">Owner</span>
+        <form method="post" action="/submissions/{{ submission.id }}/reassign"
+              class="reassign-form">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+          <select class="wf-field__input" name="new_owner_id">
+            {% for a in analysts %}
+            <option value="{{ a.id }}"{% if a.id|string == submission.assigned_analyst_id %} selected{% endif %}>
+              {{ a.display_name }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn-sm" type="submit">Reassign</button>
+        </form>
+      </div>
       {% endif %}
     </div>
   </div>
@@ -49,71 +71,45 @@
   </div>
   {% endif %}
 
-  <div class="page-grid">
-    <div class="page-col--main">
-
-      <div class="section-head"><h2>Status</h2></div>
-      <div class="status-controls">
-        {% if is_active %}
-        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
-          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
-          <input type="hidden" name="to_status" value="COMPLETED">
-          <button class="btn-sm" type="submit">Mark complete</button>
-        </form>
-        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
-          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
-          <input type="hidden" name="to_status" value="CANCELLED">
-          <input class="status-form__reason" type="text" name="reason"
-                 placeholder="reason (optional)">
-          <button class="btn-sm btn-sm--danger" type="submit">Cancel deal</button>
-        </form>
-        {% else %}
-        <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
-          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-          <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
-          <input type="hidden" name="to_status" value="ACTIVE">
-          <button class="btn-sm btn-sm--primary" type="submit">Reopen</button>
-        </form>
-        {% endif %}
-      </div>
-
-      <ul class="status-history">
-        {% for e in status_history %}
-        <li class="status-history__item">
-          <span class="status-chip status-chip--{{ e.status_code|lower }}">
-            {{ e.status_label or e.status_code }}</span>
-          <span class="status-history__at">{{ e.at }}</span>
-          {% if e.inserted_by_name %}
-          <span class="status-history__by">by {{ e.inserted_by_name }}</span>{% endif %}
-          {% if e.reason %}<span class="status-history__reason">— {{ e.reason }}</span>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-
-    <div class="page-col--side">
-      <div class="section-head"><h2>CRM IDs</h2></div>
-      {% include "partials/crm_tags.html" %}
-
-      {% if is_active %}
-      <div class="section-head" style="margin-top: 24px;"><h2>Owner</h2></div>
-      <form method="post" action="/submissions/{{ submission.id }}/reassign"
-            class="reassign-form">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
-        <select class="wf-field__input" name="new_owner_id">
-          {% for a in analysts %}
-          <option value="{{ a.id }}"{% if a.id|string == submission.assigned_analyst_id %} selected{% endif %}>
-            {{ a.display_name }}</option>
-          {% endfor %}
-        </select>
-        <button class="btn-sm" type="submit">Reassign</button>
-      </form>
-      {% endif %}
-    </div>
+  <div class="section-head"><h2>Status</h2></div>
+  <div class="status-controls">
+    {% if is_active %}
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="COMPLETED">
+      <button class="btn-sm" type="submit">Mark complete</button>
+    </form>
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="CANCELLED">
+      <input class="status-form__reason" type="text" name="reason"
+             placeholder="reason (optional)">
+      <button class="btn-sm btn-sm--danger" type="submit">Cancel deal</button>
+    </form>
+    {% else %}
+    <form method="post" action="/submissions/{{ submission.id }}/status" class="status-form">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <input type="hidden" name="updated_at" value="{{ submission.updated_at }}">
+      <input type="hidden" name="to_status" value="ACTIVE">
+      <button class="btn-sm btn-sm--primary" type="submit">Reopen</button>
+    </form>
+    {% endif %}
   </div>
+
+  <ul class="status-history">
+    {% for e in status_history %}
+    <li class="status-history__item">
+      <span class="status-chip status-chip--{{ e.status_code|lower }}">
+        {{ e.status_label or e.status_code }}</span>
+      <span class="status-history__at">{{ e.at }}</span>
+      {% if e.inserted_by_name %}
+      <span class="status-history__by">by {{ e.inserted_by_name }}</span>{% endif %}
+      {% if e.reason %}<span class="status-history__reason">— {{ e.reason }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
 
   {# Packages — one full-width card per package (FR-022). #}
   <div class="section-head" style="margin-top: 24px;">

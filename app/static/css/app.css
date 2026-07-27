@@ -118,8 +118,6 @@
 .deal-substrip { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-tertiary); margin-bottom: 18px; }
 .deal-substrip b { color: var(--text-secondary); font-weight: var(--fw-medium); }
 .deal-substrip a { color: var(--color-brand); }
-.page-grid { display: grid; grid-template-columns: 1fr 320px; gap: var(--space-6); align-items: start; }
-.page-col--side { border-left: 1px solid var(--border-faint); padding-left: 22px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .section-head h2 { font-size: 14px; margin: 0; color: var(--text-primary); font-weight: var(--fw-medium); }
 .wf-list { display: flex; flex-direction: column; gap: 6px; }
