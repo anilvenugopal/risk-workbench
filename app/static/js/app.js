@@ -93,6 +93,25 @@ document.addEventListener('alpine:init', () => {
       }
       this.members.splice(i, 1);
     },
+    initRow(row) {
+      // Alpine-cloned x-for rows are invisible to htmx (it only processes
+      // server-rendered DOM): wire the row's name-check attributes up, then kick
+      // an immediate check for the auto-populated name (issue #17).
+      if (!window.htmx) return;
+      window.htmx.process(row);
+      this.$nextTick(() => {
+        const input = row.querySelector('.mrow__name');
+        if (input) input.dispatchEvent(new Event('recheck'));
+      });
+    },
+    recheck(el) {
+      // Kind flip: wait a tick so the hidden member_kind :value is flushed
+      // before htmx gathers the row's params for the check request.
+      this.$nextTick(() => {
+        const input = el.closest('.mrow').querySelector('.mrow__name');
+        if (input) input.dispatchEvent(new Event('recheck'));
+      });
+    },
   }));
 
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
@@ -196,6 +215,14 @@ function showToast(message, type) {
   setTimeout(() => { el.remove(); }, 5000);
 }
 window.showToast = showToast;
+
+// Server-pushed toasts: a route can attach `HX-Trigger: {"rwb:toast": {message, type}}`
+// (e.g. the fail-open "couldn't check names against Risk Modeler" warning) — htmx
+// re-dispatches it as a bubbling DOM event that lands here.
+document.addEventListener('rwb:toast', (e) => {
+  const d = e.detail || {};
+  showToast(d.message || 'Something needs your attention.', d.type || 'warning');
+});
 
 // Pull a human message out of an error response — our partials carry the reason in a
 // .form-banner--error / .drive-browse__error element; otherwise fall back to status.

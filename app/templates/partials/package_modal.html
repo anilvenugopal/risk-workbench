@@ -60,16 +60,28 @@
     </template>
     <template x-if="members.length">
       <div class="mlist">
+        {# Alpine-cloned rows are invisible to htmx, so initRow() runs
+           htmx.process() per clone and kicks an immediate name check. The check
+           URL is static (htmx captures hx-get at process time); the row's hidden
+           member_kind rides along via hx-include so EDM↔RDM flips are read fresh
+           per request — the kind toggle just re-dispatches `recheck`. #}
         <template x-for="(m, i) in members" :key="m.path">
-          <div class="mrow">
+          <div class="mrow" x-init="initRow($el)">
             <span class="kind-toggle" role="group" aria-label="Member kind">
-              <button type="button" @click="m.kind = 'edm'" :aria-pressed="m.kind === 'edm'">EDM</button>
-              <button type="button" @click="m.kind = 'rdm'" :aria-pressed="m.kind === 'rdm'">RDM</button>
+              <button type="button" @click="m.kind = 'edm'; recheck($el)" :aria-pressed="m.kind === 'edm'">EDM</button>
+              <button type="button" @click="m.kind = 'rdm'; recheck($el)" :aria-pressed="m.kind === 'rdm'">RDM</button>
             </span>
             <input type="hidden" name="member_kind" :value="m.kind">
-            <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name"
-                   maxlength="50" pattern="[A-Za-z0-9_\-]+" required
-                   title="Letters, numbers, underscores, and hyphens only (max 50 characters).">
+            <span class="mrow__namewrap">
+              <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name"
+                     maxlength="50" pattern="[A-Za-z0-9_\-]+" required
+                     title="Letters, numbers, underscores, and hyphens only (max 50 characters)."
+                     hx-get="/packages/member-name-check"
+                     hx-trigger="keyup changed delay:500ms, recheck"
+                     hx-include="closest .mrow"
+                     hx-target="next .name-collision" hx-swap="outerHTML">
+              <div class="name-collision"></div>
+            </span>
             <input type="hidden" name="member_path" :value="m.path">
             <span class="mrow__file" x-text="m.path" :title="m.path"></span>
             <button type="button" class="mrow__x" @click="remove(i)" title="Remove">✕</button>

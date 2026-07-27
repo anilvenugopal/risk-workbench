@@ -308,6 +308,11 @@
   background: var(--surface-recessed); color: var(--text-primary);
 }
 .mrow__name:focus { outline: none; border-color: var(--color-brand); box-shadow: var(--ring-focus); background: var(--surface-panel); }
+/* name + its collision fragment stack vertically inside the flex row */
+.mrow__namewrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mrow__namewrap .mrow__name { flex: none; width: 100%; }
+.mrow__namewrap .name-collision__error,
+.mrow__namewrap .name-collision__warn { margin: var(--space-1) 0 2px; }
 .mrow__file {
   font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38%;

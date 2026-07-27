@@ -20,6 +20,12 @@
        | list | length > 0 %}
   {% set ready = members | selectattr('status', 'equalto', 'ready') | list | length %}
   {% set total = members | length %}
+  {# Rejected action (e.g. sync blocked on a name collision, issue #17): htmx drops
+     the 422 body, so this banner exists for the global toast scraper to surface
+     the specific reason instead of a generic "Something went wrong". #}
+  {% if error %}
+  <div class="form-banner form-banner--error">{{ error }}</div>
+  {% endif %}
   <div class="package-card__head">
     <h3 class="package-card__name">{{ card.name or 'Untitled package' }}
       {% if total %}

@@ -181,10 +181,13 @@ class FakeIRP:
     def submit_edm_import(self, *, name: str, source_file_path: str) -> SubmitResult:
         # A successful import makes the EDM discoverable by name and assigns it a
         # durable exposureId — distinct from the returned job id — so the poller's
-        # by-name exposureId resolution is exercised (entity id != job id).
+        # by-name exposureId resolution is exercised (entity id != job id). A FAILED
+        # submit creates nothing (mirrors real RM), so an errored member's name
+        # doesn't phantom-collide on re-sync (issue #17).
+        result = self._submit("import_edm", name=name, source_file_path=source_file_path)
         self._edm_names.add(name)
         self._exposure_id_for(name)
-        return self._submit("import_edm", name=name, source_file_path=source_file_path)
+        return result
 
     def submit_rdm_import(self, *, name: str, source_file_path: str,
                           edm_name: str | None) -> SubmitResult:
