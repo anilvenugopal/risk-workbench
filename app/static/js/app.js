@@ -94,6 +94,52 @@ document.addEventListener('alpine:init', () => {
       this.members.splice(i, 1);
     },
   }));
+
+  // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
+  // auto-populates the name (packageModal parity); Import stays disabled until a
+  // file is picked, a name is present, and the as-you-type collision check isn't
+  // showing the blocking error. Server-side validation still backs all of this —
+  // with JS off the button is simply never disabled.
+  Alpine.data('importForm', (opts = {}) => ({
+    sourceSelected: false,
+    appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
+    nameVal: '',
+    nameBlocked: false,
+    init() {
+      this.nameVal = this.$refs.name ? this.$refs.name.value : '';
+    },
+    get canSubmit() {
+      return this.sourceSelected && this.appliedSelected
+        && !!this.nameVal.trim() && !this.nameBlocked;
+    },
+    onChange(e) {
+      const cb = e.target;
+      if (cb.type !== 'checkbox') return;
+      if (cb.name === 'source_paths') {
+        if (cb.checked) {
+          // Radio-like: the standalone import takes exactly one source file.
+          this.$root.querySelectorAll('input[name="source_paths"]').forEach((o) => {
+            if (o !== cb) o.checked = false;
+          });
+          const base = cb.value.split(/[\\/]/).pop();
+          const name = this.$refs.name;
+          name.value = defaultMemberName(base);
+          this.nameVal = name.value;
+          name.dispatchEvent(new Event('recheck'));  // re-run the collision check
+        }
+        this.sourceSelected =
+          !!this.$root.querySelector('input[name="source_paths"]:checked');
+      } else if (cb.name === 'applied_edm_ids') {
+        this.appliedSelected =
+          !!this.$root.querySelector('input[name="applied_edm_ids"]:checked');
+      }
+    },
+    onSwap() {
+      // Any HTMX swap inside the form (collision fragment, browse navigation)
+      // re-derives the blocked state from what is actually rendered.
+      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
+    },
+  }));
 });
 
 // ── Local-time stamps ──────────────────────────────────────────────────────────

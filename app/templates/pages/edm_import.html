@@ -16,18 +16,13 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/edms/import" class="entity-import-form">
+  {# Source file first: picking a file auto-populates the name (packageModal
+     parity); Import stays disabled until file + name are set and the collision
+     check isn't blocking (importForm in app.js — issue #17 UX). #}
+  <form method="post" action="/edms/import" class="entity-import-form"
+        x-data="importForm" @change="onChange($event)"
+        @htmx:after-swap="onSwap()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-
-    <div class="wf-field">
-      <label for="edm-name">NAME</label>
-      <input class="wf-field__input" type="text" id="edm-name" name="name"
-             value="{{ form.name }}" required
-             hx-get="/edms/name-check" hx-trigger="keyup changed delay:500ms"
-             hx-target="next .name-collision" hx-swap="outerHTML">
-    </div>
-
-    {% include "partials/name_collision.html" %}
 
     <div class="wf-field">
       <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
@@ -36,8 +31,21 @@
       </div>
     </div>
 
+    <div class="wf-field">
+      <label for="edm-name">NAME</label>
+      <input class="wf-field__input" type="text" id="edm-name" name="name"
+             value="{{ form.name }}" required
+             x-ref="name" @input="nameVal = $event.target.value"
+             hx-get="/edms/name-check"
+             hx-trigger="keyup changed delay:500ms, recheck"
+             hx-target="next .name-collision" hx-swap="outerHTML">
+    </div>
+
+    {% include "partials/name_collision.html" %}
+
     <div class="form-actions">
-      <button class="btn-sm btn-sm--primary" type="submit">Import</button>
+      <button class="btn-sm btn-sm--primary" type="submit"
+              :disabled="!canSubmit">Import</button>
       <a class="btn-sm" href="/submissions">Cancel</a>
     </div>
   </form>
