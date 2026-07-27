@@ -97,7 +97,7 @@ ITERATION2_SCHEMA = [
     )""",
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, package_id TEXT, irp_edm_id TEXT, irp_rdm_id TEXT,
-        irp_job_type TEXT, irp_id TEXT, status TEXT,
+        irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
         last_completion_result TEXT, submission_attempt_count INTEGER,
         submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,
@@ -111,6 +111,7 @@ ITERATION2_SCHEMA = [
         id TEXT PRIMARY KEY, requestor_type TEXT, requestor_id TEXT,
         rwb_job_type TEXT, status_code TEXT, input_data TEXT, output_data TEXT,
         error_detail TEXT, attempt_count INTEGER, claimed_by TEXT,
+        correlation_id TEXT,
         submitted_at TEXT, completed_at TEXT, inserted_at TEXT, updated_at TEXT,
         inserted_by TEXT, updated_by TEXT,
         UNIQUE (requestor_type, requestor_id, rwb_job_type)

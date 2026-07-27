@@ -16,7 +16,12 @@ from fastapi.templating import Jinja2Templates
 from app.auth.csrf import generate_csrf_token
 from app.auth.middleware import SessionMiddleware
 from app.config import settings
+from app.logging_setup import RequestContextMiddleware, setup_logging
 from db.connection import dispose_all, test_connection
+
+# At module import — after uvicorn has applied its own log config (it configures
+# logging before importing the app, including each --reload child), so this wins.
+setup_logging("app")
 
 
 @asynccontextmanager
@@ -48,6 +53,10 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Session middleware (must come before routers)
 app.add_middleware(SessionMiddleware)
+
+# Request log context (added after SessionMiddleware → outermost): binds the
+# correlation id + emits the access-log line, so auth redirects are covered too.
+app.add_middleware(RequestContextMiddleware)
 
 # ── Templates ──────────────────────────────────────────────────────────────
 templates = Jinja2Templates(directory="app/templates")

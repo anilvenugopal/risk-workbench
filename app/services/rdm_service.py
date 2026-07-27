@@ -218,6 +218,7 @@ def retry_import(*, rdm_id: Any, actor_id: Any) -> None:
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
+    logger.info("rdm %s import retry requested by analyst %s", rid, actor_id)
 
 
 def replace_source_file(
@@ -253,6 +254,8 @@ def replace_source_file(
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
+    logger.info("rdm %s source file replaced by analyst %s — re-import enqueued",
+                rid, actor_id)
 
 
 # ── manual analysis-details sync (spec 004 follow-up, 2026-07-24) ─────────────────

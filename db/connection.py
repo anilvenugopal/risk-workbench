@@ -13,6 +13,7 @@ and pooling live in exactly one place.
 
 import os
 import logging
+import time
 from contextlib import contextmanager
 from typing import Dict, Optional, Tuple
 
@@ -24,6 +25,30 @@ from .errors import SQLServerConnectionError
 from .kerberos import ensure_valid_kerberos_ticket
 
 logger = logging.getLogger(__name__)
+_query_logger = logging.getLogger("db.query")
+
+
+def _attach_query_timing(eng: Engine) -> None:
+    """Per-statement timing at DEBUG on logger ``db.query``. Observation only —
+    statements pass through untouched, and bound parameter values are never
+    logged (they can carry user data). Correlation fields arrive via the root
+    handler's context filter, so this module imports nothing from ``app/``.
+    Engines injected via ``register_engine`` (the unit tier) bypass creation and
+    are not instrumented."""
+
+    @event.listens_for(eng, "before_cursor_execute")
+    def _query_started(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        conn.info.setdefault("_db_query_started", []).append(time.monotonic())
+
+    @event.listens_for(eng, "after_cursor_execute")
+    def _query_finished(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
+        stack = conn.info.get("_db_query_started")
+        if not stack:
+            return
+        duration_ms = (time.monotonic() - stack.pop()) * 1000
+        if _query_logger.isEnabledFor(logging.DEBUG):
+            _query_logger.debug("%.1f ms: %s", duration_ms,
+                                " ".join(statement.split())[:300])
 
 # Cache of live engines, keyed by (CONNECTION_NAME, database-or-empty).
 _ENGINES: Dict[Tuple[str, str], Engine] = {}
@@ -63,6 +88,7 @@ def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
             )
         url = build_sqlalchemy_url(config, database=database)
         eng = create_engine(url, **_pool_kwargs())
+        _attach_query_timing(eng)
 
         # Self-renew Kerberos on each new physical connection for WINDOWS targets.
         if config["auth_type"] == "WINDOWS":  # pragma: no cover

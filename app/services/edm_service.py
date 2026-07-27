@@ -418,6 +418,7 @@ def retry_import(*, edm_id: Any, actor_id: Any) -> None:
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
+    logger.info("edm %s import retry requested by analyst %s", eid, actor_id)
 
 
 def replace_source_file(
@@ -449,6 +450,8 @@ def replace_source_file(
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
+    logger.info("edm %s source file replaced by analyst %s — re-import enqueued",
+                eid, actor_id)
 
 
 # ── worker / poller status writers (Article 11 boundary) ─────────────────────────
