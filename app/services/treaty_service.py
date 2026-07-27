@@ -27,10 +27,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import text
-
-from app.services._common import _json, _txn, _uid, _utcnow
-from db import execute, is_unique_violation
+from app.services._common import _json, _snapshot_upsert, _txn, _uid, _utcnow
+from db import execute
 
 logger = logging.getLogger(__name__)
 
@@ -110,27 +108,6 @@ _INSERT = """
 """
 
 
-def _apply_upsert(conn, params: dict) -> None:
-    if params["irp"] is not None and conn.execute(
-            text(_UPDATE_BY_IRP), params).rowcount:
-        return
-    if conn.execute(text(_UPDATE_BY_NAME), params).rowcount:
-        return
-    try:
-        # A concurrent backfill of the same EDM can win the insert race; absorb
-        # the UNIQUE(edm_id, irp_id) violation in a SAVEPOINT and overwrite in
-        # place — the constraint, not the pre-check, is the real dedup guarantee.
-        with conn.begin_nested():
-            conn.execute(text(_INSERT), params)
-    except Exception as exc:  # noqa: BLE001 — a UNIQUE race is a dedup hit
-        if not is_unique_violation(exc):
-            raise
-        if params["irp"] is not None and conn.execute(
-                text(_UPDATE_BY_IRP), params).rowcount:
-            return
-        conn.execute(text(_UPDATE_BY_NAME), params)
-
-
 def upsert_treaty_detail(*, edm_id: Any, irp_id: str | None, name: str,
                          attributes: dict, as_of: Any, conn=None) -> None:
     """Worker-side (``backfill_edm_detail``). Insert the ``irp_treaty`` row or
@@ -143,7 +120,8 @@ def upsert_treaty_detail(*, edm_id: Any, irp_id: str | None, name: str,
         "snap": _json(attributes), "asof": as_of, "now": _utcnow(),
     }
     with _txn(conn) as working:
-        _apply_upsert(working, params)
+        _snapshot_upsert(working, params, update_by_irp=_UPDATE_BY_IRP,
+                         update_by_name=_UPDATE_BY_NAME, insert=_INSERT)
 
 
 def _parse_snapshot(raw: Any) -> dict | None:

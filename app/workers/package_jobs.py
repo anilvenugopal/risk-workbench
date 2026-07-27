@@ -608,7 +608,7 @@ def delete_edm(rwb_job_id: str) -> None:
 
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
-_BODIES: dict[str, Callable[[Any], dict | None]] = {
+_BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
