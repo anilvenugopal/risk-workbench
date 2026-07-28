@@ -42,10 +42,10 @@ def list_portfolios(*, edm_id: UUID) -> list[PortfolioRow]:
 
 def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
     """Derive the EDM-aggregate (R4): sum location/account/policy counts + record
-    volume; UNION perils/sub-perils; COMBINE geography (regions/states) + currency set;
-    portfolio count. Pure function over the already-fetched snapshots (no DB, no RM).
-    Returns None when no portfolio has a snapshot → the caller renders the pending
-    state (FR-042/FR-043)."""
+    volume + TIV; UNION perils/lines of business; COMBINE geography (states) +
+    currency set; portfolio count. Pure function over the already-fetched snapshots
+    (no DB, no RM). Returns None when no portfolio has a snapshot → the caller
+    renders the pending state (FR-042/FR-043)."""
 ```
 
 ## `treaty_service` (NEW)

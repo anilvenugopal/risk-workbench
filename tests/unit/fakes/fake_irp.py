@@ -30,7 +30,7 @@ from app.services.irp_gateway import (
 
 # The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
 # used when a seeded portfolio doesn't specify its own. Counts + a perilsExposed
-# STRING — RM returns no TIV/geography/currency/sub-perils here (those come from the
+# STRING — RM returns no TIV/geography/LOB/currency here (those come from the
 # DataBridge exposure summary).
 DEFAULT_EXPOSURE = {
     "totalAccounts": 10, "totalLocations": 100, "totalPolicies": 12,
@@ -135,8 +135,9 @@ class FakeIRP:
     def set_exposure_summary(self, edm_name: str,
                              by_portfolio: dict[str, dict]) -> None:
         """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
-        returns — ``{portfolioId(str): summary dict}`` (contract in
-        docs/IRP_INTEGRATION_FOLLOWUPS.md §6c). Unseeded EDMs return ``{}``."""
+        returns — ``{portfolioId(str): {portfolio_name, total_tiv, states,
+        lines_of_business, currencies}}`` (the sql/databridge/ script set).
+        Unseeded EDMs return ``{}``."""
         self._summaries[edm_name] = {str(k): dict(v)
                                      for k, v in by_portfolio.items()}
 
@@ -237,7 +238,8 @@ class FakeIRP:
                 return ExposureDetail(payload=p["exposure"])
         raise RuntimeError(f"fake IRP: unknown portfolio {portfolio_irp_id}")
 
-    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]:
+    def get_edm_exposure_summary(self, *, edm_name: str,
+                                 edm_irp_id: int) -> dict[str, dict]:
         self.summary_reads.append(edm_name)
         if self.raise_on_exposure_summary:
             raise RuntimeError("fake IRP: forced exposure-summary failure")

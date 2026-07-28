@@ -159,10 +159,25 @@ Known constraints on the workbench side:
 - EDM names are not guaranteed unique in RM (collision is a non-blocking warning) — same-named
   EDMs resolve to the same database.
 
-Workbench consumption: `irp_gateway.get_edm_exposure_summary(*, edm_name)` — already implemented
-against this contract with graceful absence (any raise → `summary: null` in the snapshot, cells
-render "—", job still succeeds). Publishing this method to TestPyPI + `make irp-testpypi` is all
-that's needed to light the columns up.
+**STOPGAP SHIPPED (2026-07-28) — the workbench no longer blocks on this method.**
+`irp_gateway.get_edm_exposure_summary(*, edm_name, edm_irp_id)` now computes the summary itself:
+repo-owned set-based scripts (`sql/databridge/portfolio_{total_tiv,states,lines_of_business,currencies}.sql`,
+adapted from `IRP/knowledge/sql scripts/`) run through the wheel's **generic**
+`DataBridgeManager.execute_query_from_file(..., database=...)`, against the database resolved from
+RM's `search_edms` `databaseName` (hit matched on `exposureId` — resolves same-named EDMs). Graceful
+absence unchanged (any raise → `summary: null`, cells render "—", job still succeeds).
+
+The contract above is amended accordingly if/when the bespoke method is still wanted:
+- `sub_perils` **dropped** — sub-perils are an analysis-settings attribute, not an exposure attribute
+  (workbench scope call, 2026-07-28); `countries` dropped (no country-level read; geography = states).
+- `lines_of_business` **added** — distinct `lobdet.LOBNAME` via policy per portfolio.
+- `tiv_by_currency` → **`total_tiv`** (float) — Moody's precomputed `exposure_metrics.totalTIV`
+  account rollup (exposuretype 8019) summed per portfolio; no currency attribution.
+- Resolved shape: `{portfolioId(str): {portfolio_name, total_tiv, states, lines_of_business, currencies}}`.
+  PORTINFOID is still only *assumed* equal to RM's portfolioId — `portfolio_name` remains the
+  fallback join key (unchanged).
+
+Adopting the bespoke method later is a one-file gateway edit (swap the executor calls back to it).
 
 ---
 

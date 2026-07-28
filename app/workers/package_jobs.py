@@ -449,14 +449,15 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
                        edm_id, exc)
         return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
 
-    # ONE DataBridge aggregate per EDM (TIV/geography/currency/sub-perils —
-    # absent from every RM REST read; Addendum A T057). Enrichment only: ANY
-    # failure (missing wheel method / databridge extra / env / SQL) degrades to
+    # ONE DataBridge aggregate per EDM (TIV/geography/LOB/currency — absent
+    # from every RM REST read; Addendum A T057). Enrichment only: ANY failure
+    # (databaseName resolution / databridge extra / env / SQL) degrades to
     # "summary": null — the metrics half of the snapshot must still land.
     summary_map: dict[str, dict] | None = None
     if portfolios:
         try:
-            summary_map = irp_gateway.get_edm_exposure_summary(edm_name=edm.name)
+            summary_map = irp_gateway.get_edm_exposure_summary(
+                edm_name=edm.name, edm_irp_id=int(edm_irp_id))
         except Exception as exc:  # noqa: BLE001 — enrichment only
             logger.warning("backfill_edm_detail: exposure summary unavailable "
                            "(edm=%s): %s", edm_id, exc)

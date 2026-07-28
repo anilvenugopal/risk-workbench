@@ -97,7 +97,8 @@ Log in (dev fixture `admin@example.com`), with the poller + worker running, then
 2. **Open the redesigned EDM detail page (US1 — the headline).** *Expect:* a **minimal header**
    (name, status + last-synced, source file, identifiers, portfolio count — **no cedant/LOB**);
    an **inline per-portfolio table** as the primary content — every portfolio with its
-   location/account/policy counts, perils/sub-perils, geography, currency, record volume — a
+   location/account/policy counts, perils, lines of business, geography, currency, TIV,
+   record volume — a
    **textual snapshot, no map**; **no** create/split/filter control (SC-002/SC-003). A
    ~1M-record portfolio renders as fast as a small one (SC-007).
 3. **Read the aggregate strip (US4).** *Expect:* a compact rollup above the table (totals,

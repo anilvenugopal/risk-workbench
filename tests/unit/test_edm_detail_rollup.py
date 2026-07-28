@@ -2,8 +2,9 @@
 
 ``portfolio_service.aggregate_exposure`` derives the quick-orientation rollup
 from the stored per-portfolio snapshots (research R4): SUM the counts + record
-volume, UNION perils/sub-perils, COMBINE geography + the currency set, count
-portfolios. Pure function — no DB, no Risk Modeler, never stored (FR-042).
+volume + TIV, UNION perils/lines of business, COMBINE geography (states) + the
+currency set, count portfolios. Pure function — no DB, no Risk Modeler, never
+stored (FR-042).
 ``None`` when no portfolio carries a snapshot → the caller renders the pending
 state (FR-043). ``edm_service.get_edm_detail`` surfaces it (FR-040).
 """
@@ -19,17 +20,16 @@ from db import execute_command
 SNAP_A = {
     "metrics": {"totalLocations": 8240, "totalAccounts": 1120,
                 "totalPolicies": 1180, "perilsExposed": "WS, EQ"},
-    "summary": {"portfolio_name": "A", "tiv_by_currency": {"USD": 2.8e9},
+    "summary": {"portfolio_name": "A", "total_tiv": 2.8e9,
                 "currencies": ["USD"], "states": ["FL", "TX"],
-                "countries": ["US"], "sub_perils": ["SU"]},
+                "lines_of_business": ["Commercial"]},
 }
 SNAP_B = {
     "metrics": {"totalLocations": 3900, "totalAccounts": 720,
                 "totalPolicies": 760, "perilsExposed": "WS, FL"},
-    "summary": {"portfolio_name": "B", "tiv_by_currency": {"USD": 1.1e9,
-                                                           "CAD": 2.0e8},
+    "summary": {"portfolio_name": "B", "total_tiv": 1.3e9,
                 "currencies": ["USD", "CAD"], "states": ["TX", "NY"],
-                "countries": ["US", "CA"], "sub_perils": ["SU", "FF"]},
+                "lines_of_business": ["Commercial", "Residential"]},
 }
 
 
@@ -48,11 +48,10 @@ def test_aggregate_sums_unions_and_combines():
     assert agg.accounts == 1840
     assert agg.policies == 1940
     assert agg.perils == ["EQ", "FL", "WS"]          # union, sorted
-    assert agg.sub_perils == ["FF", "SU"]
+    assert agg.lines_of_business == ["Commercial", "Residential"]
     assert agg.states == ["FL", "NY", "TX"]          # combined geography
-    assert agg.countries == ["CA", "US"]
     assert agg.currencies == ["CAD", "USD"]          # currency set
-    assert agg.tiv_by_currency == {"USD": 3.9e9, "CAD": 2.0e8}  # per-currency sum
+    assert agg.total_tiv == 4.1e9                    # summed across portfolios
 
 
 def test_aggregate_none_when_no_snapshot():
@@ -81,7 +80,7 @@ def test_aggregate_flat_precapability_shape_and_missing_summary():
     assert agg.locations == 100
     assert agg.perils == ["EQ"]
     assert agg.currencies == []            # graceful — no summary anywhere
-    assert agg.tiv_by_currency == {}
+    assert agg.total_tiv is None
 
 
 def test_get_edm_detail_surfaces_the_derived_aggregate(iteration2_db):

@@ -18,7 +18,7 @@ Added to `irp_gateway.py` and the `IRPGateway` protocol; the CI fake mirrors the
 |---|---|---|
 | Enumerate an EDM's portfolios | `list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]` | id + name per portfolio |
 | Per-portfolio exposure figures | `get_portfolio_exposure(*, edm_irp_id: int, portfolio_irp_id: int) -> ExposureDetail` (confirmed vs wheel 0.2.1 — the `/metrics` endpoint needs BOTH ids) | counts + `perilsExposed` string (the `/metrics` ceiling — no TIV/geo/currency here) |
-| Per-EDM exposure summary (TIV/geo/currency/sub-perils) | `get_edm_exposure_summary(*, edm_name: str) -> dict[str, dict]` — DataBridge SQL aggregate via `client.databridge.get_portfolio_exposure_summary`; **documented exception to single-item-loop** (one read-only query per EDM); raises on any failure, worker degrades to `summary: null` | `{portfolioId(str): {portfolio_name, tiv_by_currency, currencies, states, countries, sub_perils}}` |
+| Per-EDM exposure summary (TIV/geo/LOB/currency) | `get_edm_exposure_summary(*, edm_name: str, edm_irp_id: int) -> dict[str, dict]` — set-based DataBridge SQL aggregate: the repo-owned scripts in `sql/databridge/` run through the wheel's generic `client.databridge.execute_query_from_file` against the database resolved from RM's `search_edms` `databaseName` (exposureId-matched hit); **documented exception to single-item-loop** (one read-only query set per EDM); raises on any failure, worker degrades to `summary: null`. *(Interim — replaced by the wheel's `get_portfolio_exposure_summary` when it ships; FOLLOWUPS §6c.)* | `{portfolioId(str): {portfolio_name, total_tiv, states, lines_of_business, currencies}}` |
 | Treaty attribute detail for an EDM | `search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]` | name + irp_id + full attribute map per treaty (§5) |
 | Broker-analysis settings/metadata | extend `AnalysisHit` with a metadata map, **or** `get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata` | the FR-031/§7 settings map **+ `exposure_resource_id` + `exposure_resource_type`** (R9 — `AnalysisHit` currently **drops** RM's `exposureResourceId`; stop dropping it so the worker can promote the portfolio pointer) |
 
@@ -37,7 +37,8 @@ receive rwb_job(backfill_edm_detail) for edm_id (input_data: {edm_id, package_id
       (irp_id is the exposureId the poller backfilled at import FINISHED; without it there is
        nothing to fetch — a pre-capability/never-finished EDM stays in the graceful empty state)
   → portfolios = gateway.list_portfolios(edm_irp_id=int(edm.irp_id))
-  → summary_map = gateway.get_edm_exposure_summary(edm_name=edm.name)   # ONE DataBridge
+  → summary_map = gateway.get_edm_exposure_summary(edm_name=edm.name,
+                                                    edm_irp_id=int(edm.irp_id))  # ONE DataBridge
       # aggregate per EDM; ANY failure → summary_map = None (logged) — enrichment only,
       # the job continues; affected snapshots get "summary": null and cells render "—"
     for each p in portfolios:                              # app-side loop (single-item reads)

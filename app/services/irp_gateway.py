@@ -33,7 +33,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+# Repo-owned, read-only DataBridge aggregate scripts (set-based, one row set
+# covering every portfolio in the EDM) — executed through the wheel's generic
+# DataBridge executor by get_edm_exposure_summary below.
+_DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
 
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
@@ -160,7 +166,8 @@ class IRPGateway(Protocol):
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail: ...
 
-    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]: ...
+    def get_edm_exposure_summary(self, *, edm_name: str,
+                                 edm_irp_id: int) -> dict[str, dict]: ...
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
@@ -277,19 +284,75 @@ class _RealGateway:
                 f"{type(data).__name__}")
         return ExposureDetail(payload=data)
 
-    def get_edm_exposure_summary(self, *, edm_name: str) -> dict[str, dict]:
-        # Per-EDM DataBridge SQL aggregate (TIV/geography/currency/sub-perils —
-        # none of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS
-        # §6). Read-only, exclusively via the wheel's databridge extra —
-        # never raw SQL from app code (constitution Art. 11 v3.1.0). One call
-        # per EDM: a deliberate exception to the single-item-loop rule — this
-        # is a SQL aggregate, where N per-portfolio queries would just be N
-        # ODBC round-trips. Raises on ANY failure (missing wheel method /
-        # databridge extra / env / SQL) — graceful degradation lives in one
-        # place, the worker's try/except.
-        data = self._client().databridge.get_portfolio_exposure_summary(
-            edm_data_source_name=edm_name)
-        return {str(k): v for k, v in (data or {}).items() if isinstance(v, dict)}
+    def _edm_database_name(self, *, edm_name: str, edm_irp_id: int) -> str:
+        # The EDM's physical database name on Data Bridge comes from RM's
+        # exposures search (`databaseName` per hit) — the workbench name is the
+        # exposureName given at import, which RM may not use verbatim as the
+        # database name. Matching the hit on exposureId picks OUR edm when
+        # names collide (EDM names are not unique in RM).
+        rows = self._client().edm.search_edms(
+            filter=f"exposureName={json.dumps(edm_name)}")
+        hit = next((r for r in rows
+                    if str(r.get("exposureId")) == str(edm_irp_id)), None)
+        database_name = (hit or {}).get("databaseName")
+        if not database_name:
+            raise ValueError(
+                f"no databaseName resolvable for EDM '{edm_name}' "
+                f"(exposureId {edm_irp_id}) from {len(rows)} search hit(s)")
+        return str(database_name)
+
+    def get_edm_exposure_summary(self, *, edm_name: str,
+                                 edm_irp_id: int) -> dict[str, dict]:
+        # Per-EDM DataBridge SQL aggregate (TIV/geography/LOB/currency — none
+        # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
+        # Interim implementation: the requested wheel method
+        # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
+        # runs the repo-owned set-based scripts (sql/databridge/) through the
+        # wheel's generic DataBridge executor — still read-only, still
+        # worker-side, still via irp-integration (constitution Art. 11). One
+        # call set per EDM: a deliberate exception to the single-item-loop
+        # rule — these are SQL aggregates, where N per-portfolio queries would
+        # just be N ODBC round-trips. Raises on ANY failure (databaseName
+        # resolution / databridge extra / env / SQL) — graceful degradation
+        # lives in one place, the worker's try/except.
+        database = self._edm_database_name(edm_name=edm_name,
+                                           edm_irp_id=edm_irp_id)
+        databridge = self._client().databridge
+
+        def rows(script: str) -> list[dict]:
+            frames = databridge.execute_query_from_file(
+                str(_DATABRIDGE_SQL_DIR / script), database=database)
+            return frames[0].to_dict("records") if frames else []
+
+        # Seed every portfolio from the TIV script (it LEFT JOINs from
+        # portinfo, so it covers portfolios with no accounts/locations too);
+        # the DISTINCT list scripts then only add to existing entries.
+        summary: dict[str, dict] = {}
+
+        def entry(row: dict) -> dict:
+            key = str(row["PortfolioId"])
+            if key not in summary:
+                name = row.get("PortfolioName")
+                summary[key] = {
+                    "portfolio_name": (str(name) if name is not None else None),
+                    "total_tiv": None, "states": [],
+                    "lines_of_business": [], "currencies": [],
+                }
+            return summary[key]
+
+        for row in rows("portfolio_total_tiv.sql"):
+            tiv = row.get("TotalTIV")
+            entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_states.sql"):
+            entry(row)["states"].append(str(row["State"]))
+        for row in rows("portfolio_lines_of_business.sql"):
+            entry(row)["lines_of_business"].append(str(row["LineOfBusiness"]))
+        for row in rows("portfolio_currencies.sql"):
+            entry(row)["currencies"].append(str(row["Currency"]))
+        for values in summary.values():
+            for key in ("states", "lines_of_business", "currencies"):
+                values[key] = sorted(set(values[key]))
+        return summary
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
         # GET /platform/riskdata/v1/exposures/{exposureId}/treaties (paginated).
@@ -444,8 +507,10 @@ def get_portfolio_exposure(*, edm_irp_id: int,
                                             portfolio_irp_id=portfolio_irp_id)
 
 
-def get_edm_exposure_summary(*, edm_name: str) -> dict[str, dict]:
-    return _active().get_edm_exposure_summary(edm_name=edm_name)
+def get_edm_exposure_summary(*, edm_name: str,
+                             edm_irp_id: int) -> dict[str, dict]:
+    return _active().get_edm_exposure_summary(edm_name=edm_name,
+                                              edm_irp_id=edm_irp_id)
 
 
 def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:

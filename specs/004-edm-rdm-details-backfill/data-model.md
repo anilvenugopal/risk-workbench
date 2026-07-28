@@ -18,7 +18,7 @@ Add **`backfill_edm_detail`** ("Backfill EDM Detail") to the existing `rwb_job_t
 > Existing rows (unchanged): `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `delete_rdm`, `delete_edm`.
 > **Exercised this iteration:** the new `backfill_edm_detail`, and the existing `backfill_rdm_analyses` (extended — R3). No new `irp_job_type` (backfill creates no `irp_job`; it is app-side `rwb_job` work off the existing import jobs).
 
-> **No kind table for the detail vocabularies (R2 / Article 3).** Perils, sub-perils, geography, currency, and analysis-setting values live inside the JSON snapshots as **external Risk Modeler vocabularies** — no internal code path dispatches on them, so they are correctly *not* kind tables (minting one would force a seed migration on every RM vocabulary change — the crash-risk the Article 3 carve-out guards against).
+> **No kind table for the detail vocabularies (R2 / Article 3).** Perils, geography, lines of business, currency, and analysis-setting values live inside the JSON snapshots as **external Risk Modeler vocabularies** — no internal code path dispatches on them, so they are correctly *not* kind tables (minting one would force a seed migration on every RM vocabulary change — the crash-risk the Article 3 carve-out guards against).
 
 ---
 
@@ -50,10 +50,10 @@ The **primary unit** of the EDM detail page. Created for the first time this ite
   },
   "summary": {                                  // DataBridge per-EDM aggregate — verbatim;
     "portfolio_name": "usfl_commercial",        // null/absent ⇒ summary unavailable ⇒ "—" cells
-    "tiv_by_currency": {"USD": 4200000000.0},
+    "total_tiv": 4200000000.0,                  // exposure_metrics account rollup (no currency attribution)
     "currencies": ["USD"],
-    "states": ["FL", "TX", "LA"], "countries": ["US"],
-    "sub_perils": ["WS", "SU"]
+    "states": ["FL", "LA", "TX"],
+    "lines_of_business": ["Commercial"]
   }
 }
 ```

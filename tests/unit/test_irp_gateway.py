@@ -124,9 +124,82 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
     assert hits[0].attributes == rows[0]   # the whole row IS the attribute map
 
 
-def test_edm_exposure_summary_drops_non_dict_values_and_stringifies_keys():
-    data = {1: {"tiv_by_currency": {"USD": 1.0}}, "2": "junk", "3": None}
-    gw = _gw(databridge=SimpleNamespace(
-        get_portfolio_exposure_summary=lambda edm_data_source_name: data))
-    assert gw.get_edm_exposure_summary(edm_name="EDM") == {
-        "1": {"tiv_by_currency": {"USD": 1.0}}}
+# ── the DataBridge exposure summary — script-based interim implementation ─────────
+# get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
+# exposures search (matched on exposureId — names collide in RM) and runs the
+# four set-based sql/databridge/ scripts through the wheel's generic executor,
+# assembling {portfolioId(str): {portfolio_name, total_tiv, states,
+# lines_of_business, currencies}}.
+
+class _Frame:
+    """A minimal DataFrame stand-in — the gateway only calls to_dict('records')."""
+
+    def __init__(self, records):
+        self._records = records
+
+    def to_dict(self, orient):
+        assert orient == "records"
+        return list(self._records)
+
+
+def _summary_gw(hits, results_by_script, calls=None):
+    def execute_query_from_file(file_path, database):
+        if calls is not None:
+            calls.append((file_path, database))
+        script = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+        return [_Frame(results_by_script.get(script, []))]
+
+    return _gw(
+        edm=SimpleNamespace(search_edms=lambda filter: hits),
+        databridge=SimpleNamespace(
+            execute_query_from_file=execute_query_from_file))
+
+
+def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
+    hits = [
+        {"exposureId": 111, "exposureName": "EDM", "databaseName": "other_db"},
+        {"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"},
+    ]
+    results = {
+        "portfolio_total_tiv.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "TotalTIV": 2.8e9},
+            {"PortfolioId": 2, "PortfolioName": "B", "TotalTIV": 0},
+        ],
+        "portfolio_states.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
+            {"PortfolioId": 1, "PortfolioName": "A", "State": "FL"},
+        ],
+        "portfolio_lines_of_business.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A",
+             "LineOfBusiness": "Commercial"},
+        ],
+        "portfolio_currencies.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Currency": "USD"},
+        ],
+    }
+    calls: list = []
+    gw = _summary_gw(hits, results, calls)
+
+    summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
+
+    # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
+    # gets an entry from the TIV seed with empty lists
+    assert summary == {
+        "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
+              "states": ["FL", "TX"], "lines_of_business": ["Commercial"],
+              "currencies": ["USD"]},
+        "2": {"portfolio_name": "B", "total_tiv": 0.0,
+              "states": [], "lines_of_business": [], "currencies": []},
+    }
+    # every script ran against the databaseName of the exposureId-matched hit
+    assert [db for _, db in calls] == ["edm_db"] * 4
+
+
+def test_edm_exposure_summary_raises_when_database_name_unresolvable():
+    gw = _summary_gw([{"exposureId": 1, "exposureName": "EDM"}], {})
+    with pytest.raises(ValueError):
+        # no hit matches the exposureId
+        gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
+    with pytest.raises(ValueError):
+        # the matched hit carries no databaseName
+        gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=1)

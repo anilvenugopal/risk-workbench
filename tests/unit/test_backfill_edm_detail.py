@@ -165,16 +165,16 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
 
 
 # ── the DataBridge exposure summary (Addendum A T057) ─────────────────────────────
-# One aggregate read per EDM supplies TIV/geography/currency/sub-perils (the RM
+# One aggregate read per EDM supplies TIV/geography/LOB/currency (the RM
 # /metrics ceiling carries none of them). Enrichment only: ANY summary failure
 # degrades to "summary": null — the job still succeeds and metrics still land.
 
 SUMMARY_A = {
     "portfolio_name": "Primary 2026",
-    "tiv_by_currency": {"USD": 2.8e9},
+    "total_tiv": 2.8e9,
     "currencies": ["USD"],
-    "states": ["FL", "TX", "LA"], "countries": ["US"],
-    "sub_perils": ["WS", "SU"],
+    "states": ["FL", "LA", "TX"],
+    "lines_of_business": ["Commercial"],
 }
 
 

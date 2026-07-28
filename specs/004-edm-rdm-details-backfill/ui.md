@@ -79,13 +79,13 @@ Payload: `edm_service.get_edm_detail(id)` (see `contracts/data-access.md`). Sect
    or line of business.**
 
 2. **Compact 3-domain rollup strip (FR-040 / US4).** A dense, always-visible fact grid rolling up the
-   per-portfolio snapshots: Portfolios, Locations, Accounts/Policies, Perils, Sub-perils, Geography, Currency,
-   plus two domain cells — **Treaties** (count + kinds) and **Broker analyses** (`N · M RDMs · K linked`).
+   per-portfolio snapshots: Portfolios, Locations, Accounts/Policies, Perils, Lines of business, Geography,
+   Currency, plus two domain cells — **Treaties** (count + kinds) and **Broker analyses** (`N · M RDMs · K linked`).
    Derived, never stored, never a request-path fetch (FR-042).
 
 3. **Portfolios section (US1) — the headline.** A `.dtable`:
-   `Portfolio (frozen) · Locations · Accounts · Policies · Perils · Sub-perils · Geography · Currency · TIV ·
-   Analyses`. **No Records column** (records == locations). The **Analyses** cell is a descriptive count of the
+   `Portfolio (frozen) · Locations · Accounts · Policies · Perils · Lines of business · Geography · Currency ·
+   TIV · Analyses`. **No Records column** (records == locations). The **Analyses** cell is a descriptive count of the
    analyses linked to that portfolio — *"2 broker analyses"*, *"1 broker analysis"*, or *"None"*.
    Expanding a portfolio row (default closed) reveals the **pinned inline analyses panel** (§1.1): a trimmed
    mini-table `Analysis · RDM · Type · Peril · Region · Engine · Rate` listing **only the analyses linked to

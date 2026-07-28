@@ -26,15 +26,12 @@
       <span class="v">{{ num(agg.accounts) }} / {{ num(agg.policies) }}</span></div>
     <div class="rollup__cell"><span class="k">Perils</span>
       <span class="v">{% if agg.perils %}{{ agg.perils | join(' · ') }}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
-    <div class="rollup__cell"><span class="k">Sub-perils</span>
-      <span class="v">{% if agg.sub_perils %}{{ agg.sub_perils[:2] | join(', ') }}{% if agg.sub_perils|length > 2 %} <small>+{{ agg.sub_perils|length - 2 }}</small>{% endif %}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
+    <div class="rollup__cell"><span class="k">Lines of business</span>
+      <span class="v">{% if agg.lines_of_business %}{{ agg.lines_of_business[:2] | join(', ') }}{% if agg.lines_of_business|length > 2 %} <small>+{{ agg.lines_of_business|length - 2 }}</small>{% endif %}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
     <div class="rollup__cell"><span class="k">Geography</span>
       <span class="v">
         {%- if agg.states -%}
           {{ agg.states[:3] | join(', ') }}{% if agg.states|length > 3 %} <small>+{{ agg.states|length - 3 }}</small>{% endif %}
-          {%- if agg.countries|length > 1 %} <small>· {{ agg.countries|length }} countries</small>{% endif %}
-        {%- elif agg.countries -%}
-          {{ agg.countries[:3] | join(', ') }}{% if agg.countries|length > 3 %} <small>+{{ agg.countries|length - 3 }}</small>{% endif %}
         {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
       </span></div>
     <div class="rollup__cell"><span class="k">Currency</span>

@@ -104,21 +104,20 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
 class EdmAggregate:
     """The quick-orientation EDM rollup (US4 — FR-040/FR-041/FR-042), derived
     from the per-portfolio snapshots at read time (R4): SUM counts (record
-    volume == locations, FR-013), UNION perils/sub-perils, COMBINE geography +
-    the currency set. Never stored; never a request-path fetch. Only the three
-    counts are nullable (no snapshot carried them); the collections are always
-    present, possibly empty."""
+    volume == locations, FR-013) + TIV, UNION perils/lines of business,
+    COMBINE geography (states) + the currency set. Never stored; never a
+    request-path fetch. The three counts and the TIV are nullable (no snapshot
+    carried them); the collections are always present, possibly empty."""
     portfolio_count: int
     with_snapshot: int                     # portfolios that contributed figures
     locations: int | None
     accounts: int | None
     policies: int | None
     perils: list[str]                      # union, sorted
-    sub_perils: list[str]
+    lines_of_business: list[str]
     states: list[str]
-    countries: list[str]
     currencies: list[str]
-    tiv_by_currency: dict[str, float]      # per-currency sums (never cross-summed)
+    total_tiv: float | None                # sum of per-portfolio totals
 
 
 def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
@@ -135,11 +134,10 @@ def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
                                      "totalAccounts": None,
                                      "totalPolicies": None}
     perils: set[str] = set()
-    sub_perils: set[str] = set()
+    lines_of_business: set[str] = set()
     states: set[str] = set()
-    countries: set[str] = set()
     currencies: set[str] = set()
-    tiv: dict[str, float] = {}
+    total_tiv: float | None = None
     for snap in snaps:
         metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) \
             else snap  # flat fallback (pre-capability rows)
@@ -151,13 +149,13 @@ def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
                       .split(",") if p.strip())
         summary = snap.get("summary") if isinstance(snap.get("summary"), dict) \
             else {}
-        sub_perils.update(v for v in (summary.get("sub_perils") or []) if v)
+        lines_of_business.update(
+            v for v in (summary.get("lines_of_business") or []) if v)
         states.update(v for v in (summary.get("states") or []) if v)
-        countries.update(v for v in (summary.get("countries") or []) if v)
         currencies.update(v for v in (summary.get("currencies") or []) if v)
-        for cur, amount in (summary.get("tiv_by_currency") or {}).items():
-            if isinstance(amount, (int, float)):
-                tiv[cur] = tiv.get(cur, 0.0) + float(amount)
+        tiv = summary.get("total_tiv")
+        if isinstance(tiv, (int, float)):
+            total_tiv = float(tiv) + (total_tiv or 0.0)
 
     return EdmAggregate(
         portfolio_count=len(portfolios),
@@ -166,11 +164,10 @@ def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
         accounts=counts["totalAccounts"],
         policies=counts["totalPolicies"],
         perils=sorted(perils),
-        sub_perils=sorted(sub_perils),
+        lines_of_business=sorted(lines_of_business),
         states=sorted(states),
-        countries=sorted(countries),
         currencies=sorted(currencies),
-        tiv_by_currency=tiv,
+        total_tiv=total_tiv,
     )
 
 
