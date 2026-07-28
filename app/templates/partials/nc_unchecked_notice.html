@@ -1,0 +1,12 @@
+{# Fail-open notice (issue #17) — shown once after an import saved while the
+   name-collision check couldn't reach Risk Modeler. Rendered by the page
+   shell, OUTSIDE the polled detail wrapper, so a body swap doesn't wipe it.
+   Context: nc_unchecked. #}
+{% if nc_unchecked %}
+<div class="page-pad" style="padding-bottom: 0;">
+  <div class="state-box state-box--warn">
+    Risk Modeler couldn't be reached to check this name for duplicates — the
+    import will fail if the name is already taken there.
+  </div>
+</div>
+{% endif %}

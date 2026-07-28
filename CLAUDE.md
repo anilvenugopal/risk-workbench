@@ -1,7 +1,7 @@
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at specs/003-edm-rdm-entity-management/plan.md
+at specs/004-edm-rdm-details-backfill/plan.md
 <!-- SPECKIT END -->
 
 # Risk Analysis Workbench — Claude Code Context
@@ -64,13 +64,13 @@ Full rules in the constitution. Key points for implementation:
 | `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
 | `rwb_exposure` | `MSSQL_EXPOSURE_*` | Exposure data (EDM/RDM) | Bootstrap SQL script |
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
-| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Never touched by this app** |
+| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** (constitution Art. 11 v3.1.0); never migrated/bootstrapped; never raw SQL from app code |
 
 ## Dev DB Strategy
 
 Drop-create-seed. Single revision `alembic/versions/0001_initial.py` until production cutover.
 Before each schema-affecting iteration, choose: **Rebuild** / **Refresh** / **Skip**.
-DATABRIDGE is never in scope.
+DATABRIDGE is never in schema scope (no DDL/migrations/bootstrap; reads only via irp-integration, worker-side).
 
 ## irp-integration (source-switchable: PyPI / TestPyPI / local)
 

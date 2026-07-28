@@ -1,7 +1,8 @@
 """RDM service — import broker results as an ``irp_rdm`` and track it (US2).
 
-Mirrors ``edm_service`` (same request-path discipline, non-blocking collision, no row
-scoping) with one shape difference: an RDM apply targets **one or more EDMs**.
+Mirrors ``edm_service`` (same request-path discipline, blocking name collision per
+issue #17, no row scoping) with one shape difference: an RDM apply targets **one or
+more EDMs**.
 ``import_rdm`` creates the ``irp_rdm`` (``pending_import``) and enqueues **one**
 ``upload_rdm`` head; the worker fans it out to one apply per applied EDM. Every apply
 targets an EDM — a no-EDM (review-only) import is **rejected** (``EmptyPackageError``);
@@ -21,10 +22,13 @@ from typing import Any, Sequence
 
 from sqlalchemy import text
 
-from app.services import irp_gateway, package_service, rwb_job_service
+from app.services import (
+    analysis_service, name_check, package_service, rwb_job_service)
 from app.services._common import _uid, _utcnow
 from app.services.edm_service import ImportResult  # shared DTO
-from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.errors import (
+    ConcurrencyConflict, EmptyPackageError, NameCollisionError)
+from app.services.name_check import CollisionCheck
 from app.services.package_service import SubmissionRef
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
@@ -54,20 +58,16 @@ class RdmRow:
     # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
     # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
+    # Last-synced trust signal (FR-052, spec 004 US3) — stamped by the
+    # backfill_rdm_analyses worker when the analysis capture lands.
+    as_of: Any = None
 
 
-def check_name_collision(name: str) -> list[str]:
-    """Colliding IRP RDM names (empty = clear). Non-blocking (FR-012): best-effort —
-    if the gateway can't answer, log and report no collisions rather than raise."""
-    trimmed = (name or "").strip()
-    if not trimmed:
-        return []
-    try:
-        return [hit.name for hit in irp_gateway.search_rdms(trimmed)]
-    except Exception:  # noqa: BLE001 — advisory check must never break the save
-        logger.warning("RDM name-collision check skipped (gateway unavailable)",
-                       exc_info=True)
-        return []
+def check_name_collision(name: str) -> CollisionCheck:
+    """Check ``name`` against Risk Modeler (empty = clear). A hit blocks the save
+    (issue #17); ``checked=False`` means the gateway couldn't answer — the caller
+    fails open with a warning. Cached briefly in-process (issue #11)."""
+    return name_check.check_rdm_name(name)
 
 
 def import_rdm(
@@ -77,8 +77,10 @@ def import_rdm(
     """Create an ``irp_rdm`` (``pending_import``) and enqueue one ``upload_rdm`` head
     that fans out to one apply per applied EDM. ``applied_edm_ids`` **MUST** be
     non-empty — every apply targets an EDM; a no-EDM (review-only) import is rejected
-    with ``EmptyPackageError`` (D3 / FR-016). **No Risk Modeler call here** (FR-042).
-    Validates the source (else ``InvalidSourceFile``)."""
+    with ``EmptyPackageError`` (D3 / FR-016). The only Risk Modeler call here is the
+    cached name-collision *read* (permitted, Article 11); raises
+    ``NameCollisionError`` — before persisting anything — when the name already
+    exists there (issue #17). Validates the source (else ``InvalidSourceFile``)."""
     edm_ids = [str(e) for e in applied_edm_ids if e]
     if not edm_ids:
         raise EmptyPackageError(
@@ -86,7 +88,11 @@ def import_rdm(
             "(review-only import is deferred).")
     name = package_service.clean_member_name(name)     # raises InvalidMemberName
     canonical = validate_selection(source_file_path)
-    collision = check_name_collision(name)
+    check = check_name_collision(name)
+    if check.collides:
+        raise NameCollisionError(
+            f"An RDM named '{name}' already exists in Risk Modeler. "
+            "Choose a different name.")
 
     rdm_id = str(uuid.uuid4())
     now = _utcnow()
@@ -110,11 +116,11 @@ def import_rdm(
         actor_id=actor,
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    return ImportResult(entity_id=rdm_id, collision=collision)
+    return ImportResult(entity_id=rdm_id, collision_unchecked=not check.checked)
 
 
 _ROW_SELECT = (
-    "SELECT id, package_id, source_file_path, name, irp_id, status, "
+    "SELECT id, package_id, source_file_path, name, irp_id, status, as_of, "
     "inserted_at, updated_at FROM irp_rdm"
 )
 
@@ -124,7 +130,7 @@ def _to_row(row: dict) -> RdmRow:
         id=_uid(row["id"]), name=row["name"], status=row["status"],
         source_file_path=row["source_file_path"], irp_id=row["irp_id"],
         package_id=_uid(row["package_id"]), inserted_at=row["inserted_at"],
-        updated_at=row["updated_at"],
+        updated_at=row["updated_at"], as_of=row["as_of"],
     )
 
 
@@ -170,6 +176,25 @@ def get_rdm(rdm_id: Any) -> RdmRow | None:
     row = execute_one(f"{_ROW_SELECT} WHERE id = :id",
                       {"id": str(rdm_id)}, connection="WORKBENCH")
     return _to_row(row) if row is not None else None
+
+
+def latest_import_error(rdm_id: Any) -> str | None:
+    """Mirror of ``edm_service.latest_import_error`` keyed on ``upload_rdm``: the
+    failed head's ``error_detail`` with the worker framing stripped, or ``None``
+    when nothing was recorded. Note a *partial* fan-out (some applies submitted,
+    one failed) leaves the head ``succeeded`` — the RDM is ``error`` via the
+    rollup but there is no head detail to show (the per-apply reason lives only
+    in logs this iteration)."""
+    row = execute_one(
+        "SELECT error_detail FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :r "
+        "AND rwb_job_type = 'upload_rdm' AND status_code = 'failed'",
+        {"r": str(rdm_id)}, connection="WORKBENCH")
+    detail = row["error_detail"] if row is not None else None
+    if not detail:
+        return None
+    prefix = "upload_rdm submit failed: "
+    return detail[len(prefix):] if detail.startswith(prefix) else detail
 
 
 def _current(rdm_id: str) -> dict | None:
@@ -255,6 +280,92 @@ def replace_source_file(
                 rid, actor_id)
 
 
+# ── manual analysis-details sync (spec 004 follow-up, 2026-07-24) ─────────────────
+
+def latest_backfill_status(rdm_id: Any) -> str | None:
+    """The newest ``backfill_rdm_analyses`` job status touching this RDM across
+    BOTH enqueue sources: the poller's per-apply heads key on the finished
+    ``import_rdm`` irp_job (hence the join), the manual Sync's on
+    ``(analyst_request, rdm_id)`` directly. Newest ``updated_at`` wins — a
+    revived (re-synced) row keeps its ``inserted_at``, so insert order would
+    lie. ``None`` when the capture never ran (pre-capability RDMs)."""
+    row = execute_one(
+        "SELECT rj.status_code FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
+        "AND (ij.irp_rdm_id = :r "
+        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :r)) "
+        "ORDER BY rj.updated_at DESC",
+        {"r": str(rdm_id)}, connection="WORKBENCH")
+    return row["status_code"] if row is not None else None
+
+
+def sync_detail(*, rdm_id: Any, actor_id: Any) -> str | None:
+    """Analyst-triggered re-run of ``backfill_rdm_analyses`` for one RDM — the
+    recovery path for RDMs imported before the settings/pointer capture shipped
+    (the automatic backfill runs only when an ``import_rdm`` apply FINISHES, so
+    older rows stay name-only forever without this). Keyed ``(analyst_request,
+    rdm_id)``; the input carries NO ``edm_id``, which tells the worker body to
+    derive every applied (RDM, EDM) pair from the ``import_rdm`` irp_job rows
+    and re-capture each. Skips (→ ``None``) when the RDM is missing/deleted,
+    the import is still in flight, or a backfill under EITHER key is already
+    pending/running."""
+    rid = str(rdm_id)
+    current = _current(rid)
+    if current is None or current["status"] in (PENDING, IMPORTING):
+        return None
+    if latest_backfill_status(rid) in ("pending", "running"):
+        return None
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=rid,
+        rwb_job_type="backfill_rdm_analyses",
+        input_data={"rdm_id": rid, "package_id": _package_id(rid)},
+        actor_id=str(actor_id),
+    )
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_rdm_analyses")
+    return job_id
+
+
+def get_rdm_detail(rdm_id: Any) -> dict | None:
+    """The RDM detail read model — shared by the full page and the live
+    #rdm-detail body partial (mirrors ``edm_service.get_edm_detail``). STORED
+    detail only, no Risk Modeler call (Article 11): the broker analyses grouped
+    by rdm_id + resolved portfolios (US3), plus the newest
+    ``backfill_rdm_analyses`` status (either key) driving the Sync button state
+    and the self-poll trigger. ``None`` ⇒ the RDM is gone."""
+    rdm = get_rdm(rdm_id)
+    if rdm is None:
+        return None
+    sync_status = latest_backfill_status(rdm_id)
+    return {"rdm": rdm,
+            "analyses": analysis_service.list_broker_analyses(rdm_id=rdm_id),
+            "sync_status": sync_status,
+            "sync_running": sync_status in ("pending", "running"),
+            # Issue #17 backstop surfacing: the failed upload head's specific
+            # Risk Modeler message, shown in the error banner when present.
+            "import_error": (latest_import_error(rdm_id)
+                             if rdm.status == ERROR else None)}
+
+
+def sync_analyses_for_edm(*, edm_id: Any, actor_id: Any) -> list[str]:
+    """The EDM detail page shows RDM-sourced analyses too, so its Sync refreshes
+    both: one ``sync_detail`` per RDM ever applied to this EDM (pairs from the
+    ``import_rdm`` irp_job rows). Per-RDM guards apply — an in-flight or
+    still-importing RDM is skipped, never stacked. Returns the enqueued ids."""
+    rdm_ids = [str(r["irp_rdm_id"]) for r in execute(
+        "SELECT DISTINCT irp_rdm_id FROM irp_job "
+        "WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm' "
+        "AND irp_rdm_id IS NOT NULL",
+        {"e": str(edm_id)}, connection="WORKBENCH")]
+    jobs: list[str] = []
+    for rid in rdm_ids:
+        job_id = sync_detail(rdm_id=rid, actor_id=actor_id)
+        if job_id is not None:
+            jobs.append(job_id)
+    return jobs
+
+
 # ── worker / poller status writers ───────────────────────────────────────────────
 
 def mark_importing(*, rdm_id: Any, actor_id: Any | None = None) -> None:
@@ -327,6 +438,8 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
-    "retry_import", "replace_source_file", "mark_importing", "mark_error",
+    "get_rdm_detail", "latest_import_error",
+    "retry_import", "replace_source_file", "latest_backfill_status",
+    "sync_detail", "sync_analyses_for_edm", "mark_importing", "mark_error",
     "rollup_on_terminal",
 ]

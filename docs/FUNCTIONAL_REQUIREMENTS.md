@@ -145,9 +145,11 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 | Per-portfolio figures are shown once inside a specific EDM. | Analyses run on a portfolio, not the EDM (7/14). |
 | Location, account, and policy counts are shown. | |
 | The number of portfolios in the EDM is shown. | Sometimes 1 portfolio, sometimes 25. |
-| Perils and sub-perils covered are shown. | |
+| Perils covered are shown. | Sub-perils are an analysis-settings attribute (§7), not an exposure attribute (2026-07-28). |
+| Lines of business are shown per portfolio. | |
 | Geography is shown: region(s), state(s), or a CIC-defined region. | e.g. "Southeast," "Florida only." |
 | Currency is shown. | Currency defaulting/handling for analysis is specified in §4. |
+| Total insured value is shown per portfolio. | Moody's precomputed account-level rollup; a single figure, no currency attribution. |
 | Record volume is shown. | So the analyst doesn't accidentally run a ~1M-record portfolio thinking it's ~20K, and can schedule large runs (e.g. start a 4M-record run overnight). |
 | Reinsurance/treaties associated with the EDM are shown. | LOB and cedant come from the EDM details. |
 
@@ -328,7 +330,7 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 |---|---|
 | Results are displayed grouped under the RDM that produced them. | Matches the current workflow; the EDM↔RDM relationship is already implied by the package. |
 | Broker results are deduped by RDM. | (`rdm_id`.) |
-| Portfolio↔analysis linking is not solved. | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. |
+| Portfolio↔analysis linking is not solved. | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 *does* surface by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3). |
 | Up to ~5 analyses are consumable on screen. | Default density guideline, not a hard cap. |
 | More than ~5 analyses are exportable / drill-down. | |
 | Full listing / full drill-down of all analyses remains available. | The on-screen cap must not become a step back from RiskLink, which lists them all. |

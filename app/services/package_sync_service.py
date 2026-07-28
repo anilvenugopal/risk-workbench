@@ -1,17 +1,25 @@
 """Package sync service — assemble a package and sync it to Risk Modeler (US3).
 
 Builds on the Iteration-1 ``package_service`` (structure) and the US1/US2 entity
-services. Two request-path operations, both **non-blocking** (FR-042 / SC-014):
+services. Two request-path operations; neither waits on Risk Modeler work
+(FR-042 / SC-014), but both run the **blocking** per-member name-collision check
+(issue #17, amended FR-012): a member name that already exists in Risk Modeler
+raises ``NameCollisionError`` before anything is persisted or enqueued. When the
+check itself is unavailable the save fails OPEN — the affected names are returned
+as ``unchecked_names`` for the caller to surface, and the worker-side submit
+validation is the backstop.
 
-  • ``save_package`` — persist the package + its member entities (each ``pending_import``)
-    and run the per-member collision check. **Submits nothing.** ≥1-member invariant
-    (``EmptyPackageError``); optimistic concurrency on edit (``ConcurrencyConflict``).
+  • ``save_package`` — persist the package + its member entities (each ``pending_import``).
+    **Submits nothing.** ≥1-member invariant (``EmptyPackageError``); optimistic
+    concurrency on edit (``ConcurrencyConflict``).
   • ``save_and_sync`` — record the pending work and **return immediately**. Enqueues one
     ``upload_edm`` head per EDM; the poller chains one ``upload_rdm`` per finished EDM,
     fanning out to one apply per (EDM × RDM) pair. **Every apply targets an EDM (D3):**
     an RDM-only package (no EDM) is rejected with ``EmptyPackageError`` — review-only
     sync is deferred. Idempotent: re-sync skips ready/in-flight members and re-enqueues
-    only unstarted/errored ones.
+    only unstarted/errored ones. Collision-checks only the members it will actually
+    (re)submit — a ``ready`` member's name legitimately exists in RM (it *is* that
+    entity).
 
 ``delete_package`` / ``get_package_cards`` are added in US4 / US5.
 """
@@ -25,9 +33,10 @@ from typing import Any, Sequence
 
 from sqlalchemy import text
 
-from app.services import edm_service, rdm_service, rwb_job_service
+from app.services import edm_service, name_check, rdm_service, rwb_job_service
 from app.services._common import _txn, _utcnow
-from app.services.errors import ConcurrencyConflict, EmptyPackageError
+from app.services.errors import (
+    ConcurrencyConflict, EmptyPackageError, NameCollisionError)
 from app.services.package_service import clean_member_name
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
@@ -47,16 +56,11 @@ class MemberSpec:
 
 
 @dataclass
-class MemberCollision:
-    kind: str
-    name: str
-    collision: list[str]
-
-
-@dataclass
 class SaveResult:
     package_id: str
-    warnings: list[MemberCollision] = field(default_factory=list)
+    # member names whose collision check couldn't reach Risk Modeler (fail open) —
+    # the caller surfaces these as a warning; the worker submit is the backstop.
+    unchecked_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -66,6 +70,15 @@ class MemberCard:
     name: str
     status: str | None
     source_file_path: str | None
+    # Spec 004 US4 (EDM members only): the per-EDM aggregate orientation line
+    # (FR-041 — same aggregate_exposure rollup as the EDM-page strip; None ⇒
+    # graceful pending, FR-043) and the now-POPULATED analysis counts (FR-050).
+    aggregate: Any = None
+    analysis_counts: Any = None
+    # Issue #17 backstop surfacing: an ``error`` member's specific Risk Modeler
+    # submit-failure message (failed upload head, worker framing stripped) —
+    # None when the failure recorded no detail (RM-side terminal failure).
+    error_detail: str | None = None
 
 
 @dataclass
@@ -93,14 +106,23 @@ def save_package(
     *, package_id: Any | None, name: str | None, members: Sequence[MemberSpec],
     actor_id: Any, expected_updated_at: Any = None,
 ) -> SaveResult:
-    """Persist the package + its member entities; run the per-member collision check;
-    submit nothing (FR-013/FR-014). ≥1-member invariant (``EmptyPackageError``);
-    optimistic concurrency on edit (``ConcurrencyConflict``). Returns per-member
-    non-blocking collision warnings."""
+    """Persist the package + its member entities; submit nothing (FR-013/FR-014).
+    A member name that already exists in Risk Modeler raises ``NameCollisionError``
+    **before any write** — a blocked save persists nothing (issue #17). Names the
+    check couldn't verify (RM unreachable) fail open into
+    ``SaveResult.unchecked_names``. ≥1-member invariant (``EmptyPackageError``);
+    optimistic concurrency on edit (``ConcurrencyConflict``)."""
     specs = list(members)
     for spec in specs:
         spec.source_file_path = validate_selection(spec.source_file_path)  # canonical; raises InvalidSourceFile
         spec.name = clean_member_name(spec.name)                           # strips; raises InvalidMemberName
+
+    colliding, unchecked = _check_member_names(
+        (spec.kind, spec.name) for spec in specs)
+    if colliding:
+        raise NameCollisionError(
+            "Name taken: " + ", ".join(colliding) + " already exist(s) in Risk "
+            "Modeler. Choose a different name — nothing was saved.")
 
     now = _utcnow()
     actor = str(actor_id)
@@ -142,16 +164,30 @@ def save_package(
         raise EmptyPackageError("A package must have at least one member.")
     logger.info("package %s %s by analyst %s (%d member(s) added)",
                 pid, "created" if creating else "updated", actor, len(specs))
+    return SaveResult(package_id=pid, unchecked_names=unchecked)
 
-    # Collision check (outside the txn — it reaches the gateway). Non-blocking (R8).
-    warnings: list[MemberCollision] = []
-    for spec in specs:
-        hits = (edm_service.check_name_collision(spec.name) if spec.kind == "edm"
-                else rdm_service.check_name_collision(spec.name))
-        if hits:
-            warnings.append(MemberCollision(kind=spec.kind, name=spec.name,
-                                            collision=hits))
-    return SaveResult(package_id=pid, warnings=warnings)
+
+def _check_member_names(kinds_and_names) -> tuple[list[str], list[str]]:
+    """Run the blocking collision check over ``(kind, name)`` pairs. Returns
+    ``(colliding, unchecked)``: names found in Risk Modeler (labelled with their
+    kind, e.g. ``"E1 (EDM)"``) and names the gateway couldn't verify (fail open).
+    A name repeated WITHIN the batch is also a collision — neither exists in RM
+    yet, so the per-name check passes both, but the first submit creates the
+    name and the second would fail minutes later at the worker backstop."""
+    colliding: list[str] = []
+    unchecked: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for kind, name in kinds_and_names:
+        if (kind, name) in seen:
+            colliding.append(f"{name} ({kind.upper()}, duplicated in this package)")
+            continue
+        seen.add((kind, name))
+        check = name_check.check_member_name(kind, name)
+        if check.collides:
+            colliding.append(f"{name} ({kind.upper()})")
+        elif not check.checked:
+            unchecked.append(name)
+    return colliding, unchecked
 
 
 def _member_count(package_id: str) -> int:
@@ -159,12 +195,18 @@ def _member_count(package_id: str) -> int:
     return package_member_count(package_id)
 
 
-def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
-    """Record the pending work and return immediately (FR-015/FR-042/FR-044). No Risk
-    Modeler call here. **Every apply targets an EDM (D3):** an RDM-only package (no EDM)
-    is rejected with ``EmptyPackageError`` — review-only sync is deferred; this also
-    covers the empty-package case. Idempotent on the dedup key (re-sync skips
-    ready/in-flight)."""
+def save_and_sync(*, package_id: Any, actor_id: Any) -> list[str]:
+    """Record the pending work and return immediately (FR-015/FR-042/FR-044) — the
+    only Risk Modeler touch is the cached name-collision read (Article 11). **Every
+    apply targets an EDM (D3):** an RDM-only package (no EDM) is rejected with
+    ``EmptyPackageError`` — review-only sync is deferred; this also covers the
+    empty-package case. Idempotent on the dedup key (re-sync skips ready/in-flight).
+
+    Blocking name check (issue #17) covers only members that will actually be
+    (re)submitted — status not in ``_LOCKED`` — so a ``ready`` member never
+    self-collides, and a stale draft whose name got taken since save is caught
+    here. Raises ``NameCollisionError`` before anything is enqueued; returns the
+    names the check couldn't verify (fail open)."""
     pid = str(package_id)
     actor = str(actor_id)
     edms = _live_members(pid, "irp_edm")
@@ -173,6 +215,16 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
         raise EmptyPackageError(
             "A package must include at least one EDM to sync "
             "(RDM-only / review-only sync is deferred).")
+
+    colliding, unchecked = _check_member_names(
+        (kind, m["name"])
+        for kind, rows in (("edm", edms), ("rdm", rdms))
+        for m in rows if m["status"] not in _LOCKED)
+    if colliding:
+        raise NameCollisionError(
+            "Sync blocked — name taken: " + ", ".join(colliding) + " now exist(s) "
+            "in Risk Modeler. Rename the affected member(s) before syncing; "
+            "nothing was submitted.")
 
     rdm_ids = [str(r["id"]) for r in rdms]
 
@@ -209,6 +261,7 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> None:
             heads += 1
     logger.info("package %s sync requested by analyst %s (%d upload head(s))",
                 pid, actor, heads)
+    return unchecked
 
 
 def delete_package(*, package_id: Any, actor_id: Any) -> None:
@@ -296,10 +349,47 @@ def _member_card(row: dict, kind: str) -> MemberCard:
                       status=row["status"], source_file_path=row["source_file_path"])
 
 
+def _attach_error_details(card: PackageCard) -> None:
+    """One batched read over the failed upload heads (issue #17 backstop
+    surfacing): give each ``error`` member the specific Risk Modeler message its
+    submit failure recorded (``rwb_job.error_detail``, worker framing stripped —
+    same read as ``edm_service.latest_import_error``). Members whose failure was
+    RM-side (the head itself succeeded) keep ``None``."""
+    wanted: dict[tuple[str, str], MemberCard] = {}
+    for member in card.edms:
+        if member.status == "error":
+            wanted[("upload_edm", member.id)] = member
+    for member in card.rdms:
+        if member.status == "error":
+            wanted[("upload_rdm", member.id)] = member
+    if not wanted:
+        return
+    params = {f"m{i}": mid for i, (_jt, mid) in enumerate(wanted)}
+    placeholders = ", ".join(f":{k}" for k in params)
+    rows = execute(
+        "SELECT requestor_id, rwb_job_type, error_detail FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND status_code = 'failed' "
+        "AND rwb_job_type IN ('upload_edm', 'upload_rdm') "
+        f"AND requestor_id IN ({placeholders})",
+        params, connection="WORKBENCH")
+    for row in rows:
+        member = wanted.get((row["rwb_job_type"],
+                             str(row["requestor_id"]).lower()))
+        detail = row["error_detail"]
+        if member is None or not detail:
+            continue
+        prefix = f"{row['rwb_job_type']} submit failed: "
+        member.error_detail = (detail[len(prefix):]
+                               if detail.startswith(prefix) else detail)
+
+
 def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCard | None:
     """Card data for one package: members + their status chips, and (US5) the all/active/
-    failed job counts scoped to the package's members. Portfolio/analysis areas are left
-    empty (R13); no rolled-up package status (FR-018). ``None`` if the package is gone."""
+    failed job counts scoped to the package's members. Spec 004 US4: each EDM
+    member now carries the per-EDM aggregate orientation line (FR-041 — the same
+    derived rollup as the EDM-page strip; ``None`` ⇒ graceful pending, FR-043)
+    and populated analysis counts (FR-050). No rolled-up package status (FR-018).
+    ``None`` if the package is gone."""
     pid = str(package_id)
     row = execute_one(
         "SELECT id, name, deleted_at FROM package WHERE id = :id",
@@ -311,6 +401,13 @@ def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCa
         edms=[_member_card(m, "edm") for m in _live_members(pid, "irp_edm")],
         rdms=[_member_card(m, "rdm") for m in _live_members(pid, "irp_rdm")],
     )
+    _attach_error_details(card)
+    from app.services import analysis_service, portfolio_service  # noqa: PLC0415 — cycle guard
+    for member in card.edms:
+        member.aggregate = portfolio_service.aggregate_exposure(
+            portfolio_service.list_portfolios(edm_id=member.id))
+        member.analysis_counts = analysis_service.analysis_counts(
+            edm_id=member.id)
     if with_counts:
         from app.services import job_query  # noqa: PLC0415 — avoid an import cycle
         card.job_counts = job_query.package_job_counts(pid)
@@ -331,7 +428,7 @@ def get_package_cards(submission_id: Any) -> list[PackageCard]:
 
 
 __all__ = [
-    "MemberSpec", "MemberCollision", "SaveResult", "MemberCard", "PackageCard",
+    "MemberSpec", "SaveResult", "MemberCard", "PackageCard",
     "save_package", "save_and_sync", "delete_package", "finalize_package",
     "retry_member", "get_package_card", "get_package_cards",
 ]

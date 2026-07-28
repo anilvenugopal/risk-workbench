@@ -1,0 +1,66 @@
+{# One treaty as a .dtable row (spec 004 US2, FR-020–FR-023) — matches
+   docs/ui_previews/edm_detail.html rev 7. Context: `t` (treaty_service.TreatyRow).
+   Collapsed: the summary columns (Type · Applies at · Currency · Attachment ·
+   Limit · Share · Effective) read defensively from the documented RM treaty
+   schema (treatyType / attachmentLevel / attachmentPoint / occurrenceLimit /
+   percentageRiShare / effectiveDate — IRP knowledge base, search-treaties).
+   Expanded: the FULL attribute grid — every stored field (minus RM's internal
+   `uri`; sub-object/list values collapsed to display labels service-side) —
+   for mis-coding checks (FR-021); the pinned .drow__body scrolls its own
+   overflow (FR-023).
+   Missing fields render "—", never an error. Read-only (FR-025). #}
+{%- macro money(v) -%}
+  {%- if v is none -%}<span class="na">&mdash;</span>
+  {%- elif v is number -%}${{ '{:,.0f}'.format(v) }}
+  {%- else -%}{{ v }}
+  {%- endif -%}
+{%- endmacro -%}
+{%- macro attr_val(v) -%}
+  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>
+  {%- elif v is mapping -%}{{ v.get('code') or v.get('name') or v.items()|map('last')|join(', ') }}
+  {%- elif v is boolean -%}{{ 'Yes' if v else 'No' }}
+  {%- elif v is number -%}{{ '{:,.10g}'.format(v) }}
+  {%- else -%}{{ v }}
+  {%- endif -%}
+{%- endmacro -%}
+{%- set a = t.attributes or {} -%}
+{%- set cur = a.get('currency') -%}
+{%- set share = a.get('percentageRiShare') -%}
+{%- set limit = a.get('occurrenceLimit') if a.get('occurrenceLimit') is not none else a.get('riskLimit') -%}
+<details class="drow">
+  <summary>
+    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+      <span class="dt-namecol">
+        <span class="dt-title">{{ t.name }}</span>
+        {% if a.get('treatyNumber') %}<span class="dt-sub">{{ a.get('treatyNumber') }}</span>
+        {% elif t.irp_id %}<span class="dt-sub">TR-{{ t.irp_id }}</span>{% endif %}
+      </span></span></span>
+    <span class="l">{{ attr_val(a.get('treatyType')) }}</span>
+    <span class="l">{{ attr_val(a.get('attachmentLevel')) }}</span>
+    <span class="l">{{ attr_val(cur) }}</span>
+    <span>{{ money(a.get('attachmentPoint')) }}</span>
+    <span>{{ money(limit) }}</span>
+    <span class="pct">{% if share is not none %}{{ '{:,.10g}'.format(share) }}%{% else %}<span class="na">&mdash;</span>{% endif %}</span>
+    <span class="l">
+      {%- set eff = (a.get('effectiveDate') or '')[:10] -%}
+      {%- set exp = (a.get('expirationDate') or '')[:10] -%}
+      {%- if eff or exp -%}{{ eff or '…' }} → {{ exp[5:] if exp[:4] == eff[:4] and exp else (exp or '…') }}
+      {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+    </span>
+  </summary>
+  <div class="drow__body">
+    {% if a %}
+    <dl class="attr-grid">
+      {% for label, val in t.attribute_items() %}
+      <div>
+        <dt>{{ label }}</dt>
+        <dd{% if val is none or val == '' %} class="blank"{% endif %}>{{ attr_val(val) }}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="tag-empty" style="margin:0">Attribute detail not available —
+      imported before treaty backfill shipped. Sync the EDM to populate.</p>
+    {% endif %}
+  </div>
+</details>

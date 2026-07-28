@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EDM Detail - portfolio-first draft - Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD;
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em; --dur-fast:120ms;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px;
+  --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:none;background:none;padding:0}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:none;box-shadow:var(--ring-focus);border-radius:var(--radius-sm)}
+.wrap{max-width:1240px;margin:0 auto;padding:var(--space-6)}
+.scaffold-note{background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-5)}
+.frame{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);box-shadow:var(--shadow-sm);overflow:hidden}
+.page-pad{padding:18px 22px}
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--brand{background:var(--color-brand-wash);color:var(--color-brand);border-color:var(--color-brand-border)}
+.badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+.badge--warning{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.badge--danger{background:var(--color-danger-bg);color:var(--color-danger);border-color:var(--color-danger-border)}
+.badge--positive{background:var(--color-positive-bg);color:var(--color-positive);border-color:var(--color-positive-border)}
+.badge--sm{font-size:10px;padding:1px 6px}
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--importing{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--error{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)}
+.crumb{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);font-size:var(--fs-label);color:var(--text-secondary);margin-bottom:var(--space-3)}
+.crumb a{color:var(--color-brand)}
+.crumb__sep{color:var(--text-tertiary)}
+.detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-5);margin-bottom:var(--space-5)}
+.detail-head h1{font-size:20px;margin:0 0 5px;color:var(--text-primary);font-weight:var(--fw-medium)}
+.detail-meta{font-size:var(--fs-label);color:var(--text-secondary);display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap}
+.head-actions{display:flex;gap:var(--space-2);flex-wrap:wrap;justify-content:flex-end}
+.synced{display:inline-flex;align-items:center;gap:var(--space-1);color:var(--text-tertiary)}
+.synced__dot{width:6px;height:6px;border-radius:50%;background:var(--c-green-500)}
+.fact-strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:1px;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--border-default);margin-bottom:var(--space-5)}
+.fact{background:var(--surface-recessed);padding:var(--space-3);min-width:0}
+.fact .k{display:block;font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.fact .v{display:block;margin-top:2px;font-size:var(--fs-label);font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.section{margin-bottom:var(--space-7)}
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:10px}
+.section-head h2{font-size:14px;margin:0;color:var(--text-primary);font-weight:var(--fw-medium)}
+.section-note{font-size:var(--fs-caption);color:var(--text-tertiary);margin:var(--space-2) 0 0}
+.table-tools{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:center;justify-content:flex-end}
+.selection-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-recessed);margin-bottom:var(--space-4);font-size:var(--fs-caption);color:var(--text-secondary)}
+.selection-bar strong{font-size:var(--fs-label);color:var(--text-primary);font-weight:var(--fw-semibold)}
+.bulk-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);justify-content:flex-end}
+.summary-band{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--border-default);margin-bottom:var(--space-4)}
+.summary-cell{background:var(--surface-recessed);padding:var(--space-3)}
+.summary-cell .k{display:block;font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.summary-cell .v{display:block;margin-top:2px;font-size:var(--fs-h3);font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.table-shell{overflow:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.pf-table{width:100%;min-width:1180px;border-collapse:separate;border-spacing:0;font-size:var(--fs-label)}
+.pf-table th{position:sticky;top:0;z-index:2;font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-default);white-space:nowrap;background:var(--surface-recessed)}
+.pf-table th.l{text-align:left}
+.pf-table th:first-child,.pf-table td:first-child{position:sticky;left:0;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default);width:38px;text-align:center}
+.pf-table th:first-child{z-index:3;background:var(--surface-recessed)}
+.pf-table th:nth-child(2),.pf-table td:nth-child(2){position:sticky;left:38px;z-index:1;background:var(--surface-panel);box-shadow:1px 0 0 var(--border-default)}
+.pf-table th:nth-child(2){z-index:3;background:var(--surface-recessed)}
+.pf-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--c-border-faint);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;vertical-align:top}
+.pf-table td.l{text-align:left;white-space:normal}
+.pf-table tr:last-child td{border-bottom:none}
+.pf-table tbody tr:hover td{background:var(--surface-recessed)}
+.pf-table tbody tr:hover td:first-child,.pf-table tbody tr:hover td:nth-child(2){background:var(--surface-recessed)}
+.row-check{width:14px;height:14px;accent-color:var(--color-brand)}
+.pf-name{display:block;font-weight:var(--fw-semibold);color:var(--text-primary);line-height:1.25}
+.pf-sub{display:block;font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.chips{display:flex;flex-wrap:wrap;gap:var(--space-1);align-items:center}
+.chip{display:inline-flex;align-items:center;min-height:18px;padding:1px 6px;border-radius:var(--radius-sm);border:1px solid var(--border-default);background:var(--surface-recessed);font-size:var(--fs-caption);font-weight:var(--fw-medium);color:var(--text-secondary)}
+.chip--danger{border-color:var(--color-danger-border);background:var(--color-danger-bg);color:var(--color-danger)}
+.chip--muted{color:var(--text-disabled)}
+.delta{font-size:var(--fs-caption);color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+.metric-strong{font-weight:var(--fw-semibold);color:var(--text-primary)}
+.geo-main{display:block;font-weight:var(--fw-medium);color:var(--text-primary);line-height:1.25}
+.geo-sub{display:block;font-size:var(--fs-caption);color:var(--text-tertiary);line-height:1.25;margin-top:2px}
+.details-panel{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);overflow:hidden;margin-bottom:var(--space-4)}
+.details-panel summary{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3);background:var(--surface-recessed);border-bottom:1px solid var(--border-default);cursor:pointer;list-style:none}
+.details-panel summary::-webkit-details-marker{display:none}
+.details-panel summary:before{content:"+";display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);font-size:14px;color:var(--text-tertiary);margin-right:var(--space-2)}
+.details-panel[open] summary:before{content:"-"}
+.summary-title{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.summary-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);margin-left:auto}
+.compact-table{width:100%;border-collapse:collapse;font-size:var(--fs-label)}
+.compact-table th{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:left;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-default);background:var(--surface-recessed);white-space:nowrap}
+.compact-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);vertical-align:top}
+.compact-table tr:last-child td{border-bottom:none}
+.compact-table .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.panel-note{font-size:var(--fs-caption);color:var(--text-tertiary);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);background:var(--surface-panel)}
+.analysis-list{display:grid}
+.analysis-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--space-3);padding:var(--space-3);border-bottom:1px solid var(--border-faint)}
+.analysis-row:last-child{border-bottom:none}
+.analysis-name{font-weight:var(--fw-semibold);font-size:var(--fs-label);color:var(--text-primary);line-height:1.25}
+.analysis-meta{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-3);font-size:var(--fs-caption);color:var(--text-secondary);margin-top:var(--space-1)}
+.analysis-meta .k{color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.04em;margin-right:var(--space-1)}
+.state-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-4)}
+.state-box{border:1px dashed var(--border-strong);border-radius:var(--radius-md);background:var(--surface-recessed);padding:var(--space-4);color:var(--text-tertiary);font-size:var(--fs-label);text-align:center;min-height:112px;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.state-box strong{color:var(--text-secondary);font-weight:var(--fw-semibold)}
+@media (max-width:960px){
+  .fact-strip{grid-template-columns:1fr 1fr 1fr}
+  .summary-band{grid-template-columns:1fr 1fr}
+  .state-grid{grid-template-columns:1fr}
+}
+@media (max-width:620px){
+  .wrap{padding:var(--space-3)}
+  .page-pad{padding:var(--space-4)}
+  .detail-head{display:block}
+  .head-actions{justify-content:flex-start;margin-top:var(--space-3)}
+  .fact-strip{grid-template-columns:1fr 1fr}
+  .summary-band{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="scaffold-note">
+    <strong>Alternative draft, rev 3.</strong> Portfolio-first EDM detail concept. This version keeps the page factual,
+    uses multi-select for portfolio operations, and restores collapsible sections for dense treaty and analysis detail.
+    Numbers are mock.
+  </div>
+
+  <div class="frame">
+    <div class="page-pad">
+      <div class="crumb">
+        <a href="#">Meridian Property Cat XoL 2026</a><span class="crumb__sep">&rsaquo;</span>
+        <a href="#">meridian-2026-primary</a><span class="crumb__sep">&rsaquo;</span>
+        <span>meridian_edm_2026</span>
+      </div>
+
+      <div class="detail-head">
+        <div>
+          <h1>meridian_edm_2026 <span class="status-chip status-chip--ready">ready</span></h1>
+          <div class="detail-meta">
+            <span class="mono" title="\\rms-share\intake\2026\meridian-re\meridian_edm_2026.bak">...\meridian-re\meridian_edm_2026.bak</span>
+            <span class="crumb__sep">.</span><span>RM EDM #88123</span>
+            <span class="crumb__sep">.</span><span>4 portfolios</span>
+            <span class="crumb__sep">.</span><span class="synced"><span class="synced__dot"></span> synced 2026-07-22 14:30</span>
+          </div>
+        </div>
+        <div class="head-actions">
+          <button class="btn-sm">Open in Risk Modeler</button>
+          <button class="btn-sm btn-sm--primary">Export</button>
+        </div>
+      </div>
+
+      <div class="fact-strip">
+        <div class="fact"><span class="k">Imported</span><span class="v">2026-07-22 14:08</span></div>
+        <div class="fact"><span class="k">Backfill</span><span class="v"><span class="badge badge--positive badge--sm">complete</span></span></div>
+        <div class="fact"><span class="k">Locations</span><span class="v">1,124,540</span></div>
+        <div class="fact"><span class="k">Accounts / Policies</span><span class="v">18,050 / 19,180</span></div>
+        <div class="fact"><span class="k">Geography</span><span class="v">Worldwide, 42 countries</span></div>
+        <div class="fact"><span class="k">Currency</span><span class="v">USD, CAD, JPY + 4</span></div>
+      </div>
+
+      <main>
+          <section class="section">
+            <div class="section-head">
+              <h2>Portfolios <span class="badge badge--neutral">4</span></h2>
+              <div class="table-tools">
+                <button class="btn-sm">Search</button>
+                <button class="btn-sm">Filter</button>
+                <button class="btn-sm">Sort</button>
+              </div>
+            </div>
+
+            <div class="selection-bar">
+              <div><strong>2 selected</strong> <span class="mono">Portfolio #2, Portfolio #4</span></div>
+              <div class="bulk-actions">
+                <button class="btn-sm">Break out</button>
+                <button class="btn-sm btn-sm--primary">Run analysis</button>
+              </div>
+            </div>
+
+            <div class="summary-band">
+              <div class="summary-cell"><span class="k">Perils present</span><span class="v">Wind, Quake, Flood</span></div>
+              <div class="summary-cell"><span class="k">Sub-perils present</span><span class="v">Storm Surge + 2</span></div>
+              <div class="summary-cell"><span class="k">Geography</span><span class="v">42 countries</span></div>
+              <div class="summary-cell"><span class="k">Treaties</span><span class="v">3</span></div>
+              <div class="summary-cell"><span class="k">Analyses</span><span class="v">3 broker</span></div>
+            </div>
+
+            <div class="table-shell">
+              <table class="pf-table">
+                <thead>
+                  <tr>
+                    <th><input class="row-check" type="checkbox" aria-label="Select all portfolios"></th>
+                    <th class="l">Portfolio</th>
+                    <th>Locations</th>
+                    <th>Accounts</th>
+                    <th>Policies</th>
+                    <th>Records</th>
+                    <th class="l">Perils</th>
+                    <th class="l">Sub-perils</th>
+                    <th class="l">Geography</th>
+                    <th class="l">Currency</th>
+                    <th>TIV</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><input class="row-check" type="checkbox" aria-label="Select Meridian Primary 2026"></td>
+                    <td class="l"><span class="pf-name">Meridian Primary 2026</span><span class="pf-sub">Portfolio #1</span></td>
+                    <td>8,240 <span class="delta">&lt;1%</span></td>
+                    <td>1,120</td>
+                    <td>1,180</td>
+                    <td>36,200</td>
+                    <td class="l"><span class="chips"><span class="chip">Wind</span><span class="chip">Quake</span></span></td>
+                    <td class="l"><span class="chips"><span class="chip">Storm Surge</span></span></td>
+                    <td class="l"><span class="geo-main">US Southeast</span><span class="geo-sub">FL, TX, LA</span></td>
+                    <td class="l"><span class="chip">USD</span></td>
+                    <td class="metric-strong">$2.8B</td>
+                  </tr>
+                  <tr>
+                    <td><input class="row-check" type="checkbox" checked aria-label="Select Meridian Excess 2026"></td>
+                    <td class="l"><span class="pf-name">Meridian Excess 2026</span><span class="pf-sub">Portfolio #2</span></td>
+                    <td>3,900 <span class="delta">&lt;1%</span></td>
+                    <td>720</td>
+                    <td>760</td>
+                    <td>18,950</td>
+                    <td class="l"><span class="chips"><span class="chip">Wind</span><span class="chip">Flood</span></span></td>
+                    <td class="l"><span class="chips"><span class="chip">Storm Surge</span><span class="chip">Sprinkler Leakage</span></span></td>
+                    <td class="l"><span class="geo-main">US Northeast</span><span class="geo-sub">NY, NJ, MA</span></td>
+                    <td class="l"><span class="chip">USD</span></td>
+                    <td class="metric-strong">$1.1B</td>
+                  </tr>
+                  <tr>
+                    <td><input class="row-check" type="checkbox" aria-label="Select Meridian Facultative 2026"></td>
+                    <td class="l"><span class="pf-name">Meridian Facultative 2026</span><span class="pf-sub">Portfolio #3</span></td>
+                    <td>12,400 <span class="delta">1%</span></td>
+                    <td>210</td>
+                    <td>240</td>
+                    <td>42,700</td>
+                    <td class="l"><span class="chips"><span class="chip">Quake</span></span></td>
+                    <td class="l"><span class="chips"><span class="chip chip--muted">None</span></span></td>
+                    <td class="l"><span class="geo-main">California only</span><span class="geo-sub">CA</span></td>
+                    <td class="l"><span class="chips"><span class="chip">USD</span><span class="chip">CAD</span></span></td>
+                    <td class="metric-strong">$4.4B</td>
+                  </tr>
+                  <tr>
+                    <td><input class="row-check" type="checkbox" checked aria-label="Select Global Commercial Property"></td>
+                    <td class="l"><span class="pf-name">Global Commercial Property</span><span class="pf-sub">Portfolio #4</span></td>
+                    <td>1,100,000 <span class="delta">98%</span></td>
+                    <td>16,000</td>
+                    <td>17,000</td>
+                    <td>4,860,000</td>
+                    <td class="l"><span class="chips"><span class="chip">Wind</span><span class="chip">Quake</span><span class="chip">Flood</span></span></td>
+                    <td class="l"><span class="chips"><span class="chip">Storm Surge</span><span class="chip">Fire Following</span><span class="chip">Sprinkler Leakage</span></span></td>
+                    <td class="l"><span class="geo-main">Worldwide</span><span class="geo-sub">42 countries; top: US, JP, CA, MX + 38</span></td>
+                    <td class="l"><span class="chips"><span class="chip">USD</span><span class="chip">JPY</span><span class="chip">EUR + 4</span></span></td>
+                    <td class="metric-strong">$63.8B</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="section-note">Values shown here are factual summaries from Risk Modeler/backfill. Portfolio actions operate on the selected rows.</p>
+          </section>
+
+          <section class="section">
+            <details class="details-panel" open>
+              <summary>
+                <span class="summary-title">Treaties <span class="badge badge--neutral badge--sm">3</span></span>
+                <span class="summary-actions"><button class="btn-sm">Open RM editor</button><button class="btn-sm">Export Excel</button></span>
+              </summary>
+              <div class="panel-note">Compact default shows the fields analysts compare most. Expand a row for the full Risk Modeler attribute set.</div>
+              <table class="compact-table">
+                <thead>
+                  <tr><th>Treaty</th><th>Type</th><th>Applies at</th><th>Scope</th><th>Currency</th><th class="r">Attach</th><th class="r">Limit</th><th class="r">Share</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>TR-1042</strong><br><span class="mono">Property Cat XoL</span></td>
+                    <td><span class="badge badge--brand badge--sm">Cat</span></td>
+                    <td>Portfolio</td>
+                    <td>Meridian Primary, Excess</td>
+                    <td>USD</td>
+                    <td class="r">$25.0M</td>
+                    <td class="r">$100.0M</td>
+                    <td class="r">20%</td>
+                    <td><span class="status-chip status-chip--ready">ready</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>TR-1043</strong><br><span class="mono">Quota Share</span></td>
+                    <td><span class="badge badge--brand badge--sm">QS</span></td>
+                    <td>Policy</td>
+                    <td>All portfolios</td>
+                    <td>USD</td>
+                    <td class="r">$0</td>
+                    <td class="r">$10.0M</td>
+                    <td class="r">40%</td>
+                    <td><span class="status-chip status-chip--ready">ready</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>TR-1044</strong><br><span class="mono">Working Excess</span></td>
+                    <td><span class="badge badge--brand badge--sm">WX</span></td>
+                    <td>Account</td>
+                    <td>Global Commercial</td>
+                    <td>USD, JPY, EUR</td>
+                    <td class="r">$2.0M</td>
+                    <td class="r">$15.0M</td>
+                    <td class="r">90%</td>
+                    <td><span class="status-chip status-chip--ready">ready</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
+
+            <details class="details-panel" open>
+              <summary>
+                <span class="summary-title">RDMs and broker analyses <span class="badge badge--neutral badge--sm">2 RDMs</span></span>
+                <span class="summary-actions"><button class="btn-sm">Open RDMs</button></span>
+              </summary>
+              <div class="panel-note">Grouped by source RDM. Portfolio-to-analysis linking is shown only when Risk Modeler metadata makes it explicit.</div>
+              <div class="analysis-list">
+                <div class="analysis-row">
+                  <div>
+                    <div class="analysis-name">Meridian AEP - All Perils</div>
+                    <div class="analysis-meta">
+                      <span><span class="k">RDM</span>meridian_q4_results</span>
+                      <span><span class="k">Engine</span>DLM / RL 23.0</span>
+                      <span><span class="k">Portfolio</span>All portfolios</span>
+                    </div>
+                  </div>
+                  <span class="badge badge--info badge--sm">broker</span>
+                </div>
+                <div class="analysis-row">
+                  <div>
+                    <div class="analysis-name">Meridian OEP - Wind</div>
+                    <div class="analysis-meta">
+                      <span><span class="k">RDM</span>meridian_q4_results</span>
+                      <span><span class="k">Region</span>Gulf</span>
+                      <span><span class="k">Portfolio</span>Named in analysis</span>
+                    </div>
+                  </div>
+                  <span class="badge badge--info badge--sm">broker</span>
+                </div>
+                <div class="analysis-row">
+                  <div>
+                    <div class="analysis-name">Retro AEP - Quake</div>
+                    <div class="analysis-meta">
+                      <span><span class="k">RDM</span>retro_2025_view</span>
+                      <span><span class="k">Engine</span>HD / RL 23.0</span>
+                      <span><span class="k">Portfolio</span>Not available</span>
+                    </div>
+                  </div>
+                  <span class="badge badge--info badge--sm">broker</span>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="section">
+            <div class="section-head">
+              <h2>Operational states</h2>
+              <span class="badge badge--neutral">preview</span>
+            </div>
+            <div class="state-grid">
+              <div class="state-box">
+                <strong>Importing</strong>
+                <span>Portfolio detail appears after Risk Modeler import completes.</span>
+              </div>
+              <div class="state-box">
+                <strong>Legacy import</strong>
+                <span>This EDM predates exposure backfill. Re-import to populate detail.</span>
+              </div>
+              <div class="state-box">
+                <strong>Fetch failed</strong>
+                <span>EDM remains ready. Exposure detail retries automatically.</span>
+              </div>
+            </div>
+          </section>
+        </main>
+    </div>
+  </div>
+</div>
+</body>
+</html>

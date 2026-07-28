@@ -2,9 +2,11 @@
 
 The request-path contract (FR-042): ``import_edm`` creates the ``irp_edm``
 (``pending_import``) and enqueues exactly one ``upload_edm`` head with **no** Risk
-Modeler call — the worker submits later. Name collision is a non-blocking warning
-(SC-005). Recovery helpers (``retry_import`` / ``replace_source_file``) are idempotent
-and concurrency-checked. No function applies row scoping (SC-009).
+Modeler submit — the worker submits later. Name collision **blocks** the save
+(FR-012 as amended by issue #17) via a cached RM read; an unreachable gateway fails
+open with ``collision_unchecked``. Recovery helpers (``retry_import`` /
+``replace_source_file``) are idempotent and concurrency-checked. No function applies
+row scoping (SC-009).
 
 Runs on the SQLite unit mirror (``iteration2_db``) with the fake IRP.
 """
@@ -15,7 +17,9 @@ import pytest
 
 from app.services import edm_service, rwb_job_service
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile)
+    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
+    NameCollisionError)
+from app.workers import package_jobs
 from db import execute_command, execute_one, execute_scalar
 
 
@@ -69,17 +73,59 @@ def test_import_is_idempotent_on_re_enqueue(iteration2_db, fake_irp, drive):
     assert dup is None
 
 
-# ── name collision (non-blocking) ────────────────────────────────────────────────
+# ── name collision (blocking, issue #17) ─────────────────────────────────────────
 
-def test_check_name_collision_returns_hits_never_raises(iteration2_db, fake_irp, drive):
+def test_check_name_collision_shapes(iteration2_db, fake_irp, drive):
     fake_irp.add_edm_name("Dupe")
-    assert edm_service.check_name_collision("Dupe") == ["Dupe"]
-    assert edm_service.check_name_collision("Fresh") == []
-    # import still proceeds despite a collision (warning, not a block).
-    res = edm_service.import_edm(name="Dupe", source_file_path=str(drive / "edm1.bak"),
-                                 actor_id=iteration2_db.user_a)
-    assert res.collision == ["Dupe"]
-    assert edm_service.get_edm(res.entity_id) is not None
+    hit = edm_service.check_name_collision("Dupe")
+    assert hit.collides and hit.names == ("Dupe",) and hit.checked
+    clean = edm_service.check_name_collision("Fresh")
+    assert not clean.collides and clean.checked
+    fake_irp.raise_on_search = True
+    down = edm_service.check_name_collision("Another")
+    assert not down.collides and not down.checked  # fail open, never raises
+
+
+def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
+    fake_irp.add_edm_name("Dupe")
+    with pytest.raises(NameCollisionError):
+        edm_service.import_edm(name="Dupe", source_file_path=str(drive / "edm1.bak"),
+                               actor_id=iteration2_db.user_a)
+    # blocked BEFORE persisting anything — no entity, no upload head
+    assert execute_scalar("SELECT COUNT(*) FROM irp_edm", {},
+                          connection="WORKBENCH") == 0
+    assert execute_scalar("SELECT COUNT(*) FROM rwb_job", {},
+                          connection="WORKBENCH") == 0
+
+
+def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
+    fake_irp.raise_on_search = True
+    res = _import(drive, iteration2_db.user_a)
+    assert res.collision_unchecked is True
+    assert edm_service.get_edm(res.entity_id) is not None  # save proceeded
+
+
+# ── backstop surfacing (issue #17 Slice 3) ────────────────────────────────────────
+
+def test_latest_import_error_surfaces_submit_failure(iteration2_db, fake_irp, drive):
+    """The worker backstop's specific reason reaches the detail read: the failed
+    ``upload_edm`` head's message, worker framing stripped — this is where the
+    wheel's "already exist(s)" collision text lands when a fail-open save races
+    a real duplicate."""
+    res = _import(drive, iteration2_db.user_a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()
+    assert edm_service.get_edm(res.entity_id).status == edm_service.ERROR
+    assert (edm_service.latest_import_error(res.entity_id)
+            == "fake IRP: forced submit failure")
+    assert (edm_service.get_edm_detail(res.entity_id).import_error
+            == "fake IRP: forced submit failure")
+
+
+def test_latest_import_error_none_without_failed_head(iteration2_db, fake_irp, drive):
+    res = _import(drive, iteration2_db.user_a)   # head still pending
+    assert edm_service.latest_import_error(res.entity_id) is None
+    assert edm_service.get_edm_detail(res.entity_id).import_error is None
 
 
 # ── list: no row scoping ─────────────────────────────────────────────────────────

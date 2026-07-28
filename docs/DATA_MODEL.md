@@ -13,10 +13,10 @@ All database access goes through the `db/` package. App code calls `get_connecti
 | `WORKBENCH` | Workbench metamodel (this schema) | Alembic + app |
 | `EXPOSURE` | Exposure repository | App — `db/bootstrap/exposure_schema.sql` |
 | `LOSS` | Loss repository | App — `db/bootstrap/loss_schema.sql` |
-| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only, app never runs DDL |
+| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side; constitution Art. 11 v3.1.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE`/`LOSS` are bootstrapped by idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`); they are not under Alembic. `DATABRIDGE` is never migrated or bootstrapped.
+- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE`/`LOSS` are bootstrapped by idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`); they are not under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, constitution Art. 11 v3.1.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -166,7 +166,7 @@ erDiagram
 - **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
 - **`submission_crm_id`** holds 0..N CRM-ID tags at the submission level. A package's effective CRM IDs derive from the submission it is viewed under.
 - **`renews_from_submission_id`** is a manual, nullable self-reference (match cedant + treaty type across treaty years); most deals have none.
-- **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning (same UX as the EDM/RDM name-collision check), never a hard reject.
+- **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning, never a hard reject. *(Unlike the EDM/RDM name-collision check, which is **blocking** as of 2026-07-27 — issue #17, §5.)*
 - **Status** is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
 
 **Package:**
@@ -178,7 +178,7 @@ erDiagram
 - **Soft delete** via `deleted_at`, consistent with `submission`.
 
 **Package actions** (enqueue `rwb_job` rows, §8):
-- **Save** — persist the package and any edited EDM/RDM names (runs the name-collision check). No job.
+- **Save** — persist the package and any edited EDM/RDM names (runs the **blocking** name-collision check — a hit rejects the save, issue #17). No job.
 - **Save and Sync** — one `upload_edm` job per EDM plus one `upload_rdm` (apply) job **per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `upload_rdm(R→E)` waits only for `E`'s `upload_edm` to succeed, so applications fan out in parallel as each EDM lands. The old "EDM is always *the* single head job / all EDMs before all RDMs" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `upload_rdm` with no EDM.
 - **Delete** — the two sides are now independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker); deleting an **RDM** removes only the broker analyses it created across EDMs. When the last member-delete job succeeds, the `package` row is stamped `deleted_at`.
 
@@ -256,7 +256,7 @@ erDiagram
 - **`irp_rdm` has no `edm_id`.** An RDM is applied to *every* EDM in its package (full grid), so it has no single owning EDM; the EDM associations live in the apply jobs (§8) and the resulting `irp_analysis` rows (§6). A review-only RDM (imported with no EDM) still creates analyses — they simply have no `edm_id` (§6). `irp_rdm.status` is a **combined rollup** of its apply jobs.
 - **`status`** on EDM/RDM is a plain string (mirrors IRP's own EDM/RDM lifecycle vocabulary, which can drift): `pending_import` / `importing` / `ready` / `error` / `delete_pending` / `deleted`.
 - **`created_by_irp_job_irp_id`** links EDM/RDM back to the async import job that created the entity. `irp_portfolio` and `irp_treaty` have none — their creation is synchronous.
-- **Name-collision check.** Setting or renaming an EDM/RDM name runs `client.edm.search_edms()` / `search_rdms()` — a non-blocking warning if the name already exists in IRP.
+- **Name-collision check.** Setting or renaming an EDM/RDM name runs `client.edm.search_edms()` / `search_rdms()` — **blocking** since 2026-07-27 (issue #17, spec 003 FR-012 as amended): a hit rejects the save/sync (irp-integration ≥ 0.2.1 would fail the submit anyway). When Risk Modeler is unreachable the check fails open with a visible warning and the worker-side submit validation is the backstop.
 - **Treaty** is referenced by analyses **by name**; create/edit is synchronous (`search_treaties` / `create_treaty` / `create_treaty_lob`). Creating a treaty with its lines of business is a **1 + N** call pattern and is **non-atomic** — a partial failure leaves some LOBs missing; the UI lets the analyst retry the remainder.
 
 ---

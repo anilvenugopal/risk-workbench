@@ -31,6 +31,7 @@ from tests.iteration1_mirror import (
     IRP_JOB_TYPE_SEED,
     ITERATION1_SCHEMA,
     ITERATION2_SCHEMA,
+    ITERATION3_SCHEMA,
     RWB_JOB_REQUESTOR_TYPE_SEED,
     RWB_JOB_STATUS_SEED,
     RWB_JOB_TYPE_SEED,
@@ -154,14 +155,15 @@ def iteration1_db() -> SimpleNamespace:
 
 @pytest.fixture()
 def iteration2_db() -> SimpleNamespace:
-    """Build the Iteration-1 + Iteration-2 WORKBENCH schema in SQLite, seed the kind
-    tables and two analysts, register it as WORKBENCH, and return the analyst ids.
-    Engine disposal is handled by the autouse root fixture."""
+    """Build the Iteration-1 + Iteration-2 + Iteration-3 WORKBENCH schema in SQLite
+    (the dev DB is drop-create-seed, so services always see the full shape), seed
+    the kind tables and two analysts, register it as WORKBENCH, and return the
+    analyst ids. Engine disposal is handled by the autouse root fixture."""
     engine = create_engine("sqlite://")  # in-memory, SingletonThreadPool (shared)
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
     with engine.begin() as conn:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
             conn.execute(text(ddl))
         conn.execute(text(
             "INSERT INTO app_user (id, email, display_name) VALUES "

@@ -1,9 +1,11 @@
-"""EDM routes — import, detail, recovery, and the non-blocking name check (US1).
+"""EDM routes — import, detail, recovery, and the blocking name check (US1, #17).
 
 Server-rendered FastAPI + Jinja2 + HTMX (Article 8). Every state-changing route
-validates a CSRF token (Article 13); no route calls Risk Modeler (Article 11) —
-import only *enqueues* the upload work and returns. No row scoping (Article 6):
-every analyst may load and act on every EDM.
+validates a CSRF token (Article 13). Risk Modeler *submits* stay worker-side —
+import only *enqueues* the upload work and returns; the one RM call on a request
+path is the name-collision **read** (permitted by Article 11, cached per
+``name_check``). No row scoping (Article 6): every analyst may load and act on
+every EDM.
 
 Route order matters: the literal ``/edms/import`` and ``/edms/name-check`` paths are
 declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
@@ -11,14 +13,15 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service
+from app.services import edm_service, rdm_service
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile)
+    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
+    NameCollisionError)
 
 router = APIRouter()
 
@@ -68,14 +71,14 @@ def library(request: Request):
 @router.get("/edms/import", response_class=HTMLResponse)
 def import_form(request: Request):
     return _render(request, "pages/edm_import.html",
-                   {"form": {"name": ""}, "errors": [], "collision": []})
+                   {"form": {"name": ""}, "errors": [], "check": None})
 
 
 @router.get("/edms/name-check", response_class=HTMLResponse)
 def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
-                    {"collision": edm_service.check_name_collision(name),
+                    {"check": edm_service.check_name_collision(name),
                      "kind": "EDM"})
 
 
@@ -95,32 +98,73 @@ def create_import(
         return _render(request, "pages/edm_import.html", {
             "form": form,
             "errors": ["A name and a source file selection are required."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     try:
         result = edm_service.import_edm(
             name=name.strip(), source_file_path=source, actor_id=request.state.user.id)
-    except (InvalidSourceFile, InvalidMemberName) as exc:
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _render(request, "pages/edm_import.html",
-                       {"form": form, "errors": [str(exc)], "collision": []},
+                       {"form": form, "errors": [str(exc)], "check": None},
                        status_code=422)
-    return RedirectResponse(f"/edms/{result.entity_id}", status_code=303)
+    # Fail-open marker (issue #17): the collision check couldn't reach Risk
+    # Modeler — the detail page shows a warning banner once, via the query flag.
+    suffix = "?nc=unchecked" if result.collision_unchecked else ""
+    return RedirectResponse(f"/edms/{result.entity_id}{suffix}", status_code=303)
 
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
 def _detail(request: Request, edm_id: str, status_code: int = 200):
-    edm = edm_service.get_edm(edm_id)
+    # The full spec-004 read model: light header + per-portfolio snapshot table
+    # (US2/US3/US4 extend the same payload). Reads STORED detail only — no Risk
+    # Modeler call on the request path (Article 11).
+    edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That EDM does not exist."}, status_code=404)
+    # Rendered by the page shell (not the polled #edm-detail body, which would
+    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
-                   {"edm": edm}, status_code=status_code)
+                   {"edm": edm,
+                    "nc_unchecked": request.query_params.get("nc") == "unchecked"},
+                   status_code=status_code)
 
 
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
 def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
+
+
+def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
+    """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
+    edm = edm_service.get_edm_detail(edm_id)
+    if edm is None:
+        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (package-card precedent).
+        return HTMLResponse(
+            '<div class="page-pad" id="edm-detail">'
+            '<div class="state-box state-box--warn">This EDM no longer exists.'
+            '</div></div>')
+    if poll and edm.sync_running and edm.detail_state == "populated":
+        # A populated page mid-sync: swapping the body every 3s would collapse
+        # every <details> the analyst opened. 204 → htmx swaps nothing and the
+        # poll keeps ticking; the first post-sync poll returns the fresh body
+        # (whose trigger is gone), rendering the result exactly once.
+        return Response(status_code=204)
+    return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
+
+
+@router.get("/edms/{edm_id}/body", response_class=HTMLResponse)
+def detail_body(request: Request, edm_id: str):
+    """Read-only body render for HTMX polling. The template emits the ``every 3s``
+    trigger only while the backfill head is in flight (``sync_running``) or the
+    import itself still is, so the page updates on its own when the rwb job lands —
+    and polling stops once the work is terminal. A populated page mid-sync gets a
+    204 (poll continues, nothing swaps) so open rows aren't collapsed. No writes,
+    no Risk Modeler call (Article 11)."""
+    return _body_partial(request, edm_id, poll=True)
 
 
 @router.post("/edms/{edm_id}/retry")
@@ -129,6 +173,32 @@ def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     edm_service.retry_import(edm_id=edm_id, actor_id=request.state.user.id)
     return _detail(request, edm_id)
+
+
+@router.post("/edms/{edm_id}/sync")
+def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
+    # Manual detail re-sync (FR-003 as amended): enqueues the backfill_edm_detail
+    # worker — the fetch itself never runs on this request path (Article 11).
+    # The page shows RDM-sourced analyses too, so the same click also re-runs
+    # backfill_rdm_analyses for every RDM applied to this EDM (one per-RDM head,
+    # each with its own in-flight guard); EdmDetail.sync_running covers those, so
+    # the live body keeps polling until the analyses land as well.
+    # HTMX path: swap the #edm-detail wrapper in place (it then self-polls until
+    # the head lands). No-JS fallback: Post/Redirect/Get, so a refresh never
+    # re-prompts a form re-submission.
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            # Never swap a redirect-followed full page into the wrapper — force
+            # a clean reload (which also mints fresh tokens).
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=request.state.user.id)
+    rdm_service.sync_analyses_for_edm(edm_id=edm_id,
+                                      actor_id=request.state.user.id)
+    if is_htmx:
+        return _body_partial(request, edm_id)
+    return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
 
 @router.post("/edms/{edm_id}/replace-file")

@@ -67,6 +67,10 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('packageModal', () => ({
     members: [],
     browseOpen: false,
+    nameBlocked: false,
+    get canSubmit() {
+      return this.members.length > 0 && !this.nameBlocked;
+    },
     onDriveChange(e) {
       const cb = e.target;
       if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
@@ -92,9 +96,116 @@ document.addEventListener('alpine:init', () => {
         if (cb) cb.checked = false;
       }
       this.members.splice(i, 1);
+      // The removed row may have carried the only blocking error — re-derive
+      // after Alpine has flushed the DOM update.
+      this.$nextTick(() => this.onSwap());
+    },
+    onSwap() {
+      // Any HTMX swap inside the modal (a row's collision fragment, browse
+      // navigation) re-derives the blocked state from what is actually rendered
+      // — Save / Save & Sync stay disabled while any row shows the blocking
+      // error (issue #17, packageModal parity with importForm).
+      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
+    },
+    initRow(row) {
+      // Alpine-cloned x-for rows are invisible to htmx (it only processes
+      // server-rendered DOM): wire the row's name-check attributes up, then kick
+      // an immediate check for the auto-populated name (issue #17).
+      if (!window.htmx) return;
+      window.htmx.process(row);
+      this.$nextTick(() => {
+        const input = row.querySelector('.mrow__name');
+        if (input) input.dispatchEvent(new Event('recheck'));
+      });
+    },
+    recheck(el) {
+      // Kind flip: wait a tick so the hidden member_kind :value is flushed
+      // before htmx gathers the row's params for the check request.
+      this.$nextTick(() => {
+        const input = el.closest('.mrow').querySelector('.mrow__name');
+        if (input) input.dispatchEvent(new Event('recheck'));
+      });
+    },
+  }));
+
+  // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
+  // auto-populates the name (packageModal parity); Import stays disabled until a
+  // file is picked, a name is present, and the as-you-type collision check isn't
+  // showing the blocking error. Server-side validation still backs all of this —
+  // with JS off the button is simply never disabled.
+  Alpine.data('importForm', (opts = {}) => ({
+    sourceSelected: false,
+    appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
+    nameVal: '',
+    nameBlocked: false,
+    init() {
+      this.nameVal = this.$refs.name ? this.$refs.name.value : '';
+    },
+    get canSubmit() {
+      return this.sourceSelected && this.appliedSelected
+        && !!this.nameVal.trim() && !this.nameBlocked;
+    },
+    onChange(e) {
+      const cb = e.target;
+      if (cb.type !== 'checkbox') return;
+      if (cb.name === 'source_paths') {
+        if (cb.checked) {
+          // Radio-like: the standalone import takes exactly one source file.
+          this.$root.querySelectorAll('input[name="source_paths"]').forEach((o) => {
+            if (o !== cb) o.checked = false;
+          });
+          const base = cb.value.split(/[\\/]/).pop();
+          const name = this.$refs.name;
+          name.value = defaultMemberName(base);
+          this.nameVal = name.value;
+          name.dispatchEvent(new Event('recheck'));  // re-run the collision check
+        }
+        this.sourceSelected =
+          !!this.$root.querySelector('input[name="source_paths"]:checked');
+      } else if (cb.name === 'applied_edm_ids') {
+        this.appliedSelected =
+          !!this.$root.querySelector('input[name="applied_edm_ids"]:checked');
+      }
+    },
+    onSwap() {
+      // Any HTMX swap inside the form (collision fragment, browse navigation)
+      // re-derives the blocked state from what is actually rendered.
+      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
     },
   }));
 });
+
+// ── Local-time stamps ──────────────────────────────────────────────────────────
+// The server stores and renders naive-UTC timestamps; <time data-utc="…"> elements
+// are rewritten here to the browser's timezone as "YYYY-MM-DD h:mm:ss AM/PM"
+// (second granularity — fractional seconds dropped). The raw UTC value stays in
+// the title tooltip. Runs at load and again on htmx:load, so stamps swapped in by
+// the live #edm-detail poll stay localized.
+function localizeUtcTimes(root) {
+  const scope = root instanceof Element ? root : document;
+  scope.querySelectorAll('time[data-utc]').forEach((el) => {
+    const raw = (el.dataset.utc || '').trim();
+    // "2026-07-24 18:03:11.482910" → ISO with an explicit Z; values that already
+    // carry a zone are parsed as-is.
+    const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(raw)
+      ? raw.replace(' ', 'T')
+      : raw.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
+    const d = new Date(iso);
+    if (isNaN(d)) return;
+    const pad = (n) => String(n).padStart(2, '0');
+    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const time = d.toLocaleTimeString(undefined, {
+      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+    });
+    el.textContent = `${date} ${time}`;
+  });
+}
+if (document.readyState !== 'loading') {
+  localizeUtcTimes(document);
+} else {
+  document.addEventListener('DOMContentLoaded', () => localizeUtcTimes(document));
+}
+document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
@@ -118,6 +229,14 @@ function showToast(message, type) {
   setTimeout(() => { el.remove(); }, 5000);
 }
 window.showToast = showToast;
+
+// Server-pushed toasts: a route can attach `HX-Trigger: {"rwb:toast": {message, type}}`
+// (e.g. the fail-open "couldn't check names against Risk Modeler" warning) — htmx
+// re-dispatches it as a bubbling DOM event that lands here.
+document.addEventListener('rwb:toast', (e) => {
+  const d = e.detail || {};
+  showToast(d.message || 'Something needs your attention.', d.type || 'warning');
+});
 
 // Pull a human message out of an error response — our partials carry the reason in a
 // .form-banner--error / .drive-browse__error element; otherwise fall back to status.

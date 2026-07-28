@@ -1,8 +1,9 @@
 """Unit tests for app/services/rdm_service.py (US2, T025 + T027a backfill).
 
 Applied import fans out one apply per EDM; **every apply targets an EDM** — a no-EDM
-(review-only) import is rejected with ``EmptyPackageError`` (D3 / FR-016). Collision
-warning is non-blocking; ``retry_import`` idempotent; ``list_rdms`` applies no scoping.
+(review-only) import is rejected with ``EmptyPackageError`` (D3 / FR-016). Name
+collision blocks the import (issue #17), failing open when the gateway is down;
+``retry_import`` idempotent; ``list_rdms`` applies no scoping.
 On ``import_rdm`` FINISHED the poller enqueues ``backfill_rdm_analyses``, whose worker
 captures ``irp_analysis`` rows (D2) and rolls the RDM up to ``ready``. Runs on the SQLite
 mirror with the fake IRP; the worker fan-out is exercised via ``package_jobs.run_pending``.
@@ -13,8 +14,9 @@ from __future__ import annotations
 import pytest
 
 from app.poller import run as poller
-from app.services import edm_service, rdm_service
-from app.services.errors import EmptyPackageError, InvalidMemberName
+from app.services import analysis_service, edm_service, rdm_service
+from app.services.errors import (
+    EmptyPackageError, InvalidMemberName, NameCollisionError)
 from app.workers import package_jobs
 from db import execute, execute_scalar
 
@@ -80,13 +82,50 @@ def test_fanout_is_idempotent_per_pair(iteration2_db, fake_irp, drive):
     assert n == 1
 
 
-def test_check_name_collision_non_blocking(iteration2_db, fake_irp, drive):
+def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
     fake_irp.add_rdm_name("Dupe")
     e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
-    res = rdm_service.import_rdm(name="Dupe", source_file_path=str(drive / "rdm1.mdf"),
+    with pytest.raises(NameCollisionError):
+        rdm_service.import_rdm(name="Dupe", source_file_path=str(drive / "rdm1.mdf"),
+                               applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
+    # blocked BEFORE persisting anything — no irp_rdm, no upload_rdm head
+    assert execute_scalar("SELECT COUNT(*) FROM irp_rdm", {},
+                          connection="WORKBENCH") == 0
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_rdm'", {},
+        connection="WORKBENCH") == 0
+
+
+def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
+    e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
+    fake_irp.raise_on_search = True
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
                                  applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
-    assert res.collision == ["Dupe"]
-    assert rdm_service.get_rdm(res.entity_id) is not None
+    assert res.collision_unchecked is True
+    assert rdm_service.get_rdm(res.entity_id) is not None  # save proceeded
+
+
+def test_latest_import_error_surfaces_apply_submit_failure(
+        iteration2_db, fake_irp, drive):
+    """Backstop surfacing (issue #17 Slice 3): a fan-out that submitted nothing
+    fails its head under the ``upload_rdm submit failed: `` framing, and the
+    read strips it back to the Risk Modeler reason."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.ERROR
+    assert (rdm_service.latest_import_error(res.entity_id)
+            == "fake IRP: forced submit failure")
+
+
+def test_latest_import_error_none_without_failed_head(iteration2_db, fake_irp, drive):
+    e1 = _edm(drive, iteration2_db.user_a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=iteration2_db.user_a)
+    assert rdm_service.latest_import_error(res.entity_id) is None
 
 
 def test_list_rdms_no_scoping(iteration2_db, fake_irp, drive):
@@ -132,6 +171,180 @@ def test_import_rdm_finished_backfills_analyses_and_readies_rdm(
     assert all(x["status_code"] == "ready" and x["deleted_at"] is None for x in rows)
     # all applies FINISHED → RDM rolled up to ready (combined rollup)
     assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
+
+
+def test_backfill_captures_settings_metadata_and_promotes_portfolio_pointer(
+        iteration2_db, fake_irp, drive):
+    """Spec 004 US3 (T036): the extended worker also writes settings_metadata +
+    is_group per captured analysis, and promotes RM's exposureResourceId to the
+    typed exposure_resource_id column ONLY when exposureResourceType ==
+    'PORTFOLIO' (null otherwise — R9); idempotent with the pair capture."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    meta = {"analysisType": "EP", "engineType": "DLM", "engineVersion": "23.0",
+            "peril": "Earthquake", "region": "North America",
+            "currencyCode": "USD"}
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP", metadata=meta,
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="901", name="Treaty EP",
+                          exposure_resource_id="1042",
+                          exposure_resource_type="TREATY")  # non-portfolio → null
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="902", name="Suite", is_group=True,
+                          metadata={"analysisType": "Group"})
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    rows = {str(r["irp_id"]): r for r in execute(
+        "SELECT irp_id, settings_metadata, is_group, exposure_resource_id "
+        "FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")}
+    assert set(rows) == {"900", "901", "902"}
+    import json as _json
+    assert _json.loads(rows["900"]["settings_metadata"])["engineType"] == "DLM"
+    assert rows["900"]["exposure_resource_id"] == "501"     # PORTFOLIO → promoted
+    assert not rows["900"]["is_group"]
+    assert rows["901"]["exposure_resource_id"] is None      # TREATY → null (R9)
+    assert rows["902"]["exposure_resource_id"] is None      # group → null
+    assert rows["902"]["is_group"]
+
+    # Idempotent: a redelivery re-run overwrites in place — no dupes, same values.
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    package_jobs._backfill_rdm_analyses_body(head)
+    again = execute("SELECT COUNT(*) AS n FROM irp_analysis WHERE rdm_id=:r",
+                    {"r": res.entity_id}, connection="WORKBENCH")[0]["n"]
+    assert again == 3
+
+
+def test_backfill_metadata_fetch_failure_leaves_fields_null_not_error(
+        iteration2_db, fake_irp, drive):
+    """One analysis's failed metadata read never aborts the capture — the row
+    still lands (blank settings render 'not provided', US3 acceptance 3)."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    fake_irp.raise_on_analysis_metadata = True
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    row = execute(
+        "SELECT settings_metadata, exposure_resource_id, status_code "
+        "FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")[0]
+    assert row["settings_metadata"] is None       # blank, not an error
+    assert row["exposure_resource_id"] == "501"   # pointer still promoted (hit)
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
+
+
+def test_failed_metadata_reread_preserves_prior_pointer(
+        iteration2_db, fake_irp, drive):
+    """The never-null-on-a-failed-re-run invariant guards the pointer too: a
+    re-sync whose metadata read fails AND whose search hit carries no pointer
+    must leave a previously promoted exposure_resource_id in place — not wipe
+    the FR-037 portfolio link until some later successful sync."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    def _pointer() -> str | None:
+        return execute("SELECT exposure_resource_id FROM irp_analysis "
+                       "WHERE rdm_id=:r", {"r": res.entity_id},
+                       connection="WORKBENCH")[0]["exposure_resource_id"]
+
+    assert _pointer() == "501"
+
+    # The flaky re-sync: metadata read fails, and the hit lost its pointer.
+    fake_irp._analyses[0]["exposure_resource_id"] = None
+    fake_irp._analyses[0]["exposure_resource_type"] = None
+    fake_irp.raise_on_analysis_metadata = True
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    package_jobs._backfill_rdm_analyses_body(head)
+
+    assert _pointer() == "501"  # survived the failed re-read
+
+
+def test_sync_prunes_analyses_rm_no_longer_returns(iteration2_db, fake_irp, drive):
+    """A successful pair enumeration is the full truth: a captured analysis the
+    search no longer returns (deleted in RM) is soft-deleted — it leaves every
+    read model, and delete_rdm's delete-enumeration skips it too (there is
+    nothing left in RM to delete)."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="900")
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="901")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    # The analyst deletes analysis 901 in RM; a re-sync reconciles the capture.
+    fake_irp._analyses = [x for x in fake_irp._analyses
+                          if x["analysis_id"] != "901"]
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    out = package_jobs._backfill_rdm_analyses_body(head)
+
+    assert out["pruned"] == 1
+    rows = {str(r["irp_id"]): r for r in execute(
+        "SELECT irp_id, deleted_at FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")}
+    assert rows["901"]["deleted_at"] is not None  # soft-deleted, row kept
+    assert rows["900"]["deleted_at"] is None
+    groups = analysis_service.list_broker_analyses(rdm_id=res.entity_id)
+    assert [x.irp_id for g in groups for x in g.analyses] == ["900"]
+
+
+def test_pruned_analysis_resurrects_when_search_returns_it_again(
+        iteration2_db, fake_irp, drive):
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="900")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+
+    kept = list(fake_irp._analyses)
+    fake_irp._analyses = []
+    package_jobs._backfill_rdm_analyses_body(head)   # pruned
+    fake_irp._analyses = kept
+    package_jobs._backfill_rdm_analyses_body(head)   # search returns it again
+
+    rows = execute("SELECT irp_id, deleted_at FROM irp_analysis WHERE rdm_id=:r",
+                   {"r": res.entity_id}, connection="WORKBENCH")
+    assert len(rows) == 1  # resurrected in place — never re-inserted
+    assert rows[0]["deleted_at"] is None
 
 
 def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
