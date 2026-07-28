@@ -373,6 +373,121 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
     assert treaties[0].attribute_items() == []
 
 
+# ── stale-row pruning (sync reconciles the row set against RM) ─────────────────────
+# A successful enumeration is the full truth: rows RM no longer returns are
+# soft-deleted (a deleted portfolio/treaty must not keep rendering under a
+# fresh-looking as_of), a re-created entity resurrects its row, and a FAILED
+# enumeration never prunes anything.
+
+
+def test_sync_prunes_rows_rm_no_longer_returns(iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="502",
+                           name="Excess 2026", exposure=EXPOSURE_B)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Cat XoL", attributes=TREATY_CAT)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1043",
+                        name="Quota Share", attributes=TREATY_QS)
+    package_jobs.run_pending(worker_id="w1")
+    assert len(_portfolio_rows(edm_id)) == 2 and len(_treaty_rows(edm_id)) == 2
+
+    # The analyst deletes one of each in RM; the next sync reconciles.
+    fake_irp._portfolios[str(exposure_id)] = [
+        p for p in fake_irp._portfolios[str(exposure_id)] if p["irp_id"] != "502"]
+    fake_irp._treaties[str(exposure_id)] = [
+        t for t in fake_irp._treaties[str(exposure_id)] if t["irp_id"] != "1043"]
+    result = package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+
+    assert [p.irp_id
+            for p in portfolio_service.list_portfolios(edm_id=edm_id)] == ["501"]
+    assert [t.irp_id
+            for t in treaty_service.list_treaties(edm_id=edm_id)] == ["1042"]
+    assert result.output["pruned_portfolios"] == 1
+    assert result.output["pruned_treaties"] == 1
+    # Soft delete — the rows survive with deleted_at stamped, never hard-deleted.
+    dead = execute(
+        "SELECT irp_id FROM irp_portfolio WHERE edm_id=:e AND deleted_at IS NOT NULL",
+        {"e": edm_id}, connection="WORKBENCH")
+    assert [r["irp_id"] for r in dead] == ["502"]
+
+    # RM empties out entirely → every remaining row is pruned.
+    fake_irp._portfolios[str(exposure_id)] = []
+    fake_irp._treaties[str(exposure_id)] = []
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+    assert portfolio_service.list_portfolios(edm_id=edm_id) == []
+    assert treaty_service.list_treaties(edm_id=edm_id) == []
+
+
+def test_pruned_portfolio_resurrects_when_recreated_in_rm(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    package_jobs.run_pending(worker_id="w1")
+    fake_irp._portfolios[str(exposure_id)] = []
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+    assert portfolio_service.list_portfolios(edm_id=edm_id) == []
+
+    # Re-created in RM under the same name (a new RM id): the SAME row comes
+    # back — resurrect clears deleted_at and the (edm_id, name) fallback
+    # backfills the new irp_id — never a duplicate.
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="601",
+                           name="Primary 2026", exposure=EXPOSURE_B)
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+
+    rows = portfolio_service.list_portfolios(edm_id=edm_id)
+    assert [(p.name, p.irp_id) for p in rows] == [("Primary 2026", "601")]
+    assert rows[0].exposure_detail == {"metrics": EXPOSURE_B, "summary": None}
+    assert len(_portfolio_rows(edm_id)) == 1  # resurrected in place, no dupe
+
+
+def test_enumerated_portfolio_with_failed_exposure_read_is_not_pruned(
+        iteration2_db, fake_irp, drive):
+    # Existence comes from the enumeration, not the per-portfolio detail read: a
+    # portfolio whose exposure read fails on a re-sync keeps its row AND its
+    # prior good snapshot.
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="502",
+                           name="Excess 2026", exposure=EXPOSURE_B)
+    package_jobs.run_pending(worker_id="w1")
+
+    fake_irp.fail_exposure_for = {"502"}
+    result = package_jobs._backfill_edm_detail_body(_backfill_job()["id"])
+
+    assert result.status == "succeeded"
+    by_irp = {p.irp_id: p for p in portfolio_service.list_portfolios(edm_id=edm_id)}
+    assert set(by_irp) == {"501", "502"}  # 502 enumerated → kept
+    assert by_irp["502"].exposure_detail == {"metrics": EXPOSURE_B, "summary": None}
+
+
+def test_failed_enumeration_never_prunes_existing_rows(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A)
+    fake_irp.add_treaty(edm_exposure_id=exposure_id, irp_id="1042",
+                        name="Cat XoL", attributes=TREATY_CAT)
+    package_jobs.run_pending(worker_id="w1")
+
+    fake_irp.raise_on_list_portfolios = True
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])  # fails early
+    assert len(portfolio_service.list_portfolios(edm_id=edm_id)) == 1
+    assert len(treaty_service.list_treaties(edm_id=edm_id)) == 1
+
+    fake_irp.raise_on_list_portfolios = False
+    fake_irp.raise_on_search_treaties = True
+    package_jobs._backfill_edm_detail_body(_backfill_job()["id"])  # treaty half fails
+    assert len(treaty_service.list_treaties(edm_id=edm_id)) == 1
+
+
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):
     # An EDM that never finished importing has no irp_id (exposureId) — there is
     # nothing to fetch; the job succeeds as a skip and writes nothing (R7).

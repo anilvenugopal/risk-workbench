@@ -6,7 +6,8 @@ stores Risk Modeler's per-portfolio figures verbatim and stamps ``as_of`` (the
 FR-052 trust signal); the web layer only ever reads the stored snapshot. The
 upsert is **idempotent** on ``UNIQUE(edm_id, irp_id)`` with an ``(edm_id, name)``
 match fallback (RM portfolio names are unique within an EDM) — a re-backfill
-overwrites the snapshot in place, never inserting a duplicate (FR-004).
+overwrites the snapshot in place, never inserting a duplicate (FR-004), and
+prunes (soft-deletes) rows RM's enumeration no longer returns.
 
 Read-only this iteration: no create/edit/split/filter (Iteration 4). No row
 scoping anywhere (Article 6). Portability matches the sibling services: app-side
@@ -19,7 +20,15 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services._common import _json, _parse_json_dict, _snapshot_upsert, _txn, _uid, _utcnow
+from app.services._common import (
+    _json,
+    _parse_json_dict,
+    _snapshot_prune,
+    _snapshot_upsert,
+    _txn,
+    _uid,
+    _utcnow,
+)
 from db import execute
 
 
@@ -76,6 +85,19 @@ def upsert_portfolio_detail(*, edm_id: Any, irp_id: str | None, name: str,
     with _txn(conn) as working:
         _snapshot_upsert(working, params, update_by_irp=_UPDATE_BY_IRP,
                          update_by_name=_UPDATE_BY_NAME, insert=_INSERT)
+
+
+def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
+                  now: Any, conn=None) -> int:
+    """Worker-side (``backfill_edm_detail``), only after a SUCCESSFUL full
+    portfolio enumeration: soft-delete this EDM's rows RM no longer returned
+    (deleted RM-side) and resurrect pruned rows it returned again. ``seen`` is
+    the enumerated (irp_id, name) set — including portfolios whose exposure
+    read later fails (existence comes from the enumeration, not the detail
+    read). Returns the rows pruned."""
+    with _txn(conn) as working:
+        return _snapshot_prune(working, table="irp_portfolio", edm_id=edm_id,
+                               seen=seen, now=now)
 
 
 @dataclass
@@ -169,4 +191,4 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
 
 
 __all__ = ["PortfolioRow", "EdmAggregate", "upsert_portfolio_detail",
-           "list_portfolios", "aggregate_exposure"]
+           "prune_missing", "list_portfolios", "aggregate_exposure"]

@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 from app.poller import run as poller
-from app.services import edm_service, rdm_service
+from app.services import analysis_service, edm_service, rdm_service
 from app.services.errors import (
     EmptyPackageError, InvalidMemberName, NameCollisionError)
 from app.workers import package_jobs
@@ -286,6 +286,65 @@ def test_failed_metadata_reread_preserves_prior_pointer(
     package_jobs._backfill_rdm_analyses_body(head)
 
     assert _pointer() == "501"  # survived the failed re-read
+
+
+def test_sync_prunes_analyses_rm_no_longer_returns(iteration2_db, fake_irp, drive):
+    """A successful pair enumeration is the full truth: a captured analysis the
+    search no longer returns (deleted in RM) is soft-deleted — it leaves every
+    read model, and delete_rdm's delete-enumeration skips it too (there is
+    nothing left in RM to delete)."""
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="900")
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="901")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+
+    # The analyst deletes analysis 901 in RM; a re-sync reconciles the capture.
+    fake_irp._analyses = [x for x in fake_irp._analyses
+                          if x["analysis_id"] != "901"]
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+    out = package_jobs._backfill_rdm_analyses_body(head)
+
+    assert out["pruned"] == 1
+    rows = {str(r["irp_id"]): r for r in execute(
+        "SELECT irp_id, deleted_at FROM irp_analysis WHERE rdm_id=:r",
+        {"r": res.entity_id}, connection="WORKBENCH")}
+    assert rows["901"]["deleted_at"] is not None  # soft-deleted, row kept
+    assert rows["900"]["deleted_at"] is None
+    groups = analysis_service.list_broker_analyses(rdm_id=res.entity_id)
+    assert [x.irp_id for g in groups for x in g.analyses] == ["900"]
+
+
+def test_pruned_analysis_resurrects_when_search_returns_it_again(
+        iteration2_db, fake_irp, drive):
+    a = iteration2_db.user_a
+    e1 = _edm(drive, a, "E1", "edm1.bak")
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 applied_edm_ids=[e1], actor_id=a)
+    package_jobs.run_pending()
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1", analysis_id="900")
+    _finish_all(fake_irp, "import_rdm")
+    poller.poll_once()
+    package_jobs.run_pending()
+    head = execute("SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+                   {}, connection="WORKBENCH")[0]["id"]
+
+    kept = list(fake_irp._analyses)
+    fake_irp._analyses = []
+    package_jobs._backfill_rdm_analyses_body(head)   # pruned
+    fake_irp._analyses = kept
+    package_jobs._backfill_rdm_analyses_body(head)   # search returns it again
+
+    rows = execute("SELECT irp_id, deleted_at FROM irp_analysis WHERE rdm_id=:r",
+                   {"r": res.entity_id}, connection="WORKBENCH")
+    assert len(rows) == 1  # resurrected in place — never re-inserted
+    assert rows[0]["deleted_at"] is None
 
 
 def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):

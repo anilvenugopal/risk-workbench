@@ -237,12 +237,36 @@ _UPDATE_ANALYSIS_POINTER = """
 """
 
 
+def _prune_pair_analyses(conn, *, rdm_id: Any, edm_id: Any,
+                         seen_ids: list[str], now: Any) -> int:
+    """Reconcile one (RDM, EDM) pair's captured rows against a SUCCESSFUL
+    ``search_analyses`` enumeration: soft-delete rows RM no longer returns
+    (the analysis was deleted in RM — the same ``deleted_at`` the delete_rdm
+    path stamps, so every read and the delete-enumeration skip it), and clear
+    ``deleted_at`` on ids it returns again. Returns the rows pruned."""
+    params: dict[str, Any] = {"rdm": str(rdm_id), "edm": str(edm_id), "now": now}
+    params.update({f"a{i}": str(v) for i, v in enumerate(seen_ids)})
+    marks = ", ".join(f":a{i}" for i in range(len(seen_ids)))
+    if marks:
+        conn.execute(text(
+            "UPDATE irp_analysis SET deleted_at = NULL, updated_at = :now "
+            "WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NOT NULL "
+            f"AND irp_id IN ({marks})"), params)
+    stale = f" AND irp_id NOT IN ({marks})" if marks else ""
+    return conn.execute(text(
+        "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now "
+        f"WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NULL{stale}"),
+        params).rowcount
+
+
 def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     """Capture this (RDM, EDM) pair's broker analyses as ``irp_analysis`` rows so a
     later package delete can enumerate them (D2, data-model §6a). Enqueued by the
     poller when an ``import_rdm`` apply reaches FINISHED. Idempotent on
-    ``UNIQUE(rdm_id, edm_id, irp_id)``. Once every apply of the RDM is FINISHED, roll
-    ``irp_rdm.status`` up to ``ready`` (combined rollup, worker-poller.md §2).
+    ``UNIQUE(rdm_id, edm_id, irp_id)``; each pair's successful enumeration also
+    PRUNES (soft-deletes) captured rows RM no longer returns. Once every apply
+    of the RDM is FINISHED, roll ``irp_rdm.status`` up to ``ready`` (combined
+    rollup, worker-poller.md §2).
 
     Spec 004 US3 extension (R3/R9): per captured analysis, also fetch its
     settings/metadata (single-item ``get_analysis_metadata``, looped app-side)
@@ -299,9 +323,13 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                 metadata_failures += 1
 
     now = _utcnow()
+    pruned = 0
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             for edm_id, hits in hits_by_edm.items():
+                pruned += _prune_pair_analyses(
+                    conn, rdm_id=rdm_id, edm_id=edm_id,
+                    seen_ids=[h.analysis_id for h in hits], now=now)
                 for hit in hits:
                     # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
                     # a concurrent backfill of the same pair can win the race and
@@ -353,6 +381,8 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     logger.info("captured %d analysis row(s) for rdm=%s across %d edm(s)",
                 captured, rdm_id, len(hits_by_edm))
     out: dict[str, Any] = {"captured": captured}
+    if pruned:
+        out["pruned"] = pruned
     if metadata_failures:
         out["metadata_failures"] = metadata_failures
     return out
@@ -375,6 +405,9 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
       • single-item gateway reads, looped app-side — one portfolio's failed
         exposure read is logged and skipped, the rest still backfill (a partial
         snapshot beats none; an idempotent re-run completes it);
+      • each successful enumeration also PRUNES (soft-deletes) rows RM no
+        longer returns — a portfolio/treaty deleted in RM stops rendering with
+        a fresh-looking ``as_of``; a failed enumeration never prunes;
       • no transaction held across a gateway round-trip — fetch, then persist
         (each upsert runs its own short transaction);
       • an enumeration failure fails the ``rwb_job`` (recoverable via the existing
@@ -429,6 +462,11 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
                            "(edm=%s): %s", edm_id, exc)
 
     now = _utcnow()
+    # Reconcile the row set against the successful enumeration BEFORE the
+    # overwrites: seen = every enumerated portfolio (a failed exposure read
+    # below skips the snapshot, not the row's existence).
+    pruned_portfolios = portfolio_service.prune_missing(
+        edm_id=edm_id, seen=[(p.irp_id, p.name) for p in portfolios], now=now)
     stored = 0
     exposure_failures = 0
     for p in portfolios:
@@ -473,6 +511,8 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.fail(
             f"treaty enumeration failed: {exc}",
             portfolios=stored, exposure_failures=exposure_failures)
+    pruned_treaties = treaty_service.prune_missing(
+        edm_id=edm_id, seen=[(t.irp_id, t.name) for t in treaties], now=now)
     for t in treaties:
         treaty_service.upsert_treaty_detail(
             edm_id=edm_id, irp_id=t.irp_id, name=t.name,
@@ -485,6 +525,10 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         {"now": now, "id": str(edm_id)}, connection="WORKBENCH")
     out: dict[str, Any] = {"portfolios": stored, "treaties": len(treaties),
                            "exposure_failures": exposure_failures}
+    if pruned_portfolios:
+        out["pruned_portfolios"] = pruned_portfolios
+    if pruned_treaties:
+        out["pruned_treaties"] = pruned_treaties
     if portfolios:
         out["summary"] = "ok" if summary_map is not None else "unavailable"
     return runtime.JobResult.ok(**out)

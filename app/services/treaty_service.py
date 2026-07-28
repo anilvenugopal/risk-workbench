@@ -7,7 +7,8 @@ treaties`` row — treatyType/attachmentLevel/attachmentPoint/…) and stamps
 ``as_of`` (FR-052); the web layer only ever reads the stored snapshot. The
 upsert is **idempotent** on ``UNIQUE(edm_id, irp_id)`` with an ``(edm_id,
 name)`` fallback (treaty names are unique within an EDM and analyses reference
-treaties by name, DATA_MODEL §5) — a re-backfill overwrites in place (FR-004).
+treaties by name, DATA_MODEL §5) — a re-backfill overwrites in place (FR-004)
+and prunes (soft-deletes) rows RM's enumeration no longer returns.
 
 ``build_treaty_workbook`` is the FR-024/R5 Excel export: a standard ``.xlsx``
 built in-process (openpyxl) from **stored** detail only — one row per treaty,
@@ -26,7 +27,15 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from app.services._common import _json, _parse_json_dict, _snapshot_upsert, _txn, _uid, _utcnow
+from app.services._common import (
+    _json,
+    _parse_json_dict,
+    _snapshot_prune,
+    _snapshot_upsert,
+    _txn,
+    _uid,
+    _utcnow,
+)
 from db import execute
 
 
@@ -121,6 +130,17 @@ def upsert_treaty_detail(*, edm_id: Any, irp_id: str | None, name: str,
                          update_by_name=_UPDATE_BY_NAME, insert=_INSERT)
 
 
+def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
+                  now: Any, conn=None) -> int:
+    """Worker-side (``backfill_edm_detail``), only after a SUCCESSFUL treaty
+    enumeration: soft-delete this EDM's rows RM no longer returned (deleted
+    RM-side) and resurrect pruned rows it returned again. ``seen`` is the
+    enumerated (irp_id, name) set. Returns the rows pruned."""
+    with _txn(conn) as working:
+        return _snapshot_prune(working, table="irp_treaty", edm_id=edm_id,
+                               seen=seen, now=now)
+
+
 def list_treaties(*, edm_id: Any) -> list[TreatyRow]:
     """Every treaty on an EDM (read model), each with its parsed ``attributes``
     (``None`` → graceful empty) for the expand/collapse view (FR-020/FR-021).
@@ -177,5 +197,5 @@ def build_treaty_workbook(*, edm_id: Any) -> bytes:
     return buf.getvalue()
 
 
-__all__ = ["TreatyRow", "upsert_treaty_detail", "list_treaties",
-           "build_treaty_workbook"]
+__all__ = ["TreatyRow", "upsert_treaty_detail", "prune_missing",
+           "list_treaties", "build_treaty_workbook"]

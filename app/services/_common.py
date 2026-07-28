@@ -2,8 +2,8 @@
 
 Consolidated here to remove copy-paste drift. Kept intentionally tiny: a naive-UTC
 stamp, NULL-safe JSON/id coercions, the caller-or-own transaction context manager
-the poller and workers share, and the race-safe snapshot upsert the JSON-cache
-services (irp_portfolio / irp_treaty) share.
+the poller and workers share, and the race-safe snapshot upsert + stale-row prune
+the JSON-cache services (irp_portfolio / irp_treaty) share.
 """
 
 from __future__ import annotations
@@ -89,6 +89,46 @@ def _snapshot_upsert(conn, params: dict, *, update_by_irp: str,
         raise
 
 
+def _snapshot_prune(conn, *, table: str, edm_id: Any,
+                    seen: list[tuple[str | None, str]], now: Any) -> int:
+    """Reconcile a snapshot table's row set against a SUCCESSFUL full Risk
+    Modeler enumeration: soft-delete (``deleted_at``) this EDM's live rows the
+    enumeration no longer returned (the entity was deleted in RM — its stale
+    snapshot must not keep rendering with a fresh-looking ``as_of``), and clear
+    ``deleted_at`` on pruned rows it returned again (RM-side delete/recreate).
+    "Seen" mirrors ``_snapshot_upsert``'s identity resolution: an irp_id match
+    OR a name match keeps the row. Never call this after a failed or partial
+    enumeration — pruning is only valid against the full set. ``table`` is a
+    module-supplied literal, never user input. Returns the rows pruned."""
+    ids = [str(irp_id) for irp_id, _ in seen if irp_id is not None]
+    names = [name for _, name in seen]
+    params: dict[str, Any] = {"edm": str(edm_id), "now": now}
+    params.update({f"i{i}": v for i, v in enumerate(ids)})
+    params.update({f"n{i}": v for i, v in enumerate(names)})
+    id_marks = [f":i{i}" for i in range(len(ids))]
+    name_marks = [f":n{i}" for i in range(len(names))]
+
+    kept: list[str] = []       # a live row stays when either identity matched
+    stale: list[str] = []      # ... and is pruned when neither did
+    if id_marks:
+        kept.append(f"irp_id IN ({', '.join(id_marks)})")
+        stale.append(f"(irp_id IS NULL OR irp_id NOT IN ({', '.join(id_marks)}))")
+    if name_marks:
+        kept.append(f"name IN ({', '.join(name_marks)})")
+        stale.append(f"name NOT IN ({', '.join(name_marks)})")
+    if kept:  # resurrect first so the caller's upserts see a live row to claim
+        conn.execute(text(
+            f"UPDATE {table} SET deleted_at = NULL, updated_at = :now "
+            f"WHERE edm_id = :edm AND deleted_at IS NOT NULL "
+            f"AND ({' OR '.join(kept)})"), params)
+    stale_sql = ("".join(f" AND {c}" for c in stale)
+                 if stale else "")  # RM returned nothing → prune every live row
+    return conn.execute(text(
+        f"UPDATE {table} SET deleted_at = :now, updated_at = :now "
+        f"WHERE edm_id = :edm AND deleted_at IS NULL{stale_sql}"),
+        params).rowcount
+
+
 def _parse_json_dict(raw: Any, what: str) -> dict | None:
     """A stored JSON snapshot column parsed to a dict, ``None`` on NULL /
     unparseable / non-dict content — the read models render the graceful empty
@@ -104,4 +144,4 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 
 
 __all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
-           "_parse_json_dict"]
+           "_snapshot_prune", "_parse_json_dict"]

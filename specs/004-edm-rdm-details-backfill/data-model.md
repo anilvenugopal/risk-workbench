@@ -34,7 +34,7 @@ The **primary unit** of the EDM detail page. Created for the first time this ite
 | `irp_id` | NVARCHAR(64) | null | RM portfolio id **as string** (backfilled with the detail) |
 | `exposure_detail` | NVARCHAR(MAX) | null | **JSON snapshot** — the per-portfolio figures (§5 shape below); null ⇒ not yet backfilled (graceful empty) |
 | `as_of` | DATETIME2 | null | last-confirmed-against-Risk-Modeler trust signal (FR-052), stamped on backfill |
-| `deleted_at` | DATETIME2 | null | soft delete (unused this iteration; present for §5 fidelity) |
+| `deleted_at` | DATETIME2 | null | soft delete — stamped by the backfill's stale-row prune when RM's enumeration no longer returns the portfolio; cleared if it reappears |
 | `inserted_at`/`updated_at` | DATETIME2 | not null | defaults `GETUTCDATE()` |
 | `inserted_by`/`updated_by` | Uuid | null | FK → `app_user.id` (nullable — worker-written) |
 
@@ -78,7 +78,7 @@ Created for the first time this iteration. A **read/cache record**: identity per
 | `irp_id` | NVARCHAR(64) | null | RM `treatyId` **as string** (backfilled with the detail) |
 | `attributes` | NVARCHAR(MAX) | null | **JSON snapshot** — the full attribute set (every field), key/value; null ⇒ not yet backfilled |
 | `as_of` | DATETIME2 | null | trust signal, stamped on backfill (FR-052) |
-| `deleted_at` | DATETIME2 | null | soft delete (unused this iteration; §5 fidelity) |
+| `deleted_at` | DATETIME2 | null | soft delete — stamped by the backfill's stale-row prune when RM's enumeration no longer returns the treaty; cleared if it reappears |
 | `inserted_at`/`updated_at` | DATETIME2 | not null | defaults `GETUTCDATE()` |
 | `inserted_by`/`updated_by` | Uuid | null | FK → `app_user.id` (nullable — worker-written) |
 

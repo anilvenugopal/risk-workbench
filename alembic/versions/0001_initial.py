@@ -444,7 +444,9 @@ def upgrade() -> None:
         # RM exposureResourceId as string — set ONLY when exposureResourceType ==
         # 'PORTFOLIO' (R9/FR-036); no index — the resolve join keys on edm_id.
         sa.Column("exposure_resource_id", sa.NVARCHAR(64), nullable=True),
-        sa.Column("deleted_at", DATETIME2, nullable=True),  # soft-delete on delete_analysis
+        # Soft-delete: stamped by delete_analysis AND by the backfill's stale-row
+        # prune (RM search no longer returns the analysis).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -484,7 +486,8 @@ def upgrade() -> None:
         # JSON snapshot — per-portfolio exposure figures, stored verbatim (R2).
         sa.Column("exposure_detail", sa.NVARCHAR(None), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
-        sa.Column("deleted_at", DATETIME2, nullable=True),  # §5 fidelity; unused here
+        # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -509,7 +512,8 @@ def upgrade() -> None:
         # JSON snapshot — the full attribute set for the treaty view + .xlsx export.
         sa.Column("attributes", sa.NVARCHAR(None), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
-        sa.Column("deleted_at", DATETIME2, nullable=True),  # §5 fidelity; unused here
+        # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
