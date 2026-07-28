@@ -13,6 +13,17 @@ os.environ.setdefault("SESSION_SECRET_KEY", "unit-test-secret-key-not-for-produc
 import pytest  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clear_name_check_cache():
+    """The name-collision TTL cache (issue #11) is module-level state — clear it
+    around every test so a seeded collision can't leak into the next test."""
+    from app.services import name_check
+
+    name_check.clear_cache()
+    yield
+    name_check.clear_cache()
+
+
 @pytest.fixture()
 def fake_irp():
     """Inject an in-memory fake Risk Modeler as the active irp_gateway (Article 12).

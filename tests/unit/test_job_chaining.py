@@ -148,8 +148,9 @@ def test_correlation_id_spans_the_whole_chain(iteration2_db, fake_irp, drive):
     """Issue #28 acceptance: ONE correlation id, stamped by the request-scoped
     context at save-and-sync time, is carried across every hop — request-path
     enqueue (upload_edm) → worker submit (import_edm irp_job) → poller chaining
-    (upload_rdm head) → fan-out worker (import_rdm irp_job) → poller chaining
-    again (backfill_rdm_analyses head). Grep that one id → the full lifecycle."""
+    (upload_rdm + backfill_edm_detail heads) → fan-out worker (import_rdm irp_job)
+    → poller chaining again (backfill_rdm_analyses head). Grep that one id → the
+    full lifecycle."""
     a = iteration2_db.user_a
     token = log_context.bind(correlation_id="chain-e2e")  # what the middleware does
     try:
@@ -172,7 +173,7 @@ def test_correlation_id_spans_the_whole_chain(iteration2_db, fake_irp, drive):
     irp = execute("SELECT irp_job_type, correlation_id FROM irp_job", {},
                   connection="WORKBENCH")
     assert {r["rwb_job_type"] for r in rwb} == {
-        "upload_edm", "upload_rdm", "backfill_rdm_analyses"}
+        "upload_edm", "upload_rdm", "backfill_edm_detail", "backfill_rdm_analyses"}
     assert {r["irp_job_type"] for r in irp} == {"import_edm", "import_rdm"}
     assert {r["correlation_id"] for r in rwb} == {"chain-e2e"}
     assert {r["correlation_id"] for r in irp} == {"chain-e2e"}

@@ -38,6 +38,9 @@ dependencies = [
     # Auth
     "bcrypt",
     "msal",
+
+    # Treaty .xlsx export (spec 004 R5/FR-024) — server-side workbook from stored detail
+    "openpyxl",
 ]
 
 [dependency-groups]

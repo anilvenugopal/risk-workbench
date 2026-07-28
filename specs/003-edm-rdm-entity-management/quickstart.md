@@ -35,7 +35,7 @@ pytest tests/unit
 - `test_job_chaining.py` — `import_edm` FINISHED enqueues exactly one `upload_rdm`, fanning out to one apply per RDM; a duplicate trigger never double-enqueues (Article 2 mandate / SC-014).
 - `test_package_sync_service.py` — one `upload_edm` per EDM + one apply per (EDM × RDM) pair; idempotent re-sync skips ready/in-flight; empty package rejected (SC-006/SC-012/SC-013).
 - `test_delete_ordering.py` — RDM removals (synchronous, no `irp_job`) precede EDM removals (async `delete_edm` jobs); `delete_edm` enqueued only when all RDMs `deleted`; package soft-delete fires once (SC-007).
-- `test_edm_service.py` / `test_rdm_service.py` — import creates the entity + enqueues the worker with **no** Risk Modeler call on the request path; review-only RDM path; collision warning is non-blocking; replace-file updates `source_file_path` (SC-004/SC-005/SC-013).
+- `test_edm_service.py` / `test_rdm_service.py` — import creates the entity + enqueues the worker (the only request-path Risk Modeler call is the cached collision *read*); review-only RDM path; collision **blocks** the import / fails open when the gateway is down (issue #17, amended FR-012); replace-file updates `source_file_path` (SC-004/SC-005/SC-013).
 - `test_poller.py` — terminal FINISHED backfills `irp_id` + flips entity status + enqueues the dependent head; `SUBMISSION FAILED` ≠ `FAILED`.
 - `test_jobs_filter.py` — the shared `submission/package/status/job_type` vocabulary parses from the query string; unknown params ignored (SC-008).
 

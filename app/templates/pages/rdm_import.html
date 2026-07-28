@@ -16,15 +16,29 @@
   </div>
   {% endif %}
 
-  <form method="post" action="/rdms/import" class="entity-import-form">
+  {# Source file first: picking a file auto-populates the name (packageModal
+     parity); Import stays disabled until file + name + ≥1 applied EDM are set
+     and the collision check isn't blocking (importForm in app.js — issue #17 UX). #}
+  <form method="post" action="/rdms/import" class="entity-import-form"
+        x-data="importForm({requireApplied: true})" @change="onChange($event)"
+        @htmx:after-swap="onSwap()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+    <div class="wf-field">
+      <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
+      <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+        Loading the shared drive…
+      </div>
+    </div>
 
     <div class="wf-field">
       <label for="rdm-name">NAME</label>
       <input class="wf-field__input" type="text" id="rdm-name" name="name"
              value="{{ form.name }}" required
-             hx-get="/rdms/name-check" hx-trigger="keyup changed delay:400ms"
-             hx-target="#name-collision" hx-swap="outerHTML">
+             x-ref="name" @input="nameVal = $event.target.value"
+             hx-get="/rdms/name-check"
+             hx-trigger="keyup changed delay:500ms, recheck"
+             hx-target="next .name-collision" hx-swap="outerHTML">
     </div>
 
     {% include "partials/name_collision.html" %}
@@ -45,15 +59,9 @@
       </div>
     </div>
 
-    <div class="wf-field">
-      <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
-      <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
-        Loading the shared drive…
-      </div>
-    </div>
-
     <div class="form-actions">
-      <button class="btn-sm btn-sm--primary" type="submit">Import</button>
+      <button class="btn-sm btn-sm--primary" type="submit"
+              :disabled="!canSubmit">Import</button>
       <a class="btn-sm" href="/submissions">Cancel</a>
     </div>
   </form>

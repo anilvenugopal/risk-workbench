@@ -9,9 +9,10 @@ One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
 2. **Reconciler** (Article 10) — reclaim ``rwb_job`` rows a dead worker left
    ``running`` (heartbeat older than ``RWB_HEARTBEAT_STALE_SECS``) back to ``pending``.
 3. **Dispatch pending heads** — wake a worker for every ``pending`` ``rwb_job``. The
-   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``) are
-   never dispatched at enqueue time (the poller is a separate process from the worker),
-   so without this the EDM→RDM chain stalls; this also delivers the rows step 2 reset.
+   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``,
+   ``backfill_edm_detail``) are never dispatched at enqueue time (the poller is a
+   separate process from the worker), so without this the EDM→RDM chain stalls; this
+   also delivers the rows step 2 reset.
 4. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
    under the configured max (a single-threaded batch, not a Dramatiq actor; scaffold
    here, wired in US6 T053).
@@ -59,14 +60,24 @@ _GETTERS = {
 def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """FINISHED → EDM ``ready`` + backfill the RM ``exposureId`` (the durable entity id,
     resolved by name into ``resolved['edm_exposure_id']``) as ``irp_id`` and the import
-    job id as ``created_by_irp_job_irp_id``; then, for a package member, idempotently
-    enqueue the ``upload_rdm`` head that fans out to one apply per RDM of THIS
-    just-finished EDM (per-pair, FR-015/FR-043). Any other terminal → ``error``."""
+    job id as ``created_by_irp_job_irp_id``; then idempotently enqueue the
+    ``backfill_edm_detail`` head (spec 004 — independent of ``package_id``, so a
+    standalone/EDM-only import backfills its detail too) and, for a package member,
+    the ``upload_rdm`` head that fans out to one apply per RDM of THIS just-finished
+    EDM (per-pair, FR-015/FR-043). The two heads share the requestor key but carry
+    distinct ``rwb_job_type``s, so ``UNIQUE(requestor_type, requestor_id,
+    rwb_job_type)`` admits both. Any other terminal → ``error`` and NO backfill."""
     if status == "FINISHED":
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.READY,
             irp_id=resolved.get("edm_exposure_id"),
             created_by_irp_job_irp_id=job["irp_id"])
+        rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_job", requestor_id=job["id"],
+            rwb_job_type="backfill_edm_detail",
+            input_data={"edm_id": str(job["irp_edm_id"])},
+            conn=conn,
+        )
     else:
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)
@@ -138,9 +149,9 @@ def _resolve_edm_exposure_id(edm_id) -> str | None:
     """Resolve a just-imported EDM's durable RM ``exposureId`` by name — the entity id
     delete needs, NOT the import job id (see the ``irp_gateway`` caveat). Best-effort:
     on miss/failure return ``None`` so the EDM still reaches ``ready`` and can be
-    recovered later. Names are not unique in RM (collision is a non-blocking warning),
-    so a search may return >1 — take the newest (highest ``exposureId``), which is the
-    just-created one."""
+    recovered later. Names are not unique in RM (duplicates can pre-date the blocking
+    collision check, or slip through its fail-open window — issue #17), so a search may
+    return >1 — take the newest (highest ``exposureId``), which is the just-created one."""
     edm = edm_service.get_edm(edm_id)
     if edm is None:
         return None
@@ -258,10 +269,11 @@ def _track_irp_jobs() -> None:
 def _dispatch_pending() -> None:
     """Deliver every currently-``pending`` ``rwb_job`` to a worker.
 
-    The poller enqueues the chained heads (``upload_rdm`` when an ``import_edm`` reaches
-    FINISHED; ``backfill_rdm_analyses`` when an ``import_rdm`` does) but runs in its own
-    process, so — unlike the request path and the worker's own follow-on enqueues —
-    those rows are never dispatched at enqueue time. Without this sweep they sit
+    The poller enqueues the chained heads (``upload_rdm`` + ``backfill_edm_detail``
+    when an ``import_edm`` reaches FINISHED; ``backfill_rdm_analyses`` when an
+    ``import_rdm`` does) but runs in its own process, so — unlike the request path
+    and the worker's own follow-on enqueues — those rows are never dispatched at
+    enqueue time. Without this sweep they sit
     ``pending`` forever and the EDM→RDM chain stalls.
 
     A Dramatiq message is only a wake-up (Article 10): re-sending one for a row already

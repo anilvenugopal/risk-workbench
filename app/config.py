@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     # configured", and the batch parks SUBMISSION FAILED rows until it is set.
     irp_submission_max_retries: int | None = None
 
+    # TTL for the in-process Risk Modeler name-collision cache (issue #11) — shared
+    # by the as-you-type check endpoints and the save-time blocking check.
+    name_check_cache_ttl_secs: int = 30
+
     # ── Risk Modeler / IRP gateway (Article 11) ─────────────────────────────────
     # irp-integration's IRPClient() reads ALL of its own config straight from the
     # environment (the gateway constructs it with no args), so those are NOT pydantic
@@ -94,6 +98,14 @@ class Settings(BaseSettings):
     # *name* (RDM import + EDM delete resolve their server inside the wheel); the
     # default matches irp-integration's own default.
     irp_edm_import_server: str = "databridge-1"
+
+    # BASE_URL and TENANT_NAME are ALSO mirrored here (read-only): the web layer
+    # builds deep links into Risk Modeler's own UI from them (the UI lives on
+    # https://<tenant>.<domain-of-BASE_URL>, e.g. the EDM treaties screen) —
+    # never an API call. Either empty simply hides those links (api-key auth
+    # deployments set no tenant name).
+    risk_modeler_base_url: str = ""
+    risk_modeler_tenant_name: str = ""
 
     # ── Notifications (Iteration 2, R10) ────────────────────────────────────────
     # Comma-separated channels to deliver completion/failure notices on

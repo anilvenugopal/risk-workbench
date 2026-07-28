@@ -418,10 +418,14 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["rwb_job_id"], ["rwb_job.id"]),
     )
 
-    # ── irp_analysis (captured broker analyses — delete-enumeration only; §6a) ───
-    # NEW this iteration (D2): a minimal subset of DATA_MODEL §6, populated by the
+    # ── irp_analysis (captured broker analyses; §6a + spec-004 detail cols) ──────
+    # Iteration 2 (D2): a minimal subset of DATA_MODEL §6, populated by the
     # backfill_rdm_analyses worker on import_rdm FINISHED so package delete can
     # enumerate the exact Moody's analyses an RDM produced (per RDM×EDM pair).
+    # Iteration 3 (spec 004, data-model §4): settings_metadata (JSON snapshot, R2),
+    # is_group (FR-035), exposure_resource_id (the RM portfolio pointer, R9 —
+    # resolved to irp_portfolio at READ time, never a stored FK). group_parent_id
+    # stays DEFERRED — RM does not expose group membership, nothing populates it.
     op.create_table(
         "irp_analysis",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
@@ -434,7 +438,15 @@ def upgrade() -> None:
         # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
-        sa.Column("deleted_at", DATETIME2, nullable=True),  # soft-delete on delete_analysis
+        # JSON snapshot of the analysis settings (R2); null ⇒ graceful blank.
+        sa.Column("settings_metadata", sa.NVARCHAR(None), nullable=True),
+        sa.Column("is_group", sa.Boolean, nullable=False, server_default="0"),
+        # RM exposureResourceId as string — set ONLY when exposureResourceType ==
+        # 'PORTFOLIO' (R9/FR-036); no index — the resolve join keys on edm_id.
+        sa.Column("exposure_resource_id", sa.NVARCHAR(64), nullable=True),
+        # Soft-delete: stamped by delete_analysis AND by the backfill's stale-row
+        # prune (RM search no longer returns the analysis).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -454,6 +466,67 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_analysis_rdm_edm", "irp_analysis", ["rdm_id", "edm_id"])
     op.create_index("ix_irp_analysis_package_id", "irp_analysis", ["package_id"])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
+    #  irp_portfolio / irp_treaty: thin §5 identity/lineage records + a JSON
+    #  snapshot cache column each (R2 — nullable; null ⇒ graceful empty state).
+    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is the
+    #  idempotent-upsert backbone (service falls back to (edm_id, name) matching).
+    #  No status column (Article 4), no scope column (Article 6).
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── irp_portfolio (a portfolio within an EDM — the detail page's primary unit) ─
+    op.create_table(
+        "irp_portfolio",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("edm_id", sa.Uuid, nullable=False),
+        sa.Column("name", sa.NVARCHAR(256), nullable=False),
+        sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # RM portfolioId as string
+        # JSON snapshot — per-portfolio exposure figures, stored verbatim (R2).
+        sa.Column("exposure_detail", sa.NVARCHAR(None), nullable=True),
+        sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
+        # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        sa.UniqueConstraint("edm_id", "irp_id", name="uq_irp_portfolio_edm_irp"),
+        # No scope/customer column (Article 6).
+    )
+    op.create_index("ix_irp_portfolio_edm_id", "irp_portfolio", ["edm_id"])
+
+    # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
+    op.create_table(
+        "irp_treaty",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("edm_id", sa.Uuid, nullable=False),
+        sa.Column("name", sa.NVARCHAR(256), nullable=False),
+        sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # RM treatyId as string
+        # JSON snapshot — the full attribute set for the treaty view + .xlsx export.
+        sa.Column("attributes", sa.NVARCHAR(None), nullable=True),
+        sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
+        # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
+        sa.Column("deleted_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        sa.UniqueConstraint("edm_id", "irp_id", name="uq_irp_treaty_edm_irp"),
+        # No scope/customer column (Article 6).
+    )
+    op.create_index("ix_irp_treaty_edm_id", "irp_treaty", ["edm_id"])
 
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
     # irp_job_type_kind — NOTE: there is NO delete_rdm type (RDM delete is
@@ -477,6 +550,7 @@ def upgrade() -> None:
         "('upload_edm', 'Upload EDM', 10), "
         "('upload_rdm', 'Upload RDM', 20), "
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
+        "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
@@ -532,6 +606,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Iteration-3 tables — reverse FK order (irp_treaty → irp_portfolio), ahead of
+    # the Iteration-2 drops. The irp_analysis detail columns are inherent to its
+    # create (no separate drop).
+    op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
+    op.drop_table("irp_treaty")
+    op.drop_index("ix_irp_portfolio_edm_id", table_name="irp_portfolio")
+    op.drop_table("irp_portfolio")
+
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
     op.drop_index("ix_irp_analysis_package_id", table_name="irp_analysis")

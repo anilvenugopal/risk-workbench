@@ -40,8 +40,10 @@ from app.services import (
     irp_gateway,
     irp_job_service,
     package_sync_service,
+    portfolio_service,
     rdm_service,
     rwb_job_service,
+    treaty_service,
 )
 from app.services._common import _utcnow
 from app.workers import broker, dispatch, runtime
@@ -151,6 +153,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
 
     submitted = 0
     failed = 0
+    last_error: str | None = None
     for rdm_id in rdm_ids:
         rdm = rdm_service.get_rdm(rdm_id)
         if rdm is None:
@@ -174,6 +177,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                     irp_edm_id=edm_id, irp_rdm_id=rdm_id,
                     payload={"name": rdm.name, "edm_name": edm_name})
                 rdm_service.mark_error(rdm_id=rdm_id)
+                last_error = str(exc)
                 failed += 1
                 continue
             # AT-LEAST-ONCE WINDOW (see module docstring): the apply above reached RM;
@@ -188,8 +192,11 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
                         rdm_id, edm_id, res.irp_id)
             submitted += 1
     if failed and submitted == 0:
+        # Same framing as upload_edm so the read-side surfacing
+        # (rdm_service.latest_import_error) strips it uniformly and the page
+        # shows the Risk Modeler reason itself (issue #17).
         return runtime.JobResult.fail(
-            f"upload_rdm submitted no applies ({failed} failed)",
+            f"upload_rdm submit failed: {last_error}",
             applies_submitted=0, applies_failed=failed)
     return runtime.JobResult.ok(applies_submitted=submitted, applies_failed=failed)
 
@@ -204,71 +211,334 @@ def upload_rdm(rwb_job_id: str) -> None:
 
 _INSERT_ANALYSIS_IF_ABSENT = """
     INSERT INTO irp_analysis (id, rdm_id, edm_id, package_id, irp_id, name,
-        source_rdm_name, status_code, created_by_irp_job_irp_id,
+        source_rdm_name, status_code, created_by_irp_job_irp_id, is_group,
         inserted_at, updated_at)
-    SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, :now, :now
+    SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, 0, :now, :now
     WHERE NOT EXISTS (
         SELECT 1 FROM irp_analysis
         WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
     )
 """
 
+# The spec-004 detail overwrite (idempotent in place, R2): settings_metadata +
+# is_group only when the metadata fetch succeeded (never null a prior good
+# snapshot on a failed re-run); the same rule guards the promoted pointer —
+# a failed re-read that learned nothing must not null a prior good pointer.
+_UPDATE_ANALYSIS_DETAIL = """
+    UPDATE irp_analysis
+    SET settings_metadata = :sm, is_group = :grp, exposure_resource_id = :x,
+        updated_at = :now
+    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+"""
+_UPDATE_ANALYSIS_POINTER = """
+    UPDATE irp_analysis
+    SET exposure_resource_id = :x, updated_at = :now
+    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+"""
+
+
+def _prune_pair_analyses(conn, *, rdm_id: Any, edm_id: Any,
+                         seen_ids: list[str], now: Any) -> int:
+    """Reconcile one (RDM, EDM) pair's captured rows against a SUCCESSFUL
+    ``search_analyses`` enumeration: soft-delete rows RM no longer returns
+    (the analysis was deleted in RM — the same ``deleted_at`` the delete_rdm
+    path stamps, so every read and the delete-enumeration skip it), and clear
+    ``deleted_at`` on ids it returns again. Returns the rows pruned."""
+    params: dict[str, Any] = {"rdm": str(rdm_id), "edm": str(edm_id), "now": now}
+    params.update({f"a{i}": str(v) for i, v in enumerate(seen_ids)})
+    marks = ", ".join(f":a{i}" for i in range(len(seen_ids)))
+    if marks:
+        conn.execute(text(
+            "UPDATE irp_analysis SET deleted_at = NULL, updated_at = :now "
+            "WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NOT NULL "
+            f"AND irp_id IN ({marks})"), params)
+    stale = f" AND irp_id NOT IN ({marks})" if marks else ""
+    return conn.execute(text(
+        "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now "
+        f"WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NULL{stale}"),
+        params).rowcount
+
 
 def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     """Capture this (RDM, EDM) pair's broker analyses as ``irp_analysis`` rows so a
     later package delete can enumerate them (D2, data-model §6a). Enqueued by the
     poller when an ``import_rdm`` apply reaches FINISHED. Idempotent on
-    ``UNIQUE(rdm_id, edm_id, irp_id)``. Once every apply of the RDM is FINISHED, roll
-    ``irp_rdm.status`` up to ``ready`` (combined rollup, worker-poller.md §2)."""
+    ``UNIQUE(rdm_id, edm_id, irp_id)``; each pair's successful enumeration also
+    PRUNES (soft-deletes) captured rows RM no longer returns. Once every apply
+    of the RDM is FINISHED, roll ``irp_rdm.status`` up to ``ready`` (combined
+    rollup, worker-poller.md §2).
+
+    Spec 004 US3 extension (R3/R9): per captured analysis, also fetch its
+    settings/metadata (single-item ``get_analysis_metadata``, looped app-side)
+    and store the ``settings_metadata`` snapshot + ``is_group``, promoting RM's
+    ``exposureResourceId`` to the typed column ONLY when the resource type is
+    PORTFOLIO (null otherwise). One analysis's failed metadata read leaves its
+    fields blank and never aborts the capture (blank, not error). No portfolio
+    lookup here — resolution is read-time in ``analysis_service``.
+
+    Manual RDM sync (spec 004 follow-up, 2026-07-24): the analyst-keyed head
+    carries NO ``edm_id`` — the body then derives every applied (RDM, EDM) pair
+    from the ``import_rdm`` irp_job rows and re-captures each, so rows captured
+    before the detail extension shipped pick up their settings/pointer without
+    a re-import."""
     ctx = _load_input(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
-    edm_id = ctx.get("edm_id")
     package_id = ctx.get("package_id")
     apply_irp_id = ctx.get("apply_irp_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
-    edm = edm_service.get_edm(edm_id) if edm_id else None
-    if rdm is None or edm is None:
+    if rdm is None:
+        return {"skipped": "rdm/edm missing"}
+    if ctx.get("edm_id"):
+        edm_ids = [str(ctx["edm_id"])]
+    else:  # analyst sync — every EDM this RDM was ever applied to
+        edm_ids = [str(r["irp_edm_id"]) for r in execute(
+            "SELECT DISTINCT irp_edm_id FROM irp_job "
+            "WHERE irp_rdm_id = :r AND irp_job_type = 'import_rdm' "
+            "AND irp_edm_id IS NOT NULL",
+            {"r": str(rdm_id)}, connection="WORKBENCH")]
+    pairs = [(eid, edm) for eid in edm_ids
+             if (edm := edm_service.get_edm(eid)) is not None]
+    if not pairs:
         return {"skipped": "rdm/edm missing"}
 
-    # Pass the raw pair names; the gateway builds the filter with safe json.dumps
-    # quoting (Article 11 boundary) — never interpolate names into a filter here.
-    hits = irp_gateway.search_analyses(
-        source_rdm_name=rdm.name, exposure_name=edm.name)
+    # Per pair: enumerate + fetch every analysis's metadata BEFORE opening the
+    # transaction (no txn across a gateway round-trip, Article 11); per-analysis
+    # isolation. The gateway builds the filter with safe json.dumps quoting —
+    # never interpolate names into a filter here.
+    hits_by_edm: dict[str, list] = {}
+    meta_by_id: dict[str, Any] = {}
+    metadata_failures = 0
+    for eid, edm in pairs:
+        hits_by_edm[eid] = irp_gateway.search_analyses(
+            source_rdm_name=rdm.name, exposure_name=edm.name)
+        for hit in hits_by_edm[eid]:
+            if hit.analysis_id in meta_by_id:
+                continue
+            try:
+                meta_by_id[hit.analysis_id] = irp_gateway.get_analysis_metadata(
+                    analysis_id=int(hit.analysis_id))
+            except Exception as exc:  # noqa: BLE001 — blank, never error (US3 acc. 3)
+                logger.warning("backfill_rdm_analyses: metadata read failed "
+                               "(analysis=%s): %s", hit.analysis_id, exc)
+                metadata_failures += 1
 
     now = _utcnow()
+    pruned = 0
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
-            for hit in hits:
-                # The NOT EXISTS pre-check is not atomic under READ COMMITTED; a
-                # concurrent backfill of the same pair can win the race and leave this
-                # insert violating UNIQUE(rdm_id, edm_id, irp_id). Absorb that in a
-                # SAVEPOINT as a dedup hit so the outer txn (and the rollup) survives.
-                try:
-                    with conn.begin_nested():
-                        conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
-                            "id": str(uuid.uuid4()),
-                            "rdm": str(rdm_id), "edm": str(edm_id),
-                            "pkg": (str(package_id) if package_id else None),
-                            "irp": str(hit.analysis_id), "name": hit.name,
-                            "srdm": rdm.name,
-                            "cby": (str(apply_irp_id)
-                                    if apply_irp_id is not None else None),
-                            "now": now})
-                except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
-                    if not is_unique_violation(exc):
-                        raise
-            # Combined rollup: irp_rdm → ready once all its applies are FINISHED.
+            for edm_id, hits in hits_by_edm.items():
+                pruned += _prune_pair_analyses(
+                    conn, rdm_id=rdm_id, edm_id=edm_id,
+                    seen_ids=[h.analysis_id for h in hits], now=now)
+                for hit in hits:
+                    # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
+                    # a concurrent backfill of the same pair can win the race and
+                    # leave this insert violating UNIQUE(rdm_id, edm_id, irp_id).
+                    # Absorb that in a SAVEPOINT as a dedup hit so the outer txn
+                    # (and the rollup) survives.
+                    try:
+                        with conn.begin_nested():
+                            conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
+                                "id": str(uuid.uuid4()),
+                                "rdm": str(rdm_id), "edm": str(edm_id),
+                                "pkg": (str(package_id) if package_id else None),
+                                "irp": str(hit.analysis_id), "name": hit.name,
+                                "srdm": rdm.name,
+                                "cby": (str(apply_irp_id)
+                                        if apply_irp_id is not None else None),
+                                "now": now})
+                    except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
+                        if not is_unique_violation(exc):
+                            raise
+                    # Detail overwrite (US3): the pointer prefers the per-analysis
+                    # metadata, falling back to the search hit; promoted ONLY for
+                    # exposureResourceType == "PORTFOLIO" (R9).
+                    meta = meta_by_id.get(hit.analysis_id)
+                    rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
+                    if meta is not None and meta.exposure_resource_id is not None:
+                        rid, rtype = (meta.exposure_resource_id,
+                                      meta.exposure_resource_type)
+                    pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
+                    key = {"rdm": str(rdm_id), "edm": str(edm_id),
+                           "irp": str(hit.analysis_id), "x": pointer, "now": now}
+                    if meta is not None:
+                        conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
+                            **key,
+                            "sm": (json.dumps(meta.payload) if meta.payload else None),
+                            "grp": (1 if meta.is_group else 0)})
+                    elif pointer is not None:
+                        # metadata read failed — refresh the pointer only when
+                        # the search hit actually carried one
+                        conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
+            # Combined rollup: irp_rdm → ready once all its applies are FINISHED;
+            # stamp the RDM's last-synced trust signal alongside (FR-052).
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
-    logger.info("captured %d analysis row(s) for rdm=%s edm=%s",
-                len(hits), rdm_id, edm_id)
-    return {"captured": len(hits)}
+            conn.execute(text(
+                "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
+            ), {"now": now, "id": str(rdm_id)})
+    captured = sum(len(h) for h in hits_by_edm.values())
+    logger.info("captured %d analysis row(s) for rdm=%s across %d edm(s)",
+                captured, rdm_id, len(hits_by_edm))
+    out: dict[str, Any] = {"captured": captured}
+    if pruned:
+        out["pruned"] = pruned
+    if metadata_failures:
+        out["metadata_failures"] = metadata_failures
+    return out
 
 
 @dramatiq.actor(max_retries=0)
 def backfill_rdm_analyses(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
+
+
+# ── backfill_edm_detail (spec 004 US1) ───────────────────────────────────────────
+
+def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Fetch a finished EDM's per-portfolio exposure detail from Risk Modeler and
+    idempotently upsert the ``irp_portfolio`` JSON snapshot rows (R2/R3), stamping
+    ``as_of``. Enqueued by the poller on ``import_edm`` FINISHED.
+
+    Discipline (contracts/worker-poller.md §1):
+      • single-item gateway reads, looped app-side — one portfolio's failed
+        exposure read is logged and skipped, the rest still backfill (a partial
+        snapshot beats none; an idempotent re-run completes it);
+      • each successful enumeration also PRUNES (soft-deletes) rows RM no
+        longer returns — a portfolio/treaty deleted in RM stops rendering with
+        a fresh-looking ``as_of``; a failed enumeration never prunes;
+      • no transaction held across a gateway round-trip — fetch, then persist
+        (each upsert runs its own short transaction);
+      • an enumeration failure fails the ``rwb_job`` (recoverable via the existing
+        retry machinery) but NEVER touches the EDM's ``ready`` status (FR-005);
+      • a missing EDM or one with no exposureId is a graceful skip — a
+        pre-capability/never-finished EDM stays in the empty state (R7)."""
+    ctx = _load_input(rwb_job_id)
+    edm_id = ctx.get("edm_id")
+    edm = edm_service.get_edm(edm_id) if edm_id else None
+    if edm is None:
+        return runtime.JobResult.ok(skipped="edm missing")
+    edm_irp_id = edm.irp_id
+    if edm_irp_id is None:
+        # Pre-capability EDMs may lack the exposureId (normally backfilled at
+        # import FINISHED). A manual Sync resolves it by name — but stricter
+        # than the poller: the poller takes the newest of multiple hits (it
+        # KNOWS the just-created one is newest), while here ambiguity means we
+        # can't tell which entity is ours, so zero or >1 hits keep the graceful
+        # skip (R7).
+        try:
+            hits = irp_gateway.search_edms(edm.name)
+        except Exception as exc:  # noqa: BLE001 — resolution is best-effort
+            logger.warning("backfill_edm_detail: exposureId resolution failed "
+                           "for %s (%s): %s", edm_id, edm.name, exc)
+            hits = []
+        if len(hits) != 1:
+            return runtime.JobResult.ok(
+                skipped="edm has no exposureId — nothing to fetch")
+        edm_irp_id = int(hits[0].irp_id)
+        execute_command(
+            "UPDATE irp_edm SET irp_id = :x, updated_at = :now WHERE id = :id",
+            {"x": edm_irp_id, "now": _utcnow(), "id": str(edm_id)},
+            connection="WORKBENCH")
+
+    try:
+        portfolios = irp_gateway.list_portfolios(edm_irp_id=int(edm_irp_id))
+    except Exception as exc:  # noqa: BLE001 — enumeration failed → recoverable job failure
+        logger.warning("backfill_edm_detail: portfolio enumeration failed for %s: %s",
+                       edm_id, exc)
+        return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
+
+    # ONE DataBridge aggregate per EDM (TIV/geography/LOB/currency — absent
+    # from every RM REST read; Addendum A T057). Enrichment only: ANY failure
+    # (databaseName resolution / databridge extra / env / SQL) degrades to
+    # "summary": null — the metrics half of the snapshot must still land.
+    summary_map: dict[str, dict] | None = None
+    if portfolios:
+        try:
+            summary_map = irp_gateway.get_edm_exposure_summary(
+                edm_name=edm.name, edm_irp_id=int(edm_irp_id))
+        except Exception as exc:  # noqa: BLE001 — enrichment only
+            logger.warning("backfill_edm_detail: exposure summary unavailable "
+                           "(edm=%s): %s", edm_id, exc)
+
+    now = _utcnow()
+    # Reconcile the row set against the successful enumeration BEFORE the
+    # overwrites: seen = every enumerated portfolio (a failed exposure read
+    # below skips the snapshot, not the row's existence).
+    pruned_portfolios = portfolio_service.prune_missing(
+        edm_id=edm_id, seen=[(p.irp_id, p.name) for p in portfolios], now=now)
+    stored = 0
+    exposure_failures = 0
+    for p in portfolios:
+        try:
+            exposure = irp_gateway.get_portfolio_exposure(
+                edm_irp_id=int(edm_irp_id), portfolio_irp_id=int(p.irp_id))
+        except Exception as exc:  # noqa: BLE001 — per-portfolio isolation
+            logger.warning("backfill_edm_detail: exposure read failed "
+                           "(edm=%s portfolio=%s): %s", edm_id, p.irp_id, exc)
+            exposure_failures += 1
+            continue  # skip — never overwrite a prior good snapshot with nothing
+        # The aggregate keys on portinfo.PORTINFOID (assumed == RM portfolioId);
+        # portfolio_name is the contract's fallback join key if they diverge.
+        summary = (summary_map or {}).get(str(p.irp_id))
+        if summary is None and summary_map:
+            summary = next((s for s in summary_map.values()
+                            if s.get("portfolio_name") == p.name), None)
+        # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
+        # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
+        # never a stale prior, so the row's as_of can't overstate its freshness).
+        portfolio_service.upsert_portfolio_detail(
+            edm_id=edm_id, irp_id=p.irp_id, name=p.name,
+            exposure_detail={"metrics": exposure.payload, "summary": summary},
+            as_of=now)
+        stored += 1
+
+    if portfolios and exposure_failures and stored == 0:
+        return runtime.JobResult.fail(
+            f"backfill_edm_detail stored nothing ({exposure_failures} exposure "
+            "reads failed)", portfolios=0, exposure_failures=exposure_failures)
+
+    # Treaties ride the same job (US2): one enumeration whose rows ARE the full
+    # attribute maps (no per-treaty round-trip), upserted idempotently. An
+    # enumeration failure fails the rwb_job (recoverable) AFTER the portfolio
+    # snapshots landed — a re-run overwrites both halves in place; the EDM's
+    # ready status and its already-written portfolio detail stay (FR-005).
+    try:
+        treaties = irp_gateway.search_treaties(edm_irp_id=int(edm_irp_id))
+    except Exception as exc:  # noqa: BLE001 — recoverable job failure
+        logger.warning("backfill_edm_detail: treaty enumeration failed for %s: %s",
+                       edm_id, exc)
+        return runtime.JobResult.fail(
+            f"treaty enumeration failed: {exc}",
+            portfolios=stored, exposure_failures=exposure_failures)
+    pruned_treaties = treaty_service.prune_missing(
+        edm_id=edm_id, seen=[(t.irp_id, t.name) for t in treaties], now=now)
+    for t in treaties:
+        treaty_service.upsert_treaty_detail(
+            edm_id=edm_id, irp_id=t.irp_id, name=t.name,
+            attributes=t.attributes, as_of=now)
+
+    # Stamp the EDM-level last-synced trust signal (FR-052) — the header's
+    # "synced <ts>"; per-portfolio/per-treaty truth is each row's own as_of.
+    execute_command(
+        "UPDATE irp_edm SET as_of = :now, updated_at = :now WHERE id = :id",
+        {"now": now, "id": str(edm_id)}, connection="WORKBENCH")
+    out: dict[str, Any] = {"portfolios": stored, "treaties": len(treaties),
+                           "exposure_failures": exposure_failures}
+    if pruned_portfolios:
+        out["pruned_portfolios"] = pruned_portfolios
+    if pruned_treaties:
+        out["pruned_treaties"] = pruned_treaties
+    if portfolios:
+        out["summary"] = "ok" if summary_map is not None else "unavailable"
+    return runtime.JobResult.ok(**out)
+
+
+@dramatiq.actor(max_retries=0)
+def backfill_edm_detail(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 
 # ── delete_rdm (US4) — SYNCHRONOUS, no irp_job ───────────────────────────────────
@@ -403,10 +673,11 @@ def delete_edm(rwb_job_id: str) -> None:
 
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
-_BODIES: dict[str, Callable[[Any], dict | None]] = {
+_BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
+    "backfill_edm_detail": _backfill_edm_detail_body,
     "delete_rdm": _delete_rdm_body,
     "delete_edm": _delete_edm_body,
 }
@@ -441,6 +712,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "upload_edm", "upload_rdm", "backfill_rdm_analyses", "delete_rdm", "delete_edm",
+    "upload_edm", "upload_rdm", "backfill_rdm_analyses", "backfill_edm_detail",
+    "delete_rdm", "delete_edm",
     "run_one", "run_pending",
 ]

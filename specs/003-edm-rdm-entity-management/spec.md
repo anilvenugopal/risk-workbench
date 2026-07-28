@@ -58,6 +58,15 @@ The mechanism by which a completed Risk Modeler job triggers the next queued app
 - **Consequence for US5:** the package-card job counts (FR-023) still compute, but their deep-links (FR-024) point at the pre-existing Iteration-0 Jobs-list placeholder pages rather than a live pre-filtered list — a graceful degradation (a placeholder page, not an error), reconciled when US6 lands.
 - **Notification channel** config (Teams/email/desktop) remains defined but unused this iteration.
 
+### Name collision becomes blocking (2026-07-27 — issue #17)
+
+The FR-012 non-blocking collision warning shipped, but irp-integration ≥ 0.2.1 validates name uniqueness inside `submit_edm_import_job` — an overridden warning no longer produces the duplicate the analyst asked for; it produces a worker-side failure minutes later with no useful message (issue #17). Decisions (confirmed with the approver, 2026-07-27):
+
+- **Collision → blocking error at save time** on every surface: standalone `/edms/import` and `/rdms/import`, package-modal Save **and** Save-and-Sync, and package re-sync (which re-checks only members it will actually (re)submit — a `ready` member never self-collides; it *is* that Risk Modeler entity). FR-012 and SC-005 amended; research R8 superseded.
+- **Fail open when Risk Modeler is unreachable**: the save proceeds with a visible warning; the worker-side submit validation is the backstop, and its specific failure message is surfaced on the EDM/RDM detail page and the package-card member row.
+- **As-you-type validation** (debounced ~500ms, results cached ~30s in-process — issue #11) on the standalone forms and each package-modal member row; a rendered blocking error disables the submit buttons.
+- **Delete-the-existing-Risk-Modeler-entity-and-reimport** as a collision remedy is deferred to a follow-up issue.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Import an EDM from a broker file (Priority: P1)
@@ -102,13 +111,13 @@ An analyst groups the files that arrived and are worked together into a **packag
 
 **Why this priority**: The package is how real broker submissions actually arrive ("take all five of these and move them"), and syncing a package is the point at which the workbench does the analyst's most repetitive, error-prone manual work for them. It is the headline capability of the iteration.
 
-**Independent Test**: Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing and multi-selecting files; confirm the ≥1-member rule holds, that an RDM-only package can be assembled/saved but its **Save-and-Sync is rejected (`EmptyPackageError`, D3)**, the name-collision warning appears when a member name already exists in Risk Modeler (without blocking), and Save-and-Sync on a both-package queues the correct set of member jobs with each RDM apply waiting for its target EDM's upload.
+**Independent Test**: Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing and multi-selecting files; confirm the ≥1-member rule holds, that an RDM-only package can be assembled/saved but its **Save-and-Sync is rejected (`EmptyPackageError`, D3)**, a member name that already exists in Risk Modeler blocks Save/Save-and-Sync with an error naming the member *(amended 2026-07-27 — issue #17)*, and Save-and-Sync on a both-package queues the correct set of member jobs with each RDM apply waiting for its target EDM's upload.
 
 **Acceptance Scenarios**:
 
 1. **Given** the package modal, **When** the analyst multi-selects member files from the shared drive, **Then** they form a bundle of one or more EDM and/or RDM members in any combination (EDM-only, RDM-only, or both) — though an RDM-only bundle's Save-and-Sync is deferred this iteration (D3).
-2. **Given** a member name the analyst is editing, **When** that name already exists in Risk Modeler, **Then** the name field is flagged with a non-blocking collision warning and the analyst may rename or override and proceed.
-3. **Given** a package with at least one member, **When** the analyst chooses Save, **Then** the package and its member names are persisted and the collision check runs, but nothing is submitted to Risk Modeler.
+2. *(Amended 2026-07-27 — issue #17.)* **Given** a member name the analyst is editing, **When** that name already exists in Risk Modeler, **Then** the name field is flagged as-you-type with a blocking collision error, Save/Save-and-Sync are disabled until the member is renamed or removed, and a submitted save is rejected with an error naming the member. When Risk Modeler is unreachable the check fails open — an amber warning shows and the save proceeds.
+3. **Given** a package with at least one member, **When** the analyst chooses Save, **Then** the package and its member names are persisted and the blocking collision check runs first (a hit rejects the save), but nothing is submitted to Risk Modeler.
 4. **Given** a saved package with EDM and RDM members, **When** the analyst chooses Save and Sync, **Then** one upload job per EDM and one apply job per (EDM × RDM) pair are queued as real Risk Modeler jobs, and each RDM apply waits only for its target EDM's upload to finish (applies fan out per pair, not behind a single global step).
 5. *(Deferred — D3, 2026-07-14.)* An RDM-only package (RDM, no EDM) cannot be synced this iteration; Save-and-Sync rejects it (0.2.0 requires a target EDM).
 6. **Given** an attempt to sync a package with no members, **When** the invariant is checked, **Then** the sync is rejected (at least one member is required).
@@ -225,7 +234,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 
 - **FR-010**: The system MUST let an analyst assemble a package as a bundle of one or more EDM and/or RDM members in any combination (several of each, EDM-only, or RDM-only). *(An RDM-only package MAY be assembled/saved, but its Save-and-Sync is rejected this iteration — D3/FR-016.)*
 - **FR-011**: The system MUST let the analyst build a package by browsing the shared drive and multi-selecting the member files, with no separate prior tagging or file-registration step; the browse location MUST be seedable from the submission's directory path.
-- **FR-012**: The system MUST perform a name-collision check for each EDM/RDM member name against Risk Modeler and, on a collision, surface a **non-blocking** warning (highlight the name field) that the analyst may override or resolve by renaming; it MUST NOT block Save or Sync.
+- **FR-012**: *(Amended 2026-07-27 — issue #17.)* The system MUST check each EDM/RDM member name against Risk Modeler and, on a collision, **block Save and Save-and-Sync** with an error naming the affected member(s) — nothing is persisted or submitted until the analyst renames. The same check MUST run as-you-type (debounced) so the collision surfaces before the action. When Risk Modeler cannot be reached the check **fails open**: the save proceeds with a visible warning and the worker-side submit validation (irp-integration ≥ 0.2.1) is the backstop, whose specific failure message MUST be surfaced on the affected member. *(The original non-blocking-warning behavior is superseded — see Clarifications 2026-07-27 and research R8.)*
 - **FR-013**: The system MUST provide the package actions Cancel, Save, Save-and-Sync, and Delete.
 - **FR-014**: On Save, the system MUST persist the package and its member names and run the collision check, and MUST NOT submit anything to Risk Modeler.
 - **FR-015**: On Save-and-Sync, the system MUST perform **real** Risk Modeler work — one upload per EDM plus one apply per (EDM × RDM) pair in the bundle — with per-pair ordering such that each RDM apply waits only for its target EDM's upload to succeed (applies fan out per pair; there is no single global EDM head job). The submission mechanism is specified in FR-042–FR-043.
@@ -308,7 +317,7 @@ An analyst opens the EDM library (or RDM library) to see every EDM (or RDM) trac
 - **SC-002**: No web request blocks on a Risk Modeler import or on polling — imports that run for minutes are tracked entirely by background processing, verified by importing while the UI stays responsive.
 - **SC-003**: *(Deferred — US6 descope, 2026-07-15.)* A completion or failure notification is delivered on the configured channel for 100% of terminal analyst actions (standalone import / package sync / package delete) and for 100% of member failures; a successful multi-member sync produces a single completion notification rather than one per member job.
 - **SC-004**: Both **syncable** package shapes — EDM-only and EDM+RDM — can be created and synced by browsing and multi-selecting files from the shared drive. *(An RDM-only package may be assembled/saved, but its Save-and-Sync is rejected this iteration — D3, 2026-07-14.)*
-- **SC-005**: The member name-collision warning appears in 100% of collision cases and blocks Save/Sync in 0% of them.
+- **SC-005**: *(Amended 2026-07-27 — issue #17.)* With Risk Modeler reachable, a colliding member name blocks Save/Sync in 100% of cases (an error names the member; nothing persists). With Risk Modeler unreachable, 100% of saves proceed fail-open with a visible warning, and a worker-side collision failure surfaces its specific Risk Modeler message on the member.
 - **SC-006**: Save-and-Sync on an EDM+RDM package produces exactly one upload job per EDM and one apply job per (EDM × RDM) pair, with each apply starting only after its target EDM's upload succeeds — verified against the queued job set.
 - **SC-007**: Delete on a synced package runs member removals in RDM-before-EDM order and, on completion, soft-deletes the members and the package with zero hard-deletes.
 - **SC-008**: *(Deferred — US6 descope, 2026-07-15.)* Clicking a package card's job count lands on the Jobs list pre-filtered to that package, and refresh, bookmark, and browser back/forward all preserve that filter (filter state is fully carried in the URL).

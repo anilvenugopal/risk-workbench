@@ -1,0 +1,31 @@
+{# Import-error recovery — shared by the EDM/RDM detail bodies (issue #17):
+   the error banner (with the recorded Risk Modeler reason when present, and
+   the rename hint ONLY for name-collision failures), the retry action, and
+   the replace-source-file form.
+   Context (via {% with %}): rec_lead (banner lead sentence), rec_error (the
+   recorded message, may be none), rec_base (entity URL base, e.g.
+   '/edms/<id>'), rec_updated_at (optimistic-concurrency stamp). #}
+<div class="form-banner form-banner--error">
+  {{ rec_lead }}{% if rec_error %} — {{ rec_error }}{% endif %}.
+  Retry it, or replace the source file and re-import.
+  {%- if rec_error and 'already exist' in rec_error %} If the name is already
+  taken in Risk Modeler, re-import under a different name.{% endif %}
+</div>
+<div class="form-actions">
+  <form method="post" action="{{ rec_base }}/retry" class="inline-form">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm btn-sm--primary" type="submit">Retry import</button>
+  </form>
+</div>
+
+<div class="section-head" style="margin-top: 24px;"><h2>Replace source file</h2></div>
+<form method="post" action="{{ rec_base }}/replace-file" class="entity-import-form">
+  <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+  <input type="hidden" name="updated_at" value="{{ rec_updated_at }}">
+  <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+    Loading the shared drive…
+  </div>
+  <div class="form-actions">
+    <button class="btn-sm" type="submit">Replace &amp; re-import</button>
+  </div>
+</form>

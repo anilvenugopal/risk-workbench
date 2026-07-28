@@ -33,7 +33,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+# Repo-owned, read-only DataBridge aggregate scripts (set-based, one row set
+# covering every portfolio in the EDM) — executed through the wheel's generic
+# DataBridge executor by get_edm_exposure_summary below.
+_DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
 
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
@@ -60,7 +66,8 @@ class JobStatus:
 
 @dataclass(frozen=True)
 class EntityHit:
-    """A name-search hit used for the non-blocking collision warning (R8)."""
+    """A name-search hit used for the blocking collision check (R8 as amended
+    2026-07-27 — issue #17)."""
     irp_id: str
     name: str
 
@@ -73,11 +80,59 @@ RdmHit = EntityHit
 class AnalysisHit:
     """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
     Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
-    are echoed back so the backfill worker can persist lineage on ``irp_analysis``."""
+    are echoed back so the backfill worker can persist lineage on ``irp_analysis``.
+
+    Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
+    ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
+    the backfill worker can promote the portfolio pointer to
+    ``irp_analysis.exposure_resource_id`` when the type is ``PORTFOLIO``."""
     analysis_id: str
     name: str | None = None
     source_rdm_name: str | None = None
     exposure_name: str | None = None
+    exposure_resource_id: str | None = None
+    exposure_resource_type: str | None = None
+
+
+# ── Detail-read value objects (spec 004 — R1/R2; typed hand-off, not a model) ────
+
+@dataclass(frozen=True)
+class PortfolioHit:
+    """One portfolio enumerated within an EDM. ``irp_id`` is RM's portfolioId as a
+    string; the exposure figures come separately via ``get_portfolio_exposure``."""
+    irp_id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class ExposureDetail:
+    """One portfolio's exposure figures — RM's ``/portfolios/{id}/metrics`` payload
+    **verbatim** (stored as the ``irp_portfolio.exposure_detail`` JSON snapshot, R2;
+    read defensively — field names are RM's own)."""
+    payload: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TreatyDetail:
+    """One treaty on an EDM: identity + the full attribute map **verbatim** (stored
+    as the ``irp_treaty.attributes`` JSON snapshot, R2)."""
+    irp_id: str | None
+    name: str
+    attributes: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AnalysisMetadata:
+    """One analysis's settings/metadata payload **verbatim** (stored as the
+    ``irp_analysis.settings_metadata`` JSON snapshot), plus the typed exposure
+    pointer the R9 linkage promotes when the type is ``PORTFOLIO`` and the
+    group marker (FR-035). ``is_group`` is derived HERE from RM's payload so
+    the how-to-detect-a-group question lives in one file — the exact marker
+    field is unconfirmed against the sandbox (IRP_INTEGRATION_FOLLOWUPS.md)."""
+    payload: dict = field(default_factory=dict)
+    exposure_resource_id: str | None = None
+    exposure_resource_type: str | None = None
+    is_group: bool = False
 
 
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
@@ -103,6 +158,20 @@ class IRPGateway(Protocol):
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
     def search_rdms(self, name: str) -> list[EntityHit]: ...
+
+    # ── spec-004 detail reads (worker-only; single-item, loop app-side) ──────────
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]: ...
+
+    def get_portfolio_exposure(self, *, edm_irp_id: int,
+                               portfolio_irp_id: int) -> ExposureDetail: ...
+
+    def get_edm_exposure_summary(self, *, edm_name: str,
+                                 edm_irp_id: int) -> dict[str, dict]: ...
+
+    def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
+
+    def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -174,9 +243,162 @@ class _RealGateway:
                 analysis_id=str(r["analysisId"]),
                 name=r.get("analysisName"),
                 source_rdm_name=r.get("sourceRdmName"),
-                exposure_name=r.get("exposureName"))
+                exposure_name=r.get("exposureName"),
+                # R9: carry RM's exposure pointer (previously dropped) so the
+                # backfill can promote it when the type is PORTFOLIO.
+                exposure_resource_id=(
+                    str(r["exposureResourceId"])
+                    if r.get("exposureResourceId") is not None else None),
+                exposure_resource_type=r.get("exposureResourceType"))
             for r in rows if r.get("analysisId") is not None
         ]
+
+    # ── spec-004 detail reads (worker-only; single-item, loop app-side — R1) ──────
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios (paginated so a
+        # 25-portfolio EDM enumerates completely). Field names read defensively —
+        # the wheel is pre-release (R1).
+        rows = self._client().portfolio.search_portfolios_paginated(edm_irp_id)
+        hits: list[PortfolioHit] = []
+        for r in rows:
+            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
+            name = r.get("name") or r.get("portfolioName")
+            if pid is None or not name:
+                continue
+            hits.append(PortfolioHit(irp_id=str(pid), name=str(name)))
+        return hits
+
+    def get_portfolio_exposure(self, *, edm_irp_id: int,
+                               portfolio_irp_id: int) -> ExposureDetail:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/metrics —
+        # needs BOTH ids (confirmed vs wheel 0.2.1; IRP_INTEGRATION_FOLLOWUPS.md).
+        # Payload stored verbatim as the JSON snapshot (R2). A non-dict response
+        # is a FAILED read, never an empty success — the worker's per-portfolio
+        # except must skip it rather than overwrite a prior good snapshot.
+        data = self._client().portfolio.get_portfolio_metadata(
+            edm_irp_id, portfolio_irp_id)
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"unexpected portfolio metrics shape for {portfolio_irp_id}: "
+                f"{type(data).__name__}")
+        return ExposureDetail(payload=data)
+
+    def _edm_database_name(self, *, edm_name: str, edm_irp_id: int) -> str:
+        # The EDM's physical database name on Data Bridge comes from RM's
+        # exposures search (`databaseName` per hit) — the workbench name is the
+        # exposureName given at import, which RM may not use verbatim as the
+        # database name. Matching the hit on exposureId picks OUR edm when
+        # names collide (EDM names are not unique in RM).
+        rows = self._client().edm.search_edms(
+            filter=f"exposureName={json.dumps(edm_name)}")
+        hit = next((r for r in rows
+                    if str(r.get("exposureId")) == str(edm_irp_id)), None)
+        database_name = (hit or {}).get("databaseName")
+        if not database_name:
+            raise ValueError(
+                f"no databaseName resolvable for EDM '{edm_name}' "
+                f"(exposureId {edm_irp_id}) from {len(rows)} search hit(s)")
+        return str(database_name)
+
+    def get_edm_exposure_summary(self, *, edm_name: str,
+                                 edm_irp_id: int) -> dict[str, dict]:
+        # Per-EDM DataBridge SQL aggregate (TIV/geography/LOB/currency — none
+        # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
+        # Interim implementation: the requested wheel method
+        # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
+        # runs the repo-owned set-based scripts (sql/databridge/) through the
+        # wheel's generic DataBridge executor — still read-only, still
+        # worker-side, still via irp-integration (constitution Art. 11). One
+        # call set per EDM: a deliberate exception to the single-item-loop
+        # rule — these are SQL aggregates, where N per-portfolio queries would
+        # just be N ODBC round-trips. Raises on ANY failure (databaseName
+        # resolution / databridge extra / env / SQL) — graceful degradation
+        # lives in one place, the worker's try/except.
+        database = self._edm_database_name(edm_name=edm_name,
+                                           edm_irp_id=edm_irp_id)
+        databridge = self._client().databridge
+
+        def rows(script: str) -> list[dict]:
+            frames = databridge.execute_query_from_file(
+                str(_DATABRIDGE_SQL_DIR / script), database=database)
+            return frames[0].to_dict("records") if frames else []
+
+        # Seed every portfolio from the TIV script (it LEFT JOINs from
+        # portinfo, so it covers portfolios with no accounts/locations too);
+        # the DISTINCT list scripts then only add to existing entries.
+        summary: dict[str, dict] = {}
+
+        def entry(row: dict) -> dict:
+            key = str(row["PortfolioId"])
+            if key not in summary:
+                name = row.get("PortfolioName")
+                summary[key] = {
+                    "portfolio_name": (str(name) if name is not None else None),
+                    "total_tiv": None, "states": [],
+                    "lines_of_business": [], "currencies": [],
+                }
+            return summary[key]
+
+        for row in rows("portfolio_total_tiv.sql"):
+            tiv = row.get("TotalTIV")
+            entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_states.sql"):
+            entry(row)["states"].append(str(row["State"]))
+        for row in rows("portfolio_lines_of_business.sql"):
+            entry(row)["lines_of_business"].append(str(row["LineOfBusiness"]))
+        for row in rows("portfolio_currencies.sql"):
+            entry(row)["currencies"].append(str(row["Currency"]))
+        for values in summary.values():
+            for key in ("states", "lines_of_business", "currencies"):
+                values[key] = sorted(set(values[key]))
+        return summary
+
+    def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/treaties (paginated).
+        # The whole row IS the attribute map — stored verbatim (R2).
+        rows = self._client().treaty.search_treaties_paginated(edm_irp_id)
+        hits: list[TreatyDetail] = []
+        for r in rows:
+            tid = (r.get("treatyId") if r.get("treatyId") is not None
+                   else r.get("id"))
+            name = r.get("treatyName") or r.get("name")
+            if not name:
+                continue
+            hits.append(TreatyDetail(
+                irp_id=(str(tid) if tid is not None else None),
+                name=str(name), attributes=r))
+        return hits
+
+    def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata:
+        # GET /platform/riskdata/v1/analyses/{analysisId} — the settings/metadata
+        # payload verbatim, plus the typed exposure pointer (R9) and the group
+        # marker (FR-035). The live payload (first real sync, 2026-07-24) carries
+        # a first-class ``isGroup`` boolean — authoritative when present; a plain
+        # analysis says groupType='ANLS', so the 'GROUP'-literal spellings below
+        # stay only as fallback for payloads that omit isGroup
+        # (IRP_INTEGRATION_FOLLOWUPS.md §7).
+        data = self._client().analysis.get_analysis_by_id(analysis_id)
+        if not isinstance(data, dict):
+            # A failed read, never an empty success — the worker counts it as a
+            # metadata failure and leaves the stored snapshot alone.
+            raise ValueError(f"unexpected analysis metadata shape for "
+                             f"{analysis_id}: {type(data).__name__}")
+        payload = data
+        rid = payload.get("exposureResourceId")
+        is_group = payload.get("isGroup")
+        if not isinstance(is_group, bool):
+            group_markers = (payload.get("groupType"),
+                             payload.get("analysisFramework"),
+                             payload.get("analysisType"),
+                             payload.get("exposureResourceType"))
+            is_group = any(str(m).upper() == "GROUP"
+                           for m in group_markers if m is not None)
+        return AnalysisMetadata(
+            payload=payload,
+            exposure_resource_id=(str(rid) if rid is not None else None),
+            exposure_resource_type=payload.get("exposureResourceType"),
+            is_group=is_group)
 
     # ── single-status checks (Article 11 — never poll_*_to_completion) ────────────
 
@@ -190,7 +412,7 @@ class _RealGateway:
         data = self._client().risk_data_job.get_risk_data_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    # ── name searches for the non-blocking collision warning (R8) ─────────────────
+    # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
         rows = self._client().edm.search_edms(
@@ -275,10 +497,37 @@ def search_rdms(name: str) -> list[EntityHit]:
     return _active().search_rdms(name)
 
 
+def list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]:
+    return _active().list_portfolios(edm_irp_id=edm_irp_id)
+
+
+def get_portfolio_exposure(*, edm_irp_id: int,
+                           portfolio_irp_id: int) -> ExposureDetail:
+    return _active().get_portfolio_exposure(edm_irp_id=edm_irp_id,
+                                            portfolio_irp_id=portfolio_irp_id)
+
+
+def get_edm_exposure_summary(*, edm_name: str,
+                             edm_irp_id: int) -> dict[str, dict]:
+    return _active().get_edm_exposure_summary(edm_name=edm_name,
+                                              edm_irp_id=edm_irp_id)
+
+
+def search_treaties(*, edm_irp_id: int) -> list[TreatyDetail]:
+    return _active().search_treaties(edm_irp_id=edm_irp_id)
+
+
+def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
+    return _active().get_analysis_metadata(analysis_id=analysis_id)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
+    "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
+    "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
+    "search_treaties", "get_analysis_metadata",
 ]

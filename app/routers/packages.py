@@ -2,24 +2,29 @@
 
 The package modal lives on the submission detail. Save persists the package + members
 and attaches it to the submission (submits nothing); Save-and-Sync enqueues the member
-work and returns the card in a queued state — **no Risk Modeler call on any handler**
-(Article 11 / FR-042). CSRF on every POST (Article 13). Create/sync/retry are gated by
-the submission's read-only state (FR-025 / SC-011): a package attached only to
-COMPLETED/CANCELLED submissions rejects with 409. Delete is added in US4 (T041).
+work and returns the card in a queued state. The only Risk Modeler touch on any
+handler is the cached name-collision *read* (a permitted request-path read, Article
+11 / issue #17) — a colliding member name rejects with 422 before anything is saved
+or enqueued, and submits stay worker-side (FR-042). CSRF on every POST (Article 13).
+Create/sync/retry are gated by the submission's read-only state (FR-025 / SC-011): a
+package attached only to COMPLETED/CANCELLED submissions rejects with 409. Delete is
+added in US4 (T041).
 """
 
 from __future__ import annotations
 
+import json
 import os
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
-from app.services import package_service
+from app.services import name_check, package_service
 from app.services import package_sync_service as sync
 from app.services.errors import (
-    ConcurrencyConflict, EmptyPackageError, InvalidMemberName, InvalidSourceFile)
+    ConcurrencyConflict, EmptyPackageError, InvalidMemberName,
+    InvalidSourceFile, NameCollisionError)
 from db import execute_scalar
 
 router = APIRouter()
@@ -36,10 +41,28 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
     )
 
 
-def _card_partial(request: Request, package_id: str, status_code: int = 200):
+def _card_partial(request: Request, package_id: str, status_code: int = 200,
+                  error: str | None = None):
+    # `error` renders a .form-banner--error inside the card so the global toast
+    # scraper surfaces the specific reason (HTMX drops non-2xx bodies otherwise).
     card = sync.get_package_card(package_id, with_counts=True)
     return _partial(request, "partials/package_card.html",
-                    {"card": card, "is_active": True}, status_code=status_code)
+                    {"card": card, "is_active": True, "error": error},
+                    status_code=status_code)
+
+
+def _with_unchecked_toast(response, unchecked_names: list[str]):
+    """Attach the fail-open warning toast (issue #17): the save went through but
+    these names couldn't be checked against Risk Modeler. htmx re-dispatches the
+    HX-Trigger event on the requesting element; app.js listens for ``rwb:toast``."""
+    if unchecked_names:
+        unique = ", ".join(dict.fromkeys(unchecked_names))
+        response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
+            "message": f"Couldn't reach Risk Modeler to check {unique} for "
+                       "duplicates — the import will fail if a name is already "
+                       "taken.",
+            "type": "warning"}})
+    return response
 
 
 def _package_actionable(package_id: str) -> bool:
@@ -97,6 +120,22 @@ def new_modal(request: Request, submission_id: str):
                     {"submission_id": submission_id, "closed": False})
 
 
+# ── As-you-type member name check ─────────────────────────────────────────────
+
+@router.get("/packages/member-name-check", response_class=HTMLResponse)
+def member_name_check(request: Request, member_kind: str = "",
+                      member_name: str = ""):
+    """Collision fragment for a modal member row (issue #17). A static URL on
+    purpose: htmx 1.9 captures ``hx-get`` at element-processing time, so an
+    Alpine-bound URL would not follow EDM↔RDM kind flips — instead the row's
+    hidden ``member_kind`` input rides along via ``hx-include`` and is read fresh
+    per request. Cached RM read only (Article 11)."""
+    check = name_check.check_member_name(member_kind, member_name)
+    return _partial(request, "partials/name_collision.html",
+                    {"check": check,
+                     "kind": "RDM" if member_kind == "rdm" else "EDM"})
+
+
 # ── Save ────────────────────────────────────────────────────────────────────────
 
 @router.post("/submissions/{submission_id}/packages")
@@ -124,7 +163,7 @@ def save(
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": False,
                          "error": "Add at least one EDM or RDM."}, status_code=422)
-    except (InvalidSourceFile, InvalidMemberName) as exc:
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": False,
                          "error": str(exc)}, status_code=422)
@@ -132,10 +171,22 @@ def save(
         submission_id=submission_id, package_id=result.package_id,
         actor_id=request.state.user.id)
     # "Save & Sync" (action=sync) also enqueues the member import; plain "Save" just
-    # persists + attaches. No Risk Modeler call happens here either way (Article 11).
+    # persists + attaches. Submits stay worker-side (Article 11).
+    unchecked = list(result.unchecked_names)
     if action == "sync":
-        sync.save_and_sync(package_id=result.package_id, actor_id=request.state.user.id)
-    return _card_partial(request, result.package_id)
+        try:
+            unchecked += sync.save_and_sync(package_id=result.package_id,
+                                            actor_id=request.state.user.id)
+        except NameCollisionError as exc:
+            # Vanishingly rare (the save-time check just passed and is cached),
+            # but the package IS saved+attached by now — return the card WITH
+            # 200, not 422: htmx drops non-2xx bodies, so a 422 would leave the
+            # saved package invisible and the modal open over stale members
+            # (inviting a duplicate save). 200 appends the card — whose banner
+            # names what actually happened — and closes the modal.
+            return _card_partial(request, result.package_id, error=str(exc))
+    return _with_unchecked_toast(
+        _card_partial(request, result.package_id), unchecked)
 
 
 # ── Edit ──────────────────────────────────────────────────────────────────────
@@ -170,7 +221,8 @@ def edit(
                           expected_updated_at=updated_at)
     except ConcurrencyConflict:
         return _card_partial(request, package_id, status_code=409)
-    except (EmptyPackageError, InvalidSourceFile, InvalidMemberName):
+    except (EmptyPackageError, InvalidSourceFile, InvalidMemberName,
+            NameCollisionError):
         return _card_partial(request, package_id, status_code=422)
     return _card_partial(request, package_id)
 
@@ -184,10 +236,15 @@ def sync_package(request: Request, package_id: str, csrf_token: str = Form(...))
     if not _package_actionable(package_id):
         return _card_partial(request, package_id, status_code=409)
     try:
-        sync.save_and_sync(package_id=package_id, actor_id=request.state.user.id)
+        unchecked = sync.save_and_sync(package_id=package_id,
+                                       actor_id=request.state.user.id)
     except EmptyPackageError:
         return _card_partial(request, package_id, status_code=422)
-    return _card_partial(request, package_id)
+    except NameCollisionError as exc:
+        # A stale draft's name got taken since save (issue #17) — nothing was
+        # enqueued; the card banner carries the specific names for the toast.
+        return _card_partial(request, package_id, status_code=422, error=str(exc))
+    return _with_unchecked_toast(_card_partial(request, package_id), unchecked)
 
 
 # ── Live card poll (self-terminating) ───────────────────────────────────────────

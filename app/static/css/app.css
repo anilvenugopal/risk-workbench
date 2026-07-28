@@ -8,6 +8,7 @@
 @import url("components.css");
 @import url("submissions.css");
 @import url("packages.css");
+@import url("details.css");
 
 [x-cloak] { display: none !important; }
 

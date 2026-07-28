@@ -64,6 +64,13 @@ def test_irp_gateway_never_wraps_poll_to_completion():
     assert offenders == [], f"irp_gateway must not wrap poll_*_to_completion: {offenders}"
 
 
+def test_workers_never_poll_to_completion():
+    """Article 11 (spec 004 T052): the Dramatiq worker tier — where every Risk
+    Modeler detail read now runs — never blocks on a poll-to-completion."""
+    offenders = _offenders((_APP / "workers").rglob("*.py"), _POLL_TO_COMPLETION)
+    assert offenders == [], f"poll_*_to_completion is forbidden in workers: {offenders}"
+
+
 def test_no_scope_construct_on_async_entities():
     """Article 6 / FR-041: no customer/scope construct on EDM/RDM/package/job sources."""
     paths = list(_APP.rglob("*.py"))

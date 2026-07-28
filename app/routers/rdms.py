@@ -2,13 +2,14 @@
 
 Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
 every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
-POST (Article 13); no Risk Modeler call on any route (Article 11); no row scoping
-(Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+POST (Article 13). Risk Modeler *submits* stay worker-side; the one RM call on a
+request path is the name-collision **read** (permitted by Article 11, cached per
+``name_check``). No row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
@@ -19,6 +20,7 @@ from app.services.errors import (
     EmptyPackageError,
     InvalidMemberName,
     InvalidSourceFile,
+    NameCollisionError,
 )
 
 router = APIRouter()
@@ -69,7 +71,7 @@ def library(request: Request):
 @router.get("/rdms/import", response_class=HTMLResponse)
 def import_form(request: Request):
     return _render(request, "pages/rdm_import.html",
-                   {"form": {"name": ""}, "errors": [], "collision": [],
+                   {"form": {"name": ""}, "errors": [], "check": None,
                     "edms": edm_service.list_edms()})
 
 
@@ -77,7 +79,7 @@ def import_form(request: Request):
 def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
-                    {"collision": rdm_service.check_name_collision(name),
+                    {"check": rdm_service.check_name_collision(name),
                      "kind": "RDM"})
 
 
@@ -99,38 +101,93 @@ def create_import(
         return _render(request, "pages/rdm_import.html", {
             "form": form, "edms": edm_service.list_edms(),
             "errors": ["A name and a source file selection are required."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     if not edm_ids:
         return _render(request, "pages/rdm_import.html", {
             "form": form, "edms": edm_service.list_edms(),
             "errors": ["Select at least one EDM to apply the RDM to."],
-            "collision": []}, status_code=422)
+            "check": None}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
             applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName) as exc:
+    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName,
+            NameCollisionError) as exc:
         return _render(request, "pages/rdm_import.html",
                        {"form": form, "edms": edm_service.list_edms(),
-                        "errors": [str(exc)], "collision": []}, status_code=422)
-    return RedirectResponse(f"/rdms/{result.entity_id}", status_code=303)
+                        "errors": [str(exc)], "check": None}, status_code=422)
+    # Fail-open marker (issue #17): the collision check couldn't reach Risk
+    # Modeler — the detail page shows a warning banner once, via the query flag.
+    suffix = "?nc=unchecked" if result.collision_unchecked else ""
+    return RedirectResponse(f"/rdms/{result.entity_id}{suffix}", status_code=303)
 
 
 # ── Detail + recovery ────────────────────────────────────────────────────────────
 
 def _detail(request: Request, rdm_id: str, status_code: int = 200):
-    rdm = rdm_service.get_rdm(rdm_id)
-    if rdm is None:
+    ctx = rdm_service.get_rdm_detail(rdm_id)
+    if ctx is None:
         return _render(request, "base/error.html",
                        {"status_code": 404, "title": "Not found",
                         "detail": "That RDM does not exist."}, status_code=404)
-    return _render(request, "pages/rdm_detail.html", {"rdm": rdm},
-                   status_code=status_code)
+    # Rendered by the page shell (not the polled #rdm-detail body, which would
+    # wipe it on the first 3s swap): the import was saved fail-open because the
+    # name-collision check couldn't reach Risk Modeler.
+    ctx["nc_unchecked"] = request.query_params.get("nc") == "unchecked"
+    return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
+
+
+def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
+    """The shell-less #rdm-detail wrapper — the HTMX swap/poll unit."""
+    ctx = rdm_service.get_rdm_detail(rdm_id)
+    if ctx is None:
+        # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (package-card precedent).
+        return HTMLResponse(
+            '<div class="page-pad" id="rdm-detail">'
+            '<div class="state-box state-box--warn">This RDM no longer exists.'
+            '</div></div>')
+    if poll and ctx["sync_running"] and any(g.analyses for g in ctx["analyses"]):
+        # A populated page mid-sync: swapping the body every 3s would collapse
+        # every <details> the analyst opened. 204 → htmx swaps nothing and the
+        # poll keeps ticking; the first post-sync poll returns the fresh body
+        # (whose trigger is gone), rendering the result exactly once.
+        return Response(status_code=204)
+    return _partial(request, "partials/rdm_detail_body.html", ctx)
 
 
 @router.get("/rdms/{rdm_id}", response_class=HTMLResponse)
 def detail(request: Request, rdm_id: str):
     return _detail(request, rdm_id)
+
+
+@router.get("/rdms/{rdm_id}/body", response_class=HTMLResponse)
+def detail_body(request: Request, rdm_id: str):
+    # The live body's poll target (GET, read-only, no CSRF) — re-renders the
+    # #rdm-detail wrapper; the template stops emitting its own hx-trigger once
+    # the backfill lands, so polling self-terminates. A populated page mid-sync
+    # gets a 204 (poll continues, nothing swaps) so open rows aren't collapsed.
+    return _body_partial(request, rdm_id, poll=True)
+
+
+@router.post("/rdms/{rdm_id}/sync")
+def sync(request: Request, rdm_id: str, csrf_token: str = Form(...)):
+    # Manual analysis-details re-sync: enqueues the backfill_rdm_analyses worker
+    # for every applied (RDM, EDM) pair — the fetch itself never runs on this
+    # request path (Article 11). HTMX path: swap the #rdm-detail wrapper in place
+    # (it then self-polls until the head lands). No-JS fallback: Post/Redirect/
+    # Get, so a refresh never re-prompts a form re-submission.
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            # Never swap a redirect-followed full page into the wrapper — force
+            # a clean reload (which also mints fresh tokens).
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
+    if is_htmx:
+        return _body_partial(request, rdm_id)
+    return RedirectResponse(f"/rdms/{rdm_id}", status_code=303)
 
 
 @router.post("/rdms/{rdm_id}/retry")
