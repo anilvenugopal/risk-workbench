@@ -132,7 +132,7 @@ def member_name_check(request: Request, member_kind: str = "",
     per request. Cached RM read only (Article 11)."""
     check = name_check.check_member_name(member_kind, member_name)
     return _partial(request, "partials/name_collision.html",
-                    {"check": check,
+                    {"check": check, "name": member_name,
                      "kind": "RDM" if member_kind == "rdm" else "EDM"})
 
 

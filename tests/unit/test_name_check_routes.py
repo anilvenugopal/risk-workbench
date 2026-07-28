@@ -89,13 +89,35 @@ def test_name_check_renders_fail_open_warning(monkeypatch):
     assert "Couldn" in r.text  # "Couldn't reach Risk Modeler…"
 
 
-def test_name_check_clean_renders_empty_wrapper(monkeypatch):
+def test_name_check_clean_renders_success(monkeypatch):
     monkeypatch.setattr(edm_service, "check_name_collision",
                         lambda name: CollisionCheck())
     r = _client().get("/edms/name-check?name=Fresh")
     assert 'class="name-collision"' in r.text  # swap target survives
+    assert 'data-nc="ok"' in r.text            # what enables Import in app.js
+    assert "name-collision__ok" in r.text
+    assert "Name available" in r.text
     assert "name-collision__error" not in r.text
     assert "name-collision__warn" not in r.text
+
+
+def test_name_check_empty_name_stays_pending(monkeypatch):
+    # A blank name comes back "clear" from the service but must not claim the
+    # name is available — no verdict, so Import stays disabled.
+    monkeypatch.setattr(edm_service, "check_name_collision",
+                        lambda name: CollisionCheck())
+    r = _client().get("/edms/name-check?name=%20")
+    assert "data-nc" not in r.text
+    assert "name-collision__ok" not in r.text
+
+
+def test_name_check_states_carry_machine_readable_verdict(monkeypatch):
+    monkeypatch.setattr(edm_service, "check_name_collision",
+                        lambda name: CollisionCheck(names=(name,)))
+    assert 'data-nc="blocked"' in _client().get("/edms/name-check?name=Dupe").text
+    monkeypatch.setattr(edm_service, "check_name_collision",
+                        lambda name: CollisionCheck(checked=False))
+    assert 'data-nc="unchecked"' in _client().get("/edms/name-check?name=X").text
 
 
 def test_rdm_name_check_mirrors(monkeypatch):

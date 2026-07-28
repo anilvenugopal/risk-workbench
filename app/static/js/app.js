@@ -63,13 +63,62 @@ function defaultMemberName(base) {
   return (stem || base).slice(0, 50);
 }
 
+// ── Name-collision gating ─────────────────────────────────────────────────────
+// The server's collision fragment reports its verdict in data-nc (see
+// partials/name_collision.html). Submit is gated on an AFFIRMATIVE pass, not on
+// the mere absence of an error: 'ok' (name free) or 'unchecked' (Risk Modeler
+// unreachable — the save deliberately fails open) enable it; anything else,
+// including "no answer yet", keeps it disabled. That closes the window where a
+// freshly picked file left the button live while its check was still in flight.
+function ncState(el) {
+  return (el && el.dataset.nc) || 'pending';
+}
+function ncCleared(state) {
+  return state === 'ok' || state === 'unchecked';
+}
+// Typing invalidates the rendered verdict at once — the debounced re-check is
+// still ~500ms out, and neither the button nor the message may stand on a stale
+// answer for a name that no longer exists.
+function ncReset(el) {
+  if (!el) return;
+  el.removeAttribute('data-nc');
+  el.innerHTML = '';
+}
+// If the check REQUEST fails (server down, session expired) htmx swaps nothing,
+// so the verdict would stay pending and the button disabled for good. Fail open
+// the same way the server does when Risk Modeler is unreachable — the worker-side
+// duplicate-name validation is the backstop either way. Returns false for errors
+// that aren't a name check (browse navigation, the modal's own POST).
+function ncFailOpen(e) {
+  const elt = e.detail && e.detail.elt;
+  if (!elt || !elt.classList || !elt.classList.contains('nc-input')) return false;
+  const scope = elt.closest('.mrow') || elt.closest('form');
+  const el = scope && scope.querySelector('.name-collision');
+  if (!el) return false;
+  el.dataset.nc = 'unchecked';
+  el.innerHTML = '<div class="name-collision__warn" role="status">Couldn’t check '
+    + 'this name for duplicates. You can still save, but the import will fail if '
+    + 'the name is already taken.</div>';
+  return true;
+}
+// htmx processes the page on DOMContentLoaded, which is *after* Alpine's
+// deferred start (see the script order in base/shell.html) — anything that
+// dispatches an hx-trigger during x-data init has to wait for it.
+function whenHtmxReady(fn) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
+  } else {
+    fn();
+  }
+}
+
 document.addEventListener('alpine:init', () => {
   Alpine.data('packageModal', () => ({
     members: [],
     browseOpen: true,
-    nameBlocked: false,
+    namesCleared: false,
     get canSubmit() {
-      return this.members.length > 0 && !this.nameBlocked;
+      return this.members.length > 0 && this.namesCleared;
     },
     onDriveChange(e) {
       const cb = e.target;
@@ -86,6 +135,9 @@ document.addEventListener('alpine:init', () => {
       } else {
         this.members = this.members.filter((m) => m.path !== path);
       }
+      // A just-added row is unchecked, so the buttons must go dark now rather
+      // than when its check lands.
+      this.$nextTick(() => this.refreshNames());
     },
     remove(i) {
       // Untick the matching browse checkbox so the picker and member list stay in sync.
@@ -96,16 +148,38 @@ document.addEventListener('alpine:init', () => {
         if (cb) cb.checked = false;
       }
       this.members.splice(i, 1);
-      // The removed row may have carried the only blocking error — re-derive
+      // The removed row may have carried the only unresolved check — re-derive
       // after Alpine has flushed the DOM update.
-      this.$nextTick(() => this.onSwap());
+      this.$nextTick(() => this.refreshNames());
     },
     onSwap() {
       // Any HTMX swap inside the modal (a row's collision fragment, browse
-      // navigation) re-derives the blocked state from what is actually rendered
-      // — Save / Save & Sync stay disabled while any row shows the blocking
-      // error (issue #17, packageModal parity with importForm).
-      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
+      // navigation) re-derives from what is actually rendered.
+      this.refreshNames();
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.refreshNames();
+    },
+    refreshNames() {
+      // Save / Save & Sync light up only once EVERY row's check has come back
+      // usable, and each row shows its own "checking…" hint meanwhile so the
+      // disabled buttons are never unexplained (issue #17, parity with
+      // importForm).
+      const rows = Array.from(this.$root.querySelectorAll('.mrow'));
+      let cleared = rows.length > 0 && rows.length === this.members.length;
+      rows.forEach((row) => {
+        const state = ncState(row.querySelector('.name-collision'));
+        if (!ncCleared(state)) cleared = false;
+        const hint = row.querySelector('.nc-checking');
+        const input = row.querySelector('.mrow__name');
+        if (hint) hint.hidden = !(input && input.value.trim() && state === 'pending');
+      });
+      this.namesCleared = cleared;
+    },
+    markPending(input) {
+      if (!input) return;
+      ncReset(input.closest('.mrow').querySelector('.name-collision'));
+      this.refreshNames();
     },
     initRow(row) {
       // Alpine-cloned x-for rows are invisible to htmx (it only processes
@@ -116,13 +190,16 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => {
         const input = row.querySelector('.mrow__name');
         if (input) input.dispatchEvent(new Event('recheck'));
+        this.refreshNames();
       });
     },
     recheck(el) {
       // Kind flip: wait a tick so the hidden member_kind :value is flushed
-      // before htmx gathers the row's params for the check request.
+      // before htmx gathers the row's params for the check request. The old
+      // verdict was for the other kind, so it is dropped first.
+      const input = el.closest('.mrow').querySelector('.mrow__name');
+      this.markPending(input);
       this.$nextTick(() => {
-        const input = el.closest('.mrow').querySelector('.mrow__name');
         if (input) input.dispatchEvent(new Event('recheck'));
       });
     },
@@ -130,20 +207,34 @@ document.addEventListener('alpine:init', () => {
 
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
   // auto-populates the name (packageModal parity); Import stays disabled until a
-  // file is picked, a name is present, and the as-you-type collision check isn't
-  // showing the blocking error. Server-side validation still backs all of this —
-  // with JS off the button is simply never disabled.
+  // file is picked, a name is present, and the collision check has come back
+  // clear. Server-side validation still backs all of this — with JS off the
+  // button is simply never disabled.
   Alpine.data('importForm', (opts = {}) => ({
     sourceSelected: false,
     appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
     nameVal: '',
-    nameBlocked: false,
+    nameState: 'pending',
     init() {
       this.nameVal = this.$refs.name ? this.$refs.name.value : '';
+      this.nameState = ncState(this.$root.querySelector('.name-collision'));
+      // A 422 re-render arrives with a name but no verdict — kick a check so
+      // the form isn't sitting on an unexplained disabled button.
+      if (this.nameVal.trim() && this.nameState === 'pending') {
+        whenHtmxReady(() => this.$refs.name.dispatchEvent(new Event('recheck')));
+      }
+    },
+    get checking() {
+      return !!this.nameVal.trim() && this.nameState === 'pending';
     },
     get canSubmit() {
       return this.sourceSelected && this.appliedSelected
-        && !!this.nameVal.trim() && !this.nameBlocked;
+        && !!this.nameVal.trim() && ncCleared(this.nameState);
+    },
+    onName(e) {
+      this.nameVal = e.target.value;
+      ncReset(this.$root.querySelector('.name-collision'));
+      this.nameState = 'pending';
     },
     onChange(e) {
       const cb = e.target;
@@ -157,8 +248,8 @@ document.addEventListener('alpine:init', () => {
           const base = cb.value.split(/[\\/]/).pop();
           const name = this.$refs.name;
           name.value = defaultMemberName(base);
-          this.nameVal = name.value;
-          name.dispatchEvent(new Event('recheck'));  // re-run the collision check
+          this.onName({ target: name });                // the old verdict is void
+          name.dispatchEvent(new Event('recheck'));     // re-run the collision check
         }
         this.sourceSelected =
           !!this.$root.querySelector('input[name="source_paths"]:checked');
@@ -169,8 +260,11 @@ document.addEventListener('alpine:init', () => {
     },
     onSwap() {
       // Any HTMX swap inside the form (collision fragment, browse navigation)
-      // re-derives the blocked state from what is actually rendered.
-      this.nameBlocked = !!this.$root.querySelector('.name-collision__error');
+      // re-derives the verdict from what is actually rendered.
+      this.nameState = ncState(this.$root.querySelector('.name-collision'));
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap();
     },
   }));
 });

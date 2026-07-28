@@ -79,7 +79,7 @@ def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
                     {"check": edm_service.check_name_collision(name),
-                     "kind": "EDM"})
+                     "name": name, "kind": "EDM"})
 
 
 @router.post("/edms/import")

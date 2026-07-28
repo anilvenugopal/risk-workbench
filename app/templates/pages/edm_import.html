@@ -18,10 +18,12 @@
 
   {# Source file first: picking a file auto-populates the name (packageModal
      parity); Import stays disabled until file + name are set and the collision
-     check isn't blocking (importForm in app.js — issue #17 UX). #}
+     check has come back clear (importForm in app.js — issue #17 UX). #}
   <form method="post" action="/edms/import" class="entity-import-form"
         x-data="importForm" @change="onChange($event)"
-        @htmx:after-swap="onSwap()">
+        @htmx:after-swap="onSwap()"
+        @htmx:response-error="onCheckError($event)"
+        @htmx:send-error="onCheckError($event)">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
 
     <div class="wf-field">
@@ -33,15 +35,16 @@
 
     <div class="wf-field">
       <label for="edm-name">NAME</label>
-      <input class="wf-field__input" type="text" id="edm-name" name="name"
+      <input class="wf-field__input nc-input" type="text" id="edm-name" name="name"
              value="{{ form.name }}" required
-             x-ref="name" @input="nameVal = $event.target.value"
+             x-ref="name" @input="onName($event)"
              hx-get="/edms/name-check"
              hx-trigger="keyup changed delay:500ms, recheck"
              hx-target="next .name-collision" hx-swap="outerHTML">
     </div>
 
-    {% include "partials/name_collision.html" %}
+    {% with name = form.name %}{% include "partials/name_collision.html" %}{% endwith %}
+    <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
 
     <div class="form-actions">
       <button class="btn-sm btn-sm--primary" type="submit"

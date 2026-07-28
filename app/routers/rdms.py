@@ -80,7 +80,7 @@ def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
                     {"check": rdm_service.check_name_collision(name),
-                     "kind": "RDM"})
+                     "name": name, "kind": "RDM"})
 
 
 @router.post("/rdms/import")
