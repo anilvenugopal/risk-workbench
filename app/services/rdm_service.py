@@ -43,6 +43,9 @@ ERROR = "error"
 _LOCKED = (IMPORTING, READY)
 # Ordered status vocabulary offered as the library status filter (US7 / T058).
 STATUSES = (PENDING, IMPORTING, READY, ERROR)
+# Statuses a worker still moves on its own — the library list polls while any row
+# sits in one of these and stops once every row is terminal.
+TRANSIENT_STATUSES = (PENDING, IMPORTING)
 
 
 @dataclass
@@ -437,6 +440,7 @@ def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,
 
 __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
+    "TRANSIENT_STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
     "get_rdm_detail", "latest_import_error",
     "retry_import", "replace_source_file", "latest_backfill_status",

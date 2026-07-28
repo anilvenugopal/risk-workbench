@@ -29,10 +29,7 @@
     </label>
   </form>
 
-  {% if rows %}
-  <div class="lib-intro"><span class="muted">Count: {{ rows | length }}</span></div>
-  {% endif %}
-
+  {# Count strip + table live inside the partial — it is the HTMX poll/swap unit. #}
   {% include "partials/library_table.html" %}
 </div>
 {% endblock %}

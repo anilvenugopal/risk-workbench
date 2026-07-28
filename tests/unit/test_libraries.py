@@ -20,8 +20,10 @@ Runs on the SQLite unit mirror (``iteration2_db``).
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace as NS
 
 import pytest
+from jinja2 import Environment, FileSystemLoader
 
 from app.services import edm_service, package_service, rdm_service
 from db import execute_command
@@ -162,3 +164,48 @@ def test_multi_submission_attach_oldest_first(iteration2_db, mod, table):
 
 def test_submission_refs_for_packages_empty_input(iteration2_db):
     assert package_service.submission_refs_for_packages([]) == {}
+
+
+# ── Live list: self-terminating poll trigger ─────────────────────────────────────
+
+def _render_table(*, statuses, filters=None):
+    """Render library_table.html in isolation and report (polls?, html). Guards the
+    self-terminating condition — the list must poll while any row is still moving
+    under a worker and stop once every row is terminal."""
+    # autoescape mirrors the app's Jinja2Templates env — it is what turns the
+    # poll URL's query separator into `&amp;` (valid HTML, htmx reads it back as `&`).
+    env = Environment(loader=FileSystemLoader("app/templates"), autoescape=True)
+    filter_values = {"q": "", "status": "", **(filters or {})}
+    live = any(s in edm_service.TRANSIENT_STATUSES for s in statuses)
+    html = env.get_template("partials/library_table.html").render(
+        rows=[NS(id=f"e{i}", name=f"E{i}", status=s, source_file_path="/x/E.bak",
+                 irp_id=None, inserted_at="2026-01-01", submissions=[])
+              for i, s in enumerate(statuses)],
+        filter_values=filter_values, live=live,
+        list_route="/edms", detail_prefix="/edms", entity_label="EDM")
+    return 'hx-trigger="every 3s"' in html, html
+
+
+def test_list_polls_while_a_row_is_in_flight():
+    assert _render_table(statuses=["pending_import"])[0] is True
+    assert _render_table(statuses=["importing"])[0] is True
+    assert _render_table(statuses=["delete_pending"])[0] is True
+    assert _render_table(statuses=["ready", "importing"])[0] is True  # one is enough
+
+
+def test_list_stops_polling_when_every_row_is_terminal():
+    assert _render_table(statuses=["ready", "error", "deleted"])[0] is False
+    assert _render_table(statuses=[])[0] is False  # empty list never polls
+
+
+def test_poll_url_carries_the_active_filters():
+    _, html = _render_table(statuses=["importing"],
+                            filters={"q": "meridian re", "status": "importing"})
+    assert "/edms/table?q=meridian+re&amp;status=importing" in html
+
+
+@pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
+def test_transient_statuses_exclude_terminal_ones(mod, table):
+    assert mod.READY not in mod.TRANSIENT_STATUSES
+    assert mod.ERROR not in mod.TRANSIENT_STATUSES
+    assert set(mod.TRANSIENT_STATUSES) <= set(mod.STATUSES)

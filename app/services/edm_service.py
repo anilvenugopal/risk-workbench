@@ -53,6 +53,9 @@ DELETED = "deleted"
 _LOCKED = (IMPORTING, READY)
 # Ordered status vocabulary offered as the library status filter (US7 / T058).
 STATUSES = (PENDING, IMPORTING, READY, ERROR, DELETE_PENDING, DELETED)
+# Statuses a worker still moves on its own — the library list polls while any row
+# sits in one of these and stops once every row is terminal.
+TRANSIENT_STATUSES = (PENDING, IMPORTING, DELETE_PENDING)
 
 
 @dataclass
@@ -576,7 +579,7 @@ def mark_delete_error(conn, *, edm_id: Any) -> None:
 
 __all__ = [
     "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
-    "DELETE_PENDING", "DELETED", "STATUSES",
+    "DELETE_PENDING", "DELETED", "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "latest_import_error", "get_edm_detail", "sync_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
