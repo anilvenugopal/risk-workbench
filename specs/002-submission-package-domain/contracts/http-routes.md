@@ -18,7 +18,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/submissions/cedant-suggest?q=` | HTMX cedant autocomplete (`DISTINCT cedant_name`); returns option/list partial (FR-006/R6) |
+| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant autocomplete for the create/edit form (`DISTINCT cedant_name`); returns option/list partial (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted |
 
 ---
 
@@ -53,11 +53,12 @@ Once COMPLETED/CANCELLED, the detail view renders **read-only**: edit/reassign/C
 
 | Method | Path | Purpose | Notes |
 |---|---|---|---|
-| POST | `/submissions/{id}/crm-ids` | Add a CRM tag | blank/whitespace rejected; no format validation (FR-018) |
-| POST | `/submissions/{id}/crm-ids/{tag_id}` | Edit a CRM tag | returns updated tag-set partial |
+| POST | `/submissions/{id}/crm-ids` | Add a CRM tag | blank/whitespace rejected; no format validation (FR-018); re-adding a tag the deal already carries is a case-insensitive no-op returning the existing tag id |
 | POST | `/submissions/{id}/crm-ids/{tag_id}/delete` | Remove a CRM tag | returns tag-set partial |
 
-All three reject with `SubmissionClosed` (409) unless the submission is ACTIVE (FR-017/FR-015). Zero tags is a valid state (FR-016).
+Both reject with `SubmissionClosed` (409) unless the submission is ACTIVE (FR-017/FR-015). Zero tags is a valid state (FR-016).
+
+FR-017's *edit* is served by remove + add: tags render as read-only chips, so there is no in-place edit route (issue #16). A dedicated `POST /submissions/{id}/crm-ids/{tag_id}` was removed along with `edit_crm_id`.
 
 ---
 

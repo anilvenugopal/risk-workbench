@@ -19,6 +19,8 @@
         hx-post="/submissions/{{ submission_id }}/packages"
         hx-target="#package-list" hx-swap="beforeend"
         @htmx:after-swap="onSwap()"
+        @htmx:response-error="onCheckError($event)"
+        @htmx:send-error="onCheckError($event)"
         @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <h2 class="modal__title">New package</h2>
@@ -74,14 +76,16 @@
             </span>
             <input type="hidden" name="member_kind" :value="m.kind">
             <span class="mrow__namewrap">
-              <input type="text" name="member_name" x-model="m.name" class="mrow__name" placeholder="name"
+              <input type="text" name="member_name" x-model="m.name" class="mrow__name nc-input" placeholder="name"
                      maxlength="50" pattern="[A-Za-z0-9_\-]+" required
                      title="Letters, numbers, underscores, and hyphens only (max 50 characters)."
                      hx-get="/packages/member-name-check"
                      hx-trigger="keyup changed delay:500ms, recheck"
                      hx-include="closest .mrow"
-                     hx-target="next .name-collision" hx-swap="outerHTML">
+                     hx-target="next .name-collision" hx-swap="outerHTML"
+                     @input="markPending($el)">
               <div class="name-collision"></div>
+              <div class="nc-checking" hidden>Checking name availability…</div>
             </span>
             <input type="hidden" name="member_path" :value="m.path">
             <span class="mrow__file" x-text="m.path" :title="m.path"></span>

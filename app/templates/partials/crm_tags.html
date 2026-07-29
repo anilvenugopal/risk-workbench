@@ -1,31 +1,9 @@
 <div id="crm-tags" class="crm-tags">
-  {% for t in crm_tags %}
-    {% if is_active %}
-    <div class="crm-tag">
-      <form class="crm-tag__edit" method="post"
-            action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}"
-            hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}"
-            hx-target="#crm-tags" hx-swap="outerHTML">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <input class="crm-tag__input" type="text" name="crm_id" value="{{ t.crm_id }}">
-        <button class="crm-tag__btn" type="submit" title="Save">✓</button>
-      </form>
-      <form class="crm-tag__del" method="post"
-            action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
-            hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
-            hx-target="#crm-tags" hx-swap="outerHTML">
-        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-        <button class="crm-tag__btn crm-tag__btn--del" type="submit" title="Remove">×</button>
-      </form>
-    </div>
-    {% else %}
-    <span class="crm-tag crm-tag--ro">{{ t.crm_id }}</span>
-    {% endif %}
-  {% else %}
-    <span class="tag-empty">No CRM IDs.</span>
-  {% endfor %}
-
+  {# Add form comes first so its position is fixed — the chip list grows to the
+     right of it instead of pushing the input around. #}
   {% if is_active %}
+  {# The swap replaces this whole wrapper, so a successful add re-renders the
+     input empty on its own — no client-side reset needed. #}
   <form class="crm-add" method="post" action="/submissions/{{ submission.id }}/crm-ids"
         hx-post="/submissions/{{ submission.id }}/crm-ids"
         hx-target="#crm-tags" hx-swap="outerHTML">
@@ -35,4 +13,25 @@
     <button class="btn-sm" type="submit">Add</button>
   </form>
   {% endif %}
+
+  <div class="crm-tags__list">
+    {% for t in crm_tags %}
+      {# div, not span: the remove form is flow content and may not sit in a span. #}
+      <div class="crm-tag">
+        <span class="crm-tag__text">{{ t.crm_id }}</span>
+        {% if is_active %}
+        <form method="post"
+              action="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
+              hx-post="/submissions/{{ submission.id }}/crm-ids/{{ t.id }}/delete"
+              hx-target="#crm-tags" hx-swap="outerHTML">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          <button class="crm-tag__del" type="submit"
+                  title="Remove {{ t.crm_id }}" aria-label="Remove {{ t.crm_id }}">×</button>
+        </form>
+        {% endif %}
+      </div>
+    {% else %}
+      <span class="tag-empty">No CRM IDs.</span>
+    {% endfor %}
+  </div>
 </div>

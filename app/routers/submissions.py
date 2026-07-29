@@ -159,9 +159,15 @@ def list_mine(request: Request):
 
 @router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
 def cedant_suggest(request: Request):
-    q = request.query_params.get("q", "")
+    """Datalist options for the create/edit form's CEDANT field (FR-006/R6).
+
+    htmx sends the field under its own name, so the prefix arrives as
+    ``cedant_name``; ``q`` (the name in the 002 contract) is still accepted for a
+    hand-built call."""
+    prefix = (request.query_params.get("cedant_name")
+              or request.query_params.get("q", ""))
     return _partial(request, "partials/cedant_options.html",
-                    {"suggestions": submission_service.cedant_suggestions(q)})
+                    {"suggestions": submission_service.cedant_suggestions(prefix)})
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -399,27 +405,6 @@ def add_crm(
         if crm_id.strip():
             submission_service.add_crm_id(submission_id=submission_id, crm_id=crm_id,
                            actor_id=request.state.user.id)
-    except SubmissionClosed:
-        return _crm_partial(request, submission_id, status_code=409)
-    if _is_htmx(request):
-        return _crm_partial(request, submission_id)
-    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-
-
-@router.post("/submissions/{submission_id}/crm-ids/{tag_id}")
-def edit_crm(
-    request: Request,
-    submission_id: str,
-    tag_id: str,
-    crm_id: str = Form(...),
-    csrf_token: str = Form(...),
-):
-    if not validate_csrf_token(csrf_token):
-        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    try:
-        if crm_id.strip():
-            submission_service.edit_crm_id(crm_tag_id=tag_id, crm_id=crm_id,
-                            actor_id=request.state.user.id)
     except SubmissionClosed:
         return _crm_partial(request, submission_id, status_code=409)
     if _is_htmx(request):

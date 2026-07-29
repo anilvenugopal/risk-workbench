@@ -76,7 +76,8 @@ NODES: list[dict[str, Any]] = [
         "key": "irp",
         "label": "Moody's IRP",
         "parent": None,
-        "route": "/irp",
+        # No landing page of its own — the rail lands on the EDM Library (#26).
+        "route": "/edms",
         "rail_icon": "moodys",
         "sidebar_title": "Moody's IRP",
         "searchable": True,

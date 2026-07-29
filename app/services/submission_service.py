@@ -519,11 +519,15 @@ def get_status_history(submission_id: Any) -> list[StatusEvent]:
 
 def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
     """Add a free-text CRM tag to an ACTIVE deal. Blank/whitespace is rejected
-    (not stored); no format validation; duplicate identical tags permitted."""
+    (not stored); no format validation. Re-adding a tag the deal already carries
+    (case-insensitive) is a silent no-op — the existing tag id comes back."""
     cleaned_crm_id = (crm_id or "").strip()
     if not cleaned_crm_id:
         raise ValueError("crm_id is blank")
     _require_active(_load_status(submission_id))
+    for existing in list_crm_ids(submission_id):
+        if existing.crm_id.casefold() == cleaned_crm_id.casefold():
+            return str(existing.id)
     new_tag_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO submission_crm_id (id, submission_id, crm_id, inserted_at, "
@@ -533,23 +537,6 @@ def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
         connection="WORKBENCH",
     )
     return new_tag_id
-
-
-def edit_crm_id(*, crm_tag_id: Any, crm_id: str, actor_id: Any) -> None:
-    cleaned_crm_id = (crm_id or "").strip()
-    if not cleaned_crm_id:
-        raise ValueError("crm_id is blank")
-    row = execute_one(
-        "SELECT submission_id FROM submission_crm_id WHERE id = :id",
-        {"id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
-    if row is None:
-        raise LookupError(f"crm tag {crm_tag_id} not found")
-    _require_active(_load_status(row["submission_id"]))
-    execute_command(
-        "UPDATE submission_crm_id SET crm_id = :c WHERE id = :id",
-        {"c": cleaned_crm_id, "id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
 
 
 def remove_crm_id(*, crm_tag_id: Any, actor_id: Any) -> None:

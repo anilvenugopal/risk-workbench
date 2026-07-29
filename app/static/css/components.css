@@ -297,7 +297,8 @@
 
 /* ── Name-collision fragment (as-you-type check under EDM/RDM name fields) ── */
 .name-collision__error,
-.name-collision__warn {
+.name-collision__warn,
+.name-collision__ok {
   margin: var(--space-1) 0 var(--space-3);
   padding: var(--space-2) 14px;
   border: 1px solid;
@@ -314,3 +315,16 @@
   border-color: var(--color-warning-border);
   color: var(--color-warning);
 }
+.name-collision__ok {
+  background: var(--color-positive-bg);
+  border-color: var(--color-positive-border);
+  color: var(--color-positive);
+}
+/* Shown while a check is in flight, so the disabled Import / Save & Sync button
+   is never unexplained. Hidden via [hidden] (modal rows) or x-show (import pages). */
+.nc-checking {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--fs-caption);
+  color: var(--text-tertiary);
+}
+.nc-checking[hidden] { display: none; }

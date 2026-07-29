@@ -49,21 +49,43 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
     )
 
 
-# ── Library list (literal path — declared before /edms/{edm_id}) ─────────────────
+# ── Library list (literal paths — declared before /edms/{edm_id}) ────────────────
+
+def _library_context(request: Request) -> dict:
+    """Shared context for the full library page and its polled table fragment."""
+    q = (request.query_params.get("q") or "").strip() or None
+    status = (request.query_params.get("status") or "").strip() or None
+    rows = edm_service.list_edms(name=q, status=status)
+    return {
+        "rows": rows,
+        "filter_values": {"q": request.query_params.get("q", ""),
+                          "status": request.query_params.get("status", "")},
+        "statuses": edm_service.STATUSES,
+        # Any row a worker is still moving → the table keeps polling (see
+        # partials/library_table.html); all-terminal → no trigger, polling stops.
+        "live": any(r.status in edm_service.TRANSIENT_STATUSES for r in rows),
+        # partials/library_table.html inputs — declared here so the page and the
+        # polled fragment cannot drift apart.
+        "list_route": "/edms", "detail_prefix": "/edms", "entity_label": "EDM",
+    }
+
 
 @router.get("/edms", response_class=HTMLResponse)
 def library(request: Request):
     """Global EDM library — every EDM across all submissions, any analyst (no row
     scoping, FR-037/SC-009), narrowable by a name search + status filter (US7). GET,
     no CSRF."""
-    q = (request.query_params.get("q") or "").strip() or None
-    status = (request.query_params.get("status") or "").strip() or None
-    return _render(request, "pages/edm_library.html", {
-        "rows": edm_service.list_edms(name=q, status=status),
-        "filter_values": {"q": request.query_params.get("q", ""),
-                          "status": request.query_params.get("status", "")},
-        "statuses": edm_service.STATUSES,
-    })
+    return _render(request, "pages/edm_library.html", _library_context(request))
+
+
+@router.get("/edms/table", response_class=HTMLResponse)
+def library_table(request: Request):
+    """Read-only table render for HTMX polling — the same filtered rows as ``/edms``
+    without the shell, so in-flight imports advance on the list without a reload.
+    The trigger is emitted only while a row is non-terminal, so the poll stops by
+    itself. No writes, no Risk Modeler call (Article 11)."""
+    return _partial(request, "partials/library_table.html",
+                    _library_context(request))
 
 
 # ── Import form + name check (literal paths first) ───────────────────────────────
@@ -79,7 +101,7 @@ def name_check(request: Request):
     name = request.query_params.get("name", "")
     return _partial(request, "partials/name_collision.html",
                     {"check": edm_service.check_name_collision(name),
-                     "kind": "EDM"})
+                     "name": name, "kind": "EDM"})
 
 
 @router.post("/edms/import")

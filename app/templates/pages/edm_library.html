@@ -6,13 +6,19 @@
 {% endblock %}
 
 {% block main %}
-{% set list_route = '/edms' %}
-{% set detail_prefix = '/edms' %}
-{% set entity_label = 'EDM' %}
+{# list_route / detail_prefix / entity_label come from the route context so the
+   page and its polled fragment share one source (see edms.py _library_context). #}
 <div class="page-pad">
 
-  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list) ── #}
-  <form class="filters" method="get" action="{{ list_route }}">
+  {# ── Name search + status filter (GET, no CSRF — mirrors the submissions list),
+        applied as you type: one debounced request per typing pause. hx-select
+        narrows the swap to #lib-live — the form sits outside it, so the field
+        keeps focus, and the pushed URL is the list's own. method/action is the
+        no-JS fallback (one text field, so Enter submits natively). ── #}
+  <form class="filters" method="get" action="{{ list_route }}"
+        hx-get="{{ list_route }}" hx-trigger="input delay:300ms, submit"
+        hx-target="#lib-live" hx-select="#lib-live" hx-swap="outerHTML"
+        hx-push-url="true">
     <label>Search
       <input class="wf-field__input" type="text" name="q" placeholder="name…"
              value="{{ filter_values.q }}" autocomplete="off">
@@ -25,15 +31,9 @@
         {% endfor %}
       </select>
     </label>
-    <label style="justify-content:flex-end">&nbsp;
-      <button class="btn-sm" type="submit">Filter</button>
-    </label>
   </form>
 
-  {% if rows %}
-  <div class="lib-intro"><span class="muted">Count: {{ rows | length }}</span></div>
-  {% endif %}
-
+  {# Count strip + table live inside the partial — it is the HTMX poll/swap unit. #}
   {% include "partials/library_table.html" %}
 </div>
 {% endblock %}

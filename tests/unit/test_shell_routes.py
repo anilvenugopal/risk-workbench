@@ -94,9 +94,6 @@ class TestSimpleShellRoutes:
     def test_templates_page(self, client):
         assert client.get("/templates").status_code == 200
 
-    def test_irp_page(self, client):
-        assert client.get("/irp").status_code == 200
-
     def test_account_page(self, client):
         assert client.get("/account").status_code == 200
 
