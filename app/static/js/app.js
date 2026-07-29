@@ -103,12 +103,16 @@ function ncFailOpen(e) {
 }
 // htmx processes the page on DOMContentLoaded, which is *after* Alpine's
 // deferred start (see the script order in base/shell.html) — anything that
-// dispatches an hx-trigger during x-data init has to wait for it.
+// dispatches an hx-trigger during x-data init has to wait for it. readyState is
+// already "interactive" by then (deferred scripts run after parsing), so it can't
+// be the test — track the event, the way htmx tracks it internally.
+let htmxReady = document.readyState === 'complete';
+document.addEventListener('DOMContentLoaded', () => { htmxReady = true; });
 function whenHtmxReady(fn) {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fn, { once: true });
-  } else {
+  if (htmxReady) {
     fn();
+  } else {
+    document.addEventListener('DOMContentLoaded', fn, { once: true });
   }
 }
 
