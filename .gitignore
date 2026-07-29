@@ -11,3 +11,4 @@ data/
 irp-workbench/*
 hb_demo.db
 .coverage
+docs/pm
