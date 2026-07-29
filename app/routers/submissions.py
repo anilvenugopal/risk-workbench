@@ -406,27 +406,6 @@ def add_crm(
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 
-@router.post("/submissions/{submission_id}/crm-ids/{tag_id}")
-def edit_crm(
-    request: Request,
-    submission_id: str,
-    tag_id: str,
-    crm_id: str = Form(...),
-    csrf_token: str = Form(...),
-):
-    if not validate_csrf_token(csrf_token):
-        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    try:
-        if crm_id.strip():
-            submission_service.edit_crm_id(crm_tag_id=tag_id, crm_id=crm_id,
-                            actor_id=request.state.user.id)
-    except SubmissionClosed:
-        return _crm_partial(request, submission_id, status_code=409)
-    if _is_htmx(request):
-        return _crm_partial(request, submission_id)
-    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-
-
 @router.post("/submissions/{submission_id}/crm-ids/{tag_id}/delete")
 def delete_crm(
     request: Request,
