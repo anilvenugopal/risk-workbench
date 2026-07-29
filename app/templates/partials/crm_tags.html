@@ -2,10 +2,11 @@
   {# Add form comes first so its position is fixed — the chip list grows to the
      right of it instead of pushing the input around. #}
   {% if is_active %}
+  {# The swap replaces this whole wrapper, so a successful add re-renders the
+     input empty on its own — no client-side reset needed. #}
   <form class="crm-add" method="post" action="/submissions/{{ submission.id }}/crm-ids"
         hx-post="/submissions/{{ submission.id }}/crm-ids"
-        hx-target="#crm-tags" hx-swap="outerHTML"
-        hx-on::after-request="this.reset()">
+        hx-target="#crm-tags" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input class="crm-add__input" type="text" name="crm_id" placeholder="Add CRM ID"
            autocomplete="off">
@@ -15,7 +16,8 @@
 
   <div class="crm-tags__list">
     {% for t in crm_tags %}
-      <span class="crm-tag">
+      {# div, not span: the remove form is flow content and may not sit in a span. #}
+      <div class="crm-tag">
         <span class="crm-tag__text">{{ t.crm_id }}</span>
         {% if is_active %}
         <form method="post"
@@ -27,7 +29,7 @@
                   title="Remove {{ t.crm_id }}" aria-label="Remove {{ t.crm_id }}">×</button>
         </form>
         {% endif %}
-      </span>
+      </div>
     {% else %}
       <span class="tag-empty">No CRM IDs.</span>
     {% endfor %}

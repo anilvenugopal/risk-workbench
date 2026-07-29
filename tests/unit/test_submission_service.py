@@ -20,7 +20,6 @@ from app.services.submission_service import (
     add_crm_id,
     cedant_suggestions,
     create_submission,
-    edit_crm_id,
     find_similar,
     get_status_history,
     get_submission,
@@ -217,15 +216,13 @@ def test_no_delete_function_exists(iteration1_db):
 
 # ── US4: CRM tags (gated; append-only) ────────────────────────────────────────
 
-def test_crm_add_edit_remove_list(iteration1_db):
+def test_crm_add_remove_list(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id
     assert list_crm_ids(sid) == []  # zero tags is valid
     t1 = add_crm_id(submission_id=sid, crm_id="CRM-1", actor_id=a)
     add_crm_id(submission_id=sid, crm_id="CRM-2", actor_id=a)
     assert {t.crm_id for t in list_crm_ids(sid)} == {"CRM-1", "CRM-2"}
-    edit_crm_id(crm_tag_id=t1, crm_id="CRM-1-edited", actor_id=a)
-    assert "CRM-1-edited" in {t.crm_id for t in list_crm_ids(sid)}
     remove_crm_id(crm_tag_id=t1, actor_id=a)
     assert {t.crm_id for t in list_crm_ids(sid)} == {"CRM-2"}
 
@@ -253,8 +250,6 @@ def test_crm_mutations_gated_when_closed(iteration1_db):
                expected_updated_at=_marker(sid), actor_id=a)
     with pytest.raises(SubmissionClosed):
         add_crm_id(submission_id=sid, crm_id="CRM-2", actor_id=a)
-    with pytest.raises(SubmissionClosed):
-        edit_crm_id(crm_tag_id=t1, crm_id="CRM-1x", actor_id=a)
     with pytest.raises(SubmissionClosed):
         remove_crm_id(crm_tag_id=t1, actor_id=a)
 

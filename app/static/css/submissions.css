@@ -106,7 +106,7 @@
 .crm-tags { display: flex; flex-wrap: wrap; align-items: center;
   gap: 6px var(--space-3); }
 .crm-tags__list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.crm-tag, .crm-tag--ro {
+.crm-tag {
   display: inline-flex; align-items: center; gap: 2px;
   padding: 3px var(--space-2); border-radius: var(--radius-sm);
   background: var(--surface-recessed); font-size: var(--fs-label);

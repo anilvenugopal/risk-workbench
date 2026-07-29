@@ -97,12 +97,13 @@ def get_status_history(submission_id: UUID) -> list[StatusEvent]:
 
 ```python
 def add_crm_id(*, submission_id: UUID, crm_id: str, actor_id: UUID) -> UUID: ...
-def edit_crm_id(*, crm_tag_id: UUID, crm_id: str, actor_id: UUID) -> None: ...
 def remove_crm_id(*, crm_tag_id: UUID, actor_id: UUID) -> None: ...
 def list_crm_ids(submission_id: UUID) -> list[CrmTag]: ...
-"""All three mutations raise SubmissionClosed unless the parent submission is ACTIVE
+"""Both mutations raise SubmissionClosed unless the parent submission is ACTIVE
 (FR-017/FR-015/R3). Blank/whitespace crm_id is rejected (not stored). No format
-validation (FR-018). Duplicate identical tags permitted."""
+validation (FR-018). Re-adding a tag the deal already carries is a case-insensitive
+no-op that returns the existing tag id. FR-017's *edit* is served by remove + add
+(chips are read-only, issue #16) — the former edit_crm_id is gone."""
 ```
 
 ---

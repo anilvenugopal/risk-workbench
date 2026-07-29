@@ -539,23 +539,6 @@ def add_crm_id(*, submission_id: Any, crm_id: str, actor_id: Any) -> str:
     return new_tag_id
 
 
-def edit_crm_id(*, crm_tag_id: Any, crm_id: str, actor_id: Any) -> None:
-    cleaned_crm_id = (crm_id or "").strip()
-    if not cleaned_crm_id:
-        raise ValueError("crm_id is blank")
-    row = execute_one(
-        "SELECT submission_id FROM submission_crm_id WHERE id = :id",
-        {"id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
-    if row is None:
-        raise LookupError(f"crm tag {crm_tag_id} not found")
-    _require_active(_load_status(row["submission_id"]))
-    execute_command(
-        "UPDATE submission_crm_id SET crm_id = :c WHERE id = :id",
-        {"c": cleaned_crm_id, "id": str(crm_tag_id)}, connection="WORKBENCH",
-    )
-
-
 def remove_crm_id(*, crm_tag_id: Any, actor_id: Any) -> None:
     row = execute_one(
         "SELECT submission_id FROM submission_crm_id WHERE id = :id",
