@@ -10,43 +10,54 @@
 {% block main %}
 <div class="page-pad">
 
+  {# Deal header: name → created stamp → labelled deal facts → owner → CRM IDs,
+     one concern per row. The created stamp is naive-UTC in the DB and is
+     rewritten to the viewer's timezone at second granularity by
+     localizeUtcTimes() (same <time data-utc> contract as the EDM sync stamp). #}
   <div class="detail-head">
     <h1>{{ submission.name }}
       <span class="status-chip status-chip--{{ submission.status_code|lower }}">
         {{ submission.status_label or submission.status_code }}</span></h1>
-    <div class="deal-strip">
-      <b>{{ submission.cedant_name }}</b>
-      <span class="crumb__sep">·</span>
-      <span>{{ submission.treaty_type_label or submission.treaty_type_code }}</span>
-      {% if submission.treaty_year %}
-      <span class="crumb__sep">·</span><span>{{ submission.treaty_year }}</span>
-      {% endif %}
-      <span class="crumb__sep">·</span>
-      <span>Inception <b>{{ submission.inception_date }}</b></span>
-      <span class="crumb__sep">·</span>
-      <span>Owner <b>{{ submission.assigned_analyst_name or '—' }}</b></span>
-    </div>
-    <div class="deal-substrip">
+
+    <div class="deal-head__created">Created
+      <time data-utc="{{ submission.inserted_at }}"
+            title="{{ submission.inserted_at }} UTC">{{ submission.inserted_at }}</time>
       {% if submission.renews_from_submission_id %}
-      <span>Renews from
-        <b><a href="/submissions/{{ submission.renews_from_submission_id }}">
-          {{ submission.renews_from_submission_id }}</a></b></span>
+      <span class="crumb__sep">·</span>
+      <span>renews from
+        <a href="/submissions/{{ submission.renews_from_submission_id }}">
+          {{ submission.renews_from_submission_id }}</a></span>
       {% endif %}
-      <span>Created <b>{{ submission.inserted_at }}</b></span>
       {% if submission.directory_path %}
-      <span>Dir <b class="mono" title="{{ submission.directory_path }}">{{ submission.directory_path }}</b></span>
+      <span class="crumb__sep">·</span>
+      <span class="mono" title="{{ submission.directory_path }}">{{ submission.directory_path }}</span>
       {% endif %}
     </div>
-    {# CRM IDs + owner reassign live inline in the header band (#21); the CRM
-       chips render read-only via the same partial when the deal is closed. #}
+
+    <div class="deal-facts">
+      <span class="deal-fact">
+        <span class="deal-fact__label">Cedant:</span>
+        <span class="deal-fact__value">{{ submission.cedant_name or '—' }}</span></span>
+      <span class="deal-fact">
+        <span class="deal-fact__label">Treaty type:</span>
+        <span class="deal-fact__value">
+          {{ submission.treaty_type_label or submission.treaty_type_code or '—' }}</span></span>
+      {% if submission.treaty_year %}
+      <span class="deal-fact">
+        <span class="deal-fact__label">Treaty year:</span>
+        <span class="deal-fact__value">{{ submission.treaty_year }}</span></span>
+      {% endif %}
+      <span class="deal-fact">
+        <span class="deal-fact__label">Inception:</span>
+        <span class="deal-fact__value">{{ submission.inception_date or '—' }}</span></span>
+    </div>
+
+    {# CRM IDs + owner reassign live inline in the header band (#21); both render
+       read-only when the deal is closed — the CRM chips via the same partial. #}
     <div class="detail-band">
       <div class="detail-band__group">
-        <span class="detail-band__label">CRM</span>
-        {% include "partials/crm_tags.html" %}
-      </div>
-      {% if is_active %}
-      <div class="detail-band__group">
         <span class="detail-band__label">Owner</span>
+        {% if is_active %}
         <form method="post" action="/submissions/{{ submission.id }}/reassign"
               class="reassign-form">
           <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -59,8 +70,17 @@
           </select>
           <button class="btn-sm" type="submit">Reassign</button>
         </form>
+        {% else %}
+        <span class="deal-fact__value">{{ submission.assigned_analyst_name or '—' }}</span>
+        {% endif %}
       </div>
-      {% endif %}
+    </div>
+
+    <div class="detail-band">
+      <div class="detail-band__group">
+        <span class="detail-band__label">CRM</span>
+        {% include "partials/crm_tags.html" %}
+      </div>
     </div>
   </div>
 

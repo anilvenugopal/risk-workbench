@@ -112,13 +112,15 @@
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }
-/* Compact deal header (submission detail, Option C): read-only metadata collapses
-   into a one-line strip + a lighter secondary substrip. */
-.deal-strip { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--fs-label); color: var(--text-secondary); margin-bottom: 6px; }
-.deal-strip b { color: var(--text-primary); font-weight: var(--fw-medium); }
-.deal-substrip { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); font-size: var(--fs-caption); color: var(--text-tertiary); margin-bottom: 18px; }
-.deal-substrip b { color: var(--text-secondary); font-weight: var(--fw-medium); }
-.deal-substrip a { color: var(--color-brand); }
+/* Stacked deal header (submission detail): name, created stamp, labelled deal
+   facts, then the owner + CRM bands — one concern per row. */
+.deal-head__created { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); font-size: var(--fs-caption); color: var(--text-tertiary); }
+.deal-head__created time { font-family: var(--font-mono); color: var(--text-secondary); }
+.deal-head__created a { color: var(--color-brand); }
+.deal-facts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-5); font-size: var(--fs-label); margin-top: var(--space-2); }
+.deal-fact { display: inline-flex; align-items: baseline; gap: 5px; }
+.deal-fact__label { color: var(--text-tertiary); }
+.deal-fact__value { color: var(--text-primary); font-weight: var(--fw-medium); }
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .section-head h2 { font-size: 14px; margin: 0; color: var(--text-primary); font-weight: var(--fw-medium); }
 .wf-list { display: flex; flex-direction: column; gap: 6px; }
