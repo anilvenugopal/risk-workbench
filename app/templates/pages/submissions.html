@@ -17,15 +17,19 @@
        href="/submissions">All</a>
   </div>
 
-  {# ── Filters (combine with AND, applied on change; GET action is the no-JS fallback) ── #}
+  {# ── Filters (combine with AND), applied as you type: one debounced request per
+        typing pause. hx-select narrows the swap to #sub-list — the form sits
+        outside it, so the field keeps focus and its value mid-filter, and the
+        pushed URL is the list's own (a fragment route would push its own path).
+        method/action + the hidden submit are the no-JS fallback: a form with
+        several text-ish fields and no submit button never submits on Enter. ── #}
   <form class="filters" method="get" action="{{ base }}"
-        hx-get="{{ base }}" hx-trigger="change" hx-target="body" hx-push-url="true">
+        hx-get="{{ base }}" hx-trigger="input delay:300ms, submit"
+        hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
+        hx-push-url="true">
     <label>Cedant
-      <input class="wf-field__input" type="text" name="cedant" list="cedant-list"
-             value="{{ filter_values.cedant }}" autocomplete="off"
-             hx-get="/submissions/cedant-suggest" hx-trigger="input changed delay:200ms"
-             hx-target="#cedant-list" hx-swap="innerHTML">
-      <datalist id="cedant-list"></datalist>
+      <input class="wf-field__input" type="text" name="cedant"
+             value="{{ filter_values.cedant }}" autocomplete="off">
     </label>
     <label>Treaty type
       <select class="wf-field__input" name="treaty_type">
@@ -42,23 +46,26 @@
       <input class="wf-field__input" type="number" name="treaty_year" value="{{ filter_values.treaty_year }}"
              min="1900" max="2999" style="min-width: 110px;">
     </label>
+    <button type="submit" hidden>Filter</button>
   </form>
 
-  {# ── Master list ── #}
-  <table class="mk-table sub-table">
-    <thead>
-      <tr>
-        <th>Name</th><th>Cedant</th><th>Treaty type</th><th>Inception</th>
-        <th>Year</th><th>Status</th><th>Owner</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in rows %}
-        {% include "partials/submission_row.html" %}
-      {% else %}
-      <tr><td colspan="7" class="empty">No submissions match.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  {# ── Master list — the filter swap unit (see the form's hx-select). ── #}
+  <div id="sub-list">
+    <table class="mk-table sub-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Cedant</th><th>Treaty type</th><th>Inception</th>
+          <th>Year</th><th>Status</th><th>Owner</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% include "partials/submission_row.html" %}
+        {% else %}
+        <tr><td colspan="7" class="empty">No submissions match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

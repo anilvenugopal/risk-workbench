@@ -64,6 +64,9 @@ def _library_context(request: Request) -> dict:
         # Any row a worker is still moving → the table keeps polling (see
         # partials/library_table.html); all-terminal → no trigger, polling stops.
         "live": any(r.status in edm_service.TRANSIENT_STATUSES for r in rows),
+        # partials/library_table.html inputs — declared here so the page and the
+        # polled fragment cannot drift apart.
+        "list_route": "/edms", "detail_prefix": "/edms", "entity_label": "EDM",
     }
 
 
@@ -81,10 +84,8 @@ def library_table(request: Request):
     without the shell, so in-flight imports advance on the list without a reload.
     The trigger is emitted only while a row is non-terminal, so the poll stops by
     itself. No writes, no Risk Modeler call (Article 11)."""
-    return _partial(request, "partials/library_table.html", {
-        **_library_context(request),
-        "list_route": "/edms", "detail_prefix": "/edms", "entity_label": "EDM",
-    })
+    return _partial(request, "partials/library_table.html",
+                    _library_context(request))
 
 
 # ── Import form + name check (literal paths first) ───────────────────────────────

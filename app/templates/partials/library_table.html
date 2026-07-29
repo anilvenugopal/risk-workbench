@@ -1,16 +1,19 @@
 {# Shared EDM/RDM library table (US7, T059). The two library pages differ only in
-   entity type, crumb and import route, so the table lives here. The caller sets:
+   entity type, crumb and import route, so the table lives here. Every input comes
+   from the route context — `_library_context()` in edms.py / rdms.py, which serves
+   both the page and the polled fragment:
+     rows, filter_values, live
      detail_prefix  — row → detail link prefix ("/edms" | "/rdms")
      entity_label   — "EDM" | "RDM" (empty-state copy)
      list_route     — the unfiltered list route (clear-filters target)
-   `rows`, `filter_values` and `live` come from the route context.
 
    Live list (package-card / detail-body pattern): while any row is still moving
    under a worker (`live`), this wrapper polls its own render every 3s and swaps
    itself, so a pending → importing → ready row updates without a reload. The
    filters stay outside the wrapper, so a swap never disturbs what's typed; their
    current values ride along on the poll URL. The server stops emitting the trigger
-   once every row is terminal, so polling ends on its own. #}
+   once every row is terminal, so polling ends on its own. The filter form swaps
+   this same wrapper (hx-select), so filtering also keeps the fields focused. #}
 <div id="lib-live"
   {%- if live %}
   hx-get="{{ list_route }}/table?{{ {'q': filter_values.q, 'status': filter_values.status} | urlencode }}"
