@@ -18,7 +18,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/submissions/cedant-suggest?q=` | HTMX cedant autocomplete (`DISTINCT cedant_name`); returns option/list partial (FR-006/R6) |
+| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant autocomplete for the create/edit form (`DISTINCT cedant_name`); returns option/list partial (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted |
 
 ---
 

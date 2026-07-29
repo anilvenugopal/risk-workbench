@@ -159,9 +159,15 @@ def list_mine(request: Request):
 
 @router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
 def cedant_suggest(request: Request):
-    q = request.query_params.get("q", "")
+    """Datalist options for the create/edit form's CEDANT field (FR-006/R6).
+
+    htmx sends the field under its own name, so the prefix arrives as
+    ``cedant_name``; ``q`` (the name in the 002 contract) is still accepted for a
+    hand-built call."""
+    prefix = (request.query_params.get("cedant_name")
+              or request.query_params.get("q", ""))
     return _partial(request, "partials/cedant_options.html",
-                    {"suggestions": submission_service.cedant_suggestions(q)})
+                    {"suggestions": submission_service.cedant_suggestions(prefix)})
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
