@@ -23,6 +23,8 @@ the routers (contracts/data-access.md):
                              Modeler; an unreachable gateway fails OPEN with a
                              warning instead (the worker-side submit validation
                              is the backstop).
+- ``MemberNotAttachable``  — an EDM/RDM cannot be attached to (or detached from)
+                             a package (issue #22) → 422.
 
 They deliberately carry no DB or HTTP coupling — the service raises, the router
 translates.
@@ -73,6 +75,13 @@ class NameCollisionError(ServiceError):
     check reached Risk Modeler; an unreachable gateway fails open instead."""
 
 
+class MemberNotAttachable(ServiceError):
+    """Raised when an EDM/RDM cannot be attached to (or detached from) a package: it
+    does not exist, is soft-deleted, is on its way out of Risk Modeler
+    (delete_pending/deleted), already belongs to a DIFFERENT package, or — on detach —
+    is not a member of the package the request named. Mapped to HTTP 422."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -83,4 +92,5 @@ __all__ = [
     "InvalidMemberName",
     "JobSubmitError",
     "NameCollisionError",
+    "MemberNotAttachable",
 ]

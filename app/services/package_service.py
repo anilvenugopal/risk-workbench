@@ -21,8 +21,9 @@ from typing import Any, Sequence
 from sqlalchemy import text
 
 from db import execute, execute_scalar, execute_command, get_connection
-from app.services._common import _utcnow
-from app.services.errors import EmptyPackageError, InvalidMemberName
+from app.services._common import _txn, _utcnow
+from app.services.errors import (
+    EmptyPackageError, InvalidMemberName, MemberNotAttachable)
 
 # An EDM/RDM name may use only letters, digits, underscores, and hyphens, capped at
 # 50 characters. This is the ONE source of truth for the rule (review item 3): it is
@@ -32,6 +33,13 @@ from app.services.errors import EmptyPackageError, InvalidMemberName
 # always clean. Lives here because this module imports neither service (no cycle).
 _NAME_MAX = 50
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
+
+# Statuses that mean the member is already on its way out of Risk Modeler, so it must
+# not be attached or detached (issue #22). Literals rather than edm_service constants
+# because this module imports neither entity service (module docstring above), and
+# ``package_sync_service.finalize_package`` already hardcodes ``'deleted'`` in SQL.
+# Article 3 carve-out column.
+_OUTGOING = ("delete_pending", "deleted")
 
 
 def clean_member_name(name: str) -> str:
@@ -156,31 +164,65 @@ def package_member_count(package_id: Any) -> int:
 
 
 def add_member(
-    *, package_id: Any, member_id: Any, member_kind: str, actor_id: Any,
+    *, package_id: Any, member_id: Any, member_kind: str, actor_id: Any, conn=None,
 ) -> None:
-    """Set ``package_id`` on an irp_edm/irp_rdm row (FR-023)."""
+    """Set ``package_id`` on an irp_edm/irp_rdm row (FR-023). Pure bookkeeping —
+    nothing is submitted to (or removed from) Risk Modeler; the entity is untouched
+    apart from its membership FK (issue #22).
+
+    Every attachability rule lives in the UPDATE predicate, so a concurrent write
+    cannot slip between a check and the write: the row must be live, must be either
+    unattached or *already in this package*, and must not be on its way out of Risk
+    Modeler. ``rowcount == 0`` ⇒ ``MemberNotAttachable``. Idempotent on the
+    (package, member) pair — the same posture as ``attach_to_submission`` — so a
+    double-submitted picker does not report a phantom failure for a member that is
+    in fact attached. Pass ``conn`` to enlist in a caller's transaction."""
     table = _table_for_kind(member_kind)
-    execute_command(
-        f"UPDATE {table} SET package_id = :pid, updated_at = :now, "
-        f"updated_by = :by WHERE id = :mid",
-        {"pid": str(package_id), "now": _utcnow(), "by": str(actor_id),
-         "mid": str(member_id)},
-        connection="WORKBENCH",
+    params = {"pid": str(package_id), "now": _utcnow(), "by": str(actor_id),
+              "mid": str(member_id), "dp": _OUTGOING[0], "d": _OUTGOING[1]}
+    sql = (
+        f"UPDATE {table} SET package_id = :pid, updated_at = :now, updated_by = :by "
+        "WHERE id = :mid AND deleted_at IS NULL "
+        "AND (package_id IS NULL OR package_id = :pid) "
+        "AND (status IS NULL OR status NOT IN (:dp, :d))"
     )
+    with _txn(conn) as c:
+        rows = c.execute(text(sql), params).rowcount
+    if rows == 0:
+        raise MemberNotAttachable(
+            f"That {member_kind.upper()} can't be added — it may have been deleted, "
+            "already belong to another package, or be on its way out of Risk Modeler. "
+            "Reload and try again.")
 
 
 def remove_member(
     *, package_id: Any, member_id: Any, member_kind: str, actor_id: Any,
 ) -> None:
     """Clear ``package_id``. If this empties the package, soft-delete the package
-    rather than leave a zero-member bundle (R5/FR-027)."""
+    rather than leave a zero-member bundle (R5/FR-027).
+
+    Pure bookkeeping (issue #22): the entity stays in Risk Modeler and reappears in
+    the library as a standalone import — unlike the card's Delete action, which
+    removes every member from Risk Modeler. Emptying a package this way soft-deletes
+    the *package* row only; the member's own ``deleted_at`` stays NULL.
+
+    The package is bound in the WHERE clause: without it a mismatched
+    ``(package_id, member_id)`` pair would clear the member's *real* package and then
+    evaluate the emptiness check against the wrong one. ``rowcount == 0`` ⇒
+    ``MemberNotAttachable``."""
     table = _table_for_kind(member_kind)
-    execute_command(
+    rows = execute_command(
         f"UPDATE {table} SET package_id = NULL, updated_at = :now, "
-        f"updated_by = :by WHERE id = :mid",
-        {"now": _utcnow(), "by": str(actor_id), "mid": str(member_id)},
+        f"updated_by = :by WHERE id = :mid AND package_id = :pid "
+        "AND deleted_at IS NULL AND (status IS NULL OR status NOT IN (:dp, :d))",
+        {"now": _utcnow(), "by": str(actor_id), "mid": str(member_id),
+         "pid": str(package_id), "dp": _OUTGOING[0], "d": _OUTGOING[1]},
         connection="WORKBENCH",
     )
+    if rows == 0:
+        raise MemberNotAttachable(
+            f"That {member_kind.upper()} is no longer a member of this package, or is "
+            "on its way out of Risk Modeler. Reload to see where it stands.")
     if package_member_count(package_id) == 0:
         soft_delete_package(package_id=package_id, actor_id=actor_id)
 
