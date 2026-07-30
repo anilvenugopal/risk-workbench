@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 from urllib.parse import quote, urlsplit
 
 from app.config import settings
@@ -176,6 +176,45 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
     result = [_to_row(r) for r in rows]
     _attach_submissions(result)
     return result
+
+
+def list_unattached(*, name: str | None = None) -> list[EdmRow]:
+    """Live EDMs belonging to no package — the attach picker's EDM candidates
+    (issue #22), newest-first. Entities on their way out of Risk Modeler
+    (``delete_pending``/``deleted``) are excluded; ``error`` ones are **not**, because
+    attaching an errored standalone import is a legitimate way to recover it.
+
+    Deliberately *not* ``list_edms(package_id=…)``: that signature uses
+    ``package_id=None`` to mean "no filter", so it cannot express ``IS NULL``. It also
+    runs ``_attach_submissions``, which is pure waste here — an unattached EDM has no
+    package, so it has no owning submissions to look up. ``.submissions`` stays []."""
+    where = ("WHERE deleted_at IS NULL AND package_id IS NULL "
+             "AND (status IS NULL OR status NOT IN (:dp, :d))")
+    params: dict[str, Any] = {"dp": DELETE_PENDING, "d": DELETED}
+    if name:
+        where += " AND name LIKE :q"
+        params["q"] = f"%{name}%"
+    return [_to_row(r) for r in execute(
+        f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
+        params, connection="WORKBENCH")]
+
+
+def get_edms_by_ids(edm_ids: Sequence[Any]) -> list[EdmRow]:
+    """Live EDMs for an explicit id list, newest-first — the picker tray's labels
+    (issue #22), which must render a chip for a pick that is not on the current page.
+
+    One portable query with a dynamically-built ``IN`` param set, the same idiom as
+    ``package_service.submission_refs_for_packages``: the placeholder *names* are
+    generated here, every *value* is bound. Unknown or soft-deleted ids are simply
+    absent from the result — the caller decides what a missing pick means."""
+    ids = list(dict.fromkeys(str(e) for e in edm_ids if e))
+    if not ids:
+        return []
+    params = {f"e{i}": eid for i, eid in enumerate(ids)}
+    placeholders = ", ".join(f":{k}" for k in params)
+    return [_to_row(r) for r in execute(
+        f"{_ROW_SELECT} WHERE deleted_at IS NULL AND id IN ({placeholders}) "
+        "ORDER BY inserted_at DESC, name", params, connection="WORKBENCH")]
 
 
 def _attach_submissions(rows: list[EdmRow]) -> None:

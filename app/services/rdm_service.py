@@ -163,6 +163,44 @@ def list_rdms(*, package_id: Any | None = None, name: str | None = None,
     return result
 
 
+# Statuses that mean the RDM is already on its way out of Risk Modeler, so the attach
+# picker must not offer it (issue #22). Private literals rather than module constants
+# because they are deliberately absent from ``STATUSES`` — an RDM never enters a
+# ``delete_pending`` guard the way an EDM does, and ``'deleted'`` is written straight to
+# the row by the delete worker (``package_jobs`` ``_delete_package_body``), so neither is
+# an offerable library filter value. Article 3 carve-out column.
+_OUTGOING = ("delete_pending", "deleted")
+
+
+def list_unattached(*, name: str | None = None) -> list[RdmRow]:
+    """Live RDMs belonging to no package — the attach picker's RDM candidates
+    (issue #22), newest-first. Mirrors ``edm_service.list_unattached``; see there for
+    why this is not expressible as ``list_rdms(package_id=…)``."""
+    where = ("WHERE deleted_at IS NULL AND package_id IS NULL "
+             "AND (status IS NULL OR status NOT IN (:dp, :d))")
+    params: dict[str, Any] = {"dp": _OUTGOING[0], "d": _OUTGOING[1]}
+    if name:
+        where += " AND name LIKE :q"
+        params["q"] = f"%{name}%"
+    return [_to_row(r) for r in execute(
+        f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
+        params, connection="WORKBENCH")]
+
+
+def get_rdms_by_ids(rdm_ids: Sequence[Any]) -> list[RdmRow]:
+    """Live RDMs for an explicit id list, newest-first — the picker tray's labels
+    (issue #22). Mirrors ``edm_service.get_edms_by_ids``: generated placeholder names,
+    bound values, unknown ids simply absent."""
+    ids = list(dict.fromkeys(str(r) for r in rdm_ids if r))
+    if not ids:
+        return []
+    params = {f"r{i}": rid for i, rid in enumerate(ids)}
+    placeholders = ", ".join(f":{k}" for k in params)
+    return [_to_row(r) for r in execute(
+        f"{_ROW_SELECT} WHERE deleted_at IS NULL AND id IN ({placeholders}) "
+        "ORDER BY inserted_at DESC, name", params, connection="WORKBENCH")]
+
+
 def _attach_submissions(rows: list[RdmRow]) -> None:
     """Set each row's ``.submissions`` from the M:N ``submission_package`` join
     (oldest-first). One query for the whole page; standalone rows keep the default []."""
