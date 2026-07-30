@@ -85,10 +85,15 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
     ctx = _load_input(rwb_job_id)
     edm_id = ctx.get("edm_id")
-    package_id = ctx.get("package_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
         return runtime.JobResult.ok(skipped="edm missing")
+    # Live membership beats the head's input_data snapshot (issue #22): an EDM imported
+    # standalone and attached BEFORE its pending upload_edm head ran would otherwise
+    # submit with package_id=None — the import_edm irp_job carries NULL and the poller
+    # gates the upload_rdm chain on it, so the package's RDMs would silently never
+    # apply. ensure_pending_rwb_job does not rewrite input_data on a pending head.
+    package_id = edm.package_id
     if edm.status != edm_service.PENDING:
         # already submitted/imported/errored — nothing to do this run.
         return runtime.JobResult.ok(skipped=f"edm status {edm.status}")
