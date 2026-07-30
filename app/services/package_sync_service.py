@@ -36,8 +36,8 @@ from sqlalchemy import text
 from app.services import edm_service, name_check, rdm_service, rwb_job_service
 from app.services._common import _txn, _utcnow
 from app.services.errors import (
-    ConcurrencyConflict, EmptyPackageError, NameCollisionError)
-from app.services.package_service import clean_member_name
+    ConcurrencyConflict, EmptyPackageError, MemberNotAttachable, NameCollisionError)
+from app.services.package_service import add_member, clean_member_name
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
 from db import execute, execute_command, execute_one, get_connection
@@ -46,6 +46,11 @@ logger = logging.getLogger(__name__)
 
 # entity statuses that mean "in flight or done" — a re-sync leaves these alone.
 _LOCKED = ("importing", "ready")
+
+# Attach-picker page size (issue #22). One constant, one meaning: rows rendered into the
+# modal per page. The EDM library is expected to hold hundreds of entities, so the
+# unpaged picker would put every one of them in the DOM behind a 300px scroller.
+CANDIDATE_PAGE_SIZE = 20
 
 
 @dataclass
@@ -81,6 +86,51 @@ class MemberCard:
     error_detail: str | None = None
 
 
+@dataclass(frozen=True)
+class MemberCandidate:
+    """One row of the attach picker (issue #22): an EDM/RDM that already exists in the
+    workbench but belongs to no package."""
+    id: str
+    kind: str            # 'edm' | 'rdm'
+    name: str
+    status: str | None
+    source_file_path: str | None
+
+
+@dataclass(frozen=True)
+class CandidatePage:
+    """One page of attach candidates plus everything the pager needs to render itself
+    (issue #22). ``first``/``last`` are 1-based inclusive display bounds — ``0``/``0``
+    when the page is empty — so the template states "21–40 of 312" without arithmetic.
+    ``page`` is always in ``1..pages``: a stale or hand-edited ``?page=`` is clamped
+    rather than 404'd, because the candidate set shrinks under the analyst whenever
+    anyone else attaches something."""
+    rows: list[MemberCandidate]
+    total: int
+    page: int
+    pages: int
+    page_size: int
+    first: int
+    last: int
+
+
+@dataclass(frozen=True)
+class ExistingMember:
+    """A pick handed to ``save_package``: attach this already-imported entity rather
+    than creating a new one from a shared-drive file (issue #22)."""
+    kind: str            # 'edm' | 'rdm'
+    id: str
+
+
+@dataclass(frozen=True)
+class AttachResult:
+    """Outcome of an attach batch (issue #22) — deliberately partial. ``skipped`` holds
+    display names, not ids, because it is rendered straight into a banner the analyst
+    reads."""
+    attached: int
+    skipped: list[str]
+
+
 @dataclass
 class PackageCard:
     """Per-package card data for the submission detail. Basic in US3 (members + their
@@ -102,17 +152,87 @@ def _live_members(package_id: str, table: str) -> list[dict]:
         {"p": package_id}, connection="WORKBENCH")]
 
 
+def _to_candidate(row: Any, kind: str) -> MemberCandidate:
+    return MemberCandidate(id=str(row.id), kind=kind, name=row.name,
+                           status=row.status, source_file_path=row.source_file_path)
+
+
+def list_unattached_members(
+    *, name: str | None = None, page: int = 1, page_size: int = CANDIDATE_PAGE_SIZE,
+) -> CandidatePage:
+    """One page of live EDMs/RDMs with no owning package — the attach picker's candidate
+    set (issue #22). EDMs first, then RDMs, newest-first within each (the libraries' own
+    order). Entities on their way out of Risk Modeler are excluded by the queries;
+    ``error`` ones are **not** — recovering an errored standalone import by attaching it
+    is legitimate, and the picker shows every candidate's status chip.
+
+    Lives here rather than in ``package_service`` because that module deliberately
+    imports neither entity service; the ``WHERE package_id IS NULL`` reads themselves sit
+    in the services that own their tables.
+
+    **The slice is taken app-side, deliberately.** Real SQL paging needs
+    ``OFFSET/FETCH NEXT`` on SQL Server and ``LIMIT/OFFSET`` on the SQLite unit tier —
+    exactly the dialect-specific string-building ``db/config.py`` rules out — and a
+    cross-table page (EDMs then RDMs) would need a ``UNION ALL`` wrapper on top. Two
+    narrow indexed reads of a few hundred short rows cost less than that divergence
+    buys. What paging is really for here is the DOM: rendering 300 checkbox rows into a
+    modal is what actually hurts. If a library ever reaches the tens of thousands, the
+    fix is a paging helper in ``db/`` (one home for the dialect knowledge), not a
+    dialect branch in this module."""
+    page_size = max(1, page_size)
+    candidates = [_to_candidate(r, "edm") for r in edm_service.list_unattached(name=name)]
+    candidates += [_to_candidate(r, "rdm") for r in rdm_service.list_unattached(name=name)]
+    total = len(candidates)
+    pages = max(1, -(-total // page_size))          # ceil, no float rounding
+    page = min(max(1, page), pages)                  # clamp: a stale ?page= never 404s
+    start = (page - 1) * page_size
+    return CandidatePage(
+        rows=candidates[start:start + page_size], total=total, page=page, pages=pages,
+        page_size=page_size, first=start + 1 if total else 0,
+        last=min(start + page_size, total),
+    )
+
+
+def resolve_picks(
+    *, edm_ids: Sequence[Any] = (), rdm_ids: Sequence[Any] = (),
+) -> list[MemberCandidate]:
+    """The picker tray (issue #22): label every id the analyst has ticked, including
+    picks that are not on the current page or do not match the current search.
+
+    Two queries regardless of how many ids are held, so a keystroke-debounced re-render
+    does not fan out. Ids that no longer resolve — soft-deleted, or never existed — are
+    dropped rather than rendered as a chip the analyst cannot act on; the attach itself
+    is the authority on what can still be attached, and it reports skips by name."""
+    return ([_to_candidate(r, "edm") for r in edm_service.get_edms_by_ids(edm_ids)]
+            + [_to_candidate(r, "rdm") for r in rdm_service.get_rdms_by_ids(rdm_ids)])
+
+
 def save_package(
     *, package_id: Any | None, name: str | None, members: Sequence[MemberSpec],
     actor_id: Any, expected_updated_at: Any = None,
+    existing: Sequence[ExistingMember] = (),
 ) -> SaveResult:
     """Persist the package + its member entities; submit nothing (FR-013/FR-014).
     A member name that already exists in Risk Modeler raises ``NameCollisionError``
     **before any write** — a blocked save persists nothing (issue #17). Names the
     check couldn't verify (RM unreachable) fail open into
     ``SaveResult.unchecked_names``. ≥1-member invariant (``EmptyPackageError``);
-    optimistic concurrency on edit (``ConcurrencyConflict``)."""
+    optimistic concurrency on edit (``ConcurrencyConflict``).
+
+    ``existing`` attaches already-imported entities alongside (or instead of) new
+    shared-drive files (issue #22), so an attach-only package is legal — it has no names
+    to collision-check, because every pick is already in Risk Modeler under a name RM
+    itself accepted, and checking one would report it colliding with itself.
+
+    **The picks are attached inside this transaction, all-or-nothing** — unlike
+    ``attach_existing_members``, which is deliberately partial. The difference is what a
+    failure would cost: there, a stale pick must not discard the analyst's other good
+    picks; here, nothing exists yet, so an unattachable pick can roll the whole create
+    back cleanly and re-show the modal with the reason. It also keeps the ≥1-member
+    invariant absolute — the package is never visible with zero members, which is what
+    letting the create commit first and attaching afterwards would allow."""
     specs = list(members)
+    picks = list(existing)
     for spec in specs:
         spec.source_file_path = validate_selection(spec.source_file_path)  # canonical; raises InvalidSourceFile
         spec.name = clean_member_name(spec.name)                           # strips; raises InvalidMemberName
@@ -127,7 +247,7 @@ def save_package(
     now = _utcnow()
     actor = str(actor_id)
     creating = package_id is None
-    if creating and not specs:
+    if creating and not specs and not picks:
         raise EmptyPackageError("A package must have at least one member.")
 
     with get_connection("WORKBENCH") as conn:
@@ -159,12 +279,62 @@ def save_package(
                 ), {"id": str(uuid.uuid4()), "p": pid,
                     "src": spec.source_file_path,
                     "n": spec.name, "now": now, "by": actor})
+            # Attached in the SAME transaction (issue #22): an unattachable pick raises
+            # MemberNotAttachable and rolls the whole create back, so the package is
+            # never visible with zero members.
+            for pick in picks:
+                add_member(package_id=pid, member_id=pick.id,
+                           member_kind=pick.kind, actor_id=actor, conn=conn)
 
     if _member_count(pid) == 0:
         raise EmptyPackageError("A package must have at least one member.")
     logger.info("package %s %s by analyst %s (%d member(s) added)",
                 pid, "created" if creating else "updated", actor, len(specs))
     return SaveResult(package_id=pid, unchecked_names=unchecked)
+
+
+def attach_existing_members(
+    *, package_id: Any, picks: Sequence[ExistingMember], actor_id: Any,
+) -> AttachResult:
+    """Attach already-imported EDMs/RDMs to an existing package (issue #22). Pure
+    bookkeeping: **nothing is submitted to Risk Modeler** and no name-collision check
+    runs — the entity is already in RM under a name RM itself accepted, so re-checking it
+    would report a collision with itself. The analyst's separate Save & Sync click is
+    what applies the package's RDMs to its EDMs (Article 5).
+
+    **Each pick is attached independently, and a failure is a skip rather than an
+    abort.** One transaction around the batch would mean a single stale pick — something
+    another analyst attached seconds ago — discarding every good pick alongside it, and
+    the analyst re-picking twenty candidates from scratch. So the return value is a
+    partial result: ``attached`` counts what landed, ``skipped`` names what did not, and
+    the router renders both (a 200 with a banner, never a 422 — htmx drops non-2xx
+    bodies). Names are resolved up front, because a pick that fails to attach still has
+    to be nameable in the message.
+
+    Idempotent by way of ``add_member``: re-attaching a member the package already owns
+    counts as attached rather than skipped, so a double-submitted picker does not report
+    a phantom failure."""
+    wanted = list(picks)
+    # Keyed case-insensitively: ids come back from the DB normalised (``_uid`` lower-cases
+    # them) while a pick carries whatever the form sent, and SQL Server compares
+    # uniqueidentifier without regard to case. Without this a label lookup could miss and
+    # the skip banner would name a raw id instead of the entity.
+    names = {(c.kind, c.id.lower()): c.name for c in resolve_picks(
+        edm_ids=[p.id for p in wanted if p.kind == "edm"],
+        rdm_ids=[p.id for p in wanted if p.kind == "rdm"])}
+    attached, skipped = 0, []
+    for pick in wanted:
+        label = names.get((pick.kind, str(pick.id).lower()),
+                          f"{pick.kind.upper()} {pick.id}")
+        try:
+            add_member(package_id=package_id, member_id=pick.id,
+                       member_kind=pick.kind, actor_id=actor_id)
+            attached += 1
+        except MemberNotAttachable:
+            skipped.append(label)
+    logger.info("package %s attached %d existing member(s), skipped %d, by analyst %s",
+                package_id, attached, len(skipped), actor_id)
+    return AttachResult(attached=attached, skipped=skipped)
 
 
 def _check_member_names(kinds_and_names) -> tuple[list[str], list[str]]:
@@ -429,6 +599,9 @@ def get_package_cards(submission_id: Any) -> list[PackageCard]:
 
 __all__ = [
     "MemberSpec", "SaveResult", "MemberCard", "PackageCard",
+    "MemberCandidate", "CandidatePage", "ExistingMember", "AttachResult",
+    "CANDIDATE_PAGE_SIZE", "list_unattached_members", "resolve_picks",
+    "attach_existing_members",
     "save_package", "save_and_sync", "delete_package", "finalize_package",
     "retry_member", "get_package_card", "get_package_cards",
 ]
