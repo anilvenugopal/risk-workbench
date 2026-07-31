@@ -18,6 +18,27 @@
       <span class="member-row__src member-row__spacer" title="{{ member.source_file_path }}">
         {{ member.source_file_path }}</span>
       {% endif %}
+      {# Remove from package (issue #22) — bookkeeping, NOT the card's Delete: the entity
+         stays in Risk Modeler and returns to the standalone library. Inline on the row,
+         reusing the create modal's ✕ affordance.
+         Two deliberate details:
+           • preventDefault, because opening the row is <summary>'s DEFAULT ACTION, not a
+             bubbling listener — stopPropagation alone would not stop the toggle. That
+             also rules out a nested <form method="post">, so this is the one card action
+             without a no-JS fallback (hx-post + hx-vals instead).
+           • suppressed for a member already on its way out of Risk Modeler:
+             remove_member's UPDATE predicate would refuse it, and a control guaranteed
+             to 422 is worse than no control. #}
+      {% if is_active and not card.deleted_at
+            and member.status not in ['delete_pending', 'deleted'] %}
+      {%- set only_live = (card.edms | length) + (card.rdms | length) == 1 -%}
+      <button class="member-row__x" type="button" onclick="event.preventDefault()"
+              title="Remove from package — the {{ member.kind|upper }} stays in Risk Modeler"
+              hx-post="/packages/{{ card.id }}/members/{{ member.id }}/remove"
+              hx-vals='{"csrf_token": "{{ generate_csrf_token() }}", "member_kind": "{{ member.kind }}"}'
+              hx-target="#package-card-{{ card.id }}" hx-swap="outerHTML"
+              hx-confirm="{% if only_live %}This is the only member — removing it also deletes this package. Nothing is removed from Risk Modeler. Continue?{% else %}Remove {{ member.name }} from this package? It stays in Risk Modeler and returns to the standalone library — anything already applied to it is not undone.{% endif %}">&#10005;</button>
+      {% endif %}
     </div>
   </summary>
   <dl class="member-detail">

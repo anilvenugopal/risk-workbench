@@ -1,0 +1,66 @@
+{# "Add an existing EDM or RDM" modal (issue #22) — attach entities that are already in
+   Risk Modeler to this package, without re-importing them.
+
+   The search field sits OUTSIDE #member-picker on purpose: the picker is the swap
+   target, so a field inside it would be replaced mid-typing and lose focus. Same reason
+   edm_library.html keeps its filter form outside #lib-live, and the same control —
+   .filters + .wf-field__input, debounced 300ms. Two departures from the library: no
+   hx-push-url (a modal has no URL of its own) and no status filter (the candidate set is
+   small and every row already carries its chip). #}
+<div class="modal" id="package-modal" x-data="memberPicker"
+     @change="recount()" @htmx:after-swap="onSwap()">
+  {% if readonly %}
+  <div class="modal__panel">
+    <div class="form-banner form-banner--readonly">
+      This package is read-only — its submission is closed, or the package has been
+      deleted. Reopen the submission to make changes.
+    </div>
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+    </div>
+  </div>
+  {% else %}
+  {# On success the card swaps in and the modal removes itself. A PARTIAL attach is also
+     a success (200 + a banner on the card naming what was skipped) — htmx drops non-2xx
+     bodies, so a 422 would leave this modal open over a stale candidate list, inviting a
+     re-submit. Same reasoning as packages.py's save(). #}
+  <form class="modal__panel" method="post"
+        action="/packages/{{ package_id }}/members"
+        hx-post="/packages/{{ package_id }}/members"
+        hx-target="#package-card-{{ package_id }}" hx-swap="outerHTML"
+        @htmx:after-request="if ($event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <h2 class="modal__title">Add an existing EDM or RDM</h2>
+    <p class="modal__lede">
+      They stay in Risk Modeler exactly as imported — attaching only records that they
+      belong to this package. Anything already applied to them is untouched.
+    </p>
+
+    {% if total_unfiltered %}
+    <div class="filters member-picker__filters">
+      <label style="flex: 1;">Search
+        <input class="wf-field__input" type="text" id="picker-q" name="q" placeholder="name…"
+               value="{{ q }}" autocomplete="off"
+               hx-get="{{ candidates_url }}" hx-trigger="input delay:300ms"
+               hx-include="#member-picker" hx-vals='{"page": "1"}'
+               hx-target="#member-picker" hx-swap="outerHTML">
+      </label>
+    </div>
+    {% endif %}
+
+    {% include "partials/member_picker.html" %}
+
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+      <span class="spacer"></span>
+      {# The count is on the button so the number is confirmed before the click, not
+         after. This button sits OUTSIDE #member-picker, so it is the one thing a swap
+         cannot refresh — hence the Alpine count (see memberPicker in app.js). Rendered
+         server-side too, so the first paint and the no-JS case are both correct. #}
+      <button class="btn-sm btn-sm--primary" type="submit"
+              {% if not picked %}disabled{% endif %} :disabled="picks === 0">
+        Add <span x-text="picks || ''">{{ picked | length or '' }}</span> to package</button>
+    </div>
+  </form>
+  {% endif %}
+</div>

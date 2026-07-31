@@ -1,0 +1,129 @@
+{# Attach-picker body (issue #22) — the swap unit for search, paging, and ticking.
+   THREE parts: the selected tray, the paged candidate list, the pager.
+
+   ── How the selection survives search and paging ──────────────────────────────
+   The tray is the selection; the candidate list is only a way to add to it. Every pick
+   gets a chip, but a chip emits its hidden existing_*_ids input ONLY when its row is not
+   on the current page. That split is what makes both directions work:
+
+     • an off-page / off-filter pick is carried by its chip's hidden input, so searching,
+       clearing the search, or paging away cannot lose it;
+     • an on-page pick is carried by its checkbox alone, so UN-ticking the box really
+       does drop it — a hidden input would resubmit the id and the tick would spring
+       back.
+
+   It also means an id is never submitted twice, so the count cannot double.
+
+   Inputs: page (CandidatePage), picked (list[MemberCandidate]), picked_ids, page_ids
+   (both sets of 'kind:id'), total_unfiltered, candidates_url, q. Rendered inside the
+   caller's <form>, so every input here submits with it.
+
+   The checkbox name carries the kind, so there is no kind:id encoding to parse and no
+   parallel-array desync — unchecked boxes simply don't submit. #}
+{%- set picked_count = picked | length -%}
+<div class="member-picker" id="member-picker">
+
+  {# ── selected tray ──────────────────────────────────────────────────────────
+     Rendered even at zero, holding its place: a region that pops into existence on the
+     first tick shifts the list under the cursor mid-click. Skipped entirely only when
+     the library has nothing to offer at all. #}
+  {% if total_unfiltered %}
+  <div class="picker-tray" id="picker-tray">
+    <div class="picker-tray__head">
+      Selected <span class="picker-tray__n">{{ picked_count }}</span>
+      {% if picked_count %}
+      {# Clearing sends no ids at all — no hx-include, so nothing has to be un-ticked
+         client-side; the re-render simply comes back empty. #}
+      <button type="button" class="picker-tray__clear"
+              hx-get="{{ candidates_url }}" hx-vals='{"page": "1"}'
+              hx-include="#picker-q"
+              hx-target="#member-picker" hx-swap="outerHTML">Clear all</button>
+      {% endif %}
+    </div>
+    {% if picked_count %}
+    <div class="picker-tray__chips">
+      {% for pick in picked %}
+      <span class="picker-chip">
+        {% if (pick.kind ~ ':' ~ pick.id) not in page_ids %}
+        <input type="hidden" name="existing_{{ pick.kind }}_ids" value="{{ pick.id }}">
+        {% endif %}
+        <span class="picker-chip__kind">{{ pick.kind|upper }}</span>
+        <span class="picker-chip__name" title="{{ pick.name }}">{{ pick.name }}</span>
+        {# Unpicking re-renders the WHOLE picker, not just the tray: this pick's row may
+           be on screen and has to lose its tick. The id to drop rides in hx-vals, so the
+           server excludes it whichever input carried it. #}
+        <button type="button" class="picker-chip__x"
+                title="Remove {{ pick.name }} from the selection"
+                hx-get="{{ candidates_url }}"
+                hx-vals='{"drop": "{{ pick.kind }}:{{ pick.id }}", "page": "{{ page.page }}"}'
+                hx-include="#member-picker, #picker-q"
+                hx-target="#member-picker" hx-swap="outerHTML">&#10005;</button>
+      </span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="picker-tray__empty">Nothing picked yet — tick a candidate below.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── candidate list ─────────────────────────────────────────────────────────
+     A tick re-renders ONLY #picker-tray (hx-select), so the list's scroll position and
+     every other box are left untouched — a full swap here would fight the analyst. #}
+  {% if page.rows %}
+  <div class="member-picker__list"
+       hx-get="{{ candidates_url }}" hx-trigger="change"
+       hx-include="#member-picker, #picker-q"
+       hx-vals='{"page": "{{ page.page }}"}'
+       hx-target="#picker-tray" hx-select="#picker-tray" hx-swap="outerHTML">
+    {% for c in page.rows %}
+    {%- set is_picked = (c.kind ~ ':' ~ c.id) in picked_ids -%}
+    <div class="member-picker__row{% if is_picked %} member-picker__row--picked{% endif %}">
+      <label>
+        <input type="checkbox" name="existing_{{ c.kind }}_ids" value="{{ c.id }}"
+               {% if is_picked %}checked{% endif %}>
+        <span class="member-row__kind">{{ c.kind|upper }}</span>
+        <span class="member-picker__name" title="{{ c.name }}">{{ c.name }}</span>
+        <span class="status-chip status-chip--{{ (c.status or 'unknown')|lower|replace(' ', '-') }}">
+          {{ c.status or 'unknown' }}</span>
+        {% if c.source_file_path %}
+        <span class="member-picker__src" title="{{ c.source_file_path }}">{{ c.source_file_path }}</span>
+        {% endif %}
+      </label>
+    </div>
+    {% endfor %}
+  </div>
+  {% elif q %}
+  <div class="member-picker__empty">
+    No standalone EDM or RDM matches “{{ q }}”.
+    {% if total_unfiltered %}Clear the search to see all {{ total_unfiltered }}.{% endif %}
+  </div>
+  {% else %}
+  <div class="member-picker__empty">
+    No standalone EDMs or RDMs — every imported entity already belongs to a package.
+    Import one from the EDM or RDM library first.
+  </div>
+  {% endif %}
+
+  {# ── pager ──────────────────────────────────────────────────────────────────
+     Only when there is more than one page. The range says "of N matching" under a search
+     so a filtered count is never read as the library's true size. #}
+  {% if page.pages > 1 %}
+  <div class="pager">
+    <span class="pager__range">
+      {{ page.first }}–{{ page.last }} of {{ page.total }}{% if q %} matching “{{ q }}”{% endif %}</span>
+    <span class="pager__spacer"></span>
+    <button type="button" class="pager__btn"
+            {% if page.page <= 1 %}disabled{% endif %}
+            hx-get="{{ candidates_url }}" hx-vals='{"page": "{{ page.page - 1 }}"}'
+            hx-include="#member-picker, #picker-q"
+            hx-target="#member-picker" hx-swap="outerHTML">&lsaquo; Prev</button>
+    <span class="pager__page">Page {{ page.page }} / {{ page.pages }}</span>
+    <button type="button" class="pager__btn"
+            {% if page.page >= page.pages %}disabled{% endif %}
+            hx-get="{{ candidates_url }}" hx-vals='{"page": "{{ page.page + 1 }}"}'
+            hx-include="#member-picker, #picker-q"
+            hx-target="#member-picker" hx-swap="outerHTML">Next &rsaquo;</button>
+  </div>
+  {% endif %}
+</div>

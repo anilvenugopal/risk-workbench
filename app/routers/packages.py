@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
@@ -24,7 +24,7 @@ from app.services import name_check, package_service
 from app.services import package_sync_service as sync
 from app.services.errors import (
     ConcurrencyConflict, EmptyPackageError, InvalidMemberName,
-    InvalidSourceFile, NameCollisionError)
+    InvalidSourceFile, MemberNotAttachable, NameCollisionError)
 from db import execute_scalar
 
 router = APIRouter()
@@ -42,12 +42,17 @@ def _partial(request: Request, template: str, ctx: dict, status_code: int = 200)
 
 
 def _card_partial(request: Request, package_id: str, status_code: int = 200,
-                  error: str | None = None):
+                  error: str | None = None, notice: str | None = None):
     # `error` renders a .form-banner--error inside the card so the global toast
     # scraper surfaces the specific reason (HTMX drops non-2xx bodies otherwise).
+    # `notice` is the neutral counterpart (plain .form-banner) for an action that
+    # SUCCEEDED but whose consequence needs stating — e.g. an attach submitted nothing
+    # to Risk Modeler (issue #22). Deliberately not the error variant: the toast scraper
+    # picks that up, and a success would read as a failure.
     card = sync.get_package_card(package_id, with_counts=True)
     return _partial(request, "partials/package_card.html",
-                    {"card": card, "is_active": True, "error": error},
+                    {"card": card, "is_active": True, "error": error,
+                     "notice": notice},
                     status_code=status_code)
 
 
@@ -110,6 +115,18 @@ def _parse_members(kinds, names, paths) -> list[sync.MemberSpec]:
 
 # ── Modal ─────────────────────────────────────────────────────────────────────
 
+def _new_modal_context(submission_id: str, **extra) -> dict:
+    """Create-modal context. ``candidates_url`` wires the attach disclosure (issue #22) —
+    a URL, not data: the candidate list loads only when the analyst opens the disclosure,
+    and reports its own empty state from there.
+
+    Deliberately NO candidate count here. Counting would put a DB read on every render of
+    this modal including the 422 error re-renders, which otherwise need none — the price
+    of a nicer summary line is not worth a new dependency on an error path."""
+    return {"submission_id": submission_id, "closed": False,
+            "candidates_url": _candidates_url(None), **extra}
+
+
 @router.get("/submissions/{submission_id}/packages/new", response_class=HTMLResponse)
 def new_modal(request: Request, submission_id: str):
     if not _submission_active(submission_id):
@@ -117,7 +134,180 @@ def new_modal(request: Request, submission_id: str):
                         {"submission_id": submission_id, "closed": True},
                         status_code=409)
     return _partial(request, "partials/package_modal.html",
-                    {"submission_id": submission_id, "closed": False})
+                    _new_modal_context(submission_id))
+
+
+# ── Attach an existing EDM/RDM (issue #22) ────────────────────────────────────
+
+def _picks(edm_ids, rdm_ids, *, drop: str = "") -> list[sync.ExistingMember]:
+    """Turn the picker's two id lists into ordered, de-duplicated picks.
+
+    De-duplication is load-bearing, not defensive: the tick request includes the whole
+    picker, so an id could arrive from both a tray chip and a checked row. The template
+    is built so that cannot happen (a chip emits its hidden input only when its row is
+    off-page), but the count and the attach tally must not depend on that template detail
+    holding — a duplicate would silently report attaching two members when there is one.
+
+    ``drop`` is the ``kind:id`` a chip's ✕ asked to remove; it is excluded here rather
+    than client-side, so the removal works whichever input carried the id."""
+    picks: list[sync.ExistingMember] = []
+    seen: set[tuple[str, str]] = set()
+    for kind, ids in (("edm", edm_ids), ("rdm", rdm_ids)):
+        for raw in ids:
+            mid = (raw or "").strip()
+            if not mid or (kind, mid) in seen or f"{kind}:{mid}" == drop:
+                continue
+            seen.add((kind, mid))
+            picks.append(sync.ExistingMember(kind=kind, id=mid))
+    return picks
+
+
+def _candidates_url(package_id: str | None) -> str:
+    """Where the picker re-renders itself from. The New-package modal has no package yet,
+    so it uses the package-less variant — the candidate set does not depend on the
+    package either way (it is every entity attached to *no* package)."""
+    return (f"/packages/{package_id}/members/candidates" if package_id
+            else "/packages/members/candidates")
+
+
+def _picker_context(picks, *, package_id: str | None, q: str, page: int) -> dict:
+    """Everything ``partials/member_picker.html`` needs. ``total_unfiltered`` is a second,
+    unfiltered read used only to tell "your search matched nothing" apart from "there is
+    nothing to attach" — two states that must not share one message. It is skipped when
+    no search is active, where the filtered total already is the unfiltered one."""
+    candidates = sync.list_unattached_members(name=q or None, page=page)
+    picked = sync.resolve_picks(
+        edm_ids=[p.id for p in picks if p.kind == "edm"],
+        rdm_ids=[p.id for p in picks if p.kind == "rdm"])
+    return {
+        "page": candidates,
+        "picked": picked,
+        "picked_ids": {f"{c.kind}:{c.id}" for c in picked},
+        "page_ids": {f"{c.kind}:{c.id}" for c in candidates.rows},
+        "total_unfiltered": (sync.list_unattached_members().total if q
+                             else candidates.total),
+        "candidates_url": _candidates_url(package_id),
+        "q": q,
+        "package_id": package_id,
+    }
+
+
+@router.get("/packages/members/candidates", response_class=HTMLResponse)
+def new_package_candidates(
+    request: Request,
+    q: str = "",
+    page: int = 1,
+    drop: str = "",
+    existing_edm_ids: list[str] = Query(default=[]),
+    existing_rdm_ids: list[str] = Query(default=[]),
+):
+    """The same picker for the New-package modal, which has no package id yet. A literal
+    path, declared BEFORE ``/packages/{package_id}/...`` so the parameter route never
+    shadows it (the ordering convention in ``edms.py``)."""
+    picks = _picks(existing_edm_ids, existing_rdm_ids, drop=drop.strip())
+    return _partial(request, "partials/member_picker.html",
+                    _picker_context(picks, package_id=None, q=q.strip(),
+                                    page=max(1, page)))
+
+
+@router.get("/packages/{package_id}/members/add", response_class=HTMLResponse)
+def add_members_modal(request: Request, package_id: str):
+    """The attach modal. GET, no CSRF — it writes nothing."""
+    if not _package_actionable(package_id):
+        return _partial(request, "partials/package_members_modal.html",
+                        {"package_id": package_id, "readonly": True},
+                        status_code=409)
+    return _partial(request, "partials/package_members_modal.html",
+                    {"readonly": False,
+                     **_picker_context([], package_id=package_id, q="", page=1)})
+
+
+@router.get("/packages/{package_id}/members/candidates", response_class=HTMLResponse)
+def member_candidates(
+    request: Request,
+    package_id: str,
+    q: str = "",
+    page: int = 1,
+    drop: str = "",
+    existing_edm_ids: list[str] = Query(default=[]),
+    existing_rdm_ids: list[str] = Query(default=[]),
+):
+    """Re-render the picker for a search, a page turn, a tick, or a chip removal — one
+    endpoint for all four, differing only in what the caller targets (the whole picker,
+    or ``#picker-tray`` alone via ``hx-select``).
+
+    The current selection round-trips in the query string, which is why the tray survives
+    a filter that hides its rows. A read, so no CSRF; out-of-range pages are clamped by
+    the service rather than rejected, because the candidate set shrinks under the analyst
+    whenever anyone else attaches something."""
+    picks = _picks(existing_edm_ids, existing_rdm_ids, drop=drop.strip())
+    return _partial(request, "partials/member_picker.html",
+                    _picker_context(picks, package_id=package_id,
+                                    q=q.strip(), page=max(1, page)))
+
+
+@router.post("/packages/{package_id}/members")
+def add_members(
+    request: Request,
+    package_id: str,
+    existing_edm_ids: list[str] = Form(default=[]),
+    existing_rdm_ids: list[str] = Form(default=[]),
+    csrf_token: str = Form(...),
+):
+    """Attach the picked entities. Nothing is submitted to Risk Modeler (Article 5) —
+    the analyst's separate Save & Sync click applies the package's RDMs to its EDMs.
+
+    A partial attach returns **200 with the card**, not 422: htmx drops non-2xx bodies, so
+    a 422 would leave the modal open over a stale candidate list inviting a re-submit
+    (the same reasoning as ``save()`` above). The banner names what was skipped, which
+    matters more the more the analyst picked."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/submissions", status_code=303)
+    if not _package_actionable(package_id):
+        return _card_partial(request, package_id, status_code=409)
+    picks = _picks(existing_edm_ids, existing_rdm_ids)
+    if not picks:
+        return _card_partial(request, package_id)
+    result = sync.attach_existing_members(
+        package_id=package_id, picks=picks, actor_id=request.state.user.id)
+    note = f"Attached {result.attached} member(s)."
+    if result.skipped:
+        return _card_partial(request, package_id, error=(
+            f"{note} Skipped {', '.join(result.skipped)} — "
+            "it may have been deleted, already belong to another package, or be on its "
+            "way out of Risk Modeler."))
+    # Plain .form-banner, not --error: the toast scraper only picks up the error variant,
+    # so this reads as information rather than a failure.
+    return _card_partial(request, package_id, notice=(
+        f"{note} Nothing was submitted to Risk Modeler — click Save & Sync to apply "
+        "this package's RDMs to its EDMs."))
+
+
+@router.post("/packages/{package_id}/members/{member_id}/remove")
+def remove_member(
+    request: Request,
+    package_id: str,
+    member_id: str,
+    member_kind: str = Form("edm"),
+    csrf_token: str = Form(...),
+):
+    """Detach a member: clear its ``package_id`` and leave it in Risk Modeler, back in
+    the standalone library. **Not** the card's Delete, which removes every member FROM
+    Risk Modeler. Emptying a package this way soft-deletes the package row (R5/FR-027),
+    so the card comes back in its deleted state — which is why this returns the card
+    rather than removing the row client-side."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/submissions", status_code=303)
+    if not _package_actionable(package_id):
+        return _card_partial(request, package_id, status_code=409)
+    try:
+        package_service.remove_member(
+            package_id=package_id, member_id=member_id,
+            member_kind="rdm" if member_kind == "rdm" else "edm",
+            actor_id=request.state.user.id)
+    except MemberNotAttachable as exc:
+        return _card_partial(request, package_id, error=str(exc))
+    return _card_partial(request, package_id)
 
 
 # ── As-you-type member name check ─────────────────────────────────────────────
@@ -146,6 +336,8 @@ def save(
     member_kind: list[str] = Form(default=[]),
     member_name: list[str] = Form(default=[]),
     member_path: list[str] = Form(default=[]),
+    existing_edm_ids: list[str] = Form(default=[]),
+    existing_rdm_ids: list[str] = Form(default=[]),
     action: str = Form("save"),
     csrf_token: str = Form(...),
 ):
@@ -156,17 +348,27 @@ def save(
                         {"submission_id": submission_id, "closed": True},
                         status_code=409)
     members = _parse_members(member_kind, member_name, member_path)
+    # Already-imported picks from the modal's disclosure (issue #22). They make the
+    # package non-empty on their own, so an attach-only package is legal — it has no
+    # names to collision-check, since every pick already exists in Risk Modeler under a
+    # name RM itself accepted. The empty-package guard therefore has to consider both.
+    picks = _picks(existing_edm_ids, existing_rdm_ids)
     try:
-        result = sync.save_package(package_id=None, name=name.strip() or None,
-                                   members=members, actor_id=request.state.user.id)
+        result = sync.save_package(
+            package_id=None, name=name.strip() or None, members=members,
+            existing=picks, actor_id=request.state.user.id)
     except EmptyPackageError:
         return _partial(request, "partials/package_modal.html",
-                        {"submission_id": submission_id, "closed": False,
-                         "error": "Add at least one EDM or RDM."}, status_code=422)
-    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
+                        _new_modal_context(submission_id,
+                                           error="Add at least one EDM or RDM."),
+                        status_code=422)
+    except (InvalidSourceFile, InvalidMemberName, MemberNotAttachable,
+            NameCollisionError) as exc:
+        # MemberNotAttachable rolls the whole create back (save_package attaches picks
+        # in-transaction), so nothing was saved and re-showing the modal is honest.
         return _partial(request, "partials/package_modal.html",
-                        {"submission_id": submission_id, "closed": False,
-                         "error": str(exc)}, status_code=422)
+                        _new_modal_context(submission_id, error=str(exc)),
+                        status_code=422)
     package_service.attach_to_submission(
         submission_id=submission_id, package_id=result.package_id,
         actor_id=request.state.user.id)

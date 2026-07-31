@@ -48,6 +48,37 @@
       </div>
     </div>
 
+    {# Attach already-imported entities (issue #22) — the same picker as the card's Add
+       modal, folded away so the file-first flow is undisturbed. Ticking a candidate here
+       enables Save even with no file rows: an attach-only package has no names to
+       collision-check. Loaded on first open rather than with the modal, so the candidate
+       query is not paid by an analyst who only wants to browse the drive. #}
+    {% if candidates_url %}
+    <details class="picker-disclosure" @change="onPickChange($event)"
+             @htmx:after-swap="$nextTick(() => recountPicks())">
+      <summary>Add an existing EDM or RDM
+        <span class="browse-hint">(imported standalone, not yet in a package)</span></summary>
+      {# The search sits outside the loaded region for the same reason as the attach
+         modal: the picker is the swap target, so a field inside it would be replaced
+         mid-typing and lose focus. #}
+      <div class="filters member-picker__filters" style="margin-top: var(--space-2);">
+        <label style="flex: 1;">Search
+          <input class="wf-field__input" type="text" id="picker-q" name="q"
+                 placeholder="name…" autocomplete="off"
+                 hx-get="{{ candidates_url }}" hx-trigger="input delay:300ms"
+                 hx-include="#member-picker" hx-vals='{"page": "1"}'
+                 hx-target="#member-picker" hx-swap="outerHTML">
+        </label>
+      </div>
+      {# Loaded on first open, not with the modal, so the candidate query is not paid by
+         an analyst who only wants to browse the drive. #}
+      <div hx-get="{{ candidates_url }}" hx-trigger="load" hx-target="this"
+           hx-swap="innerHTML">
+        Loading standalone EDMs and RDMs…
+      </div>
+    </details>
+    {% endif %}
+
     <template x-if="members.length">
       <div class="auto-note">
         <b>Auto-sorted by naming convention.</b>&nbsp;Flip any row that guessed wrong.

@@ -322,11 +322,15 @@
   font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38%;
 }
-.mrow__x {
+/* Also the member row's "remove from package" ✕ (issue #22) — the same affordance and
+   the same gesture, so the selector is widened rather than the rule duplicated. */
+.mrow__x,
+.member-row__x {
   border: 0; background: transparent; color: var(--text-tertiary); cursor: pointer;
   font-size: 14px; line-height: 1; padding: 4px 6px; border-radius: var(--radius-sm);
 }
-.mrow__x:hover { background: var(--color-danger-bg); color: var(--color-danger); }
+.mrow__x:hover,
+.member-row__x:hover { background: var(--color-danger-bg); color: var(--color-danger); }
 
 /* per-row EDM/RDM segmented toggle */
 .kind-toggle { display: inline-flex; border: 1px solid var(--border-default); border-radius: var(--radius-sm); overflow: hidden; }
@@ -340,3 +344,109 @@
 /* footer: Close pushed left, Save / Save & Sync right */
 .modal__actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-5); }
 .modal__actions .spacer { flex: 1; }
+
+/* ============================================================================
+   ATTACH PICKER (issue #22) — choose an already-imported EDM/RDM and attach it to a
+   package without re-importing. Three parts, top to bottom: the selected tray, the
+   paged candidate list, the pager. Candidate rows are modelled on .drive-browse__row
+   so the shared-drive picker and this one read as the same control.
+   ============================================================================ */
+.member-picker {
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--surface-panel);
+}
+.member-picker__list { max-height: 300px; overflow-y: auto; padding: var(--space-1); }
+.member-picker__row { border-radius: var(--radius-sm); }
+.member-picker__row:hover { background: var(--surface-hover); }
+.member-picker__row label {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); cursor: pointer;
+  font-size: var(--fs-label); color: var(--text-primary);
+}
+/* an already-picked candidate is tinted, so the list and the tray never disagree */
+.member-picker__row--picked { background: var(--color-brand-faint); }
+.member-picker__row--picked:hover { background: var(--color-brand-wash); }
+.member-picker__name {
+  font-weight: var(--fw-medium); flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.member-picker__src {
+  font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary);
+  margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 40%;
+}
+.member-picker__empty { padding: var(--space-3); font-size: var(--fs-label); color: var(--text-tertiary); }
+/* the search sits OUTSIDE the swapped picker so it keeps focus between keystrokes —
+   the same reason edm_library.html keeps its filter form outside #lib-live */
+.member-picker__filters { margin-bottom: var(--space-2); }
+.member-picker__filters .wf-field__input { min-width: 0; width: 100%; }
+
+/* The selected tray — the running answer to "what have I picked?". Each chip carries its
+   own hidden input, so the SELECTION is submitted from the tray rather than from the
+   checkboxes: searching, clearing the search, or paging away cannot lose a pick. */
+.picker-tray {
+  border-bottom: 1px solid var(--border-default); background: var(--surface-recessed);
+  border-radius: var(--radius-md) var(--radius-md) 0 0; padding: var(--space-2) var(--space-3);
+}
+.picker-tray__head {
+  display: flex; align-items: baseline; gap: var(--space-2);
+  font-size: var(--fs-caption); color: var(--text-tertiary);
+  font-weight: var(--fw-semibold); letter-spacing: 0.04em; text-transform: uppercase;
+}
+.picker-tray__n { color: var(--text-primary); }
+.picker-tray__clear {
+  margin-left: auto; border: 0; background: none; color: var(--text-tertiary);
+  font-size: var(--fs-caption); cursor: pointer; text-decoration: underline;
+  padding: 0; text-transform: none; letter-spacing: 0;
+}
+.picker-tray__clear:hover { color: var(--color-danger); }
+.picker-tray__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.picker-tray__empty { font-size: var(--fs-caption); color: var(--text-tertiary); margin-top: var(--space-1); }
+.picker-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: 2px var(--space-1) 2px var(--space-2);
+  border: 1px solid var(--color-brand-border); border-radius: var(--radius-pill);
+  background: var(--color-brand-faint); color: var(--color-brand);
+  font-size: var(--fs-caption); max-width: 100%;
+}
+.picker-chip__kind { font-weight: var(--fw-bold); font-size: var(--fs-eyebrow); opacity: 0.75; }
+.picker-chip__name { font-weight: var(--fw-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-chip__x {
+  border: 0; background: none; color: var(--color-brand); cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 2px 3px; border-radius: var(--radius-pill);
+}
+.picker-chip__x:hover { background: var(--color-danger-wash); color: var(--color-danger); }
+
+/* The pager. Written as a standalone block, not scoped to .member-picker, so the EDM/RDM
+   libraries and the submission list can reuse it verbatim when they are paginated —
+   that is deliberately a separate piece of work (they poll themselves every 3s, so
+   paging and polling have to agree on which page is live). */
+.pager {
+  display: flex; align-items: center; gap: var(--space-2);
+  border-top: 1px solid var(--border-faint); padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-caption); color: var(--text-tertiary);
+}
+.pager__range { font-variant-numeric: tabular-nums; }
+.pager__spacer { flex: 1; }
+.pager__btn {
+  font-size: var(--fs-caption); padding: 3px 9px;
+  border: 1px solid var(--border-default); background: var(--surface-panel);
+  border-radius: var(--radius-sm); cursor: pointer; color: var(--text-secondary);
+}
+.pager__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pager__page { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
+/* the same picker, folded away inside the New-package modal so the file-first flow
+   is undisturbed */
+.picker-disclosure { margin-top: var(--space-4); }
+.picker-disclosure > summary {
+  cursor: pointer; font-size: var(--fs-label); font-weight: var(--fw-medium);
+  color: var(--text-secondary); padding: var(--space-2) 0;
+}
+.picker-disclosure > summary:hover { color: var(--text-primary); }
+
+/* the picker modal's one-line explanation of what attaching does and does not do */
+.modal__lede {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-3);
+  font-size: var(--fs-caption); color: var(--text-tertiary); max-width: 70ch;
+}

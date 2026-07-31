@@ -26,6 +26,12 @@
   {% if error %}
   <div class="form-banner form-banner--error">{{ error }}</div>
   {% endif %}
+  {# Neutral counterpart (issue #22): an action that succeeded but whose consequence needs
+     stating — an attach submits nothing to Risk Modeler. Plain .form-banner, NOT --error,
+     because the global toast scraper only picks up the error variant. #}
+  {% if notice %}
+  <div class="form-banner">{{ notice }}</div>
+  {% endif %}
   <div class="package-card__head">
     <h3 class="package-card__name">{{ card.name or 'Untitled package' }}
       {% if total %}
@@ -41,6 +47,15 @@
       {% endif %}
       {% if card.job_counts %}
         {% include "partials/package_job_counts.html" %}
+      {% endif %}
+      {# Attach an already-imported EDM/RDM (issue #22). Top-right, after the job-count
+         pills so it is the true corner element, and deliberately NOT in
+         .package-card__actions: adding a member is not the same class of action as
+         syncing or deleting the whole package. #}
+      {% if is_active and not card.deleted_at %}
+      <button class="btn-sm" type="button"
+              hx-get="/packages/{{ card.id }}/members/add"
+              hx-target="body" hx-swap="beforeend">+ Add existing EDM/RDM</button>
       {% endif %}
     </div>
   </div>

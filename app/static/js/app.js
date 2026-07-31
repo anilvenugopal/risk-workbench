@@ -121,8 +121,26 @@ document.addEventListener('alpine:init', () => {
     members: [],
     browseOpen: true,
     namesCleared: false,
+    picks: 0,
     get canSubmit() {
-      return this.members.length > 0 && this.namesCleared;
+      // An attach-only package is legal (issue #22): ticking an already-imported
+      // candidate is enough on its own, and it brings no name to collision-check —
+      // the entity is already in Risk Modeler under a name RM accepted. So the
+      // namesCleared gate applies only to the file rows that actually have names.
+      if (this.members.length === 0) return this.picks > 0;
+      return this.namesCleared;
+    },
+    onPickChange(e) {
+      const cb = e.target;
+      if (cb.type !== 'checkbox' || !cb.name.startsWith('existing_')) return;
+      this.recountPicks();
+    },
+    recountPicks() {
+      const picker = this.$root.querySelector('.member-picker');
+      this.picks = picker
+        ? picker.querySelectorAll('input[type="hidden"][name^="existing_"]').length
+          + picker.querySelectorAll('input[type="checkbox"][name^="existing_"]:checked').length
+        : 0;
     },
     onDriveChange(e) {
       const cb = e.target;
@@ -269,6 +287,34 @@ document.addEventListener('alpine:init', () => {
     },
     onCheckError(e) {
       if (ncFailOpen(e)) this.onSwap();
+    },
+  }));
+
+  // Attach picker (issue #22) — the ONLY client state is the pick count, and only
+  // because the submit button lives outside the swapped region: the tray, the list and
+  // the pager are all server-rendered, so nothing else needs a client mirror.
+  //
+  // The count is derived from the DOM rather than tracked incrementally, so it cannot
+  // drift from what will actually be submitted. Two sources, summed with no overlap by
+  // construction (see partials/member_picker.html): a tray chip emits a hidden input
+  // only when its row is NOT on the current page, and an on-page pick is carried by its
+  // checkbox. Recounted on every change and every swap — a page turn or a search brings
+  // back a different set of rows, and the button has to follow.
+  Alpine.data('memberPicker', () => ({
+    picks: 0,
+    init() {
+      this.recount();
+    },
+    recount() {
+      const picker = document.getElementById('member-picker');
+      if (!picker) { this.picks = 0; return; }
+      this.picks =
+        picker.querySelectorAll('input[type="hidden"][name^="existing_"]').length
+        + picker.querySelectorAll('input[type="checkbox"][name^="existing_"]:checked').length;
+    },
+    onSwap() {
+      // The tray-only swap (a tick) replaces #picker-tray, so re-read after it lands.
+      this.$nextTick(() => this.recount());
     },
   }));
 });
