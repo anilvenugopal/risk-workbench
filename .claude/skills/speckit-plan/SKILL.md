@@ -62,10 +62,10 @@ You **MUST** consider the user input before proceeding (if not empty).
 2. **Load context**: Read FEATURE_SPEC and `.specify/memory/constitution.md`. Load IMPL_PLAN template (already copied).
 
 3. **Execute plan workflow**: Follow the structure in IMPL_PLAN template to:
-   - Fill Technical Context (mark unknowns as "NEEDS CLARIFICATION")
+   - Fill Plan status, Design summary, Material changes, and Technical Context; record every unresolved or assumed technical decision as a `T-nn` row in High-risk technical decisions (status Open, Proposed, or Assumed)
    - Fill Constitution Check section from constitution
    - Evaluate gates (ERROR if violations unjustified)
-   - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
+   - Phase 0: Generate research.md (resolve all open T-nn rows and any `[NEEDS CLARIFICATION]` markers remaining in the spec)
    - Phase 1: Generate data-model.md, contracts/, quickstart.md
    - Phase 1: Update agent context by running the agent script
    - Re-evaluate Constitution Check post-design
@@ -113,16 +113,16 @@ Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, and generate
 
 ### Phase 0: Outline & Research
 
-1. **Extract unknowns from Technical Context** above:
-   - For each NEEDS CLARIFICATION → research task
-   - For each dependency → best practices task
+1. **Extract unknowns from the High-risk technical decisions table** (rows with status Open, Proposed, or Assumed) plus any `[NEEDS CLARIFICATION]` markers remaining in the spec:
+   - For each open T-nn row → research task
+   - For each new dependency → best practices task
    - For each integration → patterns task
 
 2. **Generate and dispatch research agents**:
 
    ```text
-   For each unknown in Technical Context:
-     Task: "Research {unknown} for {feature context}"
+   For each open T-nn row:
+     Task: "Research {decision} for {feature context}"
    For each technology choice:
      Task: "Find best practices for {tech} in {domain}"
    ```
@@ -132,7 +132,7 @@ Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, and generate
    - Rationale: [why chosen]
    - Alternatives considered: [what else evaluated]
 
-**Output**: research.md with all NEEDS CLARIFICATION resolved
+**Output**: research.md holding the evidence; each researched T-nn row in plan.md updated to its resolved status (rows keep their IDs)
 
 ### Phase 1: Design & Contracts
 
