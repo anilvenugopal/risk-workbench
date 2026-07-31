@@ -95,13 +95,17 @@
   </div>
   {% elif q %}
   <div class="member-picker__empty">
-    No standalone EDM or RDM matches “{{ q }}”.
+    No available EDM or RDM matches “{{ q }}”.
     {% if total_unfiltered %}Clear the search to see all {{ total_unfiltered }}.{% endif %}
   </div>
   {% else %}
+  {# Only ready entities are candidates, so "nothing to attach" covers two different
+     situations — everything is already in a package, or everything free is still
+     importing/failed. Name both rather than assert the first. #}
   <div class="member-picker__empty">
-    No standalone EDMs or RDMs — every imported entity already belongs to a package.
-    Import one from the EDM or RDM library first.
+    Nothing available to attach — an EDM or RDM can be attached once its import has
+    finished and it belongs to no other package. Import one from the EDM or RDM library,
+    or wait for an in-flight import to land.
   </div>
   {% endif %}
 

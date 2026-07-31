@@ -26,11 +26,15 @@
              bubbling listener — stopPropagation alone would not stop the toggle. That
              also rules out a nested <form method="post">, so this is the one card action
              without a no-JS fallback (hx-post + hx-vals instead).
-           • suppressed for a member already on its way out of Risk Modeler:
-             remove_member's UPDATE predicate would refuse it, and a control guaranteed
-             to 422 is worse than no control. #}
+           • suppressed for a member remove_member's UPDATE predicate would refuse — a
+             control guaranteed to 422 is worse than no control. That is one already on
+             its way out of Risk Modeler, plus one mid-import: the poller still has this
+             package's RDM applies to chain onto it. A pending_import or error member
+             stays removable on purpose (package_service._UNDETACHABLE) — it cannot be
+             re-attached until it is ready, so blocking it too would leave the card's
+             Delete, which removes every member FROM Risk Modeler, as the only way out. #}
       {% if is_active and not card.deleted_at
-            and member.status not in ['delete_pending', 'deleted'] %}
+            and member.status not in ['importing', 'delete_pending', 'deleted'] %}
       {%- set only_live = (card.edms | length) + (card.rdms | length) == 1 -%}
       <button class="member-row__x" type="button" onclick="event.preventDefault()"
               title="Remove from package — the {{ member.kind|upper }} stays in Risk Modeler"

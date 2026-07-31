@@ -76,10 +76,12 @@ class NameCollisionError(ServiceError):
 
 
 class MemberNotAttachable(ServiceError):
-    """Raised when an EDM/RDM cannot be attached to (or detached from) a package: it
-    does not exist, is soft-deleted, is on its way out of Risk Modeler
-    (delete_pending/deleted), already belongs to a DIFFERENT package, or — on detach —
-    is not a member of the package the request named. Mapped to HTTP 422."""
+    """Raised when an EDM/RDM cannot be attached to (or detached from) a package.
+    On attach: it does not exist, is soft-deleted, is not ``ready``, or already belongs
+    to a DIFFERENT package. On detach: it is not a member of the package the request
+    named, or its import is still in flight (``importing``/``delete_pending``/
+    ``deleted``). The two rules are deliberately different — see
+    ``package_service._ATTACHABLE`` / ``_UNDETACHABLE``. Mapped to HTTP 422."""
 
 
 __all__ = [

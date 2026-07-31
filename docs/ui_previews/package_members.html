@@ -300,7 +300,7 @@ h1,h2,h3{margin:0}
                   <input type="checkbox" name="existing_edm_ids" value="22">
                   <span class="member-row__kind">EDM</span>
                   <span class="member-picker__name">VANTAGE_PROPERTY_2025</span>
-                  <span class="status-chip status-chip--pending_import">pending_import</span>
+                  <span class="status-chip status-chip--ready">ready</span>
                   <span class="member-picker__src">\\share\exposure\vantage_prop_2025.bak</span>
                 </label>
               </div>
@@ -318,7 +318,7 @@ h1,h2,h3{margin:0}
                   <input type="checkbox" name="existing_edm_ids" value="24">
                   <span class="member-row__kind">EDM</span>
                   <span class="member-picker__name">WESTBRIDGE_CASUALTY_REV2</span>
-                  <span class="status-chip status-chip--error">error</span>
+                  <span class="status-chip status-chip--ready">ready</span>
                   <span class="member-picker__src">\\share\exposure\westbridge_cas_r2.bak</span>
                 </label>
               </div>
@@ -576,7 +576,7 @@ h1,h2,h3{margin:0}
               </div>
             </div>
             <div class="member-picker__empty">
-              No standalone EDM or RDM matches “zzz”. Clear the search to see all 312.
+              No available EDM or RDM matches “zzz”. Clear the search to see all 312.
             </div>
           </div>
           <div class="modal__actions">
@@ -603,8 +603,9 @@ h1,h2,h3{margin:0}
           <h2 class="modal__title">Add an existing EDM or RDM</h2>
           <div class="member-picker">
             <div class="member-picker__empty">
-              No standalone EDMs or RDMs — every imported entity already belongs to a package.
-              Import one from the EDM or RDM library first.
+              Nothing available to attach — an EDM or RDM can be attached once its import has finished
+              and it belongs to no other package. Import one from the EDM or RDM library, or wait for an
+              in-flight import to land.
             </div>
           </div>
           <div class="modal__actions">
@@ -704,9 +705,13 @@ h1,h2,h3{margin:0}
       </div>
     </div>
     <div class="tile__note">
-      A member already on its way out of Risk Modeler (<code>delete_pending</code> /
-      <code>deleted</code>) gets no ✕ at all — <code>remove_member</code>'s UPDATE predicate would refuse
-      it, and a button guaranteed to 422 is worse than no button. Clicking the ✕ does not toggle the row:
+      A member mid-import or already on its way out (<code>importing</code> /
+      <code>delete_pending</code> / <code>deleted</code>) gets no ✕ at all —
+      <code>remove_member</code>'s UPDATE predicate would refuse it, and a button guaranteed to 422 is
+      worse than no button. A <code>pending_import</code> or <code>error</code> member keeps its ✕ on
+      purpose: it cannot be re-attached until it is <code>ready</code>, so removing that control would
+      leave Delete — which removes every member <em>from</em> Risk Modeler — as its only exit.
+      Clicking the ✕ does not toggle the row:
       that needs <code>preventDefault</code>, because opening the row is <code>&lt;summary&gt;</code>'s
       default action, not a bubbling listener. Cost: it is <code>type="button"</code> +
       <code>hx-post</code> rather than a nested form, so this one control has no no-JS fallback.
@@ -804,8 +809,8 @@ h1,h2,h3{margin:0}
     <div class="tile__label">partial failure</div>
     <div class="package-card">
       <div class="form-banner form-banner--error">
-        Attached 2 member(s). Skipped TOWNSEND_MARINE_2026_Q1 — it may have been deleted, already belong
-        to another package, or be on its way out of Risk Modeler.
+        Attached 2 member(s). Skipped TOWNSEND_MARINE_2026_Q1 — only entities that finished importing
+        can be attached, and one may since have been deleted or claimed by another package.
       </div>
       <div class="package-card__head">
         <h3 class="package-card__name">Acme Re 2026
@@ -855,7 +860,7 @@ h1,h2,h3{margin:0}
           <span class="browse-hint">tick files to add them below</span>
           <details class="picker-disclosure">
             <summary>Add an existing EDM or RDM
-              <span class="browse-hint">(imported standalone, not yet in a package)</span></summary>
+              <span class="browse-hint">(already imported, not yet in a package)</span></summary>
             <div class="filters member-picker__filters" style="margin-top:var(--space-2)">
               <label style="flex:1">Search
                 <input class="wf-field__input" type="text" name="q" placeholder="name…" autocomplete="off">

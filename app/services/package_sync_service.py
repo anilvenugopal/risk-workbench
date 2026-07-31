@@ -160,11 +160,12 @@ def _to_candidate(row: Any, kind: str) -> MemberCandidate:
 def list_unattached_members(
     *, name: str | None = None, page: int = 1, page_size: int = CANDIDATE_PAGE_SIZE,
 ) -> CandidatePage:
-    """One page of live EDMs/RDMs with no owning package — the attach picker's candidate
-    set (issue #22). EDMs first, then RDMs, newest-first within each (the libraries' own
-    order). Entities on their way out of Risk Modeler are excluded by the queries;
-    ``error`` ones are **not** — recovering an errored standalone import by attaching it
-    is legitimate, and the picker shows every candidate's status chip.
+    """One page of ``ready`` EDMs/RDMs with no owning package — the attach picker's
+    candidate set (issue #22). EDMs first, then RDMs, newest-first within each (the
+    libraries' own order). Only ``ready`` entities are offered: anything still importing
+    (or failed, or on its way out of Risk Modeler) is excluded by the queries, which is
+    what keeps a later Save & Sync from applying this package's RDMs against an EDM that
+    does not exist in Risk Modeler yet. See ``edm_service.list_unattached``.
 
     Lives here rather than in ``package_service`` because that module deliberately
     imports neither entity service; the ``WHERE package_id IS NULL`` reads themselves sit

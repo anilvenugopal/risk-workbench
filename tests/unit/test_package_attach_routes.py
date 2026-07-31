@@ -135,7 +135,10 @@ def test_add_modal_with_nothing_to_attach_hides_the_search(monkeypatch):
     """"Nothing to attach" and "your search matched nothing" must not share a message,
     and an empty library offers no search box at all (there is nothing to search)."""
     r = _client(monkeypatch, candidates=[]).get("/packages/p1/members/add")
-    assert "every imported entity already belongs to a package" in r.text
+    assert "Nothing available to attach" in r.text
+    # names both reasons the set can be empty, since only ready entities are offered
+    assert "belongs to no other package" in r.text
+    assert "wait for an in-flight import to land" in r.text
     assert 'id="picker-q"' not in r.text
     assert 'id="picker-tray"' not in r.text
 
@@ -398,12 +401,22 @@ def test_card_confirm_warns_when_removing_the_only_member(monkeypatch):
     assert "returns to the standalone library" in pair.text
 
 
-def test_card_suppresses_remove_for_an_outgoing_member(monkeypatch):
-    """remove_member's UPDATE predicate would refuse a delete_pending/deleted member, so
-    rendering a control guaranteed to fail is worse than rendering none."""
-    for status in ("delete_pending", "deleted"):
+def test_card_suppresses_remove_for_an_in_flight_or_outgoing_member(monkeypatch):
+    """remove_member's UPDATE predicate would refuse these, so rendering a control
+    guaranteed to fail is worse than rendering none. ``importing`` is included because
+    the poller still has this package's RDM applies to chain onto it."""
+    for status in ("importing", "delete_pending", "deleted"):
         r = _card_with(monkeypatch, [_member(status=status)])
         assert "member-row__x" not in r.text, status
+
+
+def test_card_keeps_remove_for_an_unimported_or_failed_member(monkeypatch):
+    """The counterpart: these members cannot be re-attached until they are ``ready``, so
+    the ✕ is the only way out short of the card's Delete, which removes every member
+    FROM Risk Modeler. Suppressing it here would strand them."""
+    for status in ("pending_import", "error"):
+        r = _card_with(monkeypatch, [_member(status=status), _member(kind="rdm")])
+        assert "member-row__x" in r.text, status
 
 
 def test_deleted_package_card_offers_neither_control(monkeypatch):

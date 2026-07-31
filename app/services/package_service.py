@@ -34,12 +34,27 @@ from app.services.errors import (
 _NAME_MAX = 50
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
-# Statuses that mean the member is already on its way out of Risk Modeler, so it must
-# not be attached or detached (issue #22). Literals rather than edm_service constants
+# Attach/detach status rules (issue #22). Literals rather than edm_service constants
 # because this module imports neither entity service (module docstring above), and
 # ``package_sync_service.finalize_package`` already hardcodes ``'deleted'`` in SQL.
 # Article 3 carve-out column.
-_OUTGOING = ("delete_pending", "deleted")
+#
+# ATTACH takes ``ready`` and nothing else. An entity that is still importing has no name
+# in Risk Modeler yet, so the RDM applies a later Save & Sync submits against it would be
+# rejected — and a ``pending_import``/``error`` one would need the poller's package-gated
+# chain to wake it, which a standalone entity's ``import_edm`` job cannot do. Requiring
+# ``ready`` removes that whole class of ordering hazard instead of handling it: a ready
+# EDM takes ``sync_package``'s direct apply branch. Recovering a failed standalone import
+# is still the library's own Retry, after which it becomes attachable.
+_ATTACHABLE = "ready"
+
+# DETACH is deliberately wider than attach: a member that arrived as a package file and
+# then failed (or has not synced yet) must be removable, or the only way out is the
+# card's Delete, which removes every member FROM Risk Modeler. So ``pending_import`` and
+# ``error`` members detach fine. ``importing`` does not — its import is in flight and the
+# poller will still chain this package's RDM applies onto it when the job lands — and
+# neither do members already on their way out.
+_UNDETACHABLE = ("importing", "delete_pending", "deleted")
 
 
 def clean_member_name(name: str) -> str:
@@ -171,28 +186,28 @@ def add_member(
     apart from its membership FK (issue #22).
 
     Every attachability rule lives in the UPDATE predicate, so a concurrent write
-    cannot slip between a check and the write: the row must be live, must be either
-    unattached or *already in this package*, and must not be on its way out of Risk
-    Modeler. ``rowcount == 0`` ⇒ ``MemberNotAttachable``. Idempotent on the
+    cannot slip between a check and the write: the row must be live, must be
+    ``ready`` (see ``_ATTACHABLE``), and must be either unattached or *already in this
+    package*. ``rowcount == 0`` ⇒ ``MemberNotAttachable``. Idempotent on the
     (package, member) pair — the same posture as ``attach_to_submission`` — so a
     double-submitted picker does not report a phantom failure for a member that is
     in fact attached. Pass ``conn`` to enlist in a caller's transaction."""
     table = _table_for_kind(member_kind)
     params = {"pid": str(package_id), "now": _utcnow(), "by": str(actor_id),
-              "mid": str(member_id), "dp": _OUTGOING[0], "d": _OUTGOING[1]}
+              "mid": str(member_id), "ready": _ATTACHABLE}
     sql = (
         f"UPDATE {table} SET package_id = :pid, updated_at = :now, updated_by = :by "
         "WHERE id = :mid AND deleted_at IS NULL "
         "AND (package_id IS NULL OR package_id = :pid) "
-        "AND (status IS NULL OR status NOT IN (:dp, :d))"
+        "AND status = :ready"
     )
     with _txn(conn) as c:
         rows = c.execute(text(sql), params).rowcount
     if rows == 0:
         raise MemberNotAttachable(
-            f"That {member_kind.upper()} can't be added — it may have been deleted, "
-            "already belong to another package, or be on its way out of Risk Modeler. "
-            "Reload and try again.")
+            f"That {member_kind.upper()} can't be added — only entities that finished "
+            "importing (status ready) can be attached, and it may since have been "
+            "deleted or claimed by another package. Reload and try again.")
 
 
 def remove_member(
@@ -206,6 +221,12 @@ def remove_member(
     removes every member from Risk Modeler. Emptying a package this way soft-deletes
     the *package* row only; the member's own ``deleted_at`` stays NULL.
 
+    Wider than ``add_member`` on purpose (``_UNDETACHABLE``): a ``pending_import`` or
+    ``error`` member must be removable, since it cannot be attached back and the only
+    other way out would be the card's Delete. An ``importing`` one must not be — the
+    poller still has this package's RDM applies to chain onto it. A detached
+    ``error`` member is only re-attachable after the library's Retry lands it ``ready``.
+
     The package is bound in the WHERE clause: without it a mismatched
     ``(package_id, member_id)`` pair would clear the member's *real* package and then
     evaluate the emptiness check against the wrong one. ``rowcount == 0`` ⇒
@@ -214,15 +235,17 @@ def remove_member(
     rows = execute_command(
         f"UPDATE {table} SET package_id = NULL, updated_at = :now, "
         f"updated_by = :by WHERE id = :mid AND package_id = :pid "
-        "AND deleted_at IS NULL AND (status IS NULL OR status NOT IN (:dp, :d))",
+        "AND deleted_at IS NULL AND (status IS NULL OR status NOT IN (:imp, :dp, :d))",
         {"now": _utcnow(), "by": str(actor_id), "mid": str(member_id),
-         "pid": str(package_id), "dp": _OUTGOING[0], "d": _OUTGOING[1]},
+         "pid": str(package_id), "imp": _UNDETACHABLE[0], "dp": _UNDETACHABLE[1],
+         "d": _UNDETACHABLE[2]},
         connection="WORKBENCH",
     )
     if rows == 0:
         raise MemberNotAttachable(
-            f"That {member_kind.upper()} is no longer a member of this package, or is "
-            "on its way out of Risk Modeler. Reload to see where it stands.")
+            f"That {member_kind.upper()} can't be removed — it is no longer a member of "
+            "this package, or its import is still in flight. Reload to see where it "
+            "stands.")
     if package_member_count(package_id) == 0:
         soft_delete_package(package_id=package_id, actor_id=actor_id)
 

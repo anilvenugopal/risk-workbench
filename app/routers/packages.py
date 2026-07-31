@@ -274,8 +274,8 @@ def add_members(
     if result.skipped:
         return _card_partial(request, package_id, error=(
             f"{note} Skipped {', '.join(result.skipped)} — "
-            "it may have been deleted, already belong to another package, or be on its "
-            "way out of Risk Modeler."))
+            "only entities that finished importing can be attached, and one may since "
+            "have been deleted or claimed by another package."))
     # Plain .form-banner, not --error: the toast scraper only picks up the error variant,
     # so this reads as information rather than a failure.
     return _card_partial(request, package_id, notice=(

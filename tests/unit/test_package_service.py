@@ -5,10 +5,16 @@ Structure-only package operations on the SQLite unit tier. Covers the FR-024
 add/remove with soft-delete-on-empty, and the M:N attach (idempotent + shared
 across submissions).
 
-Issue #22 adds the attach/detach guards: ``add_member`` is idempotent on the
-(package, member) pair but refuses a member that is soft-deleted, outgoing, or
-owned by another package, and ``remove_member`` binds the package in its WHERE so
-a mismatched pair can no longer detach the member from its *real* package.
+Issue #22 adds the attach/detach guards, which are deliberately NOT symmetric:
+
+  • ``add_member`` takes ``ready`` and nothing else, on top of refusing a member that
+    is soft-deleted or owned by another package. It stays idempotent on the
+    (package, member) pair.
+  • ``remove_member`` is wider — a ``pending_import`` or ``error`` member must be able
+    to leave, or the card's Delete (which removes members FROM Risk Modeler) would be
+    the only way out. Only ``importing``/``delete_pending``/``deleted`` are refused.
+    It also binds the package in its WHERE, so a mismatched pair can no longer detach
+    the member from its *real* package.
 """
 
 from __future__ import annotations
@@ -31,17 +37,19 @@ from app.services.package_service import (
 from app.services.errors import EmptyPackageError, MemberNotAttachable
 
 
-def _edm(name="EDM"):
+def _edm(name="EDM", status="ready"):
+    """``ready`` by default: since issue #22 that is the only status ``add_member``
+    accepts, so it is what "an entity you could attach" now means."""
     mid = str(uuid.uuid4())
-    execute_command("INSERT INTO irp_edm (id, name) VALUES (:id, :n)",
-                    {"id": mid, "n": name}, connection="WORKBENCH")
+    execute_command("INSERT INTO irp_edm (id, name, status) VALUES (:id, :n, :s)",
+                    {"id": mid, "n": name, "s": status}, connection="WORKBENCH")
     return mid
 
 
-def _rdm(name="RDM"):
+def _rdm(name="RDM", status="ready"):
     mid = str(uuid.uuid4())
-    execute_command("INSERT INTO irp_rdm (id, name) VALUES (:id, :n)",
-                    {"id": mid, "n": name}, connection="WORKBENCH")
+    execute_command("INSERT INTO irp_rdm (id, name, status) VALUES (:id, :n, :s)",
+                    {"id": mid, "n": name, "s": status}, connection="WORKBENCH")
     return mid
 
 
@@ -129,16 +137,19 @@ def test_add_member_refuses_a_soft_deleted_member(iteration1_db):
         add_member(package_id=pid, member_id=gone, member_kind="edm", actor_id=a)
 
 
-@pytest.mark.parametrize("status", ["delete_pending", "deleted"])
-def test_add_member_refuses_an_outgoing_member(iteration1_db, status):
+@pytest.mark.parametrize(
+    "status", ["pending_import", "importing", "error", "delete_pending", "deleted", None])
+def test_add_member_takes_ready_and_nothing_else(iteration1_db, status):
+    """``ready`` is the whole rule (``_ATTACHABLE``). An entity that has not finished
+    importing has no name in Risk Modeler for a later Save & Sync to apply this
+    package's RDMs against, so it is refused rather than handled — including a NULL
+    status, which is not evidence of a finished import."""
     a = iteration1_db.user_a
     pid = create_package(name="P", edm_ids=[_edm()], actor_id=a)
-    leaving = _rdm("Leaving")
-    execute_command("UPDATE irp_rdm SET status = :s WHERE id = :id",
-                    {"s": status, "id": leaving}, connection="WORKBENCH")
+    not_ready = _rdm("NotReady", status=status)
     with pytest.raises(MemberNotAttachable):
-        add_member(package_id=pid, member_id=leaving, member_kind="rdm", actor_id=a)
-    assert _package_of(leaving, "irp_rdm") is None
+        add_member(package_id=pid, member_id=not_ready, member_kind="rdm", actor_id=a)
+    assert _package_of(not_ready, "irp_rdm") is None
 
 
 def test_add_member_refuses_an_unknown_member(iteration1_db):
@@ -171,6 +182,44 @@ def test_remove_member_refuses_a_non_member(iteration1_db):
     with pytest.raises(MemberNotAttachable):
         remove_member(package_id=pid, member_id=_rdm("Elsewhere"),
                       member_kind="rdm", actor_id=a)
+
+
+@pytest.mark.parametrize("status", ["pending_import", "error", None])
+def test_remove_member_lets_an_unimported_or_failed_member_leave(iteration1_db, status):
+    """Detach is deliberately wider than attach (``_UNDETACHABLE``). These members
+    cannot be re-attached until they are ``ready``, so refusing to detach them would
+    strand them: the only remaining exit would be the card's Delete, which removes
+    every member FROM Risk Modeler."""
+    a = iteration1_db.user_a
+    pid = create_package(name="P", edm_ids=[_edm(), _edm("Keeper")], actor_id=a)
+    stuck = _rdm("Stuck", status=status)
+    add_member(package_id=pid, member_id=_rdm("Ready"), member_kind="rdm", actor_id=a)
+    execute_command("UPDATE irp_rdm SET package_id = :p WHERE id = :id",
+                    {"p": pid, "id": stuck}, connection="WORKBENCH")
+
+    remove_member(package_id=pid, member_id=stuck, member_kind="rdm", actor_id=a)
+
+    assert _package_of(stuck, "irp_rdm") is None
+    row = execute_one("SELECT deleted_at FROM irp_rdm WHERE id = :id",
+                      {"id": stuck}, connection="WORKBENCH")
+    assert row["deleted_at"] is None      # unbundled, never deleted
+
+
+@pytest.mark.parametrize("status", ["importing", "delete_pending", "deleted"])
+def test_remove_member_refuses_an_in_flight_or_outgoing_member(iteration1_db, status):
+    """``importing`` is the interesting one: its import is in flight and the poller
+    will still chain this package's RDM applies onto it when the job lands, so letting
+    it leave mid-flight would apply the package's RDMs to a non-member."""
+    a = iteration1_db.user_a
+    pid = create_package(name="P", edm_ids=[_edm()], actor_id=a)
+    in_flight = _rdm("InFlight")
+    add_member(package_id=pid, member_id=in_flight, member_kind="rdm", actor_id=a)
+    execute_command("UPDATE irp_rdm SET status = :s WHERE id = :id",
+                    {"s": status, "id": in_flight}, connection="WORKBENCH")
+
+    with pytest.raises(MemberNotAttachable):
+        remove_member(package_id=pid, member_id=in_flight, member_kind="rdm", actor_id=a)
+    assert _package_of(in_flight, "irp_rdm") == pid
 
 
 def test_attach_idempotent_and_shared_across_submissions(iteration1_db):

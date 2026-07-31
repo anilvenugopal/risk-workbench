@@ -163,22 +163,13 @@ def list_rdms(*, package_id: Any | None = None, name: str | None = None,
     return result
 
 
-# Statuses that mean the RDM is already on its way out of Risk Modeler, so the attach
-# picker must not offer it (issue #22). Private literals rather than module constants
-# because they are deliberately absent from ``STATUSES`` — an RDM never enters a
-# ``delete_pending`` guard the way an EDM does, and ``'deleted'`` is written straight to
-# the row by the delete worker (``package_jobs`` ``_delete_package_body``), so neither is
-# an offerable library filter value. Article 3 carve-out column.
-_OUTGOING = ("delete_pending", "deleted")
-
-
 def list_unattached(*, name: str | None = None) -> list[RdmRow]:
-    """Live RDMs belonging to no package — the attach picker's RDM candidates
+    """``ready`` RDMs belonging to no package — the attach picker's RDM candidates
     (issue #22), newest-first. Mirrors ``edm_service.list_unattached``; see there for
-    why this is not expressible as ``list_rdms(package_id=…)``."""
-    where = ("WHERE deleted_at IS NULL AND package_id IS NULL "
-             "AND (status IS NULL OR status NOT IN (:dp, :d))")
-    params: dict[str, Any] = {"dp": _OUTGOING[0], "d": _OUTGOING[1]}
+    the ``ready``-only rule and for why this is not expressible as
+    ``list_rdms(package_id=…)``."""
+    where = ("WHERE deleted_at IS NULL AND package_id IS NULL AND status = :ready")
+    params: dict[str, Any] = {"ready": READY}
     if name:
         where += " AND name LIKE :q"
         params["q"] = f"%{name}%"

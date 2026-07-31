@@ -37,8 +37,9 @@
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <h2 class="modal__title">Add an existing EDM or RDM</h2>
     <p class="modal__lede">
-      They stay in Risk Modeler exactly as imported — attaching only records that they
-      belong to this package. Anything already applied to them is untouched.
+      Fully imported EDMs and RDMs that belong to no other package. They stay in Risk
+      Modeler exactly as imported — attaching only records that they belong to this
+      package. Anything already applied to them is untouched.
     </p>
 
     {% if total_unfiltered %}

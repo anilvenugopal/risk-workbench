@@ -11,8 +11,12 @@ consequences that make an attach actually *work*:
     the proof that attach needs no new sync logic (Article 5: the Risk Modeler
     consequence waits for the analyst's explicit Save & Sync click).
   • ``_upload_edm_body`` reads membership **live** instead of trusting the head's
-    ``input_data`` snapshot, so an EDM attached while its import head is still
-    pending does not silently lose its RDM applies.
+    ``input_data`` snapshot, so a member detached while its import head is still
+    pending does not have the package's RDMs applied to it anyway.
+
+Attach takes ``ready`` entities only; detach is wider (a ``pending_import`` or
+``error`` member must be able to leave) — see ``test_package_service`` for the
+predicates themselves.
 
 Attach and detach never touch Risk Modeler — that is the whole contract, and
 ``fake_irp.submits`` is asserted empty where it matters.
@@ -43,9 +47,11 @@ def _package(drive, actor, *, name="P", edms=(), rdms=()):
                              actor_id=actor).package_id
 
 
-def _orphan(kind, name, *, status="pending_import", inserted_at=None):
+def _orphan(kind, name, *, status="ready", inserted_at=None):
     """A standalone entity row with no owning package — what the picker offers.
     Inserted directly so the test controls ``status`` without driving a worker.
+    ``ready`` by default, because since issue #22 that is the only status the picker
+    offers and the only one ``add_member`` accepts.
     ``inserted_at`` is explicit where a test asserts on order: the reads sort
     ``inserted_at DESC, name``, so leaving it NULL silently sorts by name instead."""
     table = "irp_edm" if kind == "edm" else "irp_rdm"
@@ -66,14 +72,12 @@ def _member_ids(package_id, table):
 
 # ── the candidate read ────────────────────────────────────────────────────────────
 
-def test_list_unattached_members_excludes_attached_and_outgoing(
+def test_list_unattached_members_excludes_attached_and_soft_deleted(
         iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
     _package(drive, a, edms=[("InPkgE", "edm1.bak")], rdms=[("InPkgR", "rdm1.mdf")])
     free_edm = _orphan("edm", "FreeE")
     free_rdm = _orphan("rdm", "FreeR")
-    _orphan("edm", "LeavingE", status="delete_pending")
-    _orphan("rdm", "GoneR", status="deleted")
     soft_deleted = _orphan("edm", "SoftDeletedE")
     execute_command("UPDATE irp_edm SET deleted_at = :t WHERE id = :id",
                     {"t": "2026-01-01 00:00:00", "id": soft_deleted},
@@ -84,17 +88,30 @@ def test_list_unattached_members_excludes_attached_and_outgoing(
     assert [(c.kind, c.id) for c in page.rows] == [
         ("edm", free_edm), ("rdm", free_rdm)]   # EDMs first, then RDMs
     assert page.rows[0].name == "FreeE"
-    assert page.rows[0].status == "pending_import"
+    assert page.rows[0].status == "ready"
     assert (page.total, page.page, page.pages) == (2, 1, 1)
     assert fake_irp.submits == []               # a read, not a Risk Modeler touch
 
 
-def test_list_unattached_members_keeps_errored_candidates(
-        iteration2_db, fake_irp, drive):
-    """An errored standalone import stays offerable — attaching it is a legitimate
-    way to recover it, and the picker shows its status chip (§5e)."""
-    broken = _orphan("edm", "BrokenE", status="error")
-    assert [c.id for c in sync.list_unattached_members().rows] == [broken]
+@pytest.mark.parametrize(
+    "status", ["pending_import", "importing", "error", "delete_pending", "deleted", None])
+def test_list_unattached_members_offers_only_ready_entities(
+        iteration2_db, fake_irp, drive, status):
+    """The picker offers ``ready`` and nothing else. An entity mid-import has no name
+    in Risk Modeler yet, so a later Save & Sync would apply this package's RDMs against
+    something that does not exist there — the ordering hazard is removed by never
+    offering the candidate rather than by handling it downstream.
+
+    A failed import is recovered by the library's own Retry, which lands it ``ready``
+    and therefore attachable; it is deliberately not recoverable *by* attaching."""
+    ready = _orphan("edm", "ReadyE")
+    _orphan("edm", "NotReadyE", status=status)
+    _orphan("rdm", "NotReadyR", status=status)
+
+    page = sync.list_unattached_members()
+
+    assert [c.id for c in page.rows] == [ready]
+    assert page.total == 1
 
 
 def test_list_unattached_members_filters_by_name(iteration2_db, fake_irp, drive):
@@ -237,17 +254,21 @@ def test_attach_batch_keeps_good_picks_and_names_the_skips(
     good_rdm = _orphan("rdm", "GoodR")
     taken = next(iter(_member_ids(other, "irp_edm")))   # already in another package
     leaving = _orphan("rdm", "LeavingR", status="delete_pending")
+    # a candidate that was ready when the picker rendered and has since been superseded
+    # by a re-import — the write predicate is the authority, not the rendered list
+    in_flight = _orphan("edm", "InFlightE", status="importing")
 
     result = sync.attach_existing_members(
         package_id=pid, actor_id=a, picks=[
             sync.ExistingMember(kind="edm", id=good_edm),
             sync.ExistingMember(kind="edm", id=taken),
+            sync.ExistingMember(kind="edm", id=in_flight),
             sync.ExistingMember(kind="rdm", id=good_rdm),
             sync.ExistingMember(kind="rdm", id=leaving),
         ])
 
     assert result.attached == 2
-    assert sorted(result.skipped) == ["LeavingR", "Owned"]   # named, not id'd
+    assert sorted(result.skipped) == ["InFlightE", "LeavingR", "Owned"]  # named, not id'd
     assert _member_ids(pid, "irp_edm") >= {good_edm}
     assert _member_ids(pid, "irp_rdm") == {good_rdm}
     assert _member_ids(other, "irp_edm") == {taken}          # untouched by the skip
@@ -338,33 +359,38 @@ def test_save_and_sync_applies_package_rdms_to_a_newly_attached_ready_edm(
 
 def test_upload_edm_uses_live_membership_over_the_head_snapshot(
         iteration2_db, fake_irp, drive):
-    """Regression for the silent chain break (§1d): a standalone import enqueues its
-    ``upload_edm`` head with ``package_id: None``, and ``ensure_pending_rwb_job`` does
-    not rewrite ``input_data`` on a still-pending head. If the worker trusted that
-    snapshot the ``import_edm`` job would carry NULL, and the poller — which gates the
-    ``upload_rdm`` chain on it — would skip the applies with no error and no retry
-    that helps."""
+    """``_upload_edm_body`` reads ``edm.package_id`` at run time instead of trusting the
+    head's ``input_data`` snapshot, which ``ensure_pending_rwb_job`` does not rewrite on
+    a still-pending head.
+
+    Detach is the reachable way to desynchronise the two, now that attach takes only
+    ``ready`` entities: a package member is detached while its ``upload_edm`` head is
+    still pending, so the head still says ``package_id: P`` while the EDM says NULL. If
+    the worker trusted the snapshot the ``import_edm`` job would carry P, and the
+    poller — which chains the ``upload_rdm`` applies off exactly that column — would
+    apply the package's RDMs to an EDM that is no longer one of its members."""
     a = iteration2_db.user_a
-    edm_id = edm_service.import_edm(
-        name="E1", source_file_path=str(drive / "edm1.bak"), actor_id=a).entity_id
-    assert "\"package_id\": null" in execute_scalar(
+    pid = _package(drive, a, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
+    sync.save_and_sync(package_id=pid, actor_id=a)        # enqueues the upload_edm head
+    edm_id = next(iter(_member_ids(pid, "irp_edm")))
+    assert f'"package_id": "{pid}"' in execute_scalar(
         "SELECT input_data FROM rwb_job WHERE requestor_id = :r",
         {"r": edm_id}, connection="WORKBENCH")
 
-    pid = _package(drive, a, rdms=[("R1", "rdm1.mdf")])   # adopts the pending EDM
-    package_service.add_member(package_id=pid, member_id=edm_id,
-                               member_kind="edm", actor_id=a)
+    # the analyst removes it before the worker gets to the head
+    package_service.remove_member(package_id=pid, member_id=edm_id,
+                                  member_kind="edm", actor_id=a)
 
     package_jobs.run_pending()                            # the ORIGINAL pending head
     job = execute_one("SELECT package_id, irp_id FROM irp_job "
                       "WHERE irp_job_type='import_edm'", {}, connection="WORKBENCH")
-    assert str(job["package_id"]) == pid                  # live membership won
+    assert job["package_id"] is None                      # live membership won
 
     fake_irp.finish(str(job["irp_id"]))
     poller.poll_once()
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job "
                           "WHERE rwb_job_type='upload_rdm'", {},
-                          connection="WORKBENCH") == 1    # the chain fired
+                          connection="WORKBENCH") == 0    # no apply to a non-member
 
 
 def test_finalize_package_soft_deletes_an_attached_member_too(

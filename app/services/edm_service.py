@@ -179,18 +179,19 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
 
 
 def list_unattached(*, name: str | None = None) -> list[EdmRow]:
-    """Live EDMs belonging to no package — the attach picker's EDM candidates
-    (issue #22), newest-first. Entities on their way out of Risk Modeler
-    (``delete_pending``/``deleted``) are excluded; ``error`` ones are **not**, because
-    attaching an errored standalone import is a legitimate way to recover it.
+    """``ready`` EDMs belonging to no package — the attach picker's EDM candidates
+    (issue #22), newest-first. Only ``ready``: an entity that has not finished importing
+    has no name in Risk Modeler for a later Save & Sync to apply RDMs against, so
+    offering one would be offering an ordering hazard. A failed import is recovered by
+    the EDM library's own Retry, which makes it ``ready`` and therefore attachable —
+    ``package_service._ATTACHABLE`` carries the same rule in the write predicate.
 
     Deliberately *not* ``list_edms(package_id=…)``: that signature uses
     ``package_id=None`` to mean "no filter", so it cannot express ``IS NULL``. It also
     runs ``_attach_submissions``, which is pure waste here — an unattached EDM has no
     package, so it has no owning submissions to look up. ``.submissions`` stays []."""
-    where = ("WHERE deleted_at IS NULL AND package_id IS NULL "
-             "AND (status IS NULL OR status NOT IN (:dp, :d))")
-    params: dict[str, Any] = {"dp": DELETE_PENDING, "d": DELETED}
+    where = ("WHERE deleted_at IS NULL AND package_id IS NULL AND status = :ready")
+    params: dict[str, Any] = {"ready": READY}
     if name:
         where += " AND name LIKE :q"
         params["q"] = f"%{name}%"
