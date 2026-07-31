@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attach / detach package members · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --overlay-scrim:rgba(15,22,41,0.4);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+  --dur-fast:120ms;
+}
+
+/* ── base (preview chrome only) ───────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1100px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.eyebrow--new::after{content:" · new in rev 3";color:var(--color-info)}
+.eyebrow--ok::after{content:" · approved, unchanged";color:var(--color-positive)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.rule{border:0;border-top:1px solid var(--border-default);margin:var(--space-9) 0 0}
+.sectionhead{font-size:var(--fs-title);font-weight:var(--fw-semibold);margin-top:var(--space-6)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2);margin-bottom:var(--space-7)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.tile__note{font-size:var(--fs-caption);color:var(--text-tertiary);max-width:78ch}
+.tile__note b{color:var(--text-secondary)}
+/* the modal is position:fixed in the app — pin it in-flow here so states sit side by side */
+.preview-stage{position:relative;background:var(--overlay-scrim);border-radius:var(--radius-lg);padding:var(--space-5) var(--space-4)}
+.preview-stage .modal{position:static;inset:auto;background:none;padding:0;overflow:visible}
+.preview-stage .modal__panel{max-width:600px}
+.confirm{display:flex;gap:var(--space-2);align-items:flex-start;border:1px dashed var(--border-strong);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-3);font-size:var(--fs-caption);color:var(--text-secondary);max-width:70ch}
+.confirm b{color:var(--text-primary)}
+.ask{border-left:3px solid var(--color-info);background:var(--color-info-bg);color:var(--text-secondary);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);border-radius:0 var(--radius-sm) var(--radius-sm) 0;max-width:78ch}
+.ask b{color:var(--color-info)}
+.callout{border-left:3px solid var(--color-warning);background:var(--color-warning-bg);color:var(--color-warning);padding:var(--space-3);font-size:var(--fs-caption);border-radius:0 var(--radius-sm) var(--radius-sm) 0;max-width:82ch}
+.callout b{font-weight:var(--fw-semibold)}
+.callout code{background:rgba(0,0,0,.05);padding:0 3px;border-radius:2px}
+
+/* ============================================================================
+   REAL STYLES — copied from app/static/css/{app,components,submissions,packages}.css,
+   plus the new blocks this feature ships.
+   ============================================================================ */
+
+/* components.css — small text button */
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.btn-sm--danger:hover{border-color:var(--color-danger);color:var(--color-danger)}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+
+/* app.css — the EDM/RDM library's own search control, reused verbatim */
+.filters{display:flex;gap:18px;margin-bottom:14px}
+.filters label{font-size:var(--fs-caption);color:var(--text-tertiary);display:flex;flex-direction:column;gap:4px}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px}
+
+/* submissions.css — form banners */
+.form-banner{margin-bottom:var(--space-4);padding:var(--space-2) 14px;border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default)}
+.form-banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+.form-banner--readonly{color:var(--color-warning);background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+
+/* packages.css — card, member rows, chips, modal, create-modal member list */
+.package-card{background:var(--c-surface-1);border:1px solid var(--c-border);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-5);margin-bottom:var(--space-4);width:100%}
+.package-card__head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);margin-bottom:var(--space-3)}
+.package-card__name{font-size:1rem;font-weight:600;color:var(--text-primary);margin:0}
+.package-card__group-title{display:block;font-size:.7rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary);margin-bottom:var(--space-2)}
+.member-row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0;border-bottom:1px solid var(--c-border-faint);font-size:.85rem}
+.member-row__kind{font-size:.65rem;font-weight:700;color:var(--text-tertiary);min-width:34px}
+.member-row__name{font-weight:500;color:var(--text-primary)}
+.member-row__src{font-family:var(--font-mono);font-size:.7rem;color:var(--text-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+.member-xrow{border-bottom:1px solid var(--c-border-faint)}
+.member-xrow summary{list-style:none;cursor:pointer}
+.member-xrow summary::-webkit-details-marker{display:none}
+.member-xrow summary .member-row{border-bottom:none}
+.member-xrow summary .member-row::before{content:"▸";color:var(--text-tertiary);font-size:10px;transition:transform .15s}
+.member-xrow[open] summary .member-row::before{transform:rotate(90deg)}
+.member-row__spacer{margin-left:auto}
+.member-detail{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:var(--space-2) var(--space-4);padding:0 var(--space-2) var(--space-3) 34px}
+.member-detail dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);font-variant-numeric:tabular-nums}
+.member-agg{font-size:var(--fs-caption);color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.member-agg strong{color:var(--text-primary);font-weight:var(--fw-semibold)}
+.member-agg a,.member-detail a{color:var(--color-brand);font-weight:var(--fw-medium)}
+.member-row__name a{color:var(--color-brand);text-decoration:none}
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--pending_import,.status-chip--importing{background:var(--c-navy-050);color:var(--c-navy-600);border-color:var(--c-navy-200)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+.status-chip--error{background:var(--c-red-050);color:var(--c-red-700);border-color:var(--c-red-200)}
+.status-chip--delete_pending{background:var(--c-amber-050);color:var(--c-amber-700);border-color:var(--c-amber-200)}
+.package-card__actions{margin-top:var(--space-3);display:flex;gap:var(--space-2)}
+.tag-empty{color:var(--text-tertiary);font-size:var(--fs-label)}
+.job-counts{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.job-counts__pill{display:inline-flex;align-items:center;gap:4px;padding:2px var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-pill);background:var(--surface-recessed);color:var(--text-tertiary);font-size:var(--fs-caption);text-decoration:none}
+.job-counts__pill--active{color:var(--c-navy-600)}
+.job-counts__pill--failed{color:var(--c-red-600)}
+.job-counts__n{font-weight:700;font-size:.85rem}
+.modal{position:fixed;inset:0;background:var(--overlay-scrim);display:flex;align-items:flex-start;justify-content:center;padding:var(--space-8) var(--space-4);z-index:50;overflow-y:auto}
+.modal__panel{background:var(--c-surface-1);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:var(--space-6);width:100%;max-width:640px;margin:auto}
+.modal__title{margin:0 0 var(--space-4);font-size:1.1rem}
+.modal__actions{display:flex;align-items:center;gap:var(--space-2);margin-top:var(--space-5)}
+.modal__actions .spacer{flex:1}
+.browse-trigger{display:inline-flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-4);border:1px solid var(--border-strong);border-radius:var(--radius-md);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer}
+.browse-trigger__icon{font-size:15px}
+.browse-hint{color:var(--text-tertiary);font-size:var(--fs-caption);margin-left:var(--space-3)}
+.mlist{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);margin-top:var(--space-2)}
+.mrow__x{border:0;background:transparent;color:var(--text-tertiary);cursor:pointer;font-size:14px;line-height:1;padding:4px 6px;border-radius:var(--radius-sm)}
+.mrow__x:hover{background:var(--color-danger-bg);color:var(--color-danger)}
+
+/* ── NEW / CHANGED IN packages.css ─────────────────────────────────────────── */
+/* 1 · the candidate picker (issue #22): a selected tray, a paged candidate list, and
+      a pager. Rows are modelled on .drive-browse__row so the two pickers feel like
+      the same control. */
+.member-picker{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.member-picker__list{max-height:300px;overflow-y:auto;padding:var(--space-1)}
+.member-picker__row{border-radius:var(--radius-sm)}
+.member-picker__row:hover{background:var(--surface-hover)}
+.member-picker__row label{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);cursor:pointer;font-size:var(--fs-label);color:var(--text-primary)}
+.member-picker__row--picked{background:var(--color-brand-faint)}
+.member-picker__row--picked:hover{background:var(--color-brand-wash)}
+.member-picker__name{font-weight:var(--fw-medium);flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.member-picker__src{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary);margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%}
+.member-picker__empty{padding:var(--space-3);font-size:var(--fs-label);color:var(--text-tertiary)}
+/* the search sits OUTSIDE the swapped picker, so it keeps focus between keystrokes */
+.member-picker__filters{margin-bottom:var(--space-2)}
+.member-picker__filters .wf-field__input{min-width:0;width:100%}
+
+/* 2 · the selected tray — the running answer to "what have I picked?". Sits above the
+      list, survives search and paging because each chip carries its own hidden input. */
+.picker-tray{border-bottom:1px solid var(--border-default);background:var(--surface-recessed);border-radius:var(--radius-md) var(--radius-md) 0 0;padding:var(--space-2) var(--space-3)}
+.picker-tray__head{display:flex;align-items:baseline;gap:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.picker-tray__n{color:var(--text-primary)}
+.picker-tray__clear{margin-left:auto;border:0;background:none;color:var(--text-tertiary);font-size:var(--fs-caption);cursor:pointer;text-decoration:underline;padding:0;text-transform:none;letter-spacing:0}
+.picker-tray__clear:hover{color:var(--color-danger)}
+.picker-tray__chips{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-top:var(--space-2)}
+.picker-tray__empty{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-1)}
+.picker-chip{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-1) 2px var(--space-2);border:1px solid var(--color-brand-border);border-radius:var(--radius-pill);background:var(--color-brand-faint);color:var(--color-brand);font-size:var(--fs-caption);max-width:100%}
+.picker-chip__kind{font-weight:var(--fw-bold);font-size:var(--fs-eyebrow);opacity:.75}
+.picker-chip__name{font-weight:var(--fw-medium);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picker-chip__x{border:0;background:none;color:var(--color-brand);cursor:pointer;font-size:11px;line-height:1;padding:2px 3px;border-radius:var(--radius-pill)}
+.picker-chip__x:hover{background:var(--color-danger-wash);color:var(--color-danger)}
+
+/* 3 · the pager — one shared block, so the libraries can reuse it verbatim later */
+.pager{display:flex;align-items:center;gap:var(--space-2);border-top:1px solid var(--border-faint);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary)}
+.pager__range{font-variant-numeric:tabular-nums}
+.pager__spacer{flex:1}
+.pager__btn{font-size:var(--fs-caption);padding:3px 9px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.pager__btn:disabled{opacity:.45;cursor:not-allowed}
+.pager__page{font-variant-numeric:tabular-nums;color:var(--text-secondary)}
+
+.picker-disclosure{margin-top:var(--space-4)}
+.picker-disclosure>summary{cursor:pointer;font-size:var(--fs-label);font-weight:var(--fw-medium);color:var(--text-secondary);padding:var(--space-2) 0}
+.picker-disclosure>summary:hover{color:var(--text-primary)}
+
+/* 4 · ONE existing selector widened — .mrow__x becomes .mrow__x, .member-row__x so
+      the member row reuses the create modal's ✕ instead of duplicating the rule. */
+.member-row__x{border:0;background:transparent;color:var(--text-tertiary);cursor:pointer;font-size:14px;line-height:1;padding:4px 6px;border-radius:var(--radius-sm)}
+.member-row__x:hover{background:var(--color-danger-bg);color:var(--color-danger)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>UI PREVIEW — issue #22, Slice 1 · rev 3.</strong> Rev 3 answers the hundreds-of-EDMs
+    scenario: <b>a paged candidate list</b> and <b>a selected tray</b> that makes the running choice
+    visible and survives both search and paging. Tile 6's card (action top-right, inline ✕) is as
+    approved. Tiles marked <span style="color:var(--color-positive)">approved</span> are unchanged from
+    rev 2 — skip them.
+  </div>
+
+  <div class="hero">Attach / detach package members</div>
+  <div class="sub">
+    A standalone import is currently a permanent orphan: no package, so no submission. These two controls
+    close that, and they are deliberately <em>not</em> the same thing as Delete.
+  </div>
+
+  <div class="callout" style="margin-top:var(--space-4)">
+    <b>Scope flag on “pagination everywhere we have search”.</b> There is currently <b>no pagination
+    anywhere</b> — <code>list_edms</code>, <code>list_rdms</code> and the submission list all return the
+    full set with no <code>limit</code>/<code>offset</code>, and four places search: the EDM library, the
+    RDM library, the submissions list, and the shell's global search dropdown. This preview paginates
+    <b>the new picker only</b>, which #22 needs to be usable at all. Retrofitting the other four is
+    genuinely bigger than it looks — the libraries poll themselves every 3s, so paging and polling have
+    to agree on which page is live, and the page has to survive in the URL. I'd file that as its own
+    issue rather than smuggle it into #22; the <code>.pager</code> block below is written as one shared,
+    reusable component so that issue is markup-and-service work, not a redesign. Say the word and I'll
+    open it with the four call sites listed.
+  </div>
+
+  <hr class="rule">
+  <div class="sectionhead">New in rev 3 — the picker at scale</div>
+
+  <!-- ── 1 · the main picker state ──────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--new">1 — Search + selected tray + paged list</div>
+  <div class="tile">
+    <div class="tile__label">312 candidates · 3 picked · page 2</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Add an existing EDM or RDM</h2>
+          <p class="tile__note" style="margin:calc(-1 * var(--space-2)) 0 var(--space-3)">
+            They stay in Risk Modeler exactly as imported — attaching only records that they belong to
+            this package. Anything already applied to them is untouched.
+          </p>
+
+          <!-- search — the library's own .filters + .wf-field__input, as-you-type -->
+          <div class="filters member-picker__filters">
+            <label style="flex:1">Search
+              <input class="wf-field__input" type="text" name="q" placeholder="name…" autocomplete="off">
+            </label>
+          </div>
+
+          <div class="member-picker" id="member-picker">
+
+            <div class="picker-tray" id="picker-tray">
+              <div class="picker-tray__head">
+                Selected <span class="picker-tray__n">3</span>
+                <button type="button" class="picker-tray__clear">Clear all</button>
+              </div>
+              <div class="picker-tray__chips">
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_edm_ids" value="1">
+                  <span class="picker-chip__kind">EDM</span>
+                  <span class="picker-chip__name">ACME_RE_2026</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_edm_ids" value="2">
+                  <span class="picker-chip__kind">EDM</span>
+                  <span class="picker-chip__name">TOWNSEND_MARINE_2026_Q1</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_rdm_ids" value="3">
+                  <span class="picker-chip__kind">RDM</span>
+                  <span class="picker-chip__name">ACME_RE_2026_RESULTS</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+              </div>
+            </div>
+
+            <div class="member-picker__list">
+              <div class="member-picker__row member-picker__row--picked">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="2" checked>
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">TOWNSEND_MARINE_2026_Q1</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\townsend_q1.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="21">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">TOWNSEND_MARINE_2026_Q2</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\townsend_q2.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="22">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">VANTAGE_PROPERTY_2025</span>
+                  <span class="status-chip status-chip--pending_import">pending_import</span>
+                  <span class="member-picker__src">\\share\exposure\vantage_prop_2025.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="23">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">WESTBRIDGE_CASUALTY</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\westbridge_cas.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="24">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">WESTBRIDGE_CASUALTY_REV2</span>
+                  <span class="status-chip status-chip--error">error</span>
+                  <span class="member-picker__src">\\share\exposure\westbridge_cas_r2.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="25">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">ZENITH_GLOBAL_PROPERTY</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\zenith_global.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_rdm_ids" value="26">
+                  <span class="member-row__kind">RDM</span>
+                  <span class="member-picker__name">ZENITH_GLOBAL_RESULTS_AEP</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\results\zenith_aep.mdf</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_rdm_ids" value="27">
+                  <span class="member-row__kind">RDM</span>
+                  <span class="member-picker__name">ZENITH_GLOBAL_RESULTS_OEP</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\results\zenith_oep.mdf</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="pager">
+              <span class="pager__range">21–40 of 312</span>
+              <span class="pager__spacer"></span>
+              <button type="button" class="pager__btn">‹ Prev</button>
+              <span class="pager__page">Page 2 / 16</span>
+              <button type="button" class="pager__btn">Next ›</button>
+            </div>
+          </div>
+
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit">Add 3 to package</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      <b>The tray is the selection; the list is just a way to add to it.</b> Every pick is a chip with its
+      own <code>✕</code>, and each chip carries the hidden <code>existing_edm_ids</code> /
+      <code>existing_rdm_ids</code> input — so the selection is submitted from the tray, not from the
+      checkboxes, and cannot be lost by searching, clearing the search, or paging away. A candidate that
+      is already picked also renders its row tinted with its box checked (row 1 here), so the two views
+      never disagree.
+    </div>
+    <div class="tile__note">
+      <b>The submit button counts.</b> “Add 3 to package” rather than “Add to package” — at this scale the
+      analyst needs the number confirmed before they commit, not after.
+    </div>
+    <div class="tile__note">
+      <b>20 per page</b>, EDMs then RDMs, newest-first within each — the libraries' own order. The list
+      keeps its own scroll inside 300px so the modal never gets taller than the viewport, and the pager
+      is pinned below it.
+    </div>
+    <div class="ask">
+      <b>One call for you:</b> 20 per page, or 50? 20 keeps the box short and the scroll shallow; 50 means
+      ~6 pages instead of 16 for a 312-candidate library, at the cost of more scrolling inside the box.
+      Trivial to change either way — it is one constant.
+    </div>
+  </div>
+
+  <!-- ── 2 · mid-search, picks off-list ─────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--new">2 — Mid-search: picks that don't match are still visibly held</div>
+  <div class="tile">
+    <div class="tile__label">filtered to 2 · all 3 picks still shown in the tray</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Add an existing EDM or RDM</h2>
+          <div class="filters member-picker__filters">
+            <label style="flex:1">Search
+              <input class="wf-field__input" type="text" name="q" value="zenith" autocomplete="off">
+            </label>
+          </div>
+          <div class="member-picker" id="member-picker">
+            <div class="picker-tray" id="picker-tray">
+              <div class="picker-tray__head">
+                Selected <span class="picker-tray__n">3</span>
+                <button type="button" class="picker-tray__clear">Clear all</button>
+              </div>
+              <div class="picker-tray__chips">
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_edm_ids" value="1">
+                  <span class="picker-chip__kind">EDM</span>
+                  <span class="picker-chip__name">ACME_RE_2026</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_edm_ids" value="2">
+                  <span class="picker-chip__kind">EDM</span>
+                  <span class="picker-chip__name">TOWNSEND_MARINE_2026_Q1</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_rdm_ids" value="3">
+                  <span class="picker-chip__kind">RDM</span>
+                  <span class="picker-chip__name">ACME_RE_2026_RESULTS</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+              </div>
+            </div>
+            <div class="member-picker__list">
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="25">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">ZENITH_GLOBAL_PROPERTY</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\zenith_global.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_rdm_ids" value="26">
+                  <span class="member-row__kind">RDM</span>
+                  <span class="member-picker__name">ZENITH_GLOBAL_RESULTS_AEP</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\results\zenith_aep.mdf</span>
+                </label>
+              </div>
+            </div>
+            <div class="pager">
+              <span class="pager__range">1–2 of 2 matching “zenith”</span>
+              <span class="pager__spacer"></span>
+              <button type="button" class="pager__btn" disabled>‹ Prev</button>
+              <span class="pager__page">Page 1 / 1</span>
+              <button type="button" class="pager__btn" disabled>Next ›</button>
+            </div>
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit">Add 3 to package</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      <b>This is the scenario you named.</b> None of the three picks match “zenith”, so none appear in the
+      list — but all three are still in the tray, still counted, still submitted. Clearing the search
+      brings the rows back with their boxes ticked. The pager range says “of 2 matching” so a filtered
+      count is never mistaken for the library's true size.
+    </div>
+    <div class="tile__note">
+      <b>Mechanism, so implementation doesn't drift:</b> one endpoint,
+      <code>GET /packages/{id}/members/candidates?q=&amp;page=</code>. Search and pager
+      <code>hx-include="#member-picker"</code> and swap the whole picker, so the round-tripped selection
+      re-renders the tray and re-ticks matching rows. A checkbox <code>change</code> hits the same
+      endpoint but with <code>hx-select="#picker-tray"</code> — only the tray swaps, so the list's scroll
+      position and the other boxes are untouched. The search field stays outside
+      <code>#member-picker</code> so it keeps focus between keystrokes, the same reason
+      <code>edm_library.html</code> keeps its form outside <code>#lib-live</code>.
+    </div>
+  </div>
+
+  <!-- ── 3 · nothing picked yet ─────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--new">3 — First open: tray empty, so it says so</div>
+  <div class="tile">
+    <div class="tile__label">0 picked</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Add an existing EDM or RDM</h2>
+          <div class="filters member-picker__filters">
+            <label style="flex:1">Search
+              <input class="wf-field__input" type="text" name="q" placeholder="name…" autocomplete="off">
+            </label>
+          </div>
+          <div class="member-picker" id="member-picker">
+            <div class="picker-tray" id="picker-tray">
+              <div class="picker-tray__head">Selected <span class="picker-tray__n">0</span></div>
+              <div class="picker-tray__empty">Nothing picked yet — tick a candidate below.</div>
+            </div>
+            <div class="member-picker__list">
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_edm_ids" value="1">
+                  <span class="member-row__kind">EDM</span>
+                  <span class="member-picker__name">ACME_RE_2026</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\exposure\acme_re_2026.bak</span>
+                </label>
+              </div>
+              <div class="member-picker__row">
+                <label>
+                  <input type="checkbox" name="existing_rdm_ids" value="3">
+                  <span class="member-row__kind">RDM</span>
+                  <span class="member-picker__name">ACME_RE_2026_RESULTS</span>
+                  <span class="status-chip status-chip--ready">ready</span>
+                  <span class="member-picker__src">\\share\results\acme_re_2026_results.mdf</span>
+                </label>
+              </div>
+            </div>
+            <div class="pager">
+              <span class="pager__range">1–20 of 312</span>
+              <span class="pager__spacer"></span>
+              <button type="button" class="pager__btn" disabled>‹ Prev</button>
+              <span class="pager__page">Page 1 / 16</span>
+              <button type="button" class="pager__btn">Next ›</button>
+            </div>
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit" disabled>Add to package</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      The tray holds its place from the first render rather than appearing on the first tick — a region
+      that pops into existence shifts the list under the cursor mid-click. Submit is disabled at 0 and
+      loses its count.
+    </div>
+  </div>
+
+  <!-- ── 4 · no matches ─────────────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--new">4 — Search matches nothing (but picks are still held)</div>
+  <div class="tile">
+    <div class="tile__label">no matches · 1 picked</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Add an existing EDM or RDM</h2>
+          <div class="filters member-picker__filters">
+            <label style="flex:1">Search
+              <input class="wf-field__input" type="text" name="q" value="zzz" autocomplete="off">
+            </label>
+          </div>
+          <div class="member-picker" id="member-picker">
+            <div class="picker-tray" id="picker-tray">
+              <div class="picker-tray__head">
+                Selected <span class="picker-tray__n">1</span>
+                <button type="button" class="picker-tray__clear">Clear all</button>
+              </div>
+              <div class="picker-tray__chips">
+                <span class="picker-chip">
+                  <input type="hidden" name="existing_edm_ids" value="1">
+                  <span class="picker-chip__kind">EDM</span>
+                  <span class="picker-chip__name">ACME_RE_2026</span>
+                  <button type="button" class="picker-chip__x" title="Unpick">✕</button>
+                </span>
+              </div>
+            </div>
+            <div class="member-picker__empty">
+              No standalone EDM or RDM matches “zzz”. Clear the search to see all 312.
+            </div>
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit">Add 1 to package</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      Submit stays <b>enabled</b> — the tray has a pick, so there is something to do even though the list
+      is empty. No pager when there are no pages.
+    </div>
+  </div>
+
+  <!-- ── 5 · nothing to attach at all ───────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">5 — Nothing to attach at all</div>
+  <div class="tile">
+    <div class="tile__label">empty library</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Add an existing EDM or RDM</h2>
+          <div class="member-picker">
+            <div class="member-picker__empty">
+              No standalone EDMs or RDMs — every imported entity already belongs to a package.
+              Import one from the EDM or RDM library first.
+            </div>
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit" disabled>Add to package</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      No search box, no tray, no pager — there is nothing to search, pick, or page. They appear only when
+      the unfiltered candidate set is non-empty.
+    </div>
+  </div>
+
+  <!-- ── 6 · read-only ──────────────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">6 — Package is read-only (409)</div>
+  <div class="tile">
+    <div class="tile__label">read-only / 409</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <div class="modal__panel">
+          <div class="form-banner form-banner--readonly">
+            This package is read-only — its submission is closed, or the package has been deleted.
+            Reopen the submission to make changes.
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule">
+  <div class="sectionhead">Approved in rev 2 — carried forward unchanged</div>
+
+  <!-- ── 7 · the card ───────────────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">7 — Card: action top-right, Remove inline on the row</div>
+  <div class="tile">
+    <div class="tile__label">your pick — rev 2 tile 6</div>
+    <div class="package-card">
+      <div class="package-card__head">
+        <h3 class="package-card__name">Acme Re 2026
+          <span style="font-weight:var(--fw-regular);font-size:var(--fs-caption);color:var(--text-tertiary)">· 2/2 ready</span>
+        </h3>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <div class="job-counts">
+            <a class="job-counts__pill job-counts__pill--all" href="#"><span class="job-counts__n">6</span> all</a>
+            <a class="job-counts__pill job-counts__pill--active" href="#"><span class="job-counts__n">0</span> active</a>
+            <a class="job-counts__pill job-counts__pill--failed" href="#"><span class="job-counts__n">0</span> failed</a>
+          </div>
+          <button class="btn-sm" type="button">+ Add existing EDM/RDM</button>
+        </div>
+      </div>
+
+      <span class="package-card__group-title">EDMs · 1</span>
+      <details class="member-xrow" open>
+        <summary>
+          <div class="member-row member-row--ready">
+            <span class="member-row__kind">EDM</span>
+            <span class="member-row__name"><a href="#">ACME_RE_2026</a></span>
+            <span class="status-chip status-chip--ready">ready</span>
+            <span class="member-row__src member-row__spacer">\\share\exposure\acme_re_2026.bak</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()"
+                    title="Remove from package — the EDM stays in Risk Modeler">✕</button>
+          </div>
+        </summary>
+        <dl class="member-detail">
+          <div style="grid-column:1 / -1">
+            <dd class="member-agg" style="margin:0">
+              <strong>3</strong> portfolios · <strong>18,402</strong> locations · WS, EQ · USD, GBP ·
+              <strong>2</strong> broker analyses (2 linked) · <a href="#">Open EDM →</a>
+            </dd>
+          </div>
+        </dl>
+      </details>
+
+      <span class="package-card__group-title" style="margin-top:var(--space-3)">RDMs · 1</span>
+      <details class="member-xrow">
+        <summary>
+          <div class="member-row member-row--ready">
+            <span class="member-row__kind">RDM</span>
+            <span class="member-row__name"><a href="#">ACME_RE_2026_RESULTS</a></span>
+            <span class="status-chip status-chip--ready">ready</span>
+            <span class="member-row__src member-row__spacer">\\share\results\acme_re_2026_results.mdf</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()"
+                    title="Remove from package — the RDM stays in Risk Modeler">✕</button>
+          </div>
+        </summary>
+      </details>
+
+      <div class="package-card__actions">
+        <button class="btn-sm btn-sm--primary">Save &amp; Sync</button>
+        <button class="btn-sm btn-sm--danger">Delete</button>
+      </div>
+    </div>
+    <div class="tile__note">
+      A member already on its way out of Risk Modeler (<code>delete_pending</code> /
+      <code>deleted</code>) gets no ✕ at all — <code>remove_member</code>'s UPDATE predicate would refuse
+      it, and a button guaranteed to 422 is worse than no button. Clicking the ✕ does not toggle the row:
+      that needs <code>preventDefault</code>, because opening the row is <code>&lt;summary&gt;</code>'s
+      default action, not a bubbling listener. Cost: it is <code>type="button"</code> +
+      <code>hx-post</code> rather than a nested form, so this one control has no no-JS fallback.
+    </div>
+  </div>
+
+  <!-- ── 8 · confirms ───────────────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">8 — Remove ≠ Delete (the confirm copy carries the difference)</div>
+  <div class="tile">
+    <div class="tile__label">confirm copy</div>
+    <div class="confirm">
+      <span>🔵</span>
+      <span><b>Remove from package →</b> “Remove ACME_RE_2026 from this package? It stays in Risk Modeler
+      and returns to the standalone library — anything already applied to it is not undone.”</span>
+    </div>
+    <div class="confirm">
+      <span>🔵</span>
+      <span><b>Remove from package, only live member →</b> “This is the only member — removing it also
+      deletes this package. Nothing is removed from Risk Modeler. Continue?”</span>
+    </div>
+    <div class="confirm">
+      <span>🔴</span>
+      <span><b>Delete →</b> “Delete this package? Every member EDM/RDM is removed from Risk Modeler —
+      including any that were imported standalone and later attached. To keep one, remove it from the
+      package first.”</span>
+    </div>
+  </div>
+
+  <!-- ── 9 · attached notice ────────────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">9 — Attached (neutral notice, carries the Article 5 contract)</div>
+  <div class="tile">
+    <div class="tile__label">success notice</div>
+    <div class="package-card">
+      <div class="form-banner">
+        Attached 3 member(s). Nothing was submitted to Risk Modeler — click Save &amp; Sync to apply
+        this package's RDMs to its EDMs.
+      </div>
+      <div class="package-card__head">
+        <h3 class="package-card__name">Acme Re 2026
+          <span style="font-weight:var(--fw-regular);font-size:var(--fs-caption);color:var(--text-tertiary)">· 1/4 ready</span>
+        </h3>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <button class="btn-sm" type="button">+ Add existing EDM/RDM</button>
+        </div>
+      </div>
+      <span class="package-card__group-title">EDMs · 2</span>
+      <details class="member-xrow">
+        <summary>
+          <div class="member-row member-row--ready">
+            <span class="member-row__kind">EDM</span>
+            <span class="member-row__name"><a href="#">ACME_RE_2026</a></span>
+            <span class="status-chip status-chip--ready">ready</span>
+            <span class="member-row__src member-row__spacer">\\share\exposure\acme_re_2026.bak</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()" title="Remove from package">✕</button>
+          </div>
+        </summary>
+      </details>
+      <details class="member-xrow">
+        <summary>
+          <div class="member-row member-row--pending_import">
+            <span class="member-row__kind">EDM</span>
+            <span class="member-row__name"><a href="#">TOWNSEND_MARINE_2026_Q1</a></span>
+            <span class="status-chip status-chip--pending_import">pending_import</span>
+            <span class="member-row__src member-row__spacer">\\share\exposure\townsend_q1.bak</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()" title="Remove from package">✕</button>
+          </div>
+        </summary>
+      </details>
+      <span class="package-card__group-title" style="margin-top:var(--space-3)">RDMs · 1</span>
+      <details class="member-xrow">
+        <summary>
+          <div class="member-row member-row--pending_import">
+            <span class="member-row__kind">RDM</span>
+            <span class="member-row__name"><a href="#">ACME_RE_2026_RESULTS</a></span>
+            <span class="status-chip status-chip--pending_import">pending_import</span>
+            <span class="member-row__src member-row__spacer">\\share\results\acme_re_2026_results.mdf</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()" title="Remove from package">✕</button>
+          </div>
+        </summary>
+      </details>
+      <div class="package-card__actions">
+        <button class="btn-sm btn-sm--primary">Save &amp; Sync</button>
+        <button class="btn-sm btn-sm--danger">Delete</button>
+      </div>
+    </div>
+    <div class="tile__note">
+      Plain <code>.form-banner</code>, not <code>--error</code> — the global toast scraper only picks up
+      the error variant, so this reads as information rather than a failure.
+    </div>
+  </div>
+
+  <!-- ── 10 · skipped-member banner ─────────────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">10 — Some picks were skipped (200 + error banner, modal closed)</div>
+  <div class="tile">
+    <div class="tile__label">partial failure</div>
+    <div class="package-card">
+      <div class="form-banner form-banner--error">
+        Attached 2 member(s). Skipped TOWNSEND_MARINE_2026_Q1 — it may have been deleted, already belong
+        to another package, or be on its way out of Risk Modeler.
+      </div>
+      <div class="package-card__head">
+        <h3 class="package-card__name">Acme Re 2026
+          <span style="font-weight:var(--fw-regular);font-size:var(--fs-caption);color:var(--text-tertiary)">· 1/3 ready</span>
+        </h3>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <button class="btn-sm" type="button">+ Add existing EDM/RDM</button>
+        </div>
+      </div>
+      <span class="package-card__group-title">EDMs · 1</span>
+      <details class="member-xrow">
+        <summary>
+          <div class="member-row member-row--ready">
+            <span class="member-row__kind">EDM</span>
+            <span class="member-row__name"><a href="#">ACME_RE_2026</a></span>
+            <span class="status-chip status-chip--ready">ready</span>
+            <span class="member-row__src member-row__spacer">\\share\exposure\acme_re_2026.bak</span>
+            <button class="member-row__x" type="button" onclick="event.preventDefault()" title="Remove from package">✕</button>
+          </div>
+        </summary>
+      </details>
+      <div class="package-card__actions">
+        <button class="btn-sm btn-sm--primary">Save &amp; Sync</button>
+        <button class="btn-sm btn-sm--danger">Delete</button>
+      </div>
+    </div>
+    <div class="tile__note">
+      A partial attach returns <b>200</b> with the card, not 422 — htmx drops non-2xx bodies, so a 422
+      would leave the picker open over a stale candidate list inviting a re-submit (the same reasoning
+      already written out at <code>packages.py</code>'s <code>save()</code>). With a tray, this matters
+      more, not less: the analyst can have picked 20 things, and the banner has to name which of them
+      didn't land.
+    </div>
+  </div>
+
+  <!-- ── 11 · the create modal's disclosure ─────────────────────────────────── -->
+  <div class="eyebrow eyebrow--ok">11 — Same picker inside the New-package modal (collapsed by default)</div>
+  <div class="tile">
+    <div class="tile__label">create modal · collapsed disclosure</div>
+    <div class="preview-stage">
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">New package</h2>
+          <button class="browse-trigger" type="button">
+            <span class="browse-trigger__icon">🗂</span><span>Browse shared drive…</span>
+          </button>
+          <span class="browse-hint">tick files to add them below</span>
+          <details class="picker-disclosure">
+            <summary>Add an existing EDM or RDM
+              <span class="browse-hint">(imported standalone, not yet in a package)</span></summary>
+            <div class="filters member-picker__filters" style="margin-top:var(--space-2)">
+              <label style="flex:1">Search
+                <input class="wf-field__input" type="text" name="q" placeholder="name…" autocomplete="off">
+              </label>
+            </div>
+            <div class="member-picker">
+              <div class="picker-tray">
+                <div class="picker-tray__head">Selected <span class="picker-tray__n">0</span></div>
+                <div class="picker-tray__empty">Nothing picked yet — tick a candidate below.</div>
+              </div>
+              <div class="member-picker__list">
+                <div class="member-picker__row">
+                  <label>
+                    <input type="checkbox" name="existing_edm_ids" value="1">
+                    <span class="member-row__kind">EDM</span>
+                    <span class="member-picker__name">ACME_RE_2026</span>
+                    <span class="status-chip status-chip--ready">ready</span>
+                    <span class="member-picker__src">\\share\exposure\acme_re_2026.bak</span>
+                  </label>
+                </div>
+                <div class="member-picker__row">
+                  <label>
+                    <input type="checkbox" name="existing_rdm_ids" value="3">
+                    <span class="member-row__kind">RDM</span>
+                    <span class="member-picker__name">ACME_RE_2026_RESULTS</span>
+                    <span class="status-chip status-chip--ready">ready</span>
+                    <span class="member-picker__src">\\share\results\acme_re_2026_results.mdf</span>
+                  </label>
+                </div>
+              </div>
+              <div class="pager">
+                <span class="pager__range">1–20 of 312</span>
+                <span class="pager__spacer"></span>
+                <button type="button" class="pager__btn" disabled>‹ Prev</button>
+                <span class="pager__page">Page 1 / 16</span>
+                <button type="button" class="pager__btn">Next ›</button>
+              </div>
+            </div>
+          </details>
+          <label style="font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);display:block;margin-top:var(--space-4)">MEMBERS</label>
+          <div class="mlist" style="padding:var(--space-3)">
+            <span class="tag-empty">Open the drive browser and tick files to add them as members.</span>
+          </div>
+          <div class="modal__actions">
+            <button type="button" class="btn-sm">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm" type="submit">Save</button>
+            <button class="btn-sm btn-sm--primary" type="submit">Save &amp; Sync</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="tile__note">
+      Collapsed so the file-first flow is undisturbed. Ticking a candidate here enables <b>Save</b> even
+      with no file rows — an attach-only package has no names to collision-check. Same picker partial,
+      same endpoint, scoped to the disclosure.
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
