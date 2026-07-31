@@ -23,12 +23,17 @@
   {# On success the card swaps in and the modal removes itself. A PARTIAL attach is also
      a success (200 + a banner on the card naming what was skipped) — htmx drops non-2xx
      bodies, so a 422 would leave this modal open over a stale candidate list, inviting a
-     re-submit. Same reasoning as packages.py's save(). #}
+     re-submit. Same reasoning as packages.py's save().
+
+     `$event.target === $el` is load-bearing: htmx events BUBBLE, so without it every
+     request the picker makes — searching, ticking, a chip ✕, Clear all, a page turn —
+     reaches this handler as a successful 200 and closes the modal on the first keystroke.
+     Only the form's own submit may close it. #}
   <form class="modal__panel" method="post"
         action="/packages/{{ package_id }}/members"
         hx-post="/packages/{{ package_id }}/members"
         hx-target="#package-card-{{ package_id }}" hx-swap="outerHTML"
-        @htmx:after-request="if ($event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <h2 class="modal__title">Add an existing EDM or RDM</h2>
     <p class="modal__lede">

@@ -113,6 +113,17 @@ def test_add_modal_renders_the_picker_with_nothing_picked(monkeypatch):
     assert "disabled" in r.text                      # submit is off at zero picks
 
 
+def test_add_modal_closes_only_on_its_own_submit(monkeypatch):
+    """Regression: htmx events bubble, so an unguarded after-request handler on the form
+    closed the modal on the first search keystroke or the first tick — every picker
+    request is a successful 200 that reaches the form on its way up. Only the form's own
+    request may remove the modal."""
+    r = _client(monkeypatch, candidates=[_candidate(1)]).get("/packages/p1/members/add")
+    close = next(ln for ln in r.text.splitlines() if "$root.remove()" in ln
+                 and "after-request" in ln)
+    assert "$event.target === $el" in close
+
+
 def test_add_modal_read_only_package_is_409(monkeypatch):
     r = _client(monkeypatch, actionable=False).get("/packages/p1/members/add")
     assert r.status_code == 409
