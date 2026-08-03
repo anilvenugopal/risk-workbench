@@ -47,6 +47,7 @@ sequenceDiagram
     rect rgb(238,244,255)
         Note over User,DB: REQUEST PATH — enqueue reverse-order removals, return
         User->>App: POST /packages/{id}/delete
+        App->>DB: _package_actionable? — 409 if every attached submission is closed
         alt package has RDMs
             loop each RDM
                 App->>DB: ensure_pending rwb_job (delete_rdm, requestor_id = rdm.id)
@@ -137,5 +138,12 @@ sequenceDiagram
 - **`claim_for_delete` is the atomic delete guard.** It flips the EDM to `delete_pending`
   only if it isn't already deleting/deleted, so a redelivered/duplicated `delete_edm` can't
   submit the RM delete twice.
+- **A failed EDM delete deliberately *keeps* its `irp_id`.** `mark_delete_error` preserves
+  it, unlike the import path's `backfill_on_terminal`, which nulls it on a non-ready
+  terminal. Without that, a re-triggered delete would take the "never imported" inline
+  branch (step 6a) and mark an EDM `deleted` that still exists in Risk Modeler.
 - **Soft delete only.** Every "delete" here is a `deleted_at` / `status='deleted'` stamp.
   Rows are never removed — the audit trail and the Jobs list stay intact.
+- **The request path is gated on the submissions, not the package.** `_package_actionable`
+  409s when *every* submission the package is attached to is closed — but the card itself
+  stays visible (Article 6: reads are never scoped). The gate governs the buttons.
