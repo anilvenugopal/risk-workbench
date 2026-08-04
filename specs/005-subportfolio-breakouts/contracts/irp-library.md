@@ -1,86 +1,108 @@
-# Contract: `irp-integration` enhancements — selection read + `add_filtered_accounts` (R1)
+# Contract: the `irp-integration` methods this feature consumes
 
-**Repo**: `../../IRP/irp-integration` (sibling; develop via `make irp-local`, publish TestPyPI `0.2.2.devN`, pin before implement completes)
+**Repo**: `../../IRP/irp-integration` — branch `feature/filtered-subportfolio-creation`, [PR #21](https://github.com/premiumiq/irp-integration/pull/21), in review, not yet on TestPyPI. Develop against `make irp-local`; re-pin with `make irp-testpypi` before implement completes and confirm with `make irp-status`.
 
-The workbench composes slice creation from **three calls** (R1, validated against `../knowledge/` + the RM LLM companion's conceptual flow): **select** the source portfolio's matching account IDs → **create** the empty portfolio (existing `create_portfolio()`, sync 201, duplicate-name guard) → **add** the selected accounts by ID. RM has no one-shot create-by-filter. Two library changes deliver the missing pieces.
+*(Rewritten 2026-08-03. This file used to be a brief for library work that had not happened yet, specifying `add_filtered_accounts` as the add step, `allow_deep_filters` as a maybe, and pagination as an open spike item. The work is done and two of those three lost. What follows is the contract as shipped, verified against `portfolio.py` and `utils.py` at `a04e3d7` — signatures re-confirmed against the active wheel before `create_sub_portfolio` is written, since the wheel is pre-release.)*
 
-## 1. Selection read — upgrade `search_accounts_by_portfolio`
+Composition is three calls (T-01): **select** the source portfolio's matching account ids → **create** the empty portfolio → **add** those accounts by id. Risk Modeler has no create-by-filter operation.
 
-```python
-# irp_integration/portfolio.py  (PortfolioManager)
-def search_accounts_by_portfolio(
-    self, exposure_id: int, portfolio_id: int,
-    filter: str = "", sort: str = "", limit: int = 100, offset: int = 0,
-) -> List[Dict[str, Any]]:
-    """Existing method gains the DOCUMENTED query params (filter, sort + pagination).
-    Backward-compatible: all new params default to today's behavior."""
+---
 
-def search_accounts_by_portfolio_paginated(
-    self, exposure_id: int, portfolio_id: int, filter: str = "",
-) -> List[Dict[str, Any]]:
-    """Fully-paged variant (the search_portfolios_paginated pattern).
-    The breakout's selection read — MUST never truncate."""
-```
-
-- Wraps the existing `GET /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/accounts` (documented: `filter`, `sort`; pagination behavior is spike item **U6** — limit/offset absent from the captured parameter list).
-- **Known limitation feeding the spike (U1)**: the endpoint's documented filter property list is closed (account identity/name/branch/cedant/owner/producer/underwriter) — **no LOB, no state**. If the spike proves LOB/state predicates need the EDM-level search with `allowDeepFilters`, add `search_accounts(exposure_id, filter, allow_deep_filters=False, ...)` **at that point**, not speculatively.
-
-## 2. Populate write — `add_filtered_accounts`
+## 1. Selection reads
 
 ```python
-# irp_integration/portfolio.py  (PortfolioManager)
-def add_filtered_accounts(
-    self,
-    exposure_id: int,
-    portfolio_id: int,
-    *,
-    marked_accounts: Optional[List[int]] = None,   # PRIMARY mode: explicit account IDs
-    query_filter: str = "",                        # optimization mode (spike-conditional)
-    select_all: bool = False,
-    manage_existing_accounts: bool = False,
-) -> Dict[str, Any]:
-    """
-    Add accounts to a portfolio via Risk Modeler's filtered-accounts operation.
-
-    Wraps PUT /platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/filtered-accounts
-    with body {selectAll, markedAccounts, queryFilter, manageExistingAccounts}.
-
-    Returns:
-        Dict[str, Any]: parsed body of the 200 response (may be empty — the doc
-            specifies only "Accounts added to portfolio"). The operation is
-            SYNCHRONOUS: 200 is the sole documented success status
-            (developer.rms.com managefilteredaccounts, fetched 2026-07-30;
-            no async/job/workflow path documented).
-
-    Raises:
-        IRPValidationError: exposure_id/portfolio_id invalid; OR no explicit intent —
-            marked_accounts empty AND query_filter empty AND select_all is not True
-            (an empty-intent call would add ALL accounts in the EDM; require the caller
-            to pass select_all=True explicitly for that)
-        IRPAPIError: RM rejects the request / portfolio not found / request fails;
-            ALSO raised on any unexpected non-200 success status (e.g. a 202) —
-            include the status and Location header in the message and fail loudly
-            rather than normalize; if RM ever goes async here, revisit this
-            contract deliberately
-    """
+search_accounts_by_portfolio_paginated(exposure_id: int, portfolio_id: int,
+                                       filter: str = "", sort: str = "") -> List[Dict]
+search_policies_paginated(exposure_id: int, filter: str = "", sort: str = "") -> List[Dict]
+search_locations_paginated(exposure_id: int, filter: str = "", sort: str = "") -> List[Dict]
 ```
 
-- New constant: `constants.FILTERED_ACCOUNTS = '/platform/riskdata/v1/exposures/{exposureId}/portfolios/{id}/filtered-accounts'`.
-- **`marked_accounts` is the primary mode** (R1): source scoping exact by construction, footgun unreachable, failures visible. `query_filter` stays supported for the spike-conditional optimization; its string construction stays in the **caller** (workbench gateway) — the library transports it verbatim (values double-quoted; `IN`-list grammar per RM Response Filtering).
-- **Doc-verified 200-sync** ([developer.rms.com managefilteredaccounts](https://developer.rms.com/platform/reference/managefilteredaccounts), fetched 2026-07-30): 200 "Accounts added to portfolio" is the only success status; no async/job/workflow mention anywhere on the page. Legacy `/riskmodeler/v1|v2 filteredaccounts` variants are 202+workflow-job, but **legacy riskmodeler endpoints are out of scope by project direction (Platform endpoints only)** — they are not a contingency. An unexpected 202 raises (see above); no polling inside the method, ever.
-- **Doc body-field semantics** (same fetch, verbatim where quoted): `selectAll` adds all accounts selected by `queryFilter` (all accounts in the EDM if no filter) and **overrides `markedAccounts`**; `manageExistingAccounts` — "If `true`, only existing accounts can be added to portfolio. All specified `markedAccount` values are ignored." That reads as a mode switch, not an upsert flag — keep the default `False`; its real behavior is the U2 sandbox probe.
-- **Guard the empty-intent footgun**: `queryFilter:"" + selectAll:true` adds *every* account in the EDM; a call with no accounts, no filter, and no explicit `select_all=True` must be a validation error so a bug in the caller cannot silently clone the whole EDM into a slice.
-- The Platform TOC also lists a `PATCH` *Manage accounts by portfolio*; if the spike's UI-traffic capture shows the UI drives the PATCH (or the PUT's already-member semantics are unsafe for adopt-then-populate, R7), wrap that operation instead/additionally — same sync contract (raise on unexpected non-200).
-- Docstrings document the R1 findings (endpoint provenance, doc-verified sync response, deep-filter selection lead, batching) so the next library consumer doesn't re-research them. Add an entry to `docs/IRP_INTEGRATION_FOLLOWUPS.md` (workbench repo) recording both changes shipping in-house.
+**Scope always comes from an account-id list.** No portfolio predicate exists — `portfolioId`, `portfolioName`, `portInfoId`, `portfolio`, and `portfolioNumber` are all rejected on the EDM-wide account search, with and without deep filters (W-6). So the worker reads the source portfolio's account ids once, then scopes every subsequent read with `accountId IN (…)`.
 
-## Sandbox spike checklist (closes R1's unknowns; run before the worker is implemented; codified as `tests/irp/test_filtered_accounts.py`)
+**LOB — one pass, grouped client-side.** LOB is not filterable on any Risk Data operation, but every policy carries it:
 
-1. **U1 — selection query**: probe `GET .../exposures/{id}/accounts?filter=…&allowDeepFilters=true` with candidate tokens (`lobName`, `LOB Name`, `lineOfBusiness`, `admin1Name`, `admin1Code`); read the 400 texts. **Capture RM UI network traffic** for "Accounts grid → filter by LOB/state → select → Add to Portfolio" — the authoritative answer for both the selection query and the add call.
-2. **U2 — add-step already-member semantics** (the 200-sync question is closed by the reference doc, fetched 2026-07-30): `create_portfolio` + `add_filtered_accounts(marked_accounts=[…])` in the sandbox confirms the doc in practice; then re-PUT the same IDs to learn already-member behavior, and probe `manageExistingAccounts=true` (its doc description — "markedAccount values are ignored" — is ambiguous; feeds R7 adopt-then-populate).
-3. **U4 — state vocabulary**: names vs codes in the selection filter (feeds R6 — whether `portfolio_states.sql` gains an additive code/name pair).
-4. **U5 — bucketing spot-check**: a mixed-LOB / multi-state account must appear in every matching selection and slice (disclosure wording depends on it).
-5. **U6 — pagination**: page a >100-account portfolio through the paginated variant; verify completeness.
-6. RM portfolio **name length limit** spot-check (feeds R4's 200-char cap).
-7. *(Optimization only)* **U3 — queryFilter source scoping**: portfolio predicate under `allowDeepFilters`; pursue only if 1–2 make the one-call populate attractive.
+```python
+accounts = pm.search_accounts_by_portfolio_paginated(exposure_id, portfolio_id)
+ids = [a["accountId"] for a in accounts]
+policies = pm.search_policies_paginated(exposure_id, filter=f'accountId IN ({",".join(map(str, chunk))})')
+by_lob[policy["lob"]["lobName"]].add(policy["accountId"])
+```
 
-**Spike outcomes gate the gateway seam**: `irp_gateway.create_sub_portfolio` is implemented only after 1–2 are answered; its contract ([data-access.md](data-access.md)) is written against the `SubPortfolioResult` dataclass so the selection-endpoint and marked-accounts-vs-queryFilter decisions never leak past the gateway.
+Do **not** filter by `lobId` — it returns HTTP 500, not a clean 400 (W-15).
+
+**State — filtered server-side.**
+
+```python
+locations = pm.search_locations_paginated(
+    exposure_id, filter=f'accountId IN ({ids}) AND admin1Code = "TX"')
+account_id = row["location"]["property"]["accountId"]
+```
+
+`admin1Code` is the filter field. `admin1Name` is also filterable and honoured case-insensitively, but it returns **zero rows with HTTP 200** until the EDM is geocoded (W-12), so it is not used — see P-12.
+
+**Two behaviours the caller owns:**
+
+- **Chunking.** The filter travels in the URL and dies at HTTP 431 around 4,872 characters — a *character* ceiling, not an id count, so a book with 7-digit account ids fits roughly half as many per request. 431 is a header-size limit, so the bearer token shares the budget and the number is not a constant across tenants. The library records the ceiling in the docstring and does not chunk. Size chunks by composed filter length against a named constant well below the measured ceiling.
+- **Response-shape parsing.** The account id is nested differently in each read, and reading the wrong key returns a plausible empty result rather than an error (W-15). Worth a unit test against a recorded body — every wrong-key mistake in the probe run was silent.
+
+**Completeness is enforced, not warned about.** `paginate_search` raises `IRPAPIError` when it cannot show it read every page — a repeated page fingerprint, or the page ceiling with pages still coming back full (W-14). Catch it per sub-portfolio and fail that entry; never proceed on a possibly-short id list, because under-selection produces a sub-portfolio missing accounts and reports success.
+
+## 2. Create
+
+```python
+create_portfolio(edm_name: str, portfolio_name: str,
+                 portfolio_number: str = "", description: str = "") -> Tuple[int, Dict]
+```
+
+Synchronous HTTP 201; returns `(portfolio_id, request_body)`. Takes the **EDM name**, not the exposure id.
+
+Raises `IRPValidationError`, before any POST, for four distinct cases:
+
+| Case | Note |
+|---|---|
+| duplicate name in the EDM | looked up client-side first; this is the adopt-an-existing-portfolio signal (FR-011) |
+| `portfolio_name` over **40** characters | boundary confirmed exactly: 40 creates, 41 rejects (W-2) |
+| `portfolio_number` over **20** characters | |
+| `portfolio_number` omitted while the name is over 20 characters | it defaults to the name, which then overruns the number's own cap (W-13) |
+
+The fourth case is why this feature always passes `portfolio_number` explicitly: every composed name of interest is over 20 characters (`usfl_commercial - TX` is exactly 20, so the next character breaks it). Neither field is ever truncated by the library.
+
+Because all four raise the same class, **do not use exception class alone to detect "the name is taken"** — resolve the existing portfolio first with `search_portfolios` (W-10).
+
+## 3. Add accounts
+
+```python
+manage_portfolio_accounts(exposure_id: int, portfolio_id: int, *,
+                          accounts_to_add: Optional[List[int]] = None,
+                          accounts_to_remove: Optional[List[int]] = None) -> Dict
+```
+
+Synchronous HTTP 200 — no `202` and no workflow URL appeared on any call in the probe run, so this needs no poller and creates no `irp_job` row. Returns:
+
+```python
+{"addAccounts": {"completed": n, "total": m}, "removeAccounts": {...}}
+```
+
+**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what Article 8 asks for anyway.
+
+## 4. Adoption read
+
+```python
+search_portfolios(exposure_id: int, filter: str = "", limit: int = 100, offset: int = 0) -> List[Dict]
+search_portfolios_paginated(exposure_id: int, filter: str = "") -> List[Dict]
+```
+
+Filters on `portfolioName` **and `portfolioNumber`** — field names are case-insensitive; `number` is rejected (W-17). Adoption resolves on the number, because the number is stable across runs and the name is not (P-11/R4). Note that Risk Modeler portfolio ids repeat across EDMs, so a number is unique only within its exposure; the adoption search is exposure-scoped, which is enough.
+
+This method is also the confirm-time `stampDate` read (FR-002a) — the flow's one web-layer RM call.
+
+## What this feature does not use
+
+- **`add_filtered_accounts`** (PUT `.../filtered-accounts`) — it exists in the library and works, but returns `{}`, so the worker cannot distinguish an empty populate from a full one without a read-back. `manage_portfolio_accounts` reports `completed`/`total` and is the add step. Also: `manage_existing_accounts=True` returns HTTP 200 and adds **nothing at all** — it is a mode switch, not the heal-a-partial-write option it reads as (W-1).
+- **`allowDeepFilters`** — removed from the public signature; `allowDeepFilters=false` is hardcoded. It returned zero rows with HTTP 200 at all nine scope sizes tested where the truth was 272 (W-7). The path cannot be taken by accident.
+- **`queryFilter` one-call populate** — closed permanently, not deferred (T-09): no filter names a source portfolio, so the one-call form cannot express "the TX accounts of portfolio 1".
+- **GeoHaz** — nothing in this feature waits on geocoding, since selection uses `admin1Code`. If the workbench ever does await a GeoHaz job: its id is served by `/platform/geohaz/v1/jobs`, and polling it as an import job returns `404 Invalid job id` while the job is in fact running. The single-status check is `get_geohaz_job` (W-12).
+
+## Gateway seam
+
+Two gateway functions own the whole sequence, so no Moody's response shape, filter grammar, or chunk arithmetic leaks past the gateway into `breakout_service` or the worker. `irp_gateway.select_breakout_accounts` runs once per breakout and returns the account ids per value — one grouped policy pass for LOB, one location read per value for state — because the LOB read resolves every value at once and must not be repeated per sub-portfolio. `irp_gateway.create_sub_portfolio` then runs per sub-portfolio: create, add, read-back verification. Contract in [data-access.md](data-access.md). The CI fake mirrors both, including the duplicate-name raise and the `completed 0` re-run response.
