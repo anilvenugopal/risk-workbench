@@ -4,7 +4,7 @@
 
 Runs under the standard `runtime.run_job` lifecycle: atomic claim → heartbeat → complete/fail; reclaimed by the reconciler if wedged (Article 10). All RM access via `irp_gateway` (Article 11); `poll_*_to_completion` forbidden (architecture-guard test extends over this module).
 
-*(Revised 2026-08-03 after the probe run. Two things this file used to specify are now wrong and are corrected below: step 2 recomputed the plan inside the worker — Article 8 forbids it, the worker executes the plan persisted at confirm (T-10/R10); and adoption resolved on the portfolio name — it resolves on `portfolioNumber` (T-07/P-11).)*
+*(Revised 2026-08-03 after the probe run. Two things this file used to specify are now wrong and are corrected below: step 2 recomputed the plan inside the worker — AGENTS.md rule 8 forbids it, the worker executes the plan persisted at confirm (T-10/R10); and adoption resolved on the portfolio name — it resolves on `portfolioNumber` (T-07/P-11).)*
 
 ---
 
@@ -13,14 +13,14 @@ Runs under the standard `runtime.run_job` lifecycle: atomic claim → heartbeat 
 ```
 input_data: {edm_id, portfolio_id, dimension, actor_id, plan}     (data-model §4)
              plan = the approved list, one entry per sub-portfolio:
-                    {value, label, name, number}
+                    {value, label, name, number, accounts}
 
 1. Load EDM + source portfolio; re-check minimal invariants (rows live, EDM has irp_id).
    Gone/invalid → JobResult.fail (graceful; nothing half-written).
 2. plan = breakout_service.load_approved_plan(job.input_data)
    — read verbatim from input_data. The worker NEVER re-enumerates values, re-reads the
      summary, or recomputes names: collision suffixing depends on the portfolio names in
-     the EDM, which this run itself changes (Article 8 / T-10).
+     the EDM, which this run itself changes (AGENTS.md rule 8 / T-10).
    Empty or unparseable plan → fail with reason; nothing created.
 3. selection = gateway.select_breakout_accounts(exposure, source, dimension,
                                                 [e.value for e in plan])

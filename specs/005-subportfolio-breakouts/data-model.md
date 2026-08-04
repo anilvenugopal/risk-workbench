@@ -70,11 +70,13 @@ App code dispatches on `code` — which entry of `summary.breakout_values` to re
 | `run_breakout_lob` | Portfolio breakout by line of business |
 | `run_breakout_state` | Portfolio breakout by geography (state) |
 
-Two types — not one — because the idempotent-enqueue key is `UNIQUE(requestor_type, requestor_id, rwb_job_type)`: with `requestor_type='irp_portfolio'`, `requestor_id=<source portfolio id>`, each dimension gets its own live-job slot per portfolio (a LOB and a state breakout on the same portfolio don't collide; a re-request of the same dimension revives the terminal row via `ensure_pending_rwb_job`). Both codes dispatch to the same worker body in `app/workers/portfolio_jobs.py` (loader convention: actor name == `rwb_job_type`).
+Two types — not one — because the idempotent-enqueue key is `UNIQUE(requestor_type, requestor_id, rwb_job_type)`: with `requestor_type='analyst_request'`, `requestor_id=<source portfolio id>`, each dimension gets its own live-job slot per portfolio (a LOB and a state breakout on the same portfolio don't collide; a re-request of the same dimension revives the terminal row via `ensure_pending_rwb_job`). Both codes dispatch to the same worker body in `app/workers/portfolio_jobs.py` (loader convention: actor name == `rwb_job_type`).
+
+`analyst_request` is an existing `rwb_job_requestor_type_kind` code — the one `edm_service.sync_detail` and the other analyst-triggered enqueues already use — so **no new requestor-type seed row is added**. `requestor_id` holds the source portfolio id rather than an EDM id, which the column allows: it carries no DB FK precisely because its target varies by requestor type. FR-015 reads the source portfolio back off `requestor_id`, unchanged.
 
 ## 4. `rwb_job` payload shapes for the breakout (no schema change)
 
-Existing columns, new content contract. `input_data` **is the approved plan** — the worker executes it rather than recomputing it (constitution Art. 8 / R10).
+Existing columns, new content contract. `input_data` **is the approved plan** — the worker executes it rather than recomputing it (AGENTS.md rule 8 / R10).
 
 ```jsonc
 // input_data — written at enqueue (confirm POST), exactly what the analyst saw
@@ -84,8 +86,12 @@ Existing columns, new content contract. `input_data` **is the approved plan** �
   "dimension": "lob" | "state",      // redundant with rwb_job_type; kept for the shared worker body
   "actor_id": "<uuid>",              // confirming analyst → generated rows' inserted_by
   "plan": [                          // one entry per sub-portfolio, in preview order
-    {"value": "TX", "label": "TEXAS", "name": "usfl_commercial - TX", "number": "P1-S-TX"},
-    {"value": "CA", "label": "CALIFORNIA", "name": "usfl_commercial - CA", "number": "P1-S-CA"}
+    // accounts is the count the preview showed; FR-006b holds it identical across the
+    // confirm window, and persisting it is what makes that checkable after the fact
+    {"value": "TX", "label": "TEXAS", "name": "usfl_commercial - TX", "number": "P1-S-TX",
+     "accounts": 412},
+    {"value": "CA", "label": "CALIFORNIA", "name": "usfl_commercial - CA", "number": "P1-S-CA",
+     "accounts": 1289}
   ]
 }
 

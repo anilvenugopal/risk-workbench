@@ -391,7 +391,7 @@ portfolios 4, 5 and 6.
 **Do:** the worker must not treat `completed < total` as a failure. A retry after
 a partial write is a healthy re-run and reports `completed 0`. Verify by reading
 the portfolio back and comparing against the persisted plan, which is what
-constitution Article 8 requires anyway — the approved account-id list is the
+AGENTS.md rule 8 requires anyway — the approved account-id list is the
 thing to compare against, not the response counts.
 
 This also retires R7's conditional: re-adding already-member accounts is safe, so
@@ -520,7 +520,7 @@ selection read — but it does need to catch `IRPAPIError` around the read and f
 that sub-portfolio's outcome rather than continuing with a partial id list.
 
 The read-back comparison against the persisted plan (W-9) stays regardless, since
-it is the check Article 8 asks for.
+it is the check AGENTS.md rule 8 asks for.
 
 Evidence: `utils.paginate_search` at `a04e3d7`; the probe run recorded a record
 offset on every call across three operations and three exposures, with

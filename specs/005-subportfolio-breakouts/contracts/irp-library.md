@@ -83,7 +83,7 @@ Synchronous HTTP 200 — no `202` and no workflow URL appeared on any call in th
 {"addAccounts": {"completed": n, "total": m}, "removeAccounts": {...}}
 ```
 
-**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what Article 8 asks for anyway.
+**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what AGENTS.md rule 8 asks for anyway.
 
 ## 4. Adoption read
 
