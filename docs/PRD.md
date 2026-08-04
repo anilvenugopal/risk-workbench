@@ -896,7 +896,7 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch operation by design: one pass per interval queries all non-terminal jobs in a single SELECT, groups them by `irp_job_type`, polls IRP for each, and writes results. Run `--loop` in dev (interval from `POLL_INTERVAL_SECS`, default 15s); a supervised service in production.
 
 **Each pass:**
-1. **Query non-terminal jobs** from `WORKBENCH`: `WHERE status NOT IN ('FINISHED', 'FAILED', 'CANCELED', 'SUBMISSION FAILED')`, grouped by `irp_job_type`. App-local rows with no `irp_id` are skipped.
+1. **Query non-terminal jobs** from `WORKBENCH`: `WHERE status NOT IN ('FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED')`, grouped by `irp_job_type`. App-local rows with no `irp_id` are skipped.
 2. **Poll each job** via the **single-status-check** method per `irp_job_type` (never `poll_*_to_completion`, which blocks for up to 600 000 s and would freeze the poller):
 
 | `irp_job_type` | Single-status-check method (poller uses this) |
@@ -911,11 +911,11 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 > Imports poll via `import_job.get_import_job`, **not** `risk_data_job`/`get_workflow` (the prototype confirms this).
 
 3. **Update `irp_job.status`** (updated in place; `last_tracked_at` stamped). **Backfill entity `irp_id`s** directly on import `FINISHED`.
-4. **On terminal status:** write head `rwb_job` row(s) via idempotent insert on the composite key (§14.5). `status == 'FINISHED'` is the only success; `FAILED`/`CANCELED` are failures.
+4. **On terminal status:** write head `rwb_job` row(s) via idempotent insert on the composite key (§14.5). `status == 'FINISHED'` is the only success; `FAILED`/`CANCELLED` are failures.
 
 **`irp_job.status` vocabulary** (plain string; future RM statuses never crash the poller):
-- RM-mirrored non-terminal: `PENDING`, `QUEUED`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELING`
-- RM-mirrored terminal: `FINISHED` (only success), `FAILED`, `CANCELED` (one-L spellings, per RM)
+- RM-mirrored non-terminal: `PENDING`, `QUEUED`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELLING`
+- RM-mirrored terminal: `FINISHED` (only success), `FAILED`, `CANCELLED` (**two-L** spellings, per RM — see `irp_integration.constants.WORKFLOW_COMPLETED_STATUSES`, which cites the Moody's workflow-engine docs)
 - App-local: `UNSUBMITTED`, `SUBMITTING`, `BLOCKED` (non-terminal); `SUBMISSION FAILED` (terminal; poller skips these, no `irp_id`)
 
 ### 14.5 RWB jobs & Dramatiq workers
@@ -1114,7 +1114,7 @@ Triggered by the `notify_analyst` Dramatiq worker when a job reaches terminal st
 - **Email** — SMTP, sent to `assigned_analyst.email`
 - **In-app** — an **in-app notification center** plus a status-bar item (polled via SSE)
 
-**Content:** job name, submission name, final status (`FINISHED`/`FAILED`/`CANCELED`/`SUBMISSION FAILED`), timestamp, deep link to the job.
+**Content:** job name, submission name, final status (`FINISHED`/`FAILED`/`CANCELLED`/`SUBMISSION FAILED`), timestamp, deep link to the job.
 
 **Events:** terminal status of the tracked ops — import, analysis execution, grouping, export — both success and failure.
 

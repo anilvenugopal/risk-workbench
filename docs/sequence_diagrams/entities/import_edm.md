@@ -38,7 +38,8 @@ fragment and the save-time check usually share one RM call. Failures are never c
 | 8 | `rwb_job` | UPDATE — `running → succeeded` (+ `output_data`, `completed_at`) | `complete_rwb_job` | 🟩 worker |
 | 9 | `irp_job` | UPDATE — status mirror + `last_tracked_at` (every pass while non-terminal) | `update_tracking` | 🟪 poller |
 | 10 | `irp_job` | UPDATE — terminal status + `completed_at` + `last_completion_result` | `update_tracking` | 🟪 poller |
-| 11 | `irp_edm` | UPDATE — `importing → ready`, backfill `irp_id` + `created_by_irp_job_irp_id` (FINISHED) — **or** `→ error` (FAILED/CANCELED) | `backfill_on_terminal` | 🟪 poller |
+| 11 | `irp_edm` | UPDATE — `importing → ready`, backfill `irp_id` + `created_by_irp_job_irp_id` (FINISHED) — **or** `→ error` (FAILED/CANCELLED) | `backfill_on_terminal` | 🟪 poller |
+| 11a | `irp_edm` | UPDATE — `→ ready` with **`irp_id` still NULL** when the by-name `exposureId` resolve misses; `created_by_irp_job_irp_id` is stamped either way | `backfill_on_terminal` | 🟪 poller |
 | 12 | `rwb_job` | INSERT — `backfill_edm_detail`, `pending`, keyed `('irp_job', <this import_edm irp_job.id>)` — *same transaction as 10–11*, FINISHED only | `enqueue_rwb_job` | 🟪 poller |
 
 *Submit-failure variant:* if the worker's submit never reaches RM, step 5 instead writes
@@ -109,11 +110,14 @@ sequenceDiagram
             Note over P,DB: one transaction per job
             P->>DB: UPDATE irp_job (status mirror, last_tracked_at)
             alt FINISHED
+                P->>RM: search_edms(name) — resolve the durable exposureId
+                Note over P,RM: OUTSIDE the txn (Article 11). Best-effort:<br/>>1 hit ⇒ newest · 0 hits or error ⇒ None
                 P->>DB: UPDATE irp_job (completed_at, last_completion_result)
                 P->>DB: UPDATE irp_edm (importing→ready, irp_id, created_by)
+                Note over P,DB: a None resolve still lands ready, with irp_id NULL —<br/>backfill_edm_detail retries the resolve (step 12)
                 P->>DB: INSERT rwb_job (backfill_edm_detail, pending)
                 P-->>W: dispatch(backfill_edm_detail)
-            else FAILED / CANCELED
+            else FAILED / CANCELLED
                 P->>DB: UPDATE irp_job (completed_at, last_completion_result)
                 P->>DB: UPDATE irp_edm (→error)
             end
@@ -173,8 +177,20 @@ The whole block returns *before* the import itself runs — `job_id` in hand, im
 - **`irp_id` does not exist until the worker submits** (step 5). The `irp_edm` row lives
   as `pending_import`/`importing` with `irp_id=NULL` until the poller backfills it on
   `ready` (step 11). Nothing downstream may assume an `irp_id` before then.
+- **`ready` does NOT guarantee an `irp_id`.** `_resolve_edm_exposure_id` is best-effort by
+  design: a search error or zero hits returns `None`, and the EDM still reaches `ready`
+  (step 11a) — deliberately, because RM's name search lags the import and FR-005/R7 say a
+  successful import must not be shown as failed over a lookup miss. Two things make that
+  safe to live with. First, `backfill_edm_detail` retries the resolve on its own terms
+  (stricter — exactly one hit, since it can't assume "newest is mine") and writes `irp_id`
+  back when it succeeds. Second, `created_by_irp_job_irp_id` **is** stamped on every ready
+  transition regardless, so `irp_id IS NULL AND created_by_irp_job_irp_id IS NOT NULL` is
+  the durable signature of "imported, exposureId unresolved" — as distinct from
+  `both NULL` = "never imported". Consumers that act on the absence of `irp_id` must test
+  both columns; [delete](../packages/delete_package.md) currently does not, which is the
+  open defect noted there.
 - **Two distinct failure modes.** `SUBMISSION FAILED` (worker; the submit never reached
-  RM; `irp_id=NULL`) is deliberately *not* the same as an RM-side `FAILED`/`CANCELED` (a
+  RM; `irp_id=NULL`) is deliberately *not* the same as an RM-side `FAILED`/`CANCELLED` (a
   real `irp_id` exists, then the import failed; the poller flips the entity to `error`).
   Only the second is visible to the poller at all — nothing polls a row with no `irp_id`.
 - **Idempotency is by durable state, not memory.** The worker only submits a

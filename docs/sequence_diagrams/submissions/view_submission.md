@@ -35,7 +35,7 @@ The counts are computed in Python from 8 + 9:
 
 - **all** = `len(irp) + len(rwb)`
 - **active** = `irp` not in the terminal set **+** `rwb` in `('pending','running')`
-- **failed** = `irp` in `('FAILED','CANCELED','SUBMISSION FAILED')` **+** `rwb` = `'failed'`
+- **failed** = `irp` in `('FAILED','CANCELLED','SUBMISSION FAILED')` **+** `rwb` = `'failed'`
 
 There is deliberately **no rolled-up package status** (FR-018) — each member carries its own
 chip; the card shows counts, not a single package verdict.
