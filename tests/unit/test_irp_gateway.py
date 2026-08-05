@@ -219,114 +219,98 @@ def test_edm_exposure_summary_raises_when_database_name_unresolvable():
         gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=1)
 
 
-# ── spec 005 (T031): breakout selection & composition response-shape parsing ──────
-# The account id is nested DIFFERENTLY in each read, and a wrong key returns a
-# plausible empty result rather than an error (W-15) — every wrong-key mistake
-# in the probe run was silent. These tests pin the parsers to the RECORDED
-# response bodies of the probe run.
+# ── spec 005 (T031): breakout selection — the DataBridge read ─────────────────────
+# One parameterized, portfolio-scoped script per dimension resolves every value
+# at once (R1, revised 2026-08-05): the REST selection could not complete on a
+# 248,000-account portfolio (the wheel's 1,000-page completeness ceiling, W-20).
+# ACCGRPID from the script IS the accountId RM's account operations accept.
 
-from irp_integration.exceptions import IRPAPIError, IRPValidationError  # noqa: E402
+from irp_integration.exceptions import IRPValidationError  # noqa: E402
 
-from app.services.irp_gateway import (  # noqa: E402
-    MAX_COMPOSED_FILTER_CHARS,
-    DuplicatePortfolioNameError,
-    _chunk_ids_by_filter_length,
-)
+from app.services.irp_gateway import DuplicatePortfolioNameError  # noqa: E402
 
-# Recorded shapes (probe-findings W-15): searchAccounts rows carry a top-level
-# accountId; searchPolicies rows carry accountId + lob.lobName.
-ACCOUNT_ROWS = [{"accountId": 101, "accountName": "Acme"},
-                {"accountId": 102, "accountName": "Bmee"},
-                {"accountId": 103, "accountName": "Cmee"}]
-POLICY_ROWS = [
-    {"policyId": 1, "accountId": 101, "lob": {"lobId": 5, "lobName": "FLD Comm"}},
-    {"policyId": 2, "accountId": 102, "lob": {"lobId": 5, "lobName": "FLD Comm"}},
-    {"policyId": 3, "accountId": 102, "lob": {"lobId": 7, "lobName": "EQ Comm"}},
-    {"policyId": 4, "accountId": 103, "lob": {"lobId": 9, "lobName": "Unplanned"}},
-    {"policyId": 5},                       # no accountId/lob — skipped, not an error
+SELECTION_ROWS = [
+    {"Value": "FLD Comm", "AccountId": 101},
+    {"Value": "FLD Comm", "AccountId": 102},
+    {"Value": "EQ Comm", "AccountId": 102},     # multi-LOB account (W-11)
+    {"Value": "Unplanned", "AccountId": 103},   # present in the EDM, not requested
+    {"Value": None, "AccountId": 104},          # incomplete rows skipped
+    {"Value": "FLD Comm", "AccountId": None},
 ]
 
-
-def _selection_gw(policies=POLICY_ROWS, accounts=ACCOUNT_ROWS, filters=None):
-    def search_policies_paginated(exposure_id, filter=""):
-        if filters is not None:
-            filters.append(filter)
-        if isinstance(policies, Exception):
-            raise policies
-        return policies
-
-    return _gw(portfolio=SimpleNamespace(
-        search_accounts_by_portfolio_paginated=lambda e, p: accounts,
-        search_policies_paginated=search_policies_paginated))
+_EDM_HITS = [{"exposureId": 111, "exposureName": "EDM", "databaseName": "other_db"},
+             {"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}]
 
 
-def test_select_lob_groups_client_side_on_the_recorded_shape():
-    filters: list = []
-    gw = _selection_gw(filters=filters)
+def _selection_gw(records=SELECTION_ROWS, calls=None, edm_searches=None):
+    def execute_query_from_file(file_path, params=None, database=None):
+        if calls is not None:
+            script = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            calls.append((script, params, database))
+        if isinstance(records, Exception):
+            raise records
+        return [_Frame(records)]
+
+    def search_edms(filter):
+        if edm_searches is not None:
+            edm_searches.append(filter)
+        return _EDM_HITS
+
+    return _gw(
+        edm=SimpleNamespace(search_edms=search_edms),
+        databridge=SimpleNamespace(
+            execute_query_from_file=execute_query_from_file))
+
+
+def test_select_lob_maps_the_script_rows_per_requested_value():
+    calls: list = []
+    gw = _selection_gw(calls=calls)
     selection = gw.select_breakout_accounts(
-        exposure_irp_id="42", source_portfolio_irp_id="1", dimension="lob",
-        values=["FLD Comm", "EQ Comm", "No Match"])
+        edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
+        dimension="lob", values=["FLD Comm", "EQ Comm", "No Match"])
     assert selection.accounts_by_value == {
         "FLD Comm": [101, 102],
         "EQ Comm": [102],       # a multi-LOB account lands in BOTH values (W-11)
         "No Match": [],         # empty, not an error — the worker zero-match-fails it
     }
     assert selection.errors_by_value == {}
-    # scope always comes from an account-id list — no portfolio predicate (W-6)
-    assert filters == ["accountId IN (101,102,103)"]
+    # one portfolio-scoped script run against the exposureId-matched database
+    assert calls == [("breakout_lob_accounts.sql", {"portfolio_id": 1}, "edm_db")]
 
 
-def test_select_lob_pagination_failure_fails_every_value_not_the_run():
-    gw = _selection_gw(policies=IRPAPIError("page fingerprint repeated"))
-    selection = gw.select_breakout_accounts(
-        exposure_irp_id="42", source_portfolio_irp_id="1", dimension="lob",
-        values=["FLD Comm", "EQ Comm"])
-    # never proceed on a possibly-short id list (W-14)
-    assert set(selection.errors_by_value) == {"FLD Comm", "EQ Comm"}
-    assert selection.accounts_by_value == {}
-
-
-def test_select_source_account_read_failure_raises():
-    def boom(e, p):
-        raise IRPAPIError("account enumeration incomplete")
-    gw = _gw(portfolio=SimpleNamespace(
-        search_accounts_by_portfolio_paginated=boom))
-    with pytest.raises(IRPAPIError):
+def test_select_databridge_failure_raises_and_fails_the_job():
+    # the single set-based read is all-or-nothing: never proceed on a result
+    # that cannot be shown complete (the W-14 rule, now enforced by raising)
+    gw = _selection_gw(records=RuntimeError("DataBridge connection refused"))
+    with pytest.raises(RuntimeError):
         gw.select_breakout_accounts(
-            exposure_irp_id="42", source_portfolio_irp_id="1",
+            edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
             dimension="lob", values=["FLD Comm"])
 
 
-def test_select_chunks_by_composed_filter_length_not_id_count():
-    # 7-digit ids fit roughly half as many per request as 1-4 digit ids — the
-    # ceiling is characters, not ids (W-6).
-    ids = list(range(1_000_000, 1_003_000))
-    filters: list = []
-    accounts = [{"accountId": i} for i in ids]
-    gw = _selection_gw(policies=[], accounts=accounts, filters=filters)
-    gw.select_breakout_accounts(exposure_irp_id="42",
-                                source_portfolio_irp_id="1", dimension="lob",
-                                values=["X"])
-    assert len(filters) > 1                      # forced into several chunks
-    assert all(len(f) <= MAX_COMPOSED_FILTER_CHARS for f in filters)
-    seen = [int(t) for f in filters
-            for t in f[len("accountId IN ("):-1].split(",")]
-    assert seen == ids                           # nothing dropped, nothing reordered
+def test_select_unknown_dimension_raises():
+    gw = _selection_gw()
+    with pytest.raises(ValueError):
+        gw.select_breakout_accounts(
+            edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
+            dimension="region", values=["X"])
 
 
-def test_chunk_helper_respects_extra_clause_budget():
-    suffix = ' AND admin1Code = "TX"'
-    chunks = _chunk_ids_by_filter_length(list(range(10_000_000, 10_000_500)),
-                                         suffix)
-    for chunk in chunks:
-        composed = f"accountId IN ({','.join(chunk)}){suffix}"
-        assert len(composed) <= MAX_COMPOSED_FILTER_CHARS
+def test_selection_database_name_is_resolved_once_and_cached():
+    # the breakout loop's per-entry reads share one exposures-search resolution
+    edm_searches: list = []
+    gw = _selection_gw(edm_searches=edm_searches)
+    for _ in range(3):
+        gw.select_breakout_accounts(
+            edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
+            dimension="lob", values=["FLD Comm"])
+    assert len(edm_searches) == 1
 
 
 # ── create → add → read-back composition ─────────────────────────────────────────
 
-def _compose_gw(*, create_exc=None, name_taken=False, member_rows=None,
-                manage_calls=None, search_hits=None):
+def _compose_gw(*, create_exc=None, name_taken=False, member_count=0,
+                manage_calls=None, search_hits=None, count_calls=None):
     def create_portfolio(edm_name, portfolio_name, portfolio_number,
                          description):
         if create_exc is not None:
@@ -346,26 +330,52 @@ def _compose_gw(*, create_exc=None, name_taken=False, member_rows=None,
     def search_portfolios_paginated(exposure_id, filter=""):
         return search_hits or []
 
-    return _gw(portfolio=SimpleNamespace(
-        create_portfolio=create_portfolio,
-        manage_portfolio_accounts=manage_portfolio_accounts,
-        search_portfolios=search_portfolios,
-        search_portfolios_paginated=search_portfolios_paginated,
-        search_accounts_by_portfolio_paginated=lambda e, p: member_rows or []))
+    def execute_query_from_file(file_path, params=None, database=None):
+        # the read-back count (R1, revised 2026-08-05): one DataBridge scalar
+        if count_calls is not None:
+            script = file_path.replace("\\", "/").rsplit("/", 1)[-1]
+            count_calls.append((script, params, database))
+        return [_Frame([{"AccountCount": member_count}])]
+
+    return _gw(
+        portfolio=SimpleNamespace(
+            create_portfolio=create_portfolio,
+            manage_portfolio_accounts=manage_portfolio_accounts,
+            search_portfolios=search_portfolios,
+            search_portfolios_paginated=search_portfolios_paginated),
+        edm=SimpleNamespace(search_edms=lambda filter: _EDM_HITS),
+        databridge=SimpleNamespace(
+            execute_query_from_file=execute_query_from_file))
 
 
 def test_create_sub_portfolio_success_is_the_read_back_never_completed():
     manage_calls: list = []
-    gw = _compose_gw(member_rows=[{"accountId": 101}, {"accountId": 102}],
-                     manage_calls=manage_calls)
+    count_calls: list = []
+    gw = _compose_gw(member_count=2, manage_calls=manage_calls,
+                     count_calls=count_calls)
     result = gw.create_sub_portfolio(
         edm_name="EDM", exposure_irp_id="42", name="src - TX",
         number="P1-S-TX", description="Breakout of portfolio src by "
         "Geography (state): TX", account_ids=[101, 102])
     assert result.portfolio_irp_id == "431"
-    # the add reported completed 0 — success comes from the read-back (W-9)
+    # the add reported completed 0 — success comes from the read-back (W-9),
+    # counted via DataBridge against the CREATED portfolio's id
     assert result.account_count == 2
     assert manage_calls == [[101, 102]]
+    assert count_calls == [("portfolio_member_count.sql",
+                            {"portfolio_id": 431}, "edm_db")]
+
+
+def test_populate_chunks_the_add_and_returns_the_databridge_count():
+    # no single PATCH carries more than 1,000 ids; the returned count is the
+    # DataBridge read-back, not arithmetic over the chunks
+    manage_calls: list = []
+    gw = _compose_gw(member_count=2500, manage_calls=manage_calls)
+    result = gw.populate_sub_portfolio(
+        edm_name="EDM", exposure_irp_id="42", portfolio_irp_id="431",
+        account_ids=list(range(1, 2501)))
+    assert [len(c) for c in manage_calls] == [1000, 1000, 500]
+    assert result.account_count == 2500
 
 
 def test_duplicate_name_surfaces_as_the_distinct_error_type():

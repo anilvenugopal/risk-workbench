@@ -171,8 +171,8 @@ def _adopt_entry(entry: breakout_service.SubPortfolioPlan, *, edm, edm_id: str,
         # RM call first, row second (the create-path ordering note): a crash
         # after the populate but before the row is healed by re-adopting.
         populated = irp_gateway.populate_sub_portfolio(
-            exposure_irp_id=str(edm.irp_id), portfolio_irp_id=hit.irp_id,
-            account_ids=account_ids)
+            edm_name=edm.name, exposure_irp_id=str(edm.irp_id),
+            portfolio_irp_id=hit.irp_id, account_ids=account_ids)
     except Exception as exc:  # noqa: BLE001 — per-entry isolation
         logger.warning("breakout populate-on-adopt failed for %s (irp_id=%s): %s",
                        entry.name, hit.irp_id, exc)
@@ -224,19 +224,28 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
         plan = breakout_service.load_approved_plan(ctx)
     except ValueError as exc:
         return runtime.JobResult.fail(f"approved plan unusable: {exc}")
+    logger.info("breakout %s executing approved plan for portfolio %s: "
+                "%d sub-portfolios (analyst %s)", dimension, portfolio_id,
+                len(plan), actor_id)
 
-    # 3. account ids for every planned value, ONCE, before the loop (R1). The
-    #    source account-id read failing is the input to every value → fail;
-    #    nothing has been written to Risk Modeler at this point.
+    # 3. account ids for every planned value, ONCE, before the loop (R1): one
+    #    set-based DataBridge query. Its failure is the input to every value →
+    #    fail; nothing has been written to Risk Modeler at this point.
+    logger.info("breakout selection read started for portfolio %s (%d values)",
+                portfolio_id, len(plan))
     try:
         selection = irp_gateway.select_breakout_accounts(
-            exposure_irp_id=str(edm.irp_id),
+            edm_name=edm.name, exposure_irp_id=str(edm.irp_id),
             source_portfolio_irp_id=str(source["irp_id"]),
             dimension=dimension, values=[entry.value for entry in plan])
     except Exception as exc:  # noqa: BLE001 — recoverable job failure, nothing created
         logger.warning("breakout selection failed for portfolio %s: %s",
                        portfolio_id, exc)
         return runtime.JobResult.fail(f"account selection failed: {exc}")
+    logger.info("breakout selection resolved %d account ids across %d values "
+                "for portfolio %s",
+                sum(len(v) for v in selection.accounts_by_value.values()),
+                len(selection.accounts_by_value), portfolio_id)
 
     # 4. the per-entry loop
     dimension_label = _dimension_label(dimension)
@@ -273,7 +282,14 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult(status="succeeded", output=output)
 
 
-@dramatiq.actor(max_retries=0)
+# Dramatiq's default actor time limit is 10 minutes — a large fan-out (the add
+# step alone is one PATCH per 1,000 accounts) runs longer. When even this limit
+# is exceeded, runtime.run_job marks the row failed so the reconciler cannot
+# reset it to pending for a re-run that would die the same way.
+_BREAKOUT_TIME_LIMIT_MS = 60 * 60 * 1000
+
+
+@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_lob(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
                     body=lambda: _run_breakout_body(rwb_job_id))

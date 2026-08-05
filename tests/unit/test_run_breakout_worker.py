@@ -338,11 +338,11 @@ def test_adopt_with_zero_or_many_hits_fails_the_entry(iteration2_db, fake_irp):
 def test_source_deleted_in_rm_fails_every_entry_with_no_rows(
         iteration2_db, fake_irp):
     # FR-012: the source was deleted in Risk Modeler between confirm and run —
-    # the source account-id read fails, the job fails with the RM error
-    # recorded, and no lineage row is written.
+    # the selection read fails, the job fails with the error recorded, and no
+    # lineage row is written.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
-    fake_irp.raise_on_source_account_read = True
+    fake_irp.raise_on_selection_read = True
     jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
 
     job = _run(jid)

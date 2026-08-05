@@ -89,10 +89,11 @@ class FakeIRP:
         self.stamp_reads: list[str] = []
         self.raise_on_fetch_stamp = False
         # selection: value → account ids; value → per-value read error (W-14);
-        # the source account-id read raising fails the whole job
+        # the selection read raising fails the whole job (the real gateway's
+        # single DataBridge query is all-or-nothing — R1, revised 2026-08-05)
         self.selection_by_value: dict[str, list[int]] = {}
         self.selection_errors: dict[str, str] = {}
-        self.raise_on_source_account_read = False
+        self.raise_on_selection_read = False
         self.selection_calls: list[dict] = []
         # composition: names already taken in RM → create raises the DISTINCT
         # duplicate-name type (the adoption signal); per-name generic failures;
@@ -318,15 +319,15 @@ class FakeIRP:
 
     # ── spec-005 breakout composition (mirrors the gateway seam) ────────────────
 
-    def select_breakout_accounts(self, *, exposure_irp_id: str,
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,
                                  values) -> BreakoutSelection:
-        # The source account-id read is the input to EVERY value — its failure
-        # raises and the worker fails the job before anything is created.
-        if self.raise_on_source_account_read:
-            raise RuntimeError("fake IRP: forced source account-id read failure")
+        # The selection read is the input to EVERY value — its failure raises
+        # and the worker fails the job before anything is created.
+        if self.raise_on_selection_read:
+            raise RuntimeError("fake IRP: forced selection read failure")
         self.selection_calls.append({
-            "exposure_irp_id": str(exposure_irp_id),
+            "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
             "source_portfolio_irp_id": str(source_portfolio_irp_id),
             "dimension": dimension, "values": list(values)})
         return BreakoutSelection(
@@ -354,7 +355,7 @@ class FakeIRP:
             portfolio_irp_id=pid,
             account_count=self.readback_counts.get(pid, len(set(account_ids))))
 
-    def populate_sub_portfolio(self, *, exposure_irp_id: str,
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
                                account_ids) -> SubPortfolioResult:
         # adopt-then-populate heal (R7): re-adding members is safe (W-9)

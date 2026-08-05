@@ -39,21 +39,20 @@ from typing import Protocol, Sequence, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
-# Repo-owned, read-only DataBridge aggregate scripts (set-based, one row set
-# covering every portfolio in the EDM) — executed through the wheel's generic
-# DataBridge executor by get_edm_exposure_summary below.
+# Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
+# (get_edm_exposure_summary) and the per-portfolio breakout selection and
+# member-count reads (select_breakout_accounts / populate_sub_portfolio) —
+# executed through the wheel's generic DataBridge executor.
 _DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
-
-# The selection filter travels in the URL and dies at HTTP 431 around 4,872
-# characters (a CHARACTER ceiling, measured in the spec-005 probe run, W-6) —
-# a header-size limit the bearer token shares, so the real ceiling is not a
-# constant across tenants. Chunks are sized by COMPOSED filter length against
-# this deliberately conservative budget.
-MAX_COMPOSED_FILTER_CHARS = 3000
 
 # manage_portfolio_accounts takes the ids in the request body (no URL ceiling);
 # adds are still chunked so no single PATCH carries an unbounded id list.
 _ADD_CHUNK_SIZE = 1000
+
+# The breakout selection read per dimension — parameterized, one-portfolio
+# DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
+# below. The state script arrives with US2 (spec 005 T045).
+_SELECTION_SCRIPTS = {"lob": "breakout_lob_accounts.sql"}
 
 
 class DuplicatePortfolioNameError(Exception):
@@ -152,11 +151,13 @@ class TreatyDetail:
 
 @dataclass(frozen=True)
 class BreakoutSelection:
-    """The resolved account ids per breakout value, one call per run. A value
-    whose read failed on its own lands in ``errors_by_value`` (never an
-    exception — one bad read fails one sub-portfolio, W-14); a value with no
-    matching accounts is an EMPTY list, which the worker turns into a
-    zero-match failure with no create call (FR-008)."""
+    """The resolved account ids per breakout value, one call per run. The real
+    gateway resolves every value from ONE set-based DataBridge query (R1,
+    revised 2026-08-05), so its failure raises and fails the whole job with
+    nothing created; ``errors_by_value`` stays on the seam for implementations
+    that can fail per value — the worker fails such an entry with no create
+    call (W-14). A value with no matching accounts is an EMPTY list, which the
+    worker turns into a zero-match failure with no create call (FR-008)."""
     accounts_by_value: dict[str, list[int]]
     errors_by_value: dict[str, str]
 
@@ -230,7 +231,7 @@ class IRPGateway(Protocol):
 
     # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
 
-    def select_breakout_accounts(self, *, exposure_irp_id: str,
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,
                                  values: Sequence[str]) -> BreakoutSelection: ...
 
@@ -238,38 +239,12 @@ class IRPGateway(Protocol):
                              name: str, number: str, description: str,
                              account_ids: Sequence[int]) -> SubPortfolioResult: ...
 
-    def populate_sub_portfolio(self, *, exposure_irp_id: str,
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
                                account_ids: Sequence[int]) -> SubPortfolioResult: ...
 
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]: ...
-
-
-def _chunk_ids_by_filter_length(ids: Sequence[int],
-                                extra_clause: str = "") -> list[list[str]]:
-    """Split account ids into chunks whose COMPOSED filter —
-    ``accountId IN (…)`` plus ``extra_clause`` — stays within
-    ``MAX_COMPOSED_FILTER_CHARS``. Sized by character length, not id count:
-    the HTTP 431 ceiling is a character budget, so a book with 7-digit ids
-    fits roughly half as many per request (W-6)."""
-    overhead = len("accountId IN ()") + len(extra_clause)
-    budget = MAX_COMPOSED_FILTER_CHARS - overhead
-    chunks: list[list[str]] = []
-    current: list[str] = []
-    current_len = 0
-    for raw in ids:
-        token = str(raw)
-        added = len(token) + (1 if current else 0)  # +1 for the comma
-        if current and current_len + added > budget:
-            chunks.append(current)
-            current, current_len = [token], len(token)
-        else:
-            current.append(token)
-            current_len += added
-    if current:
-        chunks.append(current)
-    return chunks
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -288,6 +263,10 @@ class _RealGateway:
 
     def __init__(self) -> None:
         self._irp = None
+        # databaseName per (edm_name, exposureId) — stable for the EDM's
+        # lifetime (a re-import gets a new exposureId), so the breakout loop's
+        # per-entry DataBridge reads don't repeat the RM exposures search.
+        self._database_names: dict[tuple[str, str], str] = {}
 
     def _client(self):
         if self._irp is None:
@@ -391,57 +370,60 @@ class _RealGateway:
 
     # ── spec-005 breakout composition (select → create → add, worker-only) ───────
 
-    def _source_account_ids(self, exposure_irp_id: str,
-                            portfolio_irp_id: str) -> list[int]:
-        # The scope of every selection read: Risk Modeler has no portfolio
-        # predicate (W-6), so the source portfolio's account ids are listed
-        # once and every later filter carries `accountId IN (…)`. A failure
-        # here RAISES — it is the input to every value, and the worker fails
-        # the job before anything is created.
-        rows = self._client().portfolio.search_accounts_by_portfolio_paginated(
-            int(exposure_irp_id), int(portfolio_irp_id))
-        return sorted({int(r["accountId"]) for r in rows
-                       if r.get("accountId") is not None})
+    def _cached_database_name(self, *, edm_name: str,
+                              exposure_irp_id: str) -> str:
+        key = (edm_name, str(exposure_irp_id))
+        if key not in self._database_names:
+            self._database_names[key] = self._edm_database_name(
+                edm_name=edm_name, edm_irp_id=int(exposure_irp_id))
+        return self._database_names[key]
 
-    def select_breakout_accounts(self, *, exposure_irp_id: str,
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,
                                  values: Sequence[str]) -> BreakoutSelection:
-        from irp_integration.exceptions import IRPAPIError  # noqa: PLC0415 — lazy by design
-
-        source_ids = self._source_account_ids(exposure_irp_id,
-                                              source_portfolio_irp_id)
-        accounts_by_value: dict[str, list[int]] = {v: [] for v in values}
-        errors_by_value: dict[str, str] = {}
-
-        if dimension == "lob":
-            # One grouped policy pass resolves EVERY LOB at once (R1): LOB is
-            # not filterable on any Risk Data operation (never filter by lobId
-            # — HTTP 500, W-15), but every policy carries it. A pagination
-            # failure fails every requested value rather than proceeding on a
-            # short id list (W-14) — under-selection reports success.
-            by_lob: dict[str, set[int]] = {}
-            try:
-                for chunk in _chunk_ids_by_filter_length(source_ids):
-                    filter_ = f"accountId IN ({','.join(chunk)})"
-                    for policy in self._client().portfolio.search_policies_paginated(
-                            int(exposure_irp_id), filter=filter_):
-                        lob = (policy.get("lob") or {}).get("lobName")
-                        account_id = policy.get("accountId")
-                        if lob is None or account_id is None:
-                            continue
-                        by_lob.setdefault(str(lob), set()).add(int(account_id))
-            except IRPAPIError as exc:
-                return BreakoutSelection(
-                    accounts_by_value={},
-                    errors_by_value={v: str(exc) for v in values})
-            for v in values:
-                accounts_by_value[v] = sorted(by_lob.get(v, set()))
-        else:
+        # One set-based DataBridge query resolves EVERY value at once (R1,
+        # revised 2026-08-05): the REST selection — paginated account
+        # enumeration plus a chunked accountId-IN policy scan — cannot complete
+        # on a large book. The wheel's account search refuses past 100,000
+        # records because it can no longer prove the page sequence is complete
+        # (observed at 248,000 accounts, W-20), and the policy scan multiplies
+        # that into thousands of round trips. The script mirrors the summary
+        # script's joins, so the values filtered here are byte-identical to
+        # the stored summary the plan was approved from; ACCGRPID is the id
+        # RM's account operations accept as accountId. Any failure RAISES —
+        # the worker fails the job before anything is created.
+        script = _SELECTION_SCRIPTS.get(dimension)
+        if script is None:
             raise ValueError(
                 f"no selection read implemented for dimension {dimension!r}")
+        database = self._cached_database_name(edm_name=edm_name,
+                                              exposure_irp_id=exposure_irp_id)
+        frames = self._client().databridge.execute_query_from_file(
+            str(_DATABRIDGE_SQL_DIR / script),
+            params={"portfolio_id": int(source_portfolio_irp_id)},
+            database=database)
+        rows = frames[0].to_dict("records") if frames else []
+        by_value: dict[str, set[int]] = {}
+        for row in rows:
+            value, account_id = row.get("Value"), row.get("AccountId")
+            if value is None or account_id is None:
+                continue
+            by_value.setdefault(str(value), set()).add(int(account_id))
+        return BreakoutSelection(
+            accounts_by_value={v: sorted(by_value.get(v, set()))
+                               for v in values},
+            errors_by_value={})
 
-        return BreakoutSelection(accounts_by_value=accounts_by_value,
-                                 errors_by_value=errors_by_value)
+    def _member_count(self, *, edm_name: str, exposure_irp_id: str,
+                      portfolio_irp_id: str) -> int:
+        frames = self._client().databridge.execute_query_from_file(
+            str(_DATABRIDGE_SQL_DIR / "portfolio_member_count.sql"),
+            params={"portfolio_id": int(portfolio_irp_id)},
+            database=self._cached_database_name(
+                edm_name=edm_name, exposure_irp_id=exposure_irp_id))
+        rows = frames[0].to_dict("records") if frames else []
+        count = rows[0].get("AccountCount") if rows else None
+        return int(count) if count is not None else 0
 
     def _portfolio_name_taken(self, exposure_irp_id: str, name: str) -> bool:
         # W-10: IRPValidationError alone is not "the name is taken" — it also
@@ -474,35 +456,37 @@ class _RealGateway:
                     f"portfolio name already exists in the EDM: {name}") from exc
             raise
         return self.populate_sub_portfolio(
-            exposure_irp_id=exposure_irp_id,
+            edm_name=edm_name, exposure_irp_id=exposure_irp_id,
             portfolio_irp_id=str(portfolio_irp_id), account_ids=account_ids)
 
-    def populate_sub_portfolio(self, *, exposure_irp_id: str,
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
                                account_ids: Sequence[int]) -> SubPortfolioResult:
         # The add step + read-back verification, shared by the create path and
         # the adopt-then-populate heal (R7). Re-adding already-member accounts
         # is safe and returns completed 0 (W-9), so the heal runs
         # unconditionally; success is decided by reading the portfolio back,
-        # never by the add call's completed/total counts.
+        # never by the add call's completed/total counts. The read-back is a
+        # DataBridge count (R1, revised 2026-08-05) — the paginated REST
+        # enumeration cannot verify a portfolio past 100,000 accounts (W-20).
         pm = self._client().portfolio
         ids = [int(i) for i in account_ids]
-        for start in range(0, len(ids), _ADD_CHUNK_SIZE):
+        chunks = range(0, len(ids), _ADD_CHUNK_SIZE)
+        logger.info("adding %d accounts to portfolio %s in %d chunk(s)",
+                    len(ids), portfolio_irp_id, len(chunks))
+        for start in chunks:
             pm.manage_portfolio_accounts(
                 int(exposure_irp_id), int(portfolio_irp_id),
                 accounts_to_add=ids[start:start + _ADD_CHUNK_SIZE])
-        members = pm.search_accounts_by_portfolio_paginated(
-            int(exposure_irp_id), int(portfolio_irp_id))
-        member_ids = {int(r["accountId"]) for r in members
-                      if r.get("accountId") is not None}
-        missing = set(ids) - member_ids
-        if missing:
+        count = self._member_count(edm_name=edm_name,
+                                   exposure_irp_id=exposure_irp_id,
+                                   portfolio_irp_id=portfolio_irp_id)
+        if count != len(set(ids)):
             logger.warning(
-                "sub-portfolio %s holds %d of the %d selected accounts after "
-                "the add (%d missing)", portfolio_irp_id, len(member_ids),
-                len(ids), len(missing))
+                "sub-portfolio %s holds %d accounts after the add; %d were "
+                "selected", portfolio_irp_id, count, len(set(ids)))
         return SubPortfolioResult(portfolio_irp_id=str(portfolio_irp_id),
-                                  account_count=len(member_ids))
+                                  account_count=count)
 
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]:
@@ -802,11 +786,11 @@ def fetch_portfolio_stamp(*, exposure_irp_id: int,
                                            portfolio_irp_id=portfolio_irp_id)
 
 
-def select_breakout_accounts(*, exposure_irp_id: str,
+def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str, dimension: str,
                              values: Sequence[str]) -> BreakoutSelection:
     return _active().select_breakout_accounts(
-        exposure_irp_id=exposure_irp_id,
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
         source_portfolio_irp_id=source_portfolio_irp_id,
         dimension=dimension, values=values)
 
@@ -819,11 +803,12 @@ def create_sub_portfolio(*, edm_name: str, exposure_irp_id: str, name: str,
         number=number, description=description, account_ids=account_ids)
 
 
-def populate_sub_portfolio(*, exposure_irp_id: str, portfolio_irp_id: str,
+def populate_sub_portfolio(*, edm_name: str, exposure_irp_id: str,
+                           portfolio_irp_id: str,
                            account_ids: Sequence[int]) -> SubPortfolioResult:
     return _active().populate_sub_portfolio(
-        exposure_irp_id=exposure_irp_id, portfolio_irp_id=portfolio_irp_id,
-        account_ids=account_ids)
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        portfolio_irp_id=portfolio_irp_id, account_ids=account_ids)
 
 
 def find_portfolio_by_number(*, exposure_irp_id: str,
@@ -836,7 +821,6 @@ __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
     "BreakoutSelection", "SubPortfolioResult", "DuplicatePortfolioNameError",
-    "MAX_COMPOSED_FILTER_CHARS",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
