@@ -18,7 +18,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant typeahead for the create/edit form (`DISTINCT cedant_name`, contains match); returns `partials/typeahead_menu.html` (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted |
+| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant typeahead for the create/edit form (`DISTINCT cedant_name`, contains match); returns `partials/typeahead_menu.html` (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted. Both suggest routes render an empty body below a 2-character term and cap the menu at 10 rows in the query |
 | GET | `/submissions/link-suggest?links_to_search=&links_to_exclude=` | HTMX typeahead for the "links to" picker; AND-combines terms across name and cedant, drops `links_to_exclude` from the results, returns `partials/typeahead_menu.html` (FR-007/CR8). `?q=`/`?exclude=` are still accepted |
 
 ---

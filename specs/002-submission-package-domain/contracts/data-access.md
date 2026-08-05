@@ -54,14 +54,17 @@ def find_similar(
 
 def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
     """SELECT DISTINCT cedant_name … LIKE %term% (FR-006/R6). No cedant table.
-    Contains, not prefix (CR7): "fam" has to find "American Family Mutual"."""
+    Contains, not prefix (CR7): "fam" has to find "American Family Mutual".
+    A term under 2 characters returns []; limit is applied by the server via
+    db.row_limit(), not by slicing the rows in Python."""
 
 def search_submissions_for_link(
     term: str, *, exclude_id: UUID | None = None, limit: int = 10,
 ) -> list[SubmissionRow]:
     """Backs the "links to" picker (CR8). Every whitespace-separated term must
     match the name or the cedant — AND, not OR (CR2). exclude_id drops the
-    submission being edited so it cannot be offered as its own link."""
+    submission being edited so it cannot be offered as its own link. Same
+    2-character minimum and server-side limit as cedant_suggestions."""
 ```
 
 ### Edit / reassign (gated + concurrency-checked)
