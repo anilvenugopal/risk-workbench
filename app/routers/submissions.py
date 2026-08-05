@@ -11,14 +11,15 @@ Service errors are mapped to HTTP here:
   duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
 
 Field-level validation returns 422 with a ``field_errors`` dict the form renders
-under the offending input, plus a one-line summary banner (CR4) — a single combined
-message never told the analyst which field failed. The unconfirmed duplicate warning
-is the one re-render that stays 200: nothing the analyst typed is wrong.
+under the offending input, plus a one-line summary banner (CR4). The unconfirmed
+duplicate warning is the one re-render that stays 200: nothing the analyst typed
+is wrong.
 """
 
 from __future__ import annotations
 
 from datetime import date
+from functools import partial
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -114,12 +115,11 @@ def _validate_submission_form(
             else "Enter a valid date.")
 
     parsed_treaty_year = _parse_int(treaty_year)
-    year_range = f"Enter a year between {MIN_TREATY_YEAR} and {MAX_TREATY_YEAR}."
-    if treaty_year.strip() and parsed_treaty_year is None:
-        errors["treaty_year"] = year_range
-    elif (parsed_treaty_year is not None
-            and not MIN_TREATY_YEAR <= parsed_treaty_year <= MAX_TREATY_YEAR):
-        errors["treaty_year"] = year_range
+    if treaty_year.strip() and not (
+            parsed_treaty_year is not None
+            and MIN_TREATY_YEAR <= parsed_treaty_year <= MAX_TREATY_YEAR):
+        errors["treaty_year"] = (
+            f"Enter a year between {MIN_TREATY_YEAR} and {MAX_TREATY_YEAR}.")
 
     return errors, parsed_inception_date, parsed_treaty_year
 
@@ -133,40 +133,40 @@ def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
     return [f"{subject} attention before this deal can be {action}."]
 
 
-def _link_target(submission_id: str | None):
-    """The submission currently chosen in "links to", so the picker can show its
-    name instead of a UUID. None when nothing is linked or the id is stale."""
-    if not submission_id:
-        return None
-    return submission_service.get_submission(submission_id)
-
-
 def _form_context(
     *, mode: str, form: dict, submission, links_to: str | None = None,
     errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
     warnings: list | None = None,
 ) -> dict:
-    """The render context for ``pages/submission_form.html``.
-
-    Create and edit both build it here, keyword-only: ``errors``, ``field_errors``
-    and ``warnings`` are three same-shaped collections the template treats very
-    differently, and two hand-written context dicts had already put them in two
-    different orders.
-
-    ``min_suggest_term`` reaches the template so the two ``hx-trigger`` filters and
-    the Alpine ``typeahead`` component read the same number as the service, rather
-    than repeating the literal in the markup and the JavaScript."""
+    """The render context for ``pages/submission_form.html``. ``errors``,
+    ``field_errors`` and ``warnings`` are three same-shaped collections the
+    template treats differently, so they are keyword-only."""
     return {
         "mode": mode,
         "treaty_types": TREATY_TYPES,
         "form": form,
         "submission": submission,
-        "link_target": _link_target(links_to),
+        "link_target": submission_service.get_submission(links_to),
         "errors": errors or [],
         "field_errors": field_errors or {},
         "warnings": warnings or [],
         "min_suggest_term": submission_service.MIN_SUGGEST_TERM,
+        "min_treaty_year": MIN_TREATY_YEAR,
+        "max_treaty_year": MAX_TREATY_YEAR,
     }
+
+
+def _reshow_form(
+    request: Request, *, mode: str, nav_key: str, form: dict, submission,
+    links_to: str | None, errors=None, field_errors=None, warnings=None,
+    status_code: int = 200,
+):
+    return _render(
+        request, "pages/submission_form.html", nav_key,
+        _form_context(mode=mode, form=form, submission=submission,
+                      links_to=links_to, errors=errors,
+                      field_errors=field_errors, warnings=warnings),
+        status_code=status_code)
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:
@@ -184,7 +184,8 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
         "package_cards": package_sync_service.get_package_cards(submission_id),
-        "link_target": _link_target(submission.links_to_submission_id),
+        "link_target": submission_service.get_submission(
+            submission.links_to_submission_id),
         "analysts": analysts,
         "treaty_types": TREATY_TYPES,
         "is_active": submission.status_code == submission_service.ACTIVE,
@@ -251,17 +252,8 @@ def list_mine(request: Request):
 
 def _suggest_menu(request: Request, options: list[dict], term: str,
                   empty_message: str, menu_id: str):
-    """Render one of the two typeahead menus.
-
-    ``searched`` is what tells the template apart "we looked and found nothing"
-    from "the term is too short to look yet" (``submission_service
-    .MIN_SUGGEST_TERM``) — the second renders a blank menu, since claiming no
-    cedant matches "a" would be wrong.
-
-    ``menu_id`` is the id of the div htmx swaps into. Each option gets an id
-    derived from it, which is what the input's ``aria-activedescendant`` names as
-    the analyst arrows through the menu — two menus render on the create form, so
-    the ids cannot be a bare index."""
+    """Render one of the two typeahead menus. ``menu_id`` is the id of the div
+    htmx swaps into, and each option derives its own id from it."""
     return _partial(request, "partials/typeahead_menu.html", {
         "options": options,
         "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
@@ -301,12 +293,6 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
-    # A term past MAX_SUGGEST_LENGTH is refused whole rather than searched on the
-    # words that fit, so say that instead of "no matching submission".
-    empty_message = (
-        "Search term is too long — type fewer words."
-        if len(term.strip()) > submission_service.MAX_SUGGEST_LENGTH
-        else "No matching submission.")
     return _suggest_menu(
         request,
         [
@@ -321,7 +307,7 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, empty_message, "link-menu",
+        term, "No matching submission.", "link-menu",
     )
 
 
@@ -360,14 +346,9 @@ def create(
     }
     links_to = links_to_submission_id.strip() or None
 
-    def _reshow(*, errors=None, field_errors=None, warnings=None,
-                status_code: int = 200):
-        return _render(
-            request, "pages/submission_form.html", "submissions.all",
-            _form_context(mode="create", form=form, submission=None,
-                          links_to=links_to, errors=errors,
-                          field_errors=field_errors, warnings=warnings),
-            status_code=status_code)
+    _reshow = partial(_reshow_form, request, mode="create",
+                      nav_key="submissions.all", form=form, submission=None,
+                      links_to=links_to)
 
     field_errors, parsed_inception_date, parsed_treaty_year = (
         _validate_submission_form(
@@ -463,15 +444,9 @@ def update(
     }
     links_to = links_to_submission_id.strip() or None
 
-    # Same signature as create()'s _reshow, keyword-only for the same reason.
-    def _reshow(*, errors=None, field_errors=None, warnings=None,
-                status_code: int = 200):
-        return _render(
-            request, "pages/submission_form.html", "submissions.detail",
-            _form_context(mode="edit", form=form, submission=submission,
-                          links_to=links_to, errors=errors,
-                          field_errors=field_errors, warnings=warnings),
-            status_code=status_code)
+    _reshow = partial(_reshow_form, request, mode="edit",
+                      nav_key="submissions.detail", form=form,
+                      submission=submission, links_to=links_to)
 
     field_errors, parsed_inception_date, parsed_treaty_year = (
         _validate_submission_form(

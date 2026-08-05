@@ -54,13 +54,13 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 ### Schema + seeds (single revision — drop-create-seed, data-model §9)
 
 - [X] T012 Edit `alembic/versions/0001_initial.py`: remove the `customer`, `program`, and `user_customer_access` `create_table` calls and their downgrade drops (FR-032).
-- [X] T013 Edit `alembic/versions/0001_initial.py`: add the nine Iteration-1 tables in FK order — `treaty_type_kind`, `submission_status_kind`, `package`, `submission`, `submission_crm_id`, `submission_status_event`, `submission_package` (composite PK), `irp_edm`, `irp_rdm` — with the self-renewal `CHECK (renews_from_submission_id IS NULL OR renews_from_submission_id <> id)`, indexes on `assigned_analyst_id`/`cedant_name`/`treaty_type_code`/`inception_date`, **no** `UNIQUE(name)`, **no** `customer_id`, nullable `package_id` on `irp_edm`/`irp_rdm`, and plain-`VARCHAR` `status` on the irp tables (data-model §2–§7); downgrade drops in reverse FK order (after T012).
+- [X] T013 Edit `alembic/versions/0001_initial.py`: add the nine Iteration-1 tables in FK order — `treaty_type_kind`, `submission_status_kind`, `package`, `submission`, `submission_crm_id`, `submission_status_event`, `submission_package` (composite PK), `irp_edm`, `irp_rdm` — with the no-self-link `CHECK (links_to_submission_id IS NULL OR links_to_submission_id <> id)`, indexes on `assigned_analyst_id`/`cedant_name`/`treaty_type_code`/`inception_date`, **no** `UNIQUE(name)`, **no** `customer_id`, nullable `package_id` on `irp_edm`/`irp_rdm`, and plain-`VARCHAR` `status` on the irp tables (data-model §2–§7); downgrade drops in reverse FK order (after T012).
 - [X] T014 Edit `alembic/versions/0001_initial.py`: add in-migration seeds mirroring the `role_kind` seed — `submission_status_kind` (ACTIVE 10 / COMPLETED 20 / CANCELLED 30) and `treaty_type_kind` (the six provisional codes) (data-model §1/§9, FR-010/FR-030) (after T013).
 - [X] T015 Edit `infra/scripts/seed_db.py`: add idempotent `MERGE` seeds for `submission_status_kind` and `treaty_type_kind` (same pattern as the existing `role_kind` MERGE) so a re-seed without a full rebuild stays correct (data-model §9).
 
 ### Shared service scaffolding + cleanup verification
 
-- [X] T016 [P] Create `app/services/errors.py` with the typed service errors `SubmissionClosed`, `ConcurrencyConflict`, `SelfRenewalError`, and `EmptyPackageError` (contracts/data-access.md).
+- [X] T016 [P] Create `app/services/errors.py` with the typed service errors `SubmissionClosed`, `ConcurrencyConflict`, `SelfLinkError`, and `EmptyPackageError` (contracts/data-access.md).
 - [X] T017 [P] Create `tests/unit/test_no_scope.py`: assert `db` exposes no `apply_scope`/`scoped_execute`, `import db.scope` fails, and no repository query/source references `customer_id` (SC-010 / FR-032) (after T002–T005).
 - [X] T018 Create `tests/sqlserver/test_submission_migration.py`: assert the migration builds all nine tables + FKs + the self-renewal CHECK and that the seeds are present (data-model §9). (Event-sourced atomicity is added in T032.)
 - [ ] T019 Run `make db-rebuild`; verify the nine tables exist, `customer`/`program`/`user_customer_access` do not, and the seeds are present (quickstart §1) (after T012–T015).
@@ -161,7 +161,7 @@ Single server-rendered web app extending the existing Iteration-0 tree (plan.md 
 
 ### Tests for User Story 5 ⚠️
 
-- [X] T040 [P] [US5] In `tests/unit/test_submission_service.py`: `find_similar` warns on name-match and on attribute-match (cedant+type+inception), returns empty for a genuinely new deal, and `exclude_id` skips the renamed row; `create_submission` with an unconfirmed match returns `CreateResult(created=False, warnings=…)` without writing while `confirmed=True` writes; `update_submission` runs `find_similar` on rename, raises `SelfRenewalError` on a self-link, and raises `ConcurrencyConflict` on a stale `updated_at` (SC-006/SC-009).
+- [X] T040 [P] [US5] In `tests/unit/test_submission_service.py`: `find_similar` warns on name-match and on attribute-match (cedant+type+inception), returns empty for a genuinely new deal, and `exclude_id` skips the renamed row; `create_submission` with an unconfirmed match returns `CreateResult(created=False, warnings=…)` without writing while `confirmed=True` writes; `update_submission` runs `find_similar` on rename, raises `SelfLinkError` on a self-link, and raises `ConcurrencyConflict` on a stale `updated_at` (SC-006/SC-009).
 
 ### Implementation for User Story 5
 

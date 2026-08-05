@@ -6,7 +6,7 @@ Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 - `SubmissionClosed` — a mutation was attempted on a non-ACTIVE submission (R3 / FR-015) → HTTP 409/redirect with message.
 - `ConcurrencyConflict` — optimistic-concurrency marker mismatch (R1 / FR-031) → HTTP 409, input preserved.
 - `SelfLinkError` — `links_to_submission_id == id` (R9 / FR-007).
-- `UnknownLinkError` — `links_to_submission_id` names no submission (FR-007) → HTTP 422 under the field. The id arrives from a hidden input, and the column is a FK to `submission.id`.
+- `UnknownLinkError` — `links_to_submission_id` names no submission (FR-007) → HTTP 422 under the field.
 - `EmptyPackageError` — package would have zero members (R5 / FR-024).
 
 ---
@@ -36,9 +36,7 @@ def create_submission(
 
 def get_submission(submission_id: UUID) -> Submission | None:
     """Full detail incl. cached status_code. No access restriction (FR-019).
-    An id that is not a UUID returns None rather than reaching the query: it
-    arrives from a typed URL and from the "links to" hidden input, and SQL Server
-    raises a conversion error comparing it to submission.id (uniqueidentifier)."""
+    An id that is not a UUID returns None rather than reaching the query."""
 
 def list_submissions(
     *, owner_id: UUID | None = None,        # set → "My Submissions"; None → "All"
@@ -68,12 +66,10 @@ def search_submissions_for_link(
     term: str, *, exclude_id: UUID | None = None, limit: int = 10,
 ) -> list[SubmissionRow]:
     """Backs the "links to" picker (CR8). Every whitespace-separated term must
-    match the name or the cedant — AND, not OR (CR2). Every word of an accepted
-    term is matched; a term longer than MAX_SUGGEST_LENGTH (510 = name 255 +
-    cedant 255) returns [] instead, since the search binds one LIKE pair per word
-    and a pasted paragraph is past anything a submission can match. exclude_id drops the
-    submission being edited so it cannot be offered as its own link. Same
-    2-character minimum and server-side limit as cedant_suggestions."""
+    match the name or the cedant — AND, not OR (CR2). exclude_id drops the
+    submission being edited so it cannot be offered as its own link; a non-UUID
+    exclude_id excludes nothing. Same 2-character minimum and server-side limit
+    as cedant_suggestions."""
 ```
 
 ### Edit / reassign (gated + concurrency-checked)
@@ -89,9 +85,8 @@ def update_submission(
     - Raises SelfLinkError if links_to_submission_id == submission_id (R9), and
       UnknownLinkError if it names no submission (checked first; a deal's own id
       exists, so linking to itself still reports SelfLinkError).
-    - treaty_year cleared to None is refilled from the inception year (CR5). This
-      also fires on an edit that never mentions the field, so renaming a submission
-      whose treaty_year is NULL fills it: the column does not record "no treaty year".
+    - treaty_year cleared to None is refilled from the inception year (CR5): the
+      column does not record "no treaty year".
     - On rename/attr change, runs find_similar; unconfirmed match → UpdateResult with
       warnings and no write (FR-004).
     - UPDATE … WHERE id=:id AND updated_at=:expected_updated_at; rowcount 0 →

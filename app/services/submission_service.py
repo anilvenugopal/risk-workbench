@@ -153,18 +153,9 @@ def _as_uuid(value: Any) -> str | None:
 
 
 def _resolve_link_target(links_to: Any) -> str | None:
-    """The id to write to ``submission.links_to_submission_id``, or ``None``.
-
-    ``submission.links_to_submission_id`` is a foreign key to ``submission.id``,
-    and the create/edit form posts the picked deal's id in a hidden input. A value
-    that names no submission — a page left open while the target was renamed away
-    or a request built by hand — would otherwise reach the INSERT/UPDATE and come
-    back as a driver integrity error, which a route can only render as a 500.
-    Check it here and raise ``UnknownLinkError`` so the route can put a message
-    under the field instead.
-
-    The id is normalized to canonical lowercase so an uppercase or braced id from
-    a hand-built request still matches the rows SQLite stores verbatim."""
+    """The id to write to ``submission.links_to_submission_id``, normalized to
+    canonical lowercase, or ``None``. Raises ``UnknownLinkError`` when the value
+    names no submission."""
     if links_to is None or not str(links_to).strip():
         return None
     target = _as_uuid(links_to)
@@ -181,8 +172,7 @@ def _resolve_link_target(links_to: Any) -> str | None:
 
 def _default_treaty_year(treaty_year: int | None, inception_date: Any) -> int | None:
     """Fall back to the inception year when the analyst left treaty year blank
-    (CR5). An entered year always wins — a December inception is often written
-    into the following treaty year."""
+    (CR5). An entered year always wins (design note 08, D4)."""
     if treaty_year is not None:
         return treaty_year
     parsed = _as_date(inception_date)
@@ -249,13 +239,10 @@ def create_submission(
     write path the submission row and its initial ACTIVE status event commit in
     one transaction (R2).
 
-    ``treaty_year`` left as ``None`` is filled from the inception year (CR5). The
-    form fills the same value client-side; this is what makes the rule hold with
-    JavaScript off.
+    ``treaty_year`` left as ``None`` is filled from the inception year (CR5).
 
-    ``links_to_submission_id`` is checked against the submission table before the
-    duplicate check, so an id naming no deal is refused (``UnknownLinkError``)
-    without first showing the analyst a look-alike warning."""
+    ``links_to_submission_id`` is checked before the duplicate check, so an id
+    naming no deal is refused without first showing a look-alike warning."""
     link_target = _resolve_link_target(links_to_submission_id)
     matches = find_similar(
         name=name, cedant_name=cedant_name, treaty_type_code=treaty_type_code,
@@ -306,12 +293,8 @@ def create_submission(
 
 
 def get_submission(submission_id: Any) -> Submission | None:
-    """Full detail incl. cached status_code. No access restriction (FR-019).
-
-    An id that is not a UUID is "not found", not a query: it reaches here from a
-    typed URL and from the "links to" hidden input, and binding it against
-    ``submission.id`` (``uniqueidentifier``) would raise a conversion error the
-    route can only render as a 500."""
+    """Full detail incl. cached status_code. No access restriction (FR-019). An
+    id that is not a UUID is "not found", not a query (see ``_as_uuid``)."""
     sid = _as_uuid(submission_id)
     if sid is None:
         return None
@@ -418,25 +401,13 @@ def find_similar(
 # so the request is not sent at all.
 MIN_SUGGEST_TERM = 2
 
-# The "links to" search AND-combines one LIKE pair per word, so the analyst's input
-# sets the parameter count and the shape of the plan. Bounding the text bounds the
-# words: every word has to appear in the submission's name or cedant, and those two
-# columns are NVARCHAR(255) each, so a longer term is past anything a submission can
-# match. Such a term is refused whole rather than searched on the words that fit —
-# dropping the rest would return deals the analyst did not ask for.
-MAX_SUGGEST_LENGTH = 510
-
 
 def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
     """The first ``limit`` DISTINCT cedant names containing ``term`` (FR-006/R6).
     No cedant table.
 
     Contains, not prefix (CR7): typing "fam" has to find "American Family
-    Mutual", which a ``LIKE 'fam%'`` match never returns.
-
-    ``limit`` is applied by the server rather than by slicing the rows in Python:
-    typing "am" used to read back every cedant on every submission to keep ten of
-    them."""
+    Mutual", which a ``LIKE 'fam%'`` match never returns."""
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
@@ -456,23 +427,15 @@ def search_submissions_for_link(
     matched against name or cedant. Backs the "links to" picker (CR8).
 
     Terms AND-combine (CR2): "american fam" must not return every deal containing
-    "American". Every word of an accepted term is matched; a term longer than
-    ``MAX_SUGGEST_LENGTH`` returns no rows at all. ``exclude_id`` drops the
-    submission being edited so it cannot be offered as its own link —
-    ``update_submission`` still raises ``SelfLinkError`` as the real check.
-
-    ``limit`` is applied by the server rather than by slicing the rows in Python,
-    so the query returns ten rows instead of every deal that matches. Both LIKE
-    predicates lead with a wildcard, so neither can seek an index; whether SQL
-    Server satisfies ``ORDER BY inception_date DESC`` from
-    ``ix_submission_inception_date`` or sorts the matches has not been measured."""
+    "American". ``exclude_id`` drops the submission being edited so it cannot be
+    offered as its own link — ``update_submission`` still raises ``SelfLinkError``
+    as the real check."""
     trimmed = (term or "").strip()
-    if not MIN_SUGGEST_TERM <= len(trimmed) <= MAX_SUGGEST_LENGTH:
+    if len(trimmed) < MIN_SUGGEST_TERM:
         return []
-    terms = trimmed.split()
     clauses: list[str] = []
-    params: dict[str, Any] = {"exclude": str(exclude_id) if exclude_id else None}
-    for index, word in enumerate(terms):
+    params: dict[str, Any] = {"exclude": _as_uuid(exclude_id)}
+    for index, word in enumerate(trimmed.split()):
         key = f"t{index}"
         clauses.append(
             f"(s.name LIKE :{key} ESCAPE '\\' OR s.cedant_name LIKE :{key} ESCAPE '\\')"
@@ -506,10 +469,7 @@ def update_submission(
     (non-blocking duplicate warning on rename).
 
     ``treaty_year`` is refilled from the inception year whenever the merged value
-    is None (CR5), which includes an edit that never mentions the field: renaming a
-    submission whose ``treaty_year`` is NULL also fills it. That is the intended
-    reading of "defaults to the inception year" — the column is not a way to record
-    "no treaty year"."""
+    is None (CR5) — the column does not record "no treaty year"."""
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "

@@ -48,12 +48,8 @@
 
       {# Cedant is free text with suggestions — there is no cedant registry
          (FR-006), so the menu only offers names already used on a submission.
-
          Both typeaheads read `min_suggest_term` from the route context, which is
-         `submission_service.MIN_SUGGEST_TERM`: the hx-trigger filter withholds the
-         request below it, `typeahead()` uses the same number to drop a menu left
-         over from a longer term, and the service returns nothing for a shorter
-         one. `onInput()` is what closes the stale menu. #}
+         `submission_service.MIN_SUGGEST_TERM`. #}
       <div class="wf-field">
         <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
         <div class="ta" x-data="typeahead({ minTerm: {{ min_suggest_term }} })"
@@ -93,7 +89,7 @@
       {# Inception date drives the treaty-year default (CR5). The two fields share
          one Alpine component so the year can stop following the date once the
          analyst types their own. #}
-      <div x-data="treatyYear({{ 'true' if form.treaty_year else 'false' }})" style="display: contents">
+      <div x-data="treatyYear()" style="display: contents">
         <div class="wf-field">
           <label>INCEPTION DATE <span class="wf-field__req" title="Required">*</span></label>
           <input class="wf-field__input{% if field_errors.inception_date %} wf-field__input--error{% endif %}"
@@ -107,14 +103,13 @@
         <div class="wf-field">
           <label>TREATY YEAR</label>
           <input class="wf-field__input{% if field_errors.treaty_year %} wf-field__input--error{% endif %}"
-                 type="number" name="treaty_year" min="1900" max="2999"
+                 type="number" name="treaty_year"
+                 min="{{ min_treaty_year }}" max="{{ max_treaty_year }}"
                  value="{{ form.treaty_year or '' }}" x-ref="year" @input="onYearInput()">
           {% if field_errors.treaty_year %}
           <div class="wf-field__msg wf-field__error">{{ field_errors.treaty_year }}</div>
           {% else %}
-          <div class="wf-field__msg wf-field__hint"
-               x-text="edited ? 'Set manually — changing the inception date leaves it alone.'
-                              : 'Defaults to the inception year. Change it if the treaty year differs.'">
+          <div class="wf-field__msg wf-field__hint">
             Defaults to the inception year. Change it if the treaty year differs.
           </div>
           {% endif %}

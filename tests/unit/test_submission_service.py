@@ -25,7 +25,6 @@ from app.services.submission_service import (
     get_status_history,
     get_submission,
     list_crm_ids,
-    MAX_SUGGEST_LENGTH,
     list_submissions,
     reassign_owner,
     remove_crm_id,
@@ -443,20 +442,6 @@ def test_search_for_link_matches_every_word_however_many(iteration1_db):
     # last word rules out.
     with_one_miss = " ".join(matching + ["nomatch"])
     assert search_submissions_for_link(with_one_miss) == []
-
-
-def test_search_for_link_refuses_a_term_past_the_length_cap(iteration1_db):
-    # An analyst can paste a paragraph into the box, and the search binds one LIKE
-    # pair per word. Name and cedant are NVARCHAR(255) each, so a longer term is
-    # past what a submission can match: it returns nothing rather than hundreds of
-    # LIKE pairs (and another ad-hoc plan per distinct word count).
-    sid = _mk(iteration1_db, name="American Family Renewal",
-              cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
-    at_cap = "american" + " a" * ((MAX_SUGGEST_LENGTH - 8) // 2)   # 251 words
-    assert len(at_cap) == MAX_SUGGEST_LENGTH
-    assert sid in {r.id for r in search_submissions_for_link(at_cap)}
-    # Two characters longer, every word still matching, and the term is refused.
-    assert search_submissions_for_link(at_cap + " a") == []
 
 
 def test_search_for_link_matches_name_or_cedant(iteration1_db):

@@ -119,17 +119,21 @@ def sqlite_conn(sqlite_engine):
 # seeds the kind tables + two analysts, and registers it as WORKBENCH.
 
 
+def _memory_engine() -> Engine:
+    """In-memory SQLite the route tests can reach. StaticPool +
+    check_same_thread=False, not the SQLite defaults: TestClient dispatches routes
+    on a worker thread, and a per-thread connection would hand that thread its own
+    empty database."""
+    return create_engine("sqlite://", poolclass=StaticPool,
+                         connect_args={"check_same_thread": False})
+
+
 @pytest.fixture()
 def iteration1_db() -> SimpleNamespace:
     """Build the Iteration-1 WORKBENCH schema in SQLite, seed the kind tables and
     two analysts, register it as the WORKBENCH connection, and return the two
     analyst ids. Engine disposal is handled by the autouse root fixture."""
-    # StaticPool + check_same_thread=False, not the SQLite defaults: TestClient
-    # dispatches routes on a worker thread, and a per-thread connection would hand
-    # that thread its own empty in-memory database. One shared connection, usable
-    # from either thread, keeps route tests on the same rows.
-    engine = create_engine("sqlite://", poolclass=StaticPool,
-                           connect_args={"check_same_thread": False})
+    engine = _memory_engine()
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
     with engine.begin() as conn:
@@ -165,12 +169,7 @@ def iteration2_db() -> SimpleNamespace:
     (the dev DB is drop-create-seed, so services always see the full shape), seed
     the kind tables and two analysts, register it as WORKBENCH, and return the
     analyst ids. Engine disposal is handled by the autouse root fixture."""
-    # StaticPool + check_same_thread=False, not the SQLite defaults: TestClient
-    # dispatches routes on a worker thread, and a per-thread connection would hand
-    # that thread its own empty in-memory database. One shared connection, usable
-    # from either thread, keeps route tests on the same rows.
-    engine = create_engine("sqlite://", poolclass=StaticPool,
-                           connect_args={"check_same_thread": False})
+    engine = _memory_engine()
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
     with engine.begin() as conn:

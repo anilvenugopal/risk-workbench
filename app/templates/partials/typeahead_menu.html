@@ -1,15 +1,11 @@
 {# Typeahead menu — the HTMX target for both the CEDANT field and the "links to"
-   picker (CR7/CR8). Each option carries its value in data-value; the Alpine
-   `typeahead` component reads it on click or Enter. Buttons are type="button" so
-   a keyboard pick never submits the form.
+   picker (CR7/CR8). Buttons are type="button" so a keyboard pick never submits
+   the form. Each option's id is built from `menu_id`, which the input names in
+   `aria-activedescendant` — the create form renders both menus, so a bare index
+   would collide.
 
-   Each option also carries an id built from `menu_id`, which the input names in
-   `aria-activedescendant` as the analyst arrows down — the create form renders
-   both menus, so a bare index would collide. `aria-selected` marks the same row
-   the `.is-active` class draws.
-
-   `searched` is false for a term below submission_service.MIN_SUGGEST_TERM: the
-   menu stays blank instead of reporting no match, because no search ran. #}
+   `searched` is false when no search ran, and the menu stays blank rather than
+   reporting no match. #}
 {% if options %}
 <div class="ta__menu" role="listbox">
   {% for option in options %}

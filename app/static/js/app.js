@@ -280,7 +280,8 @@ document.addEventListener('alpine:init', () => {
   //   - cedant     — free text, the chosen name goes straight into the input
   //   - links to   — the id goes into the hidden value input and the chosen
   //                  submission's name is shown as a chip instead
-  // With JS off both degrade to a plain text field, which the server still reads.
+  // With JS off the cedant field degrades to plain text the server still reads;
+  // the "links to" picker needs JavaScript.
   //
   // `minTerm` comes from the template, which renders it from the route context's
   // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
@@ -367,12 +368,10 @@ document.addEventListener('alpine:init', () => {
   }));
 
   // Treaty year follows the inception year until the analyst types their own
-  // (CR5) — a December inception is often written into the next treaty year, so
-  // the field stays editable. `prefilled` is true when the server already sent a
-  // year (edit form, or a re-render after a validation error), which counts as
-  // edited so reloading the page never overwrites a stored value.
-  Alpine.data('treatyYear', (prefilled = false) => ({
-    edited: prefilled,
+  // (CR5, design note 08 D4). Changing the inception date moves the year unless
+  // it was edited on this render.
+  Alpine.data('treatyYear', () => ({
+    edited: false,
     onYearInput() {
       this.edited = !!this.$refs.year.value.trim();
     },

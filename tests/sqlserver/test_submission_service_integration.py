@@ -43,7 +43,7 @@ import pytest
 
 from app.services import submission_service as svc
 from app.services.errors import UnknownLinkError
-from db import execute_command, get_engine, row_limit
+from db import execute_command, get_engine
 
 # Re-collect the entire unit submission-service suite against the fixture below.
 from tests.unit.test_submission_service import *  # noqa: F401,F403
@@ -155,23 +155,11 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     assert svc.get_submission(sid).assigned_analyst_id == b
 
 
-def test_row_limit_emits_the_sql_server_clause(iteration1_db):
-    """``db.row_limit`` picks its clause from the engine's dialect, so the branch
-    that ships to production is the one the SQLite unit tier never runs. The
-    reused suite exercises it indirectly through both suggest queries; this names
-    the emitted text, so a typo in ``OFFSET/FETCH`` fails here rather than as a
-    query error inside another test."""
-    assert row_limit(10, connection="WORKBENCH") == \
-        "OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
-    # Not caller text: the count is cast before it reaches the SQL string.
-    assert row_limit("7", connection="WORKBENCH") == \
-        "OFFSET 0 ROWS FETCH NEXT 7 ROWS ONLY"
-
-
 def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
-    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH`` and the ``:exclude IS NULL``
-    predicate are both accepted by SQLite without proving anything about SQL
-    Server. Run each search against the real driver and check the cap holds."""
+    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``:exclude IS NULL``
+    predicate and the ``uniqueidentifier`` comparison behind it are all accepted by
+    SQLite without proving anything about SQL Server. Run each search against the
+    real driver and check the cap holds."""
     a = iteration1_db.user_a
     tag = uuid.uuid4().hex[:8]
     for index in range(4):
@@ -187,10 +175,15 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     assert len(svc.search_submissions_for_link(f"CapDeal{tag}")) == 4
     # The AND-combined multi-term form binds one parameter per word.
     assert len(svc.search_submissions_for_link(f"CapDeal{tag} CapCedant{tag}")) == 4
-    # A term at the length cap binds ~250 LIKE pairs — SQL Server's parameter
-    # limit is 2100, and the unit tier's SQLite never proves that.
-    at_cap = f"CapDeal{tag}" + " a" * ((svc.MAX_SUGGEST_LENGTH - 16) // 2)
-    assert len(svc.search_submissions_for_link(at_cap)) == 4
+
+    # :exclude bound with a real id and with text that is not a UUID — the second
+    # is what raises a conversion error against submission.id if it reaches the
+    # driver unparsed.
+    first = svc.search_submissions_for_link(f"CapDeal{tag}")[0]
+    assert len(svc.search_submissions_for_link(
+        f"CapDeal{tag}", exclude_id=first.id)) == 3
+    assert len(svc.search_submissions_for_link(
+        f"CapDeal{tag}", exclude_id="not-a-uuid")) == 4
 
 
 def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db):

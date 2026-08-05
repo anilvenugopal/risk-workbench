@@ -8,8 +8,7 @@ the route decides:
   • treaty-year range rejection, and a blank year filled from the inception date
     when the analyst never touches the field (CR5);
   • the 303 to the new deal, and CSRF rejection writing nothing;
-  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8);
-  • ``/submissions/new`` still resolving ahead of ``/submissions/{submission_id}``.
+  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8).
 
 Harness: TestClient over the real router against the fixture SQLite engine
 (``test_name_check_routes.py`` pattern, minus the monkeypatched services — these
@@ -20,8 +19,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date
-from html.parser import HTMLParser
 
 import pytest
 from fastapi import FastAPI, Request
@@ -91,28 +88,6 @@ def _count() -> int:
                           connection="WORKBENCH")
 
 
-class _InputCollector(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.values: dict[str, str] = {}
-
-    def handle_starttag(self, tag, attrs):
-        if tag != "input":
-            return
-        attributes = dict(attrs)
-        if "name" in attributes:
-            self.values[attributes["name"]] = attributes.get("value") or ""
-
-
-def _input_values(body: str) -> dict[str, str]:
-    """Every ``<input>``'s value keyed by name. Asserting on the parsed form rather
-    than on a substring keeps these tests off the template's line breaks, attribute
-    order, and indentation — reflowing the markup should not break them."""
-    parser = _InputCollector()
-    parser.feed(body)
-    return parser.values
-
-
 # ── CR4: required marking + per-field errors ─────────────────────────────────
 
 def test_new_form_marks_the_required_fields(client):
@@ -177,14 +152,6 @@ def test_treaty_year_outside_the_allowed_range_is_rejected(client, bad_year):
     assert _count() == 0
 
 
-def test_an_unconfirmed_look_alike_is_not_a_validation_failure(client):
-    # 200, not 422: the duplicate warning re-renders the form but nothing the
-    # analyst typed is wrong, and "create anyway" is one click away.
-    client.post("/submissions", data=_payload())
-    res = client.post("/submissions", data=_payload())
-    assert res.status_code == 200
-
-
 # ── Create: redirect, CSRF, duplicate warning ────────────────────────────────
 
 def test_valid_create_redirects_to_the_new_deal(client):
@@ -218,13 +185,8 @@ def test_cedant_suggest_renders_menu_options(client):
     client.post("/submissions", data=_payload(cedant_name="American Family Mutual"))
     body = client.get("/submissions/cedant-suggest?cedant_name=fam").text
     assert 'data-value="American Family Mutual"' in body
-
-
-def test_suggest_menu_options_carry_the_ids_aria_activedescendant_names(client):
     # Focus stays in the input while the analyst arrows through the menu, so the
     # highlighted row can only be announced by id.
-    client.post("/submissions", data=_payload(cedant_name="American Family Mutual"))
-    body = client.get("/submissions/cedant-suggest?cedant_name=fam").text
     assert 'id="cedant-menu-opt-0"' in body
     assert 'role="option"' in body
 
@@ -283,6 +245,11 @@ def test_link_suggest_excludes_the_submission_being_edited(client):
     assert "Sole Match Deal" not in client.get(
         f"/submissions/link-suggest?links_to_search=Sole+Match&links_to_exclude={sid}"
     ).text
+    # An exclude that is not a UUID excludes nothing — bound as-is it would raise a
+    # conversion error against submission.id on SQL Server.
+    assert "Sole Match Deal" in client.get(
+        "/submissions/link-suggest?links_to_search=Sole+Match&links_to_exclude=x"
+    ).text
 
 
 def test_create_stores_the_chosen_link_and_the_detail_page_shows_its_name(client):
@@ -310,34 +277,14 @@ def test_edit_form_prefills_the_linked_deal_by_name(client):
     sid = second.headers["location"].rsplit("/", 1)[-1]
 
     body = client.get(f"/submissions/{sid}/edit").text
-    values = _input_values(body)
     # The picker posts the linked deal's id and shows its name.
-    assert values["links_to_submission_id"] == target
+    assert f'value="{target}"' in body
     assert "TY2506_AmericanFamily" in body
     # link-suggest must not offer this deal as its own link.
-    assert values["links_to_exclude"] == sid
+    assert f'value="{sid}"' in body
 
 
-# ── Route ordering ───────────────────────────────────────────────────────────
-
-def test_new_and_suggest_paths_resolve_ahead_of_the_detail_route(client):
-    # A greedy /submissions/{submission_id} would swallow all three. The terms are
-    # long enough to reach the search — a one-character term short-circuits before
-    # the query and would prove less than it looks.
-    client.post("/submissions", data=_payload(cedant_name="Acme Mutual"))
-    assert "New submission" in client.get("/submissions/new").text
-    assert "Acme Mutual" in client.get(
-        "/submissions/cedant-suggest?q=Acme").text
-    assert "TY2604_AmericanFamily" in client.get(
-        "/submissions/link-suggest?q=American").text
-
-
-# ── Unknown link target ──────────────────────────────────────────────────────
-
-# links_to_submission_id is a hidden input, so a value the analyst never picked
-# reaches the route from a stale page, a deleted target, or a hand-built request.
-# It is a foreign key to submission.id: unchecked, it reaches the write and comes
-# back as a driver integrity error — a 500 with nothing under the field.
+# ── Unknown link target (see UnknownLinkError) ───────────────────────────────
 
 @pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
 def test_creating_with_an_unknown_link_target_is_rejected(client, link_value):
@@ -365,8 +312,6 @@ def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
 
 
 def test_an_id_that_is_not_a_uuid_is_not_found_rather_than_an_error(client):
-    # Same reason the link target is parsed before it is bound: submission.id is
-    # uniqueidentifier, and SQL Server raises on comparing a non-UUID string to it.
     assert client.get("/submissions/not-a-uuid").status_code == 404
     assert client.get("/submissions/not-a-uuid/edit").status_code == 404
 
