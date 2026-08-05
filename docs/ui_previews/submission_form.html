@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New submission form · CR4 / CR5 / CR7 / CR8 · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase;margin-bottom:var(--space-2)}
+.note{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-2);max-width:56ch}
+.panel{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-5) var(--space-5) var(--space-4)}
+.row2{display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:var(--space-6);align-items:start}
+
+/* ============================================================================
+   EXISTING app classes — copied from app/static/css/{app,components,submissions}.css
+   ============================================================================ */
+.page-pad{padding:18px 22px}
+.detail-head{margin-bottom:18px}
+.detail-head h1{font-size:20px;margin:0 0 5px;color:var(--text-primary);font-weight:var(--fw-medium)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.wf-fields{display:flex;flex-direction:column;gap:10px;margin-bottom:18px;max-width:620px}
+.wf-field{display:grid;grid-template-columns:120px 1fr;align-items:center}
+.wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px;font-family:inherit;color:var(--text-primary);width:100%}
+.form-banner{margin-bottom:var(--space-4);padding:var(--space-2) 14px;border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default)}
+.form-banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+.form-actions{display:flex;gap:var(--space-2);margin-top:var(--space-4)}
+.crumb__sep{color:var(--text-tertiary)}
+.deal-facts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-5);font-size:var(--fs-label);margin-top:var(--space-2)}
+.deal-fact{display:inline-flex;align-items:baseline;gap:5px}
+.deal-fact__label{color:var(--text-tertiary)}
+.deal-fact__value{color:var(--text-primary);font-weight:var(--fw-medium)}
+
+/* ============================================================================
+   NEW — proposed additions to app/static/css/submissions.css
+   ============================================================================ */
+
+/* CR4 — required marking + per-field errors */
+.wf-fields__legend{font-size:var(--fs-caption);color:var(--text-tertiary);margin-bottom:var(--space-1)}
+.wf-field__req{color:var(--color-danger);margin-left:2px;font-weight:var(--fw-semibold);text-decoration:none;border:0}
+.wf-field__msg{grid-column:2;font-size:var(--fs-caption);margin-top:3px}
+.wf-field__error{color:var(--color-danger)}
+.wf-field__hint{color:var(--text-tertiary)}
+.wf-field__input--error{border-color:var(--color-danger);background:var(--color-danger-bg)}
+.wf-field__input--error:focus{outline:none;border-color:var(--color-danger);box-shadow:0 0 0 3px rgba(139,30,47,.16)}
+
+/* CR7 — typeahead (cedant names + submission link picker) */
+.ta{position:relative;grid-column:2}
+.ta__menu{position:absolute;z-index:20;top:calc(100% + 3px);left:0;right:0;
+  background:var(--surface-panel);border:1px solid var(--border-strong);
+  border-radius:var(--radius-md);box-shadow:var(--shadow-lg);
+  max-height:240px;overflow:auto;padding:var(--space-1);
+  display:flex;flex-direction:column;gap:1px}
+.ta__opt{display:block;width:100%;text-align:left;border:0;background:none;cursor:pointer;
+  padding:6px var(--space-2);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);
+  color:var(--text-primary)}
+.ta__opt:hover,.ta__opt.is-active{background:var(--color-brand-faint)}
+.ta__opt.is-active{box-shadow:inset 2px 0 0 var(--color-brand)}
+.ta__opt-main{display:block}
+.ta__opt-meta{display:block;font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:1px}
+.ta__opt mark{background:var(--color-brand-wash);color:inherit;border-radius:2px;padding:0 1px}
+.ta__empty{padding:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+.ta__chosen{display:inline-flex;align-items:center;gap:var(--space-2);
+  padding:5px var(--space-2) 5px var(--space-3);border:1px solid var(--border-default);
+  border-radius:var(--radius-sm);background:var(--surface-recessed);font-size:var(--fs-label);
+  max-width:100%}
+.ta__chosen-name{color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ta__chosen-meta{color:var(--text-tertiary);font-size:var(--fs-caption);white-space:nowrap}
+.ta__clear{border:0;background:none;color:var(--text-tertiary);cursor:pointer;
+  line-height:1;padding:0 2px;font-size:var(--fs-label)}
+.ta__clear:hover{color:var(--color-danger)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW — not wired.</strong> New-submission form after CR4 (required marking), CR5 (treaty year
+    defaults from the inception date, still editable), CR7 (real typeahead), CR8 ("renews from" → "links to",
+    with a submission picker). Existing app classes are copied verbatim; the <code>NEW</code> block in the
+    stylesheet is what gets added to <code>app/static/css/submissions.css</code>.
+    Menus are drawn open on purpose — nothing here responds to input.
+  </div>
+
+  <div class="hero">New submission</div>
+  <div class="sub">Create form, every state.</div>
+
+  <!-- ────────────────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">1 · Empty form — CR4 required marking, CR5 hint</div>
+  <div class="row2">
+    <div>
+      <div class="panel">
+        <div class="page-pad" style="padding:0">
+          <div class="detail-head"><h1>New submission</h1></div>
+
+          <div class="wf-fields">
+            <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
+            <div class="wf-field">
+              <label>NAME <span class="wf-field__req" title="Required">*</span></label>
+              <input class="wf-field__input" type="text" placeholder="e.g. TY2604_AmericanFamily">
+            </div>
+
+            <div class="wf-field">
+              <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
+              <div class="ta"><input class="wf-field__input" type="text" placeholder="Start typing a cedant name"></div>
+            </div>
+
+            <div class="wf-field">
+              <label>TREATY TYPE <span class="wf-field__req" title="Required">*</span></label>
+              <select class="wf-field__input">
+                <option>Select…</option>
+                <option>Cat XoL</option><option>Quota Share</option><option>Surplus</option>
+                <option>Per-Risk XoL</option><option>Aggregate XoL</option><option>Stop Loss</option>
+              </select>
+            </div>
+
+            <div class="wf-field">
+              <label>INCEPTION DATE <span class="wf-field__req" title="Required">*</span></label>
+              <input class="wf-field__input" type="date">
+            </div>
+
+            <div class="wf-field">
+              <label>TREATY YEAR</label>
+              <input class="wf-field__input" type="number" min="1900" max="2999" placeholder="—">
+              <div class="wf-field__msg wf-field__hint">Defaults to the inception year. Change it if the treaty year differs.</div>
+            </div>
+
+            <div class="wf-field">
+              <label>DIRECTORY PATH</label>
+              <input class="wf-field__input" type="text" placeholder="optional shared-drive path">
+            </div>
+
+            <div class="wf-field">
+              <label>LINKS TO</label>
+              <div class="ta"><input class="wf-field__input" type="text" placeholder="Search a related submission by name or cedant"></div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button class="btn-sm btn-sm--primary" type="button">Create submission</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">Asterisks sit on the four fields the server actually requires: name, cedant,
+        treaty type, inception date (design note 08 §2.1 D4). Directory path stays free text this round —
+        CR6's folder browser is a later change.</div>
+    </div>
+
+    <div>
+      <div class="tile__label">2 · Validation errors — one message per field</div>
+      <div class="panel">
+        <div class="detail-head"><h1>New submission</h1></div>
+
+        <div class="form-banner form-banner--error">Three fields need attention before this deal can be created.</div>
+
+        <div class="wf-fields">
+          <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
+          <div class="wf-field">
+            <label>NAME <span class="wf-field__req">*</span></label>
+            <input class="wf-field__input wf-field__input--error" type="text" value="">
+            <div class="wf-field__msg wf-field__error">Enter a name for this submission.</div>
+          </div>
+
+          <div class="wf-field">
+            <label>CEDANT <span class="wf-field__req">*</span></label>
+            <div class="ta"><input class="wf-field__input wf-field__input--error" type="text" value=""></div>
+            <div class="wf-field__msg wf-field__error">Enter a cedant.</div>
+          </div>
+
+          <div class="wf-field">
+            <label>TREATY TYPE <span class="wf-field__req">*</span></label>
+            <select class="wf-field__input"><option>Cat XoL</option></select>
+          </div>
+
+          <div class="wf-field">
+            <label>INCEPTION DATE <span class="wf-field__req">*</span></label>
+            <input class="wf-field__input" type="date" value="2026-06-01">
+          </div>
+
+          <div class="wf-field">
+            <label>TREATY YEAR</label>
+            <input class="wf-field__input wf-field__input--error" type="number" value="1899">
+            <div class="wf-field__msg wf-field__error">Enter a year between 1900 and 2999.</div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn-sm btn-sm--primary" type="button">Create submission</button>
+        </div>
+      </div>
+      <div class="note">Replaces today's single banner — <em>"Name, cedant, treaty type and a valid inception
+        date are required."</em> — which never says which one failed. The banner now counts; each field carries
+        its own message. Every value the analyst typed is preserved on re-render, as it is today.</div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">3 · CR7 — cedant typeahead</div>
+  <div class="row2">
+    <div>
+      <div class="tile__label">matches</div>
+      <div class="panel" style="padding-bottom:150px">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>CEDANT <span class="wf-field__req">*</span></label>
+            <div class="ta">
+              <input class="wf-field__input" type="text" value="fam">
+              <div class="ta__menu">
+                <button class="ta__opt is-active" type="button"><span class="ta__opt-main">American <mark>Fam</mark>ily Mutual</span></button>
+                <button class="ta__opt" type="button"><span class="ta__opt-main">American <mark>Fam</mark>ily Insurance Group</span></button>
+                <button class="ta__opt" type="button"><span class="ta__opt-main"><mark>Fam</mark>ily Heritage Life</span></button>
+                <button class="ta__opt" type="button"><span class="ta__opt-main">First <mark>Fam</mark>ily Insurance</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Contains-match, not prefix — today <code>cedant_suggestions</code> queries
+        <code>LIKE 'fam%'</code>, so "fam" never finds "American Family". Distinct cedant names already on
+        submissions, capped at 10. Arrow keys move the highlight, Enter picks, Escape closes. Free text is
+        still allowed: the cedant field has no registry behind it (FR-006).</div>
+    </div>
+
+    <div>
+      <div class="tile__label">no matches</div>
+      <div class="panel" style="padding-bottom:150px">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>CEDANT <span class="wf-field__req">*</span></label>
+            <div class="ta">
+              <input class="wf-field__input" type="text" value="Zephyr Mutual">
+              <div class="ta__menu">
+                <div class="ta__empty">No matching cedant yet — press Tab to use what you typed.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">The first submission for a new cedant is the common case, so the empty state tells the
+        analyst to carry on rather than reading as an error.</div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">4 · CR5 — treaty year follows the inception date, and can be overridden</div>
+  <div class="row2">
+    <div>
+      <div class="tile__label">date picked → year filled</div>
+      <div class="panel">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>INCEPTION DATE <span class="wf-field__req">*</span></label>
+            <input class="wf-field__input" type="date" value="2026-06-01">
+          </div>
+          <div class="wf-field">
+            <label>TREATY YEAR</label>
+            <input class="wf-field__input" type="number" value="2026" min="1900" max="2999">
+            <div class="wf-field__msg wf-field__hint">Defaults to the inception year. Change it if the treaty year differs.</div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Picking 1 June 2026 writes 2026. Same "auto-populate until edited" behavior
+        <code>importForm</code> already uses to default an EDM/RDM name from its filename.</div>
+    </div>
+
+    <div>
+      <div class="tile__label">analyst overrode it — later date changes leave it alone</div>
+      <div class="panel">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>INCEPTION DATE <span class="wf-field__req">*</span></label>
+            <input class="wf-field__input" type="date" value="2026-12-15">
+          </div>
+          <div class="wf-field">
+            <label>TREATY YEAR</label>
+            <input class="wf-field__input" type="number" value="2027" min="1900" max="2999">
+            <div class="wf-field__msg wf-field__hint">Set manually — moving the inception date won't change it.</div>
+          </div>
+        </div>
+      </div>
+      <div class="note">A December inception written into next year's treaty year is the case that needs the
+        field to stay editable. With JavaScript off the input is simply left blank and the server fills in the
+        inception year on save, so the rule holds either way.</div>
+    </div>
+  </div>
+
+  <!-- ────────────────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">5 · CR8 — "renews from" becomes "links to", picked by name</div>
+  <div class="row2">
+    <div>
+      <div class="tile__label">searching</div>
+      <div class="panel" style="padding-bottom:170px">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>LINKS TO</label>
+            <div class="ta">
+              <input class="wf-field__input" type="text" value="american fam">
+              <div class="ta__menu">
+                <button class="ta__opt is-active" type="button">
+                  <span class="ta__opt-main">TY2506_AmericanFamily</span>
+                  <span class="ta__opt-meta">American Family Mutual · Cat XoL · 1 Jun 2025</span></button>
+                <button class="ta__opt" type="button">
+                  <span class="ta__opt-main">TY2406_AmericanFamily</span>
+                  <span class="ta__opt-meta">American Family Mutual · Cat XoL · 1 Jun 2024</span></button>
+                <button class="ta__opt" type="button">
+                  <span class="ta__opt-main">AmFam_PerRisk_2025</span>
+                  <span class="ta__opt-meta">American Family Insurance Group · Per-Risk XoL · 1 Jan 2025</span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Terms AND-combine across name and cedant — "american fam" must not return every deal
+        containing "American" (CR2, Cheryl: <em>"It should be an and, not an or."</em>). Each row shows name,
+        cedant, treaty type and inception, because names alone repeat year to year.</div>
+    </div>
+
+    <div>
+      <div class="tile__label">chosen</div>
+      <div class="panel">
+        <div class="wf-fields" style="margin-bottom:0">
+          <div class="wf-field">
+            <label>LINKS TO</label>
+            <div class="ta">
+              <span class="ta__chosen">
+                <span class="ta__chosen-name">TY2506_AmericanFamily</span>
+                <span class="ta__chosen-meta">Cat XoL · 1 Jun 2025</span>
+                <button class="ta__clear" type="button" title="Clear">✕</button>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">The chosen deal's id goes in a hidden <code>links_to_submission_id</code>; the analyst
+        never sees a UUID. On the Edit form this prefills with the linked deal's name, and that deal is
+        excluded from its own search results.</div>
+
+      <div class="tile__label" style="margin-top:var(--space-6)">detail page header, after</div>
+      <div class="panel">
+        <div class="detail-head">
+          <h1>TY2606_AmericanFamily</h1>
+          <div style="font-size:var(--fs-label);color:var(--text-secondary)">Created 4 Aug 2026, 10:12
+            <span class="crumb__sep">·</span>
+            <span>links to <a href="#" style="color:var(--color-brand)">TY2506_AmericanFamily</a></span>
+            <span class="crumb__sep">·</span>
+            <span style="font-family:var(--font-mono);font-size:var(--fs-caption)">\\cic-share\deals\2026\amfam</span>
+          </div>
+          <div class="deal-facts">
+            <span class="deal-fact"><span class="deal-fact__label">Cedant:</span><span class="deal-fact__value">American Family Mutual</span></span>
+            <span class="deal-fact"><span class="deal-fact__label">Treaty type:</span><span class="deal-fact__value">Cat XoL</span></span>
+            <span class="deal-fact"><span class="deal-fact__label">Treaty year:</span><span class="deal-fact__value">2026</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="note">Today this line reads <em>"renews from 3f7c9a12-…"</em>. Both the label and the raw
+        UUID go.</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
