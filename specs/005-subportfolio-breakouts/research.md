@@ -26,7 +26,7 @@ API count cross-checked against Data Bridge. This file cites its findings as
 - the selection vocabulary is **byte-identical** to the stored summary the analyst approved from — no REST-vs-DataBridge spelling drift can select zero rows against a fresh summary;
 - the one-matching-policy-admits-the-whole-account bucketing (W-3/W-11) holds by construction (`DISTINCT ACCGRPID` over the policy join).
 
-The read is all-or-nothing: any DataBridge failure raises and the worker fails the job with nothing created — the W-14 rule (never proceed on a result that cannot be shown complete), enforced by a single set-based query instead of pagination proofs. The composition **read-back** is the same mechanism (`portfolio_member_count.sql`): one scalar count of the new portfolio's members, because the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20).
+The read is all-or-nothing: any DataBridge failure raises and the worker fails the job with nothing created — the W-14 rule (never proceed on a result that cannot be shown complete), enforced by a single set-based query instead of pagination proofs. The composition **read-back** is the same mechanism (`portfolio_member_count.sql`): one scalar count of the new portfolio's members, because the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20). A count that does not equal the ids sent raises: FR-008 asks for exactly the selected accounts, so an under- or over-populated sub-portfolio fails and gets no lineage row. Its Risk Modeler portfolio stays (P-07 deletes nothing) and the re-run adopts it on its number and re-adds, which heals a partial add.
 
 **What the library provides** (verified against `portfolio.py` / `utils.py` at `a04e3d7`, not against prose — [contracts/irp-library.md](contracts/irp-library.md) is the full contract):
 
@@ -74,6 +74,8 @@ Two things the library deliberately leaves to this repo: it **does not shorten n
 
 `breakout_value` stores the value the **filter** uses: `Admin1Code` for state (R6), `LOBNAME` for LOB. It is not a display string — see R6 for why the state name cannot serve as the identity.
 
+The three columns move together and never move again: `portfolio_service` stamps lineage on a row that has none (a backfill enumerated the Risk Modeler portfolio before the breakout recorded it) and refuses a row that already carries a **different** lineage. Reassigning one would take the generated portfolio out of its own source's traceability and show it under another value, so the write fails and the worker records that sub-portfolio as failed.
+
 **Rationale.** Lineage is provenance the display, idempotency, and audit all need; three nullable columns keep the entity thin (DATA_MODEL §5 style). The dimension is an app-defined closed set the code dispatches on → kind table (Article 3 default); the value is external exposure vocabulary stored verbatim → plain column (the spec-004 snapshot rationale). The filtered unique index makes "detect already-created sub-portfolios" a constraint, not a convention.
 
 **Alternatives considered.** (a) A first-class `breakout` table (header + child rows) — rejected: it would duplicate what `rwb_job.input_data`/`output_data` + the lineage columns already record, and nothing queries a breakout as an entity (Article 1). Revisit only if breakout history/re-run UX becomes a feature. (b) A JSON `breakout_filter` snapshot column — rejected: the two directed breakouts are fully described by dimension + value; a filter-spec blob is the custom-filter-builder's concern (out of scope). (c) Recording lineage only in the name — rejected: names are truncated and collision-suffixed (R4), so parsing them is fragile.
@@ -100,7 +102,9 @@ The breakout value is kept whole and the **source name absorbs the truncation**,
 P{source portfolio RM id}-{S|L}-{token}
 ```
 
-Token = the breakout value uppercased with non-alphanumerics removed; if it exceeds the remaining budget, the last 6 characters become 6 hex digits of `sha256(value)` so two long LOB names sharing a prefix cannot collide. Never Python's `hash()` — it is salted per process.
+Token = the breakout value verbatim when it is already uppercase alphanumerics that fit the remaining budget. Otherwise the last 6 characters of the token are 6 hex digits of `sha256(value)`. Both normalizing steps are lossy — dropping non-alphanumerics and uppercasing map `AB`, `A-B`, `a b`, and ` AB` onto one token, and truncation merges two long LOB names sharing a prefix — so any value the token cannot carry verbatim is hashed rather than truncated into a neighbour's number. Distinct values must keep distinct numbers: the number is what adoption resolves on (R7), and two sub-portfolios sharing one make every later adoption ambiguous, which fails both of them (FR-011). Never Python's `hash()` — it is salted per process.
+
+Collision suffixing compares **casefolded** names, because Risk Modeler rejects a duplicate name without distinguishing case: an existing `SOURCE - TX` has to push a planned `source - TX` to ` (2)` or the create fails on a name the analyst already approved.
 
 **The number, not the name, is the identity.** `search_portfolios` filters on `portfolioNumber` (W-17), so adopt-an-existing-sub-portfolio resolves on it (R7). This is what makes name truncation harmless: the name depends on what else exists in the EDM at the moment it is computed, while the number depends only on the source portfolio's RM id, the dimension, and the breakout value — none of which change between a preview and a re-run.
 

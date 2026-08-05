@@ -57,7 +57,7 @@ Synchronous HTTP 200 — no `202` and no workflow URL appeared on any call in th
 {"addAccounts": {"completed": n, "total": m}, "removeAccounts": {...}}
 ```
 
-**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what AGENTS.md rule 8 asks for anyway. The read-back is a DataBridge count (`sql/databridge/portfolio_member_count.sql`) — the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20). Adds over 1,000 ids are chunked so no single PATCH carries an unbounded list.
+**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what AGENTS.md rule 8 asks for anyway; a count that differs from the ids sent fails that sub-portfolio (FR-008). The read-back is a DataBridge count (`sql/databridge/portfolio_member_count.sql`) — the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20). Adds over 1,000 ids are chunked so no single PATCH carries an unbounded list.
 
 ## 4. Adoption read
 
