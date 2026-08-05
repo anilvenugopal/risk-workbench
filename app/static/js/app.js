@@ -281,6 +281,10 @@ document.addEventListener('alpine:init', () => {
   //   - links to   — the id goes into the hidden value input and the chosen
   //                  submission's name is shown as a chip instead
   // With JS off both degrade to a plain text field, which the server still reads.
+  // Both inputs' hx-trigger carries the matching `[this.value.trim().length>1]`
+  // filter, and submission_service.MIN_SUGGEST_TERM enforces the same minimum
+  // server-side.
+  const TA_MIN_TERM = 2;
   Alpine.data('typeahead', (opts = {}) => ({
     isOpen: false,
     activeIndex: -1,
@@ -311,6 +315,11 @@ document.addEventListener('alpine:init', () => {
       if (!count) return;
       this.activeIndex = (this.activeIndex + step + count) % count;
       this.paint();
+    },
+    onInput() {
+      // Below the minimum htmx sends nothing, so the menu from a longer term
+      // would stay on screen offering matches for text no longer in the input.
+      if (this.$refs.input.value.trim().length < TA_MIN_TERM) this.close();
     },
     onKey(e) {
       if (e.key === 'ArrowDown') { e.preventDefault(); this.move(1); }

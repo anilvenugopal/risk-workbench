@@ -213,6 +213,21 @@ def list_mine(request: Request):
                       nav_key="submissions.mine")
 
 
+def _suggest_menu(request: Request, options: list[dict], term: str,
+                  empty_message: str):
+    """Render one of the two typeahead menus.
+
+    ``searched`` is what tells the template apart "we looked and found nothing"
+    from "the term is too short to look yet" (``submission_service
+    .MIN_SUGGEST_TERM``) — the second renders a blank menu, since claiming no
+    cedant matches "a" would be wrong."""
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": options,
+        "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
+        "empty_message": empty_message,
+    })
+
+
 @router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
 def cedant_suggest(request: Request):
     """Typeahead menu for the create/edit form's CEDANT field (FR-006/R6).
@@ -222,14 +237,12 @@ def cedant_suggest(request: Request):
     hand-built call."""
     term = (request.query_params.get("cedant_name")
             or request.query_params.get("q", ""))
-    return _partial(request, "partials/typeahead_menu.html", {
-        "options": [
-            {"value": cedant, "label": cedant}
-            for cedant in submission_service.cedant_suggestions(term)
-        ],
-        "term": term,
-        "empty_message": "No matching cedant yet — press Tab to use what you typed.",
-    })
+    return _suggest_menu(
+        request,
+        [{"value": cedant, "label": cedant}
+         for cedant in submission_service.cedant_suggestions(term)],
+        term, "No matching cedant.",
+    )
 
 
 @router.get("/submissions/link-suggest", response_class=HTMLResponse)
@@ -246,8 +259,9 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
-    return _partial(request, "partials/typeahead_menu.html", {
-        "options": [
+    return _suggest_menu(
+        request,
+        [
             {
                 "value": row.id,
                 "label": row.name,
@@ -259,9 +273,8 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        "term": term,
-        "empty_message": "No submission matches every word you typed.",
-    })
+        term, "No matching submission.",
+    )
 
 
 # ── Create ────────────────────────────────────────────────────────────────────

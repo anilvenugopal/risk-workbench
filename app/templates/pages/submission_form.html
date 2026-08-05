@@ -47,7 +47,12 @@
       </div>
 
       {# Cedant is free text with suggestions — there is no cedant registry
-         (FR-006), so the menu only offers names already used on a submission. #}
+         (FR-006), so the menu only offers names already used on a submission.
+
+         The `[this.value.trim().length>1]` trigger filter is the client half of
+         `MIN_SUGGEST_TERM` in submission_service: a one-character term scans
+         every submission for a menu nobody can read, so the request is not sent.
+         `onInput()` drops a menu left over from a longer term. #}
       <div class="wf-field">
         <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
         <div class="ta" x-data="typeahead" @click.outside="close()">
@@ -55,7 +60,9 @@
                  type="text" name="cedant_name" required autocomplete="off"
                  value="{{ form.cedant_name or '' }}"
                  x-ref="input" @keydown="onKey($event)" @focus="open()"
-                 hx-get="/submissions/cedant-suggest" hx-trigger="input changed delay:200ms"
+                 @input="onInput()"
+                 hx-get="/submissions/cedant-suggest"
+                 hx-trigger="input[this.value.trim().length>1] changed delay:200ms"
                  hx-target="#cedant-menu" hx-swap="innerHTML">
           <div id="cedant-menu" x-ref="menu" @htmx:after-swap="open()"
                @click="pick($event.target.closest('.ta__opt'))"></div>
@@ -132,8 +139,9 @@
                  type="text" name="links_to_search" autocomplete="off"
                  placeholder="Search a related submission by name or cedant"
                  x-ref="input" x-show="!chosen"
-                 @keydown="onKey($event)" @focus="open()"
-                 hx-get="/submissions/link-suggest" hx-trigger="input changed delay:200ms"
+                 @keydown="onKey($event)" @focus="open()" @input="onInput()"
+                 hx-get="/submissions/link-suggest"
+                 hx-trigger="input[this.value.trim().length>1] changed delay:200ms"
                  hx-target="#link-menu" hx-swap="innerHTML"
                  hx-include="[name='links_to_exclude']">
           <input type="hidden" name="links_to_exclude"

@@ -189,11 +189,23 @@ def test_cedant_suggest_renders_menu_options(client):
 
 def test_cedant_suggest_shows_the_empty_state_for_a_new_cedant(client):
     body = client.get("/submissions/cedant-suggest?cedant_name=Zephyr").text
-    assert "No matching cedant yet" in body
+    assert "No matching cedant." in body
+
+
+def test_link_suggest_shows_the_empty_state_when_nothing_matches(client):
+    body = client.get("/submissions/link-suggest?links_to_search=Zephyr").text
+    assert "No matching submission." in body
 
 
 def test_cedant_suggest_renders_nothing_for_an_empty_term(client):
     assert client.get("/submissions/cedant-suggest?cedant_name=").text.strip() == ""
+
+
+def test_suggest_routes_render_nothing_for_a_one_character_term(client):
+    # The form's hx-trigger filter withholds the request; the routes hold the same
+    # minimum for a hand-built call.
+    assert client.get("/submissions/cedant-suggest?cedant_name=A").text.strip() == ""
+    assert client.get("/submissions/link-suggest?links_to_search=A").text.strip() == ""
 
 
 def test_link_suggest_ands_the_terms_and_shows_deal_context(client):
