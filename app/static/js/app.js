@@ -305,6 +305,54 @@ if (document.readyState !== 'loading') {
 }
 document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 
+// ── Swap state preservation ───────────────────────────────────────────────────
+// Two things live only in the DOM, and an HTMX swap replaces DOM: how far the
+// analyst has scrolled, and which <details> are open. The EDM detail page's
+// #edm-detail wrapper is the scrolling element (.shell is height:100vh with
+// overflow hidden — the page itself never scrolls), so a poll that swaps it, or
+// that swaps a section inside it, must not cost the analyst their place.
+// Recorded for the swap target's subtree before the swap and reapplied after it
+// settles: every <details id> keeps its open/closed state, and the scroller
+// keeps its offset. Elements the response added (a generated portfolio row) are
+// absent from the record and render at their server-rendered default.
+let swapState = null;
+
+function detailsOpenState(root) {
+  const state = {};
+  if (root.matches && root.matches('details[id]')) state[root.id] = root.open;
+  root.querySelectorAll('details[id]').forEach((d) => { state[d.id] = d.open; });
+  return state;
+}
+
+document.addEventListener('htmx:beforeSwap', (e) => {
+  const target = e.detail.target;
+  // 204 and other no-swap responses (the populated-mid-sync body poll) leave
+  // the DOM alone — recording then would strand a stale offset for the next
+  // real swap to restore.
+  if (!target || !target.querySelectorAll || e.detail.shouldSwap === false) {
+    swapState = null;
+    return;
+  }
+  const scroller = document.getElementById('edm-detail');
+  swapState = {
+    details: detailsOpenState(target),
+    scrollTop: scroller ? scroller.scrollTop : null,
+  };
+});
+
+document.addEventListener('htmx:afterSettle', () => {
+  const state = swapState;
+  swapState = null;
+  if (!state) return;
+  Object.keys(state.details).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.tagName === 'DETAILS') el.open = state.details[id];
+  });
+  // The swap may have replaced #edm-detail itself — re-resolve it by id.
+  const scroller = document.getElementById('edm-detail');
+  if (scroller && state.scrollTop) scroller.scrollTop = state.scrollTop;
+});
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is
