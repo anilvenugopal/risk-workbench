@@ -2,50 +2,24 @@
 
 **Repo**: `../../IRP/irp-integration` — branch `feature/filtered-subportfolio-creation`, [PR #21](https://github.com/premiumiq/irp-integration/pull/21), in review, not yet on TestPyPI. Develop against `make irp-local`; re-pin with `make irp-testpypi` before implement completes and confirm with `make irp-status`.
 
-*(Rewritten 2026-08-03. This file used to be a brief for library work that had not happened yet, specifying `add_filtered_accounts` as the add step, `allow_deep_filters` as a maybe, and pagination as an open spike item. The work is done and two of those three lost. What follows is the contract as shipped, verified against `portfolio.py` and `utils.py` at `a04e3d7` — signatures re-confirmed against the active wheel before `create_sub_portfolio` is written, since the wheel is pre-release.)*
+*(Rewritten 2026-08-03. This file used to be a brief for library work that had not happened yet, specifying `add_filtered_accounts` as the add step, `allow_deep_filters` as a maybe, and pagination as an open spike item. The work is done and two of those three lost. Verified against `portfolio.py` and `utils.py` at `a04e3d7` — signatures re-confirmed against the active wheel before `create_sub_portfolio` is written, since the wheel is pre-release. Selection revised 2026-08-05: the paginated REST reads lost to DataBridge SQL after failing on a 248,000-account portfolio — W-20, research R1.)*
 
 Composition is three calls (T-01): **select** the source portfolio's matching account ids → **create** the empty portfolio → **add** those accounts by id. Risk Modeler has no create-by-filter operation.
 
 ---
 
-## 1. Selection reads
+## 1. Selection read — DataBridge SQL
 
 ```python
-search_accounts_by_portfolio_paginated(exposure_id: int, portfolio_id: int,
-                                       filter: str = "", sort: str = "") -> List[Dict]
-search_policies_paginated(exposure_id: int, filter: str = "", sort: str = "") -> List[Dict]
-search_locations_paginated(exposure_id: int, filter: str = "", sort: str = "") -> List[Dict]
+databridge.execute_query_from_file(file_path: str, params: Dict = None,
+                                   connection: str = None, database: str = None) -> List[pd.DataFrame]
 ```
 
-**Scope always comes from an account-id list.** No portfolio predicate exists — `portfolioId`, `portfolioName`, `portInfoId`, `portfolio`, and `portfolioNumber` are all rejected on the EDM-wide account search, with and without deep filters (W-6). So the worker reads the source portfolio's account ids once, then scopes every subsequent read with `accountId IN (…)`.
+One parameterized, portfolio-scoped script per dimension (`sql/databridge/breakout_lob_accounts.sql`; the state script arrives with T045), run worker-side against the EDM's physical database — the same executor and `databaseName` resolution the exposure summary uses. `{{ portfolio_id }}` is substituted with injection-safe escaping; RM's portfolioId **is** `portacct.PORTINFOID`, and the returned `ACCGRPID` is the id `manage_portfolio_accounts` accepts as `accountId` (W-20). The script reuses the summary script's joins, so the values it filters on are byte-identical to the stored summary the plan was approved from, and the account-level bucketing (W-3/W-11) holds by construction.
 
-**LOB — one pass, grouped client-side.** LOB is not filterable on any Risk Data operation, but every policy carries it:
+**Why not the REST reads.** The 2026-08-03 selection (`search_accounts_by_portfolio_paginated` + a chunked `accountId IN (…)` scan, shaped by the no-portfolio-predicate finding W-6 and the HTTP 431 filter ceiling) failed at the US1 checkpoint: the wheel's pagination refuses past 100,000 records because completeness can no longer be proven (W-14 behaving as designed), and the target portfolio holds 248,732 accounts (W-20). The same book answers the SQL form in ~1–2 seconds (W-19). Do **not** filter policies by `lobId` (HTTP 500, W-15) and do not use `admin1Name` (zero rows until GeoHaz runs, W-12) — both findings still bind any future REST reader.
 
-```python
-accounts = pm.search_accounts_by_portfolio_paginated(exposure_id, portfolio_id)
-ids = [a["accountId"] for a in accounts]
-policies = pm.search_policies_paginated(exposure_id, filter=f'accountId IN ({",".join(map(str, chunk))})')
-by_lob[policy["lob"]["lobName"]].add(policy["accountId"])
-```
-
-Do **not** filter by `lobId` — it returns HTTP 500, not a clean 400 (W-15).
-
-**State — filtered server-side.**
-
-```python
-locations = pm.search_locations_paginated(
-    exposure_id, filter=f'accountId IN ({ids}) AND admin1Code = "TX"')
-account_id = row["location"]["property"]["accountId"]
-```
-
-`admin1Code` is the filter field. `admin1Name` is also filterable and honoured case-insensitively, but it returns **zero rows with HTTP 200** until the EDM is geocoded (W-12), so it is not used — see P-12.
-
-**Two behaviours the caller owns:**
-
-- **Chunking.** The filter travels in the URL and dies at HTTP 431 around 4,872 characters — a *character* ceiling, not an id count, so a book with 7-digit account ids fits roughly half as many per request. 431 is a header-size limit, so the bearer token shares the budget and the number is not a constant across tenants. The library records the ceiling in the docstring and does not chunk. Size chunks by composed filter length against a named constant well below the measured ceiling.
-- **Response-shape parsing.** The account id is nested differently in each read, and reading the wrong key returns a plausible empty result rather than an error (W-15). Worth a unit test against a recorded body — every wrong-key mistake in the probe run was silent.
-
-**Completeness is enforced, not warned about.** `paginate_search` raises `IRPAPIError` when it cannot show it read every page — a repeated page fingerprint, or the page ceiling with pages still coming back full (W-14). Catch it per sub-portfolio and fail that entry; never proceed on a possibly-short id list, because under-selection produces a sub-portfolio missing accounts and reports success.
+**Completeness.** A single set-based query cannot return a partial page sequence — the W-14 rule (never proceed on a result that cannot be shown complete) is enforced by construction. Any DataBridge failure raises and the worker fails the job with nothing created.
 
 ## 2. Create
 
@@ -83,7 +57,7 @@ Synchronous HTTP 200 — no `202` and no workflow URL appeared on any call in th
 {"addAccounts": {"completed": n, "total": m}, "removeAccounts": {...}}
 ```
 
-**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what AGENTS.md rule 8 asks for anyway.
+**`completed` counts ids newly added, not ids that ended up as members.** Idempotent: re-adding the same ids returns `completed 0, total m` and leaves membership correct (W-9). The worker must not read `completed < total` as a failure — that is what a healthy re-run reports. Verify by reading the portfolio back and comparing against the persisted plan, which is what AGENTS.md rule 8 asks for anyway. The read-back is a DataBridge count (`sql/databridge/portfolio_member_count.sql`) — the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20). Adds over 1,000 ids are chunked so no single PATCH carries an unbounded list.
 
 ## 4. Adoption read
 
@@ -105,4 +79,4 @@ This method is also the confirm-time `stampDate` read (FR-002a) — the flow's o
 
 ## Gateway seam
 
-Two gateway functions own the whole sequence, so no Moody's response shape, filter grammar, or chunk arithmetic leaks past the gateway into `breakout_service` or the worker. `irp_gateway.select_breakout_accounts` runs once per breakout and returns the account ids per value — one grouped policy pass for LOB, one location read per value for state — because the LOB read resolves every value at once and must not be repeated per sub-portfolio. `irp_gateway.create_sub_portfolio` then runs per sub-portfolio: create, add, read-back verification. Contract in [data-access.md](data-access.md). The CI fake mirrors both, including the duplicate-name raise and the `completed 0` re-run response.
+Two gateway functions own the whole sequence, so no Moody's response shape, SQL, or database-name resolution leaks past the gateway into `breakout_service` or the worker. `irp_gateway.select_breakout_accounts` runs once per breakout and returns the account ids for every value from one DataBridge query. `irp_gateway.create_sub_portfolio` then runs per sub-portfolio: create, chunked add, DataBridge count read-back. Both take `edm_name` — the gateway resolves and caches the EDM's physical `databaseName` from RM's exposures search. Contract in [data-access.md](data-access.md). The CI fake mirrors both, including the duplicate-name raise and the `completed 0` re-run response.

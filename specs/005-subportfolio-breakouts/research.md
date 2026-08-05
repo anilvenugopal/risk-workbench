@@ -13,7 +13,7 @@ API count cross-checked against Data Bridge. This file cites its findings as
 
 ## R1 — Composing a sub-portfolio: **select account ids → create → add by id**
 
-*(Rewritten 2026-08-03 against the probe run. The pre-probe version built on `add_filtered_accounts` and `allowDeepFilters`; both lost — see Alternatives.)*
+*(Rewritten 2026-08-03 against the probe run; the pre-probe version built on `add_filtered_accounts` and `allowDeepFilters`, both lost — see Alternatives. Selection revised 2026-08-05: the REST selection failed on the first real-scale run, W-20 — see Alternatives (h).)*
 
 **Decision.** Risk Modeler has **no create-by-filter endpoint** (the create body has no filter fields, and no such Platform operation is documented). A sub-portfolio is composed from three calls, mirroring what the Risk Modeler UI itself does:
 
@@ -21,27 +21,24 @@ API count cross-checked against Data Bridge. This file cites its findings as
 2. **Create** — `create_portfolio()` → HTTP 201, synchronous.
 3. **Add** — `manage_portfolio_accounts(accounts_to_add=[…])` → PATCH, HTTP 200, synchronous, returns `{"addAccounts": {"completed": n, "total": m}}`.
 
-**The selection read differs per dimension**, because LOB is not filterable on any Risk Data operation while state is:
+**The selection read is one parameterized DataBridge query per run** (`sql/databridge/breakout_lob_accounts.sql`; the state script arrives with T045), executed worker-side through the wheel's DataBridge executor — the same path the exposure summary uses. The script takes `{{ portfolio_id }}` (RM's portfolioId **is** `portacct.PORTINFOID`) and returns `(Value, AccountId)` pairs; `ACCGRPID` is the id `manage_portfolio_accounts` accepts as `accountId` (confirmed 2026-08-05). Two properties fall out of using the summary script's own joins:
 
-| Dimension | Selection |
-|---|---|
-| LOB | Read the source portfolio's account ids, then `search_policies_paginated(filter='accountId IN (…)')` and group client-side on `policy["lob"]["lobName"]`. **One pass yields every LOB at once** — the whole fan-out shares one read. |
-| State | `search_locations_paginated(filter='accountId IN (…) AND admin1Code = "TX"')` — one read per state, filtered server-side. Account id at `row["location"]["property"]["accountId"]` (W-15). |
+- the selection vocabulary is **byte-identical** to the stored summary the analyst approved from — no REST-vs-DataBridge spelling drift can select zero rows against a fresh summary;
+- the one-matching-policy-admits-the-whole-account bucketing (W-3/W-11) holds by construction (`DISTINCT ACCGRPID` over the policy join).
 
-Both forms scope to the source portfolio by **listing its account ids**, because no portfolio predicate exists: `portfolioId`, `portfolioName`, `portInfoId`, `portfolio`, and `portfolioNumber` are all rejected on `getAccounts` (W-6). That forces **chunking** — the filter travels in the URL and dies at HTTP 431 around 4,872 *characters* (not a fixed id count, so a book with 7-digit account ids fits roughly half as many per request). The worker chunks by composed filter length against a named constant, conservatively below the measured ceiling: 431 is a header-size limit, so the bearer token shares the budget and the ceiling is not a constant across tenants.
+The read is all-or-nothing: any DataBridge failure raises and the worker fails the job with nothing created — the W-14 rule (never proceed on a result that cannot be shown complete), enforced by a single set-based query instead of pagination proofs. The composition **read-back** is the same mechanism (`portfolio_member_count.sql`): one scalar count of the new portfolio's members, because the paginated REST enumeration cannot verify a portfolio past 100,000 accounts (W-20).
 
 **What the library provides** (verified against `portfolio.py` / `utils.py` at `a04e3d7`, not against prose — [contracts/irp-library.md](contracts/irp-library.md) is the full contract):
 
 | Method | What this feature depends on |
 |---|---|
-| `search_accounts_by_portfolio_paginated` | the source portfolio's account ids |
-| `search_policies_paginated` | the LOB selection read |
-| `search_locations_paginated` | the state selection read |
+| `databridge.execute_query_from_file` | the selection read and the read-back count (`{{ param }}` substitution, injection-safe) |
 | `create_portfolio` | synchronous 201; raises `IRPValidationError` on a duplicate name, a name over 40 characters, or a number over 20 |
 | `manage_portfolio_accounts` | synchronous 200; `completed`/`total`; idempotent (W-9) |
 | `search_portfolios` | the confirm-time `stampDate` read (R5) and adopt-by-number (R7) |
+| `edm.search_edms` | the EDM's physical `databaseName` for the DataBridge connection (cached per exposure) |
 
-Three things the library deliberately leaves to this repo: it **does not chunk**, it **does not shorten names** (both name fields raise instead of truncating), and `allow_deep_filters` is gone from the public signature so the deep-filter path cannot be taken by accident.
+Two things the library deliberately leaves to this repo: it **does not shorten names** (both name fields raise instead of truncating), and `allow_deep_filters` is gone from the public signature so the deep-filter path cannot be taken by accident.
 
 **Residual unknowns — all closed** (the spike that gated this entry is done, T-08):
 
@@ -55,9 +52,9 @@ Three things the library deliberately leaves to this repo: it **does not chunk**
 | U6 | Pagination | Record offset on this tenant; `paginate_search` now **raises** rather than returning a list it cannot show is complete (W-14) |
 | — | RM portfolio name length | **40 characters**, boundary confirmed exactly: 40 creates, 41 rejects. `portfolio_number` caps at 20 (W-2, W-13) → R4 |
 
-**Rationale.** Every call is a documented Platform operation, both writes are synchronous (200 is the only success status; any other 2xx raises), and the whole sequence was run end to end against two real state breakouts and a purpose-built multi-LOB book with every count cross-checked in Data Bridge (W-1, W-11). The one place the design has to be careful is under-selection: a short selection read produces a sub-portfolio missing accounts and reports success. The library converts that into an exception (W-14), and the worker compares the populated portfolio against the persisted plan (R10) rather than trusting response counts.
+**Rationale.** Both writes are documented, synchronous Platform operations (200/201 the only success statuses; any other 2xx raises), validated end to end against two real state breakouts and a purpose-built multi-LOB book with every count cross-checked in Data Bridge (W-1, W-11). The selection runs where the same data already lives as SQL: the summary scripts execute against `night_edm` (248,732 accounts) in ~1–2 seconds (W-19), where the REST selection could not complete at all (W-20). Under-selection stays the failure to guard: a short selection produces a sub-portfolio missing accounts and reports success — a set-based query cannot return a partial page sequence, and the read-back count compares against the persisted plan (R10) rather than trusting response counts.
 
-**Alternatives considered.** (a) `add_filtered_accounts` (PUT `.../filtered-accounts`) as the add step — **rejected**: it returns `{}`, so the worker cannot tell an empty populate from a full one without a read-back, while the PATCH reports `completed`/`total`. Worse, `manageExistingAccounts=true` returns HTTP 200 and adds nothing at all, so it is a mode switch, not the heal-a-partial-write option it reads as (W-1). (b) `getAccounts` with `allowDeepFilters=true` as the state selection — **rejected**: zero rows with HTTP 200 at all nine scope sizes tested where Data Bridge and `searchLocations` both say 272; scope size, filter length, and vocabulary were all ruled out as causes (W-7). (c) One-shot `create_portfolio_by_filter` — does not exist. (d) `queryFilter` one-call populate — **closed permanently**, not deferred (U3 above); this retires T-09. (e) Filtering policies by `lobId` instead of grouping client-side — rejected: HTTP 500, not a clean 400 (W-15). (f) Client-side bucketing via per-account child reads — rejected: N+1 per sub-portfolio, and one `searchPolicies` pass already yields every LOB. (g) Raw `client.request()` from the app — rejected: Moody's schema knowledge belongs in the integration library (Article 11).
+**Alternatives considered.** (a) `add_filtered_accounts` (PUT `.../filtered-accounts`) as the add step — **rejected**: it returns `{}`, so the worker cannot tell an empty populate from a full one without a read-back, while the PATCH reports `completed`/`total`. Worse, `manageExistingAccounts=true` returns HTTP 200 and adds nothing at all, so it is a mode switch, not the heal-a-partial-write option it reads as (W-1). (b) `getAccounts` with `allowDeepFilters=true` as the state selection — **rejected**: zero rows with HTTP 200 at all nine scope sizes tested where Data Bridge and `searchLocations` both say 272; scope size, filter length, and vocabulary were all ruled out as causes (W-7). (c) One-shot `create_portfolio_by_filter` — does not exist. (d) `queryFilter` one-call populate — **closed permanently**, not deferred (U3 above); this retires T-09. (e) Filtering policies by `lobId` instead of grouping client-side — rejected: HTTP 500, not a clean 400 (W-15). (f) Client-side bucketing via per-account child reads — rejected: N+1 per sub-portfolio. (g) Raw `client.request()` from the app — rejected: Moody's schema knowledge belongs in the integration library (Article 11). (h) **REST selection** (the 2026-08-03 decision: `search_accounts_by_portfolio_paginated` for the source ids, then a chunked `accountId IN (…)` policy/location scan) — **rejected 2026-08-05 after failing at the US1 checkpoint**: the wheel's account search refuses past 100,000 records because completeness can no longer be proven (W-20 — the portfolio holds 248,732 accounts), and even absent the ceiling the chunked scan is ~670 URL-filtered, paginated round trips per breakout. The probe validated the sequence only on books of a few hundred accounts. The W-6 no-portfolio-predicate finding and the W-14 completeness rule shaped that design; both are moot for a portfolio-scoped SQL query.
 
 ---
 

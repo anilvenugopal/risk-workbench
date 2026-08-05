@@ -125,7 +125,7 @@ def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   #
 
 ## 3. `irp_gateway` — the one RM write seam (fake mirrors it)
 
-Selection is **hoisted out of the per-sub-portfolio loop**, because the two dimensions read differently (R1): LOB is one `search_policies_paginated` pass over the source portfolio's accounts, grouped client-side on `policy["lob"]["lobName"]`, so the whole fan-out shares one read; state is one `search_locations_paginated` call per value filtered on `admin1Code`. Both scope by account-id list — Risk Modeler has no portfolio predicate (W-6).
+Selection is **hoisted out of the per-sub-portfolio loop**: one portfolio-scoped DataBridge query per run resolves every value at once (R1, revised 2026-08-05 — the paginated REST selection could not complete on a 248,000-account portfolio, W-20). The script mirrors the summary script's joins, so the values filtered are byte-identical to the stored summary the plan was approved from; `ACCGRPID` is the id `manage_portfolio_accounts` accepts as `accountId`. The gateway resolves and caches the EDM's physical `databaseName`, which is why the seam takes `edm_name`.
 
 ```python
 @dataclass(frozen=True)
@@ -133,7 +133,8 @@ class BreakoutSelection:
     accounts_by_value: dict[str, list[int]]   # value → source account ids matching it
     errors_by_value: dict[str, str]           # value → reason, for reads that failed on their own
 
-def select_breakout_accounts(*, exposure_irp_id: str, source_portfolio_irp_id: str,
+def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str,
                              dimension: str, values: Sequence[str]) -> BreakoutSelection
 
 @dataclass(frozen=True)
@@ -151,9 +152,9 @@ def fetch_portfolio_stamp(exposure_irp_id: str, portfolio_irp_id: str) -> str | 
 ```
 
 - `select_breakout_accounts` owns the filter grammar and the **chunking**: the composed filter travels in the URL and dies at HTTP 431 around 4,872 characters, a character ceiling shared with the bearer token, so chunk size is computed from composed filter length against a named constant well below it (irp-library.md §1). Filter strings built with `json.dumps` quoting (module convention). Response-shape parsing differs per read and a wrong key returns a plausible empty result rather than an error (W-15) — unit-tested against recorded bodies.
-- **A value whose read fails lands in `errors_by_value`, not an exception.** `paginate_search` raises `IRPAPIError` when it cannot show it read every page (W-14); the gateway catches it per value so one bad read fails one sub-portfolio instead of the run. A failure of the source account-id read itself — the input to every value — does raise, and the worker fails the job before anything is created.
+- **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). `errors_by_value` stays on the seam for implementations that can fail per value — the worker fails such an entry with no create call.
 - **A value with an empty id list is returned as empty**, not as an error; the worker turns it into a zero-match failure (FR-008) with no create call made, so no empty portfolio reaches Risk Modeler.
-- `create_sub_portfolio` composes create + add + verify: `create_portfolio(edm_name, name, number, description)` (synchronous 201) → `manage_portfolio_accounts(accounts_to_add=chunk)` per chunk (synchronous 200) → read the portfolio's accounts back and compare against `account_ids`. `add_filtered_accounts` is deliberately not used — it returns `{}` (irp-library.md).
+- `create_sub_portfolio` composes create + add + verify: `create_portfolio(edm_name, name, number, description)` (synchronous 201) → `manage_portfolio_accounts(accounts_to_add=chunk)` per 1,000-id chunk (synchronous 200) → a DataBridge member count compared against `account_ids` (the paginated REST read-back cannot verify past 100,000 accounts, W-20). `add_filtered_accounts` is deliberately not used — it returns `{}` (irp-library.md).
 - **`portfolio_number` is always passed explicitly.** Omitting it makes RM default the number to the name, which then overruns the number's own 20-character cap (W-13).
 - A duplicate-name failure from the create step surfaces as a **distinct** error type so the worker can branch to adoption. Class alone is not enough: `IRPValidationError` also covers an over-long name and an over-long number (W-10).
 - `find_portfolio_by_number` returns **every** hit, not the first — FR-011 requires the worker to fail that sub-portfolio rather than adopt an arbitrary one when more than one portfolio carries the number. Filters on `portfolioNumber` via `search_portfolios`; numbers are unique only within an exposure, which the exposure-scoped search covers (W-17).

@@ -648,6 +648,34 @@ a sub-portfolio nobody wants. Grouping by code collapses them correctly.
 
 Evidence: `d1_workbench_decisions.py`.
 
+## W-20 The REST selection read cannot complete on a 248,000-account portfolio
+
+*(Not from the 2026-08-03 probe run — observed 2026-08-05 at the US1 checkpoint,
+first `run_breakout_lob` against `night_edm`'s largest portfolio.)*
+
+The worker failed at step 3 with nothing created:
+
+> Account search for portfolio ID 3 was still returning full pages of 100 at
+> the 1000-page ceiling, so the 100000 records read cannot be shown to be the
+> complete result.
+
+The wheel behaved as designed (W-14: an unprovably-complete read raises rather
+than returning a short list). The failure is the selection strategy: the
+portfolio holds 248,732 accounts, so the source account-id read alone needs
+2,480 pages at 100 per page, and even without the ceiling the LOB policy scan
+feeds those ids back as `accountId IN (…)` URL filters chunked at 3,000
+characters — roughly 370 ids per chunk, ~670 chunks, each itself paginated.
+Thousands of Risk Modeler round trips for one breakout. W-1 validated the
+sequence end to end on books of a few hundred accounts; nothing between that
+and `night_edm` was ever run.
+
+The same book's DataBridge aggregates run in ~1–2 seconds (W-19's timings are
+against this exact EDM), and `portacct.ACCGRPID` is the id RM's account
+operations accept as `accountId` (confirmed by Ben, 2026-08-05). Consequence:
+the selection read and the composition read-back moved to parameterized
+DataBridge SQL — R1 as revised 2026-08-05. Create and add stay on REST (writes;
+DataBridge is read-only).
+
 ---
 
 # Part 4 — Design record: why sub-portfolios, and why the overlap is accepted
