@@ -54,6 +54,26 @@ def test_aggregate_sums_unions_and_combines():
     assert agg.total_tiv == 4.1e9                    # summed across portfolios
 
 
+def test_aggregate_states_use_labels_when_breakout_values_present():
+    # P-12 as revised 2026-08-05: a post-005 summary carries breakout_values
+    # whose state entries pair the Admin1Code with its display label — the
+    # rollup shows "St Croix", never "010"; a label-less entry falls back to
+    # its code, and a pre-005 snapshot (SNAP_A) contributes its states list.
+    caribbean = {
+        "metrics": {"totalLocations": 100, "totalAccounts": 10,
+                    "totalPolicies": 10, "perilsExposed": "WS"},
+        "summary": {"portfolio_name": "cbhu", "total_tiv": 1.0e9,
+                    "currencies": ["USD"], "states": ["010", "200"],
+                    "lines_of_business": ["Commercial"],
+                    "breakout_values": {"state": [
+                        {"value": "010", "label": "St Croix", "accounts": 4},
+                        {"value": "200", "label": None, "accounts": 6}]}},
+    }
+    agg = portfolio_service.aggregate_exposure([_row("A", SNAP_A),
+                                                _row("C", caribbean)])
+    assert agg.states == ["200", "FL", "St Croix", "TX"]
+
+
 def test_aggregate_none_when_no_snapshot():
     assert portfolio_service.aggregate_exposure([]) is None
     assert portfolio_service.aggregate_exposure(

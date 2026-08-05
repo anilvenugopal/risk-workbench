@@ -113,8 +113,46 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
     assert generated.breakout_dimension_code == "state"
     assert generated.breakout_dimension_label == "Geography (state)"
     assert generated.breakout_value == "TX"
+    # the source snapshot carries no summary → no display label, and the
+    # template falls back to the code (P-12 as revised 2026-08-05)
+    assert generated.breakout_value_label is None
     # the broker-arrived source row carries no lineage
     assert next(r for r in rows if r.id == source.id).source_name is None
+
+
+def test_list_resolves_the_display_label_from_the_source_summary(
+        iteration2_db):
+    # P-12 as revised 2026-08-05: the generated row's breakout_value stays the
+    # Admin1Code ("200"), and the list resolves its display label ("Puerto
+    # Rico") from the label stored beside that value in the SOURCE portfolio's
+    # summary — read-time only, nothing stored on the generated row.
+    edm_id = str(uuid.uuid4())
+    with get_connection("WORKBENCH") as conn:
+        with conn.begin():
+            _seed_row(conn, edm_id=edm_id, irp="1", name="cbhu")
+    source = portfolio_service.list_portfolios(edm_id=edm_id)[0]
+    portfolio_service.upsert_portfolio_detail(
+        edm_id=edm_id, irp_id="1", name="cbhu",
+        exposure_detail={"summary": {"breakout_values": {"state": [
+            {"value": "010", "label": "St Croix", "accounts": 74},
+            {"value": "200", "label": "Puerto Rico", "accounts": 2437},
+        ]}}}, as_of=_utcnow())
+    portfolio_service.insert_generated(
+        edm_id, name="cbhu - Puerto Rico", irp_id="431",
+        source_portfolio_id=source.id, dimension_code="state", value="200",
+        actor_id=None)
+
+    rows = portfolio_service.list_portfolios(edm_id=edm_id)
+    generated = next(r for r in rows if r.breakout_value == "200")
+    assert generated.breakout_value_label == "Puerto Rico"
+    # a value the rewritten summary no longer carries resolves to None
+    portfolio_service.insert_generated(
+        edm_id, name="cbhu - 030", irp_id="432",
+        source_portfolio_id=source.id, dimension_code="state", value="030",
+        actor_id=None)
+    rows = portfolio_service.list_portfolios(edm_id=edm_id)
+    assert next(r for r in rows
+                if r.breakout_value == "030").breakout_value_label is None
 
 
 def test_unrecoverable_violation_raises_instead_of_dropping_the_row(

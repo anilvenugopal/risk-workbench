@@ -67,6 +67,11 @@ class PortfolioRow:
     breakout_dimension_code: str | None = None
     breakout_dimension_label: str | None = None
     breakout_value: str | None = None
+    # Display label for breakout_value (Admin1Name for a state code), resolved
+    # at read time from the SOURCE portfolio's stored summary — never stored,
+    # never a filter input; None falls back to the code in the template
+    # (P-12 as revised 2026-08-05).
+    breakout_value_label: str | None = None
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is
@@ -171,7 +176,19 @@ def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
             else {}
         lines_of_business.update(
             v for v in (summary.get("lines_of_business") or []) if v)
-        states.update(v for v in (summary.get("states") or []) if v)
+        # Geography displays the state's label (Admin1Name) where the summary
+        # carries one, falling back to the code — P-12 as revised 2026-08-05.
+        # A pre-005 summary has no breakout_values: its states list renders
+        # verbatim (the old name/code mix).
+        container = summary.get("breakout_values")
+        entries = (container.get("state")
+                   if isinstance(container, dict) else None)
+        if isinstance(entries, list) and entries:
+            states.update(e.get("label") or e.get("value") for e in entries
+                          if isinstance(e, dict)
+                          and (e.get("label") or e.get("value")))
+        else:
+            states.update(v for v in (summary.get("states") or []) if v)
         currencies.update(v for v in (summary.get("currencies") or []) if v)
         tiv = summary.get("total_tiv")
         if isinstance(tiv, (int, float)):
@@ -352,7 +369,7 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         "WHERE p.edm_id = :e AND p.deleted_at IS NULL "
         "ORDER BY p.name",
         {"e": str(edm_id)}, connection="WORKBENCH")
-    return [PortfolioRow(
+    portfolios = [PortfolioRow(
         id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
         irp_id=r["irp_id"],
         exposure_detail=_parse_json_dict(r["exposure_detail"], "exposure_detail"),
@@ -363,6 +380,33 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         breakout_dimension_code=r["breakout_dimension_code"],
         breakout_dimension_label=r["breakout_dimension_label"],
         breakout_value=r["breakout_value"]) for r in rows]
+    _resolve_breakout_value_labels(portfolios)
+    return portfolios
+
+
+def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
+    """Attach each generated row's display label — the ``label`` stored beside
+    its ``breakout_value`` in the SOURCE portfolio's summary (Admin1Name for a
+    state code; P-12 as revised 2026-08-05). Generated portfolios live in the
+    same EDM as their source, so the lookup stays inside the fetched list. Any
+    miss (source pruned, summary rewritten without the value, no label yet)
+    leaves ``None`` and the template falls back to the code."""
+    by_id = {p.id: p for p in portfolios}
+    for p in portfolios:
+        source = by_id.get(p.source_portfolio_id or "")
+        if source is None or not p.breakout_dimension_code or not p.breakout_value:
+            continue
+        summary = (source.exposure_detail or {}).get("summary")
+        container = (summary.get("breakout_values")
+                     if isinstance(summary, dict) else None)
+        entries = (container.get(p.breakout_dimension_code)
+                   if isinstance(container, dict) else None)
+        for entry in entries if isinstance(entries, list) else []:
+            if isinstance(entry, dict) and entry.get("value") == p.breakout_value:
+                label = entry.get("label")
+                p.breakout_value_label = (label if isinstance(label, str)
+                                          and label else None)
+                break
 
 
 __all__ = ["PortfolioRow", "EdmAggregate", "GeneratedWrite",

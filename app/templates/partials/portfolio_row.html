@@ -35,7 +35,7 @@
            the IMMEDIATE source only, never a rendered chain; broker-arrived
            rows (source_name null) are unchanged. #}
         {% if p.source_name %}
-        <span class="bo-lineage">↳ from <strong>{{ p.source_name }}</strong> · {{ p.breakout_dimension_label or p.breakout_dimension_code }}: <strong>{{ p.breakout_value }}</strong></span>
+        <span class="bo-lineage">↳ from <strong>{{ p.source_name }}</strong> · {{ p.breakout_dimension_label or p.breakout_dimension_code }}: <strong>{{ p.breakout_value_label or p.breakout_value }}</strong></span>
         {% endif %}
       </span>
       {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
@@ -67,10 +67,18 @@
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {#- spec 005 (P-12): summary.states holds Admin1Code values once the next
-        Sync rewrites the snapshot; a pre-change snapshot still holds the old
-        name/code mix. Both are plain strings and render verbatim. -#}
-    {%- set states = s.get('states') or [] -%}
+    {#- spec 005 (P-12 as revised 2026-08-05): render each state's display
+        label (Admin1Name) where the summary's breakout_values carry one,
+        falling back to the Admin1Code — "St Croix", never "010". A pre-005
+        snapshot has no breakout_values and renders its states list verbatim
+        (the old name/code mix). -#}
+    {%- set states = [] -%}
+    {%- set state_entries = (s.get('breakout_values') or {}).get('state') -%}
+    {%- if state_entries -%}
+      {%- for e in state_entries -%}{%- set _ = states.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
+    {%- else -%}
+      {%- set states = s.get('states') or [] -%}
+    {%- endif -%}
     {%- if states -%}
       {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
