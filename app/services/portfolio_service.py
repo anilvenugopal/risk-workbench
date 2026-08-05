@@ -58,6 +58,15 @@ class PortfolioRow:
     # per dimension (list of breakout_service.BreakoutRowError).
     breakout_flight: Any = None
     breakout_errors: list = field(default_factory=list)
+    # Spec 005 US3 (FR-014): breakout lineage for the row badge
+    # "↳ from {source} · {dimension label}: {value}". All None/absent for
+    # broker-arrived portfolios. source_name is the IMMEDIATE source only —
+    # chained lineage is never rendered as a chain.
+    source_portfolio_id: str | None = None
+    source_name: str | None = None
+    breakout_dimension_code: str | None = None
+    breakout_dimension_label: str | None = None
+    breakout_value: str | None = None
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is
@@ -327,18 +336,33 @@ def adopt_generated(edm_id: Any, *, name: str, irp_id: str,
 
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
-    ``exposure_detail`` (``None`` → graceful empty). No row scoping (Article 6);
-    read-only — no create/edit/split (Iteration 4)."""
+    ``exposure_detail`` (``None`` → graceful empty) and its breakout lineage
+    (FR-014): the immediate source portfolio's name and the dimension label
+    joined in, ordering unchanged by name — grouping and indent stay display
+    concerns. No row scoping (Article 6)."""
     rows = execute(
-        "SELECT id, edm_id, name, irp_id, exposure_detail, as_of "
-        "FROM irp_portfolio WHERE edm_id = :e AND deleted_at IS NULL "
-        "ORDER BY name",
+        "SELECT p.id, p.edm_id, p.name, p.irp_id, p.exposure_detail, p.as_of, "
+        "p.source_portfolio_id, s.name AS source_name, "
+        "p.breakout_dimension_code, k.label AS breakout_dimension_label, "
+        "p.breakout_value "
+        "FROM irp_portfolio p "
+        "LEFT JOIN irp_portfolio s ON p.source_portfolio_id = s.id "
+        "LEFT JOIN breakout_dimension_kind k "
+        "  ON p.breakout_dimension_code = k.code "
+        "WHERE p.edm_id = :e AND p.deleted_at IS NULL "
+        "ORDER BY p.name",
         {"e": str(edm_id)}, connection="WORKBENCH")
     return [PortfolioRow(
         id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
         irp_id=r["irp_id"],
         exposure_detail=_parse_json_dict(r["exposure_detail"], "exposure_detail"),
-        as_of=r["as_of"]) for r in rows]
+        as_of=r["as_of"],
+        source_portfolio_id=(_uid(r["source_portfolio_id"])
+                             if r["source_portfolio_id"] is not None else None),
+        source_name=r["source_name"],
+        breakout_dimension_code=r["breakout_dimension_code"],
+        breakout_dimension_label=r["breakout_dimension_label"],
+        breakout_value=r["breakout_value"]) for r in rows]
 
 
 __all__ = ["PortfolioRow", "EdmAggregate", "GeneratedWrite",

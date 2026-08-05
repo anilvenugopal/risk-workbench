@@ -31,6 +31,12 @@
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+        {# spec 005 US3 (FR-014): the lineage badge on generated rows —
+           the IMMEDIATE source only, never a rendered chain; broker-arrived
+           rows (source_name null) are unchanged. #}
+        {% if p.source_name %}
+        <span class="bo-lineage">↳ from <strong>{{ p.source_name }}</strong> · {{ p.breakout_dimension_label or p.breakout_dimension_code }}: <strong>{{ p.breakout_value }}</strong></span>
+        {% endif %}
       </span>
       {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
          near the expand affordance; EDM ready only. Clicking must not toggle
@@ -61,6 +67,9 @@
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
+    {#- spec 005 (P-12): summary.states holds Admin1Code values once the next
+        Sync rewrites the snapshot; a pre-change snapshot still holds the old
+        name/code mix. Both are plain strings and render verbatim. -#}
     {%- set states = s.get('states') or [] -%}
     {%- if states -%}
       {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}

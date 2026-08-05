@@ -181,6 +181,11 @@ a.sec__note--link:hover { text-decoration: underline; }
 .bo-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
 .bo-inline { margin-left: auto; flex: none; display: inline-flex; align-items: center; font-size: var(--fs-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
+/* lineage badge on generated portfolio rows (US3/FR-014) — the immediate
+   source only; broker-arrived rows carry no badge */
+.bo-lineage { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-lineage strong { color: var(--text-secondary); font-weight: var(--fw-medium); }
+
 /* page-side completion banner + durable per-row error line (FR-012) */
 .bo-banner { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); }
 .bo-banner--ok { background: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); }

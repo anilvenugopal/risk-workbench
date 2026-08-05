@@ -135,6 +135,32 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
     assert fake_irp.selection_calls[0]["values"] == ["EQ Comm", "FLD Comm"]
 
 
+def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
+    # US2 (T046/FR-004): run_breakout_state runs the same body — the lineage
+    # rows carry dimension 'state' with Admin1Code values (P-12), the
+    # selection read is asked for the state dimension, and the RM description
+    # names the Geography (state) dimension label.
+    edm_id = _mk_edm()
+    source_id = _mk_source(edm_id)
+    fake_irp.selection_by_value = {"CA": [3], "TX": [1, 2]}
+    plan = [_plan_entry("CA", number="P1-S-CA", label="CALIFORNIA"),
+            _plan_entry("TX", number="P1-S-TX", label=None)]
+    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, plan,
+                  dimension="state")
+
+    job = _run(jid, dimension="state")
+
+    assert job["status_code"] == "succeeded"
+    out = json.loads(job["output_data"])
+    assert (out["planned"], out["created"], out["failed"]) == (2, 2, 0)
+    rows = _generated_rows(source_id)
+    assert [(r["breakout_dimension_code"], r["breakout_value"])
+            for r in rows] == [("state", "CA"), ("state", "TX")]
+    assert fake_irp.selection_calls[0]["dimension"] == "state"
+    assert fake_irp.created_sub_portfolios[0]["description"] == (
+        "Breakout of portfolio usfl_commercial by Geography (state): CA")
+
+
 def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(
         iteration2_db, fake_irp):
     # The stored plan's names differ from anything a recompute would produce —
@@ -432,6 +458,38 @@ def test_backfill_enqueue_is_idempotent_while_one_is_queued(
     heads = _backfill_heads()
     assert len(heads) == 1
     assert json.loads(job["output_data"])["backfill_enqueued"] is True
+
+
+def test_audit_recoverable_from_job_row_and_generated_rows(
+        iteration2_db, fake_irp):
+    # US3 (T053/FR-015/P-08): after a partial-failure run every audited field
+    # is recoverable with no audit-log table — actor from
+    # input_data.actor_id, timestamp from the job row, source portfolio from
+    # requestor_id, dimension from rwb_job_type, per-sub-portfolio outcomes
+    # from output_data.sub_portfolios, and the confirming analyst from each
+    # generated row's inserted_by.
+    edm_id = _mk_edm()
+    source_id = _mk_source(edm_id)
+    fake_irp.selection_by_value = {"A": [1]}     # B → zero-match failure
+    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+                  [_plan_entry("A"), _plan_entry("B")])
+    _run(jid)
+
+    job = execute_one(
+        "SELECT requestor_id, rwb_job_type, input_data, output_data, "
+        "updated_at FROM rwb_job WHERE id = :i",
+        {"i": jid}, connection="WORKBENCH")
+    assert json.loads(job["input_data"])["actor_id"] == str(
+        iteration2_db.user_a)                            # 1. actor
+    assert job["updated_at"] is not None                 # 2. timestamp
+    assert job["requestor_id"] == source_id              # 3. source portfolio
+    assert job["rwb_job_type"] == "run_breakout_lob"     # 4. dimension
+    outcomes = json.loads(job["output_data"])["sub_portfolios"]
+    assert {o["value"]: o["outcome"] for o in outcomes} == {
+        "A": "created", "B": "failed"}                   # 5. outcomes
+    rows = _generated_rows(source_id)
+    assert [r["inserted_by"] for r in rows] == [
+        iteration2_db.user_a]                            # 6. confirming analyst
 
 
 def test_breakout_summarize_outcomes_shape_matches_data_model(
