@@ -103,6 +103,14 @@ def test_collision_takes_lowest_free_suffix_against_existing_names():
     assert len(plan[0].name) <= PORTFOLIO_NAME_MAX
 
 
+def test_collision_detection_ignores_case():
+    # Risk Modeler rejects a duplicate name without distinguishing case, so an
+    # existing USFL_COMMERCIAL - tx must push the planned name to a suffix —
+    # otherwise the create fails on a name the analyst already approved.
+    plan = _plan([_bv("TX")], existing_names={"USFL_COMMERCIAL - tx"})
+    assert plan[0].name == "usfl_commercial - TX (2)"
+
+
 def test_intra_plan_collisions_are_suffixed_too():
     # Two long values truncated alike must not produce the same composed name.
     a = "A" * 35 + "one!!"
@@ -118,10 +126,26 @@ def test_intra_plan_collisions_are_suffixed_too():
 
 def test_number_shape_and_budget():
     plan = _plan([_bv("TX")], source_irp_id="4319", dimension="state")
-    assert plan[0].number == "P4319-S-TX"
+    assert plan[0].number == "P4319-S-TX"      # already number-safe → verbatim
     plan = _plan([_bv("FLD Comm")], source_irp_id="4319", dimension="lob")
-    assert plan[0].number == "P4319-L-FLDCOMM"  # non-alphanumerics removed, uppercased
+    # the space cannot be carried, so the token is hashed rather than merged
+    # with the number a different value would compose
+    assert plan[0].number.startswith("P4319-L-FLDC")
     assert len(plan[0].number) <= PORTFOLIO_NUMBER_MAX
+
+
+def test_values_differing_only_in_punctuation_whitespace_or_case_never_share_a_number():
+    # Stripping non-alphanumerics and uppercasing map all four of these onto the
+    # token AB. The number is the identity adoption resolves on (FR-011), so
+    # each value must still get its own (R4).
+    values = ["AB", "A-B", "a b", "ab", " AB"]
+    plan = _plan([_bv(v) for v in values], source_irp_id="1", dimension="lob")
+    numbers = [p.number for p in plan]
+    assert len(set(numbers)) == len(values)
+    assert all(len(n) <= PORTFOLIO_NUMBER_MAX for n in numbers)
+    assert all(n.startswith("P1-L-") for n in numbers)
+    # only the value that needs no normalization keeps the readable form
+    assert next(p.number for p in plan if p.value == "AB") == "P1-L-AB"
 
 
 def test_long_token_gets_hash_tail_and_shared_prefixes_do_not_collide():

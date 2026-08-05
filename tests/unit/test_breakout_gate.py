@@ -301,13 +301,18 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert data["actor_id"] == iteration2_db.user_a
     # the persisted plan is the approved list: value, label, name, number, AND
     # the previewed account count (FR-006a/FR-006b)
-    assert data["plan"] == [
-        {"value": "EQ Comm", "label": None, "name": "usfl_commercial - EQ Comm",
-         "number": "P1-L-EQCOMM", "accounts": 801},
+    assert [{k: v for k, v in e.items() if k != "number"}
+            for e in data["plan"]] == [
+        {"value": "EQ Comm", "label": None,
+         "name": "usfl_commercial - EQ Comm", "accounts": 801},
         {"value": "FLD Comm", "label": None,
-         "name": "usfl_commercial - FLD Comm", "number": "P1-L-FLDCOMM",
-         "accounts": 900},
+         "name": "usfl_commercial - FLD Comm", "accounts": 900},
     ]
+    # both values carry a space, so both numbers are hash-tailed (R4) — the
+    # shape and the per-value uniqueness are what matter, not the digits
+    numbers = [e["number"] for e in data["plan"]]
+    assert [n[:11] for n in numbers] == ["P1-L-EQCOMM", "P1-L-FLDCOM"]
+    assert len(set(numbers)) == 2
 
 
 def test_confirm_double_post_yields_one_job(iteration2_db, fake_irp):

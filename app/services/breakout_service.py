@@ -308,7 +308,9 @@ def _compose_name(source_name: str, token: str, taken: Collection[str]) -> str:
     breakout value's display label where one exists, else the value (P-12 as
     revised 2026-08-05). The token is kept whole and the source absorbs the
     truncation, 4 characters reserved for the collision suffix; the lowest
-    free `` (2)``, `` (3)``… wins (R4)."""
+    free `` (2)``, `` (3)``… wins (R4). ``taken`` holds CASEFOLDED names —
+    Risk Modeler rejects a duplicate name without distinguishing case, so
+    ``SOURCE - TX`` must push ``source - TX`` to a suffix."""
     source_budget = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
                      - len(token))
     if source_budget < _MIN_SOURCE_CHARS:
@@ -322,7 +324,7 @@ def _compose_name(source_name: str, token: str, taken: Collection[str]) -> str:
     base = f"{source_part}{_SEPARATOR}{value_part}"
     name = base
     n = 2
-    while name in taken:
+    while name.casefold() in taken:
         name = f"{base} ({n})"
         # Beyond " (9)" the suffix outgrows the 4-character reserve — trim the
         # source further so the composed name never exceeds the RM limit.
@@ -336,10 +338,14 @@ def _compose_name(source_name: str, token: str, taken: Collection[str]) -> str:
 
 def _compose_number(source_portfolio_irp_id: str, dimension: str,
                     value: str) -> str:
-    """``P{source RM id}-{S|L}-{token}`` inside 20 characters. Token = the value
-    uppercased with non-alphanumerics removed; when it overruns the budget its
-    last 6 characters become 6 hex digits of sha256(value) so two long values
-    sharing a prefix cannot collide (R4). Never Python's hash() — salted per
+    """``P{source RM id}-{S|L}-{token}`` inside 20 characters. The token is the
+    value itself when it is already uppercase alphanumerics that fit the budget;
+    otherwise its last 6 characters are 6 hex digits of sha256(value). Both
+    normalizing steps — dropping non-alphanumerics and uppercasing — map distinct
+    values onto one token (``A-B``, ``AB``, ``a b``, and ``ab`` all become
+    ``AB``), and the number is the identity adoption resolves on, so a value the
+    token cannot carry verbatim is hashed rather than truncated into a
+    neighbour's number (R4/FR-011). Never Python's hash() — salted per
     process."""
     letter = _DIMENSION_LETTER.get(dimension, dimension[:1].upper())
     prefix = f"P{source_portfolio_irp_id}-{letter}-"
@@ -349,12 +355,10 @@ def _compose_number(source_portfolio_irp_id: str, dimension: str,
             f"portfolio_number prefix {prefix!r} leaves no room for a value "
             f"token inside {PORTFOLIO_NUMBER_MAX} characters")
     token = re.sub(r"[^A-Za-z0-9]", "", value).upper()
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest().upper()
-    if not token:
-        token = digest[:min(6, budget)]
-    elif len(token) > budget:
-        token = (token[:max(budget - 6, 0)] + digest[:6])[:budget]
-    return f"{prefix}{token}"
+    if token and token == value and len(token) <= budget:
+        return f"{prefix}{token}"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest().upper()[:6]
+    return f"{prefix}{(token[:max(budget - 6, 0)] + digest)[:budget]}"
 
 
 def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
@@ -365,7 +369,7 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
     """Deterministic, no I/O: same inputs → same plan, sorted by value. Callers
     supply the current portfolio names (collision universe) and the existing
     breakout values (live lineage rows → ``exists``)."""
-    taken: set[str] = set(existing_names)
+    taken: set[str] = {n.casefold() for n in existing_names}
     already = set(existing_values)
     plan: list[SubPortfolioPlan] = []
     for v in sorted(values, key=lambda bv: bv.value):
@@ -374,7 +378,7 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
         # "cbhu - 200"); the value stays the filter, the stored
         # breakout_value, and the number token.
         name = _compose_name(source_name, v.label or v.value, taken)
-        taken.add(name)
+        taken.add(name.casefold())
         plan.append(SubPortfolioPlan(
             value=v.value, label=v.label, name=name,
             number=_compose_number(source_portfolio_irp_id, dimension, v.value),
