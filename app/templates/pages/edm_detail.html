@@ -8,4 +8,11 @@
 {% block main %}
 {% include "partials/nc_unchecked_notice.html" %}
 {% include "partials/edm_detail_body.html" %}
+{# Breakout modal mount (spec 005) — OUTSIDE the self-polling #edm-detail
+   wrapper, so the 3-second poll never removes an open modal (the
+   #package-modal-mount precedent). The hx-on handler lets the modal's 404
+   (portfolio gone) and 409 (confirm refused) fragments swap in — htmx drops
+   non-2xx bodies by default — and mutes the generic error toast for them. #}
+<div id="breakout-modal-mount"
+     hx-on::before-swap="if (event.detail.xhr.status === 404 || event.detail.xhr.status === 409) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
 {% endblock %}

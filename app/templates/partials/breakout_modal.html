@@ -1,0 +1,181 @@
+{# Breakout modal (spec 005 — FR-001/FR-006/FR-007/FR-006c, approved preview
+   docs/ui_previews/breakout_modal.html). Fetched into #breakout-modal-mount on
+   the EDM detail page — OUTSIDE the self-polling #edm-detail wrapper, so the
+   3-second poll never removes an open modal (package_modal precedent). The
+   mount carries the hx-on::before-swap handler that lets the 404/409 fragments
+   swap in. One stored-summary snapshot per render: switching dimension
+   re-fetches this fragment; the confirm carries the snapshot's as_of (FR-002b);
+   a Sync submitted from inside CLOSES the dialog and hands progress to the
+   page's own indicator + self-poll. #}
+{%- set base_url = '/edms/' ~ edm_id ~ '/portfolios/' ~ portfolio_id ~ '/breakout' -%}
+{%- set gate = modal.gate if not missing else None -%}
+{%- set confirmable = (not missing) and gate.portfolio_eligible
+      and not gate.in_flight and modal.dimension and error_kind != 'stale' -%}
+{%- macro sync_button(label) -%}
+<button type="button" class="bo-link"
+        hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
+        hx-vals='{"csrf_token": "{{ generate_csrf_token() }}"}'
+        @htmx:after-request="$root.remove()"
+        title="Runs the page's Sync and closes this dialog — Break out re-enables when the refresh finishes">{{ label }}</button>
+{%- endmacro -%}
+{%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
+{%- macro dim_meta(d) -%}
+{{ d.values|length }} {% if d.dimension == 'lob' %}line{{ '' if d.values|length == 1 else 's' }}{% else %}state{{ '' if d.values|length == 1 else 's' }}{% endif %} present
+{%- endmacro -%}
+<div class="modal" id="breakout-modal" x-data>
+  {% if confirmable %}
+  <form class="bo-modal" method="post" action="{{ base_url }}"
+        hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="dimension" value="{{ modal.dimension }}">
+    <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
+  {% else %}
+  <div class="bo-modal">
+  {% endif %}
+
+    <div class="bo-modal__header">
+      <span class="bo-modal__title">Break out</span>
+      {% if not missing %}
+      <span class="bo-modal__src">{{ modal.portfolio_name }}{% if modal.portfolio_irp_id %} · Portfolio #{{ modal.portfolio_irp_id }}{% endif %}{% if gate.account_total is not none %} · {{ '{:,}'.format(gate.account_total) }} accounts{% endif %}</span>
+      {% endif %}
+    </div>
+
+    <div class="bo-modal__body">
+      {% if missing %}
+      <div class="bo-note bo-note--plain">This portfolio no longer exists — it
+        may have been deleted. Close this dialog; the page updates on its own.</div>
+
+      {% else %}
+      {% if error %}
+      <div class="bo-note bo-note--notice">
+        {{ error }}{% if error_kind == 'rewritten' %} Check the values and confirm again.{% endif %}
+        {% if error_kind == 'stale' %}{{ sync_button('Sync the EDM') }}{% endif %}
+      </div>
+      {% endif %}
+
+      {% if gate.in_flight %}
+      {# a live run_breakout_* job on this portfolio — no second confirm #}
+      {% set flight_dim = (gate.dimensions | selectattr('dimension', 'equalto', gate.in_flight) | list | first) %}
+      <div class="bo-flight"><span class="bo-spinner"></span>
+        <span>A <strong>{{ (flight_dim.label if flight_dim else gate.in_flight)|lower }}</strong>
+        breakout is already running for this portfolio — sub-portfolios appear
+        in the list as they are created.</span>
+      </div>
+
+      {% elif error_kind == 'stale' %}
+      {# FR-002a refusal — the stored summary trails Risk Modeler; a retry
+         would refuse again, so only the Sync path is offered (banner above) #}
+
+      {% else %}
+      <div class="bo-dims">
+        {% for d in gate.dimensions %}
+        {% if not gate.portfolio_eligible %}
+        <div class="bo-dim bo-dim--disabled">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__reason">{{ gate.reason }}</span>
+        </div>
+        {% elif not d.eligible %}
+        <div class="bo-dim bo-dim--disabled">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__reason">
+            {%- if d.reason == missing_summary_reason -%}
+            exposure summary not available — {{ sync_button('run Sync') }}
+            {%- else -%}{{ d.reason }}{%- endif -%}
+          </span>
+        </div>
+        {% elif d.dimension == modal.dimension %}
+        <button class="bo-dim" aria-pressed="true" type="button">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__meta">{{ dim_meta(d) }}</span>
+        </button>
+        {% else %}
+        <button class="bo-dim" aria-pressed="false" type="button"
+                hx-get="{{ base_url }}?dimension={{ d.dimension }}"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__meta">{{ dim_meta(d) }}</span>
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if gate.refresh_in_flight %}
+      <div class="bo-note bo-note--plain">Close this dialog — when the sync
+        finishes the page updates on its own and Break out re-enables.</div>
+      {% elif not gate.portfolio_eligible %}
+      <div class="bo-note bo-note--plain">Breakout is not available right now:
+        {{ gate.reason }}.</div>
+      {% elif not modal.dimension %}
+      <div class="bo-note bo-note--plain">The breakout reads the stored
+        exposure summary. Running Sync closes this dialog and starts the
+        refresh on the page — Break out re-enables when it finishes.</div>
+      {% else %}
+
+      {# ── the preview list (FR-006) — every sub-portfolio, NEVER truncated ── #}
+      <div class="bo-list">
+        <div class="bo-list__head"><span>Value</span><span>Generated name</span><span class="r">Accounts</span></div>
+        <div class="bo-list__scroll">
+          {% for entry in modal.plan %}
+          <div class="bo-row">
+            <span class="bo-row__value">{{ entry.value }}{% if entry.label %}<span class="bo-row__label">{{ entry.label }}</span>{% endif %}</span>
+            <span class="bo-row__name">{{ entry.name }}{% if entry.exists %} <span class="bo-row__exists">· already created</span>{% endif %}</span>
+            <span class="bo-row__accounts">{{ '{:,}'.format(entry.accounts) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if modal.plan|length > large_fanout_threshold %}
+      {# FR-006c (P-15 as amended 2026-08-04): the plain statement, no more #}
+      <div class="bo-note bo-note--notice">
+        <strong>{{ modal.plan|length }} sub-portfolios is a large run</strong> —
+        it will take several minutes.
+      </div>
+      {% endif %}
+
+      {# ── disclosures (FR-007): quantified overlap + blank values ── #}
+      {% set ov = modal.overlap %}
+      {% if ov.repeats is none %}
+      <div class="bo-note bo-note--overlap">Accounts matching more than one
+        {{ modal.noun }} are included in full in each matching sub-portfolio,
+        so the sub-portfolios can overlap. The inflation in exposure can exceed
+        the inflation in account count.</div>
+      {% elif ov.partition %}
+      <div class="bo-note bo-note--overlap"><strong>None of this portfolio's
+        {{ '{:,}'.format(ov.account_total) }} accounts match more than one
+        {{ modal.noun }}</strong> — the sub-portfolios partition the source
+        cleanly. The inflation in exposure can exceed the inflation in account
+        count when accounts repeat; here none do.</div>
+      {% else %}
+      <div class="bo-note bo-note--overlap"><strong>{{ '{:,}'.format(ov.repeats) }}
+        of this portfolio's {{ '{:,}'.format(ov.account_total) }} accounts match
+        more than one {{ modal.noun }}</strong> and will be included in full in
+        each one. The inflation in exposure can exceed the inflation in account
+        count — the accounts appearing in several sub-portfolios tend to be the
+        largest.</div>
+      {% endif %}
+      <div class="bo-note bo-note--plain">Exposure with no {{ modal.noun }}
+        value is not included in any sub-portfolio.</div>
+
+      {% endif %}
+      {% endif %}
+      {% endif %}
+    </div>
+
+    <div class="bo-modal__footer">
+      {% if confirmable %}
+      <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
+      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+      <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      {% else %}
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+      {% endif %}
+    </div>
+
+  {% if confirmable %}
+  </form>
+  {% else %}
+  </div>
+  {% endif %}
+</div>

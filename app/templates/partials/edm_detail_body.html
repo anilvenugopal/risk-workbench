@@ -10,7 +10,7 @@
    The server stops emitting the trigger once the work is terminal, so polling
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
-{% set live = edm.sync_running
+{% set live = edm.sync_running or edm.breakout_running
      or edm.status in ('pending_import', 'importing', 'delete_pending') %}
 <div class="page-pad" id="edm-detail"
   {%- if live %}
@@ -83,8 +83,19 @@
       <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
       {% endif %}
       <span class="sec__spacer"></span>
-      <span class="sec__note">Read-only snapshot · split / breakout arrive Iteration 4</span>
+      <span class="sec__note">Break out creates one sub-portfolio per line of business or state</span>
     </summary>
+
+    {# ── breakout completion banner (spec 005 FR-012) — the newest terminal
+       run_breakout_* job: a clean run shows while its follow-up backfill fills
+       figures in, a failed/partial one stays until the next run supersedes it ── #}
+    {% if edm.breakout_banner %}
+    {% set b = edm.breakout_banner %}
+    <div class="bo-banner bo-banner--{{ 'ok' if b.ok else 'partial' }}">
+      <strong>{{ b.noun|capitalize }} breakout of {{ b.source_name }}:</strong>
+      {{ b.created }} created{% if b.adopted %}, {{ b.adopted }} adopted{% endif %}{% if b.skipped_existing %}, {{ b.skipped_existing }} already created{% endif %}{% if b.failed %}, {{ b.failed }} failed{% endif %}{% if b.error %} — {{ b.error }}{% elif b.ok %} — exposure figures are filling in automatically{% endif %}.
+    </div>
+    {% endif %}
 
     {% if edm.detail_state == 'populated' %}
     <div class="dtable-shell">

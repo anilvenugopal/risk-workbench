@@ -26,7 +26,7 @@ from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
-    analysis_service, name_check, package_service,
+    analysis_service, breakout_service, name_check, package_service,
     portfolio_service, rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
@@ -259,22 +259,36 @@ class EdmDetail:
     # Modeler message (``latest_import_error``) — set only when status ==
     # 'error'; None when the failure recorded no submit detail.
     import_error: str | None = None
+    # Spec 005 (FR-012): a ``run_breakout_*`` job on one of this EDM's
+    # portfolios is pending|running — keeps the body's 3s self-poll alive so
+    # generated rows appear as the worker upserts them.
+    breakout_running: bool = False
+    # The newest terminal breakout job's completion banner
+    # (breakout_service.BreakoutBanner) — None when nothing warrants one.
+    breakout_banner: Any = None
 
 
 def _latest_backfill_status(edm_id: str) -> str | None:
-    """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
-    enqueue sources: the poller's heads key on the finished ``import_edm``
+    """The newest ``backfill_edm_detail`` job status for this EDM across its
+    THREE enqueue sources: the poller's heads key on the finished ``import_edm``
     irp_job (hence the join), the manual Sync's key on ``(analyst_request,
-    edm_id)`` directly. Newest ``updated_at`` wins — a revived (re-synced) row
-    keeps its ``inserted_at``, so insert order would lie. ``None`` when detail
-    backfill never ran — the pre-capability / forward-only state."""
+    edm_id)`` directly, and a completed breakout's auto-fired head keys on the
+    ``run_breakout_*`` job row whose portfolio belongs to this EDM (spec 005
+    FR-013). Newest ``updated_at`` wins — a revived (re-synced) row keeps its
+    ``inserted_at``, so insert order would lie. ``None`` when detail backfill
+    never ran — the pre-capability / forward-only state."""
     row = execute_one(
         "SELECT rj.status_code FROM rwb_job rj "
         "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
         "AND rj.requestor_id = ij.id "
         "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
         "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e)) "
+        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e) "
+        "     OR (rj.requestor_type = 'rwb_job' AND rj.requestor_id IN ("
+        "         SELECT bj.id FROM rwb_job bj "
+        "         JOIN irp_portfolio p ON bj.requestor_id = p.id "
+        "         WHERE bj.rwb_job_type LIKE 'run_breakout_%' "
+        "         AND p.edm_id = :e))) "
         "ORDER BY rj.updated_at DESC",
         {"e": edm_id}, connection="WORKBENCH")
     return row["status_code"] if row is not None else None
@@ -360,6 +374,12 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     buckets = analysis_service.bucket_by_portfolio(analyses)
     for p in portfolios:
         p.analyses = buckets.get(p.id, [])
+    # Spec 005: in-flight indicator, completion banner, and durable per-row
+    # error lines for the breakout fan-out (FR-012) — WORKBENCH reads only.
+    breakout = breakout_service.page_state(eid)
+    for p in portfolios:
+        p.breakout_flight = breakout.flights.get(p.id)
+        p.breakout_errors = breakout.errors.get(p.id, [])
     job_status = _latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
@@ -384,6 +404,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         rm_treaties_url=_rm_treaties_url(row["name"]),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
+        breakout_running=breakout.running,
+        breakout_banner=breakout.banner,
     )
 
 

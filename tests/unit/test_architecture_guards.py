@@ -83,3 +83,46 @@ def test_no_scope_construct_on_async_entities():
             if token in text:
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
     assert offenders == [], f"row-level-security constructs present (Article 6/FR-041): {offenders}"
+
+
+# ── Spec 005 (T042): the breakout request path ────────────────────────────────────
+# Article 11 as applied to the confirm flow (contracts/http-routes.md): the web
+# layer performs NO IRP call itself — routers never touch irp_gateway — and the
+# ONE Risk Modeler read on the request path is breakout_service's confirm-time
+# freshness check, fetch_portfolio_stamp (the Article 2 submit-time pattern,
+# deliberately not named get_*). DataBridge is worker-side only.
+
+_BREAKOUT_SERVICE = _APP / "services" / "breakout_service.py"
+_IRP_GATEWAY_CALL = re.compile(r"irp_gateway\.(\w+)")
+
+
+def test_routers_never_touch_irp_gateway():
+    """No router imports or calls irp_gateway — every RM interaction on a
+    request path is mediated by a service."""
+    offenders = _offenders((_APP / "routers").rglob("*.py"),
+                           re.compile(r"irp_gateway"))
+    assert offenders == [], f"routers must not touch irp_gateway: {offenders}"
+
+
+def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
+    """breakout_service (the confirm path) calls exactly one gateway function —
+    the FR-002a freshness read — and never a web-layer get_*."""
+    text = _strip_line_comments(_BREAKOUT_SERVICE.read_text(encoding="utf-8"))
+    calls = set(_IRP_GATEWAY_CALL.findall(text))
+    assert calls <= {"fetch_portfolio_stamp"}, (
+        "breakout_service may only call irp_gateway.fetch_portfolio_stamp "
+        f"on the request path (Article 11): {sorted(calls)}")
+
+
+def test_no_databridge_on_request_path():
+    """No DataBridge connection or trusted-script execution reaches the web
+    layer — the summary the modal renders is the STORED one (Article 11)."""
+    paths = [*(_APP / "routers").rglob("*.py"), _BREAKOUT_SERVICE]
+    offenders = []
+    for path in paths:
+        text = _strip_line_comments(path.read_text(encoding="utf-8"))
+        for token in ("DATABRIDGE", "execute_script_file"):
+            if token in text:
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
+    assert offenders == [], (
+        f"DataBridge access is worker-side only (Article 11): {offenders}")

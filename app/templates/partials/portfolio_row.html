@@ -32,6 +32,18 @@
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
       </span>
+      {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
+         near the expand affordance; EDM ready only. Clicking must not toggle
+         the row — interactive elements inside <summary> don't, and the
+         stopPropagation matches the section-header action precedent. #}
+      {% if p.breakout_flight %}
+      <span class="bo-inline" title="a {{ p.breakout_flight.noun }} breakout is running for this portfolio"><span class="bo-spinner"></span>{{ p.breakout_flight.done }} of {{ p.breakout_flight.planned }}</span>
+      {% elif edm is defined and edm.status == 'ready' %}
+      <button class="bo-btn" type="button" onclick="event.stopPropagation()"
+              hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
+              hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+              title="Create one sub-portfolio per line of business or state">Break out</button>
+      {% endif %}
     </span>
   </span>
   <span>{{ num(m.get('totalLocations')) }}</span>
@@ -106,3 +118,13 @@
     {% endif %}
   </div>
 </details>
+{# spec 005 (FR-012): durable per-row failure lines from the LATEST terminal
+   breakout run per dimension — server-rendered, survive refresh, no dismissal;
+   superseded only by the next terminal run. Re-run = the same Break out
+   confirm (idempotent); zero-match reasons already point at Sync. #}
+{% for be in p.breakout_errors %}
+<div class="bo-row-error">
+  <strong>{% if be.value %}{{ be.value }}{% if be.name %} — {{ be.name }}{% endif %} failed:{% else %}{{ be.noun|capitalize }} breakout failed:{% endif %}</strong>
+  {{ be.error }}
+</div>
+{% endfor %}

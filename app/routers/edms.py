@@ -169,11 +169,16 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></div>')
-    if poll and edm.sync_running and edm.detail_state == "populated":
+    if (poll and edm.sync_running and edm.detail_state == "populated"
+            and not edm.breakout_running
+            and not (edm.breakout_banner and edm.breakout_banner.filling_in)):
         # A populated page mid-sync: swapping the body every 3s would collapse
         # every <details> the analyst opened. 204 → htmx swaps nothing and the
         # poll keeps ticking; the first post-sync poll returns the fresh body
         # (whose trigger is gone), rendering the result exactly once.
+        # Exception (spec 005): during a breakout episode — the run itself, or
+        # its follow-up backfill filling figures in — the body keeps swapping
+        # so generated rows and the completion banner appear as they land.
         return Response(status_code=204)
     return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
 
