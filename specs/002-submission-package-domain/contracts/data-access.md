@@ -62,7 +62,10 @@ def search_submissions_for_link(
     term: str, *, exclude_id: UUID | None = None, limit: int = 10,
 ) -> list[SubmissionRow]:
     """Backs the "links to" picker (CR8). Every whitespace-separated term must
-    match the name or the cedant — AND, not OR (CR2). exclude_id drops the
+    match the name or the cedant — AND, not OR (CR2). Only the first
+    MAX_SUGGEST_TERMS (5) words are used: the search binds one LIKE pair per word,
+    and a pasted paragraph would otherwise exceed SQL Server's 2100-parameter limit
+    and produce a distinct ad-hoc plan per word count. exclude_id drops the
     submission being edited so it cannot be offered as its own link. Same
     2-character minimum and server-side limit as cedant_suggestions."""
 ```
@@ -78,7 +81,9 @@ def update_submission(
     directory_path, links_to).
     - Raises SubmissionClosed unless current status is ACTIVE (R3/FR-015).
     - Raises SelfLinkError if links_to_submission_id == submission_id (R9).
-    - treaty_year cleared to None is refilled from the inception year (CR5).
+    - treaty_year cleared to None is refilled from the inception year (CR5). This
+      also fires on an edit that never mentions the field, so renaming a submission
+      whose treaty_year is NULL fills it: the column does not record "no treaty year".
     - On rename/attr change, runs find_similar; unconfirmed match → UpdateResult with
       warnings and no write (FR-004).
     - UPDATE … WHERE id=:id AND updated_at=:expected_updated_at; rowcount 0 →
@@ -173,5 +178,5 @@ Unit tier (SQLite via `register_engine`):
 - No-scope regression: `db` exposes no `apply_scope`/`scoped_execute`; no query references `customer_id` (SC-010).
 
 SQL-Server tier (`--run-sqlserver`):
-- Migration builds all tables + FKs + the self-renewal CHECK; seeds present.
+- Migration builds all tables + FKs + the no-self-link CHECK; seeds present.
 - Event-sourced status transaction is atomic (event + cached column) and rolls back together on failure.

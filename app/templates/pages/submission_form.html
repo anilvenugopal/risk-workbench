@@ -49,20 +49,24 @@
       {# Cedant is free text with suggestions — there is no cedant registry
          (FR-006), so the menu only offers names already used on a submission.
 
-         The `[this.value.trim().length>1]` trigger filter is the client half of
-         `MIN_SUGGEST_TERM` in submission_service: a one-character term scans
-         every submission for a menu nobody can read, so the request is not sent.
-         `onInput()` drops a menu left over from a longer term. #}
+         Both typeaheads read `min_suggest_term` from the route context, which is
+         `submission_service.MIN_SUGGEST_TERM`: the hx-trigger filter withholds the
+         request below it, `typeahead()` uses the same number to drop a menu left
+         over from a longer term, and the service returns nothing for a shorter
+         one. `onInput()` is what closes the stale menu. #}
       <div class="wf-field">
         <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
-        <div class="ta" x-data="typeahead" @click.outside="close()">
+        <div class="ta" x-data="typeahead({ minTerm: {{ min_suggest_term }} })"
+             @click.outside="close()">
           <input class="wf-field__input{% if field_errors.cedant_name %} wf-field__input--error{% endif %}"
                  type="text" name="cedant_name" required autocomplete="off"
                  value="{{ form.cedant_name or '' }}"
+                 role="combobox" aria-controls="cedant-menu"
+                 aria-autocomplete="list" :aria-expanded="isOpen"
                  x-ref="input" @keydown="onKey($event)" @focus="open()"
                  @input="onInput()"
                  hx-get="/submissions/cedant-suggest"
-                 hx-trigger="input[this.value.trim().length>1] changed delay:200ms"
+                 hx-trigger="input[this.value.trim().length>={{ min_suggest_term }}] changed delay:200ms"
                  hx-target="#cedant-menu" hx-swap="innerHTML">
           <div id="cedant-menu" x-ref="menu" @htmx:after-swap="open()"
                @click="pick($event.target.closest('.ta__opt'))"></div>
@@ -128,20 +132,23 @@
       <div class="wf-field">
         <label>LINKS TO</label>
         <div class="ta" @click.outside="close()"
-             x-data='typeahead({ initialLabel: {{ (link_target.name if link_target else "")|tojson }} })'>
+             x-data='typeahead({ minTerm: {{ min_suggest_term }}, initialLabel: {{ (link_target.name if link_target else "")|tojson }} })'>
           <input type="hidden" name="links_to_submission_id" x-ref="value"
                  value="{{ form.links_to_submission_id or '' }}">
           <span class="ta__chosen" x-show="chosen" x-cloak>
             <span class="ta__chosen-name" x-text="chosenLabel">{{ link_target.name if link_target }}</span>
-            <button class="ta__clear" type="button" title="Clear" @click="clear()">✕</button>
+            <button class="ta__clear" type="button" title="Clear the linked submission"
+                    @click="clear()">✕</button>
           </span>
           <input class="wf-field__input{% if field_errors.links_to_submission_id %} wf-field__input--error{% endif %}"
                  type="text" name="links_to_search" autocomplete="off"
                  placeholder="Search a related submission by name or cedant"
+                 role="combobox" aria-controls="link-menu"
+                 aria-autocomplete="list" :aria-expanded="isOpen"
                  x-ref="input" x-show="!chosen"
                  @keydown="onKey($event)" @focus="open()" @input="onInput()"
                  hx-get="/submissions/link-suggest"
-                 hx-trigger="input[this.value.trim().length>1] changed delay:200ms"
+                 hx-trigger="input[this.value.trim().length>={{ min_suggest_term }}] changed delay:200ms"
                  hx-target="#link-menu" hx-swap="innerHTML"
                  hx-include="[name='links_to_exclude']">
           <input type="hidden" name="links_to_exclude"

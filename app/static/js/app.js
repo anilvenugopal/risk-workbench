@@ -281,11 +281,12 @@ document.addEventListener('alpine:init', () => {
   //   - links to   — the id goes into the hidden value input and the chosen
   //                  submission's name is shown as a chip instead
   // With JS off both degrade to a plain text field, which the server still reads.
-  // Both inputs' hx-trigger carries the matching `[this.value.trim().length>1]`
-  // filter, and submission_service.MIN_SUGGEST_TERM enforces the same minimum
-  // server-side.
-  const TA_MIN_TERM = 2;
+  //
+  // `minTerm` comes from the template, which renders it from the route context's
+  // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
+  // the hx-trigger filter, this component, and the service that answers.
   Alpine.data('typeahead', (opts = {}) => ({
+    minTerm: opts.minTerm || 2,
     isOpen: false,
     activeIndex: -1,
     chosen: !!opts.initialLabel,
@@ -302,13 +303,23 @@ document.addEventListener('alpine:init', () => {
       this.isOpen = false;
       this.activeIndex = -1;
       this.$refs.menu.innerHTML = '';
+      this.paint();
     },
     paint() {
+      // aria-activedescendant is how a screen reader follows the arrow keys: the
+      // focus stays in the input, so the highlighted row has to be named by id.
       this.options.forEach((opt, i) => {
-        opt.classList.toggle('is-active', i === this.activeIndex);
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
       });
       const active = this.options[this.activeIndex];
-      if (active) active.scrollIntoView({ block: 'nearest' });
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
     },
     move(step) {
       const count = this.options.length;
@@ -319,7 +330,7 @@ document.addEventListener('alpine:init', () => {
     onInput() {
       // Below the minimum htmx sends nothing, so the menu from a longer term
       // would stay on screen offering matches for text no longer in the input.
-      if (this.$refs.input.value.trim().length < TA_MIN_TERM) this.close();
+      if (this.$refs.input.value.trim().length < this.minTerm) this.close();
     },
     onKey(e) {
       if (e.key === 'ArrowDown') { e.preventDefault(); this.move(1); }

@@ -363,6 +363,13 @@ def find_similar(
 # so the request is not sent at all.
 MIN_SUGGEST_TERM = 2
 
+# The "links to" search AND-combines one LIKE pair per word, so the word count sets
+# the parameter count and the shape of the plan. Past three or four words the search
+# is already as narrow as it will get, and an analyst who pastes a paragraph into the
+# box would otherwise build a query with a clause per word — SQL Server refuses more
+# than 2100 parameters, and every distinct word count is another ad-hoc plan.
+MAX_SUGGEST_TERMS = 5
+
 
 def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
     """The first ``limit`` DISTINCT cedant names containing ``term`` (FR-006/R6).
@@ -371,10 +378,9 @@ def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
     Contains, not prefix (CR7): typing "fam" has to find "American Family
     Mutual", which a ``LIKE 'fam%'`` match never returns.
 
-    ``limit`` is applied by the server. Reading every cedant matching "am" back
-    into Python to keep ten of them is the entire cost of the query, and the
-    ordered ``ix_submission_cedant_name`` scan stops at ten once the cap is in
-    the SQL."""
+    ``limit`` is applied by the server rather than by slicing the rows in Python:
+    typing "am" used to read back every cedant on every submission to keep ten of
+    them."""
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
@@ -394,18 +400,19 @@ def search_submissions_for_link(
     matched against name or cedant. Backs the "links to" picker (CR8).
 
     Terms AND-combine (CR2): "american fam" must not return every deal containing
-    "American". ``exclude_id`` drops the submission being edited so it cannot be
-    offered as its own link — ``update_submission`` still raises ``SelfLinkError``
-    as the real check.
+    "American". Only the first ``MAX_SUGGEST_TERMS`` words are used. ``exclude_id``
+    drops the submission being edited so it cannot be offered as its own link —
+    ``update_submission`` still raises ``SelfLinkError`` as the real check.
 
-    ``limit`` is applied by the server. ``ORDER BY inception_date DESC`` walks
-    ``ix_submission_inception_date`` and can stop once ten rows pass the LIKE
-    predicates, instead of matching, joining, and sorting every deal that
-    contains the term."""
+    ``limit`` is applied by the server rather than by slicing the rows in Python,
+    so the query returns ten rows instead of every deal that matches. Both LIKE
+    predicates lead with a wildcard, so neither can seek an index; whether SQL
+    Server satisfies ``ORDER BY inception_date DESC`` from
+    ``ix_submission_inception_date`` or sorts the matches has not been measured."""
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
-    terms = trimmed.split()
+    terms = trimmed.split()[:MAX_SUGGEST_TERMS]
     clauses: list[str] = []
     params: dict[str, Any] = {"exclude": str(exclude_id) if exclude_id else None}
     for index, word in enumerate(terms):
@@ -438,7 +445,13 @@ def update_submission(
     confirmed: bool = False, **fields: Any,
 ) -> UpdateResult:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
-    (self-link) + R4 (non-blocking duplicate warning on rename)."""
+    (self-link) + R4 (non-blocking duplicate warning on rename).
+
+    ``treaty_year`` is refilled from the inception year whenever the merged value
+    is None (CR5), which includes an edit that never mentions the field: renaming a
+    submission whose ``treaty_year`` is NULL also fills it. That is the intended
+    reading of "defaults to the inception year" — the column is not a way to record
+    "no treaty year"."""
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "

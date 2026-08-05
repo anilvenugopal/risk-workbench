@@ -28,12 +28,12 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | Method | Path | Purpose | Success | Errors |
 |---|---|---|---|---|
 | GET | `/submissions/new` | Create form | — | — |
-| POST | `/submissions` | Create submission | 303 → `/submissions/{id}` (or detail partial) | dup-warn partial (unconfirmed match, FR-004); 422 validation |
+| POST | `/submissions` | Create submission | 303 → `/submissions/{id}` (or detail partial) | 422 + per-field messages on validation failure (CR4); dup-warn partial at **200** (unconfirmed match, FR-004) |
 | GET | `/submissions/{id}/edit` | Edit form (carries `updated_at`) | — | 409 gate if not ACTIVE |
-| POST | `/submissions/{id}` | Update fields | detail partial | `SubmissionClosed`→409/banner; `ConcurrencyConflict`→409 banner (input preserved); dup-warn partial; `SelfLinkError`→422 |
+| POST | `/submissions/{id}` | Update fields | detail partial | 422 + per-field messages on validation failure (CR4); `SubmissionClosed`→409/banner; `ConcurrencyConflict`→409 banner (input preserved); dup-warn partial at **200**; `SelfLinkError`→422 |
 | POST | `/submissions/{id}/reassign` | Reassign owner (any analyst, FR-005a) | detail/row partial (leaves My view) | gate 409; concurrency 409 |
 
-**Duplicate-warning flow (FR-004 / R4):** POST create/update carries `confirmed` (hidden field, default absent). If `find_similar` returns matches and `confirmed` is not set, the response is the **non-blocking** `dup_warning` partial listing look-alikes with a "Create/Save anyway" control that re-POSTs with `confirmed=1`. It never hard-rejects and never mangles the name.
+**Duplicate-warning flow (FR-004 / R4):** POST create/update carries `confirmed` (hidden field, default absent). If `find_similar` returns matches and `confirmed` is not set, the response is the **non-blocking** `dup_warning` partial listing look-alikes with a "Create/Save anyway" control that re-POSTs with `confirmed=1`. It never hard-rejects and never mangles the name. The status stays **200**, unlike the 422 a validation failure returns — nothing the analyst typed is wrong.
 
 **Optimistic concurrency (FR-031 / R1):** edit/reassign/status forms carry the `updated_at` they read; a mismatch (`rowcount 0`) returns a 409 "this deal changed — reload" banner without overwriting.
 

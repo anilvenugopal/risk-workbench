@@ -18,7 +18,9 @@ tests want the real writes).
 
 from __future__ import annotations
 
+import re
 from datetime import date
+from html.parser import HTMLParser
 
 import pytest
 from fastapi import FastAPI, Request
@@ -88,6 +90,28 @@ def _count() -> int:
                           connection="WORKBENCH")
 
 
+class _InputCollector(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.values: dict[str, str] = {}
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "input":
+            return
+        attributes = dict(attrs)
+        if "name" in attributes:
+            self.values[attributes["name"]] = attributes.get("value") or ""
+
+
+def _input_values(body: str) -> dict[str, str]:
+    """Every ``<input>``'s value keyed by name. Asserting on the parsed form rather
+    than on a substring keeps these tests off the template's line breaks, attribute
+    order, and indentation — reflowing the markup should not break them."""
+    parser = _InputCollector()
+    parser.feed(body)
+    return parser.values
+
+
 # ── CR4: required marking + per-field errors ─────────────────────────────────
 
 def test_new_form_marks_the_required_fields(client):
@@ -99,7 +123,7 @@ def test_new_form_marks_the_required_fields(client):
 
 def test_missing_name_returns_a_message_on_that_field(client):
     res = client.post("/submissions", data=_payload(name="   "))
-    assert res.status_code == 200
+    assert res.status_code == 422
     assert "Enter a name for this submission." in res.text
     assert "One field needs attention" in res.text
     assert _count() == 0
@@ -147,9 +171,17 @@ def test_an_entered_treaty_year_is_kept(client):
 @pytest.mark.parametrize("bad_year", ["1899", "3000", "not-a-year"])
 def test_treaty_year_outside_the_allowed_range_is_rejected(client, bad_year):
     res = client.post("/submissions", data=_payload(treaty_year=bad_year))
-    assert res.status_code == 200
+    assert res.status_code == 422
     assert "Enter a year between 1900 and 2999." in res.text
     assert _count() == 0
+
+
+def test_an_unconfirmed_look_alike_is_not_a_validation_failure(client):
+    # 200, not 422: the duplicate warning re-renders the form but nothing the
+    # analyst typed is wrong, and "create anyway" is one click away.
+    client.post("/submissions", data=_payload())
+    res = client.post("/submissions", data=_payload())
+    assert res.status_code == 200
 
 
 # ── Create: redirect, CSRF, duplicate warning ────────────────────────────────
@@ -185,6 +217,27 @@ def test_cedant_suggest_renders_menu_options(client):
     client.post("/submissions", data=_payload(cedant_name="American Family Mutual"))
     body = client.get("/submissions/cedant-suggest?cedant_name=fam").text
     assert 'data-value="American Family Mutual"' in body
+
+
+def test_suggest_menu_options_carry_the_ids_aria_activedescendant_names(client):
+    # Focus stays in the input while the analyst arrows through the menu, so the
+    # highlighted row can only be announced by id.
+    client.post("/submissions", data=_payload(cedant_name="American Family Mutual"))
+    body = client.get("/submissions/cedant-suggest?cedant_name=fam").text
+    assert 'id="cedant-menu-opt-0"' in body
+    assert 'role="option"' in body
+
+
+def test_the_form_renders_the_service_minimum_into_both_typeaheads(
+        client, monkeypatch):
+    # One number reaches four places: the two hx-trigger filters that withhold the
+    # request, and the two Alpine components that drop a stale menu. Moving the
+    # service constant has to move all four, so the test moves it — asserting
+    # against the current value would pass against a hardcoded literal too.
+    monkeypatch.setattr(submission_service, "MIN_SUGGEST_TERM", 4)
+    body = client.get("/submissions/new").text
+    assert body.count("this.value.trim().length>=4") == 2
+    assert body.count("minTerm: 4") == 2
 
 
 def test_cedant_suggest_shows_the_empty_state_for_a_new_cedant(client):
@@ -243,8 +296,8 @@ def test_create_stores_the_chosen_link_and_the_detail_page_shows_its_name(client
     detail = client.get(f"/submissions/{sid}").text
     assert "links to" in detail
     # The uuid stays in the href; the analyst reads the linked deal's name.
-    assert f'<a href="/submissions/{target}">\n          TY2506_AmericanFamily</a>' \
-        in detail
+    assert re.search(
+        rf'<a href="/submissions/{target}">\s*TY2506_AmericanFamily\s*</a>', detail)
 
 
 def test_edit_form_prefills_the_linked_deal_by_name(client):
@@ -256,18 +309,26 @@ def test_edit_form_prefills_the_linked_deal_by_name(client):
     sid = second.headers["location"].rsplit("/", 1)[-1]
 
     body = client.get(f"/submissions/{sid}/edit").text
+    values = _input_values(body)
+    # The picker posts the linked deal's id and shows its name.
+    assert values["links_to_submission_id"] == target
     assert "TY2506_AmericanFamily" in body
-    assert f'name="links_to_exclude"\n                 value="{sid}"' in body \
-        or f'value="{sid}"' in body
+    # link-suggest must not offer this deal as its own link.
+    assert values["links_to_exclude"] == sid
 
 
 # ── Route ordering ───────────────────────────────────────────────────────────
 
 def test_new_and_suggest_paths_resolve_ahead_of_the_detail_route(client):
-    # A greedy /submissions/{submission_id} would swallow all three.
+    # A greedy /submissions/{submission_id} would swallow all three. The terms are
+    # long enough to reach the search — a one-character term short-circuits before
+    # the query and would prove less than it looks.
+    client.post("/submissions", data=_payload(cedant_name="Acme Mutual"))
     assert "New submission" in client.get("/submissions/new").text
-    assert client.get("/submissions/cedant-suggest?q=x").status_code == 200
-    assert client.get("/submissions/link-suggest?q=x").status_code == 200
+    assert "Acme Mutual" in client.get(
+        "/submissions/cedant-suggest?q=Acme").text
+    assert "TY2604_AmericanFamily" in client.get(
+        "/submissions/link-suggest?q=American").text
 
 
 # ── Edit: self-link ──────────────────────────────────────────────────────────

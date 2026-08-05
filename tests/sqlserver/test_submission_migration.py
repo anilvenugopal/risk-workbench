@@ -3,7 +3,7 @@
 Run with: pytest tests/sqlserver --run-sqlserver  (requires live SQL Server)
 
 Covers:
-  - the migration builds all nine Iteration-1 tables + the self-renewal CHECK,
+  - the migration builds all nine Iteration-1 tables + the no-self-link CHECK,
     with the CR-003 tables gone and the two kind seeds present (T018);
   - the event-sourced status transaction is atomic — the submission_status_event
     insert and the cached submission.status_code stamp commit **and** roll back
@@ -72,7 +72,7 @@ class TestSubmissionMigration:
         assert "customer_id" not in cols
         assert "assigned_analyst_id" in cols
 
-    def test_self_renewal_check_exists(self):
+    def test_no_self_link_check_exists(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.check_constraints "
             "WHERE name = 'ck_submission_no_self_link'",
@@ -84,7 +84,7 @@ class TestSubmissionMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.submission')",
             {}, connection="WORKBENCH")
-        assert n >= 5  # analyst, treaty_type, status, self-renewal, inserted/updated_by
+        assert n >= 5  # analyst, treaty_type, status, links_to, inserted/updated_by
 
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────

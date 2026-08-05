@@ -10,9 +10,10 @@ Service errors are mapped to HTTP here:
   SelfLinkError                          → 422
   duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
 
-Field-level validation returns a ``field_errors`` dict the form renders under the
-offending input, plus a one-line summary banner (CR4) — a single combined message
-never told the analyst which field failed.
+Field-level validation returns 422 with a ``field_errors`` dict the form renders
+under the offending input, plus a one-line summary banner (CR4) — a single combined
+message never told the analyst which field failed. The unconfirmed duplicate warning
+is the one re-render that stays 200: nothing the analyst typed is wrong.
 """
 
 from __future__ import annotations
@@ -47,11 +48,13 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _render(request: Request, template: str, nav_key: str, extra: dict | None = None):
+def _render(request: Request, template: str, nav_key: str,
+            extra: dict | None = None, status_code: int = 200):
     current_user = request.state.user
     nav = get_nav_context(current_user, nav_key)
     ctx = {"current_user": current_user, "nav": nav, **(extra or {})}
-    return _templates(request).TemplateResponse(request, template, ctx)
+    return _templates(request).TemplateResponse(
+        request, template, ctx, status_code=status_code)
 
 
 def _is_htmx(request: Request) -> bool:
@@ -131,6 +134,34 @@ def _link_target(submission_id: str | None):
     if not submission_id:
         return None
     return submission_service.get_submission(submission_id)
+
+
+def _form_context(
+    *, mode: str, form: dict, submission, links_to: str | None = None,
+    errors: list[str] | None = None, field_errors: dict[str, str] | None = None,
+    warnings: list | None = None,
+) -> dict:
+    """The render context for ``pages/submission_form.html``.
+
+    Create and edit both build it here, keyword-only: ``errors``, ``field_errors``
+    and ``warnings`` are three same-shaped collections the template treats very
+    differently, and two hand-written context dicts had already put them in two
+    different orders.
+
+    ``min_suggest_term`` reaches the template so the two ``hx-trigger`` filters and
+    the Alpine ``typeahead`` component read the same number as the service, rather
+    than repeating the literal in the markup and the JavaScript."""
+    return {
+        "mode": mode,
+        "treaty_types": TREATY_TYPES,
+        "form": form,
+        "submission": submission,
+        "link_target": _link_target(links_to),
+        "errors": errors or [],
+        "field_errors": field_errors or {},
+        "warnings": warnings or [],
+        "min_suggest_term": submission_service.MIN_SUGGEST_TERM,
+    }
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:
@@ -214,17 +245,23 @@ def list_mine(request: Request):
 
 
 def _suggest_menu(request: Request, options: list[dict], term: str,
-                  empty_message: str):
+                  empty_message: str, menu_id: str):
     """Render one of the two typeahead menus.
 
     ``searched`` is what tells the template apart "we looked and found nothing"
     from "the term is too short to look yet" (``submission_service
     .MIN_SUGGEST_TERM``) — the second renders a blank menu, since claiming no
-    cedant matches "a" would be wrong."""
+    cedant matches "a" would be wrong.
+
+    ``menu_id`` is the id of the div htmx swaps into. Each option gets an id
+    derived from it, which is what the input's ``aria-activedescendant`` names as
+    the analyst arrows through the menu — two menus render on the create form, so
+    the ids cannot be a bare index."""
     return _partial(request, "partials/typeahead_menu.html", {
         "options": options,
         "searched": len(term.strip()) >= submission_service.MIN_SUGGEST_TERM,
         "empty_message": empty_message,
+        "menu_id": menu_id,
     })
 
 
@@ -241,7 +278,7 @@ def cedant_suggest(request: Request):
         request,
         [{"value": cedant, "label": cedant}
          for cedant in submission_service.cedant_suggestions(term)],
-        term, "No matching cedant.",
+        term, "No matching cedant.", "cedant-menu",
     )
 
 
@@ -273,7 +310,7 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, "No matching submission.",
+        term, "No matching submission.", "link-menu",
     )
 
 
@@ -281,11 +318,8 @@ def link_suggest(request: Request):
 
 @router.get("/submissions/new", response_class=HTMLResponse)
 def new_form(request: Request):
-    return _render(request, "pages/submission_form.html", "submissions.all", {
-        "mode": "create", "treaty_types": TREATY_TYPES, "form": {}, "errors": [],
-        "field_errors": {}, "warnings": [], "submission": None,
-        "link_target": None,
-    })
+    return _render(request, "pages/submission_form.html", "submissions.all",
+                   _form_context(mode="create", form={}, submission=None))
 
 
 @router.post("/submissions")
@@ -315,12 +349,14 @@ def create(
     }
     links_to = links_to_submission_id.strip() or None
 
-    def _reshow(errors, field_errors, warnings):
-        return _render(request, "pages/submission_form.html", "submissions.all", {
-            "mode": "create", "treaty_types": TREATY_TYPES, "form": form,
-            "errors": errors, "field_errors": field_errors, "warnings": warnings,
-            "submission": None, "link_target": _link_target(links_to),
-        })
+    def _reshow(*, errors=None, field_errors=None, warnings=None,
+                status_code: int = 200):
+        return _render(
+            request, "pages/submission_form.html", "submissions.all",
+            _form_context(mode="create", form=form, submission=None,
+                          links_to=links_to, errors=errors,
+                          field_errors=field_errors, warnings=warnings),
+            status_code=status_code)
 
     field_errors, parsed_inception_date, parsed_treaty_year = (
         _validate_submission_form(
@@ -330,7 +366,8 @@ def create(
         )
     )
     if field_errors:
-        return _reshow(_error_banner(field_errors, "created"), field_errors, [])
+        return _reshow(errors=_error_banner(field_errors, "created"),
+                       field_errors=field_errors, status_code=422)
 
     result = submission_service.create_submission(
         name=name.strip(), cedant_name=cedant_name.strip(),
@@ -342,7 +379,9 @@ def create(
     )
     if not result.created:
         # Non-blocking look-alike warning (FR-004): re-render form + dup list.
-        return _reshow([], {}, result.warnings)
+        # 200, not 422 — nothing the analyst typed is wrong, and "create anyway"
+        # is one click away.
+        return _reshow(warnings=result.warnings)
     return RedirectResponse(f"/submissions/{result.submission_id}", status_code=303)
 
 
@@ -371,11 +410,10 @@ def edit_form(request: Request, submission_id: str):
         "directory_path": submission.directory_path or "",
         "links_to_submission_id": submission.links_to_submission_id or "",
     }
-    return _render(request, "pages/submission_form.html", "submissions.detail", {
-        "mode": "edit", "treaty_types": TREATY_TYPES, "form": form,
-        "errors": [], "field_errors": {}, "warnings": [], "submission": submission,
-        "link_target": _link_target(submission.links_to_submission_id),
-    })
+    return _render(
+        request, "pages/submission_form.html", "submissions.detail",
+        _form_context(mode="edit", form=form, submission=submission,
+                      links_to=submission.links_to_submission_id))
 
 
 @router.post("/submissions/{submission_id}")
@@ -409,16 +447,15 @@ def update(
     }
     links_to = links_to_submission_id.strip() or None
 
-    def _reshow(errors, warnings, field_errors=None, status_code=200):
-        nav = get_nav_context(request.state.user, "submissions.detail")
-        return _templates(request).TemplateResponse(
-            request, "pages/submission_form.html",
-            {"current_user": request.state.user, "nav": nav, "mode": "edit",
-             "treaty_types": TREATY_TYPES, "form": form, "errors": errors,
-             "field_errors": field_errors or {}, "warnings": warnings,
-             "submission": submission, "link_target": _link_target(links_to)},
-            status_code=status_code,
-        )
+    # Same signature as create()'s _reshow, keyword-only for the same reason.
+    def _reshow(*, errors=None, field_errors=None, warnings=None,
+                status_code: int = 200):
+        return _render(
+            request, "pages/submission_form.html", "submissions.detail",
+            _form_context(mode="edit", form=form, submission=submission,
+                          links_to=links_to, errors=errors,
+                          field_errors=field_errors, warnings=warnings),
+            status_code=status_code)
 
     field_errors, parsed_inception_date, parsed_treaty_year = (
         _validate_submission_form(
@@ -428,7 +465,8 @@ def update(
         )
     )
     if field_errors:
-        return _reshow(_error_banner(field_errors, "saved"), [], field_errors)
+        return _reshow(errors=_error_banner(field_errors, "saved"),
+                       field_errors=field_errors, status_code=422)
 
     try:
         result = submission_service.update_submission(
@@ -442,18 +480,18 @@ def update(
         )
     except SelfLinkError:
         return _reshow(
-            [], [],
-            {"links_to_submission_id": "A submission cannot link to itself."},
+            field_errors={
+                "links_to_submission_id": "A submission cannot link to itself."},
             status_code=422)
     except SubmissionClosed:
         return _detail_response(request, submission_id, status_code=409)
     except ConcurrencyConflict:
         return _reshow(
-            ["This deal changed since you opened it — reload and re-apply."], [],
+            errors=["This deal changed since you opened it — reload and re-apply."],
             status_code=409)
 
     if not result.updated:
-        return _reshow([], result.warnings)  # non-blocking dup warning
+        return _reshow(warnings=result.warnings)  # non-blocking dup warning
     return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
 
 

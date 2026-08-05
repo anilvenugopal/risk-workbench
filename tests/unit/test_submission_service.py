@@ -24,6 +24,7 @@ from app.services.submission_service import (
     get_status_history,
     get_submission,
     list_crm_ids,
+    MAX_SUGGEST_TERMS,
     list_submissions,
     reassign_owner,
     remove_crm_id,
@@ -391,6 +392,20 @@ def test_search_for_link_ands_every_term(iteration1_db):
     assert amfam in found and amnat not in found
     both = {row.id for row in search_submissions_for_link("american")}
     assert {amfam, amnat} <= both
+
+
+def test_search_for_link_uses_only_the_first_few_terms(iteration1_db):
+    sid = _mk(iteration1_db, name="American Family Renewal",
+              cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
+    matching = ["american", "family", "renewal", "mutual", "am", "fam", "ren"]
+    within_cap = " ".join(matching[:MAX_SUGGEST_TERMS])
+    assert sid in {r.id for r in search_submissions_for_link(within_cap)}
+    # Words past MAX_SUGGEST_TERMS are dropped, not turned into more clauses: the
+    # search AND-combines one LIKE pair per word, and an analyst can paste a
+    # paragraph into the box. SQL Server refuses more than 2100 parameters, and
+    # every distinct word count is another ad-hoc plan.
+    padded = within_cap + " " + " ".join(f"nomatch{i}" for i in range(500))
+    assert sid in {r.id for r in search_submissions_for_link(padded)}
 
 
 def test_search_for_link_matches_name_or_cedant(iteration1_db):

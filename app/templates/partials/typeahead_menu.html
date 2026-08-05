@@ -3,12 +3,18 @@
    `typeahead` component reads it on click or Enter. Buttons are type="button" so
    a keyboard pick never submits the form.
 
+   Each option also carries an id built from `menu_id`, which the input names in
+   `aria-activedescendant` as the analyst arrows down — the create form renders
+   both menus, so a bare index would collide. `aria-selected` marks the same row
+   the `.is-active` class draws.
+
    `searched` is false for a term below submission_service.MIN_SUGGEST_TERM: the
    menu stays blank instead of reporting no match, because no search ran. #}
 {% if options %}
 <div class="ta__menu" role="listbox">
   {% for option in options %}
-  <button class="ta__opt" type="button" role="option"
+  <button class="ta__opt" type="button" role="option" aria-selected="false"
+          id="{{ menu_id }}-opt-{{ loop.index0 }}"
           data-value="{{ option.value }}" data-label="{{ option.label }}">
     <span class="ta__opt-main">{{ option.label }}</span>
     {% if option.meta %}<span class="ta__opt-meta">{{ option.meta }}</span>{% endif %}
@@ -17,6 +23,6 @@
 </div>
 {% elif searched %}
 <div class="ta__menu">
-  <div class="ta__empty">{{ empty_message }}</div>
+  <div class="ta__empty" role="status">{{ empty_message }}</div>
 </div>
 {% endif %}

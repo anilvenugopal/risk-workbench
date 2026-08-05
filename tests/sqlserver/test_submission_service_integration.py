@@ -9,6 +9,8 @@ actually proves the paths the SQLite mirror cannot vouch for:
   * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
     column,
   * ``LIKE`` collation in cedant autocomplete / find_similar,
+  * ``db.row_limit()`` emitting ``OFFSET/FETCH`` — the SQLite tier only ever runs
+    the ``LIMIT`` branch,
   * status-history ``ORDER BY at DESC`` tie-breaking.
 
 Because ``import *`` pulls in every ``test_*`` name, new unit tests added later
@@ -40,7 +42,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import submission_service as svc
-from db import execute_command, get_engine
+from db import execute_command, get_engine, row_limit
 
 # Re-collect the entire unit submission-service suite against the fixture below.
 from tests.unit.test_submission_service import *  # noqa: F401,F403
@@ -144,3 +146,37 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     svc.reassign_owner(submission_id=sid, new_owner_id=b,
                        expected_updated_at=marker(), actor_id=a)
     assert svc.get_submission(sid).assigned_analyst_id == b
+
+
+def test_row_limit_emits_the_sql_server_clause(iteration1_db):
+    """``db.row_limit`` picks its clause from the engine's dialect, so the branch
+    that ships to production is the one the SQLite unit tier never runs. The
+    reused suite exercises it indirectly through both suggest queries; this names
+    the emitted text, so a typo in ``OFFSET/FETCH`` fails here rather than as a
+    query error inside another test."""
+    assert row_limit(10, connection="WORKBENCH") == \
+        "OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+    # Not caller text: the count is cast before it reaches the SQL string.
+    assert row_limit("7", connection="WORKBENCH") == \
+        "OFFSET 0 ROWS FETCH NEXT 7 ROWS ONLY"
+
+
+def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
+    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH`` and the ``:exclude IS NULL``
+    predicate are both accepted by SQLite without proving anything about SQL
+    Server. Run each search against the real driver and check the cap holds."""
+    a = iteration1_db.user_a
+    tag = uuid.uuid4().hex[:8]
+    for index in range(4):
+        svc.create_submission(
+            name=f"CapDeal{tag}_{index}", cedant_name=f"CapCedant{tag} {index}",
+            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+            actor_id=a, confirmed=True)
+
+    assert len(svc.cedant_suggestions(f"CapCedant{tag}", limit=2)) == 2
+    assert len(svc.cedant_suggestions(f"CapCedant{tag}")) == 4
+
+    assert len(svc.search_submissions_for_link(f"CapDeal{tag}", limit=2)) == 2
+    assert len(svc.search_submissions_for_link(f"CapDeal{tag}")) == 4
+    # The AND-combined multi-term form binds one parameter per word.
+    assert len(svc.search_submissions_for_link(f"CapDeal{tag} CapCedant{tag}")) == 4
