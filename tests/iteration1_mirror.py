@@ -137,14 +137,26 @@ ITERATION2_SCHEMA = [
 # ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
 # Thin identity/lineage records + a JSON snapshot column each (R2). The
 # UNIQUE(edm_id, irp_id) keys ARE kept — the idempotent-upsert backbone is
-# exercised on the unit tier.
+# exercised on the unit tier. Iteration 4 (spec 005): breakout_dimension_kind,
+# the three lineage columns, and the filtered unique idempotency index (SQLite
+# partial indexes are supported since 3.8 — the same WHERE the migration emits).
 ITERATION3_SCHEMA = [
+    """CREATE TABLE breakout_dimension_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER
+    )""",
     """CREATE TABLE irp_portfolio (
         id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
-        exposure_detail TEXT, as_of TEXT, deleted_at TEXT,
+        exposure_detail TEXT, as_of TEXT,
+        source_portfolio_id TEXT, breakout_dimension_code TEXT,
+        breakout_value TEXT,
+        deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (edm_id, irp_id)
     )""",
+    """CREATE UNIQUE INDEX uq_irp_portfolio_breakout
+        ON irp_portfolio (source_portfolio_id, breakout_dimension_code,
+                          breakout_value)
+        WHERE source_portfolio_id IS NOT NULL AND deleted_at IS NULL""",
     """CREATE TABLE irp_treaty (
         id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
         attributes TEXT, as_of TEXT, deleted_at TEXT,
@@ -165,7 +177,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
-                     ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80)]
+                     ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80),
+                     ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
+                     ("run_breakout_state", "Portfolio breakout by geography (state)", 100)]
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
                                ("rwb_job", "RWB Job", 30)]
@@ -173,6 +187,8 @@ RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                             ("ready", "Ready", 30), ("error", "Error", 40)]
+BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
+                           ("state", "Geography (state)", 20)]
 
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────
 # Tables whose mirror must match the real migrated schema column-for-column. A new
@@ -186,6 +202,8 @@ EXACT_MATCH_TABLES = (
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",
+    # Iteration 4 — breakout dimension kind table (spec 005).
+    "breakout_dimension_kind",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # package service touches; the real tables carry extra Iteration-2 IRP columns

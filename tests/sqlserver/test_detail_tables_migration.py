@@ -112,6 +112,51 @@ class TestDetailTablesMigration:
         assert row[0]["label"] == "Backfill EDM Detail"
         assert row[0]["sort_order"] == 27
 
+    # ── spec 005 (T009): breakout lineage schema ────────────────────────────────
+
+    def test_irp_portfolio_lineage_columns_present(self):
+        cols = _columns("irp_portfolio")
+        assert {"source_portfolio_id", "breakout_dimension_code",
+                "breakout_value"} <= cols
+
+    def test_irp_portfolio_self_fk_present(self):
+        # source_portfolio_id → irp_portfolio.id, ondelete NO ACTION (SQL
+        # Server rejects a cascading self-reference).
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.foreign_keys "
+            "WHERE parent_object_id = OBJECT_ID('dbo.irp_portfolio') "
+            "AND referenced_object_id = OBJECT_ID('dbo.irp_portfolio')",
+            {}, connection="WORKBENCH")
+        assert n == 1
+
+    def test_breakout_dimension_kind_table_and_seeds(self):
+        assert _table_exists("breakout_dimension_kind") == 1
+        rows = execute(
+            "SELECT code, label FROM breakout_dimension_kind ORDER BY sort_order",
+            {}, connection="WORKBENCH")
+        assert [(r["code"], r["label"]) for r in rows] == [
+            ("lob", "Line of business"), ("state", "Geography (state)")]
+
+    def test_run_breakout_job_type_seeds_present(self):
+        rows = execute(
+            "SELECT code FROM rwb_job_type_kind "
+            "WHERE code IN ('run_breakout_lob', 'run_breakout_state')",
+            {}, connection="WORKBENCH")
+        assert len(rows) == 2
+
+    def test_breakout_filtered_unique_index_present(self):
+        row = execute(
+            "SELECT is_unique, has_filter, filter_definition FROM sys.indexes "
+            "WHERE name = 'uq_irp_portfolio_breakout' "
+            "AND object_id = OBJECT_ID('dbo.irp_portfolio')",
+            {}, connection="WORKBENCH")
+        assert len(row) == 1
+        assert row[0]["is_unique"] == 1
+        assert row[0]["has_filter"] == 1
+        definition = (row[0]["filter_definition"] or "").lower()
+        assert "source_portfolio_id" in definition
+        assert "deleted_at" in definition
+
 
 # ── behavioral: the idempotent detail upsert under the real driver ────────────
 
@@ -126,6 +171,11 @@ def scratch_edm():
         {"i": edm_id, "n": f"upsert-test-{edm_id[:8]}", "now": now},
         connection="WORKBENCH")
     yield edm_id
+    # generated rows first — the self-FK forbids removing a source portfolio
+    # while a generated row still references it
+    execute_command("DELETE FROM irp_portfolio WHERE edm_id = :e "
+                    "AND source_portfolio_id IS NOT NULL",
+                    {"e": edm_id}, connection="WORKBENCH")
     execute_command("DELETE FROM irp_portfolio WHERE edm_id = :e",
                     {"e": edm_id}, connection="WORKBENCH")
     execute_command("DELETE FROM irp_treaty WHERE edm_id = :e",
@@ -189,3 +239,53 @@ class TestDetailUpsertBehavior:
         assert len(rows) == 1
         assert rows[0]["irp_id"] == "9002"
         assert json.loads(rows[0]["exposure_detail"])["location_count"] == 2
+
+
+# ── behavioral: breakout lineage uniqueness under the real driver (spec 005) ──────
+
+class TestBreakoutLineageBehavior:
+    def _source(self, scratch_edm) -> str:
+        portfolio_service.upsert_portfolio_detail(
+            edm_id=scratch_edm, irp_id="9001", name="Source 2026",
+            exposure_detail={"metrics": {}}, as_of=datetime.utcnow())
+        return execute(
+            "SELECT id FROM irp_portfolio WHERE edm_id = :e AND irp_id = '9001'",
+            {"e": scratch_edm}, connection="WORKBENCH")[0]["id"]
+
+    def test_second_live_generated_portfolio_rejected_as_skip(self, scratch_edm):
+        source_id = self._source(scratch_edm)
+        first = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - TX", irp_id="9100",
+            source_portfolio_id=source_id, dimension_code="state", value="TX",
+            actor_id=None)
+        assert first.created is True
+        # the filtered unique index rejects a second LIVE row for the same
+        # (source, dimension, value) — absorbed as created=False, never raised
+        second = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - TX (2)", irp_id="9101",
+            source_portfolio_id=source_id, dimension_code="state", value="TX",
+            actor_id=None)
+        assert second.created is False
+        assert str(second.portfolio_id).lower() == str(first.portfolio_id).lower()
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM irp_portfolio WHERE source_portfolio_id = :s "
+            "AND deleted_at IS NULL", {"s": source_id}, connection="WORKBENCH")
+        assert n == 1
+
+    def test_soft_deleted_generated_row_does_not_block_recreation(
+            self, scratch_edm):
+        source_id = self._source(scratch_edm)
+        first = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - TX", irp_id="9100",
+            source_portfolio_id=source_id, dimension_code="state", value="TX",
+            actor_id=None)
+        execute_command(
+            "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
+            {"now": datetime.utcnow(), "i": str(first.portfolio_id)},
+            connection="WORKBENCH")
+        # the index is filtered on deleted_at IS NULL — re-creation succeeds
+        second = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - TX", irp_id="9102",
+            source_portfolio_id=source_id, dimension_code="state", value="TX",
+            actor_id=None)
+        assert second.created is True
