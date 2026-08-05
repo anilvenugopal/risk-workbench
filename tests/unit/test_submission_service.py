@@ -11,6 +11,7 @@ delete function.
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import date
 
 import pytest
@@ -24,7 +25,7 @@ from app.services.submission_service import (
     get_status_history,
     get_submission,
     list_crm_ids,
-    MAX_SUGGEST_TERMS,
+    MAX_SUGGEST_LENGTH,
     list_submissions,
     reassign_owner,
     remove_crm_id,
@@ -36,6 +37,7 @@ from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
     SubmissionClosed,
+    UnknownLinkError,
 )
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
@@ -351,6 +353,43 @@ def test_update_self_link_rejected(iteration1_db):
                           actor_id=a, links_to_submission_id=sid)
 
 
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_value):
+    # links_to_submission_id is a foreign key to submission.id, so an id naming no
+    # deal has to be refused before the INSERT turns it into a driver error.
+    before = len(list_submissions())
+    with pytest.raises(UnknownLinkError):
+        create_submission(
+            name="Stale link", cedant_name="American Family",
+            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+            links_to_submission_id=link_value, actor_id=iteration1_db.user_a,
+            confirmed=True)
+    assert len(list_submissions()) == before
+
+
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_update_to_an_unknown_link_target_is_rejected(iteration1_db, link_value):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Keeps its link").submission_id
+    with pytest.raises(UnknownLinkError):
+        update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                          actor_id=a, links_to_submission_id=link_value)
+    assert get_submission(sid).links_to_submission_id is None
+
+
+def test_link_target_is_kept_across_an_edit_that_never_mentions_it(iteration1_db):
+    # The merged value is re-checked on every update, so an untouched link must
+    # still pass — the check reads the target, it does not require it to be resent.
+    a = iteration1_db.user_a
+    target = _mk(iteration1_db, name="Last year", inc=date(2025, 4, 1)).submission_id
+    sid = _mk(iteration1_db, name="This year").submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, links_to_submission_id=target)
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, name="This year, renamed")
+    assert get_submission(sid).links_to_submission_id == target
+
+
 def test_treaty_year_defaults_to_the_inception_year(iteration1_db):
     sid = _mk(iteration1_db, name="No year given", inc=date(2026, 4, 1),
               ty=None).submission_id
@@ -394,18 +433,30 @@ def test_search_for_link_ands_every_term(iteration1_db):
     assert {amfam, amnat} <= both
 
 
-def test_search_for_link_uses_only_the_first_few_terms(iteration1_db):
+def test_search_for_link_matches_every_word_however_many(iteration1_db):
     sid = _mk(iteration1_db, name="American Family Renewal",
               cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
     matching = ["american", "family", "renewal", "mutual", "am", "fam", "ren"]
-    within_cap = " ".join(matching[:MAX_SUGGEST_TERMS])
-    assert sid in {r.id for r in search_submissions_for_link(within_cap)}
-    # Words past MAX_SUGGEST_TERMS are dropped, not turned into more clauses: the
-    # search AND-combines one LIKE pair per word, and an analyst can paste a
-    # paragraph into the box. SQL Server refuses more than 2100 parameters, and
-    # every distinct word count is another ad-hoc plan.
-    padded = within_cap + " " + " ".join(f"nomatch{i}" for i in range(500))
-    assert sid in {r.id for r in search_submissions_for_link(padded)}
+    assert sid in {r.id for r in search_submissions_for_link(" ".join(matching))}
+    # The word past the ones that match still narrows the search — a term is never
+    # searched on a prefix of its words, which would return deals the analyst's
+    # last word rules out.
+    with_one_miss = " ".join(matching + ["nomatch"])
+    assert search_submissions_for_link(with_one_miss) == []
+
+
+def test_search_for_link_refuses_a_term_past_the_length_cap(iteration1_db):
+    # An analyst can paste a paragraph into the box, and the search binds one LIKE
+    # pair per word. Name and cedant are NVARCHAR(255) each, so a longer term is
+    # past what a submission can match: it returns nothing rather than hundreds of
+    # LIKE pairs (and another ad-hoc plan per distinct word count).
+    sid = _mk(iteration1_db, name="American Family Renewal",
+              cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
+    at_cap = "american" + " a" * ((MAX_SUGGEST_LENGTH - 8) // 2)   # 251 words
+    assert len(at_cap) == MAX_SUGGEST_LENGTH
+    assert sid in {r.id for r in search_submissions_for_link(at_cap)}
+    # Two characters longer, every word still matching, and the term is refused.
+    assert search_submissions_for_link(at_cap + " a") == []
 
 
 def test_search_for_link_matches_name_or_cedant(iteration1_db):

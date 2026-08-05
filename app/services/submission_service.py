@@ -38,6 +38,7 @@ from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
     SubmissionClosed,
+    UnknownLinkError,
 )
 
 ACTIVE = "ACTIVE"
@@ -137,6 +138,47 @@ def _escape_like(value: str) -> str:
     return out.replace("%", "\\%").replace("_", "\\_")
 
 
+def _as_uuid(value: Any) -> str | None:
+    """``value`` as a canonical lowercase UUID string, or ``None`` when it is not
+    a UUID at all.
+
+    Every id column is ``uniqueidentifier``: SQL Server refuses to compare a
+    non-UUID string against one and raises a conversion error, so an id that
+    arrives from outside (a hand-typed URL, a hidden form input) has to be turned
+    into "not found" before it is bound into a query."""
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _resolve_link_target(links_to: Any) -> str | None:
+    """The id to write to ``submission.links_to_submission_id``, or ``None``.
+
+    ``submission.links_to_submission_id`` is a foreign key to ``submission.id``,
+    and the create/edit form posts the picked deal's id in a hidden input. A value
+    that names no submission — a page left open while the target was renamed away
+    or a request built by hand — would otherwise reach the INSERT/UPDATE and come
+    back as a driver integrity error, which a route can only render as a 500.
+    Check it here and raise ``UnknownLinkError`` so the route can put a message
+    under the field instead.
+
+    The id is normalized to canonical lowercase so an uppercase or braced id from
+    a hand-built request still matches the rows SQLite stores verbatim."""
+    if links_to is None or not str(links_to).strip():
+        return None
+    target = _as_uuid(links_to)
+    if target is None:
+        raise UnknownLinkError("That linked submission was not found.")
+    found = execute_scalar(
+        "SELECT id FROM submission WHERE id = :id",
+        {"id": target}, connection="WORKBENCH",
+    )
+    if found is None:
+        raise UnknownLinkError("That linked submission was not found.")
+    return target
+
+
 def _default_treaty_year(treaty_year: int | None, inception_date: Any) -> int | None:
     """Fall back to the inception year when the analyst left treaty year blank
     (CR5). An entered year always wins — a December inception is often written
@@ -209,7 +251,12 @@ def create_submission(
 
     ``treaty_year`` left as ``None`` is filled from the inception year (CR5). The
     form fills the same value client-side; this is what makes the rule hold with
-    JavaScript off."""
+    JavaScript off.
+
+    ``links_to_submission_id`` is checked against the submission table before the
+    duplicate check, so an id naming no deal is refused (``UnknownLinkError``)
+    without first showing the analyst a look-alike warning."""
+    link_target = _resolve_link_target(links_to_submission_id)
     matches = find_similar(
         name=name, cedant_name=cedant_name, treaty_type_code=treaty_type_code,
         inception_date=inception_date,
@@ -229,7 +276,7 @@ def create_submission(
         "tt": treaty_type_code,
         "inc": parsed_inception,
         "ty": _default_treaty_year(treaty_year, parsed_inception),
-        "lt": str(links_to_submission_id) if links_to_submission_id else None,
+        "lt": link_target,
         "dir": directory_path,
         "now": now,
         "actor": actor,
@@ -259,7 +306,15 @@ def create_submission(
 
 
 def get_submission(submission_id: Any) -> Submission | None:
-    """Full detail incl. cached status_code. No access restriction (FR-019)."""
+    """Full detail incl. cached status_code. No access restriction (FR-019).
+
+    An id that is not a UUID is "not found", not a query: it reaches here from a
+    typed URL and from the "links to" hidden input, and binding it against
+    ``submission.id`` (``uniqueidentifier``) would raise a conversion error the
+    route can only render as a 500."""
+    sid = _as_uuid(submission_id)
+    if sid is None:
+        return None
     row = execute_one(
         """
         SELECT s.id, s.name, s.cedant_name, s.treaty_type_code,
@@ -274,7 +329,7 @@ def get_submission(submission_id: Any) -> Submission | None:
         LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
         WHERE s.id = :id
         """,
-        {"id": str(submission_id)}, connection="WORKBENCH",
+        {"id": sid}, connection="WORKBENCH",
     )
     if row is None:
         return None
@@ -363,12 +418,13 @@ def find_similar(
 # so the request is not sent at all.
 MIN_SUGGEST_TERM = 2
 
-# The "links to" search AND-combines one LIKE pair per word, so the word count sets
-# the parameter count and the shape of the plan. Past three or four words the search
-# is already as narrow as it will get, and an analyst who pastes a paragraph into the
-# box would otherwise build a query with a clause per word — SQL Server refuses more
-# than 2100 parameters, and every distinct word count is another ad-hoc plan.
-MAX_SUGGEST_TERMS = 5
+# The "links to" search AND-combines one LIKE pair per word, so the analyst's input
+# sets the parameter count and the shape of the plan. Bounding the text bounds the
+# words: every word has to appear in the submission's name or cedant, and those two
+# columns are NVARCHAR(255) each, so a longer term is past anything a submission can
+# match. Such a term is refused whole rather than searched on the words that fit —
+# dropping the rest would return deals the analyst did not ask for.
+MAX_SUGGEST_LENGTH = 510
 
 
 def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
@@ -400,8 +456,9 @@ def search_submissions_for_link(
     matched against name or cedant. Backs the "links to" picker (CR8).
 
     Terms AND-combine (CR2): "american fam" must not return every deal containing
-    "American". Only the first ``MAX_SUGGEST_TERMS`` words are used. ``exclude_id``
-    drops the submission being edited so it cannot be offered as its own link —
+    "American". Every word of an accepted term is matched; a term longer than
+    ``MAX_SUGGEST_LENGTH`` returns no rows at all. ``exclude_id`` drops the
+    submission being edited so it cannot be offered as its own link —
     ``update_submission`` still raises ``SelfLinkError`` as the real check.
 
     ``limit`` is applied by the server rather than by slicing the rows in Python,
@@ -410,9 +467,9 @@ def search_submissions_for_link(
     Server satisfies ``ORDER BY inception_date DESC`` from
     ``ix_submission_inception_date`` or sorts the matches has not been measured."""
     trimmed = (term or "").strip()
-    if len(trimmed) < MIN_SUGGEST_TERM:
+    if not MIN_SUGGEST_TERM <= len(trimmed) <= MAX_SUGGEST_LENGTH:
         return []
-    terms = trimmed.split()[:MAX_SUGGEST_TERMS]
+    terms = trimmed.split()
     clauses: list[str] = []
     params: dict[str, Any] = {"exclude": str(exclude_id) if exclude_id else None}
     for index, word in enumerate(terms):
@@ -445,7 +502,8 @@ def update_submission(
     confirmed: bool = False, **fields: Any,
 ) -> UpdateResult:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
-    (self-link) + R4 (non-blocking duplicate warning on rename).
+    (self-link, and a ``links_to_submission_id`` naming no submission) + R4
+    (non-blocking duplicate warning on rename).
 
     ``treaty_year`` is refilled from the inception year whenever the merged value
     is None (CR5), which includes an edit that never mentions the field: renaming a
@@ -472,8 +530,10 @@ def update_submission(
         merged["treaty_year"], merged["inception_date"]
     )
 
-    links_to = merged["links_to_submission_id"]
-    if links_to is not None and _uid(links_to) == _uid(sid):
+    # Resolve first, self-link second: a submission's own id always exists, so
+    # linking to itself must report SelfLinkError, not "not found".
+    links_to = _resolve_link_target(merged["links_to_submission_id"])
+    if links_to is not None and links_to == _uid(sid):
         raise SelfLinkError("A submission cannot link to itself.")
 
     matches = find_similar(
@@ -499,7 +559,7 @@ def update_submission(
             "tt": merged["treaty_type_code"],
             "inc": merged["inception_date"],
             "ty": merged["treaty_year"],
-            "lt": str(links_to) if links_to else None,
+            "lt": links_to,
             "dir": merged["directory_path"],
             "now": _utcnow(),
             "actor": str(actor_id),

@@ -7,7 +7,7 @@ analyst may load and act on any submission (Article 6 / FR-019).
 
 Service errors are mapped to HTTP here:
   SubmissionClosed / ConcurrencyConflict → 409 banner (input preserved)
-  SelfLinkError                          → 422
+  SelfLinkError / UnknownLinkError       → 422
   duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
 
 Field-level validation returns 422 with a ``field_errors`` dict the form renders
@@ -30,6 +30,7 @@ from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
     SubmissionClosed,
+    UnknownLinkError,
 )
 from db import execute
 
@@ -40,6 +41,10 @@ TREATY_TYPES = [
     ("per_risk_xol", "Per-Risk XoL"), ("aggregate_xol", "Aggregate XoL"),
     ("stop_loss", "Stop Loss"),
 ]
+
+# Shown under "links to" when the posted id names no submission — the deal was
+# renamed away or closed while the form sat open, or the page is stale.
+_UNKNOWN_LINK_MESSAGE = "That deal was not found — pick the linked deal again."
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -296,6 +301,12 @@ def link_suggest(request: Request):
     matches = submission_service.search_submissions_for_link(
         term, exclude_id=exclude_id,
     )
+    # A term past MAX_SUGGEST_LENGTH is refused whole rather than searched on the
+    # words that fit, so say that instead of "no matching submission".
+    empty_message = (
+        "Search term is too long — type fewer words."
+        if len(term.strip()) > submission_service.MAX_SUGGEST_LENGTH
+        else "No matching submission.")
     return _suggest_menu(
         request,
         [
@@ -310,7 +321,7 @@ def link_suggest(request: Request):
             }
             for row in matches
         ],
-        term, "No matching submission.", "link-menu",
+        term, empty_message, "link-menu",
     )
 
 
@@ -369,14 +380,19 @@ def create(
         return _reshow(errors=_error_banner(field_errors, "created"),
                        field_errors=field_errors, status_code=422)
 
-    result = submission_service.create_submission(
-        name=name.strip(), cedant_name=cedant_name.strip(),
-        treaty_type_code=treaty_type_code, inception_date=parsed_inception_date,
-        treaty_year=parsed_treaty_year,
-        directory_path=directory_path.strip() or None,
-        links_to_submission_id=links_to,
-        actor_id=request.state.user.id, confirmed=(confirmed == "1"),
-    )
+    try:
+        result = submission_service.create_submission(
+            name=name.strip(), cedant_name=cedant_name.strip(),
+            treaty_type_code=treaty_type_code,
+            inception_date=parsed_inception_date,
+            treaty_year=parsed_treaty_year,
+            directory_path=directory_path.strip() or None,
+            links_to_submission_id=links_to,
+            actor_id=request.state.user.id, confirmed=(confirmed == "1"),
+        )
+    except UnknownLinkError:
+        return _reshow(field_errors={
+            "links_to_submission_id": _UNKNOWN_LINK_MESSAGE}, status_code=422)
     if not result.created:
         # Non-blocking look-alike warning (FR-004): re-render form + dup list.
         # 200, not 422 — nothing the analyst typed is wrong, and "create anyway"
@@ -483,6 +499,9 @@ def update(
             field_errors={
                 "links_to_submission_id": "A submission cannot link to itself."},
             status_code=422)
+    except UnknownLinkError:
+        return _reshow(field_errors={
+            "links_to_submission_id": _UNKNOWN_LINK_MESSAGE}, status_code=422)
     except SubmissionClosed:
         return _detail_response(request, submission_id, status_code=409)
     except ConcurrencyConflict:

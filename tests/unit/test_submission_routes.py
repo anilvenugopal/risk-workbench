@@ -19,6 +19,7 @@ tests want the real writes).
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import date
 from html.parser import HTMLParser
 
@@ -329,6 +330,45 @@ def test_new_and_suggest_paths_resolve_ahead_of_the_detail_route(client):
         "/submissions/cedant-suggest?q=Acme").text
     assert "TY2604_AmericanFamily" in client.get(
         "/submissions/link-suggest?q=American").text
+
+
+# ── Unknown link target ──────────────────────────────────────────────────────
+
+# links_to_submission_id is a hidden input, so a value the analyst never picked
+# reaches the route from a stale page, a deleted target, or a hand-built request.
+# It is a foreign key to submission.id: unchecked, it reaches the write and comes
+# back as a driver integrity error — a 500 with nothing under the field.
+
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_creating_with_an_unknown_link_target_is_rejected(client, link_value):
+    before = _count()
+    res = client.post("/submissions", data=_payload(
+        name="Stale link", links_to_submission_id=link_value))
+    assert res.status_code == 422
+    assert "That deal was not found" in res.text
+    assert _count() == before
+
+
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_editing_to_an_unknown_link_target_is_rejected(client, link_value):
+    res = client.post("/submissions", data=_payload(name="Keeps its link"))
+    sid = res.headers["location"].rsplit("/", 1)[-1]
+    submission = submission_service.get_submission(sid)
+    edit = client.post(f"/submissions/{sid}", data=_payload(
+        name="Keeps its link", links_to_submission_id=link_value,
+        updated_at=str(submission.updated_at), confirmed="1"))
+    assert edit.status_code == 422
+    assert "That deal was not found" in edit.text
+    assert execute(
+        "SELECT links_to_submission_id FROM submission WHERE id = :id",
+        {"id": sid}, connection="WORKBENCH")[0]["links_to_submission_id"] is None
+
+
+def test_an_id_that_is_not_a_uuid_is_not_found_rather_than_an_error(client):
+    # Same reason the link target is parsed before it is bound: submission.id is
+    # uniqueidentifier, and SQL Server raises on comparing a non-UUID string to it.
+    assert client.get("/submissions/not-a-uuid").status_code == 404
+    assert client.get("/submissions/not-a-uuid/edit").status_code == 404
 
 
 # ── Edit: self-link ──────────────────────────────────────────────────────────

@@ -42,6 +42,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import submission_service as svc
+from app.services.errors import UnknownLinkError
 from db import execute_command, get_engine, row_limit
 
 # Re-collect the entire unit submission-service suite against the fixture below.
@@ -62,6 +63,12 @@ def _cleanup(user_a: str, user_b: str) -> None:
         ids, connection="WORKBENCH")
     execute_command(
         f"DELETE FROM submission_crm_id WHERE submission_id IN ({owned})",
+        ids, connection="WORKBENCH")
+    # Clear the self-FK first: a test that linked two of these deals leaves one
+    # row referencing another, and the DELETE below removes both.
+    execute_command(
+        "UPDATE submission SET links_to_submission_id = NULL "
+        "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)",
         ids, connection="WORKBENCH")
     execute_command(
         "DELETE FROM submission "
@@ -180,3 +187,43 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     assert len(svc.search_submissions_for_link(f"CapDeal{tag}")) == 4
     # The AND-combined multi-term form binds one parameter per word.
     assert len(svc.search_submissions_for_link(f"CapDeal{tag} CapCedant{tag}")) == 4
+    # A term at the length cap binds ~250 LIKE pairs — SQL Server's parameter
+    # limit is 2100, and the unit tier's SQLite never proves that.
+    at_cap = f"CapDeal{tag}" + " a" * ((svc.MAX_SUGGEST_LENGTH - 16) // 2)
+    assert len(svc.search_submissions_for_link(at_cap)) == 4
+
+
+def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db):
+    """``links_to_submission_id`` is a FK to ``submission.id`` and the column is
+    ``uniqueidentifier``. SQLite enforces neither, so only this tier shows what an
+    unchecked id does: an integrity error for a well-formed id naming no row, and a
+    conversion error for text that is not a UUID. Both must be ``UnknownLinkError``
+    before the write."""
+    a = iteration1_db.user_a
+    tag = uuid.uuid4().hex[:8]
+    sid = svc.create_submission(
+        name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        actor_id=a, confirmed=True).submission_id
+
+    for bad in (str(uuid.uuid4()), "not-a-uuid"):
+        with pytest.raises(UnknownLinkError):
+            svc.create_submission(
+                name=f"LinkDeal{tag}_stale", cedant_name=f"LinkCedant{tag}",
+                treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+                links_to_submission_id=bad, actor_id=a, confirmed=True)
+        with pytest.raises(UnknownLinkError):
+            svc.update_submission(
+                submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,
+                actor_id=a, confirmed=True, links_to_submission_id=bad)
+
+    # An UPPERCASE id — which is how SQL Server reads uniqueidentifier back — still
+    # names the same deal and is stored in the canonical lowercase form.
+    target = svc.create_submission(
+        name=f"LinkDeal{tag}_target", cedant_name=f"LinkCedant{tag}",
+        treaty_type_code="cat_xol", inception_date=date(2025, 4, 1),
+        actor_id=a, confirmed=True).submission_id
+    svc.update_submission(
+        submission_id=sid, expected_updated_at=svc.get_submission(sid).updated_at,
+        actor_id=a, confirmed=True, links_to_submission_id=target.upper())
+    assert svc.get_submission(sid).links_to_submission_id == target
