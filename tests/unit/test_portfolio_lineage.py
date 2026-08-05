@@ -190,3 +190,46 @@ def test_adopt_claims_backfill_created_row_in_place(iteration2_db):
     assert generated[0]["irp_id"] == "431"
     assert generated[0]["breakout_value"] == "TX"
     assert generated[0]["inserted_by"] == iteration2_db.user_a
+
+
+def test_a_generated_portfolio_cannot_move_to_another_lineage_key(iteration2_db):
+    # The row for RM portfolio 431 already belongs to the TX breakout. A second
+    # adoption naming the same RM portfolio for a different value must fail
+    # rather than reassign it — otherwise the sub-portfolio disappears from the
+    # traceability of the value it was created for.
+    edm_id = _mk_edm()
+    source_id = _mk_portfolio(edm_id)
+    portfolio_service.insert_generated(
+        edm_id, name="usfl_commercial - TX", irp_id="431",
+        source_portfolio_id=source_id, dimension_code="state", value="TX",
+        actor_id=iteration2_db.user_a)
+
+    with pytest.raises(ValueError, match="already the state=TX breakout"):
+        portfolio_service.adopt_generated(
+            edm_id, name="usfl_commercial - CA", irp_id="431",
+            source_portfolio_id=source_id, dimension_code="state", value="CA",
+            actor_id=iteration2_db.user_a)
+
+    row = execute_one(
+        "SELECT breakout_value, name FROM irp_portfolio WHERE edm_id = :e "
+        "AND irp_id = '431'", {"e": edm_id}, connection="WORKBENCH")
+    assert (row["breakout_value"], row["name"]) == ("TX", "usfl_commercial - TX")
+
+
+def test_re_adopting_the_same_lineage_key_is_still_allowed(iteration2_db):
+    # The guard rejects a DIFFERENT lineage, not a repeat of the same one: the
+    # R7 heal re-adopts the portfolio it already owns and refreshes its name.
+    edm_id = _mk_edm()
+    source_id = _mk_portfolio(edm_id)
+    first = portfolio_service.insert_generated(
+        edm_id, name="usfl_commercial - TX", irp_id="431",
+        source_portfolio_id=source_id, dimension_code="state", value="TX",
+        actor_id=iteration2_db.user_a)
+
+    again = portfolio_service.adopt_generated(
+        edm_id, name="usfl_commercial - TX (2)", irp_id="431",
+        source_portfolio_id=source_id, dimension_code="state", value="TX",
+        actor_id=iteration2_db.user_a)
+
+    assert again.portfolio_id == first.portfolio_id
+    assert len([r for r in _live_rows(edm_id) if r["source_portfolio_id"]]) == 1

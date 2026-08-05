@@ -225,12 +225,17 @@ class GeneratedWrite:
     created: bool
 
 
-_UPDATE_GENERATED_BY_EDM_IRP = """
+_SELECT_LIVE_BY_EDM_IRP = """
+    SELECT id, source_portfolio_id, breakout_dimension_code, breakout_value
+    FROM irp_portfolio
+    WHERE edm_id = :edm AND irp_id = :irp AND deleted_at IS NULL
+"""
+_UPDATE_GENERATED_BY_ID = """
     UPDATE irp_portfolio
     SET name = :name, source_portfolio_id = :src, breakout_dimension_code = :dim,
         breakout_value = :val, inserted_by = COALESCE(inserted_by, :by),
         updated_at = :now, updated_by = :by
-    WHERE edm_id = :edm AND irp_id = :irp AND deleted_at IS NULL
+    WHERE id = :row_id
 """
 _INSERT_GENERATED = """
     INSERT INTO irp_portfolio (id, edm_id, name, irp_id, source_portfolio_id,
@@ -289,15 +294,26 @@ def _write_generated(edm_id: Any, *, name: str, irp_id: str,
                     # The row may already exist WITHOUT lineage — a backfill
                     # enumerated the RM portfolio before this run recorded it.
                     # Stamp the lineage in place rather than violating
-                    # UNIQUE(edm_id, irp_id).
-                    updated = conn.execute(
-                        text(_UPDATE_GENERATED_BY_EDM_IRP), params).rowcount
-                    if updated:
-                        existing = conn.execute(text(
-                            "SELECT id FROM irp_portfolio "
-                            "WHERE edm_id = :edm AND irp_id = :irp"
-                        ), params).scalar()
-                        return GeneratedWrite(portfolio_id=_uid(existing),
+                    # UNIQUE(edm_id, irp_id). A row that already carries a
+                    # DIFFERENT lineage is never reassigned: the breakout that
+                    # owns it keeps it and this write fails, so a generated
+                    # portfolio cannot silently move between breakout keys.
+                    existing = conn.execute(text(_SELECT_LIVE_BY_EDM_IRP),
+                                            params).mappings().first()
+                    if existing is not None:
+                        source, dimension, value = (
+                            _uid(existing["source_portfolio_id"]),
+                            existing["breakout_dimension_code"],
+                            existing["breakout_value"])
+                        if source is not None and (source, dimension, value) != (
+                                params["src"], params["dim"], params["val"]):
+                            raise ValueError(
+                                "breakout lineage integrity: Risk Modeler portfolio "
+                                f"{params['irp']} is already the {dimension}={value} "
+                                f"breakout of source portfolio {source}")
+                        conn.execute(text(_UPDATE_GENERATED_BY_ID),
+                                     dict(params, row_id=existing["id"]))
+                        return GeneratedWrite(portfolio_id=_uid(existing["id"]),
                                               created=True)
                     conn.execute(text(_INSERT_GENERATED), params)
                     return GeneratedWrite(portfolio_id=params["id"], created=True)
