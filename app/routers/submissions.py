@@ -7,8 +7,12 @@ analyst may load and act on any submission (Article 6 / FR-019).
 
 Service errors are mapped to HTTP here:
   SubmissionClosed / ConcurrencyConflict → 409 banner (input preserved)
-  SelfRenewalError                       → 422
+  SelfLinkError                          → 422
   duplicate look-alikes (unconfirmed)    → non-blocking dup-warning partial
+
+Field-level validation returns a ``field_errors`` dict the form renders under the
+offending input, plus a one-line summary banner (CR4) — a single combined message
+never told the analyst which field failed.
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from app.nav import get_nav_context
 from app.services import package_sync_service, submission_service
 from app.services.errors import (
     ConcurrencyConflict,
-    SelfRenewalError,
+    SelfLinkError,
     SubmissionClosed,
 )
 from db import execute
@@ -78,6 +82,57 @@ def _parse_int(value: str | None) -> int | None:
         return None
 
 
+MIN_TREATY_YEAR, MAX_TREATY_YEAR = 1900, 2999
+
+
+def _validate_submission_form(
+    *, name: str, cedant_name: str, treaty_type_code: str, inception_date: str,
+    treaty_year: str,
+) -> tuple[dict[str, str], date | None, int | None]:
+    """One message per bad field (CR4), plus the parsed inception date and treaty
+    year so the caller does not parse twice. An empty dict means valid."""
+    errors: dict[str, str] = {}
+    if not name.strip():
+        errors["name"] = "Enter a name for this submission."
+    if not cedant_name.strip():
+        errors["cedant_name"] = "Enter a cedant."
+    if not treaty_type_code:
+        errors["treaty_type_code"] = "Choose a treaty type."
+
+    parsed_inception_date = _parse_date(inception_date)
+    if parsed_inception_date is None:
+        errors["inception_date"] = (
+            "Enter an inception date." if not inception_date.strip()
+            else "Enter a valid date.")
+
+    parsed_treaty_year = _parse_int(treaty_year)
+    year_range = f"Enter a year between {MIN_TREATY_YEAR} and {MAX_TREATY_YEAR}."
+    if treaty_year.strip() and parsed_treaty_year is None:
+        errors["treaty_year"] = year_range
+    elif (parsed_treaty_year is not None
+            and not MIN_TREATY_YEAR <= parsed_treaty_year <= MAX_TREATY_YEAR):
+        errors["treaty_year"] = year_range
+
+    return errors, parsed_inception_date, parsed_treaty_year
+
+
+def _error_banner(field_errors: dict[str, str], action: str) -> list[str]:
+    """Summary line above the form. The per-field messages carry the detail."""
+    count = len(field_errors)
+    if not count:
+        return []
+    subject = "One field needs" if count == 1 else f"{count} fields need"
+    return [f"{subject} attention before this deal can be {action}."]
+
+
+def _link_target(submission_id: str | None):
+    """The submission currently chosen in "links to", so the picker can show its
+    name instead of a UUID. None when nothing is linked or the id is stale."""
+    if not submission_id:
+        return None
+    return submission_service.get_submission(submission_id)
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
@@ -93,6 +148,7 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
         "package_cards": package_sync_service.get_package_cards(submission_id),
+        "link_target": _link_target(submission.links_to_submission_id),
         "analysts": analysts,
         "treaty_types": TREATY_TYPES,
         "is_active": submission.status_code == submission_service.ACTIVE,
@@ -159,15 +215,53 @@ def list_mine(request: Request):
 
 @router.get("/submissions/cedant-suggest", response_class=HTMLResponse)
 def cedant_suggest(request: Request):
-    """Datalist options for the create/edit form's CEDANT field (FR-006/R6).
+    """Typeahead menu for the create/edit form's CEDANT field (FR-006/R6).
 
-    htmx sends the field under its own name, so the prefix arrives as
+    htmx sends the field under its own name, so the term arrives as
     ``cedant_name``; ``q`` (the name in the 002 contract) is still accepted for a
     hand-built call."""
-    prefix = (request.query_params.get("cedant_name")
-              or request.query_params.get("q", ""))
-    return _partial(request, "partials/cedant_options.html",
-                    {"suggestions": submission_service.cedant_suggestions(prefix)})
+    term = (request.query_params.get("cedant_name")
+            or request.query_params.get("q", ""))
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": [
+            {"value": cedant, "label": cedant}
+            for cedant in submission_service.cedant_suggestions(term)
+        ],
+        "term": term,
+        "empty_message": "No matching cedant yet — press Tab to use what you typed.",
+    })
+
+
+@router.get("/submissions/link-suggest", response_class=HTMLResponse)
+def link_suggest(request: Request):
+    """Typeahead menu for the "links to" picker (CR8). Searches name and cedant;
+    ``links_to_exclude`` drops the submission being edited from its own results.
+
+    htmx sends both inputs under their own names; ``q``/``exclude`` are accepted
+    for a hand-built call."""
+    term = (request.query_params.get("links_to_search")
+            or request.query_params.get("q", ""))
+    exclude_id = (request.query_params.get("links_to_exclude")
+                  or request.query_params.get("exclude") or None)
+    matches = submission_service.search_submissions_for_link(
+        term, exclude_id=exclude_id,
+    )
+    return _partial(request, "partials/typeahead_menu.html", {
+        "options": [
+            {
+                "value": row.id,
+                "label": row.name,
+                "meta": " · ".join(filter(None, [
+                    row.cedant_name,
+                    row.treaty_type_label or row.treaty_type_code,
+                    str(row.inception_date),
+                ])),
+            }
+            for row in matches
+        ],
+        "term": term,
+        "empty_message": "No submission matches every word you typed.",
+    })
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
@@ -176,20 +270,24 @@ def cedant_suggest(request: Request):
 def new_form(request: Request):
     return _render(request, "pages/submission_form.html", "submissions.all", {
         "mode": "create", "treaty_types": TREATY_TYPES, "form": {}, "errors": [],
-        "warnings": [], "submission": None,
+        "field_errors": {}, "warnings": [], "submission": None,
+        "link_target": None,
     })
 
 
 @router.post("/submissions")
 def create(
     request: Request,
-    name: str = Form(...),
-    cedant_name: str = Form(...),
-    treaty_type_code: str = Form(...),
-    inception_date: str = Form(...),
+    # The four required fields are declared optional here on purpose (CR4): a
+    # field FastAPI rejects itself returns raw JSON, which is the least clear
+    # thing an analyst can be shown. _validate_submission_form owns every message.
+    name: str = Form(""),
+    cedant_name: str = Form(""),
+    treaty_type_code: str = Form(""),
+    inception_date: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
-    renews_from_submission_id: str = Form(""),
+    links_to_submission_id: str = Form(""),
     confirmed: str = Form(""),
     csrf_token: str = Form(...),
 ):
@@ -200,31 +298,38 @@ def create(
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
         "treaty_year": treaty_year, "directory_path": directory_path,
-        "renews_from_submission_id": renews_from_submission_id,
+        "links_to_submission_id": links_to_submission_id,
     }
-    parsed_inception_date = _parse_date(inception_date)
-    if (not name.strip() or not cedant_name.strip() or not treaty_type_code
-            or parsed_inception_date is None):
+    links_to = links_to_submission_id.strip() or None
+
+    def _reshow(errors, field_errors, warnings):
         return _render(request, "pages/submission_form.html", "submissions.all", {
             "mode": "create", "treaty_types": TREATY_TYPES, "form": form,
-            "errors": ["Name, cedant, treaty type and a valid inception date are required."],
-            "warnings": [], "submission": None,
+            "errors": errors, "field_errors": field_errors, "warnings": warnings,
+            "submission": None, "link_target": _link_target(links_to),
         })
+
+    field_errors, parsed_inception_date, parsed_treaty_year = (
+        _validate_submission_form(
+            name=name, cedant_name=cedant_name,
+            treaty_type_code=treaty_type_code, inception_date=inception_date,
+            treaty_year=treaty_year,
+        )
+    )
+    if field_errors:
+        return _reshow(_error_banner(field_errors, "created"), field_errors, [])
 
     result = submission_service.create_submission(
         name=name.strip(), cedant_name=cedant_name.strip(),
         treaty_type_code=treaty_type_code, inception_date=parsed_inception_date,
-        treaty_year=_parse_int(treaty_year),
+        treaty_year=parsed_treaty_year,
         directory_path=directory_path.strip() or None,
-        renews_from_submission_id=renews_from_submission_id.strip() or None,
+        links_to_submission_id=links_to,
         actor_id=request.state.user.id, confirmed=(confirmed == "1"),
     )
     if not result.created:
         # Non-blocking look-alike warning (FR-004): re-render form + dup list.
-        return _render(request, "pages/submission_form.html", "submissions.all", {
-            "mode": "create", "treaty_types": TREATY_TYPES, "form": form,
-            "errors": [], "warnings": result.warnings, "submission": None,
-        })
+        return _reshow([], {}, result.warnings)
     return RedirectResponse(f"/submissions/{result.submission_id}", status_code=303)
 
 
@@ -251,11 +356,12 @@ def edit_form(request: Request, submission_id: str):
         "inception_date": str(submission.inception_date),
         "treaty_year": submission.treaty_year or "",
         "directory_path": submission.directory_path or "",
-        "renews_from_submission_id": submission.renews_from_submission_id or "",
+        "links_to_submission_id": submission.links_to_submission_id or "",
     }
     return _render(request, "pages/submission_form.html", "submissions.detail", {
         "mode": "edit", "treaty_types": TREATY_TYPES, "form": form,
-        "errors": [], "warnings": [], "submission": submission,
+        "errors": [], "field_errors": {}, "warnings": [], "submission": submission,
+        "link_target": _link_target(submission.links_to_submission_id),
     })
 
 
@@ -263,13 +369,14 @@ def edit_form(request: Request, submission_id: str):
 def update(
     request: Request,
     submission_id: str,
-    name: str = Form(...),
-    cedant_name: str = Form(...),
-    treaty_type_code: str = Form(...),
-    inception_date: str = Form(...),
+    # Optional here for the same reason as create() — see the note there.
+    name: str = Form(""),
+    cedant_name: str = Form(""),
+    treaty_type_code: str = Form(""),
+    inception_date: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
-    renews_from_submission_id: str = Form(""),
+    links_to_submission_id: str = Form(""),
     updated_at: str = Form(...),
     confirmed: str = Form(""),
     csrf_token: str = Form(...),
@@ -285,23 +392,30 @@ def update(
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
         "treaty_year": treaty_year, "directory_path": directory_path,
-        "renews_from_submission_id": renews_from_submission_id,
+        "links_to_submission_id": links_to_submission_id,
     }
+    links_to = links_to_submission_id.strip() or None
 
-    def _reshow(errors, warnings, status_code=200):
+    def _reshow(errors, warnings, field_errors=None, status_code=200):
         nav = get_nav_context(request.state.user, "submissions.detail")
         return _templates(request).TemplateResponse(
             request, "pages/submission_form.html",
             {"current_user": request.state.user, "nav": nav, "mode": "edit",
              "treaty_types": TREATY_TYPES, "form": form, "errors": errors,
-             "warnings": warnings, "submission": submission},
+             "field_errors": field_errors or {}, "warnings": warnings,
+             "submission": submission, "link_target": _link_target(links_to)},
             status_code=status_code,
         )
 
-    parsed_inception_date = _parse_date(inception_date)
-    if (not name.strip() or not cedant_name.strip() or not treaty_type_code
-            or parsed_inception_date is None):
-        return _reshow(["Name, cedant, treaty type and a valid inception date are required."], [])
+    field_errors, parsed_inception_date, parsed_treaty_year = (
+        _validate_submission_form(
+            name=name, cedant_name=cedant_name,
+            treaty_type_code=treaty_type_code, inception_date=inception_date,
+            treaty_year=treaty_year,
+        )
+    )
+    if field_errors:
+        return _reshow(_error_banner(field_errors, "saved"), [], field_errors)
 
     try:
         result = submission_service.update_submission(
@@ -309,12 +423,15 @@ def update(
             actor_id=request.state.user.id, confirmed=(confirmed == "1"),
             name=name.strip(), cedant_name=cedant_name.strip(),
             treaty_type_code=treaty_type_code, inception_date=parsed_inception_date,
-            treaty_year=_parse_int(treaty_year),
+            treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
-            renews_from_submission_id=renews_from_submission_id.strip() or None,
+            links_to_submission_id=links_to,
         )
-    except SelfRenewalError:
-        return _reshow(["A submission cannot renew from itself."], [], status_code=422)
+    except SelfLinkError:
+        return _reshow(
+            [], [],
+            {"links_to_submission_id": "A submission cannot link to itself."},
+            status_code=422)
     except SubmissionClosed:
         return _detail_response(request, submission_id, status_code=409)
     except ConcurrencyConflict:

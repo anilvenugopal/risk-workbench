@@ -75,7 +75,7 @@ class TestSubmissionMigration:
     def test_self_renewal_check_exists(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.check_constraints "
-            "WHERE name = 'ck_submission_no_self_renewal'",
+            "WHERE name = 'ck_submission_no_self_link'",
             {}, connection="WORKBENCH")
         assert n == 1
 

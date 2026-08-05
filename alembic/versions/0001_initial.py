@@ -156,7 +156,7 @@ def upgrade() -> None:
         sa.Column("treaty_type_code", sa.NVARCHAR(50), nullable=False),
         sa.Column("inception_date", sa.Date, nullable=False),
         sa.Column("treaty_year", sa.Integer, nullable=True),
-        sa.Column("renews_from_submission_id", sa.Uuid, nullable=True),  # self-ref
+        sa.Column("links_to_submission_id", sa.Uuid, nullable=True),  # self-ref
         sa.Column("directory_path", sa.NVARCHAR(1024), nullable=True),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'ACTIVE'")),  # cached current (Article 4)
@@ -169,13 +169,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["assigned_analyst_id"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["treaty_type_code"], ["treaty_type_kind.code"]),
         sa.ForeignKeyConstraint(["status_code"], ["submission_status_kind.code"]),
-        sa.ForeignKeyConstraint(["renews_from_submission_id"], ["submission.id"]),
+        sa.ForeignKeyConstraint(["links_to_submission_id"], ["submission.id"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
-        # No self-renewal (FR-007 / R9).
+        # A submission cannot link to itself (FR-007 / R9).
         sa.CheckConstraint(
-            "renews_from_submission_id IS NULL OR renews_from_submission_id <> id",
-            name="ck_submission_no_self_renewal",
+            "links_to_submission_id IS NULL OR links_to_submission_id <> id",
+            name="ck_submission_no_self_link",
         ),
         # No UNIQUE(name) (FR-003); no customer_id/scope column (Article 6).
     )

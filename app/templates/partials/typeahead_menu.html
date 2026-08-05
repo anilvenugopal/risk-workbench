@@ -1,0 +1,19 @@
+{# Typeahead menu — the HTMX target for both the CEDANT field and the "links to"
+   picker (CR7/CR8). Each option carries its value in data-value; the Alpine
+   `typeahead` component reads it on click or Enter. Buttons are type="button" so
+   a keyboard pick never submits the form. #}
+{% if options %}
+<div class="ta__menu" role="listbox">
+  {% for option in options %}
+  <button class="ta__opt" type="button" role="option"
+          data-value="{{ option.value }}" data-label="{{ option.label }}">
+    <span class="ta__opt-main">{{ option.label }}</span>
+    {% if option.meta %}<span class="ta__opt-meta">{{ option.meta }}</span>{% endif %}
+  </button>
+  {% endfor %}
+</div>
+{% elif term.strip() %}
+<div class="ta__menu">
+  <div class="ta__empty">{{ empty_message }}</div>
+</div>
+{% endif %}

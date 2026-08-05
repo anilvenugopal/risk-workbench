@@ -7,7 +7,7 @@ the routers (contracts/data-access.md):
                              (read-only gate, R3/FR-015) → 409.
 - ``ConcurrencyConflict``  — optimistic-concurrency marker mismatch
                              (updated_at, R1/FR-031) → 409, input preserved.
-- ``SelfRenewalError``     — renews_from_submission_id == id (R9/FR-007) → 422.
+- ``SelfLinkError``        — links_to_submission_id == id (R9/FR-007) → 422.
 - ``EmptyPackageError``    — a package would have zero members (R5/FR-024).
 - ``InvalidSourceFile``    — a browse selection is outside SHARED_DRIVE_ROOT,
                              missing, or not a file (FR-008/FR-009) → 422.
@@ -44,8 +44,8 @@ class ConcurrencyConflict(ServiceError):
     someone else wrote the row first. The write is refused, never applied."""
 
 
-class SelfRenewalError(ServiceError):
-    """Raised when a submission would name itself as its own renewal source."""
+class SelfLinkError(ServiceError):
+    """Raised when a submission would name itself as its own linked submission."""
 
 
 class EmptyPackageError(ServiceError):
@@ -77,7 +77,7 @@ __all__ = [
     "ServiceError",
     "SubmissionClosed",
     "ConcurrencyConflict",
-    "SelfRenewalError",
+    "SelfLinkError",
     "EmptyPackageError",
     "InvalidSourceFile",
     "InvalidMemberName",

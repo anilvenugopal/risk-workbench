@@ -11,6 +11,7 @@
 
 {% block main %}
 {% set action = ('/submissions/' ~ submission.id) if mode == 'edit' else '/submissions' %}
+{% set field_errors = field_errors or {} %}
 <div class="page-pad" style="max-width: 640px;">
   <div class="detail-head">
     <h1>{{ 'Edit submission' if mode == 'edit' else 'New submission' }}</h1>
@@ -33,48 +34,116 @@
     {% endif %}
 
     <div class="wf-fields">
+      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
       <div class="wf-field">
-        <label>NAME</label>
-        <input class="wf-field__input" type="text" name="name" required
+        <label>NAME <span class="wf-field__req" title="Required">*</span></label>
+        <input class="wf-field__input{% if field_errors.name %} wf-field__input--error{% endif %}"
+               type="text" name="name" required
                value="{{ form.name or '' }}" placeholder="e.g. TY2604_AmericanFamily">
+        {% if field_errors.name %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.name }}</div>
+        {% endif %}
       </div>
+
+      {# Cedant is free text with suggestions — there is no cedant registry
+         (FR-006), so the menu only offers names already used on a submission. #}
       <div class="wf-field">
-        <label>CEDANT</label>
-        <input class="wf-field__input" type="text" name="cedant_name" required
-               list="cedant-list" autocomplete="off" value="{{ form.cedant_name or '' }}"
-               hx-get="/submissions/cedant-suggest" hx-trigger="input changed delay:200ms"
-               hx-target="#cedant-list" hx-swap="innerHTML">
-        <datalist id="cedant-list"></datalist>
+        <label>CEDANT <span class="wf-field__req" title="Required">*</span></label>
+        <div class="ta" x-data="typeahead" @click.outside="close()">
+          <input class="wf-field__input{% if field_errors.cedant_name %} wf-field__input--error{% endif %}"
+                 type="text" name="cedant_name" required autocomplete="off"
+                 value="{{ form.cedant_name or '' }}"
+                 x-ref="input" @keydown="onKey($event)" @focus="open()"
+                 hx-get="/submissions/cedant-suggest" hx-trigger="input changed delay:200ms"
+                 hx-target="#cedant-menu" hx-swap="innerHTML">
+          <div id="cedant-menu" x-ref="menu" @htmx:after-swap="open()"
+               @click="pick($event.target.closest('.ta__opt'))"></div>
+        </div>
+        {% if field_errors.cedant_name %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.cedant_name }}</div>
+        {% endif %}
       </div>
+
       <div class="wf-field">
-        <label>TREATY TYPE</label>
-        <select class="wf-field__input" name="treaty_type_code" required>
+        <label>TREATY TYPE <span class="wf-field__req" title="Required">*</span></label>
+        <select class="wf-field__input{% if field_errors.treaty_type_code %} wf-field__input--error{% endif %}"
+                name="treaty_type_code" required>
           <option value="">Select…</option>
           {% for code, label in treaty_types %}
           <option value="{{ code }}"{% if form.treaty_type_code == code %} selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
+        {% if field_errors.treaty_type_code %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.treaty_type_code }}</div>
+        {% endif %}
       </div>
-      <div class="wf-field">
-        <label>INCEPTION DATE</label>
-        <input class="wf-field__input" type="date" name="inception_date" required
-               value="{{ form.inception_date or '' }}">
+
+      {# Inception date drives the treaty-year default (CR5). The two fields share
+         one Alpine component so the year can stop following the date once the
+         analyst types their own. #}
+      <div x-data="treatyYear({{ 'true' if form.treaty_year else 'false' }})" style="display: contents">
+        <div class="wf-field">
+          <label>INCEPTION DATE <span class="wf-field__req" title="Required">*</span></label>
+          <input class="wf-field__input{% if field_errors.inception_date %} wf-field__input--error{% endif %}"
+                 type="date" name="inception_date" required
+                 value="{{ form.inception_date or '' }}" @change="onDateChange($event)">
+          {% if field_errors.inception_date %}
+          <div class="wf-field__msg wf-field__error">{{ field_errors.inception_date }}</div>
+          {% endif %}
+        </div>
+
+        <div class="wf-field">
+          <label>TREATY YEAR</label>
+          <input class="wf-field__input{% if field_errors.treaty_year %} wf-field__input--error{% endif %}"
+                 type="number" name="treaty_year" min="1900" max="2999"
+                 value="{{ form.treaty_year or '' }}" x-ref="year" @input="onYearInput()">
+          {% if field_errors.treaty_year %}
+          <div class="wf-field__msg wf-field__error">{{ field_errors.treaty_year }}</div>
+          {% else %}
+          <div class="wf-field__msg wf-field__hint"
+               x-text="edited ? 'Set manually — changing the inception date leaves it alone.'
+                              : 'Defaults to the inception year. Change it if the treaty year differs.'">
+            Defaults to the inception year. Change it if the treaty year differs.
+          </div>
+          {% endif %}
+        </div>
       </div>
-      <div class="wf-field">
-        <label>TREATY YEAR</label>
-        <input class="wf-field__input" type="number" name="treaty_year"
-               value="{{ form.treaty_year or '' }}" min="1900" max="2999">
-      </div>
+
       <div class="wf-field">
         <label>DIRECTORY PATH</label>
         <input class="wf-field__input" type="text" name="directory_path"
                value="{{ form.directory_path or '' }}" placeholder="optional shared-drive path">
       </div>
+
+      {# "Links to" is a related submission, not necessarily a renewal (CR8). The
+         analyst picks by name; the id travels in the hidden input. #}
       <div class="wf-field">
-        <label>RENEWS FROM</label>
-        <input class="wf-field__input" type="text" name="renews_from_submission_id"
-               value="{{ form.renews_from_submission_id or '' }}"
-               placeholder="optional prior submission id">
+        <label>LINKS TO</label>
+        <div class="ta" @click.outside="close()"
+             x-data='typeahead({ initialLabel: {{ (link_target.name if link_target else "")|tojson }} })'>
+          <input type="hidden" name="links_to_submission_id" x-ref="value"
+                 value="{{ form.links_to_submission_id or '' }}">
+          <span class="ta__chosen" x-show="chosen" x-cloak>
+            <span class="ta__chosen-name" x-text="chosenLabel">{{ link_target.name if link_target }}</span>
+            <button class="ta__clear" type="button" title="Clear" @click="clear()">✕</button>
+          </span>
+          <input class="wf-field__input{% if field_errors.links_to_submission_id %} wf-field__input--error{% endif %}"
+                 type="text" name="links_to_search" autocomplete="off"
+                 placeholder="Search a related submission by name or cedant"
+                 x-ref="input" x-show="!chosen"
+                 @keydown="onKey($event)" @focus="open()"
+                 hx-get="/submissions/link-suggest" hx-trigger="input changed delay:200ms"
+                 hx-target="#link-menu" hx-swap="innerHTML"
+                 hx-include="[name='links_to_exclude']">
+          <input type="hidden" name="links_to_exclude"
+                 value="{{ submission.id if mode == 'edit' else '' }}">
+          <div id="link-menu" x-ref="menu" @htmx:after-swap="open()"
+               @click="pick($event.target.closest('.ta__opt'))"></div>
+        </div>
+        {% if field_errors.links_to_submission_id %}
+        <div class="wf-field__msg wf-field__error">{{ field_errors.links_to_submission_id }}</div>
+        {% endif %}
       </div>
     </div>
 

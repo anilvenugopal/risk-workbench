@@ -27,12 +27,13 @@ from app.services.submission_service import (
     list_submissions,
     reassign_owner,
     remove_crm_id,
+    search_submissions_for_link,
     set_status,
     update_submission,
 )
 from app.services.errors import (
     ConcurrencyConflict,
-    SelfRenewalError,
+    SelfLinkError,
     SubmissionClosed,
 )
 
@@ -87,7 +88,7 @@ def test_get_submission_has_no_access_restriction(iteration1_db):
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
 
 
-def test_cedant_suggestions_distinct_prefix(iteration1_db):
+def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
     _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="cat_xol",
         inc=date(2026, 1, 1))
     _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="quota_share",
@@ -103,8 +104,24 @@ def test_cedant_suggestions_distinct_prefix(iteration1_db):
     out = cedant_suggestions("Ac")
     ours = [c for c in out if c in {"Acadia Re", "Acme Mutual"}]
     assert ours == ["Acadia Re", "Acme Mutual"]
-    assert "Beta Insurance" not in out  # prefix filter excludes non-matches
+    assert "Beta Insurance" not in out
     assert cedant_suggestions("") == []
+
+
+def test_cedant_suggestions_match_anywhere_in_the_name(iteration1_db):
+    # CR7: prefix matching never found "American Family Mutual" from "fam".
+    _mk(iteration1_db, name="AF", cedant="American Family Mutual", tt="cat_xol",
+        inc=date(2026, 5, 1))
+    assert "American Family Mutual" in cedant_suggestions("fam")
+
+
+def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
+    _mk(iteration1_db, name="Pct", cedant="50% Quota Co", tt="surplus",
+        inc=date(2026, 6, 1))
+    _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="surplus",
+        inc=date(2026, 7, 1))
+    out = cedant_suggestions("%")
+    assert "50% Quota Co" in out and "Zeta Re" not in out
 
 
 # ── US2: list / filter / reassign ─────────────────────────────────────────────
@@ -306,12 +323,75 @@ def test_update_rename_warns_then_confirms(iteration1_db):
     assert get_submission(second).name == "Alpha"
 
 
-def test_update_self_renewal_rejected(iteration1_db):
+def test_update_self_link_rejected(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id
-    with pytest.raises(SelfRenewalError):
+    with pytest.raises(SelfLinkError):
         update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                          actor_id=a, renews_from_submission_id=sid)
+                          actor_id=a, links_to_submission_id=sid)
+
+
+def test_treaty_year_defaults_to_the_inception_year(iteration1_db):
+    sid = _mk(iteration1_db, name="No year given", inc=date(2026, 4, 1),
+              ty=None).submission_id
+    assert get_submission(sid).treaty_year == 2026
+
+
+def test_entered_treaty_year_survives_create_and_update(iteration1_db):
+    # A December inception is often written into the following treaty year, so an
+    # entered value must never be replaced by the derived one (CR5).
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Dec incept", inc=date(2026, 12, 15),
+              ty=2027).submission_id
+    assert get_submission(sid).treaty_year == 2027
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, treaty_year=2027,
+                      inception_date=date(2026, 12, 20))
+    assert get_submission(sid).treaty_year == 2027
+
+
+def test_clearing_treaty_year_on_update_refills_it_from_the_inception_date(
+        iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Cleared year", inc=date(2026, 4, 1),
+              ty=2030).submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, treaty_year=None)
+    assert get_submission(sid).treaty_year == 2026
+
+
+# ── "Links to" picker search (CR8) ───────────────────────────────────────────
+
+def test_search_for_link_ands_every_term(iteration1_db):
+    # CR2: "There must be 1000 companies that have American in the name."
+    amfam = _mk(iteration1_db, name="TY2506_AmericanFamily",
+                cedant="American Family Mutual", inc=date(2025, 6, 1)).submission_id
+    amnat = _mk(iteration1_db, name="TY2501_AmericanNational",
+                cedant="American National", inc=date(2025, 1, 1)).submission_id
+    found = {row.id for row in search_submissions_for_link("american fam")}
+    assert amfam in found and amnat not in found
+    both = {row.id for row in search_submissions_for_link("american")}
+    assert {amfam, amnat} <= both
+
+
+def test_search_for_link_matches_name_or_cedant(iteration1_db):
+    sid = _mk(iteration1_db, name="Opaque code 9912",
+              cedant="Zenith Mutual", inc=date(2026, 2, 1)).submission_id
+    assert sid in {r.id for r in search_submissions_for_link("9912")}
+    assert sid in {r.id for r in search_submissions_for_link("zenith")}
+
+
+def test_search_for_link_excludes_the_submission_being_edited(iteration1_db):
+    sid = _mk(iteration1_db, name="Sole Match Deal",
+              cedant="Solo Re", inc=date(2026, 3, 1)).submission_id
+    assert sid in {r.id for r in search_submissions_for_link("Sole Match")}
+    assert search_submissions_for_link("Sole Match", exclude_id=sid) == []
+
+
+def test_search_for_link_empty_term_returns_nothing(iteration1_db):
+    _mk(iteration1_db, name="Anything", inc=date(2026, 8, 1))
+    assert search_submissions_for_link("") == []
+    assert search_submissions_for_link("   ") == []
 
 
 def test_update_stale_marker_conflicts(iteration1_db):
