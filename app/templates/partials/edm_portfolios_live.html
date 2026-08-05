@@ -1,0 +1,10 @@
+{# The breakout-episode poll response (GET /edms/{id}/portfolios-section, T-11).
+   Three top-level elements: the Portfolios section itself — the poll's swap
+   target — followed by the header meta line and the rollup strip as htmx
+   out-of-band swaps, because both carry a portfolio count that moves while the
+   worker creates sub-portfolios and the whole-body poll is quiet meanwhile.
+   Nothing else on the page is touched, so the scroll position, the expanded
+   rows, and an open breakout modal all survive. #}
+{% include "partials/edm_portfolios_section.html" %}
+{% with oob_swap=true %}{% include "partials/edm_detail_meta.html" %}{% endwith %}
+{% with oob_swap=true %}{% include "partials/edm_aggregate_strip.html" %}{% endwith %}

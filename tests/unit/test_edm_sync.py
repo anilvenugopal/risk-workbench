@@ -418,6 +418,101 @@ def test_body_poll_partial_when_edm_gone(monkeypatch):
     assert "every 3s" not in r.text
 
 
+# ── The breakout-episode poll: the Portfolios section, not the whole body (T-11) ──
+#
+# #edm-detail is the page's scrolling element (.shell is height:100vh, overflow
+# hidden), so the spec-005 whole-body swap threw the analyst back to the top of
+# the page every 3 seconds. A breakout changes only the Portfolios section, so
+# that section polls GET /edms/{id}/portfolios-section and the body stays quiet.
+
+def _banner(**over):
+    from app.services.breakout_service import BreakoutBanner
+    base = dict(source_name="cbhu", noun="line of business", created=3,
+                adopted=0, skipped_existing=0, failed=0, ok=True,
+                filling_in=True, error=None)
+    base.update(over)
+    return BreakoutBanner(**base)
+
+
+def test_breakout_run_polls_the_section_not_the_body(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", breakout_running=True,
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1/body").text
+    assert 'hx-get="/edms/edm-1/portfolios-section"' in html
+    assert 'hx-get="/edms/edm-1/body"' not in html   # the scroller is not swapped
+
+
+def test_body_poll_204_while_a_breakout_fills_figures_in(monkeypatch):
+    # The FR-013 follow-up backfill sets sync_running, so the body poll is live
+    # again — it must still answer 204 on a populated page. The section poll is
+    # what shows the figures landing.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", sync_running=True,
+                            breakout_banner=_banner(),
+                            as_of="2026-08-05 10:00:00"))
+    assert _client().get("/edms/edm-1/body").status_code == 204
+
+
+def test_section_poll_emits_trigger_and_oob_fragments_while_running(monkeypatch):
+    # The poll response is the section plus two out-of-band swaps: the header
+    # meta line and the rollup strip both carry a portfolio count that moves as
+    # the worker creates sub-portfolios.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            breakout_running=True,
+                            as_of="2026-08-05 10:00:00"))
+    r = _client().get("/edms/edm-1/portfolios-section")
+    assert r.status_code == 200
+    assert 'id="edm-portfolios"' in r.text and "every 3s" in r.text
+    assert 'id="edm-detail-meta" hx-swap-oob="true"' in r.text
+    assert 'id="edm-rollup" hx-swap-oob="true"' in r.text
+    assert "4 portfolios" in r.text
+    assert 'id="edm-detail"' not in r.text     # never the scrolling wrapper
+    assert "</html>" not in r.text             # a fragment — no shell
+
+
+def test_section_poll_stops_when_the_breakout_episode_is_terminal(monkeypatch):
+    # Run terminal and the follow-up backfill landed: the trigger disappears,
+    # so the section's poll self-terminates (the body-poll precedent).
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            breakout_banner=_banner(filling_in=False, failed=1,
+                                                    ok=False),
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1/portfolios-section").text
+    assert "every 3s" not in html
+    assert "1 failed" in html                  # the durable partial-run banner
+
+
+def test_section_poll_when_edm_gone(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: None)
+    r = _client().get("/edms/edm-1/portfolios-section")
+    assert r.status_code == 200
+    assert "no longer exists" in r.text
+    assert "every 3s" not in r.text
+
+
+def test_page_render_carries_the_section_and_oob_targets_without_oob_attrs(
+        monkeypatch):
+    # The ids exist on the full page render (they are the OOB targets), but
+    # hx-swap-oob appears only in the poll response — on a page load it would
+    # be inert markup, and on a body swap a nested one is ignored.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1").text
+    for anchor in ('id="edm-portfolios"', 'id="edm-detail-meta"',
+                   'id="edm-rollup"', 'id="edm-treaties"'):
+        assert anchor in html
+    assert "hx-swap-oob" not in html
+
+
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):
     # Treaties polish (2026-07-24): the Export button sits IN the header row
     # (no sec__action block below it any more) and the old read-only note is a

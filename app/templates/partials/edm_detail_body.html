@@ -4,13 +4,17 @@
    (US4), treaties (US2), broker analyses (US3). Read-only — no create/edit/
    split/filter control, no map (FR-014/FR-016); every unavailable state renders
    gracefully (ui.md §5), never an error. #}
-{# Live body (package-card pattern): while the backfill head is in flight — or
-   the import itself still is — the wrapper polls its own read-only render every
-   3s and swaps itself, so the page updates on its own when the rwb job lands.
-   The server stops emitting the trigger once the work is terminal, so polling
-   ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
-   changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
-{% set live = edm.sync_running or edm.breakout_running
+{# Live body (package-card pattern): while the import is still in flight — or a
+   backfill head is — the wrapper polls its own read-only render every 3s and
+   swaps itself, so the page updates on its own when the rwb job lands. The
+   server stops emitting the trigger once the work is terminal, so polling ends
+   without a reload. The Sync forms swap this wrapper via HTMX (URL never
+   changes, no re-submission prompt on refresh); plain-POST fallback is PRG.
+   A breakout episode is NOT polled here (T-11, 2026-08-05): #edm-detail is the
+   page's scrolling element, so swapping it every 3s threw the analyst back to
+   the top. Only the Portfolios section changes during a breakout, and that
+   section polls itself — partials/edm_portfolios_section.html. #}
+{% set live = edm.sync_running
      or edm.status in ('pending_import', 'importing', 'delete_pending') %}
 <div class="page-pad" id="edm-detail"
   {%- if live %}
@@ -24,42 +28,7 @@
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>
     </h1>
-    <div class="detail-meta">
-      <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
-      {% if edm.irp_id %}
-      <span class="crumb__sep">·</span>
-      <span>RM EDM #{{ edm.irp_id }}</span>
-      {% endif %}
-      {% if edm.created_by_irp_job_irp_id %}
-      <span class="crumb__sep">·</span>
-      <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>
-      {% endif %}
-      {% if edm.detail_state in ('populated', 'empty') %}
-      <span class="crumb__sep">·</span>
-      <span>{{ edm.portfolio_count }} portfolio{{ '' if edm.portfolio_count == 1 else 's' }}</span>
-      {% endif %}
-      {% if edm.as_of %}
-      <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot"></span> synced
-        <time data-utc="{{ edm.as_of }}" title="{{ edm.as_of }} UTC">{{ edm.as_of }}</time></span>
-      {% elif edm.detail_state == 'failed' %}
-      <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
-      {% endif %}
-      {# manual re-sync (FR-003 as amended 2026-07-23) — re-runs the backfill
-         worker; hidden while the import itself is still in flight #}
-      {% if edm.status == 'ready' %}
-      <span class="crumb__sep">·</span>
-      {% if edm.sync_running %}
-      <button class="btn-sm" type="button" disabled>Syncing…</button>
-      {% else %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
-              sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% endif %}
-      {% endif %}
-    </div>
+    {% include "partials/edm_detail_meta.html" %}
   </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
@@ -75,82 +44,10 @@
   {% include "partials/edm_aggregate_strip.html" %}
 
   {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
-  <details class="sec" open>
-    <summary>
-      <span class="sec__caret">▸</span>
-      <span class="sec__title">Portfolios</span>
-      {% if edm.detail_state in ('populated', 'empty') %}
-      <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
-      {% endif %}
-      <span class="sec__spacer"></span>
-      <span class="sec__note">Break out creates one sub-portfolio per line of business or state</span>
-    </summary>
-
-    {# ── breakout completion banner (spec 005 FR-012) — the newest terminal
-       run_breakout_* job: a clean run shows while its follow-up backfill fills
-       figures in, a failed/partial one stays until the next run supersedes it ── #}
-    {% if edm.breakout_banner %}
-    {% set b = edm.breakout_banner %}
-    <div class="bo-banner bo-banner--{{ 'ok' if b.ok else 'partial' }}">
-      <strong>{{ b.noun|capitalize }} breakout of {{ b.source_name }}:</strong>
-      {{ b.created }} created{% if b.adopted %}, {{ b.adopted }} adopted{% endif %}{% if b.skipped_existing %}, {{ b.skipped_existing }} already created{% endif %}{% if b.failed %}, {{ b.failed }} failed{% endif %}{% if b.error %} — {{ b.error }}{% elif b.ok %} — exposure figures are filling in automatically{% endif %}.
-    </div>
-    {% endif %}
-
-    {% if edm.detail_state == 'populated' %}
-    <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 92px 84px 84px 130px 170px minmax(150px,1fr) 120px 92px 200px;min-width:1352px">
-        <div class="dtable__head">
-          <span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span>
-          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Geography</span>
-          <span class="l">Currency</span><span>TIV</span><span class="l">Analyses</span>
-        </div>
-        {% for p in edm.portfolios %}
-        {% include "partials/portfolio_row.html" %}
-        {% endfor %}
-      </div>
-    </div>
-    <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
-      Name column stays pinned while you scroll sideways. Perils shown are the
-      perils <em>present</em> per portfolio; absence isn't inferred as a defect.
-      A portfolio expands to the analyses linked to it; full settings for every
-      analysis are in the Broker analyses section below.</p>
-    {% elif edm.detail_state == 'importing' %}
-    <div class="state-box">Per-portfolio detail appears within ~1 minute of the
-      import finishing.</div>
-    {% elif edm.detail_state == 'pending' %}
-    <div class="state-box">Exposure detail is being fetched from Risk Modeler —
-      it appears here shortly.</div>
-    {% elif edm.detail_state == 'failed' %}
-    <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
-      The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
-      {% if edm.status == 'ready' %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
-              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% endif %}
-    </div>
-    {% elif edm.detail_state == 'empty' %}
-    <div class="state-box">No portfolios in this EDM.</div>
-    {% else %}
-    <div class="state-box"><strong>Detail not available.</strong><br>
-      Imported before exposure backfill shipped.
-      {% if edm.status == 'ready' %}
-      Sync now to fetch its per-portfolio detail from Risk Modeler.
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
-              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% else %}
-      Re-import to populate its per-portfolio detail.
-      {% endif %}
-    </div>
-    {% endif %}
-  </details>
+  {% include "partials/edm_portfolios_section.html" %}
 
   {# ── Treaties (US2) — EDM-level, expand/collapse, Excel export (FR-020–FR-025) ── #}
-  <details class="sec" open>
+  <details class="sec" open id="edm-treaties">
     <summary>
       <span class="sec__caret">▸</span>
       <span class="sec__title">Treaties</span>
