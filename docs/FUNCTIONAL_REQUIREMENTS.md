@@ -185,6 +185,8 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 Re-shaping exposure to match treaty terms before analysis. This cannot be done in the current workflow tool (done in RiskLink today, which is slow); Risk Modeler makes it fast and synchronous, so it becomes a *preferred* path.
 
+> **Build record (2026-08-05).** The two one-click breakouts — by line of business and by geography at state/state-equivalent grain — shipped in Iteration 4: see `specs/005-subportfolio-breakouts/spec.md` and PRD §10A.5/§21. The 2026-07-29 product direction resolved the commercial-geo open question below (Risk Modeler assigns whole accounts; accepted and disclosed in the preview). The filtered sub-portfolio builder and the complement split are fast-follows.
+
 | Requirement | Notes |
 |---|---|
 | Sub-portfolios are created by filtering an EDM's exposure. | To match terms the broker didn't break out — e.g. isolate a state with a different retention, or exclude a line of business. |

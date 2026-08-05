@@ -32,14 +32,40 @@ does that, ``delete_edm`` targets the wrong resource.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, Sequence, runtime_checkable
 
-# Repo-owned, read-only DataBridge aggregate scripts (set-based, one row set
-# covering every portfolio in the EDM) — executed through the wheel's generic
-# DataBridge executor by get_edm_exposure_summary below.
+logger = logging.getLogger(__name__)
+
+# Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
+# (get_edm_exposure_summary) and the per-portfolio breakout selection and
+# member-count reads (select_breakout_accounts / populate_sub_portfolio) —
+# executed through the wheel's generic DataBridge executor.
 _DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
+
+# manage_portfolio_accounts takes the ids in the request body (no URL ceiling);
+# adds are still chunked so no single PATCH carries an unbounded id list.
+_ADD_CHUNK_SIZE = 1000
+
+# The breakout selection read per dimension — parameterized, one-portfolio
+# DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
+# below. Each script mirrors its summary script's joins, so the selection
+# vocabulary matches the stored breakout_values the plan was approved from
+# (LOBNAME for lob, Admin1Code for state — P-12).
+_SELECTION_SCRIPTS = {
+    "lob": "breakout_lob_accounts.sql",
+    "state": "breakout_state_accounts.sql",
+}
+
+
+class DuplicatePortfolioNameError(Exception):
+    """``create_portfolio`` refused because the name is already taken in the
+    EDM — the adopt-an-existing-sub-portfolio signal (FR-011). A DISTINCT type
+    because ``IRPValidationError`` alone also covers an over-long name and an
+    over-long number (W-10); the gateway verifies the name is actually taken
+    before raising this."""
 
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
@@ -99,9 +125,14 @@ class AnalysisHit:
 @dataclass(frozen=True)
 class PortfolioHit:
     """One portfolio enumerated within an EDM. ``irp_id`` is RM's portfolioId as a
-    string; the exposure figures come separately via ``get_portfolio_exposure``."""
+    string; the exposure figures come separately via ``get_portfolio_exposure``.
+    ``stamp`` is RM's ``stampDate`` from the enumeration row — the closest thing
+    RM has to an updated-at; the backfill stores it as the FR-002a freshness
+    anchor (spec 005). Read at enumeration time, BEFORE the DataBridge summary
+    read, so the stored stamp is conservative."""
     irp_id: str
     name: str
+    stamp: str | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +150,31 @@ class TreatyDetail:
     irp_id: str | None
     name: str
     attributes: dict = field(default_factory=dict)
+
+
+# ── Breakout value objects (spec 005 — contracts/data-access.md §3) ─────────────
+
+@dataclass(frozen=True)
+class BreakoutSelection:
+    """The resolved account ids per breakout value, one call per run. The real
+    gateway resolves every value from ONE set-based DataBridge query (R1,
+    revised 2026-08-05), so its failure raises and fails the whole job with
+    nothing created; ``errors_by_value`` stays on the seam for implementations
+    that can fail per value — the worker fails such an entry with no create
+    call (W-14). A value with no matching accounts is an EMPTY list, which the
+    worker turns into a zero-match failure with no create call (FR-008)."""
+    accounts_by_value: dict[str, list[int]]
+    errors_by_value: dict[str, str]
+
+
+@dataclass(frozen=True)
+class SubPortfolioResult:
+    """One composed sub-portfolio: RM's portfolioId from the create step, and
+    the member count READ BACK from Risk Modeler — never the ``completed``
+    figure from the add call, which counts ids newly added and is legitimately
+    0 on a re-run (W-9)."""
+    portfolio_irp_id: str
+    account_count: int
 
 
 @dataclass(frozen=True)
@@ -173,6 +229,28 @@ class IRPGateway(Protocol):
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
 
+    # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
+
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: int,
+                              portfolio_irp_id: str) -> str | None: ...
+
+    # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
+
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
+                                 source_portfolio_irp_id: str, dimension: str,
+                                 values: Sequence[str]) -> BreakoutSelection: ...
+
+    def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                             name: str, number: str, description: str,
+                             account_ids: Sequence[int]) -> SubPortfolioResult: ...
+
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                               portfolio_irp_id: str,
+                               account_ids: Sequence[int]) -> SubPortfolioResult: ...
+
+    def find_portfolio_by_number(self, *, exposure_irp_id: str,
+                                 number: str) -> list[PortfolioHit]: ...
+
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
@@ -190,6 +268,10 @@ class _RealGateway:
 
     def __init__(self) -> None:
         self._irp = None
+        # databaseName per (edm_name, exposureId) — stable for the EDM's
+        # lifetime (a re-import gets a new exposureId), so the breakout loop's
+        # per-entry DataBridge reads don't repeat the RM exposures search.
+        self._database_names: dict[tuple[str, str], str] = {}
 
     def _client(self):
         if self._irp is None:
@@ -266,7 +348,169 @@ class _RealGateway:
             name = r.get("name") or r.get("portfolioName")
             if pid is None or not name:
                 continue
-            hits.append(PortfolioHit(irp_id=str(pid), name=str(name)))
+            stamp = r.get("stampDate")
+            hits.append(PortfolioHit(
+                irp_id=str(pid), name=str(name),
+                stamp=(str(stamp) if stamp is not None else None)))
+        return hits
+
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: int,
+                              portfolio_irp_id: str) -> str | None:
+        # The confirm-time freshness read (spec 005 FR-002a): the portfolio's
+        # current stampDate via the exposure-scoped portfolio search — the one
+        # RM call permitted on the request path (Article 2's submit-time
+        # pattern). Deliberately NOT named get_* — the architecture guard greps
+        # for web-layer get_* IRP calls, and this one is request-path-legal.
+        # Matched on portfolioId client-side: the filterable fields are
+        # portfolioName/portfolioNumber (W-17) and neither is stable enough to
+        # anchor a freshness check on.
+        rows = self._client().portfolio.search_portfolios_paginated(
+            int(exposure_irp_id))
+        for r in rows:
+            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
+            if pid is not None and str(pid) == str(portfolio_irp_id):
+                stamp = r.get("stampDate")
+                return str(stamp) if stamp is not None else None
+        return None
+
+    # ── spec-005 breakout composition (select → create → add, worker-only) ───────
+
+    def _cached_database_name(self, *, edm_name: str,
+                              exposure_irp_id: str) -> str:
+        key = (edm_name, str(exposure_irp_id))
+        if key not in self._database_names:
+            self._database_names[key] = self._edm_database_name(
+                edm_name=edm_name, edm_irp_id=int(exposure_irp_id))
+        return self._database_names[key]
+
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
+                                 source_portfolio_irp_id: str, dimension: str,
+                                 values: Sequence[str]) -> BreakoutSelection:
+        # One set-based DataBridge query resolves EVERY value at once (R1,
+        # revised 2026-08-05): the REST selection — paginated account
+        # enumeration plus a chunked accountId-IN policy scan — cannot complete
+        # on a large book. The wheel's account search refuses past 100,000
+        # records because it can no longer prove the page sequence is complete
+        # (observed at 248,000 accounts, W-20), and the policy scan multiplies
+        # that into thousands of round trips. The script mirrors the summary
+        # script's joins, so the values filtered here are byte-identical to
+        # the stored summary the plan was approved from; ACCGRPID is the id
+        # RM's account operations accept as accountId. Any failure RAISES —
+        # the worker fails the job before anything is created.
+        script = _SELECTION_SCRIPTS.get(dimension)
+        if script is None:
+            raise ValueError(
+                f"no selection read implemented for dimension {dimension!r}")
+        database = self._cached_database_name(edm_name=edm_name,
+                                              exposure_irp_id=exposure_irp_id)
+        frames = self._client().databridge.execute_query_from_file(
+            str(_DATABRIDGE_SQL_DIR / script),
+            params={"portfolio_id": int(source_portfolio_irp_id)},
+            database=database)
+        rows = frames[0].to_dict("records") if frames else []
+        by_value: dict[str, set[int]] = {}
+        for row in rows:
+            value, account_id = row.get("Value"), row.get("AccountId")
+            if value is None or account_id is None:
+                continue
+            by_value.setdefault(str(value), set()).add(int(account_id))
+        return BreakoutSelection(
+            accounts_by_value={v: sorted(by_value.get(v, set()))
+                               for v in values},
+            errors_by_value={})
+
+    def _member_count(self, *, edm_name: str, exposure_irp_id: str,
+                      portfolio_irp_id: str) -> int:
+        frames = self._client().databridge.execute_query_from_file(
+            str(_DATABRIDGE_SQL_DIR / "portfolio_member_count.sql"),
+            params={"portfolio_id": int(portfolio_irp_id)},
+            database=self._cached_database_name(
+                edm_name=edm_name, exposure_irp_id=exposure_irp_id))
+        rows = frames[0].to_dict("records") if frames else []
+        count = rows[0].get("AccountCount") if rows else None
+        return int(count) if count is not None else 0
+
+    def _portfolio_name_taken(self, exposure_irp_id: str, name: str) -> bool:
+        # W-10: IRPValidationError alone is not "the name is taken" — it also
+        # covers the two length violations. Verify against RM before treating
+        # the failure as the adoption signal.
+        try:
+            hits = self._client().portfolio.search_portfolios(
+                int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
+        except Exception:  # noqa: BLE001 — unverifiable → let the original error stand
+            return False
+        return len(hits) > 0
+
+    def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                             name: str, number: str, description: str,
+                             account_ids: Sequence[int]) -> SubPortfolioResult:
+        # create (synchronous 201) → add → read back and compare (T-01). The
+        # caller's description passes through UNTOUCHED — Risk Modeler's
+        # description is where the untruncated lineage lives (FR-010), so the
+        # gateway never shortens it. portfolio_number is always passed
+        # explicitly: omitted, RM defaults it to the name, which then overruns
+        # the number's own 20-character cap (W-13).
+        from irp_integration.exceptions import IRPValidationError  # noqa: PLC0415 — lazy by design
+
+        try:
+            portfolio_irp_id, _body = self._client().portfolio.create_portfolio(
+                edm_name, name, number, description)
+        except IRPValidationError as exc:
+            if self._portfolio_name_taken(exposure_irp_id, name):
+                raise DuplicatePortfolioNameError(
+                    f"portfolio name already exists in the EDM: {name}") from exc
+            raise
+        return self.populate_sub_portfolio(
+            edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+            portfolio_irp_id=str(portfolio_irp_id), account_ids=account_ids)
+
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                               portfolio_irp_id: str,
+                               account_ids: Sequence[int]) -> SubPortfolioResult:
+        # The add step + read-back verification, shared by the create path and
+        # the adopt-then-populate heal (R7). Re-adding already-member accounts
+        # is safe and returns completed 0 (W-9), so the heal runs
+        # unconditionally; success is decided by reading the portfolio back,
+        # never by the add call's completed/total counts. The read-back is a
+        # DataBridge count (R1, revised 2026-08-05) — the paginated REST
+        # enumeration cannot verify a portfolio past 100,000 accounts (W-20).
+        pm = self._client().portfolio
+        ids = [int(i) for i in account_ids]
+        chunks = range(0, len(ids), _ADD_CHUNK_SIZE)
+        logger.info("adding %d accounts to portfolio %s in %d chunk(s)",
+                    len(ids), portfolio_irp_id, len(chunks))
+        for start in chunks:
+            pm.manage_portfolio_accounts(
+                int(exposure_irp_id), int(portfolio_irp_id),
+                accounts_to_add=ids[start:start + _ADD_CHUNK_SIZE])
+        count = self._member_count(edm_name=edm_name,
+                                   exposure_irp_id=exposure_irp_id,
+                                   portfolio_irp_id=portfolio_irp_id)
+        if count != len(set(ids)):
+            logger.warning(
+                "sub-portfolio %s holds %d accounts after the add; %d were "
+                "selected", portfolio_irp_id, count, len(set(ids)))
+        return SubPortfolioResult(portfolio_irp_id=str(portfolio_irp_id),
+                                  account_count=count)
+
+    def find_portfolio_by_number(self, *, exposure_irp_id: str,
+                                 number: str) -> list[PortfolioHit]:
+        # EVERY hit, not the first — more than one portfolio carrying the
+        # number fails that sub-portfolio rather than adopting an arbitrary
+        # one (FR-011). Numbers are unique only within an exposure; the
+        # exposure-scoped search covers that (W-17).
+        rows = self._client().portfolio.search_portfolios_paginated(
+            int(exposure_irp_id), filter=f"portfolioNumber={json.dumps(number)}")
+        hits: list[PortfolioHit] = []
+        for r in rows:
+            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
+            if pid is None:
+                continue
+            stamp = r.get("stampDate")
+            hits.append(PortfolioHit(
+                irp_id=str(pid), name=str(r.get("name") or
+                                          r.get("portfolioName") or ""),
+                stamp=(str(stamp) if stamp is not None else None)))
         return hits
 
     def get_portfolio_exposure(self, *, edm_irp_id: int,
@@ -337,21 +581,53 @@ class _RealGateway:
                     "portfolio_name": (str(name) if name is not None else None),
                     "total_tiv": None, "states": [],
                     "lines_of_business": [], "currencies": [],
+                    # spec 005 (R11): the overlap denominator and the breakout
+                    # enumeration source, keyed by breakout_dimension_kind.code.
+                    # Their PRESENCE marks a post-005 summary — the gate reads a
+                    # summary without breakout_values as absent (FR-002).
+                    "account_total": None, "breakout_values": {},
                 }
             return summary[key]
 
         for row in rows("portfolio_total_tiv.sql"):
             tiv = row.get("TotalTIV")
             entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_account_total.sql"):
+            total = row.get("AccountTotal")
+            entry(row)["account_total"] = (int(total) if total is not None
+                                           else None)
         for row in rows("portfolio_states.sql"):
-            entry(row)["states"].append(str(row["State"]))
+            # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
+            # states list now holds codes, not the old COALESCE(name, code)
+            # mix. Admin1Name rides along as a nullable display label (absent
+            # until the EDM is geocoded, never synthesized from the code).
+            e = entry(row)
+            value = str(row["Admin1Code"])
+            e["states"].append(value)
+            label = row.get("Admin1Name")
+            count = row.get("AccountCount")
+            e["breakout_values"].setdefault("state", []).append({
+                "value": value,
+                "label": (str(label) if label else None),
+                "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_lines_of_business.sql"):
-            entry(row)["lines_of_business"].append(str(row["LineOfBusiness"]))
+            e = entry(row)
+            value = str(row["LineOfBusiness"])
+            e["lines_of_business"].append(value)
+            # spec 005 (FR-005): LOB breakout values — the value is its own
+            # label (label null); accounts is the FR-007 overlap numerator.
+            count = row.get("AccountCount")
+            e["breakout_values"].setdefault("lob", []).append({
+                "value": value, "label": None,
+                "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
             for key in ("states", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
+            for dim, entries in values["breakout_values"].items():
+                values["breakout_values"][dim] = sorted(
+                    entries, key=lambda e: e["value"])
         return summary
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:
@@ -521,13 +797,53 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
+def fetch_portfolio_stamp(*, exposure_irp_id: int,
+                          portfolio_irp_id: str) -> str | None:
+    return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
+                                           portfolio_irp_id=portfolio_irp_id)
+
+
+def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str, dimension: str,
+                             values: Sequence[str]) -> BreakoutSelection:
+    return _active().select_breakout_accounts(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        source_portfolio_irp_id=source_portfolio_irp_id,
+        dimension=dimension, values=values)
+
+
+def create_sub_portfolio(*, edm_name: str, exposure_irp_id: str, name: str,
+                         number: str, description: str,
+                         account_ids: Sequence[int]) -> SubPortfolioResult:
+    return _active().create_sub_portfolio(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id, name=name,
+        number=number, description=description, account_ids=account_ids)
+
+
+def populate_sub_portfolio(*, edm_name: str, exposure_irp_id: str,
+                           portfolio_irp_id: str,
+                           account_ids: Sequence[int]) -> SubPortfolioResult:
+    return _active().populate_sub_portfolio(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        portfolio_irp_id=portfolio_irp_id, account_ids=account_ids)
+
+
+def find_portfolio_by_number(*, exposure_irp_id: str,
+                             number: str) -> list[PortfolioHit]:
+    return _active().find_portfolio_by_number(
+        exposure_irp_id=exposure_irp_id, number=number)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
+    "BreakoutSelection", "SubPortfolioResult", "DuplicatePortfolioNameError",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
-    "search_treaties", "get_analysis_metadata",
+    "search_treaties", "get_analysis_metadata", "fetch_portfolio_stamp",
+    "select_breakout_accounts", "create_sub_portfolio",
+    "populate_sub_portfolio", "find_portfolio_by_number",
 ]

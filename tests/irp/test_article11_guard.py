@@ -56,3 +56,20 @@ def test_no_poll_inside_convenience_methods():
     assert offenders == [], (
         "the wheel's poll-inside convenience methods are forbidden "
         f"(Article 11 / FOLLOWUPS §4): {offenders}")
+
+
+def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
+    """Spec 005 (T042): the breakout confirm path's ONE Risk Modeler read is
+    ``fetch_portfolio_stamp`` (FR-002a — the Article 2 submit-time pattern);
+    routers touch no gateway function at all. Mirrors the unit-tier guard in
+    tests/unit/test_architecture_guards.py as part of every sandbox run."""
+    service = _REPO_ROOT / "app" / "services" / "breakout_service.py"
+    text = "\n".join(line.split("#", 1)[0] for line in
+                     service.read_text(encoding="utf-8").splitlines())
+    calls = set(re.findall(r"irp_gateway\.(\w+)", text))
+    assert calls <= {"fetch_portfolio_stamp"}, sorted(calls)
+    router_hits = []
+    for path in (_REPO_ROOT / "app" / "routers").rglob("*.py"):
+        if "irp_gateway" in path.read_text(encoding="utf-8"):
+            router_hits.append(str(path.relative_to(_REPO_ROOT)))
+    assert router_hits == [], router_hits

@@ -3,12 +3,16 @@
    come from the DERIVED edm.aggregate (portfolio_service.aggregate_exposure);
    the two domain cells summarize edm.treaties (count + kinds) and edm.analyses
    (N · M RDMs · K linked). Pending state (FR-043) when nothing is backfilled
-   yet — never an error. #}
+   yet — never an error. `oob_swap` is set only by
+   partials/edm_portfolios_live.html: the Portfolios section's breakout poll
+   OOB-swaps this strip, whose Portfolios cell counts the rows the worker is
+   still creating (T-11). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>{%- else -%}{{ '{:,.0f}'.format(v) }}{%- endif -%}
 {%- endmacro -%}
 {%- set agg = edm.aggregate -%}
-<div class="rollup">
+<div class="rollup" id="edm-rollup"
+     {%- if oob_swap | default(false) %} hx-swap-oob="true"{% endif %}>
   <div class="rollup__eyebrow">EDM rollup
     <span class="badge badge--neutral badge--sm">orientation</span>
     {% if agg and agg.with_snapshot < agg.portfolio_count %}
@@ -28,6 +32,9 @@
       <span class="v">{% if agg.perils %}{{ agg.perils | join(' · ') }}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
     <div class="rollup__cell"><span class="k">Lines of business</span>
       <span class="v">{% if agg.lines_of_business %}{{ agg.lines_of_business[:2] | join(', ') }}{% if agg.lines_of_business|length > 2 %} <small>+{{ agg.lines_of_business|length - 2 }}</small>{% endif %}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
+    {# spec 005 (P-12): agg.states holds Admin1Code values from post-005
+       snapshots; portfolios not yet re-synced contribute the old name/code
+       mix. Plain strings either way — rendered verbatim. #}
     <div class="rollup__cell"><span class="k">Geography</span>
       <span class="v">
         {%- if agg.states -%}

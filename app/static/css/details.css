@@ -123,3 +123,72 @@ a.sec__note--link:hover { text-decoration: underline; }
 .state-box--warn { border-color: var(--color-warning-border); background: var(--color-warning-bg); color: var(--color-warning); }
 .state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
 .state-box--warn strong { color: var(--color-warning); }
+
+/* ── portfolio breakout (spec 005) — modal, in-flight, banner, error lines ──
+   Markup fixed by docs/ui_previews/breakout_modal.html (approved 2026-08-04);
+   tokens only (Article 9). */
+.bo-modal { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); width: 100%; max-width: 560px; display: flex; flex-direction: column; overflow: hidden; margin: auto; }
+.bo-modal__header { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-faint); }
+.bo-modal__title { font-size: var(--fs-h3); font-weight: var(--fw-semibold); }
+.bo-modal__src { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary); }
+.bo-modal__body { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.bo-modal__footer { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-faint); }
+.bo-modal__count { margin-right: auto; font-size: var(--fs-label); color: var(--text-secondary); }
+.bo-modal__count strong { color: var(--text-primary); }
+
+/* dimension chooser — two options, each enabled or disabled-with-reason */
+.bo-dims { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.bo-dim { border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); background: var(--surface-panel); cursor: pointer; text-align: left; font: inherit; }
+.bo-dim[aria-pressed="true"] { border-color: var(--color-brand); background: var(--color-brand-faint); box-shadow: inset 0 0 0 1px var(--color-brand); }
+.bo-dim__name { display: block; font-size: var(--fs-label); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.bo-dim__meta { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); margin-top: 1px; }
+.bo-dim:disabled, .bo-dim--disabled { cursor: not-allowed; background: var(--surface-recessed); }
+.bo-dim:disabled .bo-dim__name, .bo-dim--disabled .bo-dim__name { color: var(--text-disabled); }
+.bo-dim__reason { display: block; font-size: var(--fs-caption); color: var(--color-warning); margin-top: 1px; }
+
+/* the preview list — every sub-portfolio to be created, NEVER truncated */
+.bo-list { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
+.bo-list__scroll { max-height: 300px; overflow-y: auto; }
+.bo-list__head, .bo-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 76px; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); }
+.bo-list__head { position: sticky; top: 0; background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.bo-list__head .r { text-align: right; }
+.bo-row { border-bottom: 1px solid var(--c-border-faint); font-size: var(--fs-label); }
+.bo-row:last-child { border-bottom: none; }
+.bo-row__value { font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__label { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
+.bo-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__accounts { text-align: right; font-variant-numeric: tabular-nums; }
+.bo-row__exists { font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; }
+
+/* disclosures (FR-007/FR-006c) — info tone for the measured statement,
+   warning tone for refusals + the large-run note, neutral for fixed copy */
+.bo-note { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); line-height: 1.45; }
+.bo-note--overlap { background: var(--color-info-bg); border: 1px solid var(--color-info-border); color: var(--color-info); }
+.bo-note--notice { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+.bo-note--plain { background: var(--surface-recessed); border: 1px solid var(--border-faint); color: var(--text-tertiary); }
+.bo-note strong { font-weight: var(--fw-semibold); }
+
+/* a POST-backed action rendered as an inline link (the modal's Sync pointers) */
+.bo-link { background: none; border: none; padding: 0; font: inherit; color: var(--color-brand); font-weight: var(--fw-medium); text-decoration: underline; cursor: pointer; }
+
+/* in-flight (modal body + portfolio row) */
+.bo-spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--color-brand-border); border-top-color: var(--color-brand); border-radius: 50%; animation: bo-spin .7s linear infinite; display: inline-block; vertical-align: -2px; margin-right: var(--space-2); }
+@keyframes bo-spin { to { transform: rotate(360deg); } }
+.bo-flight { display: flex; align-items: center; font-size: var(--fs-label); color: var(--text-secondary); background: var(--color-brand-faint); border: 1px solid var(--color-brand-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+
+/* the row control + row in-flight indicator (first .dtable cell) */
+.bo-btn { margin-left: auto; flex: none; height: 22px; padding: 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-secondary); font-size: var(--fs-caption); font-weight: var(--fw-medium); cursor: pointer; }
+.bo-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.bo-inline { margin-left: auto; flex: none; display: inline-flex; align-items: center; font-size: var(--fs-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* lineage badge on generated portfolio rows (US3/FR-014) — the immediate
+   source only; broker-arrived rows carry no badge */
+.bo-lineage { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-lineage strong { color: var(--text-secondary); font-weight: var(--fw-medium); }
+
+/* page-side completion banner + durable per-row error line (FR-012) */
+.bo-banner { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); }
+.bo-banner--ok { background: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); }
+.bo-banner--partial { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+.bo-row-error { font-size: var(--fs-caption); color: var(--color-negative); background: var(--color-negative-bg); border-top: 1px solid var(--color-negative-border); padding: var(--space-1) var(--space-3); position: sticky; left: 0; width: 100cqw; }
+.bo-row-error strong { font-weight: var(--fw-semibold); }

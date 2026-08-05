@@ -15,6 +15,12 @@ Runs on the SQLite unit mirror (``iteration2_db``) with the fake IRP; no externa
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
+
+import pytest
+from dramatiq.middleware import TimeLimitExceeded
+
 from app.poller import run as poller
 from app.services import (
     edm_service,
@@ -24,7 +30,7 @@ from app.services import (
 from app.services import (
     package_sync_service as sync,
 )
-from app.workers import package_jobs
+from app.workers import package_jobs, runtime
 from db import execute, execute_command, execute_one, get_connection
 
 MS = sync.MemberSpec
@@ -176,3 +182,33 @@ def test_delete_edm_submit_failure_fails_rwb_job(iteration2_db, fake_irp, drive)
     # The EDM is NOT 'deleted' (still delete_pending), so the package must not finalize.
     assert execute_one("SELECT deleted_at FROM package WHERE id = :p",
                        {"p": pid}, connection="WORKBENCH")["deleted_at"] is None
+
+
+# ── dramatiq time-limit kill ─────────────────────────────────────────────────────
+
+def test_time_limit_kill_marks_the_row_failed_before_reraising(iteration2_db):
+    """``TimeLimitExceeded`` is a ``BaseException`` the generic handler never
+    sees. ``run_job`` must mark the row ``failed`` before re-raising — a row
+    left ``running`` would be reset to ``pending`` by the reconciler and
+    re-dispatched into the same kill, forever (spec 005 R1 revision: large
+    breakout fan-outs made the actor time limit reachable)."""
+    jid = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, attempt_count, inserted_at, updated_at) "
+        "VALUES (:i, 'analyst_request', :r, 'run_breakout_lob', 'pending', 0, "
+        ":now, :now)",
+        {"i": jid, "r": str(uuid.uuid4()), "now": datetime.utcnow()},
+        connection="WORKBENCH")
+
+    def body():
+        raise TimeLimitExceeded()
+
+    with pytest.raises(TimeLimitExceeded):
+        runtime.run_job(rwb_job_id=jid, worker_id="w1", body=body)
+
+    row = execute_one(
+        "SELECT status_code, error_detail FROM rwb_job WHERE id = :i",
+        {"i": jid}, connection="WORKBENCH")
+    assert row["status_code"] == "failed"
+    assert "time limit" in row["error_detail"]

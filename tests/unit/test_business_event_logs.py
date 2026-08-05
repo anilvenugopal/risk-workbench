@@ -57,6 +57,47 @@ def test_submit_success_logged_with_irp_id(iteration2_db, fake_irp, drive, caplo
                for m in msgs)
 
 
+def test_breakout_request_and_run_emit_business_events(
+        iteration2_db, fake_irp, caplog):
+    # Spec 005 US3 (T052/T054 — FR-015/P-08): the confirm logs the analyst
+    # request with the sub-portfolio count; the worker logs each
+    # sub-portfolio's created/adopted/failed line and the completion summary,
+    # every line carrying the actor id from input_data.
+    from app.services import breakout_service
+    from app.workers import portfolio_jobs
+    from tests.unit.test_breakout_gate import (
+        AS_OF,
+        RM_STAMP,
+        _mk_edm,
+        _mk_portfolio,
+    )
+
+    edm_id = _mk_edm()
+    pid = _mk_portfolio(edm_id)
+    fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
+                           name="usfl_commercial", stamp=RM_STAMP)
+    fake_irp.selection_by_value = {"EQ Comm": [1]}   # FLD Comm → zero-match
+    a = iteration2_db.user_a
+
+    with caplog.at_level(logging.INFO, logger="app.services.breakout_service"):
+        jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF, a)
+    msgs = _messages(caplog, "app.services.breakout_service")
+    assert any(f"breakout lob requested for portfolio {pid}" in m
+               and str(a) in m and "n_sub_portfolios=2" in m for m in msgs)
+
+    with caplog.at_level(logging.INFO, logger="app.workers.portfolio_jobs"):
+        assert portfolio_jobs.run_one(rwb_job_id=jid,
+                                      rwb_job_type="run_breakout_lob")
+    wmsgs = _messages(caplog, "app.workers.portfolio_jobs")
+    assert any("usfl_commercial - EQ Comm created" in m and str(a) in m
+               for m in wmsgs)
+    assert any("usfl_commercial - FLD Comm failed" in m
+               and "zero accounts" in m and str(a) in m for m in wmsgs)
+    assert any("breakout lob completed" in m and str(a) in m
+               and "1 created" in m and "1 failed of 2 planned" in m
+               for m in wmsgs)
+
+
 def test_poller_logs_the_chained_head(iteration2_db, fake_irp, drive, caplog):
     _build(drive, iteration2_db.user_a,
            edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])

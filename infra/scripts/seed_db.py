@@ -138,7 +138,9 @@ def main() -> int:
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
                     ('delete_rdm',                'Delete RDM',                70),
-                    ('delete_edm',                'Delete EDM',                80)
+                    ('delete_edm',                'Delete EDM',                80),
+                    ('run_breakout_lob',   'Portfolio breakout by line of business', 90),
+                    ('run_breakout_state', 'Portfolio breakout by geography (state)', 100)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -184,7 +186,20 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            print("  [irp_job/rwb_job kind tables] seeds OK")
+            # breakout_dimension_kind — the two directed breakout dimensions
+            # (spec 005 data-model §2).
+            conn.execute(text("""
+                MERGE breakout_dimension_kind AS target
+                USING (VALUES
+                    ('lob',   'Line of business',  10),
+                    ('state', 'Geography (state)', 20)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [irp_job/rwb_job/breakout kind tables] seeds OK")
 
             app_env = os.environ.get("APP_ENV", "development")
             if app_env == "development":

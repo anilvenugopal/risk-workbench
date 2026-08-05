@@ -476,6 +476,16 @@ def upgrade() -> None:
     #  No status column (Article 4), no scope column (Article 6).
     # ══════════════════════════════════════════════════════════════════════════
 
+    # ── breakout_dimension_kind (kind, Article 3 — Iteration 4, spec 005) ────────
+    # Created BEFORE irp_portfolio: its code is the FK target of the lineage
+    # column below (data-model 005 §2); dropped after irp_portfolio in downgrade().
+    op.create_table(
+        "breakout_dimension_kind",
+        sa.Column("code", sa.NVARCHAR(32), primary_key=True),
+        sa.Column("label", sa.NVARCHAR(128), nullable=False),
+        sa.Column("sort_order", sa.Integer, nullable=False),
+    )
+
     # ── irp_portfolio (a portfolio within an EDM — the detail page's primary unit) ─
     op.create_table(
         "irp_portfolio",
@@ -486,6 +496,17 @@ def upgrade() -> None:
         # JSON snapshot — per-portfolio exposure figures, stored verbatim (R2).
         sa.Column("exposure_detail", sa.NVARCHAR(None), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
+        # Breakout lineage (Iteration 4, spec 005 data-model §1): all three NULL
+        # for broker-arrived portfolios, set together by portfolio_service
+        # insert_generated/adopt_generated. source_portfolio_id records the
+        # IMMEDIATE source only (chained lineage walks the chain). The self-FK
+        # stays ondelete NO ACTION — SQL Server rejects a cascading self-reference.
+        sa.Column("source_portfolio_id", sa.Uuid, nullable=True),
+        sa.Column("breakout_dimension_code", sa.NVARCHAR(32), nullable=True),
+        # The value the SELECTION FILTER uses, verbatim: Admin1Code for state,
+        # LOBNAME for lob (P-12). External exposure vocabulary → plain column
+        # per the Article 3 snapshot rationale.
+        sa.Column("breakout_value", sa.NVARCHAR(256), nullable=True),
         # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
@@ -495,12 +516,26 @@ def upgrade() -> None:
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["source_portfolio_id"], ["irp_portfolio.id"]),
+        sa.ForeignKeyConstraint(["breakout_dimension_code"],
+                                ["breakout_dimension_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
         sa.UniqueConstraint("edm_id", "irp_id", name="uq_irp_portfolio_edm_irp"),
         # No scope/customer column (Article 6).
     )
     op.create_index("ix_irp_portfolio_edm_id", "irp_portfolio", ["edm_id"])
+    # The breakout idempotency key (spec 005 data-model §1 / FR-011): one LIVE
+    # generated portfolio per (source, dimension, value) — re-runs and double
+    # submits hit this as a constraint, not a convention; a soft-deleted row
+    # does not block re-creation.
+    op.create_index(
+        "uq_irp_portfolio_breakout", "irp_portfolio",
+        ["source_portfolio_id", "breakout_dimension_code", "breakout_value"],
+        unique=True,
+        mssql_where=sa.text(
+            "source_portfolio_id IS NOT NULL AND deleted_at IS NULL"),
+    )
 
     # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
     op.create_table(
@@ -556,7 +591,17 @@ def upgrade() -> None:
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
         "('delete_rdm', 'Delete RDM', 70), "
-        "('delete_edm', 'Delete EDM', 80)"
+        "('delete_edm', 'Delete EDM', 80), "
+        "('run_breakout_lob', 'Portfolio breakout by line of business', 90), "
+        "('run_breakout_state', 'Portfolio breakout by geography (state)', 100)"
+    ))
+    # breakout_dimension_kind — the two directed breakout dimensions (spec 005
+    # data-model §2). run_breakout_* enqueues under the already-seeded
+    # analyst_request requestor-type code — no new requestor-type row.
+    op.execute(sa.text(
+        "INSERT INTO breakout_dimension_kind (code, label, sort_order) VALUES "
+        "('lob', 'Line of business', 10), "
+        "('state', 'Geography (state)', 20)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
@@ -611,8 +656,11 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
+    op.drop_index("uq_irp_portfolio_breakout", table_name="irp_portfolio")
     op.drop_index("ix_irp_portfolio_edm_id", table_name="irp_portfolio")
     op.drop_table("irp_portfolio")
+    # After irp_portfolio — its breakout_dimension_code FK targets this kind table.
+    op.drop_table("breakout_dimension_kind")
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.

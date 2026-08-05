@@ -193,6 +193,7 @@ erDiagram
   package ||--o{ irp_edm : "bundles (package_id)"
   package ||--o{ irp_rdm : "bundles (package_id)"
   irp_edm ||--o{ irp_portfolio : "contains portfolios"
+  irp_portfolio ||--o{ irp_portfolio : "breakout lineage (nullable)"
   irp_edm ||--o{ irp_treaty : holds
 
   irp_edm {
@@ -231,12 +232,21 @@ erDiagram
     uniqueidentifier edm_id FK
     string name "portfolio name in IRP"
     int irp_id "nullable; written synchronously (create returns 201)"
+    string exposure_detail "nullable JSON snapshot: RM metrics + DataBridge summary (spec 004)"
+    uniqueidentifier source_portfolio_id FK "nullable; breakout lineage — the IMMEDIATE source portfolio (spec 005)"
+    string breakout_dimension_code FK "nullable; breakout_dimension_kind"
+    string breakout_value "nullable; the selection filter value verbatim (Admin1Code / LOB name)"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
     uniqueidentifier updated_by FK
+  }
+  breakout_dimension_kind {
+    string code PK "lob / state"
+    string label
+    int sort_order
   }
   irp_treaty {
     uniqueidentifier id PK
@@ -258,6 +268,9 @@ erDiagram
 - **`created_by_irp_job_irp_id`** links EDM/RDM back to the async import job that created the entity. `irp_portfolio` and `irp_treaty` have none — their creation is synchronous.
 - **Name-collision check.** Setting or renaming an EDM/RDM name runs `client.edm.search_edms()` / `search_rdms()` — **blocking** since 2026-07-27 (issue #17, spec 003 FR-012 as amended): a hit rejects the save/sync (irp-integration ≥ 0.2.1 would fail the submit anyway). When Risk Modeler is unreachable the check fails open with a visible warning and the worker-side submit validation is the backstop.
 - **Treaty** is referenced by analyses **by name**; create/edit is synchronous (`search_treaties` / `create_treaty` / `create_treaty_lob`). Creating a treaty with its lines of business is a **1 + N** call pattern and is **non-atomic** — a partial failure leaves some LOBs missing; the UI lets the analyst retry the remainder.
+- **Breakout lineage (spec 005).** The three lineage columns are set together for breakout-generated portfolios and all NULL for broker-arrived ones. `source_portfolio_id` records the **immediate source only** — a portfolio generated from a generated portfolio points at its direct parent, and chained lineage is read by walking the chain, never rendered as one. `breakout_value` is the selection filter value verbatim: the state code (`Admin1Code`) for geography, the LOB name for line of business — display resolves the value's label (`Admin1Name`) at read time from the source portfolio's stored summary, and no label is stored on the row (P-12 as revised 2026-08-05). The filtered unique index `uq_irp_portfolio_breakout (source_portfolio_id, breakout_dimension_code, breakout_value) WHERE source_portfolio_id IS NOT NULL AND deleted_at IS NULL` is the idempotency key — one live generated portfolio per (source, dimension, value).
+- **`irp_portfolio.inserted_by` is populated for breakout-generated portfolios** (the confirming analyst, carried in the breakout job's `input_data.actor_id`) — the first writer to use that column on this table.
+- **`exposure_detail`** (spec 004) is the per-portfolio JSON snapshot the `backfill_edm_detail` worker stores: RM's `/metrics` payload plus the DataBridge exposure summary, read defensively by the web layer. Spec 005 extends the summary with `breakout_values` (per-dimension value lists keyed by `breakout_dimension_kind.code`, each value carrying an account count and a nullable display label) and `account_total`, captures the portfolio's RM `stampDate` alongside it, and switches the summary's `states` list to state codes (`Admin1Code`).
 
 ---
 
@@ -699,7 +712,8 @@ erDiagram
 | `package` | Bundle of EDMs/RDMs (any combination). Members carry `package_id`; no `edm_id`/`rdm_id` on the package. ≥1-member rule app-enforced. No status column. |
 | `irp_edm` | An EDM in IRP (DataBridge SQL DB). `package_id` (bundle), `source_file_path`; status plain string. |
 | `irp_rdm` | Broker results file (one row per file; not a DataBridge asset). `package_id` (bundle); no `edm_id`; status = combined rollup of apply jobs. |
-| `irp_portfolio` | Portfolio within an EDM; `irp_id` written synchronously. |
+| `irp_portfolio` | Portfolio within an EDM; `irp_id` written synchronously. Carries the `exposure_detail` snapshot (spec 004) and breakout lineage (spec 005). |
+| `breakout_dimension_kind` | Breakout dimension vocabulary (`lob` / `state`); also the key inside `exposure_detail.summary.breakout_values`. |
 | `irp_treaty` | Treaty in IRP, belonging to one EDM; referenced by name. |
 | `irp_analysis` | Analysis/group. `edm_id`/`rdm_id` both nullable, CHECK ≥1 (RDM-only → edm_id null); broker/own via `rdm_id`. |
 | `irp_analysis_status_kind` | `pending` / `running` / `ready` / `error`. |
@@ -733,7 +747,8 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. (`delete_edm` added for package delete — async, polled like imports. RDM delete is **synchronous** and creates no `irp_job`, so there is no `delete_rdm` job-type kind; A21.) |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `delete_rdm`, `delete_edm`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2.) |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_breakout_lob`, `run_breakout_state`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`, `delete_rdm`, `delete_edm`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; the two `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio.) |
+| `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography (state)) — spec 005. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
 | `delivery_kind` | `file`, `sql`. |
 | `validation_run_status_kind` *(deferred)* | `running`, `complete`, `error`. |

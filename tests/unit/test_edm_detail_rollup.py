@@ -54,6 +54,26 @@ def test_aggregate_sums_unions_and_combines():
     assert agg.total_tiv == 4.1e9                    # summed across portfolios
 
 
+def test_aggregate_states_use_labels_when_breakout_values_present():
+    # P-12 as revised 2026-08-05: a post-005 summary carries breakout_values
+    # whose state entries pair the Admin1Code with its display label — the
+    # rollup shows "St Croix", never "010"; a label-less entry falls back to
+    # its code, and a pre-005 snapshot (SNAP_A) contributes its states list.
+    caribbean = {
+        "metrics": {"totalLocations": 100, "totalAccounts": 10,
+                    "totalPolicies": 10, "perilsExposed": "WS"},
+        "summary": {"portfolio_name": "cbhu", "total_tiv": 1.0e9,
+                    "currencies": ["USD"], "states": ["010", "200"],
+                    "lines_of_business": ["Commercial"],
+                    "breakout_values": {"state": [
+                        {"value": "010", "label": "St Croix", "accounts": 4},
+                        {"value": "200", "label": None, "accounts": 6}]}},
+    }
+    agg = portfolio_service.aggregate_exposure([_row("A", SNAP_A),
+                                                _row("C", caribbean)])
+    assert agg.states == ["200", "FL", "St Croix", "TX"]
+
+
 def test_aggregate_none_when_no_snapshot():
     assert portfolio_service.aggregate_exposure([]) is None
     assert portfolio_service.aggregate_exposure(
@@ -99,6 +119,42 @@ def test_get_edm_detail_surfaces_the_derived_aggregate(iteration2_db):
     assert detail.aggregate is not None
     assert detail.aggregate.locations == 12140
     assert detail.aggregate.portfolio_count == 2
+
+
+def test_get_edm_detail_lineage_rows_pending_state_and_immediate_source(
+        iteration2_db):
+    # US3 (T054/FR-014): a generated row with NULL exposure_detail renders
+    # the pending state (exposure_detail None, never an error), and a chained
+    # generated row (A → "A - X" → "A - X - TX") shows its IMMEDIATE source
+    # only.
+    edm_id = str(uuid.uuid4())
+    now = _utcnow()
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, inserted_at, updated_at) "
+        "VALUES (:id, 'EDM', 'ready', :now, :now)",
+        {"id": edm_id, "now": now}, connection="WORKBENCH")
+    portfolio_service.upsert_portfolio_detail(
+        edm_id=edm_id, irp_id="1", name="A", exposure_detail=SNAP_A, as_of=now)
+    a = portfolio_service.list_portfolios(edm_id=edm_id)[0]
+    b = portfolio_service.insert_generated(
+        edm_id, name="A - X", irp_id="11", source_portfolio_id=a.id,
+        dimension_code="lob", value="X", actor_id=None)
+    portfolio_service.insert_generated(
+        edm_id, name="A - X - TX", irp_id="12",
+        source_portfolio_id=b.portfolio_id, dimension_code="state",
+        value="TX", actor_id=None)
+
+    detail = edm_service.get_edm_detail(edm_id)
+    by_name = {p.name: p for p in detail.portfolios}
+    assert by_name["A"].source_name is None          # broker-arrived: unchanged
+    generated = by_name["A - X"]
+    assert generated.exposure_detail is None         # pending until backfill
+    assert generated.source_name == "A"
+    assert generated.breakout_dimension_label == "Line of business"
+    assert generated.breakout_value == "X"
+    chained = by_name["A - X - TX"]
+    assert chained.source_name == "A - X"            # immediate source only
+    assert chained.breakout_dimension_label == "Geography (state)"
 
 
 def test_get_edm_detail_aggregate_none_renders_pending_state(iteration2_db):
