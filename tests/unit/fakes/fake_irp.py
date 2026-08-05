@@ -98,7 +98,8 @@ class FakeIRP:
         # composition: names already taken in RM → create raises the DISTINCT
         # duplicate-name type (the adoption signal); per-name generic failures;
         # recorded create/populate calls; seedable adopt hits per number;
-        # read-back count overrides (portfolio_irp_id → count)
+        # read-back count overrides (portfolio_irp_id → count; a count that
+        # differs from the ids sent raises, as the real gateway does)
         self.taken_portfolio_names: set[str] = set()
         self.fail_create_for: dict[str, str] = {}
         self.created_sub_portfolios: list[dict] = []
@@ -351,9 +352,7 @@ class FakeIRP:
             "name": name, "number": number, "description": description,
             "account_ids": list(account_ids), "portfolio_irp_id": pid})
         self.taken_portfolio_names.add(name)
-        return SubPortfolioResult(
-            portfolio_irp_id=pid,
-            account_count=self.readback_counts.get(pid, len(set(account_ids))))
+        return self._read_back(pid, account_ids)
 
     def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
@@ -362,10 +361,18 @@ class FakeIRP:
         self.populate_calls.append({
             "portfolio_irp_id": str(portfolio_irp_id),
             "account_ids": list(account_ids)})
-        return SubPortfolioResult(
-            portfolio_irp_id=str(portfolio_irp_id),
-            account_count=self.readback_counts.get(
-                str(portfolio_irp_id), len(set(account_ids))))
+        return self._read_back(str(portfolio_irp_id), account_ids)
+
+    def _read_back(self, pid: str, account_ids) -> SubPortfolioResult:
+        # The gateway decides success by reading the portfolio back and
+        # comparing against the ids sent; a mismatch raises (FR-008).
+        selected = len(set(account_ids))
+        count = self.readback_counts.get(pid, selected)
+        if count != selected:
+            raise ValueError(
+                f"sub-portfolio {pid} holds {count} accounts after the add; "
+                f"{selected} were selected")
+        return SubPortfolioResult(portfolio_irp_id=pid, account_count=count)
 
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]:

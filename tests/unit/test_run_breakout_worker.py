@@ -266,6 +266,29 @@ def test_per_value_selection_read_error_fails_one_entry(
         "usfl_commercial - A"]                   # never proceed on a short list
 
 
+def test_short_membership_read_back_fails_the_entry_with_no_lineage_row(
+        iteration2_db, fake_irp):
+    # The add landed partially: the read-back count is 1 where 3 accounts were
+    # selected. That entry fails (FR-008) and gets NO lineage row, so the
+    # re-run adopts the created portfolio on its number and re-adds.
+    edm_id = _mk_edm()
+    source_id = _mk_source(edm_id)
+    fake_irp.selection_by_value = {"A": [1], "B": [2, 3, 4]}
+    fake_irp.readback_counts = {"432": 1}        # B's created portfolio id
+    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+                  [_plan_entry("A"), _plan_entry("B")])
+
+    job = _run(jid)
+
+    assert job["status_code"] == "succeeded"      # A succeeded → partial success
+    out = json.loads(job["output_data"])
+    assert (out["created"], out["failed"]) == (1, 1)
+    failed = next(o for o in out["sub_portfolios"] if o["outcome"] == "failed")
+    assert failed["value"] == "B"
+    assert "holds 1 accounts" in failed["error"]
+    assert [r["breakout_value"] for r in _generated_rows(source_id)] == ["A"]
+
+
 def test_idempotent_rerun_skips_existing_and_creates_only_missing(
         iteration2_db, fake_irp):
     edm_id = _mk_edm()

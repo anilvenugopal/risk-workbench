@@ -419,6 +419,25 @@ def test_populate_chunks_the_add_and_returns_the_databridge_count():
     assert result.account_count == 2500
 
 
+def test_short_membership_read_back_fails_the_sub_portfolio():
+    # FR-008 asks for exactly the selected accounts: a portfolio holding fewer
+    # than the ids sent is a failure, never a success with a smaller count.
+    gw = _compose_gw(member_count=1)
+    with pytest.raises(ValueError, match="holds 1 accounts"):
+        gw.create_sub_portfolio(
+            edm_name="EDM", exposure_irp_id="42", name="src - TX",
+            number="P1-S-TX", description="d", account_ids=[101, 102])
+
+
+def test_extra_membership_on_an_adopted_portfolio_fails_too():
+    # The adopt-then-populate heal (R7) cannot report an adopted portfolio
+    # carrying accounts beyond the plan as populated correctly.
+    gw = _compose_gw(member_count=5)
+    with pytest.raises(ValueError, match="holds 5 accounts"):
+        gw.populate_sub_portfolio(edm_name="EDM", exposure_irp_id="42",
+                                  portfolio_irp_id="431", account_ids=[101, 102])
+
+
 def test_duplicate_name_surfaces_as_the_distinct_error_type():
     # IRPValidationError + the name IS taken in RM → the adoption signal
     gw = _compose_gw(create_exc=IRPValidationError(

@@ -474,6 +474,11 @@ class _RealGateway:
         # never by the add call's completed/total counts. The read-back is a
         # DataBridge count (R1, revised 2026-08-05) — the paginated REST
         # enumeration cannot verify a portfolio past 100,000 accounts (W-20).
+        # A count that does not equal the ids sent RAISES: FR-008 asks for
+        # exactly the selected accounts, so an under- or over-populated
+        # portfolio fails that sub-portfolio and writes no lineage row. The RM
+        # portfolio stays (P-07 — nothing is deleted); the re-run adopts it on
+        # its number and re-adds, which heals a partial add.
         pm = self._client().portfolio
         ids = [int(i) for i in account_ids]
         chunks = range(0, len(ids), _ADD_CHUNK_SIZE)
@@ -486,10 +491,11 @@ class _RealGateway:
         count = self._member_count(edm_name=edm_name,
                                    exposure_irp_id=exposure_irp_id,
                                    portfolio_irp_id=portfolio_irp_id)
-        if count != len(set(ids)):
-            logger.warning(
-                "sub-portfolio %s holds %d accounts after the add; %d were "
-                "selected", portfolio_irp_id, count, len(set(ids)))
+        selected = len(set(ids))
+        if count != selected:
+            raise ValueError(
+                f"sub-portfolio {portfolio_irp_id} holds {count} accounts "
+                f"after the add; {selected} were selected")
         return SubPortfolioResult(portfolio_irp_id=str(portfolio_irp_id),
                                   account_count=count)
 
