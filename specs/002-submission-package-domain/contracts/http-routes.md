@@ -18,7 +18,8 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant autocomplete for the create/edit form (`DISTINCT cedant_name`); returns option/list partial (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted |
+| GET | `/submissions/cedant-suggest?cedant_name=` | HTMX cedant typeahead for the create/edit form (`DISTINCT cedant_name`, contains match); returns `partials/typeahead_menu.html` (FR-006/R6). htmx sends the field under its own name; `?q=` is still accepted |
+| GET | `/submissions/link-suggest?links_to_search=&links_to_exclude=` | HTMX typeahead for the "links to" picker; AND-combines terms across name and cedant, drops `links_to_exclude` from the results, returns `partials/typeahead_menu.html` (FR-007/CR8). `?q=`/`?exclude=` are still accepted |
 
 ---
 
@@ -29,7 +30,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | GET | `/submissions/new` | Create form | — | — |
 | POST | `/submissions` | Create submission | 303 → `/submissions/{id}` (or detail partial) | dup-warn partial (unconfirmed match, FR-004); 422 validation |
 | GET | `/submissions/{id}/edit` | Edit form (carries `updated_at`) | — | 409 gate if not ACTIVE |
-| POST | `/submissions/{id}` | Update fields | detail partial | `SubmissionClosed`→409/banner; `ConcurrencyConflict`→409 banner (input preserved); dup-warn partial; `SelfRenewalError`→422 |
+| POST | `/submissions/{id}` | Update fields | detail partial | `SubmissionClosed`→409/banner; `ConcurrencyConflict`→409 banner (input preserved); dup-warn partial; `SelfLinkError`→422 |
 | POST | `/submissions/{id}/reassign` | Reassign owner (any analyst, FR-005a) | detail/row partial (leaves My view) | gate 409; concurrency 409 |
 
 **Duplicate-warning flow (FR-004 / R4):** POST create/update carries `confirmed` (hidden field, default absent). If `find_similar` returns matches and `confirmed` is not set, the response is the **non-blocking** `dup_warning` partial listing look-alikes with a "Create/Save anyway" control that re-POSTs with `confirmed=1`. It never hard-rejects and never mangles the name.

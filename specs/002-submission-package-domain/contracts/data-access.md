@@ -5,7 +5,7 @@ The **primary interface** this iteration exposes (FR-029; US6 is explicitly deve
 Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 - `SubmissionClosed` — a mutation was attempted on a non-ACTIVE submission (R3 / FR-015) → HTTP 409/redirect with message.
 - `ConcurrencyConflict` — optimistic-concurrency marker mismatch (R1 / FR-031) → HTTP 409, input preserved.
-- `SelfRenewalError` — `renews_from_submission_id == id` (R9 / FR-007).
+- `SelfLinkError` — `links_to_submission_id == id` (R9 / FR-007).
 - `EmptyPackageError` — package would have zero members (R5 / FR-024).
 
 ---
@@ -17,7 +17,7 @@ Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 ```python
 def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: date,
-    treaty_year: int | None = None, renews_from_submission_id: UUID | None = None,
+    treaty_year: int | None = None, links_to_submission_id: UUID | None = None,
     directory_path: str | None = None, actor_id: UUID, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by `actor_id`.
@@ -26,7 +26,8 @@ def create_submission(
     - Runs the duplicate check (find_similar). If matches exist and not `confirmed`,
       returns CreateResult(created=False, warnings=[...similar...]) WITHOUT writing
       (FR-004 non-blocking). Caller re-submits with confirmed=True to proceed.
-    - Raises SelfRenewalError only via edit; on create the id is new so N/A.
+    - treaty_year left None is filled from the inception year (CR5).
+    - Raises SelfLinkError only via edit; on create the id is new so N/A.
     Returns CreateResult(created=True, submission_id=…) on success.
     """
 
@@ -51,8 +52,16 @@ def find_similar(
     """Return submissions matching name OR (cedant+treaty_type+inception) (FR-004/R4).
     exclude_id skips the row being renamed. Never raises; empty list = no look-alikes."""
 
-def cedant_suggestions(prefix: str, limit: int = 10) -> list[str]:
-    """SELECT DISTINCT cedant_name … LIKE prefix% (FR-006/R6). No cedant table."""
+def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
+    """SELECT DISTINCT cedant_name … LIKE %term% (FR-006/R6). No cedant table.
+    Contains, not prefix (CR7): "fam" has to find "American Family Mutual"."""
+
+def search_submissions_for_link(
+    term: str, *, exclude_id: UUID | None = None, limit: int = 10,
+) -> list[SubmissionRow]:
+    """Backs the "links to" picker (CR8). Every whitespace-separated term must
+    match the name or the cedant — AND, not OR (CR2). exclude_id drops the
+    submission being edited so it cannot be offered as its own link."""
 ```
 
 ### Edit / reassign (gated + concurrency-checked)
@@ -63,9 +72,10 @@ def update_submission(
     confirmed: bool = False, **fields,
 ) -> UpdateResult:
     """Edit mutable fields (name, cedant, treaty_type, inception, treaty_year,
-    directory_path, renews_from). 
+    directory_path, links_to).
     - Raises SubmissionClosed unless current status is ACTIVE (R3/FR-015).
-    - Raises SelfRenewalError if renews_from_submission_id == submission_id (R9).
+    - Raises SelfLinkError if links_to_submission_id == submission_id (R9).
+    - treaty_year cleared to None is refilled from the inception year (CR5).
     - On rename/attr change, runs find_similar; unconfirmed match → UpdateResult with
       warnings and no write (FR-004).
     - UPDATE … WHERE id=:id AND updated_at=:expected_updated_at; rowcount 0 →

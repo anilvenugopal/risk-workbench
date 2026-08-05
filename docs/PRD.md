@@ -460,8 +460,8 @@ The analyst's unit of work. Fields (schema: DATA_MODEL.md §4):
 - `cedant_name` — plain string, primary filter, kept consistent via autocomplete over existing values (no `cedant` table — that would re-create `customer` under a new name, CR-003 O3)
 - `treaty_type_code` FK → `treaty_type_kind` — deal-level treaty type, primary filter (kind table, Article 3)
 - `inception_date` — primary filter
-- `treaty_year` — nullable; parsed from the `TY{YY}` naming convention, for renewal-year grouping
-- `renews_from_submission_id` FK → `submission` — nullable self-reference; the renewal / expiring-submission link, **manual** (no treaty-system integration to infer it — CR-003 O4)
+- `treaty_year` — nullable; defaults to the inception year and stays editable (CR5), for renewal-year grouping
+- `links_to_submission_id` FK → `submission` — nullable self-reference to a related submission, **manual** (no treaty-system integration to infer it — CR-003 O4). Labelled "links to" and picked by name, not id: the relationship is a link to a related deal, not necessarily a renewal (design note 08 CR8, superseding `renews_from_submission_id`)
 - `directory_path` — nullable; the per-deal shared-drive directory the analyst stages files in. Seeds the file browse location and the naming-convention parse; there is no directory *inventory* (§8)
 - `assigned_analyst_id` FK → `app_user` — soft owner for the "my submissions" filter (§6.2), **not** an access gate
 - `status_code` FK → `submission_status_kind` — cached current status (§7.2a)
