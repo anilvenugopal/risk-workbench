@@ -165,13 +165,18 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
             {"PortfolioId": 1, "PortfolioName": "A", "TotalTIV": 2.8e9},
             {"PortfolioId": 2, "PortfolioName": "B", "TotalTIV": 0},
         ],
+        "portfolio_account_total.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "AccountTotal": 1701},
+        ],
         "portfolio_states.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
             {"PortfolioId": 1, "PortfolioName": "A", "State": "FL"},
         ],
         "portfolio_lines_of_business.sql": [
             {"PortfolioId": 1, "PortfolioName": "A",
-             "LineOfBusiness": "Commercial"},
+             "LineOfBusiness": "Commercial", "AccountCount": 812},
+            {"PortfolioId": 1, "PortfolioName": "A",
+             "LineOfBusiness": "Auto", "AccountCount": 900},
         ],
         "portfolio_currencies.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "Currency": "USD"},
@@ -183,16 +188,25 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
-    # gets an entry from the TIV seed with empty lists
+    # gets an entry from the TIV seed with empty lists. account_total and the
+    # breakout_values container are the spec-005 additions (R11) — the
+    # container's PRESENCE is what marks a post-005 summary; the lob entries
+    # (value = its own label → null; accounts = the FR-007 numerator) are
+    # sorted by value.
     assert summary == {
         "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
-              "states": ["FL", "TX"], "lines_of_business": ["Commercial"],
-              "currencies": ["USD"]},
+              "states": ["FL", "TX"],
+              "lines_of_business": ["Auto", "Commercial"],
+              "currencies": ["USD"],
+              "account_total": 1701, "breakout_values": {"lob": [
+                  {"value": "Auto", "label": None, "accounts": 900},
+                  {"value": "Commercial", "label": None, "accounts": 812}]}},
         "2": {"portfolio_name": "B", "total_tiv": 0.0,
-              "states": [], "lines_of_business": [], "currencies": []},
+              "states": [], "lines_of_business": [], "currencies": [],
+              "account_total": None, "breakout_values": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 4
+    assert [db for _, db in calls] == ["edm_db"] * 5
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
@@ -203,3 +217,199 @@ def test_edm_exposure_summary_raises_when_database_name_unresolvable():
     with pytest.raises(ValueError):
         # the matched hit carries no databaseName
         gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=1)
+
+
+# ── spec 005 (T031): breakout selection & composition response-shape parsing ──────
+# The account id is nested DIFFERENTLY in each read, and a wrong key returns a
+# plausible empty result rather than an error (W-15) — every wrong-key mistake
+# in the probe run was silent. These tests pin the parsers to the RECORDED
+# response bodies of the probe run.
+
+from irp_integration.exceptions import IRPAPIError, IRPValidationError  # noqa: E402
+
+from app.services.irp_gateway import (  # noqa: E402
+    MAX_COMPOSED_FILTER_CHARS,
+    DuplicatePortfolioNameError,
+    _chunk_ids_by_filter_length,
+)
+
+# Recorded shapes (probe-findings W-15): searchAccounts rows carry a top-level
+# accountId; searchPolicies rows carry accountId + lob.lobName.
+ACCOUNT_ROWS = [{"accountId": 101, "accountName": "Acme"},
+                {"accountId": 102, "accountName": "Bmee"},
+                {"accountId": 103, "accountName": "Cmee"}]
+POLICY_ROWS = [
+    {"policyId": 1, "accountId": 101, "lob": {"lobId": 5, "lobName": "FLD Comm"}},
+    {"policyId": 2, "accountId": 102, "lob": {"lobId": 5, "lobName": "FLD Comm"}},
+    {"policyId": 3, "accountId": 102, "lob": {"lobId": 7, "lobName": "EQ Comm"}},
+    {"policyId": 4, "accountId": 103, "lob": {"lobId": 9, "lobName": "Unplanned"}},
+    {"policyId": 5},                       # no accountId/lob — skipped, not an error
+]
+
+
+def _selection_gw(policies=POLICY_ROWS, accounts=ACCOUNT_ROWS, filters=None):
+    def search_policies_paginated(exposure_id, filter=""):
+        if filters is not None:
+            filters.append(filter)
+        if isinstance(policies, Exception):
+            raise policies
+        return policies
+
+    return _gw(portfolio=SimpleNamespace(
+        search_accounts_by_portfolio_paginated=lambda e, p: accounts,
+        search_policies_paginated=search_policies_paginated))
+
+
+def test_select_lob_groups_client_side_on_the_recorded_shape():
+    filters: list = []
+    gw = _selection_gw(filters=filters)
+    selection = gw.select_breakout_accounts(
+        exposure_irp_id="42", source_portfolio_irp_id="1", dimension="lob",
+        values=["FLD Comm", "EQ Comm", "No Match"])
+    assert selection.accounts_by_value == {
+        "FLD Comm": [101, 102],
+        "EQ Comm": [102],       # a multi-LOB account lands in BOTH values (W-11)
+        "No Match": [],         # empty, not an error — the worker zero-match-fails it
+    }
+    assert selection.errors_by_value == {}
+    # scope always comes from an account-id list — no portfolio predicate (W-6)
+    assert filters == ["accountId IN (101,102,103)"]
+
+
+def test_select_lob_pagination_failure_fails_every_value_not_the_run():
+    gw = _selection_gw(policies=IRPAPIError("page fingerprint repeated"))
+    selection = gw.select_breakout_accounts(
+        exposure_irp_id="42", source_portfolio_irp_id="1", dimension="lob",
+        values=["FLD Comm", "EQ Comm"])
+    # never proceed on a possibly-short id list (W-14)
+    assert set(selection.errors_by_value) == {"FLD Comm", "EQ Comm"}
+    assert selection.accounts_by_value == {}
+
+
+def test_select_source_account_read_failure_raises():
+    def boom(e, p):
+        raise IRPAPIError("account enumeration incomplete")
+    gw = _gw(portfolio=SimpleNamespace(
+        search_accounts_by_portfolio_paginated=boom))
+    with pytest.raises(IRPAPIError):
+        gw.select_breakout_accounts(
+            exposure_irp_id="42", source_portfolio_irp_id="1",
+            dimension="lob", values=["FLD Comm"])
+
+
+def test_select_chunks_by_composed_filter_length_not_id_count():
+    # 7-digit ids fit roughly half as many per request as 1-4 digit ids — the
+    # ceiling is characters, not ids (W-6).
+    ids = list(range(1_000_000, 1_003_000))
+    filters: list = []
+    accounts = [{"accountId": i} for i in ids]
+    gw = _selection_gw(policies=[], accounts=accounts, filters=filters)
+    gw.select_breakout_accounts(exposure_irp_id="42",
+                                source_portfolio_irp_id="1", dimension="lob",
+                                values=["X"])
+    assert len(filters) > 1                      # forced into several chunks
+    assert all(len(f) <= MAX_COMPOSED_FILTER_CHARS for f in filters)
+    seen = [int(t) for f in filters
+            for t in f[len("accountId IN ("):-1].split(",")]
+    assert seen == ids                           # nothing dropped, nothing reordered
+
+
+def test_chunk_helper_respects_extra_clause_budget():
+    suffix = ' AND admin1Code = "TX"'
+    chunks = _chunk_ids_by_filter_length(list(range(10_000_000, 10_000_500)),
+                                         suffix)
+    for chunk in chunks:
+        composed = f"accountId IN ({','.join(chunk)}){suffix}"
+        assert len(composed) <= MAX_COMPOSED_FILTER_CHARS
+
+
+# ── create → add → read-back composition ─────────────────────────────────────────
+
+def _compose_gw(*, create_exc=None, name_taken=False, member_rows=None,
+                manage_calls=None, search_hits=None):
+    def create_portfolio(edm_name, portfolio_name, portfolio_number,
+                         description):
+        if create_exc is not None:
+            raise create_exc
+        return 431, {"portfolioName": portfolio_name}
+
+    def manage_portfolio_accounts(e, p, *, accounts_to_add=None,
+                                  accounts_to_remove=None):
+        if manage_calls is not None:
+            manage_calls.append(list(accounts_to_add))
+        # `completed` counts ids NEWLY added — 0 on a healthy re-run (W-9)
+        return {"addAccounts": {"completed": 0, "total": len(accounts_to_add)}}
+
+    def search_portfolios(exposure_id, filter=""):
+        return [{"portfolioId": 900}] if name_taken else []
+
+    def search_portfolios_paginated(exposure_id, filter=""):
+        return search_hits or []
+
+    return _gw(portfolio=SimpleNamespace(
+        create_portfolio=create_portfolio,
+        manage_portfolio_accounts=manage_portfolio_accounts,
+        search_portfolios=search_portfolios,
+        search_portfolios_paginated=search_portfolios_paginated,
+        search_accounts_by_portfolio_paginated=lambda e, p: member_rows or []))
+
+
+def test_create_sub_portfolio_success_is_the_read_back_never_completed():
+    manage_calls: list = []
+    gw = _compose_gw(member_rows=[{"accountId": 101}, {"accountId": 102}],
+                     manage_calls=manage_calls)
+    result = gw.create_sub_portfolio(
+        edm_name="EDM", exposure_irp_id="42", name="src - TX",
+        number="P1-S-TX", description="Breakout of portfolio src by "
+        "Geography (state): TX", account_ids=[101, 102])
+    assert result.portfolio_irp_id == "431"
+    # the add reported completed 0 — success comes from the read-back (W-9)
+    assert result.account_count == 2
+    assert manage_calls == [[101, 102]]
+
+
+def test_duplicate_name_surfaces_as_the_distinct_error_type():
+    # IRPValidationError + the name IS taken in RM → the adoption signal
+    gw = _compose_gw(create_exc=IRPValidationError(
+        "1 portfolios found with name src - TX, please use a unique name"),
+        name_taken=True)
+    with pytest.raises(DuplicatePortfolioNameError):
+        gw.create_sub_portfolio(edm_name="EDM", exposure_irp_id="42",
+                                name="src - TX", number="P1-S-TX",
+                                description="d", account_ids=[101])
+
+
+def test_length_violation_is_not_misread_as_duplicate_name():
+    # IRPValidationError also covers an over-long name/number (W-10): when the
+    # name is NOT taken, the original error propagates untouched.
+    gw = _compose_gw(create_exc=IRPValidationError(
+        "portfolio_name is 41 characters and exceeds the 40-character limit"),
+        name_taken=False)
+    with pytest.raises(IRPValidationError):
+        gw.create_sub_portfolio(edm_name="EDM", exposure_irp_id="42",
+                                name="x" * 41, number="P1-S-TX",
+                                description="d", account_ids=[101])
+
+
+def test_find_portfolio_by_number_returns_every_hit():
+    gw = _compose_gw(search_hits=[
+        {"portfolioId": 900, "portfolioName": "src - TX"},
+        {"id": 901, "name": "src - TX (2)", "stampDate": "2026-08-01"},
+    ])
+    hits = gw.find_portfolio_by_number(exposure_irp_id="42", number="P1-S-TX")
+    assert [(h.irp_id, h.name) for h in hits] == [
+        ("900", "src - TX"), ("901", "src - TX (2)")]
+
+
+def test_fetch_portfolio_stamp_matches_on_portfolio_id():
+    rows = [{"portfolioId": 1, "portfolioName": "A",
+             "stampDate": "2026-07-31T09:15:00.000Z"},
+            {"id": 2, "name": "B"}]
+    gw = _gw(portfolio=SimpleNamespace(
+        search_portfolios_paginated=lambda e: rows))
+    assert gw.fetch_portfolio_stamp(
+        exposure_irp_id=42, portfolio_irp_id="1") == "2026-07-31T09:15:00.000Z"
+    assert gw.fetch_portfolio_stamp(
+        exposure_irp_id=42, portfolio_irp_id="2") is None   # no stampDate field
+    assert gw.fetch_portfolio_stamp(
+        exposure_irp_id=42, portfolio_irp_id="99") is None  # portfolio gone
