@@ -683,7 +683,7 @@ Beyond a single filtered sub-portfolio, the analyst can fan a source portfolio o
 - **"Do the opposite"** — produce the complement of a defined filter without re-coding it (define "Florida mobile home" once, and also get "everything that's not Florida mobile home").
 - **Breakouts sum to 100%** of the source portfolio — not "run the whole thing, then a subset, and subtract" (FR §3).
 
-> **Open question — commercial-policy geographic split (blocks the geography & complement breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed (a RiskLink "checkbox" recollection is not load-bearing). Output-side alternative: write losses to the state level and let the model allocate back. **Ben is investigating RM behavior; Cheryl is polling the team for the preferred default** (FR §3, O6-1/O6-2). The **LOB breakout is unblocked and can ship first**; the geography and complement breakouts wait on this resolution.
+> **Resolved by product direction (2026-07-29 — O6-1/O6-2).** Risk Modeler assigns **whole accounts**: an account matching several values lands in full in each matching sub-portfolio, and no location-level toggle is awaited. The **geography breakout ships now** with that behavior accepted and **disclosed** — the preview quantifies the overlap for the portfolio being broken out (spec 005 FR-007) and states that blank-value exposure lands in no sub-portfolio. The complement split remains a fast-follow.
 
 ### 10A.6 Prerequisite gate
 
@@ -1273,13 +1273,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New (2026-07-21).** Portfolio work previously appeared only as the word "portfolio" in the old Iteration 6 exit line and had no scoped iteration. Full §-body: **§10A**. Reconciled to FR §3 — "modification" is dropped (data-element edits and merge/combine are out of MVP); the capability is **filtered sub-portfolio creation + one-click breakouts**.
 
-**In:** the current-**split view** of an EDM's portfolios (§10A.3); **sub-portfolio creation by filter** on the request path (`create_portfolio()` → synchronous HTTP 201, writes `irp_portfolio.irp_id` inline), with filter values picked from the **real values present in the portfolio** (§10A.4; account-bucketed native filter — slices can double-count, cannot be made "pure"); **one-click breakouts** (app-side loop over `create_portfolio()`) — **the LOB breakout is unblocked and ships here**; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
+> **Narrowed (2026-07-29, spec 005).** The iteration ships the **two one-click breakouts** — by line of business and by geography at state/state-equivalent grain — with preview/confirm, lineage, and the prerequisite gate. The **filtered sub-portfolio builder (§10A.4) and the complement split are fast-follows**; the current-split view is already served by spec 004's per-portfolio table.
 
-**Out:** geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7).
+**In:** **one-click breakouts** (app-side loop: select the source portfolio's matching account ids → synchronous `create_portfolio()` → account add) by **line of business** and by **geography (state/state-equivalent)**, each previewed and confirmed with the quantified overlap and blank-value disclosures; breakout lineage (source portfolio, dimension, value) stored on `irp_portfolio` and shown in the portfolio list; automatic exposure-detail refresh for generated portfolios; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
 
-> **Blocked sub-item — geography & complement breakouts.** The by-state/country and complement ("X vs. not-X" / "do the opposite") breakouts are **blocked on the commercial-policy geographic-split open question** (§10A.5, O6-1/O6-2 — Ben/Cheryl investigating RM keep-all-vs-matching-locations behavior). Ship them within this iteration if the question resolves in time; otherwise LOB-only ships and the geographic breakouts follow as a fast-follow.
+**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7).
 
-**Exit:** open an imported EDM and see its current portfolio split; create a sub-portfolio by filtering on real portfolio values; run a one-click LOB breakout that produces one sub-portfolio per LOB summing to 100% of the source; the prerequisite gate enables/disables the op correctly from entity state.
+> **Resolved sub-item — geography breakout unblocked (2026-07-29).** O6-1/O6-2 closed by product direction: Risk Modeler assigns whole accounts, the overlap that produces is accepted and disclosed (quantified per portfolio in the preview), and no location-level toggle is awaited (§10A.5). The geography breakout ships in this iteration alongside LOB.
+
+**Exit:** from the EDM detail page, run a one-click LOB or state breakout that produces one sub-portfolio per distinct value, together covering the source, with the measured overlap disclosed before confirm; generated portfolios appear in the list with lineage and acquire figures automatically; the prerequisite gate enables/disables the op correctly from entity state.
 
 ### Iteration 5 — GeoHaz (hazard lookup)
 
@@ -1453,7 +1455,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - Exposure Repository schema (coordinates with reporting team)
 - Idle-timeout durations (sliding + absolute)
 - Export format beyond Parquet (CSV? Excel?)
-- **O6-1/O6-2 — commercial-policy geographic split (blocks the geography & complement portfolio breakouts, §10A.5).** Does RM keep all locations or only matching ones on a geographic split, and is there a toggle? Ben investigating RM behavior; Cheryl polling the team for the preferred default.
+- **O6-1/O6-2 — commercial-policy geographic split — resolved by product direction (2026-07-29, §10A.5).** Risk Modeler assigns whole accounts on a geographic split; the geography breakout ships with that behavior accepted and disclosed (the preview quantifies the overlap per portfolio — spec 005 FR-007), and no location-level toggle is awaited. The complement split remains a fast-follow.
 - **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
 - **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
 - **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
