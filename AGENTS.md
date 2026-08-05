@@ -1,7 +1,6 @@
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/005-subportfolio-breakouts/plan.md
+When present, read `specs/005-subportfolio-breakouts/plan.md` for the current
+technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
 # Risk Analysis Workbench — Agent Context
@@ -58,43 +57,44 @@ Better:
 
 > Each generated portfolio stores its source portfolio, breakout dimension, and breakout value.
 
-Bad:
-
-> The existing flow handles this behavior.
-
-Better:
-
-> The `backfill_edm_detail` job updates the exposure details after the portfolios are created.
-
-Bad:
-
-> Update this to reflect the decision above.
-
-Better:
-
-> Update `FR-009` to state that the worker executes the portfolio list confirmed by the analyst.
-
-Bad:
-
-> Polling happens in the appropriate layer.
-
-Better:
-
-> The poller calls `get_analysis_job()` once per cycle and records the returned status on `irp_job`.
-
-Bad:
-
-> The job table is the spine of the workflow, and the worker is the glue.
-
-Better:
-
-> Every background operation is a row in `rwb_job`. The worker reads the next queued row, runs it, and writes the result to `rwb_job.status_code`.
-
 Length:
 
 - Commit subject ≤ 72 characters. The body says why; the diff says what.
 - PR descriptions scale with the diff: what changed and why, then how to verify.
 - Chat replies answer the question asked. No status inventories, no tables of completed work.
+
+## Code Quality
+
+Implement the smallest change that satisfies the requirement.
+
+- Do not add behavior for hypothetical scale, misuse, or future requirements.
+  Require a product rule, observed failure, measurement, or external constraint.
+- Do not add an abstraction for one caller unless it makes the caller simpler.
+- Do not add a helper that only renames a function call or dictionary construction.
+- Do not add a constant used in one module unless it names a business rule or
+  prevents the same value from diverging within that module.
+- Do not improve nearby code unless the requested change depends on it.
+- Prefer deleting unnecessary code over explaining why it exists.
+
+Comments explain constraints that names, types, and structure cannot express.
+
+- Do not narrate the next statement or repeat a function name, test name,
+  requirement, PR description, or review discussion.
+- Do not preserve implementation history in source comments. Put evidence and
+  rejected alternatives in `research.md`.
+- Private helpers usually need no docstring. Document a contract, side effect,
+  exception, external limitation, or non-obvious correctness condition.
+- A comment longer than the code it explains needs a specific reason that cannot
+  be expressed in clearer code.
+
+Before handoff, review the diff for subtraction:
+
+1. Remove comments and tests that restate the implementation.
+2. Inline helpers that do not name or isolate meaningful behavior.
+3. Remove speculative limits, branches, and configurability.
+4. Remove documentation from files that do not own the changed fact.
+5. Compare the size of the diff with the size of the requirement. Explain any
+   large difference; do not use explanation to excuse avoidable code.
 
 ## Source of Truth Documents
 
@@ -107,7 +107,9 @@ Read these before any implementation work:
 ## Specification Workflow
 
 Use SpecKit's native files. Do not add summary documents. Each file owns one
-thing — link to the others, never repeat them.
+kind of fact. Update the owner and link to it; do not copy the explanation into
+other files. A terminology rename may update every reference, but a behavior
+change does not authorize repeating its rationale across every reference.
 
 | File | Owns |
 |---|---|
@@ -139,7 +141,7 @@ observed result. Nothing is "ready for tasks" while an `O-nn` is open.
 
 Two rules for user-facing work — full detail in [docs/UI_WORKFLOW.md](docs/UI_WORKFLOW.md):
 
-1. **UI-first, for screens with real new layout.** Show a quick **rendered HTML preview** and get a 👍 before building the Jinja2 template and route. Build previews from [docs/ui_previews/_scaffold.html](docs/ui_previews/_scaffold.html) (reuses the real tokens). **Skip the preview for trivial/derivative changes** — copy tweaks, adding a field to an already-styled component — just build those. Cover the states that matter (don't forget empty/error). Approval is informal; no tables, inventories, or status tracking.
+1. **UI-first, for screens with real new layout.** Show a quick **rendered HTML preview** and get an approval before building the Jinja2 template and route. Build previews from [docs/ui_previews/_scaffold.html](docs/ui_previews/_scaffold.html) (reuses the real tokens). **Skip the preview for trivial/derivative changes** — copy tweaks, adding a field to an already-styled component — just build those. Cover the states that matter (don't forget empty/error). Approval is informal; no tables, inventories, or status tracking.
 2. **One user story at a time.** Implement a single user story end-to-end, then **stop** for the approver to click the running feature before starting the next. Don't batch several stories into one implement pass (bundle two small related stories if splitting them is silly).
 
 ## Development Environment
