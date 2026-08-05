@@ -51,8 +51,13 @@ _ADD_CHUNK_SIZE = 1000
 
 # The breakout selection read per dimension — parameterized, one-portfolio
 # DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
-# below. The state script arrives with US2 (spec 005 T045).
-_SELECTION_SCRIPTS = {"lob": "breakout_lob_accounts.sql"}
+# below. Each script mirrors its summary script's joins, so the selection
+# vocabulary matches the stored breakout_values the plan was approved from
+# (LOBNAME for lob, Admin1Code for state — P-12).
+_SELECTION_SCRIPTS = {
+    "lob": "breakout_lob_accounts.sql",
+    "state": "breakout_state_accounts.sql",
+}
 
 
 class DuplicatePortfolioNameError(Exception):
@@ -592,7 +597,19 @@ class _RealGateway:
             entry(row)["account_total"] = (int(total) if total is not None
                                            else None)
         for row in rows("portfolio_states.sql"):
-            entry(row)["states"].append(str(row["State"]))
+            # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
+            # states list now holds codes, not the old COALESCE(name, code)
+            # mix. Admin1Name rides along as a nullable display label (absent
+            # until the EDM is geocoded, never synthesized from the code).
+            e = entry(row)
+            value = str(row["Admin1Code"])
+            e["states"].append(value)
+            label = row.get("Admin1Name")
+            count = row.get("AccountCount")
+            e["breakout_values"].setdefault("state", []).append({
+                "value": value,
+                "label": (str(label) if label else None),
+                "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_lines_of_business.sql"):
             e = entry(row)
             value = str(row["LineOfBusiness"])

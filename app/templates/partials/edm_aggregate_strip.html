@@ -28,6 +28,9 @@
       <span class="v">{% if agg.perils %}{{ agg.perils | join(' · ') }}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
     <div class="rollup__cell"><span class="k">Lines of business</span>
       <span class="v">{% if agg.lines_of_business %}{{ agg.lines_of_business[:2] | join(', ') }}{% if agg.lines_of_business|length > 2 %} <small>+{{ agg.lines_of_business|length - 2 }}</small>{% endif %}{% else %}<span class="na">&mdash;</span>{% endif %}</span></div>
+    {# spec 005 (P-12): agg.states holds Admin1Code values from post-005
+       snapshots; portfolios not yet re-synced contribute the old name/code
+       mix. Plain strings either way — rendered verbatim. #}
     <div class="rollup__cell"><span class="k">Geography</span>
       <span class="v">
         {%- if agg.states -%}

@@ -241,6 +241,65 @@ def test_modal_overlap_statement_three_forms(routes_db, client):
     assert "absent · Portfolio #3</span>" in flat3
 
 
+def test_modal_geography_disclosure_states_multi_state_consequence(
+        routes_db, client):
+    # US2 (FR-007/T047): every overlap form of the state dimension states the
+    # multi-state-account consequence explicitly; the lob forms never do.
+    edm_id = _mk_edm()
+    # SUMMARY's state counts (220 + 1,481) equal account_total → partition arm
+    pid = _mk_portfolio(edm_id)
+    flat = " ".join(
+        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
+    assert ("None of this portfolio's 1,701 accounts match more than one "
+            "state" in flat)
+    assert ("A commercial account with locations in several states would "
+            "land whole in every state sub-portfolio it touches; here none "
+            "does." in flat)
+
+    # quantified arm: a lower denominator forces repeats > 0
+    heavy = dict(SUMMARY, account_total=1500)
+    pid2 = _mk_portfolio(edm_id, name="heavy", irp_id="2", summary=heavy)
+    flat2 = " ".join(
+        client.get(_url(edm_id, pid2) + "?dimension=state").text.split())
+    assert ("201 of this portfolio's 1,500 accounts match more than one "
+            "state" in flat2)
+    assert ("a commercial account with locations in several states lands "
+            "<strong>whole</strong> in every state sub-portfolio it touches"
+            in flat2)
+
+    # qualitative arm: no account_total
+    absent = {k: v for k, v in SUMMARY.items() if k != "account_total"}
+    pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
+    flat3 = " ".join(
+        client.get(_url(edm_id, pid3) + "?dimension=state").text.split())
+    assert "so the sub-portfolios can overlap" in flat3
+    assert "lands <strong>whole</strong> in every state sub-portfolio" in flat3
+
+    # the lob dimension carries no multi-state sentence in any form
+    flat_lob = " ".join(client.get(_url(edm_id, pid)).text.split())
+    assert "several states" not in flat_lob
+
+
+def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
+    # US2 (T047/FR-006c): a 43-division state fan-out renders every row —
+    # values with null labels render the code alone (un-geocoded EDM) — plus
+    # the several-minutes statement; nothing refused for size (P-15).
+    values = [{"value": f"S{i:02d}", "label": None, "accounts": 5}
+              for i in range(43)]
+    summary = dict(SUMMARY, breakout_values={
+        "state": values, "lob": SUMMARY["breakout_values"]["lob"]})
+    edm_id = _mk_edm()
+    pid = _mk_portfolio(edm_id, summary=summary)
+    r = client.get(_url(edm_id, pid) + "?dimension=state")
+    assert r.status_code == 200
+    for i in range(43):
+        assert f"usfl_commercial - S{i:02d}" in r.text
+    assert "bo-row__label" not in r.text     # null labels → code alone
+    assert "43 sub-portfolios is a large run" in r.text
+    assert "several minutes" in r.text
+    assert "Create 43 sub-portfolios" in r.text
+
+
 def test_modal_blank_value_disclosure(routes_db, client):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)

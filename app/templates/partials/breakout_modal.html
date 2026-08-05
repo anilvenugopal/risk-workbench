@@ -134,26 +134,38 @@
       </div>
       {% endif %}
 
-      {# ── disclosures (FR-007): quantified overlap + blank values ── #}
+      {# ── disclosures (FR-007): quantified overlap + blank values. For the
+            geography dimension the multi-state-account consequence is stated
+            explicitly (US2/T047): a commercial account with locations in
+            several states lands WHOLE in every state sub-portfolio it
+            touches. #}
       {% set ov = modal.overlap %}
+      {% set geo = modal.dimension == 'state' %}
       {% if ov.repeats is none %}
       <div class="bo-note bo-note--overlap">Accounts matching more than one
         {{ modal.noun }} are included in full in each matching sub-portfolio,
-        so the sub-portfolios can overlap. The inflation in exposure can exceed
-        the inflation in account count.</div>
+        so the sub-portfolios can overlap{% if geo %} — a commercial
+        account with locations in several states lands <strong>whole</strong>
+        in every state sub-portfolio it touches{% endif %}. The inflation in
+        exposure can exceed the inflation in account count.</div>
       {% elif ov.partition %}
       <div class="bo-note bo-note--overlap"><strong>None of this portfolio's
         {{ '{:,}'.format(ov.account_total) }} accounts match more than one
-        {{ modal.noun }}</strong> — the sub-portfolios partition the source
-        cleanly. The inflation in exposure can exceed the inflation in account
-        count when accounts repeat; here none do.</div>
+        {{ modal.noun }}</strong> — the sub-portfolios partition the
+        source cleanly.{% if geo %} A commercial account with locations in
+        several states would land whole in every state sub-portfolio it
+        touches; here none does.{% endif %} The inflation in exposure can
+        exceed the inflation in account count when accounts repeat; here none
+        do.</div>
       {% else %}
       <div class="bo-note bo-note--overlap"><strong>{{ '{:,}'.format(ov.repeats) }}
         of this portfolio's {{ '{:,}'.format(ov.account_total) }} accounts match
         more than one {{ modal.noun }}</strong> and will be included in full in
-        each one. The inflation in exposure can exceed the inflation in account
-        count — the accounts appearing in several sub-portfolios tend to be the
-        largest.</div>
+        each one{% if geo %} — a commercial account with locations in
+        several states lands <strong>whole</strong> in every state
+        sub-portfolio it touches{% endif %}. The inflation in exposure can
+        exceed the inflation in account count — the accounts appearing in
+        several sub-portfolios tend to be the largest.</div>
       {% endif %}
       <div class="bo-note bo-note--plain">Exposure with no {{ modal.noun }}
         value is not included in any sub-portfolio.</div>

@@ -295,10 +295,17 @@ def run_breakout_lob(rwb_job_id: str) -> None:
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
+@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+def run_breakout_state(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _run_breakout_body(rwb_job_id))
+
+
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
 _BODIES: dict[str, Callable[[Any], runtime.JobResult]] = {
     "run_breakout_lob": _run_breakout_body,
+    "run_breakout_state": _run_breakout_body,
 }
 
 
@@ -313,4 +320,4 @@ def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") ->
                            body=lambda: body(rwb_job_id))
 
 
-__all__ = ["run_breakout_lob", "run_one"]
+__all__ = ["run_breakout_lob", "run_breakout_state", "run_one"]

@@ -168,9 +168,17 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         "portfolio_account_total.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "AccountTotal": 1701},
         ],
+        # US2 (T044/P-12): the rewritten script returns Admin1Code as the
+        # value, a nullable Admin1Name label (absent until geocoding), and an
+        # account count. "BY" (Bayern) enumerates through the same field as
+        # the US states — no separate mode for non-US divisions.
         "portfolio_states.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
-            {"PortfolioId": 1, "PortfolioName": "A", "State": "FL"},
+            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "TX",
+             "Admin1Name": None, "AccountCount": 412},
+            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "FL",
+             "Admin1Name": "FLORIDA", "AccountCount": 1241},
+            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "BY",
+             "Admin1Name": "BAYERN", "AccountCount": 9},
         ],
         "portfolio_lines_of_business.sql": [
             {"PortfolioId": 1, "PortfolioName": "A",
@@ -190,17 +198,23 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
     # gets an entry from the TIV seed with empty lists. account_total and the
     # breakout_values container are the spec-005 additions (R11) — the
-    # container's PRESENCE is what marks a post-005 summary; the lob entries
-    # (value = its own label → null; accounts = the FR-007 numerator) are
-    # sorted by value.
+    # container's PRESENCE is what marks a post-005 summary; entries are
+    # sorted by value. states holds Admin1Code (P-12); a state's label is
+    # Admin1Name where geocoded and None otherwise; a lob value is its own
+    # label → None.
     assert summary == {
         "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
-              "states": ["FL", "TX"],
+              "states": ["BY", "FL", "TX"],
               "lines_of_business": ["Auto", "Commercial"],
               "currencies": ["USD"],
-              "account_total": 1701, "breakout_values": {"lob": [
-                  {"value": "Auto", "label": None, "accounts": 900},
-                  {"value": "Commercial", "label": None, "accounts": 812}]}},
+              "account_total": 1701, "breakout_values": {
+                  "lob": [
+                      {"value": "Auto", "label": None, "accounts": 900},
+                      {"value": "Commercial", "label": None, "accounts": 812}],
+                  "state": [
+                      {"value": "BY", "label": "BAYERN", "accounts": 9},
+                      {"value": "FL", "label": "FLORIDA", "accounts": 1241},
+                      {"value": "TX", "label": None, "accounts": 412}]}},
         "2": {"portfolio_name": "B", "total_tiv": 0.0,
               "states": [], "lines_of_business": [], "currencies": [],
               "account_total": None, "breakout_values": {}},
@@ -276,6 +290,33 @@ def test_select_lob_maps_the_script_rows_per_requested_value():
     assert selection.errors_by_value == {}
     # one portfolio-scoped script run against the exposureId-matched database
     assert calls == [("breakout_lob_accounts.sql", {"portfolio_id": 1}, "edm_db")]
+
+
+def test_select_state_maps_the_script_rows_per_requested_value():
+    # US2 (T045/P-12): the state dimension runs breakout_state_accounts.sql —
+    # Value is Admin1Code, mirroring the rewritten portfolio_states.sql joins,
+    # so the filter vocabulary matches the stored summary. Admin1Name is never
+    # a filter input.
+    calls: list = []
+    state_rows = [
+        {"Value": "TX", "AccountId": 101},
+        {"Value": "TX", "AccountId": 102},
+        {"Value": "BY", "AccountId": 103},   # non-US division, same field
+        {"Value": "CA", "AccountId": 102},   # multi-state account (W-3/W-11)
+    ]
+    gw = _selection_gw(records=state_rows, calls=calls)
+    selection = gw.select_breakout_accounts(
+        edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
+        dimension="state", values=["TX", "CA", "BY", "MT"])
+    assert selection.accounts_by_value == {
+        "TX": [101, 102],
+        "CA": [102],        # the multi-state account lands in BOTH values
+        "BY": [103],
+        "MT": [],           # empty, not an error — zero-match fails downstream
+    }
+    assert selection.errors_by_value == {}
+    assert calls == [("breakout_state_accounts.sql", {"portfolio_id": 1},
+                      "edm_db")]
 
 
 def test_select_databridge_failure_raises_and_fails_the_job():
