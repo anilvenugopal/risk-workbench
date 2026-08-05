@@ -120,8 +120,27 @@ def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
         inc=date(2026, 6, 1))
     _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="surplus",
         inc=date(2026, 7, 1))
-    out = cedant_suggestions("%")
+    out = cedant_suggestions("0%")
     assert "50% Quota Co" in out and "Zeta Re" not in out
+
+
+def test_suggestions_ignore_a_one_character_term(iteration1_db):
+    # A one-character LIKE '%a%' scans every submission for a menu the analyst
+    # cannot read; both searches wait for the second character.
+    _mk(iteration1_db, name="Solo", cedant="Solo Re", tt="surplus",
+        inc=date(2026, 8, 1))
+    assert cedant_suggestions("S") == []
+    assert cedant_suggestions("  s  ") == []
+    assert search_submissions_for_link("S") == []
+    assert "Solo Re" in cedant_suggestions("So")
+
+
+def test_suggestions_cap_the_row_count_in_the_query(iteration1_db):
+    for index in range(6):
+        _mk(iteration1_db, name=f"Capped {index}", cedant=f"Capped Re {index}",
+            tt="surplus", inc=date(2026, 9, 1))
+    assert len(cedant_suggestions("Capped Re", limit=3)) == 3
+    assert len(search_submissions_for_link("Capped", limit=2)) == 2
 
 
 # ── US2: list / filter / reassign ─────────────────────────────────────────────

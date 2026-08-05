@@ -15,6 +15,8 @@ tier = SQL Server):
     the ``WHERE`` so whatever type the caller read back round-trips unchanged.
   - No ``GETUTCDATE()``/``STRING_AGG``/``TOP`` in service SQL — those are not
     portable to SQLite. The migration keeps server defaults as a fallback only.
+    A capped read appends ``db.row_limit(n)``, which emits the dialect's own
+    clause, rather than spelling ``TOP``/``LIMIT`` here.
 
 No row-level security anywhere: ``assigned_analyst_id`` is a plain predicate, never
 a scope wrapper (Article 6 / R7).
@@ -29,7 +31,8 @@ from typing import Any
 
 from sqlalchemy import text
 
-from db import execute, execute_one, execute_scalar, execute_command, get_connection
+from db import (execute, execute_one, execute_scalar, execute_command,
+                get_connection, row_limit)
 from app.services._common import _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
@@ -353,20 +356,35 @@ def find_similar(
     return [_to_row(row) for row in rows]
 
 
+# Both typeahead searches ignore a term this short. `%a%` matches most of the
+# submission table, and a leading wildcard cannot seek ix_submission_cedant_name,
+# so a one-character term buys a scan of every submission for a menu the analyst
+# has not narrowed enough to read. The form applies the same minimum client-side
+# so the request is not sent at all.
+MIN_SUGGEST_TERM = 2
+
+
 def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
-    """DISTINCT cedant names containing ``term`` (FR-006/R6). No cedant table.
+    """The first ``limit`` DISTINCT cedant names containing ``term`` (FR-006/R6).
+    No cedant table.
 
     Contains, not prefix (CR7): typing "fam" has to find "American Family
-    Mutual", which a ``LIKE 'fam%'`` match never returns."""
+    Mutual", which a ``LIKE 'fam%'`` match never returns.
+
+    ``limit`` is applied by the server. Reading every cedant matching "am" back
+    into Python to keep ten of them is the entire cost of the query, and the
+    ordered ``ix_submission_cedant_name`` scan stops at ten once the cap is in
+    the SQL."""
     trimmed = (term or "").strip()
-    if not trimmed:
+    if len(trimmed) < MIN_SUGGEST_TERM:
         return []
     rows = execute(
         "SELECT DISTINCT cedant_name FROM submission "
-        "WHERE cedant_name LIKE :term ESCAPE '\\' ORDER BY cedant_name",
+        "WHERE cedant_name LIKE :term ESCAPE '\\' ORDER BY cedant_name "
+        + row_limit(limit),
         {"term": f"%{_escape_like(trimmed)}%"}, connection="WORKBENCH",
     )
-    return [row["cedant_name"] for row in rows][:limit]
+    return [row["cedant_name"] for row in rows]
 
 
 def search_submissions_for_link(
@@ -378,10 +396,16 @@ def search_submissions_for_link(
     Terms AND-combine (CR2): "american fam" must not return every deal containing
     "American". ``exclude_id`` drops the submission being edited so it cannot be
     offered as its own link — ``update_submission`` still raises ``SelfLinkError``
-    as the real check."""
-    terms = (term or "").split()
-    if not terms:
+    as the real check.
+
+    ``limit`` is applied by the server. ``ORDER BY inception_date DESC`` walks
+    ``ix_submission_inception_date`` and can stop once ten rows pass the LIKE
+    predicates, instead of matching, joining, and sorting every deal that
+    contains the term."""
+    trimmed = (term or "").strip()
+    if len(trimmed) < MIN_SUGGEST_TERM:
         return []
+    terms = trimmed.split()
     clauses: list[str] = []
     params: dict[str, Any] = {"exclude": str(exclude_id) if exclude_id else None}
     for index, word in enumerate(terms):
@@ -394,10 +418,11 @@ def search_submissions_for_link(
         _ROW_SELECT
         + " WHERE " + " AND ".join(clauses)
         + " AND (:exclude IS NULL OR s.id <> :exclude)"
-        + " ORDER BY s.inception_date DESC, s.name",
+        + " ORDER BY s.inception_date DESC, s.name "
+        + row_limit(limit),
         params, connection="WORKBENCH",
     )
-    return [_to_row(row) for row in rows][:limit]
+    return [_to_row(row) for row in rows]
 
 
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
