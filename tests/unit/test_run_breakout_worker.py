@@ -158,7 +158,8 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
             for r in rows] == [("state", "CA"), ("state", "TX")]
     assert fake_irp.selection_calls[0]["dimension"] == "state"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
-        "Breakout of portfolio usfl_commercial by Geography (state): CA")
+        "Breakout of portfolio usfl_commercial by Geography (state): "
+        "CA (CALIFORNIA)")
 
 
 def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(

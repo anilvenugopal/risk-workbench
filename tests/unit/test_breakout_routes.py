@@ -174,10 +174,11 @@ def test_modal_dimension_param_selects_state(routes_db, client):
     pid = _mk_portfolio(edm_id)
     r = client.get(_url(edm_id, pid) + "?dimension=state")
     assert r.status_code == 200
-    # state values with their labels, sorted by value
+    # state values with their labels, sorted by value; generated names use
+    # the label, never the bare code (P-12 as revised 2026-08-05)
     assert "CALIFORNIA" in r.text and "TEXAS" in r.text
-    assert "usfl_commercial - CA" in r.text
-    assert "usfl_commercial - TX" in r.text
+    assert "usfl_commercial - CALIFORNIA" in r.text
+    assert "usfl_commercial - TEXAS" in r.text
     assert 'name="dimension" value="state"' in r.text
 
 

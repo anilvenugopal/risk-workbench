@@ -297,26 +297,28 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
 class SubPortfolioPlan:
     value: str                # selection filter value; stored as breakout_value
     label: str | None         # display only, never a filter input
-    name: str                 # ≤ 40 chars: source truncated, value whole, collision-suffixed (P-11)
+    name: str                 # ≤ 40 chars: source truncated, label-or-value token whole, collision-suffixed (P-11/P-12 rev. 2026-08-05)
     number: str               # ≤ 20 chars: P{source RM id}-{S|L}-{token}, hash-tailed when long
     accounts: int             # previewed count from the summary (FR-006)
     exists: bool              # a live lineage row already matches (idempotent re-run view)
 
 
-def _compose_name(source_name: str, value: str, taken: Collection[str]) -> str:
-    """``{source} - {value}`` inside the 40-character limit: the value is kept
-    whole and the source absorbs the truncation, 4 characters reserved for the
-    collision suffix; the lowest free `` (2)``, `` (3)``… wins (R4)."""
+def _compose_name(source_name: str, token: str, taken: Collection[str]) -> str:
+    """``{source} - {token}`` inside the 40-character limit — the token is the
+    breakout value's display label where one exists, else the value (P-12 as
+    revised 2026-08-05). The token is kept whole and the source absorbs the
+    truncation, 4 characters reserved for the collision suffix; the lowest
+    free `` (2)``, `` (3)``… wins (R4)."""
     source_budget = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
-                     - len(value))
+                     - len(token))
     if source_budget < _MIN_SOURCE_CHARS:
         source_part = source_name[:_MIN_SOURCE_CHARS].rstrip()
         value_budget = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
                         - len(source_part))
-        value_part = value[:value_budget].rstrip()
+        value_part = token[:value_budget].rstrip()
     else:
         source_part = source_name[:source_budget].rstrip()
-        value_part = value
+        value_part = token
     base = f"{source_part}{_SEPARATOR}{value_part}"
     name = base
     n = 2
@@ -367,7 +369,11 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
     already = set(existing_values)
     plan: list[SubPortfolioPlan] = []
     for v in sorted(values, key=lambda bv: bv.value):
-        name = _compose_name(source_name, v.value, taken)
+        # The NAME token is the display label when the summary carries one
+        # (P-12 as revised 2026-08-05 — "cbhu - Puerto Rico", never
+        # "cbhu - 200"); the value stays the filter, the stored
+        # breakout_value, and the number token.
+        name = _compose_name(source_name, v.label or v.value, taken)
         taken.add(name)
         plan.append(SubPortfolioPlan(
             value=v.value, label=v.label, name=name,

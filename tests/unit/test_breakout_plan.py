@@ -2,9 +2,11 @@
 T021 — FR-010/FR-007, R4/P-11/P-13).
 
 ``build_breakout_plan`` is pure and deterministic: name ≤ 40 characters with
-the source truncated and the value kept whole (suffix room reserved), number
-≤ 20 characters with a hash tail on a long token, collision suffixing against
-existing AND intra-plan names, ``exists`` marking, and stable value ordering.
+the source truncated and the name token — the display label where one exists,
+else the value (P-12 as revised 2026-08-05) — kept whole (suffix room
+reserved), number ≤ 20 characters with a hash tail on a long token, collision
+suffixing against existing AND intra-plan names, ``exists`` marking, and
+stable value ordering.
 ``compute_overlap`` is Σ accounts versus ``account_total``. Blank values never
 appear here — the summary SQL scrubs them; the disclosure is UI copy.
 """
@@ -69,6 +71,29 @@ def test_very_long_value_truncates_value_after_source_floor():
     assert len(long_entry.name) <= PORTFOLIO_NAME_MAX - 4
     assert long_entry.name.startswith("usfl")          # the 4-char source floor
     assert long_entry.value == value                    # the plan value is untruncated
+
+
+def test_name_uses_display_label_and_identity_keeps_the_code():
+    # P-12 as revised 2026-08-05: a Caribbean portfolio names its
+    # sub-portfolios by Admin1Name, never by the numeric Admin1Code — while
+    # the value, the number token, and the sort order all keep the code.
+    plan = _plan([_bv("200", 2437, label="Puerto Rico"),
+                  _bv("010", 74, label="St Croix")])
+    assert [p.value for p in plan] == ["010", "200"]
+    by_value = {p.value: p for p in plan}
+    assert by_value["200"].name == "usfl_commercial - Puerto Rico"
+    assert by_value["010"].name == "usfl_commercial - St Croix"
+    assert by_value["200"].number == "P1-S-200"
+    assert by_value["010"].number == "P1-S-010"
+
+
+def test_identical_labels_on_distinct_values_get_collision_suffixed():
+    # Two codes carrying the same label compose the same base name — the
+    # intra-plan suffix keeps them distinct; the numbers never collide.
+    plan = _plan([_bv("010", label="Twin"), _bv("020", label="Twin")])
+    assert [p.name for p in plan] == ["usfl_commercial - Twin",
+                                      "usfl_commercial - Twin (2)"]
+    assert len({p.number for p in plan}) == 2
 
 
 def test_collision_takes_lowest_free_suffix_against_existing_names():

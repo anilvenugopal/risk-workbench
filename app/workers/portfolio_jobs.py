@@ -103,9 +103,13 @@ def _execute_entry(entry: breakout_service.SubPortfolioPlan, *,
 
     # c. create → add → read back. The description carries the source
     #    portfolio name, dimension, and value IN FULL AND UNTRUNCATED — it is
-    #    what carries the lineage the 40-character name loses (FR-010).
+    #    what carries the lineage the 40-character name loses (FR-010). The
+    #    display label rides along when the plan carries one, since the name
+    #    is composed from it (P-12 as revised 2026-08-05) and the raw value
+    #    must stay searchable in Risk Modeler.
     description = (f"Breakout of portfolio {source['name']} by "
-                   f"{dimension_label}: {entry.value}")
+                   f"{dimension_label}: {entry.value}"
+                   + (f" ({entry.label})" if entry.label else ""))
     try:
         created = irp_gateway.create_sub_portfolio(
             edm_name=edm.name, exposure_irp_id=str(edm.irp_id),
