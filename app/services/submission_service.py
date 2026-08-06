@@ -48,7 +48,8 @@ ACTIVE = "ACTIVE"
 
 @dataclass
 class SubmissionRow:
-    """One master-list / look-alike row."""
+    """One master-list / look-alike row. ``crm_ids`` is filled for the master list
+    only (see ``_attach_crm_ids``); every other reader leaves it empty."""
     id: str
     name: str
     cedant_name: str
@@ -61,6 +62,7 @@ class SubmissionRow:
     assigned_analyst_id: str
     assigned_analyst_name: str | None
     updated_at: Any
+    crm_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -225,6 +227,74 @@ def _to_row(row: dict) -> SubmissionRow:
     )
 
 
+def _word_and_clauses(
+    term: str, columns: tuple[str, ...], prefix: str,
+) -> tuple[list[str], dict[str, Any]]:
+    """One clause per whitespace-separated word in ``term``: the word has to appear in
+    at least one of ``columns``, and every word has to match.
+
+    Terms AND-combine (CR2): "american family" must not return every deal carrying
+    "American". Substring per word rather than a similarity score — tolerant enough
+    to find "American Family Mutual" from "american fam", and no fuzzier than that.
+
+    ``prefix`` namespaces the bound parameters so two searched fields in one query
+    cannot collide on ``:t0``."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    for index, word in enumerate(term.split()):
+        key = f"{prefix}{index}"
+        match = " OR ".join(f"{col} LIKE :{key} ESCAPE '\\'" for col in columns)
+        clauses.append(f"({match})")
+        params[key] = f"%{_escape_like(word)}%"
+    return clauses, params
+
+
+def _submission_rows(
+    clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
+    limit: int | None = None,
+) -> list[SubmissionRow]:
+    """Run the shared row query: the master list, the look-alike check and the "links
+    to" typeahead all select the same columns in the same newest-inception-first
+    order, and differ only in their predicates.
+
+    ``exclude_id`` drops one submission from the results — the deal being renamed, or
+    the one being edited so it cannot be offered as its own link. A value that is not
+    a UUID excludes nothing rather than reaching the ``uniqueidentifier`` comparison
+    (see ``_as_uuid``)."""
+    excluded = _as_uuid(exclude_id) if exclude_id is not None else None
+    if excluded is not None:
+        clauses = [*clauses, "s.id <> :exclude"]
+        params = {**params, "exclude": excluded}
+    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    sql = _ROW_SELECT + where + " ORDER BY s.inception_date DESC, s.name"
+    if limit is not None:
+        sql += " " + row_limit(limit)
+    return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
+
+
+def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
+    """Set each row's ``crm_ids``, oldest tag first, for the master list's CRM column
+    (CR3). One query for the whole page (the dynamic ``IN`` param set mirrors
+    ``package_service.submission_refs_for_packages``); a deal with no tags keeps the
+    default ``[]``."""
+    ids = list(dict.fromkeys(str(row.id).lower() for row in rows))
+    if not ids:
+        return
+    params = {f"s{i}": sid for i, sid in enumerate(ids)}
+    placeholders = ", ".join(f":{key}" for key in params)
+    tags = execute(
+        "SELECT submission_id, crm_id FROM submission_crm_id "
+        f"WHERE submission_id IN ({placeholders}) ORDER BY inserted_at, id",
+        params, connection="WORKBENCH",
+    )
+    by_submission: dict[str, list[str]] = {}
+    for tag in tags:
+        by_submission.setdefault(
+            str(tag["submission_id"]).lower(), []).append(tag["crm_id"])
+    for row in rows:
+        row.crm_ids = by_submission.get(str(row.id).lower(), [])
+
+
 # ── Create / read / list ─────────────────────────────────────────────────────
 
 def create_submission(
@@ -346,21 +416,41 @@ def get_submission(submission_id: Any) -> Submission | None:
 
 
 def list_submissions(
-    *, owner_id: Any = None, cedant_name: str | None = None,
+    *, owner_id: Any = None, name: str | None = None,
+    cedant_name: str | None = None, crm_id: str | None = None,
     treaty_type_code: str | None = None, inception_date: Any = None,
-    treaty_year: int | None = None,
+    treaty_year: int | None = None, status_code: str | None = None,
 ) -> list[SubmissionRow]:
     """Master list. ``owner_id`` set → "My Submissions" (plain predicate, R7);
     ``None`` → All. Filters AND-combine as bound predicates (FR-021). Every deal
-    is visible to every analyst regardless of owner (Article 6)."""
+    is visible to every analyst regardless of owner (Article 6).
+
+    ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
+    ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
+    carries (CR3). Treaty type, inception date, treaty year and status are exact.
+
+    No minimum term length and no row cap: the unfiltered list already returns every
+    deal, so a one-character search costs no more than the page it narrows."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
     if owner_id is not None:
         clauses.append("s.assigned_analyst_id = :owner")
         params["owner"] = str(owner_id)
+    if name:
+        name_clauses, name_params = _word_and_clauses(name, ("s.name",), "n")
+        clauses += name_clauses
+        params |= name_params
     if cedant_name:
-        clauses.append("s.cedant_name = :cedant")
-        params["cedant"] = cedant_name
+        cedant_clauses, cedant_params = _word_and_clauses(
+            cedant_name, ("s.cedant_name",), "c")
+        clauses += cedant_clauses
+        params |= cedant_params
+    if crm_id:
+        # EXISTS, not a join: a deal carrying three matching tags is still one row.
+        clauses.append(
+            "EXISTS (SELECT 1 FROM submission_crm_id c "
+            "WHERE c.submission_id = s.id AND c.crm_id LIKE :crm ESCAPE '\\')")
+        params["crm"] = f"%{_escape_like(crm_id.strip())}%"
     if treaty_type_code:
         clauses.append("s.treaty_type_code = :tt")
         params["tt"] = treaty_type_code
@@ -370,12 +460,23 @@ def list_submissions(
     if treaty_year is not None:
         clauses.append("s.treaty_year = :ty")
         params["ty"] = int(treaty_year)
-    where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+    if status_code:
+        clauses.append("s.status_code = :status")
+        params["status"] = status_code
+    rows = _submission_rows(clauses, params)
+    _attach_crm_ids(rows)
+    return rows
+
+
+def status_kinds() -> list[tuple[str, str]]:
+    """Every submission status as (code, label) in display order, for the list's status
+    filter. Read from the kind table (Article 4) rather than a literal, so the "Hold"
+    status CIC asked for on 8/5 reaches the filter when its row is seeded."""
     rows = execute(
-        _ROW_SELECT + where + " ORDER BY s.inception_date DESC, s.name",
-        params, connection="WORKBENCH",
+        "SELECT code, label FROM submission_status_kind ORDER BY sort_order, code",
+        {}, connection="WORKBENCH",
     )
-    return [_to_row(row) for row in rows]
+    return [(row["code"], row["label"]) for row in rows]
 
 
 def find_similar(
@@ -384,24 +485,18 @@ def find_similar(
 ) -> list[SubmissionRow]:
     """Look-alikes: same ``name`` OR same (cedant + treaty_type + inception)
     (FR-004/R4). ``exclude_id`` skips the row being renamed. Never raises."""
-    params = {
-        "name": name,
-        "cedant": cedant_name,
-        "tt": treaty_type_code,
-        "inc": _as_date(inception_date),
-        "exclude": str(exclude_id) if exclude_id else None,
-    }
-    rows = execute(
-        _ROW_SELECT + """
-        WHERE (s.name = :name
-               OR (s.cedant_name = :cedant AND s.treaty_type_code = :tt
-                   AND s.inception_date = :inc))
-          AND (:exclude IS NULL OR s.id <> :exclude)
-        ORDER BY s.inception_date DESC, s.name
-        """,
-        params, connection="WORKBENCH",
+    return _submission_rows(
+        ["""(s.name = :name
+             OR (s.cedant_name = :cedant AND s.treaty_type_code = :tt
+                 AND s.inception_date = :inc))"""],
+        {
+            "name": name,
+            "cedant": cedant_name,
+            "tt": treaty_type_code,
+            "inc": _as_date(inception_date),
+        },
+        exclude_id=exclude_id,
     )
-    return [_to_row(row) for row in rows]
 
 
 # Both typeahead searches ignore a term this short. `%a%` matches most of the
@@ -434,32 +529,17 @@ def search_submissions_for_link(
     term: str, *, exclude_id: Any = None, limit: int = 10,
 ) -> list[SubmissionRow]:
     """Submissions matching every whitespace-separated term in ``term``, each
-    matched against name or cedant. Backs the "links to" picker (CR8).
+    matched against name or cedant (``_word_and_clauses``). Backs the "links to"
+    picker (CR8).
 
-    Terms AND-combine (CR2): "american fam" must not return every deal containing
-    "American". ``exclude_id`` drops the submission being edited so it cannot be
-    offered as its own link — ``update_submission`` still raises ``SelfLinkError``
-    as the real check."""
+    ``exclude_id`` drops the submission being edited so it cannot be offered as its
+    own link — ``update_submission`` still raises ``SelfLinkError`` as the real
+    check."""
     trimmed = (term or "").strip()
     if len(trimmed) < MIN_SUGGEST_TERM:
         return []
-    clauses: list[str] = []
-    params: dict[str, Any] = {"exclude": _as_uuid(exclude_id)}
-    for index, word in enumerate(trimmed.split()):
-        key = f"t{index}"
-        clauses.append(
-            f"(s.name LIKE :{key} ESCAPE '\\' OR s.cedant_name LIKE :{key} ESCAPE '\\')"
-        )
-        params[key] = f"%{_escape_like(word)}%"
-    rows = execute(
-        _ROW_SELECT
-        + " WHERE " + " AND ".join(clauses)
-        + " AND (:exclude IS NULL OR s.id <> :exclude)"
-        + " ORDER BY s.inception_date DESC, s.name "
-        + row_limit(limit),
-        params, connection="WORKBENCH",
-    )
-    return [_to_row(row) for row in rows]
+    clauses, params = _word_and_clauses(trimmed, ("s.name", "s.cedant_name"), "t")
+    return _submission_rows(clauses, params, exclude_id=exclude_id, limit=limit)
 
 
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────

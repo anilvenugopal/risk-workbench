@@ -184,6 +184,80 @@ def test_list_filters_combine(iteration1_db):
     assert len(combo) == 1 and combo[0].name == "X"
 
 
+def test_list_search_by_name_ands_every_word(iteration1_db):
+    """CR1/CR2 on the master list. Same rule as the "links to" picker, but the list's
+    search box is name-only — cedant has its own field."""
+    a = iteration1_db.user_a
+    amfam = _mk(iteration1_db, owner=a, name="American Family Renewal",
+                cedant="American Family Mutual", inc=date(2026, 5, 1)).submission_id
+    ammod = _mk(iteration1_db, owner=a, name="American Modern Renewal",
+                cedant="American Modern", inc=date(2026, 6, 1)).submission_id
+    assert {r.id for r in list_submissions(owner_id=a, name="american family")} == {amfam}
+    assert {r.id for r in list_submissions(owner_id=a, name="american")} == {amfam, ammod}
+    # "mutual" is in a cedant and in no name, so the search box does not match it.
+    assert list_submissions(owner_id=a, name="mutual") == []
+
+
+def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
+    """The cedant box is free text, so it has to match the way an analyst types it —
+    a fragment, in whatever case. Exact equality returned nothing for "fam"."""
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a, name="Cedant partial",
+              cedant="American Family Mutual").submission_id
+    assert {r.id for r in list_submissions(owner_id=a, cedant_name="fam")} == {sid}
+    assert {r.id for r in list_submissions(
+        owner_id=a, cedant_name="american mutual")} == {sid}
+
+
+def test_list_filter_by_crm_id(iteration1_db):
+    a = iteration1_db.user_a
+    tagged = _mk(iteration1_db, owner=a, name="Tagged deal").submission_id
+    _mk(iteration1_db, owner=a, name="Untagged deal", inc=date(2026, 7, 1))
+    add_crm_id(submission_id=tagged, crm_id="CRM-4417", actor_id=a)
+    add_crm_id(submission_id=tagged, crm_id="CRM-4418", actor_id=a)
+    # A substring of either tag finds the deal, and finds it ONCE even though both
+    # tags match — the predicate is EXISTS, not a join.
+    assert [r.id for r in list_submissions(owner_id=a, crm_id="441")] == [tagged]
+    assert [r.id for r in list_submissions(owner_id=a, crm_id="4418")] == [tagged]
+    assert list_submissions(owner_id=a, crm_id="9999") == []
+
+
+def test_list_rows_carry_their_crm_ids(iteration1_db):
+    a = iteration1_db.user_a
+    tagged = _mk(iteration1_db, owner=a, name="Has tags").submission_id
+    untagged = _mk(iteration1_db, owner=a, name="No tags",
+                   inc=date(2026, 7, 1)).submission_id
+    add_crm_id(submission_id=tagged, crm_id="CRM-1", actor_id=a)
+    _bump()  # distinct inserted_at, so "oldest tag first" is deterministic here
+    add_crm_id(submission_id=tagged, crm_id="CRM-2", actor_id=a)
+    rows = {r.id: r for r in list_submissions(owner_id=a)}
+    assert rows[tagged].crm_ids == ["CRM-1", "CRM-2"]
+    assert rows[untagged].crm_ids == []
+
+
+def test_list_filter_by_status(iteration1_db):
+    a = iteration1_db.user_a
+    active = _mk(iteration1_db, owner=a, name="Still active").submission_id
+    done = _mk(iteration1_db, owner=a, name="Wrapped up",
+               inc=date(2026, 7, 1)).submission_id
+    set_status(submission_id=done, to_status="COMPLETED", reason="delivered",
+               expected_updated_at=_marker(done), actor_id=a)
+    assert [r.id for r in list_submissions(owner_id=a, status_code="COMPLETED")] == [done]
+    assert [r.id for r in list_submissions(owner_id=a, status_code="ACTIVE")] == [active]
+
+
+def test_list_search_treats_a_wildcard_as_a_literal(iteration1_db):
+    a = iteration1_db.user_a
+    literal = _mk(iteration1_db, owner=a, name="100% quota share").submission_id
+    _mk(iteration1_db, owner=a, name="100 quota share", inc=date(2026, 7, 1))
+    assert [r.id for r in list_submissions(owner_id=a, name="100%")] == [literal]
+
+
+def test_status_kinds_lists_every_status_in_display_order(iteration1_db):
+    assert svc.status_kinds() == [
+        ("ACTIVE", "Active"), ("COMPLETED", "Completed"), ("CANCELLED", "Cancelled")]
+
+
 def test_reassign_owner_moves_my_view(iteration1_db):
     sid = _mk(iteration1_db, owner=iteration1_db.user_a).submission_id
     reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
