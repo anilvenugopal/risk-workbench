@@ -48,11 +48,17 @@ def list_submissions(
     inception_date: date | None = None,
     treaty_year: int | None = None,
     status_code: str | None = None,
-) -> list[SubmissionRow]:
-    """Master list. owner_id is a PLAIN predicate (assigned_analyst_id = owner_id),
-    NOT a scope wrapper (R7 / Article 6). Filters combine (AND) as bound predicates
-    (FR-021). All submissions are visible to every analyst regardless of owner.
-    Each returned row's .crm_ids carries its CRM tags, oldest first."""
+    page: int = 1,                          # 1-based; anything lower reads page 1
+) -> SubmissionPage:
+    """One page of the master list, at most PAGE_SIZE (50) rows. owner_id is a
+    PLAIN predicate (assigned_analyst_id = owner_id), NOT a scope wrapper
+    (R7 / Article 6). Filters combine (AND) as bound predicates (FR-021). All
+    submissions are visible to every analyst regardless of owner.
+    Each returned row's .crm_ids carries its CRM tags, oldest first.
+
+    Returns SubmissionPage(rows, page, has_next). has_next comes from reading one
+    row past the page, not a COUNT(*). The cap is what keeps the CRM-tag query
+    under SQL Server's 2,100-parameter limit — it binds one id per row."""
 
 def status_kinds() -> list[tuple[str, str]]:
     """Every submission status as (code, label) in sort_order, read from
