@@ -676,6 +676,19 @@ the selection read and the composition read-back moved to parameterized
 DataBridge SQL — R1 as revised 2026-08-05. Create and add stay on REST (writes;
 DataBridge is read-only).
 
+**Open, and the last unproven step of the composition: whether the DataBridge
+member count sees the REST add immediately.** W-1's read-back equality (the
+table above, 220- and 209-account selections) was measured against the
+paginated REST enumeration — the same system that performed the write. The
+scalar count reads `portacct` in the EDM database instead, and nothing has
+shown that the PATCH is visible there by the time the count runs. It very
+likely is (the REST layer writes those tables), but "likely" is what a probe
+exists to replace. If the database lags, **every** breakout entry fails with
+its sub-portfolio already created in Risk Modeler, and the failure reads as a
+short add rather than as a stale read. T061 asserts it first; a lagging read
+gets its observed delay recorded here and a bounded re-read added to
+`irp_gateway._member_count`.
+
 ---
 
 # Part 4 — Design record: why sub-portfolios, and why the overlap is accepted

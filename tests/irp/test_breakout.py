@@ -8,6 +8,14 @@ read-back composes whole accounts, re-adding members is safe (``completed 0``
 40+ division state fan-out lands every entry with an outcome and refuses none
 for size (SC-003).
 
+**And proves the one thing the probe run did not**: that the DataBridge member
+count sees the REST add immediately. The probe measured read-back equality
+against the paginated REST enumeration; W-20 moved the read-back to a
+DataBridge scalar on 2026-08-05 for the 100,000-account ceiling and never
+re-proved write visibility across the two systems. Every sub-portfolio the
+worker creates depends on it — see
+``test_create_add_readback_chunking_and_idempotent_readd``.
+
 Opt-in: ``pytest tests/irp --run-irp`` with the sandbox IRP env configured.
 Fixture: the probe EDM (default ``usfl_edm_small`` / source portfolio RM id
 ``1`` — ``usfl_commercial``, 1,701 accounts, 48 states); override with
@@ -130,6 +138,21 @@ def test_create_add_readback_chunking_and_idempotent_readd(sandbox):
     # chunks; success is the DataBridge read-back, never the add's
     # `completed` figure (W-9). The second populate re-adds every member and
     # must leave the count unchanged (idempotent re-add).
+    #
+    # THE ASSERTION THIS SUITE EXISTS FOR (T061). The composition PATCHes the
+    # accounts over REST and then counts members with DataBridge SQL against
+    # the EDM database — two different systems, and nothing has shown the
+    # second sees the first's write immediately. W-1's read-back equality was
+    # measured against the paginated REST enumeration, before W-20 moved the
+    # read-back to a scalar count on 2026-08-05. `_compose_or_adopt` returning
+    # at all IS that proof: the gateway raises when the count differs from the
+    # ids sent, on the FIRST read, with no retry and no sleep anywhere in the
+    # path. If this fails with a count below len(ids) while Risk Modeler shows
+    # the portfolio fully populated, the EDM database lags the PATCH — record
+    # the observed delay in probe-findings.md and add a bounded re-read to
+    # irp_gateway._member_count. Every breakout entry depends on it: a lagging
+    # read fails the sub-portfolio after its RM portfolio was created, and the
+    # failure reads as a short add rather than as a stale count.
     values = sandbox["summary"]["breakout_values"]["lob"]
     selection = _select(sandbox, "lob", [v["value"] for v in values])
     ids = sorted(set().union(*selection.accounts_by_value.values()))
