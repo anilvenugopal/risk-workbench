@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import date
 
 import pytest
 from fastapi import FastAPI, Request
@@ -346,6 +347,15 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
 
 # ── List: search, filters, CRM column (CR1–CR3) ──────────────────────────────
 
+def _mk_owned_by_b(client, name: str) -> None:
+    """A deal owned by the other analyst. The route always assigns the signed-in
+    user, so this goes through the service."""
+    submission_service.create_submission(
+        name=name, cedant_name="Beta Re", treaty_type_code="cat_xol",
+        inception_date=date(2026, 3, 1), treaty_year=2026,
+        actor_id=client.db.user_b, confirmed=True)
+
+
 def _two_american_deals(client) -> None:
     client.post("/submissions", data=_payload(
         name="TY2506_AmericanFamily", cedant_name="American Family Mutual",
@@ -432,8 +442,18 @@ def test_filtered_empty_list_offers_to_clear_the_filters(client):
 
 
 def test_empty_list_with_no_filters_reads_as_empty_not_filtered(client):
-    body = client.get("/submissions").text
+    # ?owner= is the unfiltered list: a bare /submissions applies the owner default.
+    body = client.get("/submissions?owner=").text
     assert "No submissions yet." in body and "clear-filters" not in body
+
+
+def test_empty_my_deals_offers_to_clear_rather_than_reading_as_empty(client):
+    """Analyst A owns nothing while Analyst B owns a deal. The default landing is
+    owner-filtered, so "No submissions yet." would be a lie."""
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions").text
+    assert "Deal owned by B" not in body
+    assert "No submissions match" in body and "clear-filters" in body
 
 
 # ── List: the #sub-list fragment and the pager ───────────────────────────────
@@ -485,8 +505,14 @@ def test_pager_links_carry_the_applied_filters(client):
     _fill_a_page_and_a_bit(client)
     body = client.get("/submissions?q=paged&status=ACTIVE").text
     assert "q=paged" in body and "status=ACTIVE" in body and "page=2" in body
-    # My Submissions pages within itself rather than bouncing to All.
-    assert 'href="/submissions/mine?' in client.get("/submissions/mine?page=2").text
+
+
+def test_pager_links_keep_the_every_owner_selection(client):
+    """`owner` rides along even when empty. Dropping it would make page 2 of an
+    every-owner list default back to the analyst's own deals."""
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?owner=").text
+    assert 'href="/submissions?owner=&amp;page=2"' in body
 
 
 def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
@@ -496,11 +522,20 @@ def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
     assert body.count('class="data-row"') == submission_service.PAGE_SIZE
 
 
-def test_my_submissions_keeps_the_filters_on_its_own_route(client):
-    _two_american_deals(client)
-    body = client.get("/submissions/mine?q=american+fam").text
-    assert "TY2506_AmericanFamily" in body
-    assert "TY2501_AmericanNational" not in body
-    # The form and the clear-filters link post back to /submissions/mine, so
-    # filtering inside "My Submissions" never bounces the analyst to All.
-    assert 'action="/submissions/mine"' in body
+def test_the_list_lands_on_the_signed_in_analysts_deals(client):
+    """No `owner` parameter means the analyst's own deals (FR-020). The Owner box
+    shows their name and the hidden input carries their id, so the next filter
+    request keeps the selection."""
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions").text
+    assert "Deal owned by A" in body and "Deal owned by B" not in body
+    assert f'name="owner" value="{client.db.user_a}"' in body
+    assert 'value="Analyst A"' in body
+
+
+def test_an_empty_owner_parameter_lists_every_analysts_deals(client):
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions?owner=").text
+    assert "Deal owned by A" in body and "Deal owned by B" in body

@@ -58,7 +58,6 @@ class TestGetNavContext:
         ctx = get_nav_context(_user(["analyst"]), "submissions.all")
         sidebar_keys = [n["key"] for n in ctx["sidebar"]]
         assert "submissions.all" in sidebar_keys
-        assert "submissions.mine" in sidebar_keys
 
     def test_workflows_sidebar_has_5_items(self):
         from app.nav import get_nav_context

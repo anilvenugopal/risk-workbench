@@ -41,14 +41,6 @@
 {% block main %}
 <div class="page-pad">
 
-  {# ── My / All toggle ── #}
-  <div class="sub-toggle">
-    <a class="sub-toggle__btn{% if scope == 'mine' %} is-active{% endif %}"
-       href="/submissions/mine">My Submissions</a>
-    <a class="sub-toggle__btn{% if scope == 'all' %} is-active{% endif %}"
-       href="/submissions">All</a>
-  </div>
-
   {# ── Filters (combine with AND), applied as you type: one debounced request per
         typing pause. The request goes to the list's own URL, which is what
         hx-push-url pushes (a fragment route would push its own path) — the route
@@ -57,8 +49,8 @@
         The form carries no page input, so re-filtering lands on page 1.
         method/action + the hidden submit are the no-JS fallback: a form with
         several text-ish fields and no submit button never submits on Enter. ── #}
-  <form class="filters" method="get" action="{{ base }}"
-        hx-get="{{ base }}" hx-trigger="input delay:300ms, submit, filter-picked"
+  <form class="filters" method="get" action="/submissions"
+        hx-get="/submissions" hx-trigger="input delay:300ms, submit, filter-picked"
         hx-target="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
     <div class="filters__row">
@@ -120,8 +112,9 @@
                min="1900" max="2999" style="min-width: 110px;">
       </label>
       {# A full navigation, not an hx-get: the form sits outside the swap target, so
-         only reloading the page empties the fields the analyst typed. #}
-      <a class="btn-sm" href="{{ base }}">Clear filters</a>
+         only reloading the page empties the fields the analyst typed. `?owner=`
+         clears the owner too — a bare /submissions would re-apply the analyst. #}
+      <a class="btn-sm" href="/submissions?owner=">Clear filters</a>
     </div>
     <button type="submit" hidden>Filter</button>
   </form>

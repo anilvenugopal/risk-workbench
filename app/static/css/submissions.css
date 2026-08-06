@@ -1,20 +1,6 @@
 /* submissions.css — submission list / detail / status-chip / CRM-tag styling.
    ITCSS component layer. Tokens only — no hardcoded hex (Article 9). */
 
-/* ── My / All toggle ─────────────────────────────────────────────────────── */
-.sub-toggle { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
-.sub-toggle__btn {
-  padding: 6px var(--space-3); font-size: var(--fs-label);
-  color: var(--text-secondary); text-decoration: none;
-  border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  background: var(--surface-panel);
-}
-.sub-toggle__btn:hover { border-color: var(--border-strong); }
-.sub-toggle__btn.is-active {
-  color: var(--btn-primary-fg); background: var(--btn-primary-bg);
-  border-color: var(--btn-primary-bg);
-}
-
 .sub-table { margin-top: var(--space-2); }
 
 /* ── List pager ──────────────────────────────────────────────────────────── */

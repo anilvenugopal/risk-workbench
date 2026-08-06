@@ -15,10 +15,10 @@
       {% else %}
         {% if is_filtered %}
         <tr><td colspan="8" class="empty">No submissions match —
-          <a class="clear-filters" href="{{ base }}">clear filters</a>.</td></tr>
+          <a class="clear-filters" href="/submissions?owner=">clear filters</a>.</td></tr>
         {% elif page > 1 %}
         <tr><td colspan="8" class="empty">Nothing on page {{ page }} —
-          <a class="clear-filters" href="{{ base }}">back to the first page</a>.</td></tr>
+          <a class="clear-filters" href="/submissions">back to the first page</a>.</td></tr>
         {% else %}
         <tr><td colspan="8" class="empty">No submissions yet.</td></tr>
         {% endif %}
@@ -30,7 +30,7 @@
      reads exactly as it did before paging. The links carry the applied filters
      and are real hrefs, so they still work with JavaScript off. #}
   {% if page > 1 or has_next %}
-  {% set stem = base ~ '?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
+  {% set stem = '/submissions?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
   <nav class="pager" aria-label="Submission pages">
     {% if page > 1 %}
     <a class="btn-sm" rel="prev" href="{{ stem }}{{ page - 1 }}"

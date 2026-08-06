@@ -222,7 +222,7 @@ def _not_found(request: Request):
     )
 
 
-# ── List (My / All) + filters ────────────────────────────────────────────────
+# ── List + filters ───────────────────────────────────────────────────────────
 
 # The id of the div the filter form and the pager links both target. A request
 # naming it gets the table on its own: rebuilding the status list, the analyst
@@ -238,7 +238,7 @@ def _owner_label(analysts: list[dict], owner_id) -> str:
                  if str(a["id"]).lower() == str(owner_id).lower()), "")
 
 
-def _list_page(request: Request, *, owner_id, nav_key: str):
+def _list_page(request: Request):
     filters = {
         "name": (request.query_params.get("q") or "").strip() or None,
         "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
@@ -248,54 +248,53 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
         "status_code": (request.query_params.get("status") or "").strip() or None,
     }
-    # The Owner menu sends an app_user id. On /submissions/mine the route already
-    # names the owner, so the picked id only applies to the All list.
-    picked_owner = (request.query_params.get("owner") or "").strip() or None
+    # The Owner menu sends an app_user id. No `owner` at all — a nav click, a bare
+    # bookmark — lands the analyst on their own deals (FR-020); an empty one is the
+    # "Any owner" row asking for every deal.
+    raw_owner = request.query_params.get("owner")
+    owner_id = (request.state.user.id if raw_owner is None
+                else raw_owner.strip() or None)
     listing = submission_service.list_submissions(
-        owner_id=owner_id or picked_owner,
-        page=_parse_int(request.query_params.get("page")) or 1,
+        owner_id=owner_id, page=_parse_int(request.query_params.get("page")) or 1,
         **filters)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
         key: request.query_params.get(key, "")
-        for key in ("q", "cedant", "crm_id", "owner", "treaty_type", "inception",
+        for key in ("q", "cedant", "crm_id", "treaty_type", "inception",
                     "treaty_year", "status")
     }
+    # The resolved owner, not the raw parameter: on the default landing the hidden
+    # input has to carry the analyst's own id so the next filter request keeps it.
+    filter_values["owner"] = str(owner_id) if owner_id else ""
     list_ctx = {
         "rows": listing.rows,
         "page": listing.page,
         "has_next": listing.has_next,
-        "base": "/submissions/mine" if owner_id else "/submissions",
         # The applied filters, for the pager links to carry; each link appends its
-        # own page number.
+        # own page number. `owner` goes even when empty — dropping it would make
+        # page 2 of an every-owner list default back to the analyst's own deals.
         "filter_query": urlencode(
-            {key: value for key, value in filter_values.items() if value}),
+            {key: value for key, value in filter_values.items()
+             if value or key == "owner"}),
         "is_filtered": any(filter_values.values()),
     }
     if request.headers.get("HX-Target") == _LIST_TARGET:
         return _partial(request, "partials/submission_list.html", list_ctx)
     analysts = _active_analysts()
-    return _render(request, "pages/submissions.html", nav_key, {
+    return _render(request, "pages/submissions.html", "submissions.all", {
         **list_ctx,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
         "analysts": analysts,
-        "owner_label": _owner_label(analysts, picked_owner),
-        "scope": "mine" if owner_id else "all",
+        "owner_label": _owner_label(analysts, owner_id),
         "filter_values": filter_values,
     })
 
 
 @router.get("/submissions", response_class=HTMLResponse)
-def list_all(request: Request):
-    return _list_page(request, owner_id=None, nav_key="submissions.all")
-
-
-@router.get("/submissions/mine", response_class=HTMLResponse)
-def list_mine(request: Request):
-    return _list_page(request, owner_id=request.state.user.id,
-                      nav_key="submissions.mine")
+def list_submissions_page(request: Request):
+    return _list_page(request)
 
 
 def _suggest_menu(request: Request, options: list[dict], term: str,
