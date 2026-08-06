@@ -28,7 +28,8 @@ NODES: list[dict[str, Any]] = [
         "key": "submissions",
         "label": "Submissions",
         "parent": None,
-        "route": "/submissions",
+        # Lands on "My Submissions" (FR-020), not the all-submissions list.
+        "route": "/submissions/mine",
         "rail_icon": "submissions",
         "sidebar_title": "Submissions",
         "searchable": True,
