@@ -189,6 +189,18 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         "portfolio_currencies.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "Currency": "USD"},
         ],
+        # FR-007 as revised 2026-08-05: the two counts measured PER ACCOUNT.
+        # Note they are not derivable from the per-value counts above — the lob
+        # counts sum to 1,712 over 1,690 covered accounts, and 11 of the
+        # portfolio's 1,701 accounts carry no lob at all.
+        "portfolio_state_coverage.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "CoveredAccounts": 1624,
+             "MultiValueAccounts": 38},
+        ],
+        "portfolio_lob_coverage.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "CoveredAccounts": 1690,
+             "MultiValueAccounts": 22},
+        ],
     }
     calls: list = []
     gw = _summary_gw(hits, results, calls)
@@ -196,12 +208,12 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
-    # gets an entry from the TIV seed with empty lists. account_total and the
-    # breakout_values container are the spec-005 additions (R11) — the
-    # container's PRESENCE is what marks a post-005 summary; entries are
-    # sorted by value. states holds Admin1Code (P-12); a state's label is
-    # Admin1Name where geocoded and None otherwise; a lob value is its own
-    # label → None.
+    # gets an entry from the TIV seed with empty lists. account_total,
+    # breakout_values and breakout_coverage are the spec-005 additions (R11 and
+    # the 2026-08-05 FR-007 revision) — the breakout_values container's PRESENCE
+    # is what marks a post-005 summary; entries are sorted by value. states
+    # holds Admin1Code (P-12); a state's label is Admin1Name where geocoded and
+    # None otherwise; a lob value is its own label → None.
     assert summary == {
         "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
               "states": ["BY", "FL", "TX"],
@@ -214,13 +226,17 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
                   "state": [
                       {"value": "BY", "label": "BAYERN", "accounts": 9},
                       {"value": "FL", "label": "FLORIDA", "accounts": 1241},
-                      {"value": "TX", "label": None, "accounts": 412}]}},
+                      {"value": "TX", "label": None, "accounts": 412}]},
+              "breakout_coverage": {
+                  "lob": {"covered": 1690, "multi_value": 22},
+                  "state": {"covered": 1624, "multi_value": 38}}},
         "2": {"portfolio_name": "B", "total_tiv": 0.0,
               "states": [], "lines_of_business": [], "currencies": [],
-              "account_total": None, "breakout_values": {}},
+              "account_total": None, "breakout_values": {},
+              "breakout_coverage": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 5
+    assert [db for _, db in calls] == ["edm_db"] * 7
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():

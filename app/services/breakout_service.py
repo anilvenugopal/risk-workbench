@@ -4,7 +4,7 @@ Owns, per contracts/data-access.md §1:
   • the prerequisite gate (``evaluate_gate`` — FR-002/FR-003, the Article 12
     named must-test),
   • the pure name/number plan builder (``build_breakout_plan`` — P-11/T-05),
-  • the overlap arithmetic (``compute_overlap`` — FR-007/P-13),
+  • the overlap statement (``compute_overlap`` — FR-007/P-13),
   • the confirm path (``request_breakout`` — five ordered steps, no ``rwb_job``
     row until all five pass),
   • the worker-side plan load + outcome assembly (``load_approved_plan`` /
@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Collection, Sequence
 
 from app.services import irp_gateway, rwb_job_service
@@ -95,6 +95,16 @@ class BreakoutValue:
 
 
 @dataclass(frozen=True)
+class DimensionCoverage:
+    """``summary.breakout_coverage[dimension]`` — the two counts the FR-007
+    overlap statement is made of, both measured per account by the coverage
+    scripts rather than derived from the per-value counts (which sum
+    memberships: an account with three values adds three)."""
+    covered: int              # source accounts carrying at least one value
+    multi_value: int          # source accounts carrying MORE THAN ONE value
+
+
+@dataclass(frozen=True)
 class DimensionEligibility:
     dimension: str            # breakout_dimension_kind.code
     label: str                # breakout_dimension_kind.label (display)
@@ -112,6 +122,9 @@ class BreakoutGate:
     refresh_in_flight: bool   # a backfill_edm_detail for this EDM is pending|running (P-16)
     summary_as_of: str | None # the summary this preview renders from; echoed into the confirm (FR-002b)
     account_total: int | None = None  # summary.account_total — the modal header + overlap denominator (P-13)
+    # summary.breakout_coverage per dimension code — the measured overlap
+    # (FR-007). Empty for a summary written before the 2026-08-05 revision.
+    coverage: dict[str, DimensionCoverage] = field(default_factory=dict)
 
 
 def _as_of_str(value: Any) -> str | None:
@@ -287,7 +300,28 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
         portfolio_eligible=portfolio_eligible, reason=reason,
         dimensions=dimensions, in_flight=in_flight,
         refresh_in_flight=refresh_in_flight, summary_as_of=summary_as_of,
-        account_total=account_total)
+        account_total=account_total, coverage=_parse_coverage(summary))
+
+
+def _parse_coverage(summary: dict | None) -> dict[str, DimensionCoverage]:
+    """``summary.breakout_coverage`` per dimension code, parsed as defensively
+    as the rest of the summary. A summary written before the 2026-08-05 FR-007
+    revision has no such key: the dimension is simply absent from the result and
+    the preview degrades to the qualitative disclosure (data-model §6)."""
+    raw = summary.get("breakout_coverage") if isinstance(summary, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    coverage: dict[str, DimensionCoverage] = {}
+    for code, entry in raw.items():
+        if not isinstance(entry, dict):
+            continue
+        covered, multi = entry.get("covered"), entry.get("multi_value")
+        if not (isinstance(covered, (int, float))
+                and isinstance(multi, (int, float))):
+            continue
+        coverage[str(code)] = DimensionCoverage(covered=int(covered),
+                                               multi_value=int(multi))
+    return coverage
 
 
 # ── Approved plan (pure function — the preview and the persisted plan are the
@@ -386,28 +420,42 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
     return plan
 
 
-# ── Overlap arithmetic (FR-007 / P-13) ───────────────────────────────────────────
+# ── Overlap statement (FR-007 / P-13) ────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class Overlap:
     account_total: int | None   # summary.account_total (the denominator)
-    summed: int                 # Σ accounts over the dimension's values
-    repeats: int | None         # summed − account_total, floored at 0; None when the total is absent
-    partition: bool             # repeats == 0 — the sub-portfolios partition the source cleanly
+    summed: int                 # Σ accounts over the dimension's values — MEMBERSHIPS, not accounts
+    covered: int | None         # source accounts landing in ≥ 1 sub-portfolio (SC-002)
+    uncovered: int | None       # account_total − covered: accounts landing in none (FR-007b)
+    repeats: int | None         # source accounts landing in MORE THAN ONE sub-portfolio (FR-007a)
+    partition: bool             # no repeats AND no uncovered accounts — a clean partition
 
 
 def compute_overlap(values: Sequence[BreakoutValue],
-                    account_total: int | None) -> Overlap:
-    """Pure arithmetic over the stored summary. A missing ``account_total``
-    yields ``repeats=None`` and the preview falls back to the qualitative
-    disclosure alone (data-model §6)."""
+                    account_total: int | None,
+                    coverage: DimensionCoverage | None = None) -> Overlap:
+    """The two FR-007 figures, read from the coverage the summary measured per
+    account. ``summed`` is kept as what it is — the membership total across the
+    sub-portfolios, always ≥ ``covered`` — and is never used to derive either
+    figure: an account carrying three values adds three memberships, and an
+    account carrying none is in ``account_total`` but in no value's count, so
+    the two errors cancel and ``summed − account_total`` can report a clean
+    partition for a portfolio where most accounts land nowhere.
+
+    Absent coverage yields ``repeats=None`` and the preview falls back to the
+    qualitative disclosure alone (data-model §6) — the same degrade an absent
+    ``account_total`` already gets."""
     summed = sum(v.accounts for v in values)
-    if account_total is None:
-        return Overlap(account_total=None, summed=summed, repeats=None,
-                       partition=False)
-    repeats = max(summed - account_total, 0)
-    return Overlap(account_total=account_total, summed=summed, repeats=repeats,
-                   partition=(repeats == 0))
+    if coverage is None:
+        return Overlap(account_total=account_total, summed=summed, covered=None,
+                       uncovered=None, repeats=None, partition=False)
+    uncovered = (max(account_total - coverage.covered, 0)
+                 if account_total is not None else None)
+    return Overlap(account_total=account_total, summed=summed,
+                   covered=coverage.covered, uncovered=uncovered,
+                   repeats=coverage.multi_value,
+                   partition=(coverage.multi_value == 0 and uncovered == 0))
 
 
 # ── Modal read model (GET /edms/{e}/portfolios/{p}/breakout — http-routes.md) ────
@@ -457,7 +505,8 @@ def modal_context(edm_id: Any, portfolio_id: Any,
                             dimension=selected)
         values = next(d.values for d in gate.dimensions
                       if d.dimension == selected)
-        overlap = compute_overlap(values, gate.account_total)
+        overlap = compute_overlap(values, gate.account_total,
+                                  gate.coverage.get(selected))
 
     return BreakoutModal(
         gate=gate, portfolio_name=portfolio["name"],
@@ -811,7 +860,8 @@ __all__ = [
     "PORTFOLIO_NAME_MAX", "PORTFOLIO_NUMBER_MAX", "LARGE_FANOUT_THRESHOLD",
     "MISSING_SUMMARY_REASON", "REFRESH_IN_FLIGHT_REASON",
     "BreakoutRefused", "GateRefused", "SummaryRewritten", "StaleSummary",
-    "BreakoutValue", "DimensionEligibility", "BreakoutGate", "evaluate_gate",
+    "BreakoutValue", "DimensionCoverage", "DimensionEligibility",
+    "BreakoutGate", "evaluate_gate",
     "SubPortfolioPlan", "build_breakout_plan", "compose_plan",
     "Overlap", "compute_overlap",
     "BreakoutModal", "modal_context",

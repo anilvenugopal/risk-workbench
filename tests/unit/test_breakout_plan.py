@@ -7,8 +7,11 @@ else the value (P-12 as revised 2026-08-05) — kept whole (suffix room
 reserved), number ≤ 20 characters with a hash tail on a long token, collision
 suffixing against existing AND intra-plan names, ``exists`` marking, and
 stable value ordering.
-``compute_overlap`` is Σ accounts versus ``account_total``. Blank values never
-appear here — the summary SQL scrubs them; the disclosure is UI copy.
+``compute_overlap`` reads the two counts the summary measured per account —
+accounts carrying at least one value, accounts carrying more than one — and
+never derives either from Σ accounts, which counts memberships. Blank values
+never appear in the value list (the summary SQL scrubs them); how many accounts
+they cost is what ``uncovered`` states.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from app.services.breakout_service import (
     PORTFOLIO_NAME_MAX,
     PORTFOLIO_NUMBER_MAX,
     BreakoutValue,
+    DimensionCoverage,
     build_breakout_plan,
     compute_overlap,
 )
@@ -178,28 +182,72 @@ def test_exists_marks_values_with_live_lineage_rows():
 
 # ── overlap arithmetic (FR-007 / P-13) ────────────────────────────────────────────
 
+def _cov(covered: int, multi_value: int) -> DimensionCoverage:
+    return DimensionCoverage(covered=covered, multi_value=multi_value)
+
+
 def test_overlap_clean_partition():
-    overlap = compute_overlap([_bv("TX", 220), _bv("CA", 1481)], 1701)
+    # Every account carries exactly one value: no repeats, nothing uncovered.
+    overlap = compute_overlap([_bv("TX", 220), _bv("CA", 1481)], 1701,
+                              _cov(covered=1701, multi_value=0))
     assert overlap.summed == 1701
+    assert overlap.covered == 1701
+    assert overlap.uncovered == 0
     assert overlap.repeats == 0
     assert overlap.partition is True
 
 
 def test_overlap_heavy_repeats():
-    overlap = compute_overlap([_bv("TX", 1200), _bv("CA", 900)], 1701)
+    overlap = compute_overlap([_bv("TX", 1200), _bv("CA", 900)], 1701,
+                              _cov(covered=1701, multi_value=399))
     assert overlap.repeats == 399
+    assert overlap.uncovered == 0
     assert overlap.partition is False
 
 
-def test_overlap_absent_account_total_degrades_to_qualitative():
-    overlap = compute_overlap([_bv("TX", 220)], None)
-    assert overlap.account_total is None
+def test_overlap_absent_coverage_degrades_to_qualitative():
+    # A summary written before the 2026-08-05 revision carries no coverage.
+    overlap = compute_overlap([_bv("TX", 220)], 1701, None)
+    assert overlap.account_total == 1701
+    assert overlap.covered is None
+    assert overlap.uncovered is None
     assert overlap.repeats is None
     assert overlap.partition is False
 
 
-def test_overlap_never_negative():
-    # A stale count sum below the total floors at 0, never a negative repeat.
-    overlap = compute_overlap([_bv("TX", 100)], 1701)
+def test_overlap_absent_account_total_still_reports_repeats():
+    # No denominator means no coverage shortfall can be stated, but the
+    # repeat count is measured independently of it.
+    overlap = compute_overlap([_bv("TX", 220)], None, _cov(220, 12))
+    assert overlap.account_total is None
+    assert overlap.uncovered is None
+    assert overlap.repeats == 12
+    assert overlap.partition is False
+
+
+def test_overlap_uncovered_accounts_are_not_a_clean_partition():
+    # The case the old summed − account_total arithmetic reported as a clean
+    # partition: 100 of 1,701 accounts carry a state, 1,601 land nowhere.
+    overlap = compute_overlap([_bv("TX", 100)], 1701, _cov(covered=100,
+                                                          multi_value=0))
     assert overlap.repeats == 0
+    assert overlap.uncovered == 1601
+    assert overlap.partition is False
+
+
+def test_overlap_counts_an_account_once_however_many_values_it_carries():
+    # One account in three states inflates `summed` by 2 but is ONE repeating
+    # account — which is what the disclosure states.
+    overlap = compute_overlap([_bv("TX", 1), _bv("CA", 1), _bv("NV", 1)], 3,
+                              _cov(covered=3, multi_value=1))
+    assert overlap.summed == 3
+    assert overlap.repeats == 1
+
+
+def test_overlap_uncovered_never_negative():
+    # A coverage count above the stored total (summary halves written by
+    # different script runs) floors at 0 rather than reporting a negative gap.
+    overlap = compute_overlap([_bv("TX", 100)], 90, _cov(covered=100,
+                                                        multi_value=0))
+    assert overlap.uncovered == 0
     assert overlap.partition is True

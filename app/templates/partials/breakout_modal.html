@@ -148,27 +148,40 @@
         account with locations in several states lands <strong>whole</strong>
         in every state sub-portfolio it touches{% endif %}. The inflation in
         exposure can exceed the inflation in account count.</div>
-      {% elif ov.partition %}
-      <div class="bo-note bo-note--overlap"><strong>None of this portfolio's
-        {{ '{:,}'.format(ov.account_total) }} accounts match more than one
-        {{ modal.noun }}</strong> — the sub-portfolios partition the
-        source cleanly.{% if geo %} A commercial account with locations in
+      {% elif ov.repeats == 0 %}
+      <div class="bo-note bo-note--overlap"><strong>None of the
+        {{ '{:,}'.format(ov.covered) }} accounts that carry a {{ modal.noun }}
+        match more than one</strong> — the sub-portfolios do not
+        overlap{% if ov.partition %}, and together they hold every account in the
+        source{% endif %}.{% if geo %} A commercial account with locations in
         several states would land whole in every state sub-portfolio it
         touches; here none does.{% endif %} The inflation in exposure can
         exceed the inflation in account count when accounts repeat; here none
         do.</div>
       {% else %}
       <div class="bo-note bo-note--overlap"><strong>{{ '{:,}'.format(ov.repeats) }}
-        of this portfolio's {{ '{:,}'.format(ov.account_total) }} accounts match
-        more than one {{ modal.noun }}</strong> and will be included in full in
-        each one{% if geo %} — a commercial account with locations in
+        of the {{ '{:,}'.format(ov.covered) }} accounts that carry a
+        {{ modal.noun }} match more than one</strong> and will be included in
+        full in each one{% if geo %} — a commercial account with locations in
         several states lands <strong>whole</strong> in every state
         sub-portfolio it touches{% endif %}. The inflation in exposure can
         exceed the inflation in account count — the accounts appearing in
         several sub-portfolios tend to be the largest.</div>
       {% endif %}
+      {# FR-007(b): the coverage shortfall, measured where the summary carries
+         the coverage counts and stated qualitatively where it does not. #}
+      {% if ov.uncovered %}
+      <div class="bo-note bo-note--plain"><strong>{{ '{:,}'.format(ov.uncovered) }}
+        of this portfolio's {{ '{:,}'.format(ov.account_total) }} accounts carry no
+        {{ modal.noun }} value</strong> and are not included in any
+        sub-portfolio.</div>
+      {% elif ov.uncovered == 0 %}
+      <div class="bo-note bo-note--plain">Every account in this portfolio carries
+        a {{ modal.noun }} value, so none is left out of the sub-portfolios.</div>
+      {% else %}
       <div class="bo-note bo-note--plain">Exposure with no {{ modal.noun }}
         value is not included in any sub-portfolio.</div>
+      {% endif %}
 
       {% endif %}
       {% endif %}

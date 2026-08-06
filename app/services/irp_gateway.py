@@ -59,6 +59,16 @@ _SELECTION_SCRIPTS = {
     "state": "breakout_state_accounts.sql",
 }
 
+# The overlap coverage read per dimension — whole-EDM aggregates run by
+# get_edm_exposure_summary, one row per portfolio: how many of its accounts
+# carry at least one value of the dimension, and how many carry more than one
+# (FR-007 as revised 2026-08-05). Keyed by breakout_dimension_kind.code so the
+# dimension vocabulary stays in Python, never in the SQL.
+_COVERAGE_SCRIPTS = {
+    "lob": "portfolio_lob_coverage.sql",
+    "state": "portfolio_state_coverage.sql",
+}
+
 
 class DuplicatePortfolioNameError(Exception):
     """``create_portfolio`` refused because the name is already taken in the
@@ -592,6 +602,11 @@ class _RealGateway:
                     # Their PRESENCE marks a post-005 summary — the gate reads a
                     # summary without breakout_values as absent (FR-002).
                     "account_total": None, "breakout_values": {},
+                    # spec 005 FR-007 as revised 2026-08-05: the measured
+                    # overlap, also keyed by dimension code. Absent on a summary
+                    # written before that revision, which the preview degrades
+                    # to the qualitative disclosure alone (data-model §6).
+                    "breakout_coverage": {},
                 }
             return summary[key]
 
@@ -626,6 +641,20 @@ class _RealGateway:
             e["breakout_values"].setdefault("lob", []).append({
                 "value": value, "label": None,
                 "accounts": (int(count) if count is not None else 0)})
+        for dimension, script in _COVERAGE_SCRIPTS.items():
+            # spec 005 FR-007 as revised 2026-08-05: `covered` is the account
+            # count carrying at least one value of the dimension (AccountTotal
+            # minus it is the SC-002 coverage shortfall), `multi_value` the
+            # count carrying more than one — the accounts that land in several
+            # sub-portfolios. Summing breakout_values[].accounts cannot produce
+            # either: it counts memberships, and an account with three values
+            # adds three.
+            for row in rows(script):
+                covered = row.get("CoveredAccounts")
+                multi = row.get("MultiValueAccounts")
+                entry(row)["breakout_coverage"][dimension] = {
+                    "covered": (int(covered) if covered is not None else 0),
+                    "multi_value": (int(multi) if multi is not None else 0)}
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():

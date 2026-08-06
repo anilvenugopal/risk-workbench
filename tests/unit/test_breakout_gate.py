@@ -51,6 +51,15 @@ SUMMARY = {
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 900},
                 {"value": "EQ Comm", "label": None, "accounts": 801}],
     },
+    # Measured per account by the coverage scripts (FR-007 as revised
+    # 2026-08-05) — NOT derivable from the per-value counts above: every one of
+    # the 1,701 accounts carries a state and none carries two, while the lob
+    # counts sum to the same 1,701 with 60 accounts carrying two and 60
+    # carrying none.
+    "breakout_coverage": {
+        "state": {"covered": 1701, "multi_value": 0},
+        "lob": {"covered": 1641, "multi_value": 60},
+    },
 }
 
 # A summary the spec-004 builder wrote: states hold the mixed name/code

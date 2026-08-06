@@ -161,12 +161,13 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>311 of this portfolio's 1,701 accounts match more than one line of business</strong>
+            <strong>311 of the 1,690 accounts that carry a line of business match more than one</strong>
             and will be included in full in each one. The inflation in exposure can exceed the
             inflation in account count — the accounts appearing in several sub-portfolios tend to be the largest.
           </div>
           <div class="bo-note bo-note--plain">
-            Exposure with no line-of-business value is not included in any sub-portfolio.
+            <strong>11 of this portfolio's 1,701 accounts carry no line of business value</strong>
+            and are not included in any sub-portfolio.
           </div>
         </div>
         <div class="bo-modal__footer">
@@ -178,7 +179,7 @@ h1,h2,h3{margin:0}
     </div>
 
     <div class="tile">
-      <div class="tile__label">clean partition (repeats = 0) · absent account_total fallback below</div>
+      <div class="tile__label">clean partition (no repeats, nothing uncovered) · absent breakout_coverage fallback below</div>
       <div class="bo-modal">
         <div class="bo-modal__header">
           <span class="bo-modal__title">Break out</span>
@@ -203,15 +204,17 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>None of this portfolio's 500 accounts match more than one line of business</strong> —
-            the sub-portfolios partition the source cleanly. The inflation in exposure can exceed the
-            inflation in account count when accounts repeat; here none do.
+            <strong>None of the 500 accounts that carry a line of business match more than one</strong> —
+            the sub-portfolios do not overlap, and together they hold every account in the source.
+            The inflation in exposure can exceed the inflation in account count when accounts repeat;
+            here none do.
           </div>
           <div class="bo-note bo-note--plain">
-            Exposure with no line-of-business value is not included in any sub-portfolio.
+            Every account in this portfolio carries a line of business value, so none is left out of the
+            sub-portfolios.
           </div>
           <div class="bo-note bo-note--overlap" style="opacity:.75">
-            <em>(absent account_total variant — the header omits the account count too)</em> Accounts matching more than one line of business are
+            <em>(absent breakout_coverage variant — a summary written before the 2026-08-05 revision)</em> Accounts matching more than one line of business are
             included in full in each matching sub-portfolio, so the sub-portfolios can overlap. The inflation
             in exposure can exceed the inflation in account count.
           </div>
@@ -255,13 +258,14 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>252 of this portfolio's 1,701 accounts match more than one state</strong> and will be
+            <strong>252 of the 1,624 accounts that carry a state match more than one</strong> and will be
             included in full in each one — a commercial account with locations in several states lands
             <strong>whole</strong> in every state sub-portfolio it touches. The inflation in exposure can
             exceed the inflation in account count.
           </div>
           <div class="bo-note bo-note--plain">
-            Exposure with no state value is not included in any sub-portfolio.
+            <strong>77 of this portfolio's 1,701 accounts carry no state value</strong> and are not
+            included in any sub-portfolio.
           </div>
         </div>
         <div class="bo-modal__footer">

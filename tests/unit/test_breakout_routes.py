@@ -214,32 +214,59 @@ def test_modal_large_fanout_untruncated_with_several_minutes_note(
 
 
 def test_modal_overlap_statement_three_forms(routes_db, client):
-    # The same value set against three denominators forces each arm (FR-007).
+    # The same value set against three coverage readings forces each arm
+    # (FR-007). The value counts are identical throughout — only the measured
+    # coverage moves, which is the point: Σ accounts cannot tell these apart.
     edm_id = _mk_edm()
-    heavy = dict(SUMMARY, account_total=1000, breakout_values={
-        "lob": [{"value": "A", "label": None, "accounts": 700},
-                {"value": "B", "label": None, "accounts": 600}]})
+    values = {"lob": [{"value": "A", "label": None, "accounts": 700},
+                      {"value": "B", "label": None, "accounts": 600}]}
+    heavy = dict(SUMMARY, account_total=1000, breakout_values=values,
+                 breakout_coverage={"lob": {"covered": 1000,
+                                            "multi_value": 300}})
     pid = _mk_portfolio(edm_id, summary=heavy)
     flat = " ".join(client.get(_url(edm_id, pid)).text.split())
-    assert ("300 of this portfolio's 1,000 accounts match more than one "
-            "line of business" in flat)
+    assert ("300 of the 1,000 accounts that carry a line of business match "
+            "more than one" in flat)
     assert "included in full in each one" in flat
     assert "tend to be the largest" in flat
 
-    clean = dict(SUMMARY, account_total=1300,
-                 breakout_values=heavy["breakout_values"])
+    clean = dict(SUMMARY, account_total=1300, breakout_values=values,
+                 breakout_coverage={"lob": {"covered": 1300,
+                                            "multi_value": 0}})
     pid2 = _mk_portfolio(edm_id, name="clean", irp_id="2", summary=clean)
     flat2 = " ".join(client.get(_url(edm_id, pid2)).text.split())
-    assert ("None of this portfolio's 1,300 accounts match more than one "
-            "line of business" in flat2)
-    assert "partition the source cleanly" in flat2
+    assert ("None of the 1,300 accounts that carry a line of business match "
+            "more than one" in flat2)
+    assert ("the sub-portfolios do not overlap, and together they hold every "
+            "account in the source." in flat2)
 
-    absent = {k: v for k, v in heavy.items() if k != "account_total"}
+    absent = {k: v for k, v in heavy.items() if k != "breakout_coverage"}
     pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
     flat3 = " ".join(client.get(_url(edm_id, pid3)).text.split())
-    # qualitative sentence alone; the header omits the account count too
+    # qualitative sentence alone — no count is invented from the value totals
     assert "so the sub-portfolios can overlap" in flat3
-    assert "absent · Portfolio #3</span>" in flat3
+    assert "match more than one" not in flat3
+
+
+def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
+        routes_db, client):
+    # The case summed − account_total reported as a clean partition: 100 of
+    # 1,701 accounts carry a state and none carries two.
+    edm_id = _mk_edm()
+    summary = dict(SUMMARY, breakout_values={
+        "state": [{"value": "TX", "label": None, "accounts": 60},
+                  {"value": "CA", "label": None, "accounts": 40}],
+        "lob": SUMMARY["breakout_values"]["lob"]},
+        breakout_coverage={"state": {"covered": 100, "multi_value": 0}})
+    pid = _mk_portfolio(edm_id, summary=summary)
+    flat = " ".join(
+        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
+    assert ("None of the 100 accounts that carry a state match more than one"
+            in flat)
+    assert "the sub-portfolios do not overlap." in flat
+    assert "hold every account in the source" not in flat
+    assert ("<strong>1,601 of this portfolio's 1,701 accounts carry no state "
+            "value</strong>" in flat)
 
 
 def test_modal_geography_disclosure_states_multi_state_consequence(
@@ -247,29 +274,30 @@ def test_modal_geography_disclosure_states_multi_state_consequence(
     # US2 (FR-007/T047): every overlap form of the state dimension states the
     # multi-state-account consequence explicitly; the lob forms never do.
     edm_id = _mk_edm()
-    # SUMMARY's state counts (220 + 1,481) equal account_total → partition arm
+    # SUMMARY's state coverage is every account, none repeating → partition arm
     pid = _mk_portfolio(edm_id)
     flat = " ".join(
         client.get(_url(edm_id, pid) + "?dimension=state").text.split())
-    assert ("None of this portfolio's 1,701 accounts match more than one "
-            "state" in flat)
+    assert ("None of the 1,701 accounts that carry a state match more than one"
+            in flat)
     assert ("A commercial account with locations in several states would "
             "land whole in every state sub-portfolio it touches; here none "
             "does." in flat)
 
-    # quantified arm: a lower denominator forces repeats > 0
-    heavy = dict(SUMMARY, account_total=1500)
+    # quantified arm: measured repeats > 0
+    heavy = dict(SUMMARY, breakout_coverage={"state": {"covered": 1701,
+                                                       "multi_value": 201}})
     pid2 = _mk_portfolio(edm_id, name="heavy", irp_id="2", summary=heavy)
     flat2 = " ".join(
         client.get(_url(edm_id, pid2) + "?dimension=state").text.split())
-    assert ("201 of this portfolio's 1,500 accounts match more than one "
-            "state" in flat2)
+    assert ("201 of the 1,701 accounts that carry a state match more than one"
+            in flat2)
     assert ("a commercial account with locations in several states lands "
             "<strong>whole</strong> in every state sub-portfolio it touches"
             in flat2)
 
-    # qualitative arm: no account_total
-    absent = {k: v for k, v in SUMMARY.items() if k != "account_total"}
+    # qualitative arm: no breakout_coverage
+    absent = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
     pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
     flat3 = " ".join(
         client.get(_url(edm_id, pid3) + "?dimension=state").text.split())
@@ -301,12 +329,34 @@ def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
     assert "Create 43 sub-portfolios" in r.text
 
 
-def test_modal_blank_value_disclosure(routes_db, client):
+def test_modal_blank_value_disclosure_states_the_measured_shortfall(
+        routes_db, client):
+    # FR-007(b): SUMMARY's lob coverage is 1,641 of 1,701 accounts, so 60 carry
+    # no line of business and land in no sub-portfolio — stated as a number.
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)
     flat = " ".join(client.get(_url(edm_id, pid)).text.split())
+    assert ("<strong>60 of this portfolio's 1,701 accounts carry no line of "
+            "business value</strong> and are not included in any "
+            "sub-portfolio." in flat)
+    # the state dimension covers every account → the positive form
+    flat_state = " ".join(
+        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
+    assert ("Every account in this portfolio carries a state value, so none is "
+            "left out of the sub-portfolios." in flat_state)
+
+
+def test_modal_blank_value_disclosure_stays_qualitative_without_coverage(
+        routes_db, client):
+    # A summary written before the 2026-08-05 revision carries no
+    # breakout_coverage: the fixed sentence, no invented number.
+    edm_id = _mk_edm()
+    no_coverage = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
+    pid = _mk_portfolio(edm_id, summary=no_coverage)
+    flat = " ".join(client.get(_url(edm_id, pid)).text.split())
     assert ("Exposure with no line of business value is not included in any "
             "sub-portfolio." in flat)
+    assert "carry no line of business value" not in flat
 
 
 def test_modal_missing_summary_disables_both_with_sync_pointer(
