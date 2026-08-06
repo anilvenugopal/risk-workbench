@@ -18,7 +18,8 @@ import sqlite3
 
 ITERATION1_SCHEMA = [
     """CREATE TABLE app_user (
-        id TEXT PRIMARY KEY, email TEXT, display_name TEXT
+        id TEXT PRIMARY KEY, email TEXT, display_name TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1
     )""",
     """CREATE TABLE treaty_type_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
@@ -33,7 +34,7 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE submission (
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
         cedant_name TEXT, treaty_type_code TEXT, inception_date TEXT,
-        treaty_year INTEGER, renews_from_submission_id TEXT, directory_path TEXT,
+        treaty_year INTEGER, links_to_submission_id TEXT, directory_path TEXT,
         status_code TEXT, inserted_at TEXT, updated_at TEXT,
         inserted_by TEXT, updated_by TEXT
     )""",

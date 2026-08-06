@@ -15,6 +15,8 @@ tier = SQL Server):
     the ``WHERE`` so whatever type the caller read back round-trips unchanged.
   - No ``GETUTCDATE()``/``STRING_AGG``/``TOP`` in service SQL — those are not
     portable to SQLite. The migration keeps server defaults as a fallback only.
+    A capped read appends ``db.row_limit(n)``, which emits the dialect's own
+    clause, rather than spelling ``TOP``/``LIMIT`` here.
 
 No row-level security anywhere: ``assigned_analyst_id`` is a plain predicate, never
 a scope wrapper (Article 6 / R7).
@@ -29,12 +31,14 @@ from typing import Any
 
 from sqlalchemy import text
 
-from db import execute, execute_one, execute_scalar, execute_command, get_connection
+from db import (execute, execute_one, execute_scalar, execute_command,
+                get_connection, row_limit)
 from app.services._common import _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
-    SelfRenewalError,
+    SelfLinkError,
     SubmissionClosed,
+    UnknownLinkError,
 )
 
 ACTIVE = "ACTIVE"
@@ -69,7 +73,7 @@ class Submission:
     treaty_type_label: str | None
     inception_date: Any
     treaty_year: int | None
-    renews_from_submission_id: str | None
+    links_to_submission_id: str | None
     directory_path: str | None
     status_code: str
     status_label: str | None
@@ -125,6 +129,56 @@ def _as_date(value: Any) -> Any:
     return date.fromisoformat(str(value))
 
 
+def _escape_like(value: str) -> str:
+    """Neutralize LIKE wildcards in analyst input, so searching "A_B" matches a
+    literal underscore rather than any character. Pair with ``ESCAPE '\\'`` on the
+    predicate. Only ``%``, ``_`` and the escape character itself are handled —
+    those are the three both SQL Server and SQLite agree on."""
+    out = value.replace("\\", "\\\\")
+    return out.replace("%", "\\%").replace("_", "\\_")
+
+
+def _as_uuid(value: Any) -> str | None:
+    """``value`` as a canonical lowercase UUID string, or ``None`` when it is not
+    a UUID at all.
+
+    Every id column is ``uniqueidentifier``: SQL Server refuses to compare a
+    non-UUID string against one and raises a conversion error, so an id that
+    arrives from outside (a hand-typed URL, a hidden form input) has to be turned
+    into "not found" before it is bound into a query."""
+    try:
+        return str(uuid.UUID(str(value).strip()))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _resolve_link_target(links_to: Any) -> str | None:
+    """The id to write to ``submission.links_to_submission_id``, normalized to
+    canonical lowercase, or ``None``. Raises ``UnknownLinkError`` when the value
+    names no submission."""
+    if links_to is None or not str(links_to).strip():
+        return None
+    target = _as_uuid(links_to)
+    if target is None:
+        raise UnknownLinkError("That linked submission was not found.")
+    found = execute_scalar(
+        "SELECT id FROM submission WHERE id = :id",
+        {"id": target}, connection="WORKBENCH",
+    )
+    if found is None:
+        raise UnknownLinkError("That linked submission was not found.")
+    return target
+
+
+def _default_treaty_year(treaty_year: int | None, inception_date: Any) -> int | None:
+    """Fall back to the inception year when the analyst left treaty year blank
+    (CR5). An entered year always wins (design note 08, D4)."""
+    if treaty_year is not None:
+        return treaty_year
+    parsed = _as_date(inception_date)
+    return parsed.year if parsed is not None else None
+
+
 def _require_active(status_code: str | None) -> None:
     """Read-only gate (R3/FR-015): only ACTIVE submissions accept mutations."""
     if status_code != ACTIVE:
@@ -175,15 +229,28 @@ def _to_row(row: dict) -> SubmissionRow:
 
 def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
-    treaty_year: int | None = None, renews_from_submission_id: Any = None,
-    directory_path: str | None = None, actor_id: Any, confirmed: bool = False,
+    treaty_year: int | None = None, links_to_submission_id: Any = None,
+    directory_path: str | None = None, crm_ids: list[str] | None = None,
+    actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by ``actor_id``.
 
     Runs the non-blocking duplicate check first: unconfirmed look-alikes short-
     circuit with ``created=False`` and warnings, writing nothing (FR-004). On the
     write path the submission row and its initial ACTIVE status event commit in
-    one transaction (R2)."""
+    one transaction (R2).
+
+    ``treaty_year`` left as ``None`` is filled from the inception year (CR5).
+
+    Each entry in ``crm_ids`` goes through ``add_crm_id`` after the submission
+    commits, so create-time tags follow the same blank and repeat rules as tags
+    added later on the detail page. Blank entries are skipped rather than
+    rejected: the create form submits one comma-separated field, so "CRM-1,"
+    is a stray comma, not a mistake worth a message.
+
+    ``links_to_submission_id`` is checked before the duplicate check, so an id
+    naming no deal is refused without first showing a look-alike warning."""
+    link_target = _resolve_link_target(links_to_submission_id)
     matches = find_similar(
         name=name, cedant_name=cedant_name, treaty_type_code=treaty_type_code,
         inception_date=inception_date,
@@ -194,15 +261,16 @@ def create_submission(
     sid = str(uuid.uuid4())
     now = _utcnow()
     actor = str(actor_id)
+    parsed_inception = _as_date(inception_date)
     params = {
         "id": sid,
         "owner": actor,
         "name": name,
         "cedant": cedant_name,
         "tt": treaty_type_code,
-        "inc": _as_date(inception_date),
-        "ty": treaty_year,
-        "rf": str(renews_from_submission_id) if renews_from_submission_id else None,
+        "inc": parsed_inception,
+        "ty": _default_treaty_year(treaty_year, parsed_inception),
+        "lt": link_target,
         "dir": directory_path,
         "now": now,
         "actor": actor,
@@ -213,11 +281,11 @@ def create_submission(
                 """
                 INSERT INTO submission
                     (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                     inception_date, treaty_year, renews_from_submission_id,
+                     inception_date, treaty_year, links_to_submission_id,
                      directory_path, status_code, inserted_at, updated_at,
                      inserted_by, updated_by)
                 VALUES
-                    (:id, :owner, :name, :cedant, :tt, :inc, :ty, :rf, :dir,
+                    (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
                      'ACTIVE', :now, :now, :actor, :actor)
                 """
             ), params)
@@ -228,16 +296,23 @@ def create_submission(
                 VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
                 """
             ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+    for crm_id in crm_ids or []:
+        if crm_id.strip():
+            add_crm_id(submission_id=sid, crm_id=crm_id, actor_id=actor)
     return CreateResult(created=True, submission_id=sid)
 
 
 def get_submission(submission_id: Any) -> Submission | None:
-    """Full detail incl. cached status_code. No access restriction (FR-019)."""
+    """Full detail incl. cached status_code. No access restriction (FR-019). An
+    id that is not a UUID is "not found", not a query (see ``_as_uuid``)."""
+    sid = _as_uuid(submission_id)
+    if sid is None:
+        return None
     row = execute_one(
         """
         SELECT s.id, s.name, s.cedant_name, s.treaty_type_code,
                tk.label AS treaty_type_label,
-               s.inception_date, s.treaty_year, s.renews_from_submission_id,
+               s.inception_date, s.treaty_year, s.links_to_submission_id,
                s.directory_path, s.status_code, sk.label AS status_label,
                s.assigned_analyst_id, u.display_name AS assigned_analyst_name,
                s.inserted_at, s.updated_at
@@ -247,7 +322,7 @@ def get_submission(submission_id: Any) -> Submission | None:
         LEFT JOIN app_user u ON u.id = s.assigned_analyst_id
         WHERE s.id = :id
         """,
-        {"id": str(submission_id)}, connection="WORKBENCH",
+        {"id": sid}, connection="WORKBENCH",
     )
     if row is None:
         return None
@@ -259,7 +334,7 @@ def get_submission(submission_id: Any) -> Submission | None:
         treaty_type_label=row.get("treaty_type_label"),
         inception_date=row["inception_date"],
         treaty_year=row["treaty_year"],
-        renews_from_submission_id=_uid(row["renews_from_submission_id"]),
+        links_to_submission_id=_uid(row["links_to_submission_id"]),
         directory_path=row["directory_path"],
         status_code=row["status_code"],
         status_label=row.get("status_label"),
@@ -329,24 +404,69 @@ def find_similar(
     return [_to_row(row) for row in rows]
 
 
-def cedant_suggestions(prefix: str, limit: int = 10) -> list[str]:
-    """DISTINCT cedant_name prefix matches (FR-006/R6). No cedant table."""
-    trimmed_prefix = (prefix or "").strip()
-    if not trimmed_prefix:
+# Both typeahead searches ignore a term this short. `%a%` matches most of the
+# submission table, and a leading wildcard cannot seek ix_submission_cedant_name,
+# so a one-character term buys a scan of every submission for a menu the analyst
+# has not narrowed enough to read. The form applies the same minimum client-side
+# so the request is not sent at all.
+MIN_SUGGEST_TERM = 2
+
+
+def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
+    """The first ``limit`` DISTINCT cedant names containing ``term`` (FR-006/R6).
+    No cedant table.
+
+    Contains, not prefix (CR7): typing "fam" has to find "American Family
+    Mutual", which a ``LIKE 'fam%'`` match never returns."""
+    trimmed = (term or "").strip()
+    if len(trimmed) < MIN_SUGGEST_TERM:
         return []
     rows = execute(
         "SELECT DISTINCT cedant_name FROM submission "
-        "WHERE cedant_name LIKE :prefix ORDER BY cedant_name",
-        {"prefix": trimmed_prefix + "%"}, connection="WORKBENCH",
+        "WHERE cedant_name LIKE :term ESCAPE '\\' ORDER BY cedant_name "
+        + row_limit(limit),
+        {"term": f"%{_escape_like(trimmed)}%"}, connection="WORKBENCH",
     )
-    return [row["cedant_name"] for row in rows][:limit]
+    return [row["cedant_name"] for row in rows]
+
+
+def search_submissions_for_link(
+    term: str, *, exclude_id: Any = None, limit: int = 10,
+) -> list[SubmissionRow]:
+    """Submissions matching every whitespace-separated term in ``term``, each
+    matched against name or cedant. Backs the "links to" picker (CR8).
+
+    Terms AND-combine (CR2): "american fam" must not return every deal containing
+    "American". ``exclude_id`` drops the submission being edited so it cannot be
+    offered as its own link — ``update_submission`` still raises ``SelfLinkError``
+    as the real check."""
+    trimmed = (term or "").strip()
+    if len(trimmed) < MIN_SUGGEST_TERM:
+        return []
+    clauses: list[str] = []
+    params: dict[str, Any] = {"exclude": _as_uuid(exclude_id)}
+    for index, word in enumerate(trimmed.split()):
+        key = f"t{index}"
+        clauses.append(
+            f"(s.name LIKE :{key} ESCAPE '\\' OR s.cedant_name LIKE :{key} ESCAPE '\\')"
+        )
+        params[key] = f"%{_escape_like(word)}%"
+    rows = execute(
+        _ROW_SELECT
+        + " WHERE " + " AND ".join(clauses)
+        + " AND (:exclude IS NULL OR s.id <> :exclude)"
+        + " ORDER BY s.inception_date DESC, s.name "
+        + row_limit(limit),
+        params, connection="WORKBENCH",
+    )
+    return [_to_row(row) for row in rows]
 
 
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
 
 _MUTABLE_FIELDS = (
     "name", "cedant_name", "treaty_type_code", "inception_date",
-    "treaty_year", "renews_from_submission_id", "directory_path",
+    "treaty_year", "links_to_submission_id", "directory_path",
 )
 
 
@@ -355,11 +475,15 @@ def update_submission(
     confirmed: bool = False, **fields: Any,
 ) -> UpdateResult:
     """Edit mutable fields, gated by R3 (ACTIVE) + R1 (concurrency) + R9
-    (self-renewal) + R4 (non-blocking duplicate warning on rename)."""
+    (self-link, and a ``links_to_submission_id`` naming no submission) + R4
+    (non-blocking duplicate warning on rename).
+
+    ``treaty_year`` is refilled from the inception year whenever the merged value
+    is None (CR5) — the column does not record "no treaty year"."""
     sid = str(submission_id)
     current = execute_one(
         "SELECT status_code, name, cedant_name, treaty_type_code, inception_date, "
-        "treaty_year, renews_from_submission_id, directory_path "
+        "treaty_year, links_to_submission_id, directory_path "
         "FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH",
     )
@@ -372,10 +496,15 @@ def update_submission(
         if f in fields:
             merged[f] = fields[f]
     merged["inception_date"] = _as_date(merged["inception_date"])
+    merged["treaty_year"] = _default_treaty_year(
+        merged["treaty_year"], merged["inception_date"]
+    )
 
-    renews_from = merged["renews_from_submission_id"]
-    if renews_from is not None and _uid(renews_from) == _uid(sid):
-        raise SelfRenewalError("A submission cannot renew from itself.")
+    # Resolve first, self-link second: a submission's own id always exists, so
+    # linking to itself must report SelfLinkError, not "not found".
+    links_to = _resolve_link_target(merged["links_to_submission_id"])
+    if links_to is not None and links_to == _uid(sid):
+        raise SelfLinkError("A submission cannot link to itself.")
 
     matches = find_similar(
         name=merged["name"], cedant_name=merged["cedant_name"],
@@ -390,7 +519,7 @@ def update_submission(
         UPDATE submission
         SET name = :name, cedant_name = :cedant, treaty_type_code = :tt,
             inception_date = :inc, treaty_year = :ty,
-            renews_from_submission_id = :rf, directory_path = :dir,
+            links_to_submission_id = :lt, directory_path = :dir,
             updated_at = :now, updated_by = :actor
         WHERE id = :id AND updated_at = :expected
         """,
@@ -400,7 +529,7 @@ def update_submission(
             "tt": merged["treaty_type_code"],
             "inc": merged["inception_date"],
             "ty": merged["treaty_year"],
-            "rf": str(renews_from) if renews_from else None,
+            "lt": links_to,
             "dir": merged["directory_path"],
             "now": _utcnow(),
             "actor": str(actor_id),

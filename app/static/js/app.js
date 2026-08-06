@@ -271,6 +271,116 @@ document.addEventListener('alpine:init', () => {
       if (ncFailOpen(e)) this.onSwap();
     },
   }));
+
+  // Typeahead menu shared by the submission form's CEDANT field and its "links
+  // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
+  // open/close, the keyboard, and committing a pick.
+  //
+  // Two shapes, told apart by whether the markup provides an x-ref="value":
+  //   - cedant     — free text, the chosen name goes straight into the input
+  //   - links to   — the id goes into the hidden value input and the chosen
+  //                  submission's name is shown as a chip instead
+  // With JS off the cedant field degrades to plain text the server still reads;
+  // the "links to" picker needs JavaScript.
+  //
+  // `minTerm` comes from the template, which renders it from the route context's
+  // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
+  // the hx-trigger filter, this component, and the service that answers.
+  Alpine.data('typeahead', (opts = {}) => ({
+    minTerm: opts.minTerm || 2,
+    isOpen: false,
+    activeIndex: -1,
+    chosen: !!opts.initialLabel,
+    chosenLabel: opts.initialLabel || '',
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    open() {
+      this.isOpen = !!this.$refs.menu.querySelector('.ta__menu');
+      if (!this.isOpen) this.activeIndex = -1;
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.$refs.menu.innerHTML = '';
+      this.paint();
+    },
+    paint() {
+      // aria-activedescendant is how a screen reader follows the arrow keys: the
+      // focus stays in the input, so the highlighted row has to be named by id.
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onInput() {
+      // Below the minimum htmx sends nothing, so the menu from a longer term
+      // would stay on screen offering matches for text no longer in the input.
+      if (this.$refs.input.value.trim().length < this.minTerm) this.close();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter' && this.isOpen && this.activeIndex >= 0) {
+        // Only swallow Enter when a menu row is highlighted, so Enter still
+        // submits the form when the analyst is just typing.
+        e.preventDefault();
+        this.pick(this.options[this.activeIndex]);
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      const value = opt.dataset.value;
+      const label = opt.dataset.label || value;
+      if (this.$refs.value) {
+        this.$refs.value.value = value;
+        this.chosenLabel = label;
+        this.chosen = true;
+        this.$refs.input.value = '';
+      } else {
+        this.$refs.input.value = label;
+      }
+      this.close();
+    },
+    clear() {
+      if (this.$refs.value) this.$refs.value.value = '';
+      this.chosen = false;
+      this.chosenLabel = '';
+      this.close();
+      this.$nextTick(() => this.$refs.input.focus());
+    },
+  }));
+
+  // Treaty year follows the inception year until the analyst types their own
+  // (CR5, design note 08 D4). Changing the inception date moves the year unless
+  // it was edited on this render.
+  Alpine.data('treatyYear', () => ({
+    edited: false,
+    onYearInput() {
+      this.edited = !!this.$refs.year.value.trim();
+    },
+    onDateChange(e) {
+      if (this.edited) return;
+      const year = (e.target.value || '').slice(0, 4);
+      if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+  }));
 });
 
 // ── Local-time stamps ──────────────────────────────────────────────────────────

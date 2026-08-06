@@ -22,11 +22,11 @@
     <div class="deal-head__created">Created
       <time data-utc="{{ submission.inserted_at }}"
             title="{{ submission.inserted_at }} UTC">{{ submission.inserted_at }}</time>
-      {% if submission.renews_from_submission_id %}
+      {% if submission.links_to_submission_id %}
       <span class="crumb__sep">·</span>
-      <span>renews from
-        <a href="/submissions/{{ submission.renews_from_submission_id }}">
-          {{ submission.renews_from_submission_id }}</a></span>
+      <span>links to
+        <a href="/submissions/{{ submission.links_to_submission_id }}">
+          {{ link_target.name if link_target else submission.links_to_submission_id }}</a></span>
       {% endif %}
       {% if submission.directory_path %}
       <span class="crumb__sep">·</span>

@@ -51,7 +51,7 @@ pytest tests/sqlserver --run-sqlserver
 ```
 
 **Expected:** `test_submission_migration.py` — migration builds all tables/FKs incl. the
-self-renewal CHECK; seeds present; the **event-sourced status transaction is atomic**
+no-self-link CHECK; seeds present; the **event-sourced status transaction is atomic**
 (`submission_status_event` insert + cached `submission.status_code` stamp commit/rollback
 together).
 

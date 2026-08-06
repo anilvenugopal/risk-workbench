@@ -42,7 +42,7 @@ Derived from **DATA_MODEL.md §4–§5** (the schema source of truth) and constr
 | `treaty_type_code` | NVARCHAR(50) | not null | FK → `treaty_type_kind.code` (FR-008) |
 | `inception_date` | DATE | not null | primary filter (FR-021) |
 | `treaty_year` | INT | null | parsed from `TY{yy}`; renewal-year grouping (R10) |
-| `renews_from_submission_id` | Uuid | null | FK → `submission.id` (self-ref); manual renewal link (FR-007) |
+| `links_to_submission_id` | Uuid | null | FK → `submission.id` (self-ref); manual link to a related submission (FR-007) |
 | `directory_path` | NVARCHAR(1024) | null | per-deal shared-drive staging dir |
 | `status_code` | NVARCHAR(50) | not null | FK → `submission_status_kind.code`; **cached current** (Article 4); default `ACTIVE` on create |
 | `inserted_at` | DATETIME2 | not null | default `GETUTCDATE()` |
@@ -51,8 +51,8 @@ Derived from **DATA_MODEL.md §4–§5** (the schema source of truth) and constr
 | `updated_by` | Uuid | null | FK → `app_user.id` |
 
 **Constraints:**
-- FK `assigned_analyst_id`, `inserted_by`, `updated_by`, `renews_from_submission_id` (self), `treaty_type_code`, `status_code`.
-- `CHECK (renews_from_submission_id IS NULL OR renews_from_submission_id <> id)` — no self-renewal (FR-007 / R9).
+- FK `assigned_analyst_id`, `inserted_by`, `updated_by`, `links_to_submission_id` (self), `treaty_type_code`, `status_code`.
+- `CHECK (links_to_submission_id IS NULL OR links_to_submission_id <> id)` — a submission cannot link to itself (FR-007 / R9).
 - **No** `UNIQUE(name)` (FR-003 — the CR-003-era uniqueness is dropped) and **no** `customer_id`/scope column (Article 6).
 
 **Indexes:** `assigned_analyst_id` (My filter), `cedant_name` (filter + autocomplete `DISTINCT`), `treaty_type_code`, `inception_date`.
@@ -165,7 +165,7 @@ submission 1──∞ submission_status_event   (status history; append-only)
 submission 1──∞ submission_crm_id         (0..N CRM tags)
 submission ∞──1 treaty_type_kind          (treaty_type_code)
 submission ∞──1 submission_status_kind    (status_code — cached current)
-submission 0..1─∞ submission              (renews_from_submission_id — self-ref)
+submission 0..1─∞ submission              (links_to_submission_id — self-ref)
 submission ∞──∞ package                   (via submission_package, composite PK)
 package 1──∞ irp_edm                      (package_id — nullable; ≥1 member app-enforced across both)
 package 1──∞ irp_rdm                      (package_id — nullable)

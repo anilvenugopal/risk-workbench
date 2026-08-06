@@ -146,14 +146,14 @@ The system can represent a **package**: a bundle of one or more EDM and/or RDM m
 
 ### Functional Requirements — Submission
 
-- **FR-001**: The system MUST let an authenticated analyst create a submission capturing a name, a cedant, a treaty type, and an inception date, with optional treaty year, shared-drive directory path, and renewal link.
+- **FR-001**: The system MUST let an authenticated analyst create a submission capturing a name, a cedant, a treaty type, and an inception date, with an optional shared-drive directory path and link to a related submission. The four required fields MUST be marked as required, and a rejected submit MUST name each field that failed (CR4). Treaty year MUST default to the inception year and MUST remain editable (CR5).
 - **FR-002**: The system MUST identify each submission by an identity independent of its name, so that two submissions may have the same name and attributes and still be distinct records.
 - **FR-003**: The system MUST NOT enforce uniqueness on the submission name.
 - **FR-004**: On create or rename, the system MUST perform a **non-blocking** "a similar deal already exists" check — triggered when another submission shares the same **name**, **or** the same combination of **cedant + treaty type + inception date** — and warn the analyst, while always allowing them to proceed.
 - **FR-005**: The system MUST record the creating analyst as the submission's owner (a soft owner for filtering only — see FR-020).
 - **FR-005a**: The system MUST allow any analyst to reassign a submission's owner after creation (a deal handoff). Reassignment changes only which analyst's "My Submissions" view the deal appears in; it never changes who may view or act on it.
-- **FR-006**: The system MUST support autocomplete of cedant name from values already present on other submissions, without introducing a separate cedant registry.
-- **FR-007**: The system MUST allow a submission's renewal link to reference another submission, and MUST prevent a submission from referencing itself as its own renewal.
+- **FR-006**: The system MUST support a keyboard-navigable typeahead of cedant name over values already present on other submissions, matching anywhere in the name, without introducing a separate cedant registry.
+- **FR-007**: The system MUST allow a submission to link to another submission ("links to", CR8 — a related deal, not necessarily a renewal), MUST let the analyst pick that submission by name rather than by id, and MUST prevent a submission from linking to itself.
 - **FR-008**: The system MUST treat treaty type as a controlled value drawn from a maintained list of treaty-type kinds (see FR-030).
 - **FR-009**: The system MUST present submissions in a master-detail layout: a filterable list plus a detail view showing the submission's attributes.
 
