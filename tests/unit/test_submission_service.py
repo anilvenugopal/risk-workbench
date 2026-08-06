@@ -280,6 +280,16 @@ def test_crm_blank_rejected_duplicates_are_silent_noops(iteration1_db):
     assert [t.crm_id for t in list_crm_ids(sid)] == ["DUP"]
 
 
+def test_create_stores_crm_ids_dropping_blanks_and_repeats(iteration1_db):
+    res = create_submission(
+        name="TY2604_CrmAtCreate", cedant_name="Acme Mutual",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        crm_ids=["CRM-1", " ", "CRM-2", " crm-1 "],
+        actor_id=iteration1_db.user_a, confirmed=True,
+    )
+    assert {t.crm_id for t in list_crm_ids(res.submission_id)} == {"CRM-1", "CRM-2"}
+
+
 def test_crm_mutations_gated_when_closed(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id

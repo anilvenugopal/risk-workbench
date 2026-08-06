@@ -331,6 +331,7 @@ def create(
     inception_date: str = Form(""),
     treaty_year: str = Form(""),
     directory_path: str = Form(""),
+    crm_ids: str = Form(""),
     links_to_submission_id: str = Form(""),
     confirmed: str = Form(""),
     csrf_token: str = Form(...),
@@ -342,6 +343,7 @@ def create(
         "name": name, "cedant_name": cedant_name,
         "treaty_type_code": treaty_type_code, "inception_date": inception_date,
         "treaty_year": treaty_year, "directory_path": directory_path,
+        "crm_ids": crm_ids,
         "links_to_submission_id": links_to_submission_id,
     }
     links_to = links_to_submission_id.strip() or None
@@ -368,6 +370,7 @@ def create(
             inception_date=parsed_inception_date,
             treaty_year=parsed_treaty_year,
             directory_path=directory_path.strip() or None,
+            crm_ids=crm_ids.split(","),
             links_to_submission_id=links_to,
             actor_id=request.state.user.id, confirmed=(confirmed == "1"),
         )

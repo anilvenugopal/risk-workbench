@@ -122,6 +122,19 @@
                value="{{ form.directory_path or '' }}" placeholder="optional shared-drive path">
       </div>
 
+      {# On create only: CRM IDs are added and removed on the submission page
+         once the deal exists. #}
+      {% if mode == 'create' %}
+      <div class="wf-field">
+        <label>CRM ID(S)</label>
+        <input class="wf-field__input" type="text" name="crm_ids"
+               value="{{ form.crm_ids or '' }}" placeholder="optional, comma-separated">
+        <div class="wf-field__msg wf-field__hint">
+          Separate several CRM IDs with commas.
+        </div>
+      </div>
+      {% endif %}
+
       {# "Links to" is a related submission, not necessarily a renewal (CR8). The
          analyst picks by name; the id travels in the hidden input. #}
       <div class="wf-field">

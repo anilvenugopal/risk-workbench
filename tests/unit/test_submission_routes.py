@@ -268,6 +268,15 @@ def test_create_stores_the_chosen_link_and_the_detail_page_shows_its_name(client
         rf'<a href="/submissions/{target}">\s*TY2506_AmericanFamily\s*</a>', detail)
 
 
+def test_create_stores_the_comma_separated_crm_ids(client):
+    res = client.post("/submissions", data=_payload(
+        name="TY2606_CrmAtCreate", crm_ids="CRM-1, CRM-2"))
+    sid = res.headers["location"].rsplit("/", 1)[-1]
+    assert {t.crm_id for t in submission_service.list_crm_ids(sid)} == {
+        "CRM-1", "CRM-2"}
+    assert "CRM-2" in client.get(f"/submissions/{sid}").text
+
+
 def test_edit_form_prefills_the_linked_deal_by_name(client):
     first = client.post("/submissions", data=_payload(name="TY2506_AmericanFamily",
                                                       inception_date="2025-06-01"))

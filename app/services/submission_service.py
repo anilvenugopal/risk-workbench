@@ -230,7 +230,8 @@ def _to_row(row: dict) -> SubmissionRow:
 def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: Any,
     treaty_year: int | None = None, links_to_submission_id: Any = None,
-    directory_path: str | None = None, actor_id: Any, confirmed: bool = False,
+    directory_path: str | None = None, crm_ids: list[str] | None = None,
+    actor_id: Any, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by ``actor_id``.
 
@@ -240,6 +241,12 @@ def create_submission(
     one transaction (R2).
 
     ``treaty_year`` left as ``None`` is filled from the inception year (CR5).
+
+    Each entry in ``crm_ids`` goes through ``add_crm_id`` after the submission
+    commits, so create-time tags follow the same blank and repeat rules as tags
+    added later on the detail page. Blank entries are skipped rather than
+    rejected: the create form submits one comma-separated field, so "CRM-1,"
+    is a stray comma, not a mistake worth a message.
 
     ``links_to_submission_id`` is checked before the duplicate check, so an id
     naming no deal is refused without first showing a look-alike warning."""
@@ -289,6 +296,9 @@ def create_submission(
                 VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
                 """
             ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+    for crm_id in crm_ids or []:
+        if crm_id.strip():
+            add_crm_id(submission_id=sid, crm_id=crm_id, actor_id=actor)
     return CreateResult(created=True, submission_id=sid)
 
 
