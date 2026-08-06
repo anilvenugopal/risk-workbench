@@ -27,9 +27,25 @@
         hx-get="{{ base }}" hx-trigger="input delay:300ms, submit"
         hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
+    <label>Search
+      <input class="wf-field__input" type="text" name="q" placeholder="name…"
+             value="{{ filter_values.q }}" autocomplete="off">
+    </label>
     <label>Cedant
       <input class="wf-field__input" type="text" name="cedant"
              value="{{ filter_values.cedant }}" autocomplete="off">
+    </label>
+    <label>CRM ID
+      <input class="wf-field__input" type="text" name="crm_id"
+             value="{{ filter_values.crm_id }}" autocomplete="off">
+    </label>
+    <label>Status
+      <select class="wf-field__input" name="status">
+        <option value="">Any</option>
+        {% for code, label in statuses %}
+        <option value="{{ code }}"{% if filter_values.status == code %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
     </label>
     <label>Treaty type
       <select class="wf-field__input" name="treaty_type">
@@ -54,15 +70,20 @@
     <table class="mk-table sub-table">
       <thead>
         <tr>
-          <th>Name</th><th>Cedant</th><th>Treaty type</th><th>Inception</th>
-          <th>Year</th><th>Status</th><th>Owner</th>
+          <th>Name</th><th>Cedant</th><th>CRM ID</th><th>Treaty type</th>
+          <th>Inception</th><th>Year</th><th>Status</th><th>Owner</th>
         </tr>
       </thead>
       <tbody>
         {% for row in rows %}
           {% include "partials/submission_row.html" %}
         {% else %}
-        <tr><td colspan="7" class="empty">No submissions match.</td></tr>
+          {% if is_filtered %}
+          <tr><td colspan="8" class="empty">No submissions match —
+            <a class="clear-filters" href="{{ base }}">clear filters</a>.</td></tr>
+          {% else %}
+          <tr><td colspan="8" class="empty">No submissions yet.</td></tr>
+          {% endif %}
         {% endfor %}
       </tbody>
     </table>

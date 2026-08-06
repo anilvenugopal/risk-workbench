@@ -1,4 +1,4 @@
-"""Route tests for submission create/edit — the HTTP surface only.
+"""Route tests for the submission list and create/edit — the HTTP surface only.
 
 Service behavior lives in ``test_submission_service.py``. These cover what only
 the route decides:
@@ -8,7 +8,10 @@ the route decides:
   • treaty-year range rejection, and a blank year filled from the inception date
     when the analyst never touches the field (CR5);
   • the 303 to the new deal, and CSRF rejection writing nothing;
-  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8).
+  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8);
+  • the list's seven filters — which query parameter feeds which predicate, the
+    values echoed back into the inputs, the CRM column, and the two empty states
+    (CR1–CR3).
 
 Harness: TestClient over the real router against the fixture SQLite engine
 (``test_name_check_routes.py`` pattern, minus the monkeypatched services — these
@@ -339,3 +342,78 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
     assert execute(
         "SELECT links_to_submission_id FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH")[0]["links_to_submission_id"] is None
+
+
+# ── List: search, filters, CRM column (CR1–CR3) ──────────────────────────────
+
+def _two_american_deals(client) -> None:
+    client.post("/submissions", data=_payload(
+        name="TY2506_AmericanFamily", cedant_name="American Family Mutual",
+        inception_date="2025-06-01"))
+    client.post("/submissions", data=_payload(
+        name="TY2501_AmericanNational", cedant_name="American National",
+        inception_date="2025-01-01"))
+
+
+def test_list_search_narrows_by_name(client):
+    _two_american_deals(client)
+    body = client.get("/submissions?q=american+fam").text
+    assert "TY2506_AmericanFamily" in body
+    assert "TY2501_AmericanNational" not in body
+
+
+def test_list_filter_narrows_by_crm_id(client):
+    client.post("/submissions", data=_payload(name="Tagged deal",
+                                              crm_ids="CRM-4417"))
+    client.post("/submissions", data=_payload(name="Untagged deal",
+                                              inception_date="2026-07-01"))
+    body = client.get("/submissions?crm_id=441").text
+    assert "Tagged deal" in body and "Untagged deal" not in body
+
+
+def test_list_shows_each_deals_crm_ids(client):
+    res = client.post("/submissions", data=_payload(
+        name="Three tags", crm_ids="CRM-1, CRM-2, CRM-3"))
+    assert res.status_code == 303
+    body = client.get("/submissions").text
+    # First tag in full; the rest collapse into a hoverable count.
+    assert "CRM-1" in body and "+2 more" in body
+
+
+def test_list_renders_every_status_and_marks_the_selected_one(client):
+    body = client.get("/submissions?status=COMPLETED").text
+    assert '<option value="COMPLETED" selected>Completed</option>' in body
+    assert '<option value="CANCELLED">Cancelled</option>' in body
+
+
+def test_list_echoes_every_filter_back_into_its_input(client):
+    body = client.get(
+        "/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
+        "&treaty_type=cat_xol&inception=2026-04-01&treaty_year=2026").text
+    for name, value in (("q", "amfam"), ("cedant", "mutual"),
+                        ("crm_id", "CRM-9"), ("inception", "2026-04-01"),
+                        ("treaty_year", "2026")):
+        assert f'name="{name}"' in body and f'value="{value}"' in body
+    assert '<option value="ACTIVE" selected>Active</option>' in body
+    assert '<option value="cat_xol" selected>Cat XoL</option>' in body
+
+
+def test_filtered_empty_list_offers_to_clear_the_filters(client):
+    _two_american_deals(client)
+    filtered = client.get("/submissions?q=nothing+matches+this").text
+    assert "clear-filters" in filtered and 'href="/submissions"' in filtered
+
+
+def test_empty_list_with_no_filters_reads_as_empty_not_filtered(client):
+    body = client.get("/submissions").text
+    assert "No submissions yet." in body and "clear-filters" not in body
+
+
+def test_my_submissions_keeps_the_filters_on_its_own_route(client):
+    _two_american_deals(client)
+    body = client.get("/submissions/mine?q=american+fam").text
+    assert "TY2506_AmericanFamily" in body
+    assert "TY2501_AmericanNational" not in body
+    # The form and the clear-filters link post back to /submissions/mine, so
+    # filtering inside "My Submissions" never bounces the analyst to All.
+    assert 'action="/submissions/mine"' in body

@@ -89,7 +89,8 @@
 .home__section-title { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); margin-bottom: var(--space-2); }
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */
-.filters { display: flex; gap: 18px; margin-bottom: 14px; }
+/* wrap rather than squeeze: the submissions bar carries seven controls. */
+.filters { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 14px; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
 
@@ -104,8 +105,8 @@
 .lib-table td.lib-deal { max-width: 220px; }
 .lib-table .lib-src .mono,
 .lib-table .lib-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-/* trailing "clear filters" affordance on the filtered-empty row */
-.lib-clear { color: var(--color-brand); font-size: var(--fs-label); }
+/* trailing "clear filters" affordance on any filtered-empty row */
+.clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }

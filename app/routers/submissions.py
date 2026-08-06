@@ -219,22 +219,29 @@ def _not_found(request: Request):
 
 def _list_page(request: Request, *, owner_id, nav_key: str):
     filters = {
+        "name": (request.query_params.get("q") or "").strip() or None,
         "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
+        "crm_id": (request.query_params.get("crm_id") or "").strip() or None,
         "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
         "inception_date": _parse_date(request.query_params.get("inception")),
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
+        "status_code": (request.query_params.get("status") or "").strip() or None,
     }
     rows = submission_service.list_submissions(owner_id=owner_id, **filters)
+    # Echoed back into the inputs so a filtered request re-renders what was typed,
+    # and read by the template to tell "nothing matches" from "nothing here yet".
+    filter_values = {
+        key: request.query_params.get(key, "")
+        for key in ("q", "cedant", "crm_id", "treaty_type", "inception",
+                    "treaty_year", "status")
+    }
     extra = {
         "rows": rows,
         "treaty_types": TREATY_TYPES,
+        "statuses": submission_service.status_kinds(),
         "scope": "mine" if owner_id else "all",
-        "filter_values": {
-            "cedant": request.query_params.get("cedant", ""),
-            "treaty_type": request.query_params.get("treaty_type", ""),
-            "inception": request.query_params.get("inception", ""),
-            "treaty_year": request.query_params.get("treaty_year", ""),
-        },
+        "filter_values": filter_values,
+        "is_filtered": any(filter_values.values()),
     }
     return _render(request, "pages/submissions.html", nav_key, extra)
 
