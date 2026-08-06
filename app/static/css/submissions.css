@@ -87,7 +87,6 @@
   font: inherit; font-size: var(--fs-label); color: var(--text-primary);
 }
 .ta__opt:hover, .ta__opt.is-active { background: var(--color-brand-faint); }
-.ta__opt.is-active { box-shadow: inset 2px 0 0 var(--color-brand); }
 .ta__opt-main { display: block; }
 .ta__opt-meta { display: block; font-size: var(--fs-caption);
   color: var(--text-tertiary); margin-top: 1px; }
