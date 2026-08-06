@@ -131,23 +131,28 @@ The spec-004 JSON snapshot, written by `backfill_edm_detail`. No DDL — this is
   "breakout_values": {                   // NEW: the enumeration source (FR-005)
     "state": [{"value": "TX", "label": "TEXAS", "accounts": 220}],
     "lob":   [{"value": "FLD Comm", "label": null, "accounts": 25}]
+  },
+  "breakout_coverage": {                 // NEW: the measured overlap (FR-007)
+    "state": {"covered": 1624, "multi_value": 252},
+    "lob":   {"covered": 1690, "multi_value": 311}
   }
 }
 ```
 
 - `breakout_values` is keyed by `breakout_dimension_kind.code`, so the gate, the preview, and the worker index it by dimension with no per-dimension branch.
 - `label` is `Admin1Name` where the EDM has it and `null` otherwise — a display label only, never synthesized from the code (P-12). For `lob` the value is its own label, so the key is `null`.
+- `breakout_coverage` is keyed the same way. `covered` counts the portfolio's accounts carrying **at least one** value of the dimension; `account_total − covered` is the number that carry none and therefore land in no sub-portfolio. `multi_value` counts the accounts carrying **more than one** — the accounts that appear in several sub-portfolios. Both are counted per account by `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`, which repeat their summary script's joins and blank filter, and neither is derivable from `breakout_values[].accounts`: that sums memberships, so an account with three values adds three and an account with none adds nothing while still counting in `account_total`. A summary written before the 2026-08-05 revision has no `breakout_coverage`; the preview reads that as absent and falls back to the qualitative disclosure, exactly as it already does for a missing `account_total`. No migration or backfill of existing snapshots is needed — a Sync rewrites the summary.
 - **Absence of `breakout_values` is the staleness signal.** Every summary written before this iteration lacks it, and its `states` list holds a mixed vocabulary of names and codes that must not be read as filter values. The gate treats a missing `breakout_values` as a missing summary and points at Sync (FR-002). No migration or backfill of existing snapshots is needed.
 - Readers parse defensively, as the existing spec-004 readers do; an additive JSON change is spec-004-compatible.
 - Also captured by the same backfill, alongside the summary: the portfolio's Risk Modeler `stampDate`, the FR-002a freshness anchor. Stored in `exposure_detail`, no new column.
 
-Source scripts, all read-only and worker-side through `irp-integration` (Article 11): `portfolio_states.sql` (returns `Admin1Code`, `MAX(Admin1Name)`, account count, grouped and filtered on the code), `portfolio_lines_of_business.sql` (+ account count), and new `portfolio_account_total.sql`. Measured cost: **+1.44s** on the backfill job for the largest sandbox book (W-19).
+Source scripts, all read-only and worker-side through `irp-integration` (Article 11): `portfolio_states.sql` (returns `Admin1Code`, `MAX(Admin1Name)`, account count, grouped and filtered on the code), `portfolio_lines_of_business.sql` (+ account count), `portfolio_account_total.sql`, and `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`. Measured cost of the first three: **+1.44s** on the backfill job for the largest sandbox book (W-19); the two coverage scripts repeat those joins with a per-account grouping, so the added cost is measured at the T063 walkthrough.
 
 ## 6. Read models (derived, never stored)
 
 - **Lineage-aware portfolio list** (`portfolio_service.list_portfolios`): each row gains `source_portfolio_id`, `source_name` (joined), `breakout_dimension_code` (+ label), `breakout_value` — for the row badge "↳ from *{source}* · {label}: *{value}*". Chained lineage shows the immediate source only.
 - **Breakout eligibility** (`breakout_service`): computed per request from `irp_edm.status`, portfolio existence, parsed `exposure_detail.summary`, presence of `breakout_values`, and per-dimension distinct-value counts (≥ 2). Never cached, never stored (Article 2).
-- **Overlap statement** (`breakout_service`): `Σ accounts over the dimension's values` versus `account_total`. Equal → the sub-portfolios partition the source; greater → the difference is the number of repeat memberships, stated in the preview with the note that exposure inflation can exceed account inflation (FR-007). Absent `account_total` → the qualitative disclosure alone.
+- **Overlap statement** (`breakout_service.compute_overlap`): read from `breakout_coverage[dimension]`, never derived. `multi_value` accounts appear in more than one sub-portfolio; `account_total − covered` accounts appear in none. Both zero → the sub-portfolios partition the source; either non-zero → the count is stated in the preview, with the note that exposure inflation can exceed account inflation (FR-007). Absent `breakout_coverage` → the qualitative disclosure alone. `Σ accounts over the dimension's values` is the membership total and is deliberately not part of the statement: see §5 for why the difference against `account_total` measures neither figure.
 
 ## 7. DATA_MODEL.md propagation (part of the R9 doc pass)
 

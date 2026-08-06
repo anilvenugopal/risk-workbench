@@ -193,11 +193,11 @@ The worker still resolves account ids at execution time (they are not part of wh
 
 ---
 
-## R11 — The stored summary gains `breakout_values` and `account_total`
+## R11 — The stored summary gains `breakout_values`, `account_total`, and `breakout_coverage`
 
-*(New 2026-08-03. Carries P-12's migration consequence and P-13's overlap arithmetic.)*
+*(New 2026-08-03. Revised 2026-08-05: the overlap figures are measured per account, not derived from the per-value counts. Carries P-12's migration consequence and P-13's overlap statement.)*
 
-**Decision.** `backfill_edm_detail` writes two new keys per portfolio into the spec-004 summary, and the state list becomes codes:
+**Decision.** `backfill_edm_detail` writes three new keys per portfolio into the spec-004 summary, and the state list becomes codes:
 
 ```jsonc
 {
@@ -210,21 +210,36 @@ The worker still resolves account ids at execution time (they are not part of wh
   "breakout_values": {                     // NEW — the enumeration source
     "state": [{"value": "TX", "label": "TEXAS", "accounts": 220}],
     "lob":   [{"value": "FLD Comm", "label": null, "accounts": 25}]
+  },
+  "breakout_coverage": {                   // NEW (2026-08-05) — the measured overlap
+    "state": {"covered": 1624, "multi_value": 252},
+    "lob":   {"covered": 1690, "multi_value": 311}
   }
 }
 ```
 
 `breakout_values` is keyed by `breakout_dimension_kind.code`, so the gate, the preview, and the worker index it by dimension with no per-dimension branch. `label` is `Admin1Name` where the EDM has it and null otherwise (R6); for LOB the value is its own label and the key is null.
 
-**Its absence is the staleness signal.** A summary backfilled before this change has no `breakout_values`, and its `states` list holds the mixed name/code vocabulary the `COALESCE` produced (R6 finding 4). Those values cannot be reinterpreted as codes, so the gate treats a missing `breakout_values` as a missing summary and points at Sync — P-04's existing behaviour, reached one step earlier. No migration or backfill of old snapshots is needed, and no summary is ever read as though it were something it is not.
+`breakout_coverage` is keyed the same way and read the same way. Its absence is **not** a staleness signal — a summary written between 2026-08-03 and the revision has `breakout_values` but no coverage, and is perfectly usable for a breakout; the preview simply falls back to the qualitative disclosure, as it already does when `account_total` is missing. A Sync fills it in.
+
+**The absence of `breakout_values` is the staleness signal.** A summary backfilled before this change has no `breakout_values`, and its `states` list holds the mixed name/code vocabulary the `COALESCE` produced (R6 finding 4). Those values cannot be reinterpreted as codes, so the gate treats a missing `breakout_values` as a missing summary and points at Sync — P-04's existing behaviour, reached one step earlier. No migration or backfill of old snapshots is needed, and no summary is ever read as though it were something it is not.
 
 The displayed `states` list switches to codes as a consequence of P-12, in `portfolio_row.html` and the EDM aggregate strip. Pre-change snapshots keep showing names until the next Sync; both render.
 
 **Cost:** +1.44 seconds on `backfill_edm_detail` for the largest book in the sandbox (248,732 accounts, 780,273 addresses), measured warm on repeat runs (W-19). The request path is untouched — the preview reads the stored summary exactly as the page does today, with more keys in the JSON.
 
-**Rationale.** The preview has to state the overlap **for the portfolio being broken out**: the same state breakout produces 1.0× inflation on a book with no multi-state accounts and 6.6× TIV inflation on `usfl_edm_small` portfolio 1 (W-4). A fixed warning is wrong in both directions — it cries wolf on the first and understates the second. The counts are the cheapest honest measure, and the arithmetic is `Σ accounts over values` versus `account_total`.
+**Rationale.** The preview has to state the overlap **for the portfolio being broken out**: the same state breakout produces 1.0× inflation on a book with no multi-state accounts and 6.6× TIV inflation on `usfl_edm_small` portfolio 1 (W-4). A fixed warning is wrong in both directions — it cries wolf on the first and understates the second. Account counts are the cheapest honest measure.
 
-**Alternatives considered.** (a) Overwrite `states` with codes and use no new key — rejected: pre-change and post-change summaries would be indistinguishable, which is precisely the case that filters a name as a code and creates nothing. (b) Per-value **TIV** as well, so the preview quantifies exposure inflation rather than account inflation — deferred: it needs `exposure_metrics` joined into the counted query, which is untimed, and account overlap is the honest number available now. The preview therefore states account overlap and says plainly that exposure inflation can exceed it, since the accounts that appear in several sub-portfolios tend to be the largest (W-4: 1.27× account inflation alongside 6.6× TIV inflation on the same portfolio). (c) Computing the counts on the request path from the stored value lists — impossible: a DISTINCT list carries no multiplicity. (d) A live DataBridge read at preview time — constitution violation (Article 11).
+**The arithmetic this decision originally carried was wrong, and is replaced (2026-08-05).** It read `repeats = Σ accounts over the dimension's values − account_total`, floored at zero, with `partition = (repeats == 0)`. Two independent errors:
+
+1. `Σ accounts` counts **memberships**, not accounts. An account carrying three states adds 2 to the difference but is one repeating account, so the figure overstates the number the disclosure names.
+2. `account_total` counts **every** account in the portfolio, while the per-value counts only see accounts that carry a value — `portfolio_states.sql` inner-joins Property and Address and filters `Admin1Code IS NOT NULL`, and `portfolio_lines_of_business.sql` needs a policy with a non-blank `LOBNAME`. Accounts carrying no value at all are in the denominator and in no numerator.
+
+The two errors cancel. A portfolio of 1,701 accounts where 100 carry a state yields `repeats = 0`, and the preview stated "None of this portfolio's 1,701 accounts match more than one state — the sub-portfolios partition the source cleanly" while 1,601 accounts landed in no sub-portfolio. Fifty uncovered accounts alongside fifty excess memberships reported the same clean partition. The unit test `test_overlap_never_negative` asserted the first case as correct, reading the shortfall as a stale count.
+
+Both figures are now measured per account by `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql`, which repeat their summary script's joins and filter and group by account: `multi_value` accounts land in more than one sub-portfolio, and `account_total − covered` accounts land in none. `partition` requires both to be zero. FR-007 asks for exactly these two numbers and SC-002 promises the coverage one, so renaming the old field to "excess memberships" would have satisfied neither.
+
+**Alternatives considered.** (a) Overwrite `states` with codes and use no new key — rejected: pre-change and post-change summaries would be indistinguishable, which is precisely the case that filters a name as a code and creates nothing. (b) Per-value **TIV** as well, so the preview quantifies exposure inflation rather than account inflation — deferred: it needs `exposure_metrics` joined into the counted query, which is untimed, and account overlap is the honest number available now. The preview therefore states account overlap and says plainly that exposure inflation can exceed it, since the accounts that appear in several sub-portfolios tend to be the largest (W-4: 1.27× account inflation alongside 6.6× TIV inflation on the same portfolio). (c) Computing the counts on the request path from the stored value lists — impossible: a DISTINCT list carries no multiplicity, which is the same reason the 2026-08-05 revision needs its own queries. (d) A live DataBridge read at preview time — constitution violation (Article 11). (e) Keeping the arithmetic and renaming `repeats` to `excess_memberships` — rejected 2026-08-05: cheaper, but it answers neither FR-007's question nor SC-002's, and the clean-partition claim would have to be dropped rather than corrected. (f) One coverage script emitting both dimensions with a `Dimension` column — rejected: it would put dimension codes in SQL, where `_SELECTION_SCRIPTS` already keeps them in Python.
 
 ---
 
@@ -269,6 +284,8 @@ The probe run closed the T-08 spike. Three decisions follow from it; the evidenc
 ### Session 2026-08-05
 
 - **Q: Non-US geography values are numeric `Admin1Code`s, so a Caribbean breakout names its sub-portfolios `cbhu - 200` and the UI shows `010, 020, 030, 200` — should names and display use `Admin1Name` instead?** → **A: Product decision — the name token and every display use the stored display label when the summary carries one, falling back to the code; nothing else changes.** The filter value, the stored `breakout_value`, the `portfolio_number` token, the sort order, and the idempotency keys (FR-011's lineage match, the `uq_irp_portfolio_breakout` index) all stay `Admin1Code` — the label is nullable and non-unique, so it can decorate but never select or dedupe. One rule, no code-shape heuristic, with three consequences accepted: (1) US names change too — `usfl - FL` becomes `usfl - Florida` once geocoding writes the label; (2) a breakout run before geocoding names by code, and a re-run after geocoding does **not** rename it (idempotency matches on the value and skips it); (3) the lineage badge and the geography column resolve the label at read time from the source portfolio's stored summary — nothing new is stored, and a miss (source pruned, value gone from a rewritten summary, no label yet) falls back to the code, which is what rendered before. The Risk Modeler description keeps the raw value and adds the label beside it (`… by Geography (state): 200 (Puerto Rico)`), so both vocabularies stay searchable in Risk Modeler. Storing a label column on `irp_portfolio` was rejected: the label is cosmetic, the fallback is exactly today's rendering, and the read model already fetches every row of the EDM — the lookup is in-memory. → spec **P-12** (revised), **P-10**/**P-11** (wording), behavior in FR-010/FR-014
+
+- **Q: The overlap statement says "N of this portfolio's M accounts match more than one state" and claims a clean partition when `Σ per-value counts == account_total`. Does that arithmetic measure either thing?** → **A: No, and it is replaced by two counts measured per account at Sync.** `Σ counts − account_total` mixes memberships against accounts (an account in three states adds 2) with a denominator that includes accounts carrying no value at all (which no per-value count sees), and the two errors cancel: a 1,701-account portfolio where 100 accounts carry a state reported a clean partition while 1,601 accounts landed in no sub-portfolio. FR-007 asks how many accounts land in more than one sub-portfolio and SC-002 promises that every account lands in at least one, so both are now read from `summary.breakout_coverage[dimension]` — `multi_value` and `account_total − covered` — and the partition claim requires both to be zero. Renaming the field to "excess memberships" and weakening the copy was rejected: it answers neither requirement. Full reasoning and the two errors in R11. → **P-13** (revised), behavior in FR-007
 
 ### Carried from the design record
 

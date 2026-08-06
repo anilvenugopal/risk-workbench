@@ -27,16 +27,31 @@ Expected: all green; the unit tier runs with no external deps (SQLite + fake IRP
 
 1. **Open the EDM** (EDM Library → the prepared EDM). The portfolio table shows the source portfolio with populated figures; each row has a **Break out** action (EDM `ready`).
 2. **LOB breakout (US1)**: Break out → *By line of business*. The modal lists every distinct LOB (no free text), the generated name per sub-portfolio (`{source} - {LOB}`), the count, and the overlap + blank-value disclosures. Confirm → toast "Breakout started"; within a few poll cycles the new sub-portfolio rows appear (figures pending), then fill in once the auto-fired backfill completes — no Sync click. Verify in Risk Modeler: one portfolio per LOB, names matching.
+   - **Check the two disclosure numbers against the EDM** (FR-007, revised 2026-08-05). The repeat count must equal the accounts carrying more than one value, and the shortfall must equal the accounts carrying none — neither is `Σ per-value counts − account_total`, which reports a clean partition when the two errors cancel. Against the EDM database:
+     ```sql
+     -- accounts carrying more than one LOB, and accounts carrying at least one
+     SELECT SUM(CASE WHEN n > 1 THEN 1 ELSE 0 END) AS multi_value, COUNT(*) AS covered
+     FROM (SELECT pa.ACCGRPID, COUNT(DISTINCT l.LOBNAME) AS n
+           FROM dbo.portacct pa
+           JOIN dbo.policy p ON p.ACCGRPID = pa.ACCGRPID
+           JOIN dbo.lobdet l ON l.LOBDETID = p.LOBDETID
+           WHERE pa.PORTINFOID = <source> AND NULLIF(LTRIM(RTRIM(l.LOBNAME)),'') IS NOT NULL
+           GROUP BY pa.ACCGRPID) x;
+     -- the shortfall the modal states = this portfolio's account total − covered
+     SELECT COUNT(DISTINCT ACCGRPID) FROM dbo.portacct WHERE PORTINFOID = <source>;
+     ```
+     A portfolio whose summary predates the revision shows the qualitative wording instead and no numbers — Sync it and re-open the modal.
 3. **Gate states**: on a portfolio with no summary → the action is disabled with a Sync pointer; single-LOB portfolio → the LOB option is disabled ("only one value present"); while a breakout runs → "already running"; portfolio changed in RM since the last backfill (edit it in the RM UI, then confirm without Syncing) → confirm refused with "Sync the EDM, then retry" (`stampDate` mismatch) and no job row.
 4. **Idempotent re-run (SC-004)**: re-open Break out → the same dimension shows all sub-portfolios "already created"; confirm → job completes with all `skipped_existing`, no duplicates (check the portfolio list and RM). For the stronger variant: kill the worker mid-run, restart, re-request — only missing sub-portfolios are created.
 5. **Geography breakout (US2)**: *By geography (state)* on the source portfolio — same flow; the disclosure explicitly warns that multi-state accounts land in full in every matching sub-portfolio. Verify a known multi-state account appears in both its state sub-portfolios in RM.
 6. **Lineage (US3)**: generated rows show `↳ from {source} · {dimension label}: {value}`; broker-arrived rows unchanged. Break out a *generated portfolio* (after its summary backfills) → the chained row badges its **immediate source only** (FR-014), never a rendered chain. Check the worker log for the business-event trail (actor, per-sub-portfolio outcomes) and the `rwb_job.output_data` record.
-7. **Partial failure**: with the fake/sandbox induced to fail one sub-portfolio (or a forced name conflict), the completion banner reads e.g. "10 created, 1 failed"; created sub-portfolios persist; re-run completes the missing one.
+7. **Partial failure**: with the fake/sandbox induced to fail one sub-portfolio (or a forced name conflict), the completion banner reads e.g. "10 created, 1 failed"; created sub-portfolios persist; the failed one's reason stays on the source portfolio's row across a refresh and a navigation away and back (FR-012); re-run completes the missing one.
+8. **Two overlapping swaps keep their place** (T-11): with a breakout running so the Portfolios section polls every 3 seconds, expand a portfolio row, scroll down, and open the Break out modal on another row so both requests are in flight. The expanded row stays open and the scroll offset holds through both swaps.
 
 ## Exit criteria (PRD §21 Iteration 4, as narrowed by this spec)
 
 - One-click LOB breakout produces one sub-portfolio per LOB in a single confirmed action, with every offered value from the stored summary and zero free-text entry (SC-001).
-- One-click state breakout ships the same way, the sub-portfolios covering the source with the measured overlap and blank-value exception disclosed before confirm (SC-002).
+- One-click state breakout ships the same way, the sub-portfolios covering the source with the measured overlap and the measured blank-value shortfall disclosed before confirm — both counted per account and checkable against the EDM (SC-002, step 2).
 - A ≤ 15-value breakout is reflected in the portfolio list within 30 s of confirm; a 40+ value fan-out completes with per-sub-portfolio outcomes and is never refused for size; generated portfolios acquire figures without analyst action (SC-003).
 - Partial failure leaves app state consistent with Risk Modeler, and re-running completes the missing sub-portfolios without duplicating existing ones (SC-004).
 - The gate enables/disables from entity state alone, and the confirm additionally refuses a rewritten summary (FR-002b) and a stale `stampDate` (FR-002a) before any job row exists (SC-005).

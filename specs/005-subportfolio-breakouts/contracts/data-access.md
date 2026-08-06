@@ -22,6 +22,8 @@ class BreakoutValue:
 @dataclass(frozen=True)
 class DimensionEligibility:
     dimension: str            # 'lob' | 'state' (breakout_dimension_kind.code)
+    label: str                # breakout_dimension_kind.label
+    noun: str                 # analyst-facing noun, resolved ONCE — the modal reads it
     eligible: bool
     values: list[BreakoutValue]   # from the stored summary ([] when ineligible)
     reason: str | None        # analyst-facing: "exposure summary not available — run Sync",
@@ -35,6 +37,15 @@ class BreakoutGate:
     in_flight: str | None     # dimension code of a live run_breakout_* job, if any
     refresh_in_flight: bool   # a backfill_edm_detail for this EDM is pending|running (P-16)
     summary_as_of: str | None # the summary this preview renders from; echoed into the confirm (FR-002b)
+    account_total: int | None                  # summary.account_total
+    coverage: dict[str, DimensionCoverage]     # summary.breakout_coverage per dimension code
+    # The two rows the gate read, carried so no caller re-reads them — one
+    # instant's view of the same rows the eligibility decision was made from:
+    rows_live: bool           # EDM row and source portfolio row both live (the modal's 404 test)
+    edm_irp_id: str | None    # irp_edm.irp_id — the RM exposureId
+    source_name: str | None
+    source_irp_id: str | None # the source portfolio's RM portfolioId
+    stored_stamp: str | None  # exposure_detail.stamp_date — the FR-002a comparison anchor
 
 def evaluate_gate(edm_id: UUID, portfolio_id: UUID) -> BreakoutGate
 ```
@@ -67,20 +78,28 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str, dimen
 - Deterministic: same inputs → same plan. Sorted by value (stable preview ordering).
 - No I/O — callers supply the current portfolio names and existing breakout values.
 
-### Overlap arithmetic (FR-007 / P-13)
+### Overlap statement (FR-007 / P-13, revised 2026-08-05)
 
 ```python
 @dataclass(frozen=True)
+class DimensionCoverage:
+    covered: int                # source accounts carrying at least one value
+    multi_value: int            # source accounts carrying MORE THAN ONE value
+
+@dataclass(frozen=True)
 class Overlap:
     account_total: int | None   # summary.account_total (the denominator)
-    summed: int                 # Σ accounts over the dimension's values
-    repeats: int | None         # summed − account_total, floored at 0; None when the total is absent
-    partition: bool             # repeats == 0 — the sub-portfolios partition the source cleanly
+    summed: int                 # Σ accounts over the dimension's values — MEMBERSHIPS, not accounts
+    covered: int | None         # accounts landing in ≥ 1 sub-portfolio (SC-002)
+    uncovered: int | None       # account_total − covered: accounts landing in none (FR-007b)
+    repeats: int | None         # accounts landing in MORE THAN ONE sub-portfolio (FR-007a)
+    partition: bool             # no repeats AND no uncovered accounts
 
-def compute_overlap(values: Sequence[BreakoutValue], account_total: int | None) -> Overlap
+def compute_overlap(values: Sequence[BreakoutValue], account_total: int | None,
+                    coverage: DimensionCoverage | None) -> Overlap
 ```
 
-Pure arithmetic over the stored summary. A missing `account_total` yields `repeats=None`, and the preview falls back to the qualitative disclosure alone (data-model §6).
+Both figures are read from `summary.breakout_coverage[dimension]` (data-model §5), where the coverage scripts measured them per account. Neither is derived from `summed`: that counts memberships, so an account carrying three values contributes three, while an account carrying none contributes nothing yet still counts in `account_total` — the two errors cancel, and `summed − account_total` can read as a clean partition for a portfolio where most accounts land in no sub-portfolio at all. `summed` stays on the dataclass as what it is and is not rendered. Absent coverage yields `repeats=None` and the preview falls back to the qualitative disclosure alone, as a missing `account_total` already does (data-model §6).
 
 ### Enqueue (confirm POST path)
 
@@ -91,9 +110,9 @@ def request_breakout(edm_id: UUID, portfolio_id: UUID, dimension: str,
 
 Five steps, in order; each gates the next, and **no `rwb_job` row exists until all five pass**:
 
-1. **Gate re-check** — `evaluate_gate` server-side (raise/refuse; the router maps to 409 + re-rendered fragment).
+1. **Gate re-check** — `evaluate_gate` server-side (raise/refuse; the router maps to 409 + re-rendered fragment). Steps 3 and 4 read the source portfolio's stamp, RM id, and name **off the returned gate**, so the whole confirm decides from the rows that one read loaded; `modal_context` does the same. Neither re-reads them.
 2. **Summary-unchanged check (FR-002b)** — the gate's current `summary_as_of` must equal the `summary_as_of` the preview carried. A detail refresh that landed since the preview rendered changes the value set and the account counts the analyst judged from, and FR-002a cannot see it (a refresh that leaves the RM portfolio untouched writes back an equal `stampDate`). Mismatch → refusal, re-rendered preview, no job row.
-3. **Freshness check (FR-002a)** — `irp_gateway.fetch_portfolio_stamp(...)` (a `search_portfolios` read, the one RM call permitted on this path) must equal the `stampDate` captured with the stored summary at backfill. Mismatch, missing stored stamp, or RM unreachable → refusal with reason ("portfolio data changed in Risk Modeler since the last sync — Sync the EDM, then retry" / "couldn't verify freshness").
+3. **Freshness check (FR-002a)** — `irp_gateway.fetch_portfolio_stamp(...)` (a `search_portfolios_paginated` read, the one RM call permitted on this path) must equal the `stampDate` captured with the stored summary at backfill. Mismatch, missing stored stamp, or RM unreachable → refusal with reason ("portfolio data changed in Risk Modeler since the last sync — Sync the EDM, then retry" / "couldn't verify freshness").
 4. **Build and persist the approved plan** — `build_breakout_plan(...)` runs here, once, and its output goes into `input_data["plan"]` (data-model §4). Composed from the same stored summary and the same naming rule the preview used, and steps 1–2 have established that summary has not moved — so the values, labels, account counts, and numbers match the preview exactly. A collision suffix can still differ, because suffixing reads portfolio names the preview did not fix; the number, not the name, is the identity, which is what makes that harmless (P-14 / FR-006b). From here the plan is authoritative and the worker executes it (AGENTS.md rule 8 / R10). Each persisted entry carries value, label, name, number, **and the previewed account count**, so what the analyst saw stays comparable against what ran.
 5. **Enqueue** — `ensure_pending_rwb_job(requestor_type='analyst_request', requestor_id=portfolio_id, rwb_job_type=f'run_breakout_{dimension}', input_data={edm_id, portfolio_id, dimension, actor_id, plan})`. `analyst_request` is the already-seeded requestor-type code the other analyst-triggered enqueues use; `requestor_id` is the source portfolio, which the column allows (no DB FK — its target varies by requestor type). Idempotent per (portfolio, dimension); revives a terminal row on analyst re-request; returns `None` when a live job already exists (UI: "already running").
 
@@ -119,7 +138,7 @@ def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   #
 ```
 
 - Single write path enforces the integrity rule: the three lineage columns are set together; the source portfolio is in the same EDM; `inserted_by = actor_id` (first population of that column on this table).
-- **Lineage is stamped, never reassigned.** A row for `(edm_id, irp_id)` that carries no lineage is claimed in place (a backfill enumerated the Risk Modeler portfolio first). A row that already carries a **different** `(source, dimension, value)` raises — the write cannot move a generated portfolio out of the traceability of the value it was created for, so the worker records that sub-portfolio as failed instead.
+- **Lineage is stamped, never reassigned.** A row for `(edm_id, irp_id)` that carries no lineage is claimed in place (a backfill enumerated the Risk Modeler portfolio first). A row that already carries a **different** `(source, dimension, value)` raises — the write cannot move a generated portfolio out of the traceability of the value it was created for, so the worker records that sub-portfolio as failed instead. That outcome depends on the worker's per-entry guard covering the **write**, not only the Risk Modeler calls: worker-poller.md step 4 places it around the whole entry for exactly this raise.
 - No `portfolio_number` is written — data-model §1 keeps it out of the schema because it is recomputable from the source RM id, dimension, and value.
 - Insert relies on the filtered unique index `uq_irp_portfolio_breakout` for lineage uniqueness and `uq_irp_portfolio_edm_irp` for id uniqueness; a race duplicate surfaces as a constraint violation → caught and treated as `skipped_existing`.
 - `list_portfolios(edm_id)` (EDIT): LEFT JOIN self on `source_portfolio_id` → adds `source_name`, `breakout_dimension_code`, dimension `label` (join `breakout_dimension_kind`), `breakout_value` to each row for the badge; ordering unchanged (name) — grouping/indent is a display concern.
@@ -152,31 +171,34 @@ def find_portfolio_by_number(exposure_irp_id: str, number: str) -> list[Portfoli
 def fetch_portfolio_stamp(exposure_irp_id: str, portfolio_irp_id: str) -> str | None   # FR-002a
 ```
 
-- `select_breakout_accounts` owns the filter grammar and the **chunking**: the composed filter travels in the URL and dies at HTTP 431 around 4,872 characters, a character ceiling shared with the bearer token, so chunk size is computed from composed filter length against a named constant well below it (irp-library.md §1). Filter strings built with `json.dumps` quoting (module convention). Response-shape parsing differs per read and a wrong key returns a plausible empty result rather than an error (W-15) — unit-tested against recorded bodies.
+- `select_breakout_accounts` runs one parameterized DataBridge query — no filter grammar and no URL chunking, both of which belonged to the REST selection W-20 retired on 2026-08-05. It resolves and caches the EDM's `databaseName`, substitutes `{{ portfolio_id }}`, and maps the `Value`/`AccountId` rows into per-value id lists. A wrong column name returns a plausible empty result rather than an error (W-15) — unit-tested against recorded rows.
 - **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). `errors_by_value` stays on the seam for implementations that can fail per value — the worker fails such an entry with no create call.
 - **A value with an empty id list is returned as empty**, not as an error; the worker turns it into a zero-match failure (FR-008) with no create call made, so no empty portfolio reaches Risk Modeler.
 - `create_sub_portfolio` composes create + add + verify: `create_portfolio(edm_name, name, number, description)` (synchronous 201) → `manage_portfolio_accounts(accounts_to_add=chunk)` per 1,000-id chunk (synchronous 200) → a DataBridge member count compared against `account_ids` (the paginated REST read-back cannot verify past 100,000 accounts, W-20). `add_filtered_accounts` is deliberately not used — it returns `{}` (irp-library.md).
 - **`portfolio_number` is always passed explicitly.** Omitting it makes RM default the number to the name, which then overruns the number's own 20-character cap (W-13).
 - A duplicate-name failure from the create step surfaces as a **distinct** error type so the worker can branch to adoption. Class alone is not enough: `IRPValidationError` also covers an over-long name and an over-long number (W-10).
-- `find_portfolio_by_number` returns **every** hit, not the first — FR-011 requires the worker to fail that sub-portfolio rather than adopt an arbitrary one when more than one portfolio carries the number. Filters on `portfolioNumber` via `search_portfolios`; numbers are unique only within an exposure, which the exposure-scoped search covers (W-17).
+- `find_portfolio_by_number` returns **every** hit, not the first — FR-011 requires the worker to fail that sub-portfolio rather than adopt an arbitrary one when more than one portfolio carries the number. Filters on `portfolioNumber` via `search_portfolios_paginated`; numbers are unique only within an exposure, which the exposure-scoped search covers (W-17). Every exposure-scoped lookup in the gateway uses the paginated read, including the duplicate-name verification: reading only the first page would report a name held further down as free, and the entry would fail instead of adopting.
 - `populate_sub_portfolio` re-runs the add against an **adopted** portfolio (R7 adopt-then-populate healing). Re-adding already-member accounts is safe and returns `completed 0` (W-9), so the heal runs unconditionally.
-- **The comparison decides success: a member count that does not equal the ids sent raises**, in both the create path and the adopt-then-populate heal. FR-008 asks for exactly the selected accounts, so the worker fails that sub-portfolio and writes no lineage row rather than reporting a short or over-populated portfolio as created. Nothing is deleted (P-07); the re-run adopts the portfolio on its number and re-adds.
-- `fetch_portfolio_stamp` wraps the **existing** `search_portfolios` (no library change; `stampDate` passes through in the response — confirmed as Risk Modeler's updated-at equivalent). Deliberately not named `get_*`: the architecture guard greps for web-layer `get_*` IRP calls, and this one is request-path-legal. The spec-004 `backfill_edm_detail` worker gains the matching capture — it stores the portfolio's `stampDate` in `exposure_detail` alongside the summary, read **before** the DataBridge read so the stamp is conservative.
+- **The comparison decides success: a member count that does not equal the ids sent raises**, in both the create path and the adopt-then-populate heal. FR-008 asks for exactly the selected accounts, so the worker fails that sub-portfolio and writes no lineage row rather than reporting a short or over-populated portfolio as created. Nothing is deleted (P-07); the re-run adopts the portfolio on its number and re-adds, which heals a **short** membership. An **over-populated** one it cannot heal — re-adding never removes a member — so that entry fails on every run until the extra accounts are removed in Risk Modeler, which is what the failure reason says.
+- **A member-count read returning no rows raises rather than counting zero.** The script is a `COUNT`, so it always returns one row; no rows means the read came back empty, and treating that as an empty portfolio would blame the add for a DataBridge failure.
+- `fetch_portfolio_stamp` wraps the **existing** `search_portfolios_paginated` (no library change; `stampDate` passes through in the response — confirmed as Risk Modeler's updated-at equivalent). It takes `exposure_irp_id` as a string like the other four and coerces internally, so no caller has to pick. Deliberately not named `get_*`: the architecture guard greps for web-layer `get_*` IRP calls, and this one is request-path-legal. The spec-004 `backfill_edm_detail` worker gains the matching capture — it stores the portfolio's `stampDate` in `exposure_detail` alongside the summary, read **before** the DataBridge read so the stamp is conservative.
 - **Confirm the signatures against the active wheel (`make irp-status`) before implementing** (pre-release discipline).
 
 ### Extended summary builder (spec-004 edit, worker-side)
 
-The gateway's per-portfolio summary builder gains `breakout_values` (per dimension: value, label, account count) and `account_total`, from the three DataBridge scripts in plan.md's Material changes table. Shape in data-model §5; measured cost +1.44s on the backfill job (R11).
+The gateway's per-portfolio summary builder gains `breakout_values` (per dimension: value, label, account count), `account_total`, and `breakout_coverage` (per dimension: `covered`, `multi_value`), from the DataBridge scripts in plan.md's Material changes table. `_COVERAGE_SCRIPTS` keys the two coverage scripts by dimension code beside `_SELECTION_SCRIPTS`, so no dimension code appears in SQL. Shape in data-model §5; measured cost of the pre-coverage set +1.44s on the backfill job (R11).
 
 ### CI fake
 
-`tests/unit/fakes/fake_irp.py` mirrors: `select_breakout_accounts` (seedable per-value id lists, empty selections, and per-value read errors), `create_sub_portfolio` (duplicate-name raise, seedable failures, read-back counts), `populate_sub_portfolio`, `find_portfolio_by_number` (seedable 0/1/many hits), `fetch_portfolio_stamp` (seedable stamp per portfolio), and the extended summary builder.
+`tests/unit/fakes/fake_irp.py` mirrors: `select_breakout_accounts` (seedable per-value id lists, empty selections, and per-value read errors), `create_sub_portfolio` (duplicate-name raise, seedable failures, read-back counts), `populate_sub_portfolio`, `find_portfolio_by_number` (seedable 0/1/many hits), `fetch_portfolio_stamp` (seedable stamp per portfolio), and the extended summary builder (`set_exposure_summary` seeds `breakout_coverage` per dimension, or omits it for the pre-revision summary).
 
 ## 4. Unit-test surface (Article 12)
 
 - `test_breakout_gate.py` — gate truth table: EDM status × deleted × `breakout_values` present/absent/malformed × 0/1/2+ values × in-flight breakout job × in-flight `backfill_edm_detail` (P-16), including a pre-iteration summary (has `states`, no `breakout_values`) reading as absent. Plus the confirm path: stamp match and `summary_as_of` match → plan persisted and job enqueued; stamp mismatch / missing stored stamp / gateway error → refusal; `summary_as_of` mismatch → refusal (FR-002b, and it must refuse even when the stamp still matches — the case FR-002a cannot see); every refusal writes **no job row** (fake stamp seeded per case).
-- `test_breakout_plan.py` — naming determinism; the 40-character name budget (source truncated, value whole, room reserved for the suffix) and the 20-character number budget (hash tail whenever the value is not already uppercase alphanumerics that fit, so `AB`, `A-B`, `a b`, and ` AB` keep four distinct numbers); collision suffixing against existing and intra-plan names, casefolded; `exists` marking; ordering; the overlap arithmetic (clean partition, heavy overlap, absent `account_total`). Blank values never appear — the summary SQL scrubs them; the *disclosure* is UI copy, not plan logic.
+- `test_breakout_plan.py` — naming determinism; the 40-character name budget (source truncated, value whole, room reserved for the suffix) and the 20-character number budget (hash tail whenever the value is not already uppercase alphanumerics that fit, so `AB`, `A-B`, `a b`, and ` AB` keep four distinct numbers); collision suffixing against existing and intra-plan names, casefolded; `exists` marking; ordering; a dimension with no registered number letter refusing to compose one; the overlap statement (clean partition, heavy overlap, absent coverage, absent `account_total`, **no repeats but uncovered accounts is not a partition**, and an account in three values counted once). Blank values never appear in the value list — the summary SQL scrubs them; how many accounts they cost is the `uncovered` count.
 - `load_approved_plan` — executes what was persisted: a plan whose names no longer match what a recompute would produce still runs verbatim; empty/unparseable plan fails the job.
+- `test_breakout_page_state.py` — the FR-012 read model derived from job rows: live-flight progress, per-entry error lines, the job-level fallback line when the run failed before its loop, both dimensions of one portfolio accumulating, per-portfolio keying, the banner from the newest terminal run, `filling_in` from the pending follow-up, a settled successful run showing no banner, and unparseable `output_data` degrading to no lines.
 - `test_snapshot_upsert.py` / `test_edm_detail_rollup.py` (EDIT) — lineage-aware list read model; generated portfolios with NULL `exposure_detail` render the pending state.
 - `insert_generated`/`adopt_generated` integrity rules + constraint-race handling, including the refusal to move a row from one `(source, dimension, value)` to another and the re-adoption of the key it already holds.
-- `test_irp_gateway.py` — the read-back comparison: a short membership and an over-populated adopted portfolio both raise, so `test_run_breakout_worker.py` sees the entry fail with no lineage row.
+- `test_irp_gateway.py` — the read-back comparison: a short membership, an over-populated adopted portfolio, and a member-count read returning no rows all raise, so `test_run_breakout_worker.py` sees the entry fail with no lineage row. Plus the summary builder mapping both coverage scripts.
+- `test_architecture_guards.py` — every seeded `breakout_dimension_kind` code carries a number letter, a noun, a selection script, and a coverage script, and every registered script file exists.
