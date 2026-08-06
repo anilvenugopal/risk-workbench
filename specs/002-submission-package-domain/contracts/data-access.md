@@ -39,8 +39,7 @@ def get_submission(submission_id: UUID) -> Submission | None:
     An id that is not a UUID returns None rather than reaching the query."""
 
 def list_submissions(
-    *, owner_id: UUID | None = None,        # set → "My Submissions"; None → "All"
-    owner_name: str | None = None,          # word-AND match on the owner's display name
+    *, owner_id: UUID | None = None,        # set → that analyst's deals; None → every owner
     name: str | None = None,                # word-AND substring match (CR1/CR2)
     cedant_name: str | None = None,         # word-AND substring match
     crm_id: str | None = None,              # substring of any CRM tag (CR3)
@@ -52,8 +51,9 @@ def list_submissions(
 ) -> SubmissionPage:
     """One page of the master list, at most PAGE_SIZE (50) rows. owner_id is a
     PLAIN predicate (assigned_analyst_id = owner_id), NOT a scope wrapper
-    (R7 / Article 6). Filters combine (AND) as bound predicates (FR-021). All
-    submissions are visible to every analyst regardless of owner.
+    (R7 / Article 6); an owner_id that is not a UUID matches no row. Filters
+    combine (AND) as bound predicates (FR-021). All submissions are visible to
+    every analyst regardless of owner.
     Each returned row's .crm_ids carries its CRM tags, oldest first.
 
     Returns SubmissionPage(rows, page, has_next). has_next comes from reading one

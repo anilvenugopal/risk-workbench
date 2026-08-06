@@ -233,7 +233,7 @@ IDE-style, three zones:
 | Rail item | Sidebar children |
 |---|---|
 | Home (dashboard) | — |
-| Submissions | List, My Submissions |
+| Submissions | List |
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
 | Moody's IRP | Sync Metadata, EDM Library, RDM Library |
@@ -439,7 +439,7 @@ Global roles in v1. Exact codes TBD with the team; at minimum: `analyst`, `admin
 
 ### 6.2 Analyst-centric views
 
-"My submissions" is a first-class filter: `WHERE assigned_analyst_id = current_user.id`. Every submission list defaults to this view with a toggle to "All submissions." This reflects the real workflow: analysts each own a deal end-to-end during peak season. It is a convenience filter over data everyone can already see — never an access restriction.
+Ownership is a plain list filter: `WHERE assigned_analyst_id = current_user.id`. The submission list defaults to it, and the Owner filter switches to another analyst or to every owner. This reflects the real workflow: analysts each own a deal end-to-end during peak season. It is a convenience filter over data everyone can already see — never an access restriction.
 
 ### 6.3 Admin maintenance
 
@@ -501,7 +501,7 @@ This replaces the prior `authoring_status` field, whose three-value guess (`draf
 
 ### 7.3 Submission UI
 
-Master-detail pattern: filterable list ("My Submissions" default, "All" toggle, plus cedant / treaty-type / inception-date filters) + detail panel. List ergonomics per §20.4. Status badges surface active job counts and review queue depth per submission.
+Master-detail pattern: filterable list (Owner defaulting to the signed-in analyst, plus cedant / treaty-type / inception-date filters) + detail panel. List ergonomics per §20.4. Status badges surface active job counts and review queue depth per submission.
 
 ### 7.4 Submission detail — package cards (new)
 
