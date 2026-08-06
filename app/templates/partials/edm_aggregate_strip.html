@@ -2,8 +2,8 @@
    preview rev 7). Context: `edm` (edm_service.EdmDetail) — the exposure cells
    come from the DERIVED edm.aggregate (portfolio_service.aggregate_exposure);
    the two domain cells summarize edm.treaties (count + kinds) and edm.analyses
-   (N · M RDMs · K linked). Pending state (FR-043) when nothing is backfilled
-   yet — never an error. #}
+   (N · M RDMs). Pending state (FR-043) when nothing is backfilled yet — never
+   an error. #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>{%- else -%}{{ '{:,.0f}'.format(v) }}{%- endif -%}
 {%- endmacro -%}
@@ -41,10 +41,9 @@
         {%- set kinds = edm.treaties | map(attribute='attributes') | select | map(attribute='treatyType', default=none) | select | unique | list %}
         {% if kinds %} <small>{{ kinds[:3] | join(' · ') }}</small>{% endif %}</span></div>
     {%- set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum -%}
-    {%- set linked_total = edm.portfolios | map(attribute='analyses') | map('length') | sum -%}
     <div class="rollup__cell rollup__cell--dom"><span class="k">Broker analyses</span>
       <span class="v">{{ analysis_total }}
-        <small>· {{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ linked_total }} linked</small></span></div>
+        <small>· {{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }}</small></span></div>
   </div>
   {% else %}
   <div class="rollup__grid">

@@ -244,9 +244,8 @@ class EdmDetail:
     # US2: the EDM-level treaty set (parsed attributes) for the expand/collapse
     # view + Excel export; empty list ⇒ the section renders its own state.
     treaties: list[TreatyRow] = field(default_factory=list)
-    # US3 (FR-037): the standalone RDM-grouped broker-analyses list; each
-    # portfolio in `portfolios` additionally carries its LINKED analyses
-    # (bucketed by the R9 resolution — group/unresolved stay standalone-only).
+    # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
+    # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
     # US4 (FR-040/FR-042): the DERIVED quick-orientation rollup — None ⇒ no
     # snapshot yet ⇒ the strip renders the pending state (FR-043).
@@ -355,11 +354,6 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
-    # Attach each portfolio's LINKED analyses inline (US3/FR-037): the R9
-    # bucketing keeps group/unresolved rows standalone-only (ui.md §4).
-    buckets = analysis_service.bucket_by_portfolio(analyses)
-    for p in portfolios:
-        p.analyses = buckets.get(p.id, [])
     job_status = _latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),

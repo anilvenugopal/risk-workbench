@@ -50,7 +50,6 @@
         {%- if agg.currencies %} · {{ agg.currencies[:3] | join(', ') }}{% endif %}
         {%- if member.analysis_counts and member.analysis_counts.total -%}
           · <strong>{{ member.analysis_counts.total }}</strong> broker analys{{ 'is' if member.analysis_counts.total == 1 else 'es' }}
-          ({{ member.analysis_counts.linked }} linked)
         {%- endif %}
         · <a href="{{ detail_url }}">Open EDM →</a>
       </dd>

@@ -1,16 +1,13 @@
-{# One portfolio's exposure figures — a .dtable row (spec 004 US1 + US3,
-   FR-012/FR-013/FR-037). Context: `p` (portfolio_service.PortfolioRow, with
-   `analyses` = the broker analyses LINKED to this portfolio, bucketed by the
-   R9 resolution). The snapshot is namespaced (data-model §2): "metrics" = RM
-   /metrics verbatim (counts + perilsExposed string); "summary" = the
-   DataBridge aggregate (TIV/geography/LOB/currency), null until available.
-   Rows written before 2026-07-23 hold the flat /metrics payload — `m` falls
-   back to the flat shape. Every field is read defensively; a missing field
-   renders "—", never an error. Records == locations, so there is no separate
-   Records column (preview rev 7). Expanding the row (default closed) reveals
-   the pinned + rail-connected inline analyses panel (ui.md §1.1) listing ONLY
-   clearly-linked analyses; group/unresolved rows live in the standalone
-   Broker analyses section below. #}
+{# One portfolio's exposure figures — a .dtable row (spec 004 US1,
+   FR-012/FR-013). Context: `p` (portfolio_service.PortfolioRow). The snapshot
+   is namespaced (data-model §2): "metrics" = RM /metrics verbatim (counts +
+   perilsExposed string); "summary" = the DataBridge aggregate
+   (TIV/geography/LOB/currency), null until available. Rows written before
+   2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
+   shape. Every field is read defensively; a missing field renders "—", never
+   an error. Records == locations, so there is no separate Records column
+   (preview rev 7). Analyses are NOT counted or attributed per portfolio
+   (8/4 D8), so the row no longer expands. #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -23,11 +20,9 @@
 {%- set d = p.exposure_detail or {} -%}
 {%- set m = d.get('metrics') or d -%}
 {%- set s = d.get('summary') or {} -%}
-{%- set n_linked = p.analyses | length -%}
-<details class="drow" id="portfolio-{{ p.id }}">
-  <summary>
+<div class="drow-static">
   <span class="l">
-    <span class="dt-name"><span class="dt-caret">▸</span>
+    <span class="dt-name">
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
@@ -75,34 +70,4 @@
       </span>
     {%- endif -%}
   </span>
-  <span class="l pf-ana">
-    {%- if n_linked -%}
-      <strong>{{ n_linked }}</strong> broker analys{{ 'is' if n_linked == 1 else 'es' }}
-    {%- else -%}None{%- endif -%}
-  </span>
-  </summary>
-  <div class="drow__body drow__body--recessed">
-    {% if n_linked %}
-    <p class="mini-cap">Broker analyses linked to {{ p.name }}</p>
-    <div class="mini-shell"><table class="mini">
-      <thead><tr><th>Analysis</th><th>RDM</th><th>Type</th><th>Peril</th><th>Region</th><th>Engine</th><th>Rate</th></tr></thead>
-      <tbody>
-        {% for a in p.analyses %}
-        <tr>
-          <td class="nm">{{ a.name or 'Analysis ' ~ a.irp_id }}</td>
-          <td class="rdm">{{ a.rdm_name or '—' }}</td>
-          <td>{{ a.display.analysis_type or '—' }}</td>
-          <td>{% if a.display.peril %}{{ a.display.peril }}{% if a.display.peril_secondary %} + {{ a.display.peril_secondary }}{% endif %}{% else %}—{% endif %}</td>
-          <td>{{ a.display.region or '—' }}</td>
-          <td>{{ a.display.engine or '—' }}</td>
-          <td>{% if a.display.event_rate_scheme or a.display.rate_vintage %}{{ a.display.event_rate_scheme or a.display.rate_vintage }}{% else %}<span class="na">Missing</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table></div>
-    <a class="mini-more" href="#edm-broker-analyses">Full settings for these ↓ in the Broker analyses table</a>
-    {% else %}
-    <p class="mini-cap" style="margin:0">No broker analyses linked to {{ p.name }}</p>
-    {% endif %}
-  </div>
-</details>
+</div>

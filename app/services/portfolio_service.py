@@ -17,7 +17,7 @@ UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.services._common import (
@@ -42,11 +42,6 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
-    # US3 (FR-037): the broker analyses LINKED to this portfolio (bucketed by
-    # the R9 read-time resolution in edm_service.get_edm_detail) — the inline
-    # panel; empty for group/unresolved analyses (standalone-only) and for
-    # every caller that doesn't attach them.
-    analyses: list = field(default_factory=list)
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is

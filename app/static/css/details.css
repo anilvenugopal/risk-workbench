@@ -64,11 +64,6 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dt-title { font-weight: var(--fw-semibold); color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
 .dt-sub { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
 .dt-geo-sub { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
-.pf-ref { color: var(--text-secondary); }
-.na-link { color: var(--text-disabled); font-style: italic; }
-/* the descriptive "N broker analyses" cell in the Portfolios table (US3) */
-.pf-ana { white-space: normal; overflow: visible; text-overflow: clip; text-align: left; font-size: var(--fs-caption); color: var(--text-secondary); line-height: 1.3; }
-.pf-ana strong { color: var(--text-primary); font-weight: var(--fw-semibold); font-size: var(--fs-label); }
 /* group divider row within a table (broker analyses grouped by source RDM) */
 .dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
 .dtable__group .kind { font-size: .65rem; font-weight: var(--fw-bold); color: var(--text-tertiary); letter-spacing: .04em; }
@@ -103,18 +98,7 @@ a.sec__note--link:hover { text-decoration: underline; }
 .drill__body { margin-top: var(--space-2); background: var(--surface-recessed); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
 .drill__body .k { color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .04em; margin-right: var(--space-1); }
 
-/* mini analyses table (inside an expanded PORTFOLIO row — US3/FR-037) */
-.mini-cap { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); margin: 0 0 var(--space-2); }
-.mini-shell { overflow-x: auto; border: 1px solid var(--border-faint); border-radius: var(--radius-sm); background: var(--surface-panel); }
-.mini { width: 100%; border-collapse: collapse; font-size: var(--fs-caption); white-space: nowrap; }
-.mini th { text-align: left; font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-1) var(--space-3); border-bottom: 1px solid var(--border-faint); white-space: nowrap; }
-.mini td { padding: var(--space-1) var(--space-3); border-bottom: 1px solid var(--c-border-faint); color: var(--text-secondary); white-space: nowrap; vertical-align: middle; }
-.mini tr:last-child td { border-bottom: none; }
-.mini .nm { font-weight: var(--fw-semibold); color: var(--text-primary); }
-.mini .rdm { font-family: var(--font-mono); color: var(--text-tertiary); }
-.mini-more { display: inline-block; margin-top: var(--space-2); font-size: var(--fs-caption); color: var(--color-brand); font-weight: var(--fw-medium); }
-
-/* scope / linkage explainer (US3) */
+/* scope explainer (US3) */
 .derive-note { background: var(--color-info-bg); border: 1px solid var(--color-info-border); color: var(--color-info); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); margin-bottom: var(--space-4); }
 .derive-note code { background: var(--surface-recessed); padding: 0 4px; border-radius: 3px; }
 
