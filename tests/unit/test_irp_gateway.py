@@ -367,7 +367,8 @@ def test_selection_database_name_is_resolved_once_and_cached():
 # ── create → add → read-back composition ─────────────────────────────────────────
 
 def _compose_gw(*, create_exc=None, name_taken=False, member_count=0,
-                manage_calls=None, search_hits=None, count_calls=None):
+                manage_calls=None, search_hits=None, count_calls=None,
+                empty_count_frame=False):
     def create_portfolio(edm_name, portfolio_name, portfolio_number,
                          description):
         if create_exc is not None:
@@ -381,10 +382,12 @@ def _compose_gw(*, create_exc=None, name_taken=False, member_count=0,
         # `completed` counts ids NEWLY added — 0 on a healthy re-run (W-9)
         return {"addAccounts": {"completed": 0, "total": len(accounts_to_add)}}
 
-    def search_portfolios(exposure_id, filter=""):
-        return [{"portfolioId": 900}] if name_taken else []
-
     def search_portfolios_paginated(exposure_id, filter=""):
+        # Both exposure-scoped lookups go through the paginated read, told apart
+        # by their filter: the duplicate-name verification (W-10) and the
+        # adopt-by-number resolution (W-17).
+        if filter.startswith("portfolioName="):
+            return [{"portfolioId": 900}] if name_taken else []
         return search_hits or []
 
     def execute_query_from_file(file_path, params=None, database=None):
@@ -392,13 +395,14 @@ def _compose_gw(*, create_exc=None, name_taken=False, member_count=0,
         if count_calls is not None:
             script = file_path.replace("\\", "/").rsplit("/", 1)[-1]
             count_calls.append((script, params, database))
+        if empty_count_frame:
+            return [_Frame([])]
         return [_Frame([{"AccountCount": member_count}])]
 
     return _gw(
         portfolio=SimpleNamespace(
             create_portfolio=create_portfolio,
             manage_portfolio_accounts=manage_portfolio_accounts,
-            search_portfolios=search_portfolios,
             search_portfolios_paginated=search_portfolios_paginated),
         edm=SimpleNamespace(search_edms=lambda filter: _EDM_HITS),
         databridge=SimpleNamespace(
@@ -447,9 +451,20 @@ def test_short_membership_read_back_fails_the_sub_portfolio():
 
 def test_extra_membership_on_an_adopted_portfolio_fails_too():
     # The adopt-then-populate heal (R7) cannot report an adopted portfolio
-    # carrying accounts beyond the plan as populated correctly.
+    # carrying accounts beyond the plan as populated correctly. Re-adding never
+    # removes a member, so the reason says what has to happen instead.
     gw = _compose_gw(member_count=5)
-    with pytest.raises(ValueError, match="holds 5 accounts"):
+    with pytest.raises(ValueError, match="remove the extra accounts in Risk "
+                                         "Modeler"):
+        gw.populate_sub_portfolio(edm_name="EDM", exposure_irp_id="42",
+                                  portfolio_irp_id="431", account_ids=[101, 102])
+
+
+def test_an_empty_member_count_read_is_not_read_as_zero_members():
+    # A COUNT query returns one row; no rows means the read came back empty, and
+    # reporting that as a zero-member portfolio would blame the add.
+    gw = _compose_gw(member_count=2, empty_count_frame=True)
+    with pytest.raises(ValueError, match="returned no rows"):
         gw.populate_sub_portfolio(edm_name="EDM", exposure_irp_id="42",
                                   portfolio_irp_id="431", account_ids=[101, 102])
 
@@ -494,8 +509,8 @@ def test_fetch_portfolio_stamp_matches_on_portfolio_id():
     gw = _gw(portfolio=SimpleNamespace(
         search_portfolios_paginated=lambda e: rows))
     assert gw.fetch_portfolio_stamp(
-        exposure_irp_id=42, portfolio_irp_id="1") == "2026-07-31T09:15:00.000Z"
+        exposure_irp_id="42", portfolio_irp_id="1") == "2026-07-31T09:15:00.000Z"
     assert gw.fetch_portfolio_stamp(
-        exposure_irp_id=42, portfolio_irp_id="2") is None   # no stampDate field
+        exposure_irp_id="42", portfolio_irp_id="2") is None   # no stampDate field
     assert gw.fetch_portfolio_stamp(
-        exposure_irp_id=42, portfolio_irp_id="99") is None  # portfolio gone
+        exposure_irp_id="42", portfolio_irp_id="99") is None  # portfolio gone

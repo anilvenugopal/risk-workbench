@@ -301,16 +301,17 @@ def _write_generated(edm_id: Any, *, name: str, irp_id: str,
                     existing = conn.execute(text(_SELECT_LIVE_BY_EDM_IRP),
                                             params).mappings().first()
                     if existing is not None:
-                        source, dimension, value = (
+                        held_source, held_dim, held_val = (
                             _uid(existing["source_portfolio_id"]),
                             existing["breakout_dimension_code"],
                             existing["breakout_value"])
-                        if source is not None and (source, dimension, value) != (
+                        if held_source is not None and (
+                                held_source, held_dim, held_val) != (
                                 params["src"], params["dim"], params["val"]):
                             raise ValueError(
                                 "breakout lineage integrity: Risk Modeler portfolio "
-                                f"{params['irp']} is already the {dimension}={value} "
-                                f"breakout of source portfolio {source}")
+                                f"{params['irp']} is already the {held_dim}={held_val} "
+                                f"breakout of source portfolio {held_source}")
                         conn.execute(text(_UPDATE_GENERATED_BY_ID),
                                      dict(params, row_id=existing["id"]))
                         return GeneratedWrite(portfolio_id=_uid(existing["id"]),

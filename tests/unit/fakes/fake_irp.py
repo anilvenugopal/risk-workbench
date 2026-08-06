@@ -272,7 +272,7 @@ class FakeIRP:
                              stamp=p.get("stamp"))
                 for p in self._portfolios.get(str(edm_irp_id), [])]
 
-    def fetch_portfolio_stamp(self, *, exposure_irp_id: int,
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None:
         # The confirm-time freshness read (spec 005 FR-002a). Seed the stamp via
         # add_portfolio(stamp=...) / set_portfolio_stamp; force a gateway error

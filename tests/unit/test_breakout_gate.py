@@ -381,6 +381,18 @@ def test_confirm_gateway_error_refuses_with_no_job_row(iteration2_db, fake_irp):
     assert _breakout_jobs() == []
 
 
+def test_confirm_without_a_risk_modeler_id_refuses_with_no_job_row(
+        iteration2_db, fake_irp):
+    # No portfolioId means the stamp cannot be read and no portfolio_number can
+    # be composed — the freshness check refuses rather than proceeding.
+    edm_id = _mk_edm()
+    pid = _mk_portfolio(edm_id, irp_id=None)
+    with pytest.raises(StaleSummary, match="couldn't verify freshness"):
+        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+    assert _breakout_jobs() == []
+    assert fake_irp.stamp_reads == []
+
+
 def test_confirm_rewritten_summary_refuses_even_when_stamp_matches(
         iteration2_db, fake_irp):
     # FR-002b — the case FR-002a cannot see: a re-backfill that left the RM

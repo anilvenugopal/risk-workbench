@@ -241,7 +241,7 @@ class IRPGateway(Protocol):
 
     # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
 
-    def fetch_portfolio_stamp(self, *, exposure_irp_id: int,
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None: ...
 
     # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
@@ -364,7 +364,7 @@ class _RealGateway:
                 stamp=(str(stamp) if stamp is not None else None)))
         return hits
 
-    def fetch_portfolio_stamp(self, *, exposure_irp_id: int,
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None:
         # The confirm-time freshness read (spec 005 FR-002a): the portfolio's
         # current stampDate via the exposure-scoped portfolio search — the one
@@ -431,21 +431,31 @@ class _RealGateway:
 
     def _member_count(self, *, edm_name: str, exposure_irp_id: str,
                       portfolio_irp_id: str) -> int:
+        # A COUNT query always returns one row, so no rows at all means the read
+        # itself came back empty — raise rather than report a zero-member
+        # portfolio, which the caller's comparison would blame on the add.
         frames = self._client().databridge.execute_query_from_file(
             str(_DATABRIDGE_SQL_DIR / "portfolio_member_count.sql"),
             params={"portfolio_id": int(portfolio_irp_id)},
             database=self._cached_database_name(
                 edm_name=edm_name, exposure_irp_id=exposure_irp_id))
         rows = frames[0].to_dict("records") if frames else []
-        count = rows[0].get("AccountCount") if rows else None
+        if not rows:
+            raise ValueError(
+                f"member-count read for portfolio {portfolio_irp_id} returned "
+                "no rows — the count could not be verified")
+        count = rows[0].get("AccountCount")
         return int(count) if count is not None else 0
 
     def _portfolio_name_taken(self, exposure_irp_id: str, name: str) -> bool:
         # W-10: IRPValidationError alone is not "the name is taken" — it also
         # covers the two length violations. Verify against RM before treating
-        # the failure as the adoption signal.
+        # the failure as the adoption signal. Paginated, like every other
+        # portfolio lookup here: a name held by a portfolio past the first page
+        # would otherwise read as free and the entry would fail instead of
+        # adopting.
         try:
-            hits = self._client().portfolio.search_portfolios(
+            hits = self._client().portfolio.search_portfolios_paginated(
                 int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
         except Exception:  # noqa: BLE001 — unverifiable → let the original error stand
             return False
@@ -488,7 +498,11 @@ class _RealGateway:
         # exactly the selected accounts, so an under- or over-populated
         # portfolio fails that sub-portfolio and writes no lineage row. The RM
         # portfolio stays (P-07 — nothing is deleted); the re-run adopts it on
-        # its number and re-adds, which heals a partial add.
+        # its number and re-adds, which heals a partial add. It cannot heal an
+        # OVER-populated one: re-adding never removes a member, so an adopted
+        # portfolio holding accounts outside the selection fails on every run
+        # until someone removes them in Risk Modeler — which is what the message
+        # says, since the app deletes nothing.
         pm = self._client().portfolio
         ids = [int(i) for i in account_ids]
         chunks = range(0, len(ids), _ADD_CHUNK_SIZE)
@@ -505,7 +519,9 @@ class _RealGateway:
         if count != selected:
             raise ValueError(
                 f"sub-portfolio {portfolio_irp_id} holds {count} accounts "
-                f"after the add; {selected} were selected")
+                f"after the add; {selected} were selected"
+                + (" — remove the extra accounts in Risk Modeler, then re-run"
+                   if count > selected else " — re-run to complete the add"))
         return SubPortfolioResult(portfolio_irp_id=str(portfolio_irp_id),
                                   account_count=count)
 
@@ -832,7 +848,7 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
-def fetch_portfolio_stamp(*, exposure_irp_id: int,
+def fetch_portfolio_stamp(*, exposure_irp_id: str,
                           portfolio_irp_id: str) -> str | None:
     return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
                                            portfolio_irp_id=portfolio_irp_id)

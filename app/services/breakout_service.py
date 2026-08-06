@@ -145,6 +145,15 @@ class BreakoutGate:
     # summary.breakout_coverage per dimension code — the measured overlap
     # (FR-007). Empty for a summary written before the 2026-08-05 revision.
     coverage: dict[str, DimensionCoverage] = field(default_factory=dict)
+    # The two rows the gate read, carried so no caller re-reads them: one
+    # instant's view of the same rows the eligibility decision was made from,
+    # which is what keeps a delete landing mid-request from producing a modal
+    # built on a gate that says "portfolio not found".
+    rows_live: bool = False    # EDM row and source portfolio row both exist, neither soft-deleted
+    edm_irp_id: str | None = None      # irp_edm.irp_id (the RM exposureId)
+    source_name: str | None = None     # the source portfolio's name
+    source_irp_id: str | None = None   # its RM portfolioId — None until the backfill writes one
+    stored_stamp: str | None = None    # exposure_detail.stamp_date — the FR-002a anchor
 
 
 def _as_of_str(value: Any) -> str | None:
@@ -316,11 +325,21 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
         if isinstance(raw_total, (int, float)):
             account_total = int(raw_total)
 
+    rows_live = (edm is not None and edm["deleted_at"] is None
+                 and portfolio is not None and portfolio["deleted_at"] is None)
     return BreakoutGate(
         portfolio_eligible=portfolio_eligible, reason=reason,
         dimensions=dimensions, in_flight=in_flight,
         refresh_in_flight=refresh_in_flight, summary_as_of=summary_as_of,
-        account_total=account_total, coverage=_parse_coverage(summary))
+        account_total=account_total, coverage=_parse_coverage(summary),
+        rows_live=rows_live,
+        edm_irp_id=(str(edm["irp_id"]) if rows_live and edm["irp_id"] is not None
+                    else None),
+        source_name=(str(portfolio["name"]) if rows_live else None),
+        source_irp_id=(str(portfolio["irp_id"])
+                       if rows_live and portfolio["irp_id"] is not None else None),
+        stored_stamp=(_stored_stamp(portfolio["exposure_detail"])
+                      if rows_live else None))
 
 
 def _parse_coverage(summary: dict | None) -> dict[str, DimensionCoverage]:
@@ -500,11 +519,9 @@ def modal_context(edm_id: Any, portfolio_id: Any,
     STORED summary — zero Risk Modeler or DataBridge calls (Article 11).
     ``None`` when the EDM or portfolio is missing/deleted (router → 404
     fragment)."""
-    edm, portfolio = _load_rows(edm_id, portfolio_id)
-    if (edm is None or edm["deleted_at"] is not None or portfolio is None
-            or portfolio["deleted_at"] is not None):
-        return None
     gate = evaluate_gate(edm_id, portfolio_id)
+    if not gate.rows_live:
+        return None
 
     eligible = [d.dimension for d in gate.dimensions if d.eligible]
     selected = (dimension if dimension in eligible
@@ -512,15 +529,15 @@ def modal_context(edm_id: Any, portfolio_id: Any,
     # A portfolio without its RM id cannot compose portfolio numbers; in
     # practice it also has no summary (both come from the same backfill), so
     # this guard only closes the theoretical gap.
-    if portfolio["irp_id"] is None:
+    if gate.source_irp_id is None:
         selected = None
 
     plan: list[SubPortfolioPlan] = []
     overlap: Overlap | None = None
     if selected is not None:
         plan = compose_plan(gate, edm_id=edm_id, portfolio_id=portfolio_id,
-                            source_name=portfolio["name"],
-                            source_portfolio_irp_id=str(portfolio["irp_id"]),
+                            source_name=gate.source_name,
+                            source_portfolio_irp_id=gate.source_irp_id,
                             dimension=selected)
         values = next(d.values for d in gate.dimensions
                       if d.dimension == selected)
@@ -528,8 +545,8 @@ def modal_context(edm_id: Any, portfolio_id: Any,
                                   gate.coverage.get(selected))
 
     return BreakoutModal(
-        gate=gate, portfolio_name=portfolio["name"],
-        portfolio_irp_id=portfolio["irp_id"], dimension=selected,
+        gate=gate, portfolio_name=gate.source_name or "",
+        portfolio_irp_id=gate.source_irp_id, dimension=selected,
         # The noun the gate already resolved for that dimension — read here
         # rather than looked up a second time, so the modal cannot disagree with
         # the disabled-with-reason copy or render "more than one None".
@@ -764,25 +781,25 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
             "This EDM was synced while you were reviewing — here is the "
             "current breakout.")
 
-    # 3. Freshness check (FR-002a): the flow's one web-layer RM call.
-    edm, portfolio = _load_rows(edm_id, portfolio_id)
-    stored_stamp = _stored_stamp(portfolio["exposure_detail"])
-    if stored_stamp is None:
+    # 3. Freshness check (FR-002a): the flow's one web-layer RM call. Every row
+    # value below comes off the gate, which read them at step 1 — the confirm
+    # decides from one instant's view of the two rows, not two.
+    if gate.stored_stamp is None:
         raise StaleSummary(
             "Portfolio data has changed in Risk Modeler since the last sync — "
             "Sync the EDM, then retry.")
-    if edm["irp_id"] is None or portfolio["irp_id"] is None:
+    if gate.edm_irp_id is None or gate.source_irp_id is None:
         raise StaleSummary("couldn't verify freshness — Sync the EDM, then retry.")
     try:
         current_stamp = irp_gateway.fetch_portfolio_stamp(
-            exposure_irp_id=int(edm["irp_id"]),
-            portfolio_irp_id=str(portfolio["irp_id"]))
+            exposure_irp_id=gate.edm_irp_id,
+            portfolio_irp_id=gate.source_irp_id)
     except Exception as exc:  # noqa: BLE001 — unverifiable freshness refuses, never proceeds
         logger.warning("breakout freshness read failed for portfolio %s: %s",
                        portfolio_id, exc)
         raise StaleSummary(
             "couldn't verify freshness — try again or Sync the EDM.") from exc
-    if current_stamp is None or str(current_stamp) != stored_stamp:
+    if current_stamp is None or str(current_stamp) != gate.stored_stamp:
         raise StaleSummary(
             "Portfolio data has changed in Risk Modeler since the last sync — "
             "Sync the EDM, then retry.")
@@ -791,8 +808,8 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
     # point the plan is authoritative and the worker executes it verbatim
     # (AGENTS.md rule 8 / R10 / P-14).
     plan = compose_plan(gate, edm_id=edm_id, portfolio_id=portfolio_id,
-                        source_name=portfolio["name"],
-                        source_portfolio_irp_id=str(portfolio["irp_id"]),
+                        source_name=gate.source_name,
+                        source_portfolio_irp_id=gate.source_irp_id,
                         dimension=dimension)
     input_data = {
         "edm_id": str(edm_id), "portfolio_id": str(portfolio_id),
