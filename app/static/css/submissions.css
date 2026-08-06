@@ -17,6 +17,11 @@
 
 .sub-table { margin-top: var(--space-2); }
 
+/* ── List pager ──────────────────────────────────────────────────────────── */
+.pager { display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); }
+.pager__at { font-size: var(--fs-label); color: var(--text-tertiary); }
+
 /* ── Status chips ────────────────────────────────────────────────────────── */
 .status-chip {
   display: inline-block; font-size: var(--fs-caption); font-weight: var(--fw-medium);

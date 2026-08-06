@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 from functools import partial
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -223,6 +224,12 @@ def _not_found(request: Request):
 
 # ── List (My / All) + filters ────────────────────────────────────────────────
 
+# The id of the div the filter form and the pager links both target. A request
+# naming it gets the table on its own: rebuilding the status list, the analyst
+# list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
+_LIST_TARGET = "sub-list"
+
+
 def _list_page(request: Request, *, owner_id, nav_key: str):
     filters = {
         "name": (request.query_params.get("q") or "").strip() or None,
@@ -244,16 +251,27 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
         for key in ("q", "cedant", "crm_id", "owner", "treaty_type", "inception",
                     "treaty_year", "status")
     }
-    extra = {
+    list_ctx = {
         "rows": listing.rows,
+        "page": listing.page,
+        "has_next": listing.has_next,
+        "base": "/submissions/mine" if owner_id else "/submissions",
+        # The applied filters, for the pager links to carry; each link appends its
+        # own page number.
+        "filter_query": urlencode(
+            {key: value for key, value in filter_values.items() if value}),
+        "is_filtered": any(filter_values.values()),
+    }
+    if request.headers.get("HX-Target") == _LIST_TARGET:
+        return _partial(request, "partials/submission_list.html", list_ctx)
+    return _render(request, "pages/submissions.html", nav_key, {
+        **list_ctx,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
         "analysts": _active_analysts(),
         "scope": "mine" if owner_id else "all",
         "filter_values": filter_values,
-        "is_filtered": any(filter_values.values()),
-    }
-    return _render(request, "pages/submissions.html", nav_key, extra)
+    })
 
 
 @router.get("/submissions", response_class=HTMLResponse)

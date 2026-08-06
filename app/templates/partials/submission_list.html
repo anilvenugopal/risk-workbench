@@ -1,0 +1,48 @@
+{# Master list + pager. This is the swap unit: the filter form and the pager links
+   both target #sub-list, and app/routers/submissions.py returns this file alone
+   for those requests instead of the whole page. #}
+<div id="sub-list">
+  <table class="mk-table sub-table">
+    <thead>
+      <tr>
+        <th>Name</th><th>Cedant</th><th>CRM ID</th><th>Treaty type</th>
+        <th>Inception</th><th>Year</th><th>Status</th><th>Owner</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        {% include "partials/submission_row.html" %}
+      {% else %}
+        {% if is_filtered %}
+        <tr><td colspan="8" class="empty">No submissions match —
+          <a class="clear-filters" href="{{ base }}">clear filters</a>.</td></tr>
+        {% elif page > 1 %}
+        <tr><td colspan="8" class="empty">Nothing on page {{ page }} —
+          <a class="clear-filters" href="{{ base }}">back to the first page</a>.</td></tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">No submissions yet.</td></tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Only shown once there is somewhere to go, so a list that fits on one page
+     reads exactly as it did before paging. The links carry the applied filters
+     and are real hrefs, so they still work with JavaScript off. #}
+  {% if page > 1 or has_next %}
+  {% set stem = base ~ '?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
+  <nav class="pager" aria-label="Submission pages">
+    {% if page > 1 %}
+    <a class="btn-sm" rel="prev" href="{{ stem }}{{ page - 1 }}"
+       hx-get="{{ stem }}{{ page - 1 }}" hx-target="#sub-list"
+       hx-swap="outerHTML" hx-push-url="true">‹ Prev</a>
+    {% endif %}
+    <span class="pager__at">Page {{ page }}</span>
+    {% if has_next %}
+    <a class="btn-sm" rel="next" href="{{ stem }}{{ page + 1 }}"
+       hx-get="{{ stem }}{{ page + 1 }}" hx-target="#sub-list"
+       hx-swap="outerHTML" hx-push-url="true">Next ›</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>

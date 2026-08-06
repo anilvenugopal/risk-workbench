@@ -423,6 +423,66 @@ def test_empty_list_with_no_filters_reads_as_empty_not_filtered(client):
     assert "No submissions yet." in body and "clear-filters" not in body
 
 
+# ── List: the #sub-list fragment and the pager ───────────────────────────────
+
+def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
+    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant so no create
+    trips the look-alike warning."""
+    for i in range(submission_service.PAGE_SIZE + extra):
+        client.post("/submissions", data=_payload(
+            name=f"Paged deal {i:03d}", cedant_name=f"Paged cedant {i:03d}"))
+
+
+def test_a_request_targeting_sub_list_gets_the_table_alone(client):
+    """The filter form and the pager both target #sub-list, and htmx keeps only
+    that. Rebuilding the filter bar and the nav shell for each keystroke is the
+    cost this branch removes."""
+    client.post("/submissions", data=_payload(name="Fragment deal"))
+    fragment = client.get("/submissions?q=fragment",
+                          headers={"HX-Request": "true", "HX-Target": "sub-list"}).text
+    assert 'id="sub-list"' in fragment and "Fragment deal" in fragment
+    # No filter bar, no owner menu, no shell — the three things the full page
+    # renders and htmx throws away.
+    assert 'class="filters"' not in fragment
+    assert 'data-name="Analyst B"' not in fragment
+    assert "<html" not in fragment
+
+    whole_page = client.get("/submissions?q=fragment").text
+    assert 'class="filters"' in whole_page and "Fragment deal" in whole_page
+
+
+def test_the_list_shows_one_page_with_a_next_link(client):
+    _fill_a_page_and_a_bit(client)
+    first = client.get("/submissions").text
+    assert first.count('class="data-row"') == submission_service.PAGE_SIZE
+    assert "Page 1" in first and "page=2" in first
+    assert 'rel="prev"' not in first
+
+    second = client.get("/submissions?page=2").text
+    assert second.count('class="data-row"') == 2
+    assert "Page 2" in second and 'rel="prev"' in second and 'rel="next"' not in second
+
+
+def test_a_short_list_shows_no_pager(client):
+    client.post("/submissions", data=_payload(name="Only deal"))
+    assert "Page 1" not in client.get("/submissions").text
+
+
+def test_pager_links_carry_the_applied_filters(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?q=paged&status=ACTIVE").text
+    assert "q=paged" in body and "status=ACTIVE" in body and "page=2" in body
+    # My Submissions pages within itself rather than bouncing to All.
+    assert 'href="/submissions/mine?' in client.get("/submissions/mine?page=2").text
+
+
+def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?page=abc").text
+    assert "Page 1" in body
+    assert body.count('class="data-row"') == submission_service.PAGE_SIZE
+
+
 def test_my_submissions_keeps_the_filters_on_its_own_route(client):
     _two_american_deals(client)
     body = client.get("/submissions/mine?q=american+fam").text

@@ -39,7 +39,6 @@
 {% endmacro %}
 
 {% block main %}
-{% set base = '/submissions/mine' if scope == 'mine' else '/submissions' %}
 <div class="page-pad">
 
   {# ── My / All toggle ── #}
@@ -51,14 +50,16 @@
   </div>
 
   {# ── Filters (combine with AND), applied as you type: one debounced request per
-        typing pause. hx-select narrows the swap to #sub-list — the form sits
-        outside it, so the field keeps focus and its value mid-filter, and the
-        pushed URL is the list's own (a fragment route would push its own path).
+        typing pause. The request goes to the list's own URL, which is what
+        hx-push-url pushes (a fragment route would push its own path) — the route
+        reads the #sub-list target and answers with the table alone. The form sits
+        outside that target, so the field keeps focus and its value mid-filter.
+        The form carries no page input, so re-filtering lands on page 1.
         method/action + the hidden submit are the no-JS fallback: a form with
         several text-ish fields and no submit button never submits on Enter. ── #}
   <form class="filters" method="get" action="{{ base }}"
         hx-get="{{ base }}" hx-trigger="input delay:300ms, submit, filter-picked"
-        hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
+        hx-target="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
     <div class="filters__row">
       <label>Name
@@ -119,28 +120,6 @@
     <button type="submit" hidden>Filter</button>
   </form>
 
-  {# ── Master list — the filter swap unit (see the form's hx-select). ── #}
-  <div id="sub-list">
-    <table class="mk-table sub-table">
-      <thead>
-        <tr>
-          <th>Name</th><th>Cedant</th><th>CRM ID</th><th>Treaty type</th>
-          <th>Inception</th><th>Year</th><th>Status</th><th>Owner</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-          {% include "partials/submission_row.html" %}
-        {% else %}
-          {% if is_filtered %}
-          <tr><td colspan="8" class="empty">No submissions match —
-            <a class="clear-filters" href="{{ base }}">clear filters</a>.</td></tr>
-          {% else %}
-          <tr><td colspan="8" class="empty">No submissions yet.</td></tr>
-          {% endif %}
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "partials/submission_list.html" %}
 </div>
 {% endblock %}
