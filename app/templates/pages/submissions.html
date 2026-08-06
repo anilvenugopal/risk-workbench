@@ -78,12 +78,18 @@
          and narrows in place as the analyst types, with no request per keystroke.
          Typing alone applies nothing: @input.stop keeps the keystroke from
          reaching the form's `input` trigger, and picking a user dispatches
-         filter-picked, which the form listens for. #}
+         filter-picked, which the form listens for.
+
+         The text box narrows the menu and shows the picked analyst; the hidden
+         input carries the app_user id the route filters on. Two analysts can
+         share a display name, so the name is the label and never the value. #}
       <div class="filters__field">
         <label for="owner-filter">Owner</label>
         <div class="filters__combo" x-data="ownerPicker" @click.outside="close()">
-          <input id="owner-filter" class="wf-field__input" type="text" name="owner"
-                 value="{{ filter_values.owner }}" autocomplete="off"
+          <input type="hidden" name="owner" value="{{ filter_values.owner }}"
+                 x-ref="value">
+          <input id="owner-filter" class="wf-field__input" type="text"
+                 value="{{ owner_label }}" autocomplete="off"
                  role="combobox" aria-controls="owner-menu" aria-autocomplete="list"
                  :aria-expanded="isOpen" x-ref="input" placeholder="Any owner"
                  @input.stop="filter()" @focus="open()" @click="open()"
@@ -92,10 +98,10 @@
                x-show="isOpen" x-cloak
                @click="pick($event.target.closest('.ta__opt'))">
             <button class="ta__opt" type="button" role="option" aria-selected="false"
-                    id="owner-opt-any" data-name="">Any owner</button>
+                    id="owner-opt-any" data-id="" data-name="">Any owner</button>
             {% for a in analysts %}
             <button class="ta__opt" type="button" role="option" aria-selected="false"
-                    id="owner-opt-{{ loop.index0 }}"
+                    id="owner-opt-{{ loop.index0 }}" data-id="{{ a.id }}"
                     data-name="{{ a.display_name }}">{{ a.display_name }}</button>
             {% endfor %}
             <div class="ta__empty" x-show="noMatch">No matching user.</div>

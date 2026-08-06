@@ -38,7 +38,7 @@ from app.services.errors import (
     SubmissionClosed,
     UnknownLinkError,
 )
-from db import execute_scalar
+from db import execute_command
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -213,25 +213,28 @@ def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
         owner_id=a, cedant_name="american mutual").rows} == {sid}
 
 
-def test_list_filter_by_owner_name(iteration1_db):
-    """The Owner filter matches the assigned analyst's display name, word by word,
-    so both a pick from the list and a typed fragment narrow the same way. The two
-    tiers name their throwaway analysts differently, so read the name back."""
+def test_list_filter_by_owner_id(iteration1_db):
+    """The Owner filter matches the assigned analyst's id, so two analysts sharing a
+    display name stay apart."""
     a, b = iteration1_db.user_a, iteration1_db.user_b
     tag = uuid.uuid4().hex[:8]
     mine = _mk(iteration1_db, owner=a, name=f"Owned {tag} A").submission_id
     theirs = _mk(iteration1_db, owner=b, name=f"Owned {tag} B").submission_id
-    name_b = execute_scalar(
-        "SELECT display_name FROM app_user WHERE id = :id", {"id": str(b)},
-        connection="WORKBENCH")
+    execute_command(
+        "UPDATE app_user SET display_name = 'Chris Doyle' WHERE id IN (:a, :b)",
+        {"a": str(a), "b": str(b)}, connection="WORKBENCH")
 
-    last_word = name_b.split()[-1].lower()
     assert [r.id for r in list_submissions(
-        name=f"Owned {tag}", owner_name=name_b).rows] == [theirs]
-    assert [r.id for r in list_submissions(
-        name=f"Owned {tag}", owner_name=last_word).rows] == [theirs]
+        name=f"Owned {tag}", owner_id=b).rows] == [theirs]
     assert {r.id for r in list_submissions(
         name=f"Owned {tag}").rows} == {mine, theirs}
+
+
+def test_list_owner_id_that_is_not_a_uuid_matches_nothing(iteration1_db):
+    """A hand-typed ?owner=… reaches the uniqueidentifier comparison, which SQL
+    Server refuses. It has to read as "no match", not as an error."""
+    _mk(iteration1_db, owner=iteration1_db.user_a, name="Some deal")
+    assert list_submissions(owner_id="not-a-uuid").rows == []
 
 
 def test_list_filter_by_crm_id(iteration1_db):

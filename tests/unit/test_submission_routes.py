@@ -377,8 +377,18 @@ def test_list_owner_filter_offers_every_active_user(client):
     # Every active user is a menu row, so the analyst picks instead of typing.
     assert 'data-name="Analyst A"' in body
     assert 'data-name="Analyst B"' in body
-    assert "Deal owned by A" in client.get("/submissions?owner=Analyst+A").text
-    assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+B").text
+    # The row carries the id the filter runs on; the name is only the label.
+    assert f'data-id="{client.db.user_a}"' in body
+    a, b = client.db.user_a, client.db.user_b
+    assert "Deal owned by A" in client.get(f"/submissions?owner={a}").text
+    assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
+
+
+def test_list_owner_filter_ignores_a_name_typed_into_the_url(client):
+    """The Owner box submits an id. A display name in ?owner= is not one, so it
+    narrows to nothing rather than substring-matching two analysts at once."""
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+A").text
 
 
 def test_list_shows_each_deals_crm_ids(client):
@@ -399,15 +409,18 @@ def test_list_renders_every_status_and_shows_the_selected_one(client):
 
 def test_list_echoes_every_filter_back_into_its_input(client):
     body = client.get(
-        "/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
-        "&owner=Analyst+B&treaty_type=cat_xol&inception=2026-04-01"
+        f"/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
+        f"&owner={client.db.user_b}&treaty_type=cat_xol&inception=2026-04-01"
         "&treaty_year=2026").text
     for name, value in (("q", "amfam"), ("cedant", "mutual"),
-                        ("crm_id", "CRM-9"), ("owner", "Analyst B"),
+                        ("crm_id", "CRM-9"),
                         ("inception", "2026-04-01"), ("treaty_year", "2026")):
         assert f'name="{name}"' in body and f'value="{value}"' in body
-    for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol")):
+    for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol"),
+                        ("owner", str(client.db.user_b))):
         assert f'name="{name}" value="{value}"' in body
+    # The Owner box shows the picked analyst's name; the hidden input holds the id.
+    assert 'value="Analyst B"' in body
     assert '<span x-ref="label">Active</span>' in body
     assert '<span x-ref="label">Cat XoL</span>' in body
 

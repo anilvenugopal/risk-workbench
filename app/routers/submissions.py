@@ -230,19 +230,30 @@ def _not_found(request: Request):
 _LIST_TARGET = "sub-list"
 
 
+def _owner_label(analysts: list[dict], owner_id) -> str:
+    """The picked analyst's display name, for the Owner box to show, or "" when no
+    analyst is picked. Compared as lowercase strings because the id reaches here
+    from a query string while ``app_user.id`` arrives from the driver."""
+    return next((a["display_name"] for a in analysts
+                 if str(a["id"]).lower() == str(owner_id).lower()), "")
+
+
 def _list_page(request: Request, *, owner_id, nav_key: str):
     filters = {
         "name": (request.query_params.get("q") or "").strip() or None,
         "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
         "crm_id": (request.query_params.get("crm_id") or "").strip() or None,
-        "owner_name": (request.query_params.get("owner") or "").strip() or None,
         "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
         "inception_date": _parse_date(request.query_params.get("inception")),
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
         "status_code": (request.query_params.get("status") or "").strip() or None,
     }
+    # The Owner menu sends an app_user id. On /submissions/mine the route already
+    # names the owner, so the picked id only applies to the All list.
+    picked_owner = (request.query_params.get("owner") or "").strip() or None
     listing = submission_service.list_submissions(
-        owner_id=owner_id, page=_parse_int(request.query_params.get("page")) or 1,
+        owner_id=owner_id or picked_owner,
+        page=_parse_int(request.query_params.get("page")) or 1,
         **filters)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
@@ -264,11 +275,13 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
     }
     if request.headers.get("HX-Target") == _LIST_TARGET:
         return _partial(request, "partials/submission_list.html", list_ctx)
+    analysts = _active_analysts()
     return _render(request, "pages/submissions.html", nav_key, {
         **list_ctx,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
-        "analysts": _active_analysts(),
+        "analysts": analysts,
+        "owner_label": _owner_label(analysts, picked_owner),
         "scope": "mine" if owner_id else "all",
         "filter_values": filter_values,
     })

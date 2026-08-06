@@ -458,6 +458,8 @@ document.addEventListener('alpine:init', () => {
     },
     pick(opt) {
       if (!opt) return;
+      // The id is what the route filters on; the name is only what the box shows.
+      this.$refs.value.value = opt.dataset.id;
       this.applied = opt.dataset.name;
       this.$refs.input.value = this.applied;
       this.isOpen = false;
