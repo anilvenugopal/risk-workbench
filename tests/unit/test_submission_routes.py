@@ -390,10 +390,11 @@ def test_list_shows_each_deals_crm_ids(client):
     assert "CRM-1" in body and "+2 more" in body
 
 
-def test_list_renders_every_status_and_marks_the_selected_one(client):
+def test_list_renders_every_status_and_shows_the_selected_one(client):
     body = client.get("/submissions?status=COMPLETED").text
-    assert '<option value="COMPLETED" selected>Completed</option>' in body
-    assert '<option value="CANCELLED">Cancelled</option>' in body
+    assert 'data-code="CANCELLED">Cancelled</button>' in body
+    # The trigger, not the menu row, carries the applied label.
+    assert '<span x-ref="label">Completed</span>' in body
 
 
 def test_list_echoes_every_filter_back_into_its_input(client):
@@ -405,8 +406,10 @@ def test_list_echoes_every_filter_back_into_its_input(client):
                         ("crm_id", "CRM-9"), ("owner", "Analyst B"),
                         ("inception", "2026-04-01"), ("treaty_year", "2026")):
         assert f'name="{name}"' in body and f'value="{value}"' in body
-    assert '<option value="ACTIVE" selected>Active</option>' in body
-    assert '<option value="cat_xol" selected>Cat XoL</option>' in body
+    for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol")):
+        assert f'name="{name}" value="{value}"' in body
+    assert '<span x-ref="label">Active</span>' in body
+    assert '<span x-ref="label">Cat XoL</span>' in body
 
 
 def test_filtered_empty_list_offers_to_clear_the_filters(client):

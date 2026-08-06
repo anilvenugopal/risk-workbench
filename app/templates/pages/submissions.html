@@ -5,6 +5,39 @@
 <a href="/submissions/new" class="btn-sm btn-sm--primary">+ New submission</a>
 {% endblock %}
 
+{# Status and Treaty type. Both are closed lists, so the trigger shows the applied
+   label and the menu — the same .ta__menu the Owner picker opens — is the only way
+   to change it. A hidden input carries the code, and picking dispatches
+   filter-picked, which the form listens for. #}
+{% macro code_picker(name, title, options, current) %}
+{% set ns = namespace(label='Any') %}
+{% for code, text in options %}{% if current == code %}{% set ns.label = text %}{% endif %}{% endfor %}
+<div class="filters__field">
+  <span id="{{ name }}-label">{{ title }}</span>
+  <div class="filters__combo" x-data="codePicker" @click.outside="close()">
+    <input type="hidden" name="{{ name }}" value="{{ current }}" x-ref="value">
+    <button type="button" id="{{ name }}-trigger" class="wf-field__input filters__trigger"
+            role="combobox" aria-controls="{{ name }}-menu" aria-haspopup="listbox"
+            aria-labelledby="{{ name }}-label {{ name }}-trigger"
+            :aria-expanded="isOpen" x-ref="trigger"
+            @click="toggle()" @keydown="onKey($event)">
+      <span x-ref="label">{{ ns.label }}</span>
+      <span class="filters__chevron" aria-hidden="true">▾</span>
+    </button>
+    <div id="{{ name }}-menu" class="ta__menu" role="listbox" x-ref="menu"
+         x-show="isOpen" x-cloak
+         @click="pick($event.target.closest('.ta__opt'))">
+      <button class="ta__opt" type="button" role="option" aria-selected="false"
+              id="{{ name }}-opt-any" data-code="">Any</button>
+      {% for code, text in options %}
+      <button class="ta__opt" type="button" role="option" aria-selected="false"
+              id="{{ name }}-opt-{{ loop.index0 }}" data-code="{{ code }}">{{ text }}</button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
 {% block main %}
 {% set base = '/submissions/mine' if scope == 'mine' else '/submissions' %}
 <div class="page-pad">
@@ -24,7 +57,7 @@
         method/action + the hidden submit are the no-JS fallback: a form with
         several text-ish fields and no submit button never submits on Enter. ── #}
   <form class="filters" method="get" action="{{ base }}"
-        hx-get="{{ base }}" hx-trigger="input delay:300ms, submit, owner-picked"
+        hx-get="{{ base }}" hx-trigger="input delay:300ms, submit, filter-picked"
         hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
     <div class="filters__row">
@@ -44,7 +77,7 @@
          and narrows in place as the analyst types, with no request per keystroke.
          Typing alone applies nothing: @input.stop keeps the keystroke from
          reaching the form's `input` trigger, and picking a user dispatches
-         owner-picked, which the form listens for. #}
+         filter-picked, which the form listens for. #}
       <div class="filters__field">
         <label for="owner-filter">Owner</label>
         <div class="filters__combo" x-data="ownerPicker" @click.outside="close()">
@@ -70,22 +103,8 @@
       </div>
     </div>
     <div class="filters__row">
-      <label>Status
-        <select class="wf-field__input" name="status">
-          <option value="">Any</option>
-          {% for code, label in statuses %}
-          <option value="{{ code }}"{% if filter_values.status == code %} selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Treaty type
-        <select class="wf-field__input" name="treaty_type">
-          <option value="">Any</option>
-          {% for code, label in treaty_types %}
-          <option value="{{ code }}"{% if filter_values.treaty_type == code %} selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </label>
+      {{ code_picker("status", "Status", statuses, filter_values.status) }}
+      {{ code_picker("treaty_type", "Treaty type", treaty_types, filter_values.treaty_type) }}
       <label>Inception
         <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
       </label>

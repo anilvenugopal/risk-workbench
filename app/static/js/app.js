@@ -371,7 +371,7 @@ document.addEventListener('alpine:init', () => {
   // list is already in the DOM, so typing hides rows rather than asking the server.
   //
   // Only a picked user filters the list: the template stops the keystroke before it
-  // reaches the form's `input` trigger, and pick() dispatches `owner-picked`, which
+  // reaches the form's `input` trigger, and pick() dispatches `filter-picked`, which
   // the form also listens for. Closing without picking puts back the applied name,
   // so a half-typed name never sits in the box next to an unfiltered list.
   Alpine.data('ownerPicker', () => ({
@@ -464,7 +464,78 @@ document.addEventListener('alpine:init', () => {
       this.activeIndex = -1;
       this.paint();
       this.$refs.input.dispatchEvent(
-        new CustomEvent('owner-picked', { bubbles: true }));
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
+  // Status and Treaty type filters on the submissions list. Same menu as
+  // `ownerPicker`, without the text box: both lists are short and closed, so the
+  // trigger shows the applied label and the menu is the only way to change it.
+  // The hidden input carries the code the route reads.
+  Alpine.data('codePicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    toggle() {
+      if (this.isOpen) this.close(); else this.open();
+    },
+    open() {
+      this.isOpen = true;
+      this.activeIndex = this.options.findIndex(
+        (opt) => opt.dataset.code === this.$refs.value.value);
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.trigger.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.trigger.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.isOpen) this.move(1); else this.open();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this.isOpen) this.move(-1); else this.open();
+      } else if (e.key === 'Escape') {
+        this.close();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        // The trigger is a button, so Enter and Space would otherwise fire the
+        // click handler and toggle the menu shut over the highlighted row.
+        e.preventDefault();
+        if (this.isOpen) this.pick(this.options[this.activeIndex]);
+        else this.open();
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      this.$refs.value.value = opt.dataset.code;
+      this.$refs.label.textContent = opt.textContent;
+      this.close();
+      this.$refs.trigger.focus();
+      this.$refs.value.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
     },
   }));
 
