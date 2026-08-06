@@ -574,6 +574,11 @@ def _noun_for_job_type(rwb_job_type: str) -> tuple[str, str]:
     return code, _DIMENSION_NOUN.get(code, code)
 
 
+def _count(output: dict, key: str) -> int:
+    value = output.get(key)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
 def _plan_values(input_data_raw: Any) -> list[str]:
     data = _parse_json_dict(input_data_raw, "input_data") or {}
     raw = data.get("plan")
@@ -585,7 +590,15 @@ def _plan_values(input_data_raw: Any) -> list[str]:
 
 def page_state(edm_id: Any) -> BreakoutPageState:
     """The EDM body's breakout read model, attached by
-    ``edm_service.get_edm_detail`` — pure WORKBENCH reads."""
+    ``edm_service.get_edm_detail`` — pure WORKBENCH reads.
+
+    Both queries read every breakout job of the EDM, which is bounded at two
+    rows per portfolio: ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``
+    holds one row per (portfolio, dimension) and ``ensure_pending_rwb_job``
+    revives it, so re-runs reuse the row rather than adding one. Every terminal
+    row is needed — FR-012 renders its failed entries on that portfolio's row
+    until the next terminal run supersedes them, which also rules out bounding
+    the read by age."""
     live = execute(
         "SELECT rj.requestor_id, rj.rwb_job_type, rj.input_data "
         "FROM rwb_job rj JOIN irp_portfolio p ON rj.requestor_id = p.id "
@@ -614,18 +627,11 @@ def page_state(edm_id: Any) -> BreakoutPageState:
 
     errors: dict[str, list[BreakoutRowError]] = {}
     banner: BreakoutBanner | None = None
-    seen: set[tuple[str, str]] = set()
-    for i, row in enumerate(terminal):
+    newest = True                        # the query is ordered newest-first
+    for row in terminal:
         pid = _uid(row["requestor_id"])
         code, noun = _noun_for_job_type(row["rwb_job_type"])
-        if (pid, code) in seen:
-            continue                     # only the LATEST terminal run counts
-        seen.add((pid, code))
         output = _parse_json_dict(row["output_data"], "output_data") or {}
-
-        def _count(key: str) -> int:
-            v = output.get(key)  # noqa: B023 — consumed within this iteration
-            return int(v) if isinstance(v, (int, float)) else 0
 
         lines: list[BreakoutRowError] = []
         for entry in (output.get("sub_portfolios") or []):
@@ -642,22 +648,25 @@ def page_state(edm_id: Any) -> BreakoutPageState:
         if lines:
             errors.setdefault(pid, []).extend(lines)
 
-        if i == 0:                       # the banner is the NEWEST terminal
-            failed = _count("failed")    # job's summary, or nothing at all
+        if newest:                       # the banner is the NEWEST terminal
+            newest = False               # job's summary, or nothing at all
+            failed = _count(output, "failed")
             ok = row["status_code"] == "succeeded" and failed == 0
             follow_up = execute_one(
                 "SELECT status_code FROM rwb_job "
                 "WHERE requestor_type = 'rwb_job' AND requestor_id = :j "
-                "AND rwb_job_type = 'backfill_edm_detail'",
+                "AND rwb_job_type = 'backfill_edm_detail' "
+                "ORDER BY updated_at DESC",
                 {"j": str(row["id"])}, connection="WORKBENCH")
             filling_in = (follow_up is not None
                           and follow_up["status_code"] in ("pending", "running"))
             if filling_in or failed or row["status_code"] == "failed":
                 banner = BreakoutBanner(
                     source_name=str(row["source_name"]), noun=noun,
-                    created=_count("created"), adopted=_count("adopted"),
-                    skipped_existing=_count("skipped_existing"), failed=failed,
-                    ok=ok, filling_in=filling_in,
+                    created=_count(output, "created"),
+                    adopted=_count(output, "adopted"),
+                    skipped_existing=_count(output, "skipped_existing"),
+                    failed=failed, ok=ok, filling_in=filling_in,
                     error=(str(row["error_detail"])
                            if row["status_code"] == "failed"
                            and row["error_detail"] else None))
