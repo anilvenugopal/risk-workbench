@@ -89,8 +89,10 @@
 .home__section-title { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); margin-bottom: var(--space-2); }
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */
-/* wrap rather than squeeze: the submissions bar carries seven controls. */
-.filters { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-bottom: 14px; }
+/* The submissions bar carries seven controls plus Clear filters. Each row takes the
+   full width so it breaks where the template says, not where the viewport runs out. */
+.filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
 

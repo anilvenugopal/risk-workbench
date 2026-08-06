@@ -27,41 +27,48 @@
         hx-get="{{ base }}" hx-trigger="input delay:300ms, submit"
         hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
-    <label>Search
-      <input class="wf-field__input" type="text" name="q" placeholder="name…"
-             value="{{ filter_values.q }}" autocomplete="off">
-    </label>
-    <label>Cedant
-      <input class="wf-field__input" type="text" name="cedant"
-             value="{{ filter_values.cedant }}" autocomplete="off">
-    </label>
-    <label>CRM ID
-      <input class="wf-field__input" type="text" name="crm_id"
-             value="{{ filter_values.crm_id }}" autocomplete="off">
-    </label>
-    <label>Status
-      <select class="wf-field__input" name="status">
-        <option value="">Any</option>
-        {% for code, label in statuses %}
-        <option value="{{ code }}"{% if filter_values.status == code %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Treaty type
-      <select class="wf-field__input" name="treaty_type">
-        <option value="">Any</option>
-        {% for code, label in treaty_types %}
-        <option value="{{ code }}"{% if filter_values.treaty_type == code %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Inception
-      <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
-    </label>
-    <label>Treaty year
-      <input class="wf-field__input" type="number" name="treaty_year" value="{{ filter_values.treaty_year }}"
-             min="1900" max="2999" style="min-width: 110px;">
-    </label>
+    <div class="filters__row">
+      <label>Name
+        <input class="wf-field__input" type="text" name="q"
+               value="{{ filter_values.q }}" autocomplete="off">
+      </label>
+      <label>Cedant
+        <input class="wf-field__input" type="text" name="cedant"
+               value="{{ filter_values.cedant }}" autocomplete="off">
+      </label>
+      <label>CRM ID
+        <input class="wf-field__input" type="text" name="crm_id"
+               value="{{ filter_values.crm_id }}" autocomplete="off">
+      </label>
+    </div>
+    <div class="filters__row">
+      <label>Status
+        <select class="wf-field__input" name="status">
+          <option value="">Any</option>
+          {% for code, label in statuses %}
+          <option value="{{ code }}"{% if filter_values.status == code %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Treaty type
+        <select class="wf-field__input" name="treaty_type">
+          <option value="">Any</option>
+          {% for code, label in treaty_types %}
+          <option value="{{ code }}"{% if filter_values.treaty_type == code %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Inception
+        <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
+      </label>
+      <label>Treaty year
+        <input class="wf-field__input" type="number" name="treaty_year" value="{{ filter_values.treaty_year }}"
+               min="1900" max="2999" style="min-width: 110px;">
+      </label>
+      {# A full navigation, not an hx-get: the form sits outside the swap target, so
+         only reloading the page empties the fields the analyst typed. #}
+      <a class="btn-sm" href="{{ base }}">Clear filters</a>
+    </div>
     <button type="submit" hidden>Filter</button>
   </form>
 
