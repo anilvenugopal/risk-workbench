@@ -9,9 +9,9 @@ Plain statements of what the workbench is and does, organized by workflow area. 
 **Implementation status:** `Implemented` = the current application satisfies the requirement · `Partial` = it satisfies only part of the requirement · `Not implemented` = it does not currently satisfy the requirement. For negative requirements and explicit exclusions, `Implemented` means the application honors the stated constraint.
 
 
-**Scope:** MVP picks up at import into Risk Modeler / DataBridge onward — files arrive already unzipped, attached, and named by the existing SQL workflow. We are designing toward the future state where the workbench also absorbs front-end data setup (zip import, naming inferred from the directory). In/out markers on §3–§7 come from the June 2026 `CReWorkflow_Expanded` review, the July 2026 design sessions (7/7, 7/9, 7/14, 7/16), and the 8/4/2026 demo review.
+**Scope:** MVP picks up at import into Risk Modeler / DataBridge onward — files arrive already unzipped, attached, and named by the existing SQL workflow. We are designing toward the future state where the workbench also absorbs front-end data setup (zip import, naming inferred from the directory). In/out markers on §3–§8 come from the June 2026 `CReWorkflow_Expanded` review, the July 2026 design sessions (7/7, 7/9, 7/14, 7/16), and the 8/4 and 8/5 2026 sessions.
 
-**Basis:** This revision folds in the July 2026 design sessions and the **August 4, 2026 V1 demo review** — the first functional session of the delivery phase, and a largely *subtractive* one: it overturned several §2.2 rows outright (TIV, the EDM-level aggregate block, portfolio-attributed analyses, the full treaty grid). Rows the session changed are marked **Reversed 8/4** / **Removed 8/4** / **Added 8/4**. Source detail lives in `design_session_notes/03`–`08`. Open questions raised there are surfaced inline as callouts and must be resolved before the PRD locks the affected area.
+**Basis:** This revision folds in the July 2026 design sessions, the **August 4, 2026 V1 demo review** — the first functional session of the delivery phase, and a largely *subtractive* one: it overturned several §2.2 rows outright (TIV, the EDM-level aggregate block, portfolio-attributed analyses, the full treaty grid) — and the **August 5, 2026 session**, which closed the treaty summary field set, replaced the single-step RDM import with an orchestrated DataBridge workflow, and added §8 Notifications. Rows a session changed are marked **Reversed** / **Removed** / **Added** / **Changed** / **Narrowed** with its date. Source detail lives in `design_session_notes/03`–`09`. Open questions raised there appear inline as callouts and must be resolved before the PRD locks the affected area.
 
 ---
 
@@ -58,7 +58,7 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | A Submission is assignable to a user (owner). | Implemented | Enables a "My submissions" filter/sort. |
 | Submission ownership can be reassigned. | Implemented | On the submission detail page. |
 | Submission ownership does not control access. | Implemented | All users see all Submissions (§0). |
-| A Submission has a status: Active, Completed, or Cancelled. | Implemented | Set manually. Three statuses only — confirmed 8/4. |
+| A Submission has a status: Active, Hold, Completed, or Cancelled. | Partial | **Changed 8/5.** `submission_status_kind` seeds three codes; **Hold** is new. Hold is "not cancelled, not complete, but… we're not working on it really actively right now" — e.g. a week waiting on data from a broker. It means no updates needed while the deal stays in the queue, and it takes the submission out of the daily digest (§8). Preferred over a per-submission "silence notifications" toggle. |
 | Submission status can be reopened from Completed or Cancelled back to Active. | Implemented | Transitions are reversible; not a one-way door. |
 | Every status transition records a reason. | Implemented | Retained as a history trail. |
 | The status history trail is collapsible. | Partial | **Added 8/4.** Repeated transitions otherwise produce "a huge block here in the submission page." |
@@ -163,6 +163,27 @@ Getting a deal's data into the workbench and seeing what's in it.
 | All EDMs are browsable in an EDM Library. | Implemented | Includes workbench-created and orphaned. |
 | All RDMs are browsable in an RDM Library. | Implemented | Includes workbench-created and orphaned. |
 
+**RDM import route** (8/5)
+
+Risk Modeler's two upload routes are not equivalent, and the difference was demoed live on the same RDM. Uploading **through Risk Modeler** creates analysis entities only, stores no database on DataBridge, is not SQL-queryable, and **omits** exposure name, currency scheme/vintage, event rate scheme/name, minimum loss threshold, franchise deductible, construction, and LOB term. Uploading **through DataBridge** stores a queryable database that retains them, but cannot be linked to an EDM and does not show results in the Risk Modeler Results tab. Importing DataBridge→Risk Modeler afterwards does **not** restore the attributes — so no single Risk Modeler route yields them.
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| An RDM is imported to DataBridge first, not directly to Risk Modeler. | Not implemented | **Reversed 8/5.** Today `submit_rdm_import` is a single Risk Modeler apply that targets an EDM — the route that drops the attributes above. |
+| The imported RDM is queried by SQL for its full analysis detail. | Not implemented | **Added 8/5.** The step that recovers what Risk Modeler will not return. |
+| The captured analysis attributes are saved to the workbench database. | Not implemented | **Added 8/5.** |
+| The RDM is imported from DataBridge into Risk Modeler after the SQL capture. | Not implemented | **Added 8/5.** So results appear in the Results tab. In the RM UI the path is Results → the caret beside "Results" → Import from DataBridge. |
+| The RDM is deleted from DataBridge once it is in Risk Modeler. | Not implemented | **Added 8/5.** RDMs run larger than EDMs and keeping both copies wastes space: "you can always export everything back out to an RDM, so… I don't think we need to keep it in two places." Losing the DataBridge EDM↔RDM association costs nothing — that link is already untrustworthy (§2.2 trust rule). |
+| The four import steps run behind one user action. | Not implemented | **Added 8/5.** The analyst creates a package and uploads an RDM; the two-step orchestration is not exposed. |
+| The workbench database is the source of truth for analysis attributes Risk Modeler does not retain. | Not implemented | **Added 8/5.** Exposure name, currency scheme/vintage, event rate scheme/name, minimum loss threshold, franchise deductible, construction, LOB term. The event rate scheme matters most — "that's just key information we're going to want to know." |
+| Attributes read from DataBridge SQL are shown even though SQL fields are editable by anyone. | Not implemented | **Added 8/5.** Acknowledged and accepted: the capture happens **before** the data reaches Risk Modeler, and "if it's there, we want to use it, want to return it to the user." |
+
+> **Open — which attributes actually survive the DataBridge step.** Event rate scheme is validated. Minimum loss threshold, franchise deductible, construction, LOB term, currency scheme/vintage, and exposure name are assumed and unconfirmed. Ben to validate. (Design note 09, O9-3.)
+
+> **Open — RDM lifecycle inside a Package.** A replacement RDM arriving weeks later ("you need to get rid of the old stuff and put the new one in"), data arriving in stages, and the variant where CIC reads an RDM without ever importing it into Risk Modeler. No design yet. (Design note 09, O9-5.)
+
+> **Open — ask Moody's what the intended workflow is.** Why the two upload routes differ, and why the certified UI will not populate attributes that exist in the underlying data. This broker workflow — receive results, use some, run others, combine at the end — is "a very common workflow," and CIC wants to confirm it is not missing an intended path. (Design note 09, O9-2.)
+
 > **Open question — BAK vs MDF vs zip import path:** whether import points at BAK files in a shared BAK directory, or selects MDF/zip files from a network drive (varying by cedant/submission/treaty year), is unresolved. (Design note 04 §8.2, O4-2.)
 
 **CSV import — deprioritized outlier for MVP.** CSV-for-EDM is MRI (accounts + locations files together), rare for their data. CSV-for-results is HD/PLT output, not natively supported for RDM import in Risk Modeler. Open question: what can Risk Modeler actually *do* with a CSV result once imported — if it's view-only, there's no point (design note 03 §8, OQ-6). Push cedants/brokers to provide RDMs instead.
@@ -228,13 +249,24 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 | Roll-up figures are read from the workbench database, not fetched live from Moody's per page load. | Implemented | Live API calls per page load are an unacceptable performance overhead. |
 | The accepted cost of backfill is drift when someone edits directly in Risk Modeler. | Implemented | Managed by the last-synced timestamp, the manual Sync action, and freshness validation below. |
 | Freshness is validated before any action that depends on current exposure. | Not implemented | Sub-portfolio creation is the first such action (§3). |
+| A sync can be scoped to the EDM's treaties alone. | Not implemented | **Added 8/5.** `sync_detail` re-runs the whole `backfill_edm_detail`. Editing one treaty in Risk Modeler and then syncing a large EDM to pick it up is "a drag"; treaties carry little data, so a treaty-scoped sync is fast, and treaties affect neither portfolio nor RDM data. Ben on feasibility: "under the hood… each of these is addressed individually, so that could work." |
+| A sync can be scoped to the EDM's portfolios alone. | Not implemented | **Added 8/5.** Same reasoning in the other direction — portfolio data is the large, slow part. |
+| A scoped sync does not advance the EDM's last-synced timestamp. | Not implemented | **Added 8/5.** "I wouldn't want to update the last-sync timestamp for an EDM if we just sync the treaties and not the portfolios." The freshness indicator must reflect what was actually refreshed. |
 
-**Treaty viewing** (7/14, revised 8/4)
+> **Open — scoped sync validation, and what the freshness gate reads.** Ben to confirm the treaty-only and portfolio-only syncs are feasible and side-effect-free. If treaties and portfolios refresh independently, the pre-action gate above must read the freshness of the data the action depends on rather than one EDM-wide stamp. (Design note 09, O9-1.)
+
+**Treaty viewing** (7/14, revised 8/4, field set closed 8/5)
 
 | Requirement | Implementation | Notes |
 |---|---|---|
 | The treaty list is condensed by default. | Implemented | **Reversed 8/4.** The full attribute grid is "a lot to look at… just a lot of information with that scrolling." |
-| The condensed view carries ~3 significant fields beyond the identifiers. | Partial | Enough to notice something unexpected — "oh, there's a quota share in there. I wasn't expecting to see a quota share." Seven summary columns today, which is the scrolling complaint. Which three is open (design note 08, O8-6). |
+| The treaty section represents only the treaties contained in the EDM. | Implemented | **Added 8/5.** Treaties in an EDM and treaties listed in an RDM are different sets — "EDMs and RDMs are not guaranteed to be connected." Treaties attached to an analysis are seen by opening that analysis, where they were attached at the time it ran. |
+| The condensed view shows this field set. | Partial | **Changed 8/5**, closing the "which ~3 fields" question — the agreed set is wider: treaty name, treaty number, treaty type, risk limit, occurrence limit, attachment point, cedent(s), line(s) of business, inception date, expiration date, currency. Today's columns are name/number, type, applies-at, currency, attachment, one limit, share %, effective dates. |
+| Risk limit and occurrence limit are both shown, each labeled. | Not implemented | **Added 8/5.** The demoed grid showed one unlabeled limit — `treaty_row.html` renders `occurrenceLimit`, falling back to `riskLimit`, under the heading "Limit." One limit alone is not interpretable: "I would definitely put the risk limit and the occurrence limit — tick both in there." |
+| Treaty name and treaty number are both shown, even when identical. | Implemented | **Confirmed 8/5.** They typically hold the same value, and in the demo neither was labeled well enough to tell which was which. "I wouldn't take one away — that's the only thing." |
+| No percentage-share field is shown in the condensed view. | Not implemented | **Removed 8/5.** The Share % column is still live. One share percentage misleads — "you really need to see all the percentages to interpret what it's doing, not just one… showing one doesn't give you enough information." Four columns is too many for a condensed view, so show none and let the analyst open Risk Modeler. |
+| Cedent and line of business show the first available value(s), not the full list. | Not implemented | **Added 8/5.** Both can be long and multi-valued; the condensed view reports presence, not granularity — "I just like to see that it's populated and there's something there that I should be looking for." |
+| Attachment basis and exposure level are shown if they fit. | Not implemented | **Added 8/5.** Wanted — "I think that's good to see" — under a standing caveat: "if it fits, that's great, I just think we're going to run out of real estate." They yield to the core fields. |
 | Full treaty attribute detail is available on expand. | Implemented | Preserves the 7/14 intent — all attributes reachable to catch mis-coding rather than blindly trusting it ("sometimes people put the wrong thing in the wrong field") — via expand rather than default density. |
 | Treaties expand and collapse. | Implemented | Few treaties shown expanded; many collapse to focus one at a time. |
 | Treaty attribute labels are spelled out, not Risk Modeler's cryptic codes. | Partial | e.g. resolve attachment level vs. attachment basis; "loc" = location. |
@@ -245,6 +277,8 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 | For a per-risk treaty, the losses subject to the treaty are the interest — not the portfolio itself. | Not implemented | No loss numbers this iteration. |
 | Inuring reinsurance is identified and removed to get the net perspective. | Not implemented | The models do this. No loss numbers this iteration. |
 
+> **The condensed view is governed by space, and the field set is ranked.** Cheryl: "the thing is not to replicate this table in there because you've got the button to take us here… whatever fits on the screen, and if you have to scroll, then just go into Risk Modeler and look at it." **Risk limit, occurrence limit, attachment point, and treaty type must be there**; Wendy called everything past them "gravy," agreed as the target but first to yield. Removing the share columns and the over-granular timestamps is what pays for cedent, line of business, attachment basis, and exposure level. Whether the last two fit is answerable only after that cleanup (design note 09, O9-4).
+
 *(Treaty creation/editing is a pass-through to Risk Modeler — §5.)*
 
 ### 2.3 Loss Results Viewing
@@ -253,10 +287,23 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Broker-provided (RDM) analyses can be reviewed before running own analyses. | Implemented |  |
+| Broker-provided (RDM) analyses can be reviewed before running own analyses. | Implemented | The review establishes what was already run so the analyst can decide what still needs running. |
 | Each broker result shows its analysis settings/metadata. | Implemented | Full metadata list in §7. e.g. rate, perils/sub-perils, loss amplification on/off, detail level saved. |
+| Each analysis shows its loss values, not metadata alone. | Not implemented | **Added 8/5.** The page carries portfolio, model version, type, analysis mode, primary and secondary peril, region setting, and currency — no losses. Which attributes and which result data matter was agreed separately by Ben and Cheryl. |
+| Each analysis has a pass-through link to Risk Modeler. | Not implemented | **Added 8/5.** Mirrors the treaty pattern for deeper investigation — "I like having the pass-through, that's nice." |
+| Each analysis has an on-screen summary alongside the pass-through link. | Partial | **Added 8/5.** Metadata renders today; the summary is not designed against the loss values above. |
 | The portfolio an imported RDM's analysis ran against is not shown as a link. | Partial | **Narrowed 8/4.** That attribution is untrustworthy for anything that left CIC's environment — see the §2.2 trust rule and §7. |
 | The results view helps the analyst decide how much work a given RDM even needs. | Implemented | Sometimes the broker already provides what's needed and the analyst only pushes losses to the repository — no remodeling. |
+
+**RDMs on the EDM detail page** (8/5)
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| Every RDM in a Package is displayed on every EDM detail page in that Package. | Partial | **Added 8/5.** Analyses are grouped by source RDM today, but scoped to RDMs applied against that EDM (`list_edm_analyses` filters on `a.edm_id`). Two EDMs and two RDMs means each EDM page shows both RDMs. |
+| Each RDM section on the EDM page expands and collapses individually. | Not implemented | **Added 8/5.** Both expanded for the whole picture, or collapse one to concentrate on the other — "you can see everything or… choose to only see a couple things." |
+| Displaying an RDM against an EDM does not assert a link between them. | Implemented | Membership in the same Submission is the only relationship: "EDM 1 isn't related to EDM 2 other than they're related to the same submission." Consistent with the §2.2 trust rule. |
+
+> **Why every RDM on every EDM.** Wendy's case is a paired book — an in-force and a projected EDM with an in-force and a projected RDM: "I like to see the landscape to say, were the same analyses run, because… if you have 12 analyses in one, you have 12 analyses in the other." No two-EDM/two-RDM example exists in the app yet, so the layout is unreviewed.
 
 **Out of scope for MVP:** policy-level detail; PDFs and other non-modeling exhibits (File Explorer suffices).
 
@@ -379,11 +426,15 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | Jobs are associated with a parent Submission, Package, or EDM. | Not implemented | **Added 8/4.** Not one flat global list — Moody's "just stacks everything up," and "there's no point in replicating it exactly like" that. |
 | Heavy work never runs on the request path. | Not implemented | The user is never blocked on an upload. |
 | An activity indicator distinguishes actively-running from stuck. | Not implemented | **Added 8/4.** Status text alone gives too little insight: "as an analyst… we are antsy… we just want to get things moving through and we're going to want to see, oh, is it stuck? Is it happening? Is anything going on?" |
+| The jobs view shows which Submission each job belongs to. | Not implemented | **Added 8/5.** So that when "we see something failed, we know which submission was that for." |
+| The jobs view can be filtered by Submission. | Not implemented | **Added 8/5.** The bar is beating RiskLink on presentation: "even in RiskLink today you have to filter for your jobs and go find it." |
+| A queued job is shown as queued. | Not implemented | **Added 8/5.** |
+| A job's position in the queue is not shown. | Not implemented | **Added 8/5.** Wanted but hard, and accepted as a deferral — the cloud does its own job leveling, so position matters less than it did on-prem. |
 | Throughput is monitored — locations analyzed per day. | Not implemented |  |
 | Submission failure is distinct from run failure. | Not implemented |  |
 | Failed jobs can be retried. | Not implemented |  |
-| The analyst is notified when a job completes. | Not implemented |  |
-| The analyst is notified when a job fails. | Not implemented |  |
+| The analyst is not emailed when an individual job completes. | Not implemented | **Reversed 8/5.** Per-job success email was the starting proposal and was rejected as inbox clutter that gets ignored. Replaced by the daily digest — §8. |
+| The analyst is emailed immediately when a job fails. | Not implemented | **Changed 8/5.** Errors never aggregate and never wait for the digest — §8. |
 | Only operations whose inputs exist are offered. | Not implemented | EDM → portfolio → analysis → grouping. Prevents starting work that can't succeed. |
 
 **Out of scope for MVP:** cedant ID check/creation; checking treaty coding accuracy (manual — treaty display in §2.2 helps the analyst catch it); **bulk treaty creation from CSV/Excel** — deprioritized 8/4: not something CIC does today, and "whether I do it in Excel or I do it in Risk Modeler, I basically have to do the same steps either way. At least there's some error checking that happens in Risk Modeler." Whether Risk Modeler even supports it is unknown and now academic (design note 08, O8-7).
@@ -471,3 +522,45 @@ Analysis metadata list (design note 05 §2): engine / model version · engine ty
 | ELTs are uploaded to the Loss Repository for downstream reporting. | Not implemented | Losses, financial perspective, and metadata. Open question: how to move data from DataBridge to the Loss Repository. |
 
 **Out of scope for MVP:** **Post-Analysis Treaty (PATE)** — adding a cat treaty onto broker results after the fact and re-simulating; a rare fringe case, portfolio-level only, deferred (design note 05 §6, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); visual compare in RiskLink / copy to Excel; pushing broker results to the Loss Repository; loading exposure summaries to the Exposure Repository; carrying CRM ID tags through to the repository upload (Future); uploading loss sets to Analyze Re (separate API).
+
+---
+
+## 8. Notifications
+
+New section, designed 8/5. Nothing here is built — `config.py` holds unused SMTP and channel placeholders.
+
+Two rules shape it. **Errors never aggregate**: any failure emails immediately, because a job expected to run ten hours is not checked at thirty minutes. **Success never emails per job**: per-job success mail floods the inbox and gets ignored, so it is replaced by one morning digest. The jobs view (§5) carries the in-between state an analyst wants during the day — Wendy: "a workbench, sort of by definition, you should kind of have it open on your desktop… I like the idea of just flipping over to this view where I just see my jobs."
+
+**Channel & target**
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| V1 notifications are email. | Not implemented | Other channels are a later phase — see the parked note below. |
+| Email goes to the individual owner of the Submission. | Not implemented | Ownership is the soft "my submissions" marker from §1, used here as the recipient — not as an access gate. |
+| Shared mailboxes are not a notification target. | Not implemented | Rejected on how CIC works: "we virtually never have multiple people working on the same submission," plus mailbox clutter — "I don't want to know what 12 other people are doing" — and Microsoft storage cost. |
+
+**Failures**
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| Any failure sends an email immediately, whatever the operation. | Not implemented | "Errors are always the most important thing to be notified about." |
+| Failure emails are sent at the lowest level of granularity. | Not implemented | Not rolled up to the submission, not held for the digest: "if I'm expecting something to run for 10 hours, I'm not going to go in and check on it in 30 minutes. Like if it fails 30 minutes in, I want an e-mail notification." |
+
+**Daily digest**
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| One digest email is sent each morning. | Not implemented | Morning rather than end-of-day because work is often started before leaving for the evening. Placeholder ~8:00 AM Central. |
+| The digest covers only the recipient's active Submissions. | Not implemented | "Once you have either marked the submission cancelled or complete, we will not bombard you with all of the historical things." |
+| A Submission on Hold is excluded from the digest. | Not implemented | Hold is the lever for a deal parked while waiting on a broker — §1. |
+| The digest reports, per Submission, how many jobs are outstanding. | Not implemented | With detail on which ones. |
+| The digest reports, per Submission, when all jobs are complete. | Not implemented | The prompt to act: "you're free to go do something on it." |
+| The digest flags any Submission that has failures. | Not implemented | The per-failure emails already went out; the flag stops a failure sitting unnoticed on a parked deal. |
+
+> **Rejected 8/5 — one email per Submission when its last outstanding job completes.** Designed in the session and dropped. Most non-analysis work is sequential, one task at a time, so an "everything is done" trigger fires after every task: "let's just say I kicked off GeoHaz. I can't do anything else until the hazard retrieval is done… technically there's nothing else that's queued because I wouldn't have queued anything up after that until that stage is done." The premise fails for parked work too — "do I need a notification that I'm not doing anything? Probably not, because I know I'm not doing it." The digest carries the same content on a daily cadence instead. (Design note 09 §6.3.)
+
+> **Open — the digest send time.** Placeholder ~8:00 AM Central, not decided. (Design note 09, O9-6.)
+
+> **Open — what counts as an active Submission for digest purposes.** The edge case: a Submission whose only open item is job failures the analyst has deliberately parked — "do it every day for two weeks, I get an e-mail telling me that those job failures are there… when do they fall off?" Hold is the primary lever; the remaining rules are unwritten. (Design note 09, O9-7.)
+
+> **Parked — channels beyond email.** A workbench notification icon/badge like Teams ("can notification be on the front page of the workbench?"), Teams messages ("certainly when you're traveling"), and an opt-in completion email for one time-critical job — "I have a really important job that I am waiting for… notify me when that job is done. I don't need to know the 20 other things I sent today." All beyond V1. (Design note 09, O9-8.)
