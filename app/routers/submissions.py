@@ -238,7 +238,8 @@ def _owner_label(analysts: list[dict], owner_id) -> str:
                  if str(a["id"]).lower() == str(owner_id).lower()), "")
 
 
-def _list_page(request: Request):
+@router.get("/submissions", response_class=HTMLResponse)
+def list_submissions_page(request: Request):
     filters = {
         "name": (request.query_params.get("q") or "").strip() or None,
         "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
@@ -290,11 +291,6 @@ def _list_page(request: Request):
         "owner_label": _owner_label(analysts, owner_id),
         "filter_values": filter_values,
     })
-
-
-@router.get("/submissions", response_class=HTMLResponse)
-def list_submissions_page(request: Request):
-    return _list_page(request)
 
 
 def _suggest_menu(request: Request, options: list[dict], term: str,
