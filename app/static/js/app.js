@@ -315,7 +315,13 @@ document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 // settles: every <details id> keeps its open/closed state, and the scroller
 // keeps its offset. Elements the response added (a generated portfolio row) are
 // absent from the record and render at their server-rendered default.
-let swapState = null;
+//
+// Keyed by the target element, not held in one slot: the Portfolios section
+// poll swaps the section and out-of-band-swaps two more elements, and an
+// analyst opening the breakout modal mid-poll adds a fourth request. With one
+// slot, beforeSwap B overwrote A's record and afterSettle A consumed B's — so
+// A restored B's open rows and B restored nothing at all.
+const swapState = new WeakMap();
 
 function detailsOpenState(root) {
   const state = {};
@@ -326,31 +332,36 @@ function detailsOpenState(root) {
 
 document.addEventListener('htmx:beforeSwap', (e) => {
   const target = e.detail.target;
+  if (!target || !target.querySelectorAll) return;
   // 204 and other no-swap responses (the populated-mid-sync body poll) leave
   // the DOM alone — recording then would strand a stale offset for the next
   // real swap to restore.
-  if (!target || !target.querySelectorAll || e.detail.shouldSwap === false) {
-    swapState = null;
+  if (e.detail.shouldSwap === false) {
+    swapState.delete(target);
     return;
   }
   const scroller = document.getElementById('edm-detail');
-  swapState = {
+  swapState.set(target, {
     details: detailsOpenState(target),
     scrollTop: scroller ? scroller.scrollTop : null,
-  };
+  });
 });
 
-document.addEventListener('htmx:afterSettle', () => {
-  const state = swapState;
-  swapState = null;
+document.addEventListener('htmx:afterSettle', (e) => {
+  const target = e.detail && e.detail.target;
+  if (!target) return;
+  const state = swapState.get(target);
   if (!state) return;
+  swapState.delete(target);
   Object.keys(state.details).forEach((id) => {
     const el = document.getElementById(id);
     if (el && el.tagName === 'DETAILS') el.open = state.details[id];
   });
-  // The swap may have replaced #edm-detail itself — re-resolve it by id.
+  // The swap may have replaced #edm-detail itself — re-resolve it by id. A
+  // recorded 0 is a real offset, so compare against null rather than testing
+  // truthiness.
   const scroller = document.getElementById('edm-detail');
-  if (scroller && state.scrollTop) scroller.scrollTop = state.scrollTop;
+  if (scroller && state.scrollTop !== null) scroller.scrollTop = state.scrollTop;
 });
 
 // ── Toasts + global error surfacing ───────────────────────────────────────────
