@@ -13,7 +13,8 @@ actually proves the paths the SQLite mirror cannot vouch for:
   * the ``EXISTS`` CRM-tag predicate and the dynamic ``IN`` param set that attaches
     CRM ids to a page of list rows,
   * ``db.row_limit()`` emitting ``OFFSET/FETCH`` — the SQLite tier only ever runs
-    the ``LIMIT`` branch,
+    the ``LIMIT`` branch — including the non-zero offset the list's second page
+    reads through,
   * status-history ``ORDER BY at DESC`` tie-breaking.
 
 Because ``import *`` pulls in every ``test_*`` name, new unit tests added later

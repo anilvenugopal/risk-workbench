@@ -43,6 +43,11 @@ from app.services.errors import (
 
 ACTIVE = "ACTIVE"
 
+# Rows per master-list request. The list is read newest-inception-first, so a
+# page is what an analyst scans before narrowing; it also caps how many ids
+# `_attach_crm_ids` binds, which SQL Server limits to 2,100 per statement.
+PAGE_SIZE = 50
+
 
 # ── Result / row DTOs (contracts/data-access.md) ─────────────────────────────
 
@@ -63,6 +68,15 @@ class SubmissionRow:
     assigned_analyst_name: str | None
     updated_at: Any
     crm_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SubmissionPage:
+    """One master-list page. ``has_next`` comes from reading one row past the page
+    rather than a ``COUNT(*)``, which would scan everything the page cap avoids."""
+    rows: list[SubmissionRow]
+    page: int
+    has_next: bool
 
 
 @dataclass
@@ -251,7 +265,7 @@ def _word_and_clauses(
 
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
-    limit: int | None = None,
+    limit: int | None = None, offset: int = 0,
 ) -> list[SubmissionRow]:
     """Run the shared row query: the master list, the look-alike check and the "links
     to" typeahead all select the same columns in the same newest-inception-first
@@ -268,7 +282,7 @@ def _submission_rows(
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     sql = _ROW_SELECT + where + " ORDER BY s.inception_date DESC, s.name"
     if limit is not None:
-        sql += " " + row_limit(limit)
+        sql += " " + row_limit(limit, offset=offset)
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
 
 
@@ -276,7 +290,10 @@ def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
     """Set each row's ``crm_ids``, oldest tag first, for the master list's CRM column
     (CR3). One query for the whole page (the dynamic ``IN`` param set mirrors
     ``package_service.submission_refs_for_packages``); a deal with no tags keeps the
-    default ``[]``."""
+    default ``[]``.
+
+    One bound parameter per row, so the caller has to hand this a page rather than a
+    whole table — SQL Server rejects a statement carrying more than 2,100."""
     ids = list(dict.fromkeys(str(row.id).lower() for row in rows))
     if not ids:
         return
@@ -421,10 +438,12 @@ def list_submissions(
     cedant_name: str | None = None, crm_id: str | None = None,
     treaty_type_code: str | None = None, inception_date: Any = None,
     treaty_year: int | None = None, status_code: str | None = None,
-) -> list[SubmissionRow]:
-    """Master list. ``owner_id`` set → "My Submissions" (plain predicate, R7);
-    ``None`` → All. Filters AND-combine as bound predicates (FR-021). Every deal
-    is visible to every analyst regardless of owner (Article 6).
+    page: int = 1,
+) -> SubmissionPage:
+    """One page of the master list. ``owner_id`` set → "My Submissions" (plain
+    predicate, R7); ``None`` → All. Filters AND-combine as bound predicates
+    (FR-021). Every deal is visible to every analyst regardless of owner
+    (Article 6).
 
     ``name`` (CR1), ``cedant_name`` and ``owner_name`` match on words, every word
     required — see ``_word_and_clauses``. ``owner_name`` matches the assigned
@@ -433,8 +452,11 @@ def list_submissions(
     CRM tag the deal carries (CR3). Treaty type, inception date, treaty year and
     status are exact.
 
-    No minimum term length and no row cap: the unfiltered list already returns every
-    deal, so a one-character search costs no more than the page it narrows."""
+    ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
+    reads the first page rather than a negative offset.
+
+    No minimum term length: every read is capped at ``PAGE_SIZE``, so a
+    one-character search costs no more than the page it narrows."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
     if owner_id is not None:
@@ -472,9 +494,15 @@ def list_submissions(
     if status_code:
         clauses.append("s.status_code = :status")
         params["status"] = status_code
-    rows = _submission_rows(clauses, params)
+    page = max(1, int(page or 1))
+    # One row past the page: its presence is what "there is a next page" means,
+    # without a COUNT(*) over the same predicates.
+    rows = _submission_rows(clauses, params, limit=PAGE_SIZE + 1,
+                            offset=(page - 1) * PAGE_SIZE)
+    has_next = len(rows) > PAGE_SIZE
+    rows = rows[:PAGE_SIZE]
     _attach_crm_ids(rows)
-    return rows
+    return SubmissionPage(rows=rows, page=page, has_next=has_next)
 
 
 def status_kinds() -> list[tuple[str, str]]:

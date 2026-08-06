@@ -234,7 +234,9 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
         "status_code": (request.query_params.get("status") or "").strip() or None,
     }
-    rows = submission_service.list_submissions(owner_id=owner_id, **filters)
+    listing = submission_service.list_submissions(
+        owner_id=owner_id, page=_parse_int(request.query_params.get("page")) or 1,
+        **filters)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
@@ -243,7 +245,7 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
                     "treaty_year", "status")
     }
     extra = {
-        "rows": rows,
+        "rows": listing.rows,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
         "analysts": _active_analysts(),
