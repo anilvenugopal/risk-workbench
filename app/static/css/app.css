@@ -95,6 +95,11 @@
 .filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
+/* The Owner picker cannot wrap its input in a <label>: a click on a menu row
+   inside a label is forwarded to the input, which reopens the menu it just
+   closed. Label and combobox are siblings, stacked like the other filters. */
+.filters__field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.filters__combo { position: relative; min-width: 170px; }
 
 /* ── EDM / RDM libraries (US7) ─────────────────────────────────────────────── */
 /* muted em-dash for "no value yet" cells (no Risk Modeler id until import

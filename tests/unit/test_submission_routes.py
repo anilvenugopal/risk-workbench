@@ -374,9 +374,9 @@ def test_list_filter_narrows_by_crm_id(client):
 def test_list_owner_filter_offers_every_active_user(client):
     client.post("/submissions", data=_payload(name="Deal owned by A"))
     body = client.get("/submissions").text
-    # Every active user is in the datalist, so the analyst can pick instead of type.
-    assert '<option value="Analyst A">' in body
-    assert '<option value="Analyst B">' in body
+    # Every active user is a menu row, so the analyst picks instead of typing.
+    assert 'data-name="Analyst A"' in body
+    assert 'data-name="Analyst B"' in body
     assert "Deal owned by A" in client.get("/submissions?owner=Analyst+A").text
     assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+B").text
 
