@@ -226,6 +226,43 @@ def test_per_entry_isolation_one_failure_never_stops_the_loop(
     assert [r["breakout_value"] for r in _generated_rows(source_id)] == ["A", "C"]
 
 
+def test_a_failing_lineage_write_fails_only_that_entry(
+        iteration2_db, fake_irp):
+    # The lineage write refuses to move a Risk Modeler portfolio between
+    # breakout keys (portfolio_service._write_generated). That raise must fail
+    # ONE sub-portfolio: before the loop guard covered the write, it aborted the
+    # whole job after the RM portfolios had been created, and output_data was
+    # lost with it.
+    edm_id = _mk_edm()
+    source_id = _mk_source(edm_id)
+    other_source = _mk_source(edm_id, name="other_book", irp_id="2")
+    # The fake hands out 431, 432, 433 in order, so entry B lands on 432 — a
+    # portfolio already recorded as another source's "Z" breakout.
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, "
+        "source_portfolio_id, breakout_dimension_code, breakout_value, "
+        "inserted_at, updated_at) VALUES (:i, :e, 'other_book - Z', '432', "
+        ":s, 'lob', 'Z', :now, :now)",
+        {"i": str(uuid.uuid4()), "e": edm_id, "s": other_source,
+         "now": datetime.utcnow()}, connection="WORKBENCH")
+    fake_irp.selection_by_value = {"A": [1], "B": [2], "C": [3]}
+    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+                  [_plan_entry("A"), _plan_entry("B"), _plan_entry("C")])
+
+    job = _run(jid)
+
+    assert job["status_code"] == "succeeded"     # partial success = success
+    out = json.loads(job["output_data"])
+    assert (out["created"], out["failed"]) == (2, 1)
+    failed = next(o for o in out["sub_portfolios"] if o["outcome"] == "failed")
+    assert failed["value"] == "B"
+    assert "already the lob=Z breakout" in failed["error"]
+    # A and C persisted; B's RM portfolio stays (P-07 deletes nothing) and the
+    # re-run adopts it on its number
+    assert [r["breakout_value"] for r in _generated_rows(source_id)] == ["A", "C"]
+    assert out["backfill_enqueued"] is True
+
+
 def test_zero_account_selection_fails_entry_with_no_create_call(
         iteration2_db, fake_irp):
     edm_id = _mk_edm()
