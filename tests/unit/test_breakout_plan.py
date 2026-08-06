@@ -16,6 +16,8 @@ they cost is what ``uncovered`` states.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.breakout_service import (
     PORTFOLIO_NAME_MAX,
     PORTFOLIO_NUMBER_MAX,
@@ -136,6 +138,15 @@ def test_number_shape_and_budget():
     # with the number a different value would compose
     assert plan[0].number.startswith("P4319-L-FLDC")
     assert len(plan[0].number) <= PORTFOLIO_NUMBER_MAX
+
+
+def test_an_unregistered_dimension_refuses_to_compose_a_number():
+    # The number is the identity adoption resolves on, so a dimension with no
+    # registered letter raises rather than deriving one from the code — two
+    # codes sharing a first letter would otherwise compose one number for two
+    # different breakouts of the same value.
+    with pytest.raises(ValueError, match="no portfolio_number letter"):
+        _plan([_bv("TX")], source_irp_id="1", dimension="complement")
 
 
 def test_values_differing_only_in_punctuation_whitespace_or_case_never_share_a_number():

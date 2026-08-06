@@ -114,6 +114,33 @@ def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
         f"on the request path (Article 11): {sorted(calls)}")
 
 
+def test_every_seeded_breakout_dimension_has_its_whole_vocabulary():
+    """A dimension code lives in four places: ``breakout_dimension_kind`` (the
+    seed), the ``portfolio_number`` letter, the analyst-facing noun, and the two
+    DataBridge scripts (selection + coverage). Adding a row to the kind table
+    without the other three would compose a wrong number, render a missing noun,
+    or fail the run at the selection read — so the seed is the list every other
+    place must cover."""
+    from app.services import breakout_service, irp_gateway
+    from tests.iteration1_mirror import BREAKOUT_DIMENSION_SEED
+
+    seeded = {code for code, _label, _order in BREAKOUT_DIMENSION_SEED}
+    missing = {
+        "_DIMENSION_LETTER": seeded - set(breakout_service._DIMENSION_LETTER),
+        "_DIMENSION_NOUN": seeded - set(breakout_service._DIMENSION_NOUN),
+        "_SELECTION_SCRIPTS": seeded - set(irp_gateway._SELECTION_SCRIPTS),
+        "_COVERAGE_SCRIPTS": seeded - set(irp_gateway._COVERAGE_SCRIPTS),
+    }
+    assert {k: v for k, v in missing.items() if v} == {}
+
+    sql_dir = _REPO_ROOT / "sql" / "databridge"
+    absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,
+                                     irp_gateway._COVERAGE_SCRIPTS)
+              for script in scripts.values()
+              if not (sql_dir / script).is_file()]
+    assert absent == [], f"registered script missing from sql/databridge: {absent}"
+
+
 def test_no_databridge_on_request_path():
     """No DataBridge connection or trusted-script execution reaches the web
     layer — the summary the modal renders is the STORED one (Article 11)."""

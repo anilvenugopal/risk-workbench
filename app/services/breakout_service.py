@@ -59,6 +59,25 @@ REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
                             "being rewritten")
 
 
+def _dimension_letter(dimension: str) -> str:
+    """The dimension's letter inside the generated ``portfolio_number`` (R4).
+
+    Raises on a code ``_DIMENSION_LETTER`` does not carry rather than deriving a
+    letter from the code. The number is the identity adoption resolves on
+    (P-11/FR-011), so a derived letter would silently change the numbering
+    scheme for a dimension seeded into ``breakout_dimension_kind`` without being
+    added here — and two codes sharing a first letter would compose one number
+    for two different breakouts of the same value.
+    ``tests/unit/test_architecture_guards.py`` asserts every seeded code has an
+    entry, so this raise is unreachable in a correctly seeded database."""
+    try:
+        return _DIMENSION_LETTER[dimension]
+    except KeyError:
+        raise ValueError(
+            f"no portfolio_number letter registered for breakout dimension "
+            f"{dimension!r} — add it to _DIMENSION_LETTER") from None
+
+
 # ── Refusals (the router maps each to a 409 variant — http-routes.md) ───────────
 
 class BreakoutRefused(Exception):
@@ -108,6 +127,7 @@ class DimensionCoverage:
 class DimensionEligibility:
     dimension: str            # breakout_dimension_kind.code
     label: str                # breakout_dimension_kind.label (display)
+    noun: str                 # analyst-facing noun for this dimension, resolved once
     eligible: bool
     values: list[BreakoutValue]   # from the stored summary ([] when ineligible)
     reason: str | None        # analyst-facing disabled-with-reason copy
@@ -277,18 +297,18 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
         values = _parse_breakout_values(summary, code)
         if values is None:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, eligible=False, values=[],
-                reason=MISSING_SUMMARY_REASON))
+                dimension=code, label=label, noun=noun, eligible=False,
+                values=[], reason=MISSING_SUMMARY_REASON))
         elif len(values) < 2:
             dim_reason = (f"only one {noun} present" if len(values) == 1
                           else f"no {noun} values present")
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, eligible=False, values=values,
-                reason=dim_reason))
+                dimension=code, label=label, noun=noun, eligible=False,
+                values=values, reason=dim_reason))
         else:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, eligible=portfolio_eligible,
-                values=values, reason=None))
+                dimension=code, label=label, noun=noun,
+                eligible=portfolio_eligible, values=values, reason=None))
 
     account_total = None
     if isinstance(summary, dict):
@@ -381,8 +401,7 @@ def _compose_number(source_portfolio_irp_id: str, dimension: str,
     token cannot carry verbatim is hashed rather than truncated into a
     neighbour's number (R4/FR-011). Never Python's hash() — salted per
     process."""
-    letter = _DIMENSION_LETTER.get(dimension, dimension[:1].upper())
-    prefix = f"P{source_portfolio_irp_id}-{letter}-"
+    prefix = f"P{source_portfolio_irp_id}-{_dimension_letter(dimension)}-"
     budget = PORTFOLIO_NUMBER_MAX - len(prefix)
     if budget < 1:
         raise ValueError(
@@ -511,7 +530,11 @@ def modal_context(edm_id: Any, portfolio_id: Any,
     return BreakoutModal(
         gate=gate, portfolio_name=portfolio["name"],
         portfolio_irp_id=portfolio["irp_id"], dimension=selected,
-        noun=(_DIMENSION_NOUN.get(selected) if selected else None),
+        # The noun the gate already resolved for that dimension — read here
+        # rather than looked up a second time, so the modal cannot disagree with
+        # the disabled-with-reason copy or render "more than one None".
+        noun=next((d.noun for d in gate.dimensions if d.dimension == selected),
+                  None),
         plan=plan, overlap=overlap)
 
 
@@ -570,6 +593,9 @@ class BreakoutPageState:
 
 
 def _noun_for_job_type(rwb_job_type: str) -> tuple[str, str]:
+    # Display only, and read off a job row that may name a dimension this build
+    # no longer carries a noun for — so the code stands in rather than raising a
+    # completed run's banner off the page.
     code = str(rwb_job_type).removeprefix("run_breakout_")
     return code, _DIMENSION_NOUN.get(code, code)
 
