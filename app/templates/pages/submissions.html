@@ -40,6 +40,18 @@
         <input class="wf-field__input" type="text" name="crm_id"
                value="{{ filter_values.crm_id }}" autocomplete="off">
       </label>
+      {# The datalist carries every active user, so the analyst can open the list
+         and pick, or type part of a name and let the browser narrow it. The field
+         posts the display name, which the Owner filter matches word by word. #}
+      <label>Owner
+        <input class="wf-field__input" type="text" name="owner" list="owner-options"
+               value="{{ filter_values.owner }}" autocomplete="off">
+      </label>
+      <datalist id="owner-options">
+        {% for a in analysts %}
+        <option value="{{ a.display_name }}"></option>
+        {% endfor %}
+      </datalist>
     </div>
     <div class="filters__row">
       <label>Status

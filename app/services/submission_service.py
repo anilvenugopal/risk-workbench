@@ -416,7 +416,8 @@ def get_submission(submission_id: Any) -> Submission | None:
 
 
 def list_submissions(
-    *, owner_id: Any = None, name: str | None = None,
+    *, owner_id: Any = None, owner_name: str | None = None,
+    name: str | None = None,
     cedant_name: str | None = None, crm_id: str | None = None,
     treaty_type_code: str | None = None, inception_date: Any = None,
     treaty_year: int | None = None, status_code: str | None = None,
@@ -425,9 +426,12 @@ def list_submissions(
     ``None`` → All. Filters AND-combine as bound predicates (FR-021). Every deal
     is visible to every analyst regardless of owner (Article 6).
 
-    ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
-    ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
-    carries (CR3). Treaty type, inception date, treaty year and status are exact.
+    ``name`` (CR1), ``cedant_name`` and ``owner_name`` match on words, every word
+    required — see ``_word_and_clauses``. ``owner_name`` matches the assigned
+    analyst's display name, so picking "Dana Reyes" from the Owner list and typing
+    "reyes" both narrow to the same deals. ``crm_id`` matches a substring of any
+    CRM tag the deal carries (CR3). Treaty type, inception date, treaty year and
+    status are exact.
 
     No minimum term length and no row cap: the unfiltered list already returns every
     deal, so a one-character search costs no more than the page it narrows."""
@@ -436,6 +440,11 @@ def list_submissions(
     if owner_id is not None:
         clauses.append("s.assigned_analyst_id = :owner")
         params["owner"] = str(owner_id)
+    if owner_name:
+        owner_clauses, owner_params = _word_and_clauses(
+            owner_name, ("u.display_name",), "o")
+        clauses += owner_clauses
+        params |= owner_params
     if name:
         name_clauses, name_params = _word_and_clauses(name, ("s.name",), "n")
         clauses += name_clauses

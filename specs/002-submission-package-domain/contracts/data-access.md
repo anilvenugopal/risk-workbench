@@ -40,6 +40,7 @@ def get_submission(submission_id: UUID) -> Submission | None:
 
 def list_submissions(
     *, owner_id: UUID | None = None,        # set → "My Submissions"; None → "All"
+    owner_name: str | None = None,          # word-AND match on the owner's display name
     name: str | None = None,                # word-AND substring match (CR1/CR2)
     cedant_name: str | None = None,         # word-AND substring match
     crm_id: str | None = None,              # substring of any CRM tag (CR3)

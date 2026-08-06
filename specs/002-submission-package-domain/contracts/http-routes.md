@@ -14,7 +14,7 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 | GET | `/submissions/mine` | List filtered to `assigned_analyst_id = current_user` | Nav `submissions.mine`; the **default** landing per FR-020. |
 | GET | `/submissions/{id}` | Detail view — attributes, status + history, CRM tags, packages | Real URL (Article 8). 404 if unknown id. Visible to any analyst (FR-019). |
 
-**List query params** (all optional, combine with AND — FR-021/R7/R10): `q` (name), `cedant`, `crm_id`, `status`, `treaty_type`, `inception` (ISO date), `treaty_year`. `q` and `cedant` match on words — every whitespace-separated word must appear, as a substring (CR1/CR2); `crm_id` matches a substring of any CRM tag on the deal (CR3); the rest are exact. The "My/All" distinction is the route (`/submissions/mine` vs `/submissions`), i.e. a plain owner predicate, not a scope wrapper.
+**List query params** (all optional, combine with AND — FR-021/R7/R10): `q` (name), `cedant`, `crm_id`, `owner`, `status`, `treaty_type`, `inception` (ISO date), `treaty_year`. `q`, `cedant` and `owner` match on words — every whitespace-separated word must appear, as a substring (CR1/CR2); `owner` matches the assigned analyst's `app_user.display_name`, and the filter bar offers every active user in a `<datalist>` so the analyst can pick one instead of typing it; `crm_id` matches a substring of any CRM tag on the deal (CR3); the rest are exact. The "My/All" distinction is the route (`/submissions/mine` vs `/submissions`), i.e. a plain owner predicate, not a scope wrapper.
 
 | Method | Path | Purpose |
 |---|---|---|

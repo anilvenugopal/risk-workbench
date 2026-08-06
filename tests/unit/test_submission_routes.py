@@ -9,7 +9,7 @@ the route decides:
     when the analyst never touches the field (CR5);
   • the 303 to the new deal, and CSRF rejection writing nothing;
   • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8);
-  • the list's seven filters — which query parameter feeds which predicate, the
+  • the list's eight filters — which query parameter feeds which predicate, the
     values echoed back into the inputs, the CRM column, and the two empty states
     (CR1–CR3).
 
@@ -371,6 +371,16 @@ def test_list_filter_narrows_by_crm_id(client):
     assert "Tagged deal" in body and "Untagged deal" not in body
 
 
+def test_list_owner_filter_offers_every_active_user(client):
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    body = client.get("/submissions").text
+    # Every active user is in the datalist, so the analyst can pick instead of type.
+    assert '<option value="Analyst A">' in body
+    assert '<option value="Analyst B">' in body
+    assert "Deal owned by A" in client.get("/submissions?owner=Analyst+A").text
+    assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+B").text
+
+
 def test_list_shows_each_deals_crm_ids(client):
     res = client.post("/submissions", data=_payload(
         name="Three tags", crm_ids="CRM-1, CRM-2, CRM-3"))
@@ -389,10 +399,11 @@ def test_list_renders_every_status_and_marks_the_selected_one(client):
 def test_list_echoes_every_filter_back_into_its_input(client):
     body = client.get(
         "/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
-        "&treaty_type=cat_xol&inception=2026-04-01&treaty_year=2026").text
+        "&owner=Analyst+B&treaty_type=cat_xol&inception=2026-04-01"
+        "&treaty_year=2026").text
     for name, value in (("q", "amfam"), ("cedant", "mutual"),
-                        ("crm_id", "CRM-9"), ("inception", "2026-04-01"),
-                        ("treaty_year", "2026")):
+                        ("crm_id", "CRM-9"), ("owner", "Analyst B"),
+                        ("inception", "2026-04-01"), ("treaty_year", "2026")):
         assert f'name="{name}"' in body and f'value="{value}"' in body
     assert '<option value="ACTIVE" selected>Active</option>' in body
     assert '<option value="cat_xol" selected>Cat XoL</option>' in body

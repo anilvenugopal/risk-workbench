@@ -169,16 +169,22 @@ def _reshow_form(
         status_code=status_code)
 
 
+def _active_analysts() -> list[dict]:
+    """Every active user, for the detail page's reassign picker and the list's
+    Owner filter."""
+    return execute(
+        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
+        "ORDER BY display_name",
+        {}, connection="WORKBENCH",
+    )
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
-    analysts = execute(
-        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
-        "ORDER BY display_name",
-        {}, connection="WORKBENCH",
-    )
+    analysts = _active_analysts()
     return {
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
@@ -222,6 +228,7 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
         "name": (request.query_params.get("q") or "").strip() or None,
         "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
         "crm_id": (request.query_params.get("crm_id") or "").strip() or None,
+        "owner_name": (request.query_params.get("owner") or "").strip() or None,
         "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
         "inception_date": _parse_date(request.query_params.get("inception")),
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
@@ -232,13 +239,14 @@ def _list_page(request: Request, *, owner_id, nav_key: str):
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
         key: request.query_params.get(key, "")
-        for key in ("q", "cedant", "crm_id", "treaty_type", "inception",
+        for key in ("q", "cedant", "crm_id", "owner", "treaty_type", "inception",
                     "treaty_year", "status")
     }
     extra = {
         "rows": rows,
         "treaty_types": TREATY_TYPES,
         "statuses": submission_service.status_kinds(),
+        "analysts": _active_analysts(),
         "scope": "mine" if owner_id else "all",
         "filter_values": filter_values,
         "is_filtered": any(filter_values.values()),

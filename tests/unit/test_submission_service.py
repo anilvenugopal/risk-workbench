@@ -38,6 +38,7 @@ from app.services.errors import (
     SubmissionClosed,
     UnknownLinkError,
 )
+from db import execute_scalar
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -207,6 +208,26 @@ def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
     assert {r.id for r in list_submissions(owner_id=a, cedant_name="fam")} == {sid}
     assert {r.id for r in list_submissions(
         owner_id=a, cedant_name="american mutual")} == {sid}
+
+
+def test_list_filter_by_owner_name(iteration1_db):
+    """The Owner filter matches the assigned analyst's display name, word by word,
+    so both a pick from the list and a typed fragment narrow the same way. The two
+    tiers name their throwaway analysts differently, so read the name back."""
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    tag = uuid.uuid4().hex[:8]
+    mine = _mk(iteration1_db, owner=a, name=f"Owned {tag} A").submission_id
+    theirs = _mk(iteration1_db, owner=b, name=f"Owned {tag} B").submission_id
+    name_b = execute_scalar(
+        "SELECT display_name FROM app_user WHERE id = :id", {"id": str(b)},
+        connection="WORKBENCH")
+
+    last_word = name_b.split()[-1].lower()
+    assert [r.id for r in list_submissions(
+        name=f"Owned {tag}", owner_name=name_b)] == [theirs]
+    assert [r.id for r in list_submissions(
+        name=f"Owned {tag}", owner_name=last_word)] == [theirs]
+    assert {r.id for r in list_submissions(name=f"Owned {tag}")} == {mine, theirs}
 
 
 def test_list_filter_by_crm_id(iteration1_db):

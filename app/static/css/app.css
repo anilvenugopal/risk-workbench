@@ -90,7 +90,7 @@
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */
 .filters { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-bottom: 14px; }
-/* The submissions bar carries seven controls plus Clear filters. Each row takes the
+/* The submissions bar carries eight controls plus Clear filters. Each row takes the
    full width so it breaks where the template says, not where the viewport runs out. */
 .filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
