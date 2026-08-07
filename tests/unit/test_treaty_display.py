@@ -105,3 +105,19 @@ def test_display_shapes_a_single_attribute_for_the_condensed_columns():
     assert row.display("treatyType") == "Quota Share"
     assert row.display("attachmentLevel") == "Portfolio"
     assert row.display("occurrenceLimit") is None    # absent stays graceful
+
+
+def test_display_presence_reports_first_value_and_count():
+    # 8/5 D6 — the condensed view reports presence, not granularity
+    row = TreatyRow(id="t1", edm_id="e1", name="Cat XoL", irp_id="1042",
+                    attributes={"lobs": LOBS,
+                                "cedant": {"cedantId": "ASST",
+                                           "cedantName": "Asset Re"}},
+                    as_of="2026-07-24")
+    assert row.display_presence("lobs") == ("Lend", 1)
+    assert row.display_presence("cedant") == ("Asset Re", 0)
+    assert row.display_presence("producer") == (None, 0)
+
+    empty = TreatyRow(id="t2", edm_id="e1", name="QS", irp_id=None,
+                      attributes={"lobs": []}, as_of=None)
+    assert empty.display_presence("lobs") == (None, 0)

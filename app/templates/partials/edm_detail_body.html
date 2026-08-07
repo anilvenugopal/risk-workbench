@@ -181,10 +181,12 @@
 
     {% if edm.treaties %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 130px 130px 110px 120px 130px 80px minmax(150px,1fr);min-width:1080px">
+      <div class="dtable" style="--cols:230px 120px 110px 120px 110px 110px 110px 80px minmax(150px,1fr);min-width:1140px">
         <div class="dtable__head">
-          <span class="l">Treaty</span><span class="l">Type</span><span class="l">Applies at</span><span class="l">Currency</span>
-          <span>Attachment</span><span>Limit</span><span>Share</span><span class="l">Effective</span>
+          <span class="l">Treaty</span><span class="l">Type</span><span>Attachment</span>
+          <span>Occurrence limit</span><span>Risk limit</span>
+          <span class="l">Cedent</span><span class="l">Lines of business</span>
+          <span class="l">Currency</span><span class="l">Effective</span>
         </div>
         {% for t in edm.treaties %}
         {% include "partials/treaty_row.html" %}

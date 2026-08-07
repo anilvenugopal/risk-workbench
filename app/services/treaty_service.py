@@ -145,6 +145,19 @@ class TreatyRow:
         shaping as the expanded grid."""
         return _display_value((self.attributes or {}).get(key), key=key)
 
+    def display_presence(self, key: str) -> tuple[Any, int]:
+        """A multi-valued attribute (cedant, lobs) as (first display value,
+        how many more) — the condensed view reports presence, not granularity
+        (8/5 D6). A scalar attribute returns (value, 0)."""
+        value = (self.attributes or {}).get(key)
+        if isinstance(value, (list, tuple)):
+            labels = [x for x in (_display_value(v) for v in value)
+                      if x not in (None, "")]
+            if not labels:
+                return None, 0
+            return labels[0], len(labels) - 1
+        return _display_value(value, key=key), 0
+
 
 # The two in-place overwrite paths of the idempotent upsert — same pattern as
 # portfolio_service: irp_id match primary (UNIQUE(edm_id, irp_id)), name match

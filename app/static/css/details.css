@@ -83,7 +83,6 @@ a.sec__note--link:hover { text-decoration: underline; }
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
-.pct { color: var(--text-secondary); }
 
 /* rate / event-rate detail — the ONE default-closed nested sub-drill (FR-031) */
 .drill { margin-top: var(--space-3); border-top: 1px solid var(--border-faint); padding-top: var(--space-2); }
