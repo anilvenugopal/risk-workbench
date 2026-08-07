@@ -41,6 +41,10 @@ from typing import Protocol, runtime_checkable
 # DataBridge executor by get_edm_exposure_summary below.
 _DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
 
+# A free-text descriptor with more distinct values than this is not saved into
+# the stored summary (8/4 D15 — lines of business is the known case).
+_FREE_TEXT_STORAGE_CAP = 500
+
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
 
@@ -303,7 +307,7 @@ class _RealGateway:
 
     def get_edm_exposure_summary(self, *, edm_name: str,
                                  edm_irp_id: int) -> dict[str, dict]:
-        # Per-EDM DataBridge SQL aggregate (TIV/geography/LOB/currency — none
+        # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
         # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
         # Interim implementation: the requested wheel method
         # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
@@ -324,9 +328,9 @@ class _RealGateway:
                 str(_DATABRIDGE_SQL_DIR / script), database=database)
             return frames[0].to_dict("records") if frames else []
 
-        # Seed every portfolio from the TIV script (it LEFT JOINs from
-        # portinfo, so it covers portfolios with no accounts/locations too);
-        # the DISTINCT list scripts then only add to existing entries.
+        # Seed every portfolio from the portinfo enumeration (it covers
+        # portfolios with no accounts/locations too); the DISTINCT list
+        # scripts then only add to existing entries.
         summary: dict[str, dict] = {}
 
         def entry(row: dict) -> dict:
@@ -335,14 +339,15 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "total_tiv": None, "states": [],
+                    "countries": [], "states": [],
                     "lines_of_business": [], "currencies": [],
                 }
             return summary[key]
 
-        for row in rows("portfolio_total_tiv.sql"):
-            tiv = row.get("TotalTIV")
-            entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_list.sql"):
+            entry(row)
+        for row in rows("portfolio_countries.sql"):
+            entry(row)["countries"].append(str(row["Country"]))
         for row in rows("portfolio_states.sql"):
             entry(row)["states"].append(str(row["State"]))
         for row in rows("portfolio_lines_of_business.sql"):
@@ -350,8 +355,13 @@ class _RealGateway:
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
-            for key in ("states", "lines_of_business", "currencies"):
+            for key in ("countries", "states", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
+            # 8/4 D15/CR19: line of business is user-defined free text that
+            # cedants fill with account numbers or underwriter names — "if
+            # it's over 500 values, we're not going to save it out."
+            if len(values["lines_of_business"]) > _FREE_TEXT_STORAGE_CAP:
+                values["lines_of_business"] = []
         return summary
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:

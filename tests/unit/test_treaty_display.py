@@ -42,7 +42,7 @@ def test_cedant_object_shows_the_name_only():
 
 
 def test_lobs_list_shows_lob_names_not_raw_json():
-    assert _items({"lobs": LOBS})["Lobs"] == "Lend, Prop"
+    assert _items({"lobs": LOBS})["Lines of Business"] == "Lend, Prop"
 
 
 def test_currency_object_still_collapses_to_its_code():
@@ -59,5 +59,65 @@ def test_scalars_pass_through_untouched():
 
 def test_empty_list_and_unlabeled_object_degrade_gracefully():
     items = _items({"lobs": [], "odd": {"a": 1, "b": 2}})
-    assert items["Lobs"] is None        # renders the em-dash, never []
+    assert items["Lines of Business"] is None   # renders the em-dash, never []
     assert items["Odd"] == "1, 2"       # no label/code → scalar-values join
+
+
+# ── the 8/4 CR18 grid cleanup ─────────────────────────────────────────────────
+
+
+def test_enum_codes_spell_out():
+    items = _items({"treatyType": "CATA", "attachmentLevel": "LOC",
+                    "attachmentBasis": "L"})
+    assert items["Treaty Type"] == "Catastrophe"
+    assert items["Attachment Level"] == "Location"
+    assert items["Attachment Basis"] == "Losses occurring"
+
+
+def test_timestamps_date_truncate_in_the_grid():
+    items = _items({"effectiveDate": "2026-01-01T00:00:00Z",
+                    "createDate": "2026-07-08 05:36:41.344",
+                    "treatyNumber": "TR-2026-01"})
+    assert items["Effective Date"] == "2026-01-01"
+    assert items["Create Date"] == "2026-07-08"
+    assert items["Treaty Number"] == "TR-2026-01"   # date-less string untouched
+
+
+def test_agreeing_alias_pairs_collapse_to_the_treaty_key():
+    items = _items({"treatyId": 1042, "id": 1042,
+                    "treatyName": "Cat XoL", "name": "Cat XoL"})
+    assert items["Treaty Id"] == 1042
+    assert "Id" not in items
+    assert items["Treaty Name"] == "Cat XoL"
+    assert "Name" not in items
+
+
+def test_diverging_alias_pairs_stay_visible_for_mis_coding_checks():
+    items = _items({"treatyName": "Cat XoL", "name": "Something else"})
+    assert items["Treaty Name"] == "Cat XoL"
+    assert items["Name"] == "Something else"
+
+
+def test_display_shapes_a_single_attribute_for_the_condensed_columns():
+    row = TreatyRow(id="t1", edm_id="e1", name="Cat XoL", irp_id="1042",
+                    attributes={"treatyType": "QUOT", "attachmentLevel": "PORT"},
+                    as_of="2026-07-24")
+    assert row.display("treatyType") == "Quota Share"
+    assert row.display("attachmentLevel") == "Portfolio"
+    assert row.display("occurrenceLimit") is None    # absent stays graceful
+
+
+def test_display_presence_reports_first_value_and_count():
+    # 8/5 D6 — the condensed view reports presence, not granularity
+    row = TreatyRow(id="t1", edm_id="e1", name="Cat XoL", irp_id="1042",
+                    attributes={"lobs": LOBS,
+                                "cedant": {"cedantId": "ASST",
+                                           "cedantName": "Asset Re"}},
+                    as_of="2026-07-24")
+    assert row.display_presence("lobs") == ("Lend", 1)
+    assert row.display_presence("cedant") == ("Asset Re", 0)
+    assert row.display_presence("producer") == (None, 0)
+
+    empty = TreatyRow(id="t2", edm_id="e1", name="QS", irp_id=None,
+                      attributes={"lobs": []}, as_of=None)
+    assert empty.display_presence("lobs") == (None, 0)

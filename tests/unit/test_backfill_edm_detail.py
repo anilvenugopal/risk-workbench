@@ -165,14 +165,14 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
 
 
 # ── the DataBridge exposure summary (Addendum A T057) ─────────────────────────────
-# One aggregate read per EDM supplies TIV/geography/LOB/currency (the RM
+# One aggregate read per EDM supplies geography/LOB/currency (the RM
 # /metrics ceiling carries none of them). Enrichment only: ANY summary failure
 # degrades to "summary": null — the job still succeeds and metrics still land.
 
 SUMMARY_A = {
     "portfolio_name": "Primary 2026",
-    "total_tiv": 2.8e9,
     "currencies": ["USD"],
+    "countries": ["US"],
     "states": ["FL", "LA", "TX"],
     "lines_of_business": ["Commercial"],
 }
@@ -368,8 +368,7 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
     treaties = treaty_service.list_treaties(edm_id=edm_id)
     assert [p.exposure_detail for p in portfolios] == [None]
     assert [t.attributes for t in treaties] == [None]
-    # ... and the derived layers stay graceful too
-    assert portfolio_service.aggregate_exposure(portfolios) is None
+    # ... and the derived layer stays graceful too
     assert treaties[0].attribute_items() == []
 
 

@@ -17,7 +17,7 @@ UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from app.services._common import (
@@ -42,11 +42,6 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
-    # US3 (FR-037): the broker analyses LINKED to this portfolio (bucketed by
-    # the R9 read-time resolution in edm_service.get_edm_detail) — the inline
-    # panel; empty for group/unresolved analyses (standalone-only) and for
-    # every caller that doesn't attach them.
-    analyses: list = field(default_factory=list)
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is
@@ -100,77 +95,6 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
                                seen=seen, now=now)
 
 
-@dataclass
-class EdmAggregate:
-    """The quick-orientation EDM rollup (US4 — FR-040/FR-041/FR-042), derived
-    from the per-portfolio snapshots at read time (R4): SUM counts (record
-    volume == locations, FR-013) + TIV, UNION perils/lines of business,
-    COMBINE geography (states) + the currency set. Never stored; never a
-    request-path fetch. The three counts and the TIV are nullable (no snapshot
-    carried them); the collections are always present, possibly empty."""
-    portfolio_count: int
-    with_snapshot: int                     # portfolios that contributed figures
-    locations: int | None
-    accounts: int | None
-    policies: int | None
-    perils: list[str]                      # union, sorted
-    lines_of_business: list[str]
-    states: list[str]
-    currencies: list[str]
-    total_tiv: float | None                # sum of per-portfolio totals
-
-
-def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
-    """Derive the EDM-aggregate (R4) — a pure function over the already-fetched
-    snapshots (no DB, no Risk Modeler). ``None`` when no portfolio carries a
-    snapshot → the caller renders the pending/unavailable state (FR-042/FR-043).
-    Reads both snapshot shapes defensively: the namespaced {"metrics","summary"}
-    form and the flat pre-2026-07-23 /metrics payload."""
-    snaps = [p.exposure_detail for p in portfolios if p.exposure_detail]
-    if not snaps:
-        return None
-
-    counts: dict[str, int | None] = {"totalLocations": None,
-                                     "totalAccounts": None,
-                                     "totalPolicies": None}
-    perils: set[str] = set()
-    lines_of_business: set[str] = set()
-    states: set[str] = set()
-    currencies: set[str] = set()
-    total_tiv: float | None = None
-    for snap in snaps:
-        metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) \
-            else snap  # flat fallback (pre-capability rows)
-        for key in counts:
-            value = metrics.get(key)
-            if isinstance(value, (int, float)):
-                counts[key] = int(value) + (counts[key] or 0)
-        perils.update(p.strip() for p in str(metrics.get("perilsExposed") or "")
-                      .split(",") if p.strip())
-        summary = snap.get("summary") if isinstance(snap.get("summary"), dict) \
-            else {}
-        lines_of_business.update(
-            v for v in (summary.get("lines_of_business") or []) if v)
-        states.update(v for v in (summary.get("states") or []) if v)
-        currencies.update(v for v in (summary.get("currencies") or []) if v)
-        tiv = summary.get("total_tiv")
-        if isinstance(tiv, (int, float)):
-            total_tiv = float(tiv) + (total_tiv or 0.0)
-
-    return EdmAggregate(
-        portfolio_count=len(portfolios),
-        with_snapshot=len(snaps),
-        locations=counts["totalLocations"],
-        accounts=counts["totalAccounts"],
-        policies=counts["totalPolicies"],
-        perils=sorted(perils),
-        lines_of_business=sorted(lines_of_business),
-        states=sorted(states),
-        currencies=sorted(currencies),
-        total_tiv=total_tiv,
-    )
-
-
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty). No row scoping (Article 6);
@@ -187,5 +111,5 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         as_of=r["as_of"]) for r in rows]
 
 
-__all__ = ["PortfolioRow", "EdmAggregate", "upsert_portfolio_detail",
-           "prune_missing", "list_portfolios", "aggregate_exposure"]
+__all__ = ["PortfolioRow", "upsert_portfolio_detail",
+           "prune_missing", "list_portfolios"]
