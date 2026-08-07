@@ -1,9 +1,10 @@
-{# The whole EDM detail body (spec 004 US1–US4 — matches docs/ui_previews/
+{# The whole EDM detail body (spec 004 US1–US3 — matches docs/ui_previews/
    edm_detail.html rev 7 + ui.md §2): minimal header (FR-011 — NO cedant/LOB),
-   inline read-only per-portfolio table as the PRIMARY content, aggregate strip
-   (US4), treaties (US2), broker analyses (US3). Read-only — no create/edit/
-   split/filter control, no map (FR-014/FR-016); every unavailable state renders
-   gracefully (ui.md §5), never an error. #}
+   inline read-only per-portfolio table as the PRIMARY content, treaties (US2),
+   broker analyses (US3). The EDM-level aggregate strip is gone (8/4 D12 — its
+   counts double-count). Read-only — no create/edit/split/filter control, no map
+   (FR-014/FR-016); every unavailable state renders gracefully (ui.md §5),
+   never an error. #}
 {# Live body (package-card pattern): while the backfill head is in flight — or
    the import itself still is — the wrapper polls its own read-only render every
    3s and swaps itself, so the page updates on its own when the rwb job lands.
@@ -70,9 +71,6 @@
   {% include "partials/entity_recovery.html" %}
   {% endwith %}
   {% endif %}
-
-  {# ── compact 3-domain rollup strip (US4 — FR-040/FR-042/FR-043) ── #}
-  {% include "partials/edm_aggregate_strip.html" %}
 
   {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
   <details class="sec" open>

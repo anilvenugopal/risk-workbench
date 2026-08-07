@@ -33,7 +33,7 @@ from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import ConcurrencyConflict, NameCollisionError
 from app.services.name_check import CollisionCheck
 from app.services.package_service import SubmissionRef
-from app.services.portfolio_service import EdmAggregate, PortfolioRow
+from app.services.portfolio_service import PortfolioRow
 from app.services.treaty_service import TreatyRow
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
@@ -247,9 +247,6 @@ class EdmDetail:
     # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
     # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
-    # US4 (FR-040/FR-042): the DERIVED quick-orientation rollup — None ⇒ no
-    # snapshot yet ⇒ the strip renders the pending state (FR-043).
-    aggregate: EdmAggregate | None = None
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -374,7 +371,6 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
                       or _analyses_backfill_running(eid)),
         treaties=treaties,
         analyses=analyses,
-        aggregate=portfolio_service.aggregate_exposure(portfolios),
         rm_treaties_url=_rm_treaties_url(row["name"]),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),

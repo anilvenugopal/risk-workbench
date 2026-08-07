@@ -367,8 +367,7 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
     treaties = treaty_service.list_treaties(edm_id=edm_id)
     assert [p.exposure_detail for p in portfolios] == [None]
     assert [t.attributes for t in treaties] == [None]
-    # ... and the derived layers stay graceful too
-    assert portfolio_service.aggregate_exposure(portfolios) is None
+    # ... and the derived layer stays graceful too
     assert treaties[0].attribute_items() == []
 
 
