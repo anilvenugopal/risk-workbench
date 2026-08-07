@@ -247,6 +247,11 @@ class EdmDetail:
     # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
     # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
+    # 8/4 D13/CR14: upward navigation context — the parent package's name and
+    # the package's owning submissions (M:N, oldest first). All are links in
+    # the header; empty for a standalone EDM with no package.
+    package_name: str | None = None
+    submissions: list[SubmissionRef] = field(default_factory=list)
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -352,6 +357,15 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     job_status = _latest_backfill_status(eid)
+    package_name = None
+    submissions: list[SubmissionRef] = []
+    if row["package_id"]:
+        pid = str(row["package_id"])
+        pkg = execute_one("SELECT name FROM package WHERE id = :id",
+                          {"id": pid}, connection="WORKBENCH")
+        package_name = pkg["name"] if pkg else None
+        submissions = package_service.submission_refs_for_packages(
+            [pid]).get(pid.lower(), [])
     return EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -371,6 +385,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
                       or _analyses_backfill_running(eid)),
         treaties=treaties,
         analyses=analyses,
+        package_name=package_name,
+        submissions=submissions,
         rm_treaties_url=_rm_treaties_url(row["name"]),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),

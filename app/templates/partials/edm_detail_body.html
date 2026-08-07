@@ -21,6 +21,27 @@
 
   {# ── minimal header (FR-011) — name, status, source, identifiers, count, as_of ── #}
   <div class="detail-head">
+    {# 8/4 D13/CR14 — upward navigation: every owning submission (a package can
+       be attached to several, 8/4 D7), then the package. No standalone package
+       page exists, so the package link anchors its card on the oldest owning
+       submission's page. Standalone EDMs (no package) render no crumbs. #}
+    {% if edm.package_id %}
+    <nav class="detail-crumbs" aria-label="Parent submission and package">
+      {% for sub in edm.submissions %}
+      <a class="crumb" href="/submissions/{{ sub.id }}">{{ sub.name or 'Untitled submission' }}</a>
+      {%- if not loop.last %}<span class="crumb__sep">+</span>{% endif %}
+      {% endfor %}
+      {% if edm.submissions %}
+      <span class="crumb__sep">›</span>
+      <a class="crumb" href="/submissions/{{ edm.submissions[0].id }}#package-card-{{ edm.package_id }}"
+         title="Open this package's card on {{ edm.submissions[0].name or 'the submission page' }}">{{ edm.package_name or 'Untitled package' }}</a>
+      {% else %}
+      <span class="crumb">{{ edm.package_name or 'Untitled package' }}</span>
+      {% endif %}
+      <span class="crumb__sep">›</span>
+      <span class="crumb crumb--current">{{ edm.name }}</span>
+    </nav>
+    {% endif %}
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>

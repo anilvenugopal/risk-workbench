@@ -123,7 +123,7 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | Navigation is three-tier: Submission → Package → EDM. | Implemented | The actual work happens at the EDM level (7/14). |
 | An EDM drills down to its portfolios. | Implemented | Analyses run against a portfolio, not a whole EDM. |
 | The effective navigation depth is Submission → Package → EDM → Portfolio. | Implemented | The portfolio drill-down is also the entry point for kicking off analyses. |
-| An EDM page shows its parent Package and Submission as clickable links. | Implemented | **Added 8/4.** Upward navigation context — "I don't know where I am" without it. Lets the analyst hop back to the Package and into another EDM "without starting all over again from the top," which matters because a Submission can hold any combination (one EDM and three RDMs, three EDMs and one RDM). |
+| An EDM page shows its parent Package and Submission as clickable links. | Implemented | **Added 8/4.** Upward navigation context — "I don't know where I am" without it. Lets the analyst hop back to the Package and into another EDM "without starting all over again from the top," which matters because a Submission can hold any combination (one EDM and three RDMs, three EDMs and one RDM). Every owning submission renders as a link, oldest first. |
 
 ---
 
@@ -209,7 +209,7 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 |---|---|---|
 | The EDM header shows name, status, source path on the share, Risk Modeler ID, and job ID. | Implemented |  |
 | The number of portfolios in the EDM is shown. | Implemented | Sometimes 1 portfolio, sometimes 25. |
-| The EDM header shows its parent Package and Submission as clickable links. | Not implemented | **Added 8/4.** See §1 Navigation & drill-down. |
+| The EDM header shows its parent Package and Submission as clickable links. | Implemented | **Added 8/4.** See §1 Navigation & drill-down. Every owning submission is a link (a package attaches to several — 8/4 D7); the package link anchors its card on the oldest owning submission's page, since no standalone package page exists. |
 | The EDM header shows the as-of / last-synced timestamp. | Implemented |  |
 | A manual Sync action re-reads the EDM from Risk Modeler. | Implemented |  |
 
