@@ -72,6 +72,11 @@ a.sec__note--link:hover { text-decoration: underline; }
 .drow__body { border-top: 1px solid var(--border-faint); border-left: 3px solid var(--color-brand); background: var(--surface-panel); padding: var(--space-3) var(--space-4); position: sticky; left: 0; width: 100cqw; }
 .drow__body--recessed { background: var(--surface-recessed); }
 
+/* full value lists inside the portfolio-row expander (8/4 CR15/CR19) */
+.drow-lists { display: grid; gap: var(--space-2); margin: 0; }
+.drow-lists dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.drow-lists dd { margin: 2px 0 0; font-size: var(--fs-label); white-space: normal; }
+
 /* attribute / settings grids inside an expanded row */
 .attr-grid, .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }

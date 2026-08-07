@@ -6,8 +6,9 @@
    2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
    shape. Every field is read defensively; a missing field renders "—", never
    an error. Records == locations, so there is no separate Records column
-   (preview rev 7). Analyses are NOT counted or attributed per portfolio
-   (8/4 D8), so the row no longer expands. #}
+   (preview rev 7). Expanding the row (8/4 CR15) reveals the FULL value lists
+   the collapsed cells truncate — lines of business, countries, states,
+   currencies — capped at 100 values each (CR19). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -20,9 +21,14 @@
 {%- set d = p.exposure_detail or {} -%}
 {%- set m = d.get('metrics') or d -%}
 {%- set s = d.get('summary') or {} -%}
-<div class="drow-static">
+{%- set lobs = s.get('lines_of_business') or [] -%}
+{%- set countries = s.get('countries') or [] -%}
+{%- set states = s.get('states') or [] -%}
+{%- set curr = s.get('currencies') or [] -%}
+<details class="drow" id="portfolio-{{ p.id }}">
+  <summary>
   <span class="l">
-    <span class="dt-name">
+    <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
@@ -38,7 +44,6 @@
     {{ csv(perils) }}
   </span>
   <span class="l">
-    {%- set lobs = s.get('lines_of_business') or [] -%}
     {%- if lobs -%}
       {{ lobs[:3]|join(', ') }}{% if lobs|length > 3 %} <span class="dt-geo-sub">+{{ lobs|length - 3 }} more</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
@@ -48,21 +53,35 @@
         "multi-country" / a state count. Named regions are never the collapse
         value — regions are treaty-dependent (note 06 §2.2). Countries are
         codes (US, CA): dbo.Address has no country-name column. -#}
-    {%- set countries = s.get('countries') or [] -%}
     {%- if countries|length == 1 -%}{{ countries[0] }}
     {%- elif countries -%}multi-country <span class="dt-geo-sub">({{ countries|length }})</span>
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {%- set states = s.get('states') or [] -%}
     {%- if states|length == 1 -%}{{ states[0] }}
     {%- elif states -%}{{ states|length }} states
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {%- set curr = s.get('currencies') or [] -%}
     {%- if curr -%}
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
-</div>
+  </summary>
+  <div class="drow__body drow__body--recessed">
+    {% if lobs or countries or states or curr %}
+    <dl class="drow-lists">
+      {% for label, values in [('Lines of business', lobs), ('Countries', countries),
+                               ('States', states), ('Currencies', curr)] if values %}
+      <div>
+        <dt>{{ label }} ({{ values|length }})</dt>
+        <dd>{{ values[:100]|join(', ') }}{% if values|length > 100 %} <span class="na">… +{{ values|length - 100 }} more not shown</span>{% endif %}</dd>
+      </div>
+      {% endfor %}
+    </dl>
+    {% else %}
+    <p class="tag-empty" style="margin:0">No value lists available — the
+      DataBridge summary hasn't been stored for this portfolio.</p>
+    {% endif %}
+  </div>
+</details>

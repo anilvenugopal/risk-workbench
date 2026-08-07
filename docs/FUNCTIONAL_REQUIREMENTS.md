@@ -230,14 +230,14 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 | Analyses are not counted or attributed per portfolio. | Implemented | **Removed 8/4.** See the trust rule above. The Analyses column, the per-portfolio inline analyses panel, and the `exposureResourceId` linkage note are gone. The worker still captures `exposure_resource_id`; nothing reads it. |
 | Record volume is shown. | Implemented | So the analyst doesn't accidentally run a ~1M-record portfolio thinking it's ~20K, and can schedule large runs (e.g. start a 4M-record run overnight). |
 | Reinsurance/treaties associated with the EDM are shown. | Implemented | LOB and cedant come from the EDM details. |
-| Truncated value lists expand in place. | Not implemented | **Added 8/4.** Lines of business, geography, and currencies all cut off mid-list today: "whether you have hovering capabilities or you have to click in or whatever… to be able to expand some of those lists." |
+| Truncated value lists expand in place. | Implemented | **Added 8/4.** Expanding a portfolio row reveals the full lines-of-business, countries, states, and currencies lists (the expander freed by removing the per-portfolio analyses panel). Each list is capped at 100 values with a "+N more not shown" tail. |
 
 **Free-text field caps** (8/4)
 
 | Requirement | Implementation | Notes |
 |---|---|---|
 | A free-text descriptor field with more than ~500 distinct values is not saved into the roll-up. | Not implemented | Line of business is the known case: a completely user-defined descriptor that does not affect analysis, which cedants populate with "10s of thousands of different and unique values" — account numbers, underwriter names. "If it's over 500 values, we're not going to save it out." |
-| Front-end expansion of a value list is capped around 100. | Not implemented |  |
+| Front-end expansion of a value list is capped around 100. | Implemented | The portfolio-row expander shows the first 100 values per list and states how many are not shown. |
 | No elegant handling is required for the pathological case. | Implemented | Explicit guidance: "It doesn't need some elegant options that we go through… I don't want you to overthink that scenario." |
 
 > **Open — which other fields share this pathology?** "There's other fields like that in this EDM as well." Ben to compile the list with Wendy and Cheryl. Also pending: performance-test the LOB JSON storage at ~10,000 key-value pairs. (Design note 08, O8-2.)
