@@ -56,15 +56,15 @@
     <div class="filters__row">
       <label>Name
         <input class="wf-field__input" type="text" name="q"
-               value="{{ filter_values.q }}" autocomplete="off">
+               value="{{ filter_values.q }}" autocomplete="off" maxlength="100">
       </label>
       <label>Cedant
         <input class="wf-field__input" type="text" name="cedant"
-               value="{{ filter_values.cedant }}" autocomplete="off">
+               value="{{ filter_values.cedant }}" autocomplete="off" maxlength="100">
       </label>
       <label>CRM ID
         <input class="wf-field__input" type="text" name="crm_id"
-               value="{{ filter_values.crm_id }}" autocomplete="off">
+               value="{{ filter_values.crm_id }}" autocomplete="off" maxlength="100">
       </label>
       {# Owner — every active user ships with the page, so the menu opens on click
          and narrows in place as the analyst types, with no request per keystroke.
@@ -90,7 +90,7 @@
                x-show="isOpen" x-cloak
                @click="pick($event.target.closest('.ta__opt'))">
             <button class="ta__opt" type="button" role="option" aria-selected="false"
-                    id="owner-opt-any" data-id="" data-name="">Any owner</button>
+                    id="owner-opt-any" data-id="any" data-name="">Any owner</button>
             {% for a in analysts %}
             <button class="ta__opt" type="button" role="option" aria-selected="false"
                     id="owner-opt-{{ loop.index0 }}" data-id="{{ a.id }}"
@@ -112,9 +112,9 @@
                min="1900" max="2999" style="min-width: 110px;">
       </label>
       {# A full navigation, not an hx-get: the form sits outside the swap target, so
-         only reloading the page empties the fields the analyst typed. `?owner=`
+         only reloading the page empties the fields the analyst typed. `?owner=any`
          clears the owner too — a bare /submissions would re-apply the analyst. #}
-      <a class="btn-sm" href="/submissions?owner=">Clear filters</a>
+      <a class="btn-sm" href="/submissions?owner=any">Clear filters</a>
     </div>
     <button type="submit" hidden>Filter</button>
   </form>

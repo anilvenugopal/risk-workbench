@@ -74,7 +74,7 @@
 
 ## R7 — Owner-filtered list, defaulting to the current analyst (no RLS)
 
-**Decision**: `GET /submissions` computes rows with an ordinary predicate: `WHERE assigned_analyst_id = :owner`, or no owner predicate at all. The `owner` query parameter carries an `app_user.id` and picks between them — absent means the signed-in analyst, empty means every owner. There is **no scope wrapper** and no admin bypass: every analyst can list every deal and open any of them (FR-019/FR-020, SC-002). Reassignment (FR-005a) is a plain `UPDATE assigned_analyst_id` (gated by R3 + R1), which moves the deal between owner filters without touching visibility (SC-011).
+**Decision**: `GET /submissions` computes rows with an ordinary predicate: `WHERE assigned_analyst_id = :owner`, or no owner predicate at all. The `owner` query parameter carries an `app_user.id` and picks between them — absent means the signed-in analyst, and `any` means every owner. There is **no scope wrapper** and no admin bypass: every analyst can list every deal and open any of them (FR-019/FR-020, SC-002). Reassignment (FR-005a) is a plain `UPDATE assigned_analyst_id` (gated by R3 + R1), which moves the deal between owner filters without touching visibility (SC-011).
 
 **Rationale**: Article 6 — `assigned_analyst_id` is a soft filter, never an access gate. Building it as a plain predicate (not via the removed `apply_scope`) is the whole point of the CR-003 cleanup. Filtering on the id rather than `app_user.display_name` is what keeps two analysts with the same name apart.
 

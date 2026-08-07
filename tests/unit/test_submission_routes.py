@@ -442,8 +442,7 @@ def test_filtered_empty_list_offers_to_clear_the_filters(client):
 
 
 def test_empty_list_with_no_filters_reads_as_empty_not_filtered(client):
-    # ?owner= is the unfiltered list: a bare /submissions applies the owner default.
-    body = client.get("/submissions?owner=").text
+    body = client.get("/submissions?owner=any").text
     assert "No submissions yet." in body and "clear-filters" not in body
 
 
@@ -507,12 +506,26 @@ def test_pager_links_carry_the_applied_filters(client):
     assert "q=paged" in body and "status=ACTIVE" in body and "page=2" in body
 
 
-def test_pager_links_keep_the_every_owner_selection(client):
-    """`owner` rides along even when empty. Dropping it would make page 2 of an
-    every-owner list default back to the analyst's own deals."""
+def test_pager_links_omit_empty_filters_and_the_default_owner(client):
     _fill_a_page_and_a_bit(client)
-    body = client.get("/submissions?owner=").text
-    assert 'href="/submissions?owner=&amp;page=2"' in body
+    body = client.get(
+        f"/submissions?q=&cedant=&crm_id=&status=&owner={client.db.user_a}"
+    ).text
+    assert 'href="/submissions?page=2"' in body
+
+
+def test_htmx_push_url_omits_empty_filters_and_the_default_owner(client):
+    response = client.get(
+        f"/submissions?q=&cedant=&owner={client.db.user_a}",
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.headers["HX-Push-Url"] == "/submissions"
+
+
+def test_pager_links_keep_the_every_owner_selection(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?owner=any").text
+    assert 'href="/submissions?owner=any&amp;page=2"' in body
 
 
 def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
@@ -524,8 +537,7 @@ def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
 
 def test_the_list_lands_on_the_signed_in_analysts_deals(client):
     """No `owner` parameter means the analyst's own deals (FR-020). The Owner box
-    shows their name and the hidden input carries their id, so the next filter
-    request keeps the selection."""
+    shows their name while generated URLs omit the default owner."""
     client.post("/submissions", data=_payload(name="Deal owned by A"))
     _mk_owned_by_b(client, "Deal owned by B")
     body = client.get("/submissions").text
@@ -534,8 +546,52 @@ def test_the_list_lands_on_the_signed_in_analysts_deals(client):
     assert 'value="Analyst A"' in body
 
 
-def test_an_empty_owner_parameter_lists_every_analysts_deals(client):
+def test_owner_any_lists_every_analysts_deals(client):
     client.post("/submissions", data=_payload(name="Deal owned by A"))
     _mk_owned_by_b(client, "Deal owned by B")
-    body = client.get("/submissions?owner=").text
+    body = client.get("/submissions?owner=any").text
     assert "Deal owned by A" in body and "Deal owned by B" in body
+
+
+@pytest.mark.parametrize("parameter", ["q", "cedant", "crm_id"])
+def test_text_filters_accept_exactly_100_trimmed_characters(client, parameter):
+    response = client.get("/submissions", params={parameter: "x" * 100})
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("parameter", "label"),
+    [("q", "Name"), ("cedant", "Cedant"), ("crm_id", "CRM ID")],
+)
+def test_text_filters_reject_101_trimmed_characters_without_querying(
+        client, monkeypatch, parameter, label):
+    def fail(**kwargs):
+        pytest.fail("list_submissions was called")
+
+    monkeypatch.setattr(submission_service, "list_submissions", fail)
+    response = client.get("/submissions", params={parameter: f"  {'x' * 101}  "})
+    assert response.status_code == 422
+    assert f"{label} must be 100 characters or fewer." in response.text
+
+
+@pytest.mark.parametrize("parameter", ["q", "cedant"])
+def test_name_and_cedant_accept_exactly_10_words(client, parameter):
+    response = client.get("/submissions", params={parameter: "x " * 9 + "x"})
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(("parameter", "label"), [("q", "Name"), ("cedant", "Cedant")])
+def test_name_and_cedant_reject_11_words(client, parameter, label):
+    response = client.get("/submissions", params={parameter: "x " * 10 + "x"})
+    assert response.status_code == 422
+    assert f"{label} must contain 10 words or fewer." in response.text
+
+
+def test_invalid_filter_fragment_contains_the_validation_message(client):
+    response = client.get(
+        "/submissions", params={"q": "x" * 101},
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.status_code == 200
+    assert 'id="sub-list"' in response.text
+    assert "Name must be 100 characters or fewer." in response.text

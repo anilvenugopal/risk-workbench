@@ -2,6 +2,9 @@
    both target #sub-list, and app/routers/submissions.py returns this file alone
    for those requests instead of the whole page. #}
 <div id="sub-list">
+  {% if validation_error %}
+  <div class="banner banner--error" role="alert">{{ validation_error }}</div>
+  {% else %}
   <table class="mk-table sub-table">
     <thead>
       <tr>
@@ -15,7 +18,7 @@
       {% else %}
         {% if is_filtered %}
         <tr><td colspan="8" class="empty">No submissions match —
-          <a class="clear-filters" href="/submissions?owner=">clear filters</a>.</td></tr>
+          <a class="clear-filters" href="/submissions?owner=any">clear filters</a>.</td></tr>
         {% elif page > 1 %}
         <tr><td colspan="8" class="empty">Nothing on page {{ page }} —
           <a class="clear-filters" href="/submissions">back to the first page</a>.</td></tr>
@@ -25,11 +28,12 @@
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
 
   {# Only shown once there is somewhere to go, so a list that fits on one page
      reads exactly as it did before paging. The links carry the applied filters
      and are real hrefs, so they still work with JavaScript off. #}
-  {% if page > 1 or has_next %}
+  {% if not validation_error and (page > 1 or has_next) %}
   {% set stem = '/submissions?' ~ ((filter_query ~ '&') if filter_query else '') ~ 'page=' %}
   <nav class="pager" aria-label="Submission pages">
     {% if page > 1 %}

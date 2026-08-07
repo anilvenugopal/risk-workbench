@@ -228,6 +228,8 @@ def _not_found(request: Request):
 # naming it gets the table on its own: rebuilding the status list, the analyst
 # list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
 _LIST_TARGET = "sub-list"
+_SEARCH_MAX_CHARACTERS = 100
+_SEARCH_MAX_WORDS = 10
 
 
 def _owner_label(analysts: list[dict], owner_id) -> str:
@@ -240,24 +242,41 @@ def _owner_label(analysts: list[dict], owner_id) -> str:
 
 @router.get("/submissions", response_class=HTMLResponse)
 def list_submissions_page(request: Request):
+    text_filters = {
+        "name": (request.query_params.get("q") or "").strip(),
+        "cedant_name": (request.query_params.get("cedant") or "").strip(),
+        "crm_id": (request.query_params.get("crm_id") or "").strip(),
+    }
+    labels = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM ID"}
+    validation_error = next((
+        f"{labels[key]} must be {_SEARCH_MAX_CHARACTERS} characters or fewer."
+        for key, value in text_filters.items()
+        if len(value) > _SEARCH_MAX_CHARACTERS
+    ), None)
+    if validation_error is None:
+        validation_error = next((
+            f"{labels[key]} must contain {_SEARCH_MAX_WORDS} words or fewer."
+            for key, value in text_filters.items()
+            if len(value.split()) > _SEARCH_MAX_WORDS
+        ), None)
     filters = {
-        "name": (request.query_params.get("q") or "").strip() or None,
-        "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
-        "crm_id": (request.query_params.get("crm_id") or "").strip() or None,
+        **{key: value or None for key, value in text_filters.items()},
         "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
         "inception_date": _parse_date(request.query_params.get("inception")),
         "treaty_year": _parse_int(request.query_params.get("treaty_year")),
         "status_code": (request.query_params.get("status") or "").strip() or None,
     }
     # The Owner menu sends an app_user id. No `owner` at all — a nav click, a bare
-    # bookmark — lands the analyst on their own deals (FR-020); an empty one is the
-    # "Any owner" row asking for every deal.
+    # bookmark — lands the analyst on their own deals (FR-020); `owner=any` asks
+    # for every deal.
     raw_owner = request.query_params.get("owner")
-    owner_id = (request.state.user.id if raw_owner is None
-                else raw_owner.strip() or None)
-    listing = submission_service.list_submissions(
-        owner_id=owner_id, page=_parse_int(request.query_params.get("page")) or 1,
-        **filters)
+    owner_value = raw_owner.strip() if raw_owner is not None else None
+    owner_id = (request.state.user.id if owner_value is None
+                else None if owner_value == "any" else owner_value)
+    page = _parse_int(request.query_params.get("page")) or 1
+    listing = (submission_service.list_submissions(
+        owner_id=owner_id, page=page, **filters)
+        if validation_error is None else None)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
     filter_values = {
@@ -267,21 +286,41 @@ def list_submissions_page(request: Request):
     }
     # The resolved owner, not the raw parameter: on the default landing the hidden
     # input has to carry the analyst's own id so the next filter request keeps it.
-    filter_values["owner"] = str(owner_id) if owner_id else ""
+    filter_values["owner"] = str(owner_id) if owner_id is not None else owner_value or ""
+    query_values = {
+        query_key: filter_values[query_key].strip()
+        for query_key, filter_key in (
+            ("q", "name"), ("cedant", "cedant_name"), ("crm_id", "crm_id"),
+            ("treaty_type", "treaty_type_code"), ("inception", "inception_date"),
+            ("treaty_year", "treaty_year"), ("status", "status_code"),
+        )
+        if filters[filter_key] is not None
+    }
+    if filter_values["owner"]:
+        query_values["owner"] = filter_values["owner"]
+    if str(query_values.get("owner", "")).lower() == str(request.state.user.id).lower():
+        query_values.pop("owner")
     list_ctx = {
-        "rows": listing.rows,
-        "page": listing.page,
-        "has_next": listing.has_next,
+        "rows": listing.rows if listing else [],
+        "page": listing.page if listing else page,
+        "has_next": listing.has_next if listing else False,
         # The applied filters, for the pager links to carry; each link appends its
         # own page number. `owner` goes even when empty — dropping it would make
         # page 2 of an every-owner list default back to the analyst's own deals.
-        "filter_query": urlencode(
-            {key: value for key, value in filter_values.items()
-             if value or key == "owner"}),
-        "is_filtered": any(filter_values.values()),
+        "filter_query": urlencode(query_values),
+        "is_filtered": owner_id is not None or any(filters.values()),
+        "validation_error": validation_error,
     }
     if request.headers.get("HX-Target") == _LIST_TARGET:
-        return _partial(request, "partials/submission_list.html", list_ctx)
+        response = _partial(request, "partials/submission_list.html", list_ctx)
+        canonical_query = dict(query_values)
+        if page > 1:
+            canonical_query["page"] = page
+        response.headers["HX-Push-Url"] = (
+            "/submissions" + (f"?{urlencode(canonical_query)}"
+                              if canonical_query else "")
+        )
+        return response
     analysts = _active_analysts()
     return _render(request, "pages/submissions.html", "submissions.all", {
         **list_ctx,
@@ -290,7 +329,7 @@ def list_submissions_page(request: Request):
         "analysts": analysts,
         "owner_label": _owner_label(analysts, owner_id),
         "filter_values": filter_values,
-    })
+    }, status_code=422 if validation_error else 200)
 
 
 def _suggest_menu(request: Request, options: list[dict], term: str,
