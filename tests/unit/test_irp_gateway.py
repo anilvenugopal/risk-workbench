@@ -127,9 +127,9 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the
-# four set-based sql/databridge/ scripts through the wheel's generic executor,
-# assembling {portfolioId(str): {portfolio_name, states, lines_of_business,
-# currencies}}.
+# five set-based sql/databridge/ scripts through the wheel's generic executor,
+# assembling {portfolioId(str): {portfolio_name, countries, states,
+# lines_of_business, currencies}}.
 
 class _Frame:
     """A minimal DataFrame stand-in — the gateway only calls to_dict('records')."""
@@ -165,6 +165,10 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
             {"PortfolioId": 1, "PortfolioName": "A"},
             {"PortfolioId": 2, "PortfolioName": "B"},
         ],
+        "portfolio_countries.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US"},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CA"},
+        ],
         "portfolio_states.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
             {"PortfolioId": 1, "PortfolioName": "A", "State": "FL"},
@@ -185,14 +189,14 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
     # gets an entry from the portinfo enumeration seed with empty lists
     assert summary == {
-        "1": {"portfolio_name": "A",
+        "1": {"portfolio_name": "A", "countries": ["CA", "US"],
               "states": ["FL", "TX"], "lines_of_business": ["Commercial"],
               "currencies": ["USD"]},
-        "2": {"portfolio_name": "B",
+        "2": {"portfolio_name": "B", "countries": [],
               "states": [], "lines_of_business": [], "currencies": []},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 4
+    assert [db for _, db in calls] == ["edm_db"] * 5
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():

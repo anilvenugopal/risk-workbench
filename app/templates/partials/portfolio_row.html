@@ -44,9 +44,19 @@
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
+    {#- Collapse rule (8/4 D11): the single value when there is one, otherwise
+        "multi-country" / a state count. Named regions are never the collapse
+        value — regions are treaty-dependent (note 06 §2.2). Countries are
+        codes (US, CA): dbo.Address has no country-name column. -#}
+    {%- set countries = s.get('countries') or [] -%}
+    {%- if countries|length == 1 -%}{{ countries[0] }}
+    {%- elif countries -%}multi-country <span class="dt-geo-sub">({{ countries|length }})</span>
+    {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+  </span>
+  <span class="l">
     {%- set states = s.get('states') or [] -%}
-    {%- if states -%}
-      {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}
+    {%- if states|length == 1 -%}{{ states[0] }}
+    {%- elif states -%}{{ states|length }} states
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">

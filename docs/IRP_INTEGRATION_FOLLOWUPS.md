@@ -161,7 +161,7 @@ Known constraints on the workbench side:
 
 **STOPGAP SHIPPED (2026-07-28) — the workbench no longer blocks on this method.**
 `irp_gateway.get_edm_exposure_summary(*, edm_name, edm_irp_id)` now computes the summary itself:
-repo-owned set-based scripts (`sql/databridge/portfolio_{list,states,lines_of_business,currencies}.sql`,
+repo-owned set-based scripts (`sql/databridge/portfolio_{list,countries,states,lines_of_business,currencies}.sql`,
 adapted from `IRP/knowledge/sql scripts/`) run through the wheel's **generic**
 `DataBridgeManager.execute_query_from_file(..., database=...)`, against the database resolved from
 RM's `search_edms` `databaseName` (hit matched on `exposureId` — resolves same-named EDMs). Graceful
@@ -169,12 +169,14 @@ absence unchanged (any raise → `summary: null`, cells render "—", job still 
 
 The contract above is amended accordingly if/when the bespoke method is still wanted:
 - `sub_perils` **dropped** — sub-perils are an analysis-settings attribute, not an exposure attribute
-  (workbench scope call, 2026-07-28); `countries` dropped (no country-level read; geography = states).
+  (workbench scope call, 2026-07-28).
+- `countries` **added** (8/4 D11) — distinct `Address.CountryCode` (fallback `CountryRMSCode`) per
+  portfolio; codes, not names — the EDM Address table has no country-name column.
 - `lines_of_business` **added** — distinct `lobdet.LOBNAME` via policy per portfolio.
 - `tiv_by_currency` **dropped** — TIV left the page on 8/4 (currency conversion makes the figure
   indefensible); `portfolio_total_tiv.sql` became `portfolio_list.sql`, a plain `portinfo`
   enumeration that still seeds every portfolio into the summary.
-- Resolved shape: `{portfolioId(str): {portfolio_name, states, lines_of_business, currencies}}`.
+- Resolved shape: `{portfolioId(str): {portfolio_name, countries, states, lines_of_business, currencies}}`.
   PORTINFOID is still only *assumed* equal to RM's portfolioId — `portfolio_name` remains the
   fallback join key (unchanged).
 

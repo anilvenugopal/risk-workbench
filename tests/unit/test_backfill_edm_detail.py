@@ -172,6 +172,7 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
 SUMMARY_A = {
     "portfolio_name": "Primary 2026",
     "currencies": ["USD"],
+    "countries": ["US"],
     "states": ["FL", "LA", "TX"],
     "lines_of_business": ["Commercial"],
 }

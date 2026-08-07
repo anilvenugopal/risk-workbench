@@ -335,13 +335,15 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "states": [],
+                    "countries": [], "states": [],
                     "lines_of_business": [], "currencies": [],
                 }
             return summary[key]
 
         for row in rows("portfolio_list.sql"):
             entry(row)
+        for row in rows("portfolio_countries.sql"):
+            entry(row)["countries"].append(str(row["Country"]))
         for row in rows("portfolio_states.sql"):
             entry(row)["states"].append(str(row["State"]))
         for row in rows("portfolio_lines_of_business.sql"):
@@ -349,7 +351,7 @@ class _RealGateway:
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
-            for key in ("states", "lines_of_business", "currencies"):
+            for key in ("countries", "states", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
         return summary
 
