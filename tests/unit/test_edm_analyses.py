@@ -1,9 +1,11 @@
-"""Unit tests for the EDM-page analyses read (spec 004 US3, T035b — FR-037).
+"""Unit tests for the EDM-page analyses read (spec 004 US3, rescoped 8/5 D15).
 
-``analysis_service.list_edm_analyses(edm_id)`` returns the EDM's broker
-analyses grouped by source ``rdm_id``, and ``edm_service.get_edm_detail``
-carries them. No analysis is attributed to a portfolio (8/4 D8), even though
-``exposure_resource_id`` is still captured.
+``analysis_service.list_edm_analyses(edm_id)`` returns every RDM in the EDM's
+package, each grouped with its broker analyses — including RDMs with none. A
+packageless EDM falls back to the analyses applied against it.
+``edm_service.get_edm_detail`` carries the groups. No analysis is attributed
+to a portfolio (8/4 D8), even though ``exposure_resource_id`` is still
+captured.
 """
 
 from __future__ import annotations
@@ -72,4 +74,53 @@ def test_get_edm_detail_carries_the_rdm_grouped_analyses(iteration2_db):
     detail = edm_service.get_edm_detail(edm)
 
     assert [g.rdm_name for g in detail.analyses] == [
+        "meridian_q4_results", "retro_2025_view"]
+
+
+# ── 8/5 D15: the read is package-scoped ────────────────────────────────────────
+
+
+def _seed_package_pair():
+    """Wendy's paired book: one package, two EDMs (in-force + projected), two
+    RDMs — analyses applied against EDM 1 only; a third, packageless RDM's
+    analysis also targets EDM 1."""
+    pkg = _mk("package", name="Pkg")
+    edm1 = _mk("irp_edm", name="edm_in_force", status="ready", package_id=pkg)
+    edm2 = _mk("irp_edm", name="edm_projected", status="ready", package_id=pkg)
+    rdm1 = _mk("irp_rdm", name="rdm_in_force", status="ready", irp_id=88,
+               package_id=pkg)
+    rdm2 = _mk("irp_rdm", name="rdm_projected", status="ready", irp_id=71,
+               package_id=pkg)
+    stray = _mk("irp_rdm", name="stray_rdm", status="ready", irp_id=99)
+    mk = lambda **kw: _mk("irp_analysis", status_code="ready", **kw)  # noqa: E731
+    mk(edm_id=edm1, rdm_id=rdm1, irp_id="1", name="AEP", is_group=0)
+    mk(edm_id=edm1, rdm_id=rdm2, irp_id="2", name="OEP", is_group=0)
+    mk(edm_id=edm1, rdm_id=stray, irp_id="3", name="Stray", is_group=0)
+    return pkg, edm1, edm2
+
+
+def test_every_rdm_in_the_package_is_listed_on_every_edm_page(iteration2_db):
+    _, edm1, edm2 = _seed_package_pair()
+    # both EDM pages list both package RDMs identically — "if you have 12
+    # analyses in one, you have 12 analyses in the other"
+    for edm in (edm1, edm2):
+        groups = analysis_service.list_edm_analyses(edm_id=edm)
+        assert [g.rdm_name for g in groups] == ["rdm_in_force", "rdm_projected"]
+        assert [len(g.analyses) for g in groups] == [1, 1]
+
+
+def test_rdm_with_no_analyses_still_gets_an_empty_group(iteration2_db):
+    pkg, edm1, _ = _seed_package_pair()
+    _mk("irp_rdm", name="rdm_empty", status="ready", irp_id=12, package_id=pkg)
+
+    groups = analysis_service.list_edm_analyses(edm_id=edm1)
+    assert [g.rdm_name for g in groups] == [
+        "rdm_in_force", "rdm_projected", "rdm_empty"]
+    assert len(groups[2].analyses) == 0
+
+
+def test_packageless_edm_falls_back_to_its_applied_analyses(iteration2_db):
+    edm, rdm1, rdm2 = _seed_edm_with_analyses()   # no package anywhere
+    groups = analysis_service.list_edm_analyses(edm_id=edm)
+    assert [g.rdm_name for g in groups] == [
         "meridian_q4_results", "retro_2025_view"]

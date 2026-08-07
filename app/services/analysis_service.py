@@ -8,8 +8,8 @@ Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``
     (the M pair-rows are handles sharing one ``irp_id``); each with its parsed
     ``settings_metadata`` (missing/partial → blank, never error) and
     ``is_group`` (FR-035).
-  • ``list_edm_analyses(edm_id)`` — the EDM page (FR-037): the same rows
-    scoped to one EDM, grouped by source RDM.
+  • ``list_edm_analyses(edm_id)`` — the EDM page (8/5 D15): every RDM in the
+    EDM's package, each grouped with its analyses — including RDMs with none.
   • ``analysis_counts`` — un-empties the package-card / EDM counts (FR-050).
 
 **No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services._common import _parse_json_dict, _uid
-from db import execute
+from db import execute, execute_one
 
 
 @dataclass
@@ -229,14 +229,40 @@ def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
 
 
 def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The EDM page's read (FR-037): this EDM's broker analyses grouped by
-    source RDM (divider rows). Listed, never attributed to a portfolio (8/4 D8).
-    No scoping (Article 6)."""
+    """The EDM page's read (8/5 D15): every RDM in the EDM's package with its
+    broker analyses — two EDMs and two RDMs means each EDM page lists both
+    RDMs, and an RDM with no analyses still gets an (empty) group, because the
+    point is Wendy's paired-book check: "were the same analyses run… if you
+    have 12 analyses in one, you have 12 analyses in the other." Listing
+    asserts no EDM↔RDM link (the RDMs merely share the package). A packageless
+    EDM falls back to the analyses applied against it. Never attributed to a
+    portfolio (8/4 D8). No scoping (Article 6)."""
+    edm = execute_one("SELECT package_id FROM irp_edm WHERE id = :id",
+                      {"id": str(edm_id)}, connection="WORKBENCH")
+    package_id = edm["package_id"] if edm else None
+    if not package_id:
+        rows = execute(
+            f"{_HANDLE_SELECT} AND a.edm_id = :e "
+            "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
+            {"e": str(edm_id)}, connection="WORKBENCH")
+        return _group_by_rdm([dict(r) for r in rows])
+
     rows = execute(
-        f"{_HANDLE_SELECT} AND a.edm_id = :e "
+        f"{_HANDLE_SELECT} AND r.package_id = :p AND r.deleted_at IS NULL "
         "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    return _group_by_rdm([dict(r) for r in rows])
+        {"p": str(package_id)}, connection="WORKBENCH")
+    by_rdm = {g.rdm_id: g for g in _group_by_rdm([dict(r) for r in rows])}
+    rdms = execute(
+        "SELECT id, name, irp_id FROM irp_rdm "
+        "WHERE package_id = :p AND deleted_at IS NULL ORDER BY inserted_at",
+        {"p": str(package_id)}, connection="WORKBENCH")
+    ordered = [by_rdm.pop(_uid(r["id"]),
+                          BrokerAnalysisGroup(rdm_id=_uid(r["id"]),
+                                              rdm_name=r["name"],
+                                              rdm_irp_id=r["irp_id"]))
+               for r in rdms]
+    ordered.extend(by_rdm.values())   # defensive — should be empty
+    return ordered
 
 
 def analysis_counts(*, edm_id: Any) -> AnalysisCounts:

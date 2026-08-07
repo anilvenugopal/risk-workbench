@@ -55,6 +55,13 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dt-geo-sub { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
 /* group divider row within a table (broker analyses grouped by source RDM) */
 .dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
+
+/* nested per-RDM expander in the broker-analyses table (8/5 D16) */
+details.dtable__rdm > summary { list-style: none; cursor: pointer; }
+details.dtable__rdm > summary::-webkit-details-marker { display: none; }
+details.dtable__rdm .grp-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
+details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
+.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); }
 .dtable__group .kind { font-size: .65rem; font-weight: var(--fw-bold); color: var(--text-tertiary); letter-spacing: .04em; }
 .dtable__group .name { font-weight: var(--fw-semibold); font-size: var(--fs-label); color: var(--text-primary); }
 .dtable__group .ref { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); }

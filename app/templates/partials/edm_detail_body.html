@@ -209,20 +209,22 @@
     {% endif %}
   </details>
 
-  {# ── Broker analyses (US3) — standalone, grouped by source RDM (FR-030/FR-037) ── #}
+  {# ── Broker analyses (US3, rescoped 8/5 D15) — EVERY RDM in the package, one
+     nested expander per RDM (8/5 D16), each with its analyses. Listing asserts
+     no EDM↔RDM link — the RDMs merely share the package. #}
   {% set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum %}
   <details class="sec" open id="edm-broker-analyses">
     <summary>
       <span class="sec__caret">▸</span>
       <span class="sec__title">Broker analyses</span>
-      {% if analysis_total %}
+      {% if edm.analyses %}
       <span class="badge badge--neutral">{{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ analysis_total }} analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
       {% endif %}
       <span class="sec__spacer"></span>
-      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
+      <span class="sec__note">Every RDM in the package · settings &amp; metadata only · no loss numbers</span>
     </summary>
 
-    {% if analysis_total %}
+    {% if edm.analyses %}
     <div class="dtable-shell">
       <div class="dtable" style="--cols:230px 70px minmax(130px,1fr) 120px 80px 120px 90px 60px 110px;min-width:1010px">
         <div class="dtable__head">
@@ -231,22 +233,35 @@
           <span class="l">PLA</span><span class="l">Rate</span>
         </div>
         {% for group in edm.analyses %}
-        <div class="dtable__group">
-          <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
-          {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
-          <a class="link" href="/rdms/{{ group.rdm_id }}">Open RDM →</a>
-        </div>
-        {% for a in group.analyses %}
-        {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
-        {% endfor %}
+        <details class="dtable__rdm" open>
+          <summary>
+            <div class="dtable__group">
+              <span class="grp-caret">▸</span>
+              <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
+              {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
+              <span class="ref">{{ group.analyses|length }} analys{{ 'is' if group.analyses|length == 1 else 'es' }}</span>
+              <a class="link" href="/rdms/{{ group.rdm_id }}"
+                 onclick="event.stopPropagation()">Open RDM →</a>
+            </div>
+          </summary>
+          {% for a in group.analyses %}
+          {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+          {% endfor %}
+          {% if not group.analyses %}
+          <div class="dtable__groupempty">No analyses in this RDM.</div>
+          {% endif %}
+        </details>
         {% endfor %}
       </div>
     </div>
+    <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
+      Every RDM in this EDM's package is listed. Listing asserts no link between
+      an RDM's analyses and this EDM — they share a package, nothing more.</p>
     {% elif edm.detail_state == 'importing' %}
     <div class="state-box">Broker analyses appear after the package's RDM imports
       finish.</div>
     {% else %}
-    <div class="state-box">No broker analyses on this EDM.</div>
+    <div class="state-box">No broker analyses to show.</div>
     {% endif %}
   </details>
 

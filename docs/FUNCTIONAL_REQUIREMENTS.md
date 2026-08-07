@@ -299,8 +299,8 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Every RDM in a Package is displayed on every EDM detail page in that Package. | Partial | **Added 8/5.** Analyses are grouped by source RDM today, but scoped to RDMs applied against that EDM (`list_edm_analyses` filters on `a.edm_id`). Two EDMs and two RDMs means each EDM page shows both RDMs. |
-| Each RDM section on the EDM page expands and collapses individually. | Not implemented | **Added 8/5.** Both expanded for the whole picture, or collapse one to concentrate on the other — "you can see everything or… choose to only see a couple things." |
+| Every RDM in a Package is displayed on every EDM detail page in that Package. | Implemented | **Added 8/5.** `list_edm_analyses` is package-scoped: two EDMs and two RDMs means each EDM page shows both RDMs, and an RDM with no analyses still appears with an empty group (the paired-book check is "were the same analyses run"). A packageless EDM falls back to the analyses applied against it. |
+| Each RDM section on the EDM page expands and collapses individually. | Implemented | **Added 8/5.** Each RDM group is its own expander (default open) inside the Broker analyses section — both expanded for the whole picture, or collapse one to concentrate on the other. |
 | Displaying an RDM against an EDM does not assert a link between them. | Implemented | Membership in the same Submission is the only relationship: "EDM 1 isn't related to EDM 2 other than they're related to the same submission." Consistent with the §2.2 trust rule. |
 
 > **Why every RDM on every EDM.** Wendy's case is a paired book — an in-force and a projected EDM with an in-force and a projected RDM: "I like to see the landscape to say, were the same analyses run, because… if you have 12 analyses in one, you have 12 analyses in the other." No two-EDM/two-RDM example exists in the app yet, so the layout is unreviewed.
