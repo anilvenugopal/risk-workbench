@@ -10,11 +10,23 @@ Response convention: full-page GETs return the shell-embedded page (`hx-boost` h
 
 | Method | Path | Purpose | Notes |
 |---|---|---|---|
-| GET | `/submissions` | Master-detail list — **default "All"** or last view | Nav `submissions.all`. Filters via query string. |
-| GET | `/submissions/mine` | List filtered to `assigned_analyst_id = current_user` | Nav `submissions.mine`; the **default** landing per FR-020. |
+| GET | `/submissions` | Master-detail list, owner-filtered | Nav `submissions.all`. Filters via query string. |
 | GET | `/submissions/{id}` | Detail view — attributes, status + history, CRM tags, packages | Real URL (Article 8). 404 if unknown id. Visible to any analyst (FR-019). |
 
-**List query params** (all optional, combine with AND — FR-021/R7/R10): `cedant`, `treaty_type`, `inception` (ISO date), `treaty_year`. The "My/All" distinction is the route (`/submissions/mine` vs `/submissions`), i.e. a plain owner predicate, not a scope wrapper.
+**List query params** (all optional, combine with AND — FR-021/R7/R10): `q` (name), `cedant`, `crm_id`, `owner`, `status`, `treaty_type`, `inception` (ISO date), `treaty_year`. `q` and `cedant` match on words — every whitespace-separated word must appear, as a substring (CR1/CR2); `crm_id` matches a substring of any CRM tag on the deal (CR3); the rest are exact. `page` (1-based, default 1) selects one 50-row page; the Prev/Next links carry the applied filters, and the filter form sends no `page`, so re-filtering returns to page 1.
+
+`owner` carries an `app_user.id`, never a display name, which two analysts can share:
+
+| `owner` | Rows |
+|---|---|
+| absent | the signed-in analyst's deals — the FR-020 landing |
+| empty | every owner |
+| an `app_user.id` | that analyst's deals |
+| anything else | none (a hand-typed URL must not raise) |
+
+The filter bar carries every active user in a dropdown — typing narrows the menu in the browser, and only picking a user sends the request, with the display name as the label and the id as the value. The owner predicate is a plain `WHERE assigned_analyst_id = :owner`, not a scope wrapper.
+
+A request whose `HX-Target` header is `sub-list` — the filter form and the pager links — gets the list table alone instead of the shell-embedded page, so filtering does not rebuild the status list and the owner menu it would discard.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -72,6 +84,6 @@ Per FR-028, **no analyst-facing package UI is built this iteration.** The submis
 ## Cross-cutting
 
 - **CSRF** on every POST (Article 13); token from the existing `app/auth/csrf.py`.
-- **Nav manifest** (Article 1): the `submissions` rail + `submissions.mine`/`submissions.all` nodes exist; add a `submissions.detail` node (parameterized) so breadcrumb/active-state derive from position, not history.
+- **Nav manifest** (Article 1): the `submissions` rail + `submissions.all` node exist; add a `submissions.detail` node (parameterized) so breadcrumb/active-state derive from position, not history.
 - **HTMX idle-timeout**: inherits the Iteration-0 `HX-Redirect` handling on session expiry.
 - **No IRP calls** on any of these routes (Article 11 N/A this iteration).

@@ -8,9 +8,13 @@ actually proves the paths the SQLite mirror cannot vouch for:
 
   * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
     column,
-  * ``LIKE`` collation in cedant autocomplete / find_similar,
+  * ``LIKE`` collation in cedant autocomplete / find_similar / the list's name and
+    cedant search, and the ``ESCAPE '\'`` clause behind them,
+  * the ``EXISTS`` CRM-tag predicate and the dynamic ``IN`` param set that attaches
+    CRM ids to a page of list rows,
   * ``db.row_limit()`` emitting ``OFFSET/FETCH`` — the SQLite tier only ever runs
-    the ``LIMIT`` branch,
+    the ``LIMIT`` branch — including the non-zero offset the list's second page
+    reads through,
   * status-history ``ORDER BY at DESC`` tie-breaking.
 
 Because ``import *`` pulls in every ``test_*`` name, new unit tests added later
@@ -156,7 +160,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
 
 
 def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
-    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``:exclude IS NULL``
+    """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``s.id <> :exclude``
     predicate and the ``uniqueidentifier`` comparison behind it are all accepted by
     SQLite without proving anything about SQL Server. Run each search against the
     real driver and check the cap holds."""

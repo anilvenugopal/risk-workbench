@@ -29,10 +29,10 @@ sequenceDiagram
 
     rect rgb(238,244,255)
         Note over User,M: hx-boost — a real navigation, swapped without a full reload
-        User->>MW: GET /submissions/mine  (hx-boost intercepts the click)
+        User->>MW: GET /submissions  (hx-boost intercepts the click)
         MW->>MW: session + password + role gates (see login_and_session.md)
         MW->>App: request.state.user
-        App->>M: get_nav_context(user, nav_key="submissions.mine")
+        App->>M: get_nav_context(user, nav_key="submissions.all")
         M->>M: filter nodes by the user's roles + hidden flags
         M->>M: resolve rail root → sidebar tree → breadcrumb trail → active node
         M-->>App: nav context

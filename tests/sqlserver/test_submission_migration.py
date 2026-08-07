@@ -79,6 +79,28 @@ class TestSubmissionMigration:
             {}, connection="WORKBENCH")
         assert n == 1
 
+    def test_master_list_index_keys_and_covers(self):
+        """``ix_submission_list_order`` is what keeps a filtered list read off the
+        clustered table. Its DESC key and its included columns are both invisible to
+        the SQLite mirror, so only this tier can check them."""
+        cols = execute(
+            "SELECT c.name, ic.is_descending_key, ic.is_included_column "
+            "FROM sys.indexes i "
+            "JOIN sys.index_columns ic ON ic.object_id = i.object_id "
+            "                         AND ic.index_id = i.index_id "
+            "JOIN sys.columns c ON c.object_id = i.object_id "
+            "                  AND c.column_id = ic.column_id "
+            "WHERE i.object_id = OBJECT_ID('dbo.submission') "
+            "  AND i.name = 'ix_submission_list_order' "
+            "ORDER BY ic.is_included_column, ic.key_ordinal",
+            {}, connection="WORKBENCH")
+        keys = [(r["name"], bool(r["is_descending_key"]))
+                for r in cols if not r["is_included_column"]]
+        assert keys == [("inception_date", True), ("name", False)]
+        included = {r["name"] for r in cols if r["is_included_column"]}
+        assert included == {"cedant_name", "treaty_type_code", "treaty_year",
+                            "status_code", "assigned_analyst_id", "updated_at"}
+
     def test_submission_foreign_keys_present(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.foreign_keys "

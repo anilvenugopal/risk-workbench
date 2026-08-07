@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 from functools import partial
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -169,16 +170,22 @@ def _reshow_form(
         status_code=status_code)
 
 
+def _active_analysts() -> list[dict]:
+    """Every active user, for the detail page's reassign picker and the list's
+    Owner filter."""
+    return execute(
+        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
+        "ORDER BY display_name",
+        {}, connection="WORKBENCH",
+    )
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
-    analysts = execute(
-        "SELECT id, display_name FROM app_user WHERE is_active = 1 "
-        "ORDER BY display_name",
-        {}, connection="WORKBENCH",
-    )
+    analysts = _active_analysts()
     return {
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
@@ -215,39 +222,114 @@ def _not_found(request: Request):
     )
 
 
-# ── List (My / All) + filters ────────────────────────────────────────────────
+# ── List + filters ───────────────────────────────────────────────────────────
 
-def _list_page(request: Request, *, owner_id, nav_key: str):
-    filters = {
-        "cedant_name": (request.query_params.get("cedant") or "").strip() or None,
-        "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
-        "inception_date": _parse_date(request.query_params.get("inception")),
-        "treaty_year": _parse_int(request.query_params.get("treaty_year")),
-    }
-    rows = submission_service.list_submissions(owner_id=owner_id, **filters)
-    extra = {
-        "rows": rows,
-        "treaty_types": TREATY_TYPES,
-        "scope": "mine" if owner_id else "all",
-        "filter_values": {
-            "cedant": request.query_params.get("cedant", ""),
-            "treaty_type": request.query_params.get("treaty_type", ""),
-            "inception": request.query_params.get("inception", ""),
-            "treaty_year": request.query_params.get("treaty_year", ""),
-        },
-    }
-    return _render(request, "pages/submissions.html", nav_key, extra)
+# The id of the div the filter form and the pager links both target. A request
+# naming it gets the table on its own: rebuilding the status list, the analyst
+# list and the nav shell for htmx to discard is the cost of a keystroke otherwise.
+_LIST_TARGET = "sub-list"
+_SEARCH_MAX_CHARACTERS = 100
+_SEARCH_MAX_WORDS = 10
+
+
+def _owner_label(analysts: list[dict], owner_id) -> str:
+    """The picked analyst's display name, for the Owner box to show, or "" when no
+    analyst is picked. Compared as lowercase strings because the id reaches here
+    from a query string while ``app_user.id`` arrives from the driver."""
+    return next((a["display_name"] for a in analysts
+                 if str(a["id"]).lower() == str(owner_id).lower()), "")
 
 
 @router.get("/submissions", response_class=HTMLResponse)
-def list_all(request: Request):
-    return _list_page(request, owner_id=None, nav_key="submissions.all")
-
-
-@router.get("/submissions/mine", response_class=HTMLResponse)
-def list_mine(request: Request):
-    return _list_page(request, owner_id=request.state.user.id,
-                      nav_key="submissions.mine")
+def list_submissions_page(request: Request):
+    text_filters = {
+        "name": (request.query_params.get("q") or "").strip(),
+        "cedant_name": (request.query_params.get("cedant") or "").strip(),
+        "crm_id": (request.query_params.get("crm_id") or "").strip(),
+    }
+    labels = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM ID"}
+    validation_error = next((
+        f"{labels[key]} must be {_SEARCH_MAX_CHARACTERS} characters or fewer."
+        for key, value in text_filters.items()
+        if len(value) > _SEARCH_MAX_CHARACTERS
+    ), None)
+    if validation_error is None:
+        validation_error = next((
+            f"{labels[key]} must contain {_SEARCH_MAX_WORDS} words or fewer."
+            for key, value in text_filters.items()
+            if len(value.split()) > _SEARCH_MAX_WORDS
+        ), None)
+    filters = {
+        **{key: value or None for key, value in text_filters.items()},
+        "treaty_type_code": (request.query_params.get("treaty_type") or "").strip() or None,
+        "inception_date": _parse_date(request.query_params.get("inception")),
+        "treaty_year": _parse_int(request.query_params.get("treaty_year")),
+        "status_code": (request.query_params.get("status") or "").strip() or None,
+    }
+    # The Owner menu sends an app_user id. No `owner` at all — a nav click, a bare
+    # bookmark — lands the analyst on their own deals (FR-020); `owner=any` asks
+    # for every deal.
+    raw_owner = request.query_params.get("owner")
+    owner_value = raw_owner.strip() if raw_owner is not None else None
+    owner_id = (request.state.user.id if owner_value is None
+                else None if owner_value == "any" else owner_value)
+    page = _parse_int(request.query_params.get("page")) or 1
+    listing = (submission_service.list_submissions(
+        owner_id=owner_id, page=page, **filters)
+        if validation_error is None else None)
+    # Echoed back into the inputs so a filtered request re-renders what was typed,
+    # and read by the template to tell "nothing matches" from "nothing here yet".
+    filter_values = {
+        key: request.query_params.get(key, "")
+        for key in ("q", "cedant", "crm_id", "treaty_type", "inception",
+                    "treaty_year", "status")
+    }
+    # The resolved owner, not the raw parameter: on the default landing the hidden
+    # input has to carry the analyst's own id so the next filter request keeps it.
+    filter_values["owner"] = str(owner_id) if owner_id is not None else owner_value or ""
+    query_values = {
+        query_key: filter_values[query_key].strip()
+        for query_key, filter_key in (
+            ("q", "name"), ("cedant", "cedant_name"), ("crm_id", "crm_id"),
+            ("treaty_type", "treaty_type_code"), ("inception", "inception_date"),
+            ("treaty_year", "treaty_year"), ("status", "status_code"),
+        )
+        if filters[filter_key] is not None
+    }
+    if filter_values["owner"]:
+        query_values["owner"] = filter_values["owner"]
+    if str(query_values.get("owner", "")).lower() == str(request.state.user.id).lower():
+        query_values.pop("owner")
+    list_ctx = {
+        "rows": listing.rows if listing else [],
+        "page": listing.page if listing else page,
+        "has_next": listing.has_next if listing else False,
+        # The applied filters, for the pager links to carry; each link appends its
+        # own page number. `owner` goes even when empty — dropping it would make
+        # page 2 of an every-owner list default back to the analyst's own deals.
+        "filter_query": urlencode(query_values),
+        "is_filtered": owner_id is not None or any(filters.values()),
+        "validation_error": validation_error,
+    }
+    if request.headers.get("HX-Target") == _LIST_TARGET:
+        response = _partial(request, "partials/submission_list.html", list_ctx)
+        canonical_query = dict(query_values)
+        if page > 1:
+            canonical_query["page"] = page
+        response.headers["HX-Push-Url"] = (
+            "/submissions" + (f"?{urlencode(canonical_query)}"
+                              if canonical_query else "")
+        )
+        return response
+    analysts = _active_analysts()
+    return _render(request, "pages/submissions.html", "submissions.all", {
+        **list_ctx,
+        "treaty_types": TREATY_TYPES,
+        "statuses": submission_service.status_kinds(),
+        "analysts": analysts,
+        "owner_label": _owner_label(analysts, owner_id),
+        "filter_values": filter_values,
+    }, status_code=422 if validation_error else 200)
 
 
 def _suggest_menu(request: Request, options: list[dict], term: str,

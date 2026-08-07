@@ -52,7 +52,6 @@ class TestSearchableNodes:
         from app.nav.manifest import searchable_nodes
         keys = [n["key"] for n in searchable_nodes()]
         assert "submissions.all" in keys
-        assert "submissions.mine" in keys
 
     def test_includes_workflows_children(self):
         from app.nav.manifest import searchable_nodes
