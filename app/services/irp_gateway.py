@@ -41,6 +41,10 @@ from typing import Protocol, runtime_checkable
 # DataBridge executor by get_edm_exposure_summary below.
 _DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
 
+# A free-text descriptor with more distinct values than this is not saved into
+# the stored summary (8/4 D15 — lines of business is the known case).
+_FREE_TEXT_STORAGE_CAP = 500
+
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
 
@@ -353,6 +357,11 @@ class _RealGateway:
         for values in summary.values():
             for key in ("countries", "states", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
+            # 8/4 D15/CR19: line of business is user-defined free text that
+            # cedants fill with account numbers or underwriter names — "if
+            # it's over 500 values, we're not going to save it out."
+            if len(values["lines_of_business"]) > _FREE_TEXT_STORAGE_CAP:
+                values["lines_of_business"] = []
         return summary
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:

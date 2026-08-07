@@ -236,7 +236,7 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A free-text descriptor field with more than ~500 distinct values is not saved into the roll-up. | Not implemented | Line of business is the known case: a completely user-defined descriptor that does not affect analysis, which cedants populate with "10s of thousands of different and unique values" — account numbers, underwriter names. "If it's over 500 values, we're not going to save it out." |
+| A free-text descriptor field with more than ~500 distinct values is not saved into the roll-up. | Implemented | Line of business is the known case: a completely user-defined descriptor that does not affect analysis, which cedants populate with "10s of thousands of different and unique values" — account numbers, underwriter names. "If it's over 500 values, we're not going to save it out." The gateway drops a lines-of-business list over 500 distinct values before the summary is stored; the cell renders "—". |
 | Front-end expansion of a value list is capped around 100. | Implemented | The portfolio-row expander shows the first 100 values per list and states how many are not shown. |
 | No elegant handling is required for the pathological case. | Implemented | Explicit guidance: "It doesn't need some elegant options that we go through… I don't want you to overthink that scenario." |
 
