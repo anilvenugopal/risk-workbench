@@ -35,8 +35,8 @@
         {% if a.get('treatyNumber') %}<span class="dt-sub">{{ a.get('treatyNumber') }}</span>
         {% elif t.irp_id %}<span class="dt-sub">TR-{{ t.irp_id }}</span>{% endif %}
       </span></span></span>
-    <span class="l">{{ attr_val(a.get('treatyType')) }}</span>
-    <span class="l">{{ attr_val(a.get('attachmentLevel')) }}</span>
+    <span class="l">{{ attr_val(t.display('treatyType')) }}</span>
+    <span class="l">{{ attr_val(t.display('attachmentLevel')) }}</span>
     <span class="l">{{ attr_val(cur) }}</span>
     <span>{{ money(a.get('attachmentPoint')) }}</span>
     <span>{{ money(limit) }}</span>
