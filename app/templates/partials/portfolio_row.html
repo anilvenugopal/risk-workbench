@@ -2,7 +2,7 @@
    FR-012/FR-013). Context: `p` (portfolio_service.PortfolioRow). The snapshot
    is namespaced (data-model §2): "metrics" = RM /metrics verbatim (counts +
    perilsExposed string); "summary" = the DataBridge aggregate
-   (TIV/geography/LOB/currency), null until available. Rows written before
+   (geography/LOB/currency), null until available. Rows written before
    2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
    shape. Every field is read defensively; a missing field renders "—", never
    an error. Records == locations, so there is no separate Records column
@@ -54,20 +54,5 @@
     {%- if curr -%}
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
-  </span>
-  <span>
-    {#- total_tiv: Moody's precomputed exposure_metrics account rollup summed
-        per portfolio — one figure with no currency attribution (currencies
-        have their own column), so no symbol is shown. -#}
-    {%- set tiv = s.get('total_tiv') -%}
-    {%- if tiv is not number -%}<span class="na">&mdash;</span>
-    {%- else -%}
-      <span title="{{ '{:,.0f}'.format(tiv) }}">
-        {%- if tiv >= 1e9 -%}{{ '%.1f'|format(tiv / 1e9) }}B
-        {%- elif tiv >= 1e6 -%}{{ '%.1f'|format(tiv / 1e6) }}M
-        {%- else -%}{{ '{:,.0f}'.format(tiv) }}
-        {%- endif -%}
-      </span>
-    {%- endif -%}
   </span>
 </div>

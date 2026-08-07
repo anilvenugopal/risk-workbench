@@ -147,7 +147,7 @@ One `exposure_detail` JSON per portfolio, namespaced so the two sources never co
 ```json
 {
   "metrics": { "totalLocations": …, "totalAccounts": …, "totalPolicies": …, "perilsExposed": […] },
-  "summary": { "total_tiv": …, "states": […], "lines_of_business": […], "currencies": […] }
+  "summary": { "states": […], "lines_of_business": […], "currencies": […] }
 }
 ```
 

@@ -2,7 +2,7 @@
 
 ``portfolio_service.aggregate_exposure`` derives the quick-orientation rollup
 from the stored per-portfolio snapshots (research R4): SUM the counts + record
-volume + TIV, UNION perils/lines of business, COMBINE geography (states) + the
+volume, UNION perils/lines of business, COMBINE geography (states) + the
 currency set, count portfolios. Pure function — no DB, no Risk Modeler, never
 stored (FR-042).
 ``None`` when no portfolio carries a snapshot → the caller renders the pending
@@ -20,14 +20,14 @@ from db import execute_command
 SNAP_A = {
     "metrics": {"totalLocations": 8240, "totalAccounts": 1120,
                 "totalPolicies": 1180, "perilsExposed": "WS, EQ"},
-    "summary": {"portfolio_name": "A", "total_tiv": 2.8e9,
+    "summary": {"portfolio_name": "A",
                 "currencies": ["USD"], "states": ["FL", "TX"],
                 "lines_of_business": ["Commercial"]},
 }
 SNAP_B = {
     "metrics": {"totalLocations": 3900, "totalAccounts": 720,
                 "totalPolicies": 760, "perilsExposed": "WS, FL"},
-    "summary": {"portfolio_name": "B", "total_tiv": 1.3e9,
+    "summary": {"portfolio_name": "B",
                 "currencies": ["USD", "CAD"], "states": ["TX", "NY"],
                 "lines_of_business": ["Commercial", "Residential"]},
 }
@@ -51,7 +51,6 @@ def test_aggregate_sums_unions_and_combines():
     assert agg.lines_of_business == ["Commercial", "Residential"]
     assert agg.states == ["FL", "NY", "TX"]          # combined geography
     assert agg.currencies == ["CAD", "USD"]          # currency set
-    assert agg.total_tiv == 4.1e9                    # summed across portfolios
 
 
 def test_aggregate_none_when_no_snapshot():
@@ -80,7 +79,6 @@ def test_aggregate_flat_precapability_shape_and_missing_summary():
     assert agg.locations == 100
     assert agg.perils == ["EQ"]
     assert agg.currencies == []            # graceful — no summary anywhere
-    assert agg.total_tiv is None
 
 
 def test_get_edm_detail_surfaces_the_derived_aggregate(iteration2_db):

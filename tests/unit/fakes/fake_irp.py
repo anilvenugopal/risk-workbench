@@ -30,7 +30,7 @@ from app.services.irp_gateway import (
 
 # The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
 # used when a seeded portfolio doesn't specify its own. Counts + a perilsExposed
-# STRING — RM returns no TIV/geography/LOB/currency here (those come from the
+# STRING — RM returns no geography/LOB/currency here (those come from the
 # DataBridge exposure summary).
 DEFAULT_EXPOSURE = {
     "totalAccounts": 10, "totalLocations": 100, "totalPolicies": 12,
@@ -135,7 +135,7 @@ class FakeIRP:
     def set_exposure_summary(self, edm_name: str,
                              by_portfolio: dict[str, dict]) -> None:
         """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
-        returns — ``{portfolioId(str): {portfolio_name, total_tiv, states,
+        returns — ``{portfolioId(str): {portfolio_name, states,
         lines_of_business, currencies}}`` (the sql/databridge/ script set).
         Unseeded EDMs return ``{}``."""
         self._summaries[edm_name] = {str(k): dict(v)

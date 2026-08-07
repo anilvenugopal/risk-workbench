@@ -128,8 +128,8 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the
 # four set-based sql/databridge/ scripts through the wheel's generic executor,
-# assembling {portfolioId(str): {portfolio_name, total_tiv, states,
-# lines_of_business, currencies}}.
+# assembling {portfolioId(str): {portfolio_name, states, lines_of_business,
+# currencies}}.
 
 class _Frame:
     """A minimal DataFrame stand-in — the gateway only calls to_dict('records')."""
@@ -161,9 +161,9 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         {"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"},
     ]
     results = {
-        "portfolio_total_tiv.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "TotalTIV": 2.8e9},
-            {"PortfolioId": 2, "PortfolioName": "B", "TotalTIV": 0},
+        "portfolio_list.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A"},
+            {"PortfolioId": 2, "PortfolioName": "B"},
         ],
         "portfolio_states.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
@@ -183,12 +183,12 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
-    # gets an entry from the TIV seed with empty lists
+    # gets an entry from the portinfo enumeration seed with empty lists
     assert summary == {
-        "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
+        "1": {"portfolio_name": "A",
               "states": ["FL", "TX"], "lines_of_business": ["Commercial"],
               "currencies": ["USD"]},
-        "2": {"portfolio_name": "B", "total_tiv": 0.0,
+        "2": {"portfolio_name": "B",
               "states": [], "lines_of_business": [], "currencies": []},
     }
     # every script ran against the databaseName of the exposureId-matched hit

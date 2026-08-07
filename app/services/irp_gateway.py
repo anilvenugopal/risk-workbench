@@ -303,7 +303,7 @@ class _RealGateway:
 
     def get_edm_exposure_summary(self, *, edm_name: str,
                                  edm_irp_id: int) -> dict[str, dict]:
-        # Per-EDM DataBridge SQL aggregate (TIV/geography/LOB/currency — none
+        # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
         # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
         # Interim implementation: the requested wheel method
         # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
@@ -324,9 +324,9 @@ class _RealGateway:
                 str(_DATABRIDGE_SQL_DIR / script), database=database)
             return frames[0].to_dict("records") if frames else []
 
-        # Seed every portfolio from the TIV script (it LEFT JOINs from
-        # portinfo, so it covers portfolios with no accounts/locations too);
-        # the DISTINCT list scripts then only add to existing entries.
+        # Seed every portfolio from the portinfo enumeration (it covers
+        # portfolios with no accounts/locations too); the DISTINCT list
+        # scripts then only add to existing entries.
         summary: dict[str, dict] = {}
 
         def entry(row: dict) -> dict:
@@ -335,14 +335,13 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "total_tiv": None, "states": [],
+                    "states": [],
                     "lines_of_business": [], "currencies": [],
                 }
             return summary[key]
 
-        for row in rows("portfolio_total_tiv.sql"):
-            tiv = row.get("TotalTIV")
-            entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_list.sql"):
+            entry(row)
         for row in rows("portfolio_states.sql"):
             entry(row)["states"].append(str(row["State"]))
         for row in rows("portfolio_lines_of_business.sql"):
