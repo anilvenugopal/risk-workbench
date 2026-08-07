@@ -1,4 +1,4 @@
-"""Route tests for submission create/edit — the HTTP surface only.
+"""Route tests for the submission list and create/edit — the HTTP surface only.
 
 Service behavior lives in ``test_submission_service.py``. These cover what only
 the route decides:
@@ -8,7 +8,10 @@ the route decides:
   • treaty-year range rejection, and a blank year filled from the inception date
     when the analyst never touches the field (CR5);
   • the 303 to the new deal, and CSRF rejection writing nothing;
-  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8).
+  • the two typeahead menus, including the AND-combined "links to" search (CR7/CR8);
+  • the list's eight filters — which query parameter feeds which predicate, the
+    values echoed back into the inputs, the CRM column, and the two empty states
+    (CR1–CR3).
 
 Harness: TestClient over the real router against the fixture SQLite engine
 (``test_name_check_routes.py`` pattern, minus the monkeypatched services — these
@@ -19,6 +22,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import date
 
 import pytest
 from fastapi import FastAPI, Request
@@ -339,3 +343,255 @@ def test_editing_a_deal_to_link_to_itself_is_rejected(client):
     assert execute(
         "SELECT links_to_submission_id FROM submission WHERE id = :id",
         {"id": sid}, connection="WORKBENCH")[0]["links_to_submission_id"] is None
+
+
+# ── List: search, filters, CRM column (CR1–CR3) ──────────────────────────────
+
+def _mk_owned_by_b(client, name: str) -> None:
+    """A deal owned by the other analyst. The route always assigns the signed-in
+    user, so this goes through the service."""
+    submission_service.create_submission(
+        name=name, cedant_name="Beta Re", treaty_type_code="cat_xol",
+        inception_date=date(2026, 3, 1), treaty_year=2026,
+        actor_id=client.db.user_b, confirmed=True)
+
+
+def _two_american_deals(client) -> None:
+    client.post("/submissions", data=_payload(
+        name="TY2506_AmericanFamily", cedant_name="American Family Mutual",
+        inception_date="2025-06-01"))
+    client.post("/submissions", data=_payload(
+        name="TY2501_AmericanNational", cedant_name="American National",
+        inception_date="2025-01-01"))
+
+
+def test_list_search_narrows_by_name(client):
+    _two_american_deals(client)
+    body = client.get("/submissions?q=american+fam").text
+    assert "TY2506_AmericanFamily" in body
+    assert "TY2501_AmericanNational" not in body
+
+
+def test_list_filter_narrows_by_crm_id(client):
+    client.post("/submissions", data=_payload(name="Tagged deal",
+                                              crm_ids="CRM-4417"))
+    client.post("/submissions", data=_payload(name="Untagged deal",
+                                              inception_date="2026-07-01"))
+    body = client.get("/submissions?crm_id=441").text
+    assert "Tagged deal" in body and "Untagged deal" not in body
+
+
+def test_list_owner_filter_offers_every_active_user(client):
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    body = client.get("/submissions").text
+    # Every active user is a menu row, so the analyst picks instead of typing.
+    assert 'data-name="Analyst A"' in body
+    assert 'data-name="Analyst B"' in body
+    # The row carries the id the filter runs on; the name is only the label.
+    assert f'data-id="{client.db.user_a}"' in body
+    a, b = client.db.user_a, client.db.user_b
+    assert "Deal owned by A" in client.get(f"/submissions?owner={a}").text
+    assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
+
+
+def test_list_owner_filter_ignores_a_name_typed_into_the_url(client):
+    """The Owner box submits an id. A display name in ?owner= is not one, so it
+    narrows to nothing rather than substring-matching two analysts at once."""
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    assert "Deal owned by A" not in client.get("/submissions?owner=Analyst+A").text
+
+
+def test_list_shows_each_deals_crm_ids(client):
+    res = client.post("/submissions", data=_payload(
+        name="Three tags", crm_ids="CRM-1, CRM-2, CRM-3"))
+    assert res.status_code == 303
+    body = client.get("/submissions").text
+    # First tag in full; the rest collapse into a hoverable count.
+    assert "CRM-1" in body and "+2 more" in body
+
+
+def test_list_renders_every_status_and_shows_the_selected_one(client):
+    body = client.get("/submissions?status=COMPLETED").text
+    assert 'data-code="CANCELLED">Cancelled</button>' in body
+    # The trigger, not the menu row, carries the applied label.
+    assert '<span x-ref="label">Completed</span>' in body
+
+
+def test_list_echoes_every_filter_back_into_its_input(client):
+    body = client.get(
+        f"/submissions?q=amfam&cedant=mutual&crm_id=CRM-9&status=ACTIVE"
+        f"&owner={client.db.user_b}&treaty_type=cat_xol&inception=2026-04-01"
+        "&treaty_year=2026").text
+    for name, value in (("q", "amfam"), ("cedant", "mutual"),
+                        ("crm_id", "CRM-9"),
+                        ("inception", "2026-04-01"), ("treaty_year", "2026")):
+        assert f'name="{name}"' in body and f'value="{value}"' in body
+    for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol"),
+                        ("owner", str(client.db.user_b))):
+        assert f'name="{name}" value="{value}"' in body
+    # The Owner box shows the picked analyst's name; the hidden input holds the id.
+    assert 'value="Analyst B"' in body
+    assert '<span x-ref="label">Active</span>' in body
+    assert '<span x-ref="label">Cat XoL</span>' in body
+
+
+def test_filtered_empty_list_offers_to_clear_the_filters(client):
+    _two_american_deals(client)
+    filtered = client.get("/submissions?q=nothing+matches+this").text
+    assert "clear-filters" in filtered and 'href="/submissions"' in filtered
+
+
+def test_empty_list_with_no_filters_reads_as_empty_not_filtered(client):
+    body = client.get("/submissions?owner=any").text
+    assert "No submissions yet." in body and "clear-filters" not in body
+
+
+def test_empty_my_deals_offers_to_clear_rather_than_reading_as_empty(client):
+    """Analyst A owns nothing while Analyst B owns a deal. The default landing is
+    owner-filtered, so "No submissions yet." would be a lie."""
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions").text
+    assert "Deal owned by B" not in body
+    assert "No submissions match" in body and "clear-filters" in body
+
+
+# ── List: the #sub-list fragment and the pager ───────────────────────────────
+
+def _fill_a_page_and_a_bit(client, extra: int = 2) -> None:
+    """PAGE_SIZE + ``extra`` deals, each with its own name and cedant so no create
+    trips the look-alike warning."""
+    for i in range(submission_service.PAGE_SIZE + extra):
+        client.post("/submissions", data=_payload(
+            name=f"Paged deal {i:03d}", cedant_name=f"Paged cedant {i:03d}"))
+
+
+def test_a_request_targeting_sub_list_gets_the_table_alone(client):
+    """The filter form and the pager both target #sub-list, and htmx keeps only
+    that. Rebuilding the filter bar and the nav shell for each keystroke is the
+    cost this branch removes."""
+    client.post("/submissions", data=_payload(name="Fragment deal"))
+    fragment = client.get("/submissions?q=fragment",
+                          headers={"HX-Request": "true", "HX-Target": "sub-list"}).text
+    assert 'id="sub-list"' in fragment and "Fragment deal" in fragment
+    # No filter bar, no owner menu, no shell — the three things the full page
+    # renders and htmx throws away.
+    assert 'class="filters"' not in fragment
+    assert 'data-name="Analyst B"' not in fragment
+    assert "<html" not in fragment
+
+    whole_page = client.get("/submissions?q=fragment").text
+    assert 'class="filters"' in whole_page and "Fragment deal" in whole_page
+
+
+def test_the_list_shows_one_page_with_a_next_link(client):
+    _fill_a_page_and_a_bit(client)
+    first = client.get("/submissions").text
+    assert first.count('class="data-row"') == submission_service.PAGE_SIZE
+    assert "Page 1" in first and "page=2" in first
+    assert 'rel="prev"' not in first
+
+    second = client.get("/submissions?page=2").text
+    assert second.count('class="data-row"') == 2
+    assert "Page 2" in second and 'rel="prev"' in second and 'rel="next"' not in second
+
+
+def test_a_short_list_shows_no_pager(client):
+    client.post("/submissions", data=_payload(name="Only deal"))
+    assert "Page 1" not in client.get("/submissions").text
+
+
+def test_pager_links_carry_the_applied_filters(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?q=paged&status=ACTIVE").text
+    assert "q=paged" in body and "status=ACTIVE" in body and "page=2" in body
+
+
+def test_pager_links_omit_empty_filters_and_the_default_owner(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get(
+        f"/submissions?q=&cedant=&crm_id=&status=&owner={client.db.user_a}"
+    ).text
+    assert 'href="/submissions?page=2"' in body
+
+
+def test_htmx_push_url_omits_empty_filters_and_the_default_owner(client):
+    response = client.get(
+        f"/submissions?q=&cedant=&owner={client.db.user_a}",
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.headers["HX-Push-Url"] == "/submissions"
+
+
+def test_pager_links_keep_the_every_owner_selection(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?owner=any").text
+    assert 'href="/submissions?owner=any&amp;page=2"' in body
+
+
+def test_a_page_number_that_is_not_a_number_reads_the_first_page(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?page=abc").text
+    assert "Page 1" in body
+    assert body.count('class="data-row"') == submission_service.PAGE_SIZE
+
+
+def test_the_list_lands_on_the_signed_in_analysts_deals(client):
+    """No `owner` parameter means the analyst's own deals (FR-020). The Owner box
+    shows their name while generated URLs omit the default owner."""
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions").text
+    assert "Deal owned by A" in body and "Deal owned by B" not in body
+    assert f'name="owner" value="{client.db.user_a}"' in body
+    assert 'value="Analyst A"' in body
+
+
+def test_owner_any_lists_every_analysts_deals(client):
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get("/submissions?owner=any").text
+    assert "Deal owned by A" in body and "Deal owned by B" in body
+
+
+@pytest.mark.parametrize("parameter", ["q", "cedant", "crm_id"])
+def test_text_filters_accept_exactly_100_trimmed_characters(client, parameter):
+    response = client.get("/submissions", params={parameter: "x" * 100})
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("parameter", "label"),
+    [("q", "Name"), ("cedant", "Cedant"), ("crm_id", "CRM ID")],
+)
+def test_text_filters_reject_101_trimmed_characters_without_querying(
+        client, monkeypatch, parameter, label):
+    def fail(**kwargs):
+        pytest.fail("list_submissions was called")
+
+    monkeypatch.setattr(submission_service, "list_submissions", fail)
+    response = client.get("/submissions", params={parameter: f"  {'x' * 101}  "})
+    assert response.status_code == 422
+    assert f"{label} must be 100 characters or fewer." in response.text
+
+
+@pytest.mark.parametrize("parameter", ["q", "cedant"])
+def test_name_and_cedant_accept_exactly_10_words(client, parameter):
+    response = client.get("/submissions", params={parameter: "x " * 9 + "x"})
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(("parameter", "label"), [("q", "Name"), ("cedant", "Cedant")])
+def test_name_and_cedant_reject_11_words(client, parameter, label):
+    response = client.get("/submissions", params={parameter: "x " * 10 + "x"})
+    assert response.status_code == 422
+    assert f"{label} must contain 10 words or fewer." in response.text
+
+
+def test_invalid_filter_fragment_contains_the_validation_message(client):
+    response = client.get(
+        "/submissions", params={"q": "x" * 101},
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.status_code == 200
+    assert 'id="sub-list"' in response.text
+    assert "Name must be 100 characters or fewer." in response.text

@@ -184,7 +184,18 @@ def upgrade() -> None:
     op.create_index("ix_submission_cedant_name", "submission", ["cedant_name"])
     op.create_index("ix_submission_treaty_type_code", "submission",
                     ["treaty_type_code"])
-    op.create_index("ix_submission_inception_date", "submission", ["inception_date"])
+    # The master list's own index: keyed in its ORDER BY (inception_date DESC,
+    # name) and covering every submission column the list SELECTs, so a page is
+    # read from here and stops at PAGE_SIZE + 1 rows instead of sorting the table.
+    # The DESC matters — an ascending index cannot be scanned backwards to satisfy
+    # a mixed "inception_date DESC, name ASC". The clustered PK puts `id` in the
+    # index without including it.
+    op.create_index(
+        "ix_submission_list_order", "submission",
+        [sa.text("inception_date DESC"), "name"],
+        mssql_include=["cedant_name", "treaty_type_code", "treaty_year",
+                       "status_code", "assigned_analyst_id", "updated_at"],
+    )
 
     # ── submission_crm_id (0..N CRM tags) ───────────────────────────────────────
     op.create_table(
@@ -651,7 +662,7 @@ def downgrade() -> None:
     op.drop_index("ix_submission_crm_id_submission_id",
                   table_name="submission_crm_id")
     op.drop_table("submission_crm_id")
-    op.drop_index("ix_submission_inception_date", table_name="submission")
+    op.drop_index("ix_submission_list_order", table_name="submission")
     op.drop_index("ix_submission_treaty_type_code", table_name="submission")
     op.drop_index("ix_submission_cedant_name", table_name="submission")
     op.drop_index("ix_submission_assigned_analyst_id", table_name="submission")

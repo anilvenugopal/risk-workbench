@@ -81,9 +81,9 @@ class TestSimpleShellRoutes:
     def client(self):
         return TestClient(_make_app())
 
-    # NOTE: /submissions and /submissions/mine moved from the shell stub to the
-    # DB-backed submissions router (Iteration 1, T030) and are no longer shell
-    # routes. Their coverage lives in the submission service tests + CSRF audit.
+    # NOTE: /submissions moved from the shell stub to the DB-backed submissions
+    # router (Iteration 1, T030) and is no longer a shell route. Its coverage
+    # lives in the submission service tests + CSRF audit.
 
     def test_workflows(self, client):
         assert client.get("/workflows").status_code == 200

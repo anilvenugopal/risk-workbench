@@ -72,13 +72,13 @@
 
 ---
 
-## R7 — "My Submissions" default + "All" toggle (no RLS)
+## R7 — Owner-filtered list, defaulting to the current analyst (no RLS)
 
-**Decision**: The list route computes rows with an ordinary predicate: My = `WHERE assigned_analyst_id = :current_user_id`; All = no owner predicate. Both are the *same* query builder with filters (cedant/treaty-type/inception) appended as bound predicates. There is **no scope wrapper** and no admin bypass — every analyst can load All and open any deal (FR-019/FR-020, SC-002). Default view is My; a toggle switches to All. Reassignment (FR-005a) is a plain `UPDATE assigned_analyst_id` (gated by R3 + R1), which moves the deal between My views without touching visibility (SC-011).
+**Decision**: `GET /submissions` computes rows with an ordinary predicate: `WHERE assigned_analyst_id = :owner`, or no owner predicate at all. The `owner` query parameter carries an `app_user.id` and picks between them — absent means the signed-in analyst, and `any` means every owner. There is **no scope wrapper** and no admin bypass: every analyst can list every deal and open any of them (FR-019/FR-020, SC-002). Reassignment (FR-005a) is a plain `UPDATE assigned_analyst_id` (gated by R3 + R1), which moves the deal between owner filters without touching visibility (SC-011).
 
-**Rationale**: Article 6 — `assigned_analyst_id` is a soft filter, never an access gate. Building it as a plain predicate (not via the removed `apply_scope`) is the whole point of the CR-003 cleanup.
+**Rationale**: Article 6 — `assigned_analyst_id` is a soft filter, never an access gate. Building it as a plain predicate (not via the removed `apply_scope`) is the whole point of the CR-003 cleanup. Filtering on the id rather than `app_user.display_name` is what keeps two analysts with the same name apart.
 
-**Alternatives considered**: Reusing `apply_scope` with `assigned_analyst_id` — rejected: that helper is being deleted, and re-introducing a scope wrapper (even a soft one) invites the RLS pattern back. A plain `WHERE` is clearer and honestly non-restrictive.
+**Alternatives considered**: Reusing `apply_scope` with `assigned_analyst_id` — rejected: that helper is being deleted, and re-introducing a scope wrapper (even a soft one) invites the RLS pattern back. A plain `WHERE` is clearer and honestly non-restrictive. A separate `/submissions/mine` route with a My/All toggle — built first, then removed: once the Owner filter listed every analyst, the route and the toggle were a second control over the same predicate, and the two disagreed on `/submissions/mine` (route owner AND picked owner returned nothing).
 
 ---
 
@@ -148,7 +148,7 @@
 | R4 | Duplicate warning | Name **or** cedant+type+inception match → non-blocking warn + confirm; never blocks |
 | R5 | Package invariant | ≥1 member enforced in `package_service` across both child tables; unit-tested |
 | R6 | Cedant autocomplete | `SELECT DISTINCT cedant_name` — no cedant table |
-| R7 | My/All filter | Plain `assigned_analyst_id` predicate; no scope wrapper, no bypass |
+| R7 | Owner filter | Plain `assigned_analyst_id` predicate; no scope wrapper, no bypass |
 | R8 | Cleanup | Full grep-verified surface (11 files), incl. `shell.py`/`test_db_config.py`/etc.; `reference/` excluded |
 | R9 | Renewal self-ref | App guard + CHECK `renews_from_submission_id <> id` |
 | R10 | Inception filter | Exact date **and** treaty-year grouping; control is a design detail |

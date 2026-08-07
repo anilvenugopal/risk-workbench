@@ -367,6 +367,180 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Owner filter on the submissions list. Unlike `typeahead`, the whole active-user
+  // list is already in the DOM, so typing hides rows rather than asking the server.
+  //
+  // Only a picked user filters the list: the template stops the keystroke before it
+  // reaches the form's `input` trigger, and pick() dispatches `filter-picked`, which
+  // the form also listens for. Closing without picking puts back the applied name,
+  // so a half-typed name never sits in the box next to an unfiltered list.
+  Alpine.data('ownerPicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    noMatch: false,
+    applied: '',
+    init() {
+      this.applied = this.$refs.input.value;
+    },
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'))
+        .filter((opt) => !opt.hidden);
+    },
+    open() {
+      if (this.isOpen) return;
+      this.isOpen = true;
+      this.activeIndex = -1;
+      // Opening shows every user even though the box holds the applied name:
+      // filtering on it would leave a one-row menu and no way to switch owner
+      // without clearing the text first. The text is selected, so typing replaces
+      // it and filter() takes over from there.
+      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
+        opt.hidden = false;
+      });
+      this.noMatch = false;
+      this.paint();
+      this.$refs.input.select();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.$refs.input.value = this.applied;
+      this.paint();
+    },
+    filter() {
+      const term = this.$refs.input.value.trim().toLowerCase();
+      this.isOpen = true;
+      let matched = 0;
+      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
+        // "Any owner" carries no name and always stays: clearing the filter is
+        // one click, whatever is typed.
+        const keep = !opt.dataset.name
+          || opt.dataset.name.toLowerCase().includes(term);
+        opt.hidden = !keep;
+        if (keep && opt.dataset.name) matched += 1;
+      });
+      this.noMatch = matched === 0;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.open(); this.move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter') {
+        // Enter commits the highlighted row, or the only remaining match. With
+        // neither, it does nothing rather than filtering on a partial name.
+        e.preventDefault();
+        const options = this.options.filter((opt) => opt.dataset.name);
+        this.pick(this.options[this.activeIndex]
+          || (options.length === 1 ? options[0] : null));
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      // The id is what the route filters on; the name is only what the box shows.
+      this.$refs.value.value = opt.dataset.id;
+      this.applied = opt.dataset.name;
+      this.$refs.input.value = this.applied;
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+      this.$refs.input.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
+  // Status and Treaty type filters on the submissions list. Same menu as
+  // `ownerPicker`, without the text box: both lists are short and closed, so the
+  // trigger shows the applied label and the menu is the only way to change it.
+  // The hidden input carries the code the route reads.
+  Alpine.data('codePicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    toggle() {
+      if (this.isOpen) this.close(); else this.open();
+    },
+    open() {
+      this.isOpen = true;
+      this.activeIndex = this.options.findIndex(
+        (opt) => opt.dataset.code === this.$refs.value.value);
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.trigger.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.trigger.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.isOpen) this.move(1); else this.open();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this.isOpen) this.move(-1); else this.open();
+      } else if (e.key === 'Escape') {
+        this.close();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        // The trigger is a button, so Enter and Space would otherwise fire the
+        // click handler and toggle the menu shut over the highlighted row.
+        e.preventDefault();
+        if (this.isOpen) this.pick(this.options[this.activeIndex]);
+        else this.open();
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      this.$refs.value.value = opt.dataset.code;
+      this.$refs.label.textContent = opt.textContent;
+      this.close();
+      this.$refs.trigger.focus();
+      this.$refs.value.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
   // Treaty year follows the inception year until the analyst types their own
   // (CR5, design note 08 D4). Changing the inception date moves the year unless
   // it was edited on this render.

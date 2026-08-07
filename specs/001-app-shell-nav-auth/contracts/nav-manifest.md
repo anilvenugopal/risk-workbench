@@ -90,7 +90,6 @@ Sidebar children (stub in Iteration 0 — routes exist but pages are stubs):
 | key | label | route |
 |-----|-------|-------|
 | `submissions.all` | List | `/submissions` |
-| `submissions.mine` | My Submissions | `/submissions/mine` |
 
 **Workflows** (`parent=workflows`):
 
