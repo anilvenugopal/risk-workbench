@@ -369,7 +369,7 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
         rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
         analyses=[analysis_service.BrokerAnalysis(
             id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
-            edm_id="e1", edm_name="E1")])
+            edm_name="E1")])
     _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
     r = _client().get("/rdms/rdm-1/body")
     assert r.status_code == 204

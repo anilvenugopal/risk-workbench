@@ -1,12 +1,12 @@
-{# One broker analysis as a .dtable row (spec 004 US3, FR-030–FR-036) — shared
-   by the RDM page AND the EDM standalone section (matches previews rev 7 /
-   rev 3). Context:
+{# One broker analysis as a .dtable row (spec 004 US3, FR-030–FR-035) — shared
+   by the RDM page AND the EDM standalone section. Context:
      `a`        — analysis_service.BrokerAnalysis
      `show_edm` — render the EDM column (RDM page only; the caller's --cols
                   grid must match)
-   Portfolio cell precedence (ui.md §4): is_group → "Group" badge; resolved →
-   portfolio link; else "— not linked". Missing settings fields render blank /
-   "not provided", never an error. No loss numbers (FR-033). #}
+   No portfolio is shown: an RDM analysis cannot be tied to an EDM portfolio
+   trustworthily (8/4 D8). `is_group` still marks the analysis itself (FR-035).
+   Missing settings fields render blank / "not provided", never an error. No
+   loss numbers (FR-033). #}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
@@ -27,15 +27,6 @@
       {%- else -%}{{ cell(a.edm_name) }}{%- endif -%}
     </span>
     {% endif %}
-    <span class="l">
-      {%- if a.is_group -%}
-        <span class="badge badge--info badge--sm">Group</span>
-      {%- elif a.portfolio -%}
-        <a class="pf-ref" href="/edms/{{ a.edm_id }}#portfolio-{{ a.portfolio.id }}">{{ a.portfolio.name }}</a>
-      {%- else -%}
-        <span class="na-link" title="Risk Modeler returned no resolvable exposureResourceId for this analysis">— not linked</span>
-      {%- endif -%}
-    </span>
     <span class="l">{{ cell('Group' if a.is_group and not d.analysis_type else d.analysis_type) }}</span>
     <span class="l">{{ cell(peril_cell) }}</span>
     <span class="l">{{ cell(d.region) }}</span>
@@ -50,15 +41,10 @@
       {% if show_edm %}
       <div><dt>EDM</dt><dd{% if not a.edm_name %} class="blank"{% endif %}>{{ a.edm_names|join(', ') or a.edm_name or 'not provided' }}</dd></div>
       {% endif %}
-      <div><dt>Portfolio</dt>
-        {%- if a.is_group -%}
-        <dd class="blank">Group — combines multiple analyses; member breakdown not available</dd>
-        {%- elif a.portfolio -%}
-        <dd>{{ a.portfolio.name }}</dd>
-        {%- else -%}
-        <dd class="blank">not linked — no resolvable exposure</dd>
-        {%- endif -%}
-      </div>
+      {% if a.is_group %}
+      <div><dt>Group</dt>
+        <dd class="blank">combines multiple analyses; member breakdown not available</dd></div>
+      {% endif %}
       {% for label, val in [
         ('Engine / model version', d.engine_version),
         ('Engine type', d.engine_type),

@@ -1,12 +1,9 @@
 """Unit tests for ``analysis_service.list_broker_analyses`` (spec 004 US3, T035).
 
-The RDM page's read model (FR-030/FR-031/FR-035/FR-036, R8/R9): broker
-analyses grouped by ``rdm_id`` (an analysis applied across M EDMs shown ONCE),
-parsed ``settings_metadata`` (missing/partial → blank, never error),
-``is_group`` surfaced, and the **portfolio linkage resolved at read time** —
-``exposure_resource_id`` matched against ``irp_portfolio.irp_id`` within the
-same ``edm_id``; order-independent (portfolio backfilled before OR after the
-analysis).
+The RDM page's read model (FR-030/FR-031/FR-035, R8): broker analyses grouped
+by ``rdm_id`` (an analysis applied across M EDMs shown ONCE), parsed
+``settings_metadata`` (missing/partial → blank, never error), and ``is_group``
+surfaced. No analysis is attributed to a portfolio (8/4 D8).
 """
 
 from __future__ import annotations
@@ -14,7 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 
-from app.services import analysis_service, portfolio_service
+from app.services import analysis_service
 from app.services._common import _utcnow
 from db import execute_command
 
@@ -69,51 +66,35 @@ def _rdm(name: str, irp_id: int | None = None) -> str:
 
 def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
               settings: dict | None = None, is_group: bool = False,
-              exposure_resource_id: str | None = None,
               row_id: str | None = None) -> str:
     cols: dict = dict(rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
                       name=name, status_code="ready",
                       settings_metadata=(json.dumps(settings) if settings
                                          else None),
-                      is_group=(1 if is_group else 0),
-                      exposure_resource_id=exposure_resource_id)
+                      is_group=(1 if is_group else 0))
     if row_id is not None:
         cols["id"] = row_id  # pin ORDER BY a.id ties for deterministic tests
     return _mk("irp_analysis", **cols)
 
 
-def _portfolio(edm_id: str, irp_id: str, name: str) -> None:
-    portfolio_service.upsert_portfolio_detail(
-        edm_id=edm_id, irp_id=irp_id, name=name,
-        exposure_detail={"metrics": {}}, as_of=_utcnow())
-
-
-def test_dedup_merges_settings_and_repoints_representative(iteration2_db):
-    """The two _dedup_handles merge branches: settings come from ANY handle
-    that has them, and when a later handle resolves a portfolio the WHOLE
-    representative re-points to it (id + pointer + EDM), not just the display
-    fields — the first consumer of ``a.id`` must get the resolving handle."""
+def test_dedup_merges_settings_from_any_handle(iteration2_db):
+    """Settings come from ANY handle that has them — the representative is the
+    first seen, which here is the handle with no snapshot."""
     rdm = _rdm("R")
     e1, e2 = _edm("edm_a"), _edm("edm_b")
-    # first-seen handle (row_id pins the ORDER BY a.id tie): no settings, no
-    # resolvable pointer
+    # first-seen handle (row_id pins the ORDER BY a.id tie): no settings
     _analysis(rdm_id=rdm, edm_id=e1, irp_id="5521", name="AEP",
               row_id="00000000-0000-0000-0000-000000000001")
-    # later handle: carries the settings AND resolves a portfolio in e2
-    h2 = _analysis(rdm_id=rdm, edm_id=e2, irp_id="5521", name="AEP",
-                   settings=SETTINGS_PARTIAL, exposure_resource_id="501",
-                   row_id="ffffffff-ffff-ffff-ffff-ffffffffffff")
-    _portfolio(e2, "501", "Primary 2026")
+    _analysis(rdm_id=rdm, edm_id=e2, irp_id="5521", name="AEP",
+              settings=SETTINGS_PARTIAL,
+              row_id="ffffffff-ffff-ffff-ffff-ffffffffffff")
 
     groups = analysis_service.list_broker_analyses(rdm_id=rdm)
 
     assert len(groups) == 1 and len(groups[0].analyses) == 1
     a = groups[0].analyses[0]
     assert a.display.analysis_type == "EP"          # settings merged in
-    assert a.portfolio and a.portfolio.name == "Primary 2026"
-    assert a.edm_id == e2 and a.edm_name == "edm_b"  # re-pointed …
-    assert a.id == h2                                # … including the row id
-    assert a.exposure_resource_id == "501"
+    assert a.edm_name == "edm_a"                    # representative = first seen
     assert sorted(a.edm_names) == ["edm_a", "edm_b"]  # both EDMs still listed
 
 
@@ -188,48 +169,12 @@ def test_live_payload_shape_currency_object_rate_list_pla_label(iteration2_db):
     assert by_irp["2"].display.event_rate_scheme is None  # empty list → blank
 
 
-def test_group_analysis_surfaced_as_group_never_resolved(iteration2_db):
+def test_group_analysis_surfaced_as_group(iteration2_db):
     rdm, edm = _rdm("R"), _edm("E")
-    _portfolio(edm, "501", "Primary 2026")
-    # a group row even WITH a pointer must render Group, not a portfolio link
-    _analysis(rdm_id=rdm, edm_id=edm, irp_id="9", is_group=True,
-              exposure_resource_id="501")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="9", is_group=True)
 
     [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
-    a = g.analyses[0]
-    assert a.is_group is True
-    assert a.portfolio is None  # ui.md §4 precedence: is_group wins
-
-
-def test_portfolio_linkage_resolves_within_same_edm_only(iteration2_db):
-    rdm = _rdm("R")
-    e1, e2 = _edm("E1"), _edm("E2")
-    _portfolio(e1, "501", "Primary 2026")
-    # same pointer value exists as a portfolio only in E1
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="1", exposure_resource_id="501")
-    _analysis(rdm_id=rdm, edm_id=e2, irp_id="2", exposure_resource_id="501")
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="3", exposure_resource_id=None)
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="4", exposure_resource_id="9999")
-
-    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
-    by_irp = {a.irp_id: a for a in g.analyses}
-    assert by_irp["1"].portfolio is not None
-    assert by_irp["1"].portfolio.name == "Primary 2026"
-    assert by_irp["2"].portfolio is None   # matching irp_id but WRONG edm
-    assert by_irp["3"].portfolio is None   # null pointer (non-portfolio) → not linked
-    assert by_irp["4"].portfolio is None   # unmatched pointer → not linked
-
-
-def test_resolution_is_order_independent(iteration2_db):
-    # analysis captured BEFORE the portfolio backfilled — read-time join
-    rdm, edm = _rdm("R"), _edm("E")
-    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", exposure_resource_id="501")
-    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
-    assert g.analyses[0].portfolio is None  # portfolio not there yet — not linked
-
-    _portfolio(edm, "501", "Primary 2026")  # backfill lands AFTER the analysis
-    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
-    assert g.analyses[0].portfolio.name == "Primary 2026"  # self-heals on read
+    assert g.analyses[0].is_group is True
 
 
 def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
@@ -246,12 +191,10 @@ def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
 
 def test_analysis_counts_populated(iteration2_db):
     rdm, rdm2, edm = _rdm("R"), _rdm("R2"), _edm("E")
-    _portfolio(edm, "501", "Primary 2026")
-    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", exposure_resource_id="501")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="2")
     _analysis(rdm_id=rdm2, edm_id=edm, irp_id="3", is_group=True)
 
     counts = analysis_service.analysis_counts(edm_id=edm)
     assert counts.total == 3       # FR-050 — no longer empty
     assert counts.rdm_count == 2
-    assert counts.linked == 1      # only the resolved, non-group row

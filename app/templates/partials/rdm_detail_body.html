@@ -1,7 +1,7 @@
 {# The whole RDM detail body (spec 004 US3 — matches docs/ui_previews/rdm_detail.html
-   rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with EDM +
-   Portfolio columns (resolved / Group / — not linked, FR-036), per-analysis
-   settings/metadata with the rate sub-drill (FR-031). NO loss numbers, no
+   rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with an EDM
+   column and per-analysis settings/metadata with the rate sub-drill (FR-031).
+   No portfolio is shown (8/4 D8 — see broker_analysis_row). NO loss numbers, no
    own-vs-broker comparison (FR-033/FR-034); every missing field renders blank,
    never an error. #}
 {# Live body (package-card pattern, mirrors edm_detail_body): while the manual
@@ -69,7 +69,7 @@
   {% endwith %}
   {% endif %}
 
-  {# ── Broker analyses (US3) — grouped by rdm_id, EDM + Portfolio columns ── #}
+  {# ── Broker analyses (US3) — grouped by rdm_id, EDM column ── #}
   <details class="sec" open>
     <summary>
       <span class="sec__caret">▸</span>
@@ -84,15 +84,12 @@
     {% if analysis_total %}
     <div class="derive-note"><strong>Settings &amp; metadata only this iteration</strong> —
       no loss numbers (ELT / EP / AAL / return-period / PLT) and no own-vs-broker
-      comparison; those arrive with the results iteration. Each analysis links to the
-      <strong>Portfolio it ran against</strong>; a <strong>group</strong> shows
-      Portfolio = <em>Group</em> (no member breakdown), and unresolved results show
-      <em>“— not linked”</em>.</div>
+      comparison; those arrive with the results iteration.</div>
 
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:210px 150px 160px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1260px">
+      <div class="dtable" style="--cols:210px 150px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1100px">
         <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Portfolio</span><span class="l">Type</span>
+          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Type</span>
           <span class="l">Peril</span><span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span>
           <span class="l">Term</span><span class="l">PLA</span><span class="l">Rate</span>
         </div>
