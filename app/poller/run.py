@@ -35,6 +35,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
+from app.services._common import _uid
 from app.logging_setup import setup_logging
 from app.services import (
     edm_service,
@@ -75,7 +76,7 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_edm_detail",
-            input_data={"edm_id": str(job["irp_edm_id"])},
+            input_data={"edm_id": _uid(job["irp_edm_id"])},
             conn=conn,
         )
     else:
@@ -86,13 +87,13 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     rdm_rows = conn.execute(text(
         "SELECT id FROM irp_rdm WHERE package_id = :p AND deleted_at IS NULL"
     ), {"p": str(job["package_id"])}).mappings().all()
-    rdm_ids = [str(r["id"]) for r in rdm_rows]
+    rdm_ids = [_uid(r["id"]) for r in rdm_rows]
     if not rdm_ids:
         return  # EDM-only package — nothing to apply
     jid = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"], rwb_job_type="upload_rdm",
-        input_data={"rdm_ids": rdm_ids, "edm_ids": [str(job["irp_edm_id"])],
-                    "package_id": str(job["package_id"])},
+        input_data={"rdm_ids": rdm_ids, "edm_ids": [_uid(job["irp_edm_id"])],
+                    "package_id": _uid(job["package_id"])},
         conn=conn,
     )
     if jid:
@@ -109,9 +110,9 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
             input_data={
-                "rdm_id": (str(job["irp_rdm_id"]) if job["irp_rdm_id"] else None),
-                "edm_id": (str(job["irp_edm_id"]) if job["irp_edm_id"] else None),
-                "package_id": (str(job["package_id"]) if job["package_id"] else None),
+                "rdm_id": _uid(job["irp_rdm_id"]),
+                "edm_id": _uid(job["irp_edm_id"]),
+                "package_id": _uid(job["package_id"]),
                 "apply_irp_id": job["irp_id"]},
             conn=conn,
         )
@@ -181,13 +182,8 @@ _TERMINAL_RESOLVERS = {
 
 
 def _fmt_elapsed(submitted_at) -> str:
-    """``4m22s``-style elapsed time since a naive-UTC stamp — a ``datetime`` from
-    SQL Server, an ISO string from the SQLite unit tier; ``?`` when unparseable."""
-    if isinstance(submitted_at, str):
-        try:
-            submitted_at = datetime.fromisoformat(submitted_at)
-        except ValueError:
-            return "?"
+    """``4m22s``-style elapsed time since a naive-UTC ``datetime`` stamp;
+    ``?`` when missing."""
     if not isinstance(submitted_at, datetime):
         return "?"
     secs = (datetime.now(timezone.utc).replace(tzinfo=None)

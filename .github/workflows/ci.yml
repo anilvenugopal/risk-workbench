@@ -74,13 +74,9 @@ jobs:
         run: cp infra/.env.example infra/.env   # SA + all 3 MSSQL passwords already = Clarity0821!
 
       - name: Create databases
-        run: make wsl-db-bootstrap              # create rwb_workbench / rwb_exposure / rwb_loss
+        run: make wsl-db-bootstrap              # rwb_workbench / rwb_exposure / rwb_loss (connectivity checks)
 
-      - name: Run migrations
-        run: make wsl-db-migrate                # alembic upgrade head on WORKBENCH
-
-      - name: Seed kind tables
-        run: make wsl-db-seed                   # idempotent MERGE seed (analysts, kind tables)
-
+      # No migrate/seed steps: tests/sqlserver/conftest.py drops, recreates, and
+      # migrates its own rwb_workbench_tests database.
       - name: SQL Server integration tests
         run: make wsl-test-sql                  # = uv run pytest tests/sqlserver -v --run-sqlserver

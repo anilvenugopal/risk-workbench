@@ -32,9 +32,7 @@ def _attach_query_timing(eng: Engine) -> None:
     """Per-statement timing at DEBUG on logger ``db.query``. Observation only —
     statements pass through untouched, and bound parameter values are never
     logged (they can carry user data). Correlation fields arrive via the root
-    handler's context filter, so this module imports nothing from ``app/``.
-    Engines injected via ``register_engine`` (the unit tier) bypass creation and
-    are not instrumented."""
+    handler's context filter, so this module imports nothing from ``app/``."""
 
     @event.listens_for(eng, "before_cursor_execute")
     def _query_started(conn, cursor, statement, parameters, context, executemany):  # noqa: ANN001
@@ -52,8 +50,6 @@ def _attach_query_timing(eng: Engine) -> None:
 
 # Cache of live engines, keyed by (CONNECTION_NAME, database-or-empty).
 _ENGINES: Dict[Tuple[str, str], Engine] = {}
-# Test/override hook: pre-registered engines bypass real engine creation.
-_ENGINE_OVERRIDES: Dict[Tuple[str, str], Engine] = {}
 
 
 def _pool_kwargs() -> dict:
@@ -66,17 +62,9 @@ def _pool_kwargs() -> dict:
     }
 
 
-def register_engine(connection_name: str, engine: Engine, database: Optional[str] = None) -> None:
-    """Register a pre-built engine for a connection name (used by tests to inject
-    a sqlite engine, or to supply a custom engine). Overrides real creation."""
-    _ENGINE_OVERRIDES[(connection_name.upper(), database or "")] = engine
-
-
 def get_engine(connection_name: str, database: Optional[str] = None) -> Engine:
     """Return the pooled engine for a target, creating and caching it on first use."""
     key = (connection_name.upper(), database or "")
-    if key in _ENGINE_OVERRIDES:
-        return _ENGINE_OVERRIDES[key]
     if key in _ENGINES:
         eng = _ENGINES[key]
     else:
@@ -156,6 +144,5 @@ __all__ = [
     "get_engine",
     "get_connection",
     "test_connection",
-    "register_engine",
     "dispose_all",
 ]

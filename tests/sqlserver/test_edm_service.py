@@ -1,4 +1,4 @@
-"""Unit tests for app/services/edm_service.py (US1, T018).
+"""app/services/edm_service.py (US1, T018) against SQL Server.
 
 The request-path contract (FR-042): ``import_edm`` creates the ``irp_edm``
 (``pending_import``) and enqueues exactly one ``upload_edm`` head with **no** Risk
@@ -8,7 +8,7 @@ open with ``collision_unchecked``. Recovery helpers (``retry_import`` /
 ``replace_source_file``) are idempotent and concurrency-checked. No function applies
 row scoping (SC-009).
 
-Runs on the SQLite unit mirror (``iteration2_db``) with the fake IRP.
+Runs on the SQL Server test database (``iteration2_db``) with the fake IRP.
 """
 
 from __future__ import annotations

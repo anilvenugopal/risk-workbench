@@ -13,8 +13,10 @@ Owns only the HTTP surface (the service behavior is covered in
     query param; modal save / package re-sync map ``NameCollisionError`` to 422
     with the banner, and fail-open saves attach the ``rwb:toast`` HX-Trigger.
 
-Harness: TestClient + monkeypatched services (``test_edm_sync.py`` pattern) — the
-fixture SQLite engine is thread-local and TestClient dispatches on a worker thread.
+Harness: TestClient + monkeypatched services (``test_edm_sync.py`` pattern) —
+these are the database-free tier: the monkeypatch pins service behavior and the
+assertions own the route/template contract. SQL-bearing flows live in
+tests/sqlserver.
 """
 
 from __future__ import annotations

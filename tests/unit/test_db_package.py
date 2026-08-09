@@ -1,21 +1,15 @@
-"""Tests for the `db` package.
+"""Tests for the `db` package's pure-Python logic.
 
-These run without a SQL Server, pyodbc, or the ODBC driver: the connection
-layer is exercised by injecting a SQLite SQLAlchemy engine via
-`db.register_engine`, and the pure-Python config/substitution logic is tested
-directly.
-
-Integration tests against a real SQL Server are in tests/sqlserver/.
+Connection config resolution, ODBC/SQLAlchemy string building, and the
+trusted-script parameter substitution — no engine, no database. The safe
+execution path (execute/execute_one/execute_scalar/execute_command) runs
+against the real driver in tests/sqlserver/test_db_package.py.
 """
 
 import pytest
-from sqlalchemy import create_engine, text
 
 import db
-from db import (execute, execute_one, execute_scalar, execute_command,
-                register_engine)
 from db import scripts
-
 
 # ── config / auth ──────────────────────────────────────────────────────────────
 
@@ -62,47 +56,6 @@ def test_invalid_auth_type(monkeypatch):
 def test_empty_connection_name_raises():
     with pytest.raises(db.SQLServerConfigurationError):
         db.get_connection_config("")
-
-
-# ── safe path (bound params) against SQLite ────────────────────────────────────
-
-@pytest.fixture
-def wb(monkeypatch):
-    eng = create_engine("sqlite://")
-    with eng.begin() as c:
-        c.execute(text("CREATE TABLE submission(id INT, status_code TEXT)"))
-        for r in [(1, "open"), (2, "closed"), (3, "open"), (4, "open")]:
-            c.execute(text("INSERT INTO submission VALUES (:a,:b)"),
-                      {"a": r[0], "b": r[1]})
-    register_engine("WORKBENCH", eng)
-    yield
-
-
-def test_execute_returns_list_of_dicts(wb):
-    rows = execute("SELECT * FROM submission WHERE status_code = :s",
-                   {"s": "open"}, connection="WORKBENCH")
-    assert isinstance(rows, list) and all(isinstance(r, dict) for r in rows)
-    assert len(rows) == 3
-
-
-def test_execute_binds_not_interpolates(wb):
-    rows = execute("SELECT * FROM submission WHERE status_code = :s",
-                   {"s": "x' OR '1'='1"}, connection="WORKBENCH")
-    assert rows == []
-
-
-def test_execute_one_and_scalar(wb):
-    assert execute_one("SELECT * FROM submission WHERE id = :id",
-                       {"id": 2}, "WORKBENCH")["status_code"] == "closed"
-    assert execute_one("SELECT * FROM submission WHERE id = :id",
-                       {"id": 999}, "WORKBENCH") is None
-    assert execute_scalar("SELECT COUNT(*) FROM submission", connection="WORKBENCH") == 4
-
-
-def test_execute_command_rowcount(wb):
-    n = execute_command("UPDATE submission SET status_code='void' WHERE id=:i",
-                        {"i": 4}, "WORKBENCH")
-    assert n == 1
 
 
 # ── trusted-script path: substitution + injection containment ──────────────────

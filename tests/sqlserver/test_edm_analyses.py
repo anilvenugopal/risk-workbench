@@ -43,7 +43,8 @@ def _seed_edm_with_analyses():
         edm_id=edm, irp_id="502", name="Excess 2026",
         exposure_detail={"metrics": {}}, as_of=now)
     mk_analysis = lambda **kw: _mk("irp_analysis", edm_id=edm,  # noqa: E731
-                                   status_code="ready", **kw)
+                                   source_rdm_name="src", status_code="ready",
+                                   **kw)
     mk_analysis(rdm_id=rdm1, irp_id="1", name="AEP", exposure_resource_id="501",
                 is_group=0,
                 settings_metadata=json.dumps({"analysisType": "EP"}))
@@ -104,7 +105,7 @@ def test_resolution_order_independent_on_the_edm_page(iteration2_db):
     edm = _mk("irp_edm", name="E", status="ready")
     rdm = _mk("irp_rdm", name="R", status="ready")
     _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="1", is_group=0,
-        status_code="ready", exposure_resource_id="777")
+        source_rdm_name="R", status_code="ready", exposure_resource_id="777")
     [g] = analysis_service.list_edm_analyses(edm_id=edm)
     assert g.analyses[0].portfolio is None
 

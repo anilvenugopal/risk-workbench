@@ -1,7 +1,7 @@
-"""Unit tests for app/services/submission_service.py (US1–US5).
+"""app/services/submission_service.py (US1–US5) against SQL Server.
 
-Runs on the SQLite unit tier via the ``iteration1_db`` fixture (registers a
-SQLite WORKBENCH engine with the Iteration-1 schema + seeds). Covers the contract
+Runs via the ``iteration1_db`` fixture (empty test database + two analysts).
+Covers the contract
 test obligations: atomic create + initial ACTIVE event, My/All list + filters,
 duplicate warning (name and attribute arms), event-sourced status + reopen +
 read-only gate, CRM tag management, optimistic concurrency, and the absence of a

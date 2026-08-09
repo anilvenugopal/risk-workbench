@@ -222,8 +222,12 @@ live in the uv environment; a bare call fails at import with
 `ModuleNotFoundError: No module named 'itsdangerous'`, which is a missing
 environment, not a broken test.
 
-Unit tests use SQLite injected via `register_engine`, so they need no database and
-are the tier to run after every change. SQL Server tests use the real driver.
+Unit tests are database-free — pure functions, validation, and route behavior
+against mocked services — and are the tier to run after every change. Every
+test that executes application SQL lives in `tests/sqlserver` and runs against
+a dedicated `rwb_workbench_tests` database that the suite drops, recreates,
+and migrates itself (`tests/sqlserver/conftest.py`). The developer databases
+(`rwb_workbench`, `rwb_exposure`, `rwb_loss`) are never written by tests.
 
 ### Do not run the SQL Server tier from the host shell
 

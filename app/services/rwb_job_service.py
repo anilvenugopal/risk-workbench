@@ -8,10 +8,9 @@ poller's **reconciler** (``reconcile_stale_rwb_jobs``) reclaims rows whose worke
 died mid-flight — its logic lives here as queue maintenance; the poller only
 invokes it each pass.
 
-Portability (matches ``package_service`` / ``submission_service``): app-side
-UUIDs bound as ``str``, app-supplied UTC timestamps, JSON columns serialized with
-``json.dumps``, and no dialect-only SQL — the same statements run on the SQLite
-unit tier and SQL Server.
+Conventions (matches ``package_service`` / ``submission_service``): app-side
+UUIDs bound as ``str``, app-supplied UTC timestamps, JSON columns serialized
+with ``json.dumps``.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ from typing import Any
 from sqlalchemy import text
 
 from app import log_context
-from app.services._common import _json, _utcnow
+from app.services._common import _json, _uid, _utcnow
 from db import execute_command, execute_one, get_connection, is_unique_violation
 
 _INSERT_IF_ABSENT = """
@@ -137,7 +136,9 @@ def ensure_pending_rwb_job(
             ), {"input": _json(input_data), "now": now, "cid": correlation_id,
                 "by": (str(actor_id) if actor_id is not None else None),
                 "id": str(row["id"])})
-            return str(row["id"])
+            # _uid, not str: uniqueidentifier reads back UPPERCASE, and every id
+            # a service hands out is lowercase (see _common._uid).
+            return _uid(row["id"])
 
 
 def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:

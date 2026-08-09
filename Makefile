@@ -79,10 +79,10 @@ db-rebuild:   ## [Docker] DESTRUCTIVE — drop and recreate all 3 app databases
 	$(BOX) alembic upgrade head
 	$(BOX) python infra/scripts/seed_db.py
 
-test:   ## [Docker] Run unit tests (no SQL Server needed)
+test:   ## [Docker] Run database-free unit tests
 	$(BOX) uv run pytest tests/unit -v
 
-test-sql:   ## [Docker] Run SQL Server integration tests
+test-sql:   ## [Docker] Run SQL Server tests (provisions rwb_workbench_tests)
 	$(BOX) uv run pytest tests/sqlserver -v --run-sqlserver
 
 lint:   ## [Docker] Run ruff linter
@@ -143,10 +143,10 @@ wsl-db-rebuild:   ## [WSL2] DESTRUCTIVE — drop and recreate all 3 app database
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run alembic upgrade head'
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/seed_db.py'
 
-wsl-test:   ## [WSL2] Run unit tests (no SQL Server needed)
+wsl-test:   ## [WSL2] Run database-free unit tests
 	uv run pytest tests/unit -v
 
-wsl-test-sql:   ## [WSL2] Run SQL Server integration tests
+wsl-test-sql:   ## [WSL2] Run SQL Server tests (provisions rwb_workbench_tests)
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run pytest tests/sqlserver -v --run-sqlserver'
 
 wsl-user-setup:   ## [WSL2] Interactive user provisioning CLI (provision, create, reset password)

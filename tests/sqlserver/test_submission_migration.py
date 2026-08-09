@@ -81,8 +81,7 @@ class TestSubmissionMigration:
 
     def test_master_list_index_keys_and_covers(self):
         """``ix_submission_list_order`` is what keeps a filtered list read off the
-        clustered table. Its DESC key and its included columns are both invisible to
-        the SQLite mirror, so only this tier can check them."""
+        clustered table — assert its DESC key and its included columns."""
         cols = execute(
             "SELECT c.name, ic.is_descending_key, ic.is_included_column "
             "FROM sys.indexes i "

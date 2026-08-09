@@ -157,7 +157,7 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
     (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded.
 
     ``name`` narrows by case-insensitive substring (``LIKE`` — case-insensitive on
-    SQL Server's default collation and on SQLite for ASCII); ``status`` narrows to the
+    SQL Server's default collation); ``status`` narrows to the
     exact import status; both combine with AND; blank/``None`` are no-ops (US7 / T058).
     Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"

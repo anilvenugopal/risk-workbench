@@ -60,8 +60,8 @@ class JobResult:
 
 def upsert_heartbeat(*, rwb_job_id: Any, worker_id: str,
                      now: datetime | None = None) -> None:
-    """Upsert the single heartbeat row for a job (one row per job). Portable
-    UPDATE-then-insert-if-absent — runs on SQLite and SQL Server alike."""
+    """Upsert the single heartbeat row for a job (one row per job) —
+    UPDATE, then insert if absent."""
     now = now or _utcnow()
     jid = str(rwb_job_id)
     with get_connection("WORKBENCH") as conn:
@@ -98,11 +98,9 @@ class _Heartbeat:
                          worker_id=self._worker_id,
                          correlation_id=self._correlation_id)
         # __enter__ already beat once on the caller's thread (t=0), so wait a full
-        # interval before the first daemon-thread beat (cadence: t=interval, 2·interval, …).
-        # A job that finishes within one interval never opens a connection on this
-        # daemon thread — which matters under the unit tier's per-thread SQLite pool,
-        # where a connection opened here can only be closed from here, not by the
-        # main thread's engine.dispose() (it would otherwise leak until GC).
+        # interval before the first daemon-thread beat (cadence: t=interval,
+        # 2·interval, …). A job that finishes within one interval never opens a
+        # connection on this daemon thread.
         while not self._stop.wait(self._interval):
             try:
                 upsert_heartbeat(rwb_job_id=self._rwb_job_id, worker_id=self._worker_id)

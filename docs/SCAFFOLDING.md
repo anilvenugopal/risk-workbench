@@ -311,7 +311,7 @@ parallel:
 | Job (check name) | What it runs |
 |---|---|
 | **Unit tests** | `uv sync --frozen` → `make wsl-test` |
-| **SQL Server integration tests** | spins up a `mssql/server:2022` service container, installs ODBC Driver 18, then `make wsl-db-bootstrap` → `wsl-db-migrate` → `wsl-db-seed` → `make wsl-test-sql` |
+| **SQL Server integration tests** | spins up a `mssql/server:2022` service container, installs ODBC Driver 18, then `make wsl-db-bootstrap` → `make wsl-test-sql` |
 
 The workflow reuses the same Make targets developers run locally, so there is
 no separate CI-only test path. It materializes `infra/.env` from
@@ -327,7 +327,8 @@ before merging (plus "require branches up to date").
 
 ### Writing a unit test
 
-Unit tests live in `tests/unit/`. They run without a database.
+Unit tests live in `tests/unit/`. They run without a database — pure
+functions, validation, and route behavior with mocked services:
 
 ```python
 # tests/unit/test_my_module.py
@@ -337,15 +338,19 @@ def test_something():
     assert compute(2, 3) == 5
 ```
 
-To test SQL logic without SQL Server, use the `sqlite_conn` fixture
-(defined in `tests/conftest.py`). It injects an in-memory SQLite engine
-and gives you a connection that rolls back after the test:
+Any test that executes application SQL belongs in `tests/sqlserver/`. That
+tier provisions its own `rwb_workbench_tests` database on the configured SQL
+Server (drop, create, `alembic upgrade head` — see
+`tests/sqlserver/conftest.py`), so it never reads or writes `rwb_workbench`.
+The `iteration1_db` / `iteration2_db` fixtures wipe every non-kind table and
+seed two analysts, giving each test an empty, fully migrated database:
 
 ```python
-def test_scope_filter(sqlite_conn):
-    from sqlalchemy import text
-    row = sqlite_conn.execute(text("SELECT 1 AS n")).mappings().first()
-    assert row["n"] == 1
+# tests/sqlserver/test_my_service.py
+
+def test_lists_what_i_created(iteration2_db):
+    from app.services.my_service import list_things
+    assert list_things() == []
 ```
 
 ### Running one test

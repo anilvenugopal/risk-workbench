@@ -1,12 +1,12 @@
-"""Unit tests for app/services/rdm_service.py (US2, T025 + T027a backfill).
+"""app/services/rdm_service.py (US2, T025 + T027a backfill) against SQL Server.
 
 Applied import fans out one apply per EDM; **every apply targets an EDM** — a no-EDM
 (review-only) import is rejected with ``EmptyPackageError`` (D3 / FR-016). Name
 collision blocks the import (issue #17), failing open when the gateway is down;
 ``retry_import`` idempotent; ``list_rdms`` applies no scoping.
 On ``import_rdm`` FINISHED the poller enqueues ``backfill_rdm_analyses``, whose worker
-captures ``irp_analysis`` rows (D2) and rolls the RDM up to ``ready``. Runs on the SQLite
-mirror with the fake IRP; the worker fan-out is exercised via ``package_jobs.run_pending``.
+captures ``irp_analysis`` rows (D2) and rolls the RDM up to ``ready``. Runs with the
+fake IRP; the worker fan-out is exercised via ``package_jobs.run_pending``.
 """
 
 from __future__ import annotations
@@ -42,7 +42,8 @@ def test_applied_import_fans_out_one_apply_per_edm(iteration2_db, fake_irp, driv
         "SELECT irp_edm_id FROM irp_job WHERE irp_rdm_id=:r AND irp_job_type='import_rdm'",
         {"r": res.entity_id}, connection="WORKBENCH")
     assert len(applies) == 2
-    assert {str(a_["irp_edm_id"]) for a_ in applies} == {e1, e2}
+    # .lower(): raw uniqueidentifier reads come back UPPERCASE
+    assert {str(a_["irp_edm_id"]).lower() for a_ in applies} == {e1, e2}
     assert rdm_service.get_rdm(res.entity_id).status == rdm_service.IMPORTING
 
 

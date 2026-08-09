@@ -21,7 +21,7 @@ from typing import Any, Sequence
 from sqlalchemy import text
 
 from db import execute, execute_scalar, execute_command, get_connection
-from app.services._common import _utcnow
+from app.services._common import _uid, _utcnow
 from app.services.errors import EmptyPackageError, InvalidMemberName
 
 # An EDM/RDM name may use only letters, digits, underscores, and hyphens, capped at
@@ -93,7 +93,7 @@ def submission_refs_for_packages(
     for row in rows:
         key = str(row["package_id"]).lower()
         result.setdefault(key, []).append(
-            SubmissionRef(id=str(row["sub_id"]), name=row["sub_name"]))
+            SubmissionRef(id=_uid(row["sub_id"]), name=row["sub_name"]))
     return result
 
 

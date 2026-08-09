@@ -1,108 +1,23 @@
-"""Re-run the unit-tier submission-service suite against a LIVE SQL Server.
+"""SQL-Server-specific submission-service behaviors.
 
-Article 12 tier 2. The unit tests (``tests/unit/test_submission_service.py``)
-run against a portable SQLite mirror; this module imports those exact test
-functions and re-collects them here, backed by a SQL-Server-connected
-``iteration1_db`` fixture. Same assertions, real driver + dialect — which is what
-actually proves the paths the SQLite mirror cannot vouch for:
-
-  * the ``updated_at`` optimistic-concurrency marker against a real DATETIME2
-    column,
-  * ``LIKE`` collation in cedant autocomplete / find_similar / the list's name and
-    cedant search, and the ``ESCAPE '\'`` clause behind them,
-  * the ``EXISTS`` CRM-tag predicate and the dynamic ``IN`` param set that attaches
-    CRM ids to a page of list rows,
-  * ``db.row_limit()`` emitting ``OFFSET/FETCH`` — the SQLite tier only ever runs
-    the ``LIMIT`` branch — including the non-zero offset the list's second page
-    reads through,
-  * status-history ``ORDER BY at DESC`` tie-breaking.
-
-Because ``import *`` pulls in every ``test_*`` name, new unit tests added later
-are automatically exercised here too — the seam stays closed as the suite grows.
-
-One path the reused suite does **not** cover, added explicitly below
-(``test_string_marker_round_trips_against_datetime2``): the reused tests read the
-concurrency marker via ``get_submission().updated_at``, which on SQL Server is a
-native ``datetime`` — but the web flow renders that value into a hidden field as
-``str(...)`` and submits it back as a **string**. So the string→DATETIME2 *match*
-(not just the always-mismatching stale-string arm) is only exercised by the
-dedicated test here.
-
-Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
-
-Isolation model: each test gets two throwaway analysts (fresh UUIDs); the kind
-tables are already seeded by the migration. Teardown deletes every row these
-tests create — all of it traces back to the two analyst ids — so each test sees
-only its own data (the global list/suggest/find_similar assertions depend on
-that). A freshly rebuilt DB is the assumed clean starting point.
+The service suite (``test_submission_service.py``, same tier) reads the
+optimistic-concurrency marker via ``get_submission().updated_at`` — a native
+``datetime``. The web flow instead renders that value into a hidden field as
+``str(...)`` and submits it back as a **string**, so the string→DATETIME2
+*match* (not just the always-mismatching stale-string arm) is exercised by the
+dedicated test here, together with the ``uniqueidentifier`` conversion and FK
+behaviors behind link validation and the suggest caps.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import date
-from types import SimpleNamespace
 
 import pytest
 
 from app.services import submission_service as svc
 from app.services.errors import UnknownLinkError
-from db import execute_command, get_engine
-
-# Re-collect the entire unit submission-service suite against the fixture below.
-from tests.unit.test_submission_service import *  # noqa: F401,F403
-
-pytestmark = pytest.mark.sqlserver
-
-
-def _cleanup(user_a: str, user_b: str) -> None:
-    """Delete, child-first, everything the reused tests created for these two
-    analysts, then the analysts themselves. Best-effort ordering respects the
-    real FKs (events/crm → submission → app_user)."""
-    ids = {"a": user_a, "b": user_b}
-    owned = ("SELECT id FROM submission "
-             "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)")
-    execute_command(
-        f"DELETE FROM submission_status_event WHERE submission_id IN ({owned})",
-        ids, connection="WORKBENCH")
-    execute_command(
-        f"DELETE FROM submission_crm_id WHERE submission_id IN ({owned})",
-        ids, connection="WORKBENCH")
-    # Clear the self-FK first: a test that linked two of these deals leaves one
-    # row referencing another, and the DELETE below removes both.
-    execute_command(
-        "UPDATE submission SET links_to_submission_id = NULL "
-        "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)",
-        ids, connection="WORKBENCH")
-    execute_command(
-        "DELETE FROM submission "
-        "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)",
-        ids, connection="WORKBENCH")
-    execute_command("DELETE FROM app_user WHERE id IN (:a, :b)", ids,
-                    connection="WORKBENCH")
-
-
-@pytest.fixture()
-def iteration1_db() -> SimpleNamespace:
-    """SQL-Server-backed twin of the unit ``iteration1_db``: two throwaway
-    analysts on the live WORKBENCH DB (kind tables already seeded by the
-    migration). Overrides the SQLite fixture from the root conftest for the tests
-    collected in this module. Real WORKBENCH engine → the service SQL hits SQL
-    Server, not SQLite."""
-    user_a = str(uuid.uuid4())
-    user_b = str(uuid.uuid4())
-    for uid, tag in ((user_a, "A"), (user_b, "B")):
-        execute_command(
-            "INSERT INTO app_user (id, email, display_name, must_change_password, "
-            "is_active) VALUES (:id, :email, :dn, 0, 1)",
-            {"id": uid, "email": f"svc_{uid[:8]}@example.com",
-             "dn": f"Svc Analyst {tag}"},
-            connection="WORKBENCH")
-    try:
-        yield SimpleNamespace(engine=get_engine("WORKBENCH"),
-                              user_a=user_a, user_b=user_b)
-    finally:
-        _cleanup(user_a, user_b)
 
 
 def test_string_marker_round_trips_against_datetime2(iteration1_db):
@@ -161,9 +76,8 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
 
 def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
     """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``s.id <> :exclude``
-    predicate and the ``uniqueidentifier`` comparison behind it are all accepted by
-    SQLite without proving anything about SQL Server. Run each search against the
-    real driver and check the cap holds."""
+    predicate and the ``uniqueidentifier`` comparison behind it: run each search
+    against the real driver and check the cap holds."""
     a = iteration1_db.user_a
     tag = uuid.uuid4().hex[:8]
     for index in range(4):
@@ -192,10 +106,10 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
 
 def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db):
     """``links_to_submission_id`` is a FK to ``submission.id`` and the column is
-    ``uniqueidentifier``. SQLite enforces neither, so only this tier shows what an
-    unchecked id does: an integrity error for a well-formed id naming no row, and a
-    conversion error for text that is not a UUID. Both must be ``UnknownLinkError``
-    before the write."""
+    ``uniqueidentifier``. An unchecked id hits one of two driver errors: an
+    integrity error for a well-formed id naming no row, and a conversion error
+    for text that is not a UUID. Both must be ``UnknownLinkError`` before the
+    write."""
     a = iteration1_db.user_a
     tag = uuid.uuid4().hex[:8]
     sid = svc.create_submission(

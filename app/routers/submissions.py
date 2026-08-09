@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import package_sync_service, submission_service
+from app.services._common import _uid
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
@@ -172,12 +173,15 @@ def _reshow_form(
 
 def _active_analysts() -> list[dict]:
     """Every active user, for the detail page's reassign picker and the list's
-    Owner filter."""
-    return execute(
+    Owner filter. Ids are lowercased (``_uid``) so the rendered ``data-id``,
+    the ``?owner=`` round-trip, and ``_owner_label``'s equality check stay
+    stable — ``uniqueidentifier`` reads back UPPERCASE."""
+    rows = execute(
         "SELECT id, display_name FROM app_user WHERE is_active = 1 "
         "ORDER BY display_name",
         {}, connection="WORKBENCH",
     )
+    return [{**r, "id": _uid(r["id"])} for r in rows]
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:

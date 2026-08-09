@@ -72,7 +72,7 @@ def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
               exposure_resource_id: str | None = None,
               row_id: str | None = None) -> str:
     cols: dict = dict(rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
-                      name=name, status_code="ready",
+                      name=name, source_rdm_name="R", status_code="ready",
                       settings_metadata=(json.dumps(settings) if settings
                                          else None),
                       is_group=(1 if is_group else 0),

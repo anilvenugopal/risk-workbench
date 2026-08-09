@@ -120,7 +120,9 @@ def test_finished_enqueues_both_upload_rdm_and_backfill_edm_detail(
     assert uploads[0]["requestor_type"] == "irp_job"
     assert backfills[0]["requestor_type"] == "irp_job"
     assert uploads[0]["requestor_id"] == backfills[0]["requestor_id"] == str(job["id"])
-    assert str(job["irp_edm_id"]) in backfills[0]["input_data"]
+    # .lower(): the raw uniqueidentifier read is UPPERCASE; input_data ids are
+    # normalized lowercase (_uid)
+    assert str(job["irp_edm_id"]).lower() in backfills[0]["input_data"]
 
     poller.poll_once()  # re-poll: idempotent — no double backfill
     assert len(_rwb_jobs_of("upload_rdm")) == 1

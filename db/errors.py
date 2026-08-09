@@ -26,8 +26,8 @@ class SQLServerQueryError(SQLServerError):
 def is_unique_violation(exc: BaseException | None) -> bool:
     """True if ``exc`` — or any exception it chains from — is a UNIQUE/PK constraint
     violation. The safe path wraps driver errors in ``SQLServerQueryError`` via
-    ``raise ... from e``, so walk ``__cause__`` to find a SQLAlchemy ``IntegrityError``
-    whichever layer surfaced it (both SQLite and pyodbc map a UNIQUE violation to it).
+    ``raise ... from e``, so walk ``__cause__`` to find the SQLAlchemy
+    ``IntegrityError`` whichever layer surfaced it.
 
     Lets an idempotent ``INSERT ... WHERE NOT EXISTS`` absorb the concurrent-writer race
     it cannot fully close under READ COMMITTED (both writers pass the pre-check; the

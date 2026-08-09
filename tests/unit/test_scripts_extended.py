@@ -7,7 +7,8 @@ Covers the paths not hit by test_db_package.py:
 - _resolve_sql_path: absolute path, relative path, missing file
 - sql_file_exists: True/False cases
 - display_result_sets: empty list, IPython absent fallback
-- execute_query: happy path against SQLite via register_engine
+- execute_query: connection-error re-raise (execution paths live in
+  tests/sqlserver/test_scripts_execute_query.py)
 """
 
 from __future__ import annotations
@@ -200,36 +201,6 @@ class TestDisplayResultSets:
 # ── execute_query ─────────────────────────────────────────────────────────────
 
 class TestExecuteQuery:
-    def test_returns_dataframe(self, monkeypatch):
-        import pandas as pd
-        from sqlalchemy import create_engine
-        from db.connection import register_engine, _ENGINE_OVERRIDES
-        from db.scripts import execute_query
-
-        eng = create_engine("sqlite:///:memory:")
-        from sqlalchemy import text
-        with eng.begin() as conn:
-            conn.execute(text("CREATE TABLE demo (n INTEGER)"))
-            conn.execute(text("INSERT INTO demo VALUES (7)"))
-
-        _ENGINE_OVERRIDES.clear()
-        register_engine("DATABRIDGE", eng)
-        result = execute_query("SELECT n FROM demo", connection="DATABRIDGE")
-
-        assert isinstance(result, pd.DataFrame)
-        assert result["n"].iloc[0] == 7
-
-    def test_bad_sql_raises_query_error(self, monkeypatch):
-        from sqlalchemy import create_engine
-        from db.connection import register_engine, _ENGINE_OVERRIDES
-        from db.scripts import execute_query
-        from db.errors import SQLServerQueryError
-
-        _ENGINE_OVERRIDES.clear()
-        register_engine("DATABRIDGE", create_engine("sqlite:///:memory:"))
-        with pytest.raises(SQLServerQueryError):
-            execute_query("NOT VALID SQL", connection="DATABRIDGE")
-
     def test_connection_error_reraised(self, monkeypatch):
         """SQLServerConnectionError from get_engine must propagate unchanged (line 152)."""
         from db.scripts import execute_query

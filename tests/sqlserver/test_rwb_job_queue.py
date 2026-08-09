@@ -1,11 +1,11 @@
-"""Unit tests for the Article-10 rwb_job queue state machine (T016).
+"""The Article-10 rwb_job queue state machine (T016) against SQL Server.
 
 The constitutional mandate (Article 10 / data-model §9): the SQL table is the
 queue — an **atomic claim** (rowcount 1 then 0), a **heartbeat** (one row per job),
 and a **reconciler** that reclaims a dead worker's stale ``running`` row. Also
 covers the idempotent enqueue (the A21 dedup backbone) and in-place completion.
 
-Runs on the SQLite unit mirror (``iteration2_db``); no external deps.
+Runs on the SQL Server test database (``iteration2_db``).
 """
 
 from __future__ import annotations

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
-    """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
+    """Naive UTC timestamp — DATETIME2 columns carry no timezone."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
@@ -37,9 +37,8 @@ def _uid(value: Any) -> str | None:
     ``uniqueidentifier`` reads them back UPPERCASE. Lowercasing every id the
     service hands out keeps app-generated, bound, and read-back ids
     byte-identical, so Python-side equality (dedup sets, "is this the selected
-    row?" checks, redirect URLs) is stable across both backends. SQL Server
-    compares ``uniqueidentifier`` case-insensitively so lookups are unaffected,
-    and the SQLite unit tier stores strings verbatim so this is a no-op there."""
+    row?" checks, redirect URLs) is stable. SQL Server compares
+    ``uniqueidentifier`` case-insensitively so lookups are unaffected."""
     return None if value is None else str(value).lower()
 
 

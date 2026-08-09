@@ -4,18 +4,17 @@
 from the stored per-portfolio snapshots (research R4): SUM the counts + record
 volume + TIV, UNION perils/lines of business, COMBINE geography (states) + the
 currency set, count portfolios. Pure function — no DB, no Risk Modeler, never
-stored (FR-042).
-``None`` when no portfolio carries a snapshot → the caller renders the pending
-state (FR-043). ``edm_service.get_edm_detail`` surfaces it (FR-040).
+stored (FR-042). ``None`` when no portfolio carries a snapshot → the caller
+renders the pending state (FR-043). ``edm_service.get_edm_detail`` surfacing
+is covered in ``tests/sqlserver/test_edm_detail_rollup.py``.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from app.services import edm_service, portfolio_service
+from app.services import portfolio_service
 from app.services._common import _utcnow
-from db import execute_command
 
 SNAP_A = {
     "metrics": {"totalLocations": 8240, "totalAccounts": 1120,
@@ -81,35 +80,3 @@ def test_aggregate_flat_precapability_shape_and_missing_summary():
     assert agg.perils == ["EQ"]
     assert agg.currencies == []            # graceful — no summary anywhere
     assert agg.total_tiv is None
-
-
-def test_get_edm_detail_surfaces_the_derived_aggregate(iteration2_db):
-    edm_id = str(uuid.uuid4())
-    now = _utcnow()
-    execute_command(
-        "INSERT INTO irp_edm (id, name, status, inserted_at, updated_at) "
-        "VALUES (:id, 'EDM', 'ready', :now, :now)",
-        {"id": edm_id, "now": now}, connection="WORKBENCH")
-    portfolio_service.upsert_portfolio_detail(
-        edm_id=edm_id, irp_id="1", name="A", exposure_detail=SNAP_A, as_of=now)
-    portfolio_service.upsert_portfolio_detail(
-        edm_id=edm_id, irp_id="2", name="B", exposure_detail=SNAP_B, as_of=now)
-
-    detail = edm_service.get_edm_detail(edm_id)
-    assert detail.aggregate is not None
-    assert detail.aggregate.locations == 12140
-    assert detail.aggregate.portfolio_count == 2
-
-
-def test_get_edm_detail_aggregate_none_renders_pending_state(iteration2_db):
-    # an EDM with no backfilled snapshot — aggregate is None, never an error
-    edm_id = str(uuid.uuid4())
-    now = _utcnow()
-    execute_command(
-        "INSERT INTO irp_edm (id, name, status, inserted_at, updated_at) "
-        "VALUES (:id, 'EDM', 'ready', :now, :now)",
-        {"id": edm_id, "now": now}, connection="WORKBENCH")
-
-    detail = edm_service.get_edm_detail(edm_id)
-    assert detail.aggregate is None
-    assert detail.detail_state == "unavailable"  # the pending/unavailable box

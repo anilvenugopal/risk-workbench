@@ -13,7 +13,7 @@ the route decides:
     values echoed back into the inputs, the CRM column, and the two empty states
     (CR1–CR3).
 
-Harness: TestClient over the real router against the fixture SQLite engine
+Harness: TestClient over the real router against the SQL Server test database
 (``test_name_check_routes.py`` pattern, minus the monkeypatched services — these
 tests want the real writes).
 """

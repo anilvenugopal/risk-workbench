@@ -35,7 +35,7 @@ from .errors import (SQLServerError, SQLServerConnectionError,
 from .config import (get_connection_config, build_odbc_connection_string,
                      build_sqlalchemy_url)
 from .connection import (get_engine, get_connection, test_connection,
-                         register_engine, dispose_all)
+                         dispose_all)
 from .kerberos import (check_kerberos_status, init_kerberos, is_ticket_valid,
                        ensure_valid_kerberos_ticket)
 from .execute import (execute, execute_one, execute_scalar, execute_command,
@@ -48,7 +48,7 @@ __all__ = [
     # config
     "get_connection_config", "build_odbc_connection_string", "build_sqlalchemy_url",
     # connection / pool
-    "get_engine", "get_connection", "test_connection", "register_engine", "dispose_all",
+    "get_engine", "get_connection", "test_connection", "dispose_all",
     # kerberos
     "check_kerberos_status", "init_kerberos", "is_ticket_valid",
     "ensure_valid_kerberos_ticket",

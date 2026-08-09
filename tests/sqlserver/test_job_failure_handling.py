@@ -10,7 +10,7 @@ vehicle), but that record does not make the ``rwb_job`` a success.
 These lock the fix for the swallowed-failure defect: bodies used to catch their own
 gateway exception and ``return {...}``, which ``run_job`` reported as ``succeeded``.
 
-Runs on the SQLite unit mirror (``iteration2_db``) with the fake IRP; no external deps.
+Runs on the SQL Server test database (``iteration2_db``) with the fake IRP.
 """
 
 from __future__ import annotations

@@ -25,7 +25,7 @@ Filters are AND-combined onto query 1:
 | Filter | Clause | Note |
 |---|---|---|
 | package | `AND package_id = :pid` | used by callers, not the library UI |
-| name | `AND name LIKE '%…%'` | case-insensitive by collation on SQL Server; ASCII-case-insensitive on the SQLite unit tier |
+| name | `AND name LIKE '%…%'` | case-insensitive by SQL Server's default collation |
 | status | `AND status = :status` | exact match against the entity's own status set — six for EDM (incl. the delete states), four for RDM |
 
 Standalone entities (no package) simply carry an empty submission list. **No row scoping

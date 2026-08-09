@@ -8,7 +8,7 @@ layer never writes here.
 Every function is a thin per-table statement that optionally accepts an explicit
 ``conn`` so the caller can span *both* tables in one transaction (a worker completes
 its ``rwb_job`` **and** records the ``irp_job`` atomically — contracts/data-access.md).
-With no ``conn`` it opens its own transaction. Portable across SQLite / SQL Server.
+With no ``conn`` it opens its own transaction.
 """
 
 from __future__ import annotations

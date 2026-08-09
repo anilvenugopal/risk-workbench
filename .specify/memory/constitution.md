@@ -2,6 +2,27 @@
   Sync Impact Report
   ==================
 
+  --- 2026-08-09 (issue #51: replace SQLite tests with SQL Server) ---
+  Version change: 3.1.0 → 4.0.0  (MAJOR — Article 12 tier 1 redefined; the
+  injected-SQLite-engine requirement is removed; 13-article numbering stable)
+
+  Redefined principle (backward-incompatible → MAJOR):
+    - Article 12: tier 1 (Unit) no longer exercises the `/db` safe path via an
+      injected SQLite engine — tier 1 is database-free (pure functions and
+      mocked service boundaries; no SQL executes). Tier 2 (SQL-Server-connected)
+      now owns every test that executes application SQL: the `/db` package,
+      service SQL, SQL-bearing route flows, migrations, and event-sourcing
+      transactions. The suite provisions a dedicated test database from the
+      Alembic head and never reads or writes the developer databases.
+      SQLite is removed as an application database and test substitute
+      (GitHub issue #51): it cannot validate SQL Server execution plans,
+      uniqueidentifier, collation, locking, or OFFSET/FETCH behavior, and it
+      forced dialect branches into application SQL.
+
+  Templates: no plan-template Constitution Check title changes (Article 12
+  title unchanged). Dependent docs updated in the same pass: AGENTS.md
+  (Testing), docs/SCAFFOLDING.md, .github/workflows/ci.yml, Makefile.
+
   --- 2026-07-23 (spec 004 Addendum A) ---
   Version change: 3.0.0 → 3.1.0  (MINOR — new permission clause added to
   Article 11; no article redefined or removed; 13-article numbering stable)
@@ -305,11 +326,17 @@ enrichment degradation, never a page error (the graceful-empty doctrine applies)
 
 Behavior MUST be covered by tests across three tiers:
 
-1. **Unit** — fast, no external deps. Pure functions plus the `/db` safe path
-   exercised via an injected SQLite engine.
-2. **SQL-Server-connected** — a `sqlserver`-marked suite against a SQL Server
-   Express container, covering the real driver, migrations, and
-   event-sourcing transactions.
+1. **Unit (database-free)** — fast, no external dependencies, no database.
+   Pure functions, validation, and route behavior against mocked or faked
+   service boundaries. No unit test executes SQL. SQLite is not an
+   application database and MUST NOT appear in test fixtures or test
+   dependencies.
+2. **SQL-Server-connected** — a `sqlserver`-marked suite against SQL Server
+   2022 that owns every test executing application SQL: the `/db` package,
+   service-layer SQL, SQL-bearing route flows, migrations, and event-sourcing
+   transactions. The suite provisions its own dedicated test database
+   (created from the Alembic head, wiped between tests) and MUST NOT read or
+   write the developer databases.
 3. **IRP-connected** — a fake IRP implementing the interface for default CI,
    plus an opt-in `irp`-marked suite against a sandbox IRP.
 
@@ -366,4 +393,4 @@ research begins.
 
 ---
 
-**Version**: 3.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-23
+**Version**: 4.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-08-09

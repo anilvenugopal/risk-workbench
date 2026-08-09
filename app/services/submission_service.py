@@ -6,17 +6,15 @@ each status transition) open ``get_connection("WORKBENCH")`` + an explicit
 ``conn.begin()`` and insert the event **and** stamp the cached column in one
 transaction (Article 4 / R2).
 
-Portability contract (unit tier = SQLite via ``register_engine``; integration
-tier = SQL Server):
+Conventions:
   - UUID PKs are generated app-side (``uuid4()``) and bound as ``str`` (R11) — no
     ``NEWID()`` on the hot path, and ids are known immediately for redirects.
   - Timestamps are app-supplied (``_utcnow()``) and bound as native ``datetime``;
     the ``updated_at`` optimistic-concurrency marker (R1) is bound **verbatim** in
     the ``WHERE`` so whatever type the caller read back round-trips unchanged.
-  - No ``GETUTCDATE()``/``STRING_AGG``/``TOP`` in service SQL — those are not
-    portable to SQLite. The migration keeps server defaults as a fallback only.
-    A capped read appends ``db.row_limit(n)``, which emits the dialect's own
-    clause, rather than spelling ``TOP``/``LIMIT`` here.
+    The migration keeps server defaults as a fallback only.
+  - A capped read appends ``db.row_limit(n)`` (OFFSET/FETCH) rather than
+    spelling ``TOP`` inline.
 
 No row-level security anywhere: ``assigned_analyst_id`` is a plain predicate, never
 a scope wrapper (Article 6 / R7).
@@ -136,8 +134,8 @@ class UpdateResult:
 def _as_date(value: Any) -> Any:
     """Normalize a date-ish value to a ``date`` for binding.
 
-    SQLite reads dates back as ISO strings; SQL Server as ``date``. Accept both
-    (and ISO strings from HTML forms) so callers need not care."""
+    Accepts a ``date``, a ``datetime``, or an ISO string (HTML forms post
+    strings) so callers need not care."""
     if value is None or isinstance(value, date):
         return value
     if isinstance(value, datetime):
@@ -148,8 +146,8 @@ def _as_date(value: Any) -> Any:
 def _escape_like(value: str) -> str:
     """Neutralize LIKE wildcards in analyst input, so searching "A_B" matches a
     literal underscore rather than any character. Pair with ``ESCAPE '\\'`` on the
-    predicate. Only ``%``, ``_`` and the escape character itself are handled —
-    those are the three both SQL Server and SQLite agree on."""
+    predicate. Only ``%``, ``_`` and the escape character itself are handled;
+    SQL Server's ``[range]`` wildcard is left as-is."""
     out = value.replace("\\", "\\\\")
     return out.replace("%", "\\%").replace("_", "\\_")
 

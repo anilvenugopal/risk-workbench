@@ -1,105 +1,53 @@
-"""Unit tests for the error paths in db/execute.py.
+"""Unit tests for the connection-error re-raise paths in db/execute.py.
 
-The happy paths (execute returns rows, execute_one returns None, etc.) are
-already covered by test_db_package.py via a SQLite fixture. This file covers
-the four except-Exception re-raise paths — lines 43-46, 59-62, 74-77, 94-97
-— by running bad SQL against a registered SQLite engine.
+A SQLServerConnectionError raised inside engine.connect()/begin() must
+propagate unchanged (not wrapped as SQLServerQueryError). The engine is a
+MagicMock injected via monkeypatch — no database. The query-error wrapping
+paths (bad SQL against the real driver) live in
+tests/sqlserver/test_db_execute_errors.py.
 """
 
 from __future__ import annotations
 
-import pytest
-from sqlalchemy import create_engine
+import importlib
+from unittest.mock import MagicMock
 
-from db.connection import register_engine
-from db.errors import SQLServerQueryError
-from db.execute import execute, execute_one, execute_scalar, execute_command
+import pytest
+
+from db.errors import SQLServerConnectionError
+from db.execute import execute, execute_command, execute_one, execute_scalar
 
 
 @pytest.fixture(autouse=True)
-def _sqlite(monkeypatch):
-    """Register a blank SQLite engine for WORKBENCH so no real DB is needed."""
-    eng = create_engine("sqlite:///:memory:")
-    register_engine("WORKBENCH", eng)
-    yield
+def _failing_engine(monkeypatch):
+    """An engine whose connect()/begin() raise SQLServerConnectionError — the
+    exception fires inside the try block, hitting the re-raise branch."""
+    # importlib, because db/__init__.py re-exports the execute *function*,
+    # which shadows the db.execute submodule as an attribute of the package.
+    execute_mod = importlib.import_module("db.execute")
+
+    bad_engine = MagicMock()
+    bad_engine.connect.side_effect = SQLServerConnectionError("connection lost")
+    bad_engine.begin.side_effect = SQLServerConnectionError("connection lost")
+    monkeypatch.setattr(execute_mod, "get_engine",
+                        lambda name, database=None: bad_engine)
 
 
-class TestExecuteErrorPath:
-    def test_bad_sql_raises_query_error(self):
-        with pytest.raises(SQLServerQueryError):
-            execute("THIS IS NOT SQL", {}, connection="WORKBENCH")
-
-    def test_error_message_includes_connection_name(self):
-        try:
-            execute("SELECT * FROM nonexistent_table_xyz", {}, connection="WORKBENCH")
-        except SQLServerQueryError as e:
-            assert "WORKBENCH" in str(e)
-
-    def test_unknown_param_placeholder_raises_query_error(self):
-        # SQLAlchemy text() rejects unbound :params by design
-        with pytest.raises(SQLServerQueryError):
-            execute("SELECT :missing_param", {}, connection="WORKBENCH")
+def test_execute_reraises_connection_error():
+    with pytest.raises(SQLServerConnectionError):
+        execute("SELECT 1", connection="CONNFAIL")
 
 
-class TestExecuteOneErrorPath:
-    def test_bad_sql_raises_query_error(self):
-        with pytest.raises(SQLServerQueryError):
-            execute_one("GIBBERISH SQL HERE", {}, connection="WORKBENCH")
+def test_execute_one_reraises_connection_error():
+    with pytest.raises(SQLServerConnectionError):
+        execute_one("SELECT 1", connection="CONNFAIL")
 
 
-class TestExecuteScalarErrorPath:
-    def test_bad_sql_raises_query_error(self):
-        with pytest.raises(SQLServerQueryError):
-            execute_scalar("NOT VALID SQL !", {}, connection="WORKBENCH")
+def test_execute_scalar_reraises_connection_error():
+    with pytest.raises(SQLServerConnectionError):
+        execute_scalar("SELECT 1", connection="CONNFAIL")
 
 
-class TestExecuteCommandErrorPath:
-    def test_bad_sql_raises_query_error(self):
-        with pytest.raises(SQLServerQueryError):
-            execute_command("INVALID COMMAND !", {}, connection="WORKBENCH")
-
-    def test_error_message_includes_connection_name(self):
-        try:
-            execute_command("INSERT INTO no_such_table VALUES (1)", {}, connection="WORKBENCH")
-        except SQLServerQueryError as e:
-            assert "WORKBENCH" in str(e)
-
-
-class TestConnectionErrorReraised:
-    """Lines 44, 60, 75, 95: SQLServerConnectionError raised inside engine.connect()
-    must propagate unchanged (not wrapped as SQLServerQueryError)."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_engine_connect(self, monkeypatch):
-        """Provide an engine whose connect() raises SQLServerConnectionError —
-        the exception must be inside the try block to hit the re-raise branch."""
-        from unittest.mock import MagicMock
-        from db.errors import SQLServerConnectionError
-        from db.connection import _ENGINE_OVERRIDES
-
-        bad_engine = MagicMock()
-        bad_engine.connect.side_effect = SQLServerConnectionError("connection lost")
-        bad_engine.begin.side_effect = SQLServerConnectionError("connection lost")
-        _ENGINE_OVERRIDES[("CONNFAIL", "")] = bad_engine
-        yield
-        _ENGINE_OVERRIDES.pop(("CONNFAIL", ""), None)
-
-    def test_execute_reraises_connection_error(self):
-        from db.errors import SQLServerConnectionError
-        with pytest.raises(SQLServerConnectionError):
-            execute("SELECT 1", connection="CONNFAIL")
-
-    def test_execute_one_reraises_connection_error(self):
-        from db.errors import SQLServerConnectionError
-        with pytest.raises(SQLServerConnectionError):
-            execute_one("SELECT 1", connection="CONNFAIL")
-
-    def test_execute_scalar_reraises_connection_error(self):
-        from db.errors import SQLServerConnectionError
-        with pytest.raises(SQLServerConnectionError):
-            execute_scalar("SELECT 1", connection="CONNFAIL")
-
-    def test_execute_command_reraises_connection_error(self):
-        from db.errors import SQLServerConnectionError
-        with pytest.raises(SQLServerConnectionError):
-            execute_command("INSERT INTO t VALUES (1)", connection="CONNFAIL")
+def test_execute_command_reraises_connection_error():
+    with pytest.raises(SQLServerConnectionError):
+        execute_command("INSERT INTO t VALUES (1)", connection="CONNFAIL")

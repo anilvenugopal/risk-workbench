@@ -1,6 +1,6 @@
-"""Unit tests for app/services/package_service.py (US6).
+"""app/services/package_service.py (US6) against SQL Server.
 
-Structure-only package operations on the SQLite unit tier. Covers the FR-024
+Structure-only package operations. Covers the FR-024
 ≥1-member invariant, member counting across both child tables, member
 add/remove with soft-delete-on-empty, and the M:N attach (idempotent + shared
 across submissions).
@@ -40,6 +40,18 @@ def _rdm(name="RDM"):
     return mid
 
 
+def _submission(analyst, name="Deal"):
+    sid = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "treaty_type_code, inception_date, status_code, inserted_at, updated_at, "
+        "inserted_by, updated_by) "
+        "VALUES (:id, :a, :name, 'Pkg Cedant', 'cat_xol', '2026-01-01', "
+        "'ACTIVE', '2026-01-01 00:00:00', '2026-01-01 00:00:00', :a, :a)",
+        {"id": sid, "a": analyst, "name": name}, connection="WORKBENCH")
+    return sid
+
+
 def test_create_package_empty_raises(iteration1_db):
     with pytest.raises(EmptyPackageError):
         create_package(name="P", actor_id=iteration1_db.user_a)
@@ -73,7 +85,7 @@ def test_remove_last_member_soft_deletes_package(iteration1_db):
 def test_attach_idempotent_and_shared_across_submissions(iteration1_db):
     a = iteration1_db.user_a
     pid = create_package(name="Shared", edm_ids=[_edm()], actor_id=a)
-    s1, s2 = str(uuid.uuid4()), str(uuid.uuid4())
+    s1, s2 = _submission(a, "Deal One"), _submission(a, "Deal Two")
     attach_to_submission(submission_id=s1, package_id=pid, actor_id=a)
     attach_to_submission(submission_id=s1, package_id=pid, actor_id=a)  # idempotent
     attach_to_submission(submission_id=s2, package_id=pid, actor_id=a)
@@ -87,11 +99,11 @@ def test_attach_idempotent_and_shared_across_submissions(iteration1_db):
 def test_detach_and_soft_delete_hide_from_listing(iteration1_db):
     a = iteration1_db.user_a
     pid = create_package(name="P", edm_ids=[_edm()], actor_id=a)
-    s1 = str(uuid.uuid4())
+    s1 = _submission(a, "Deal One")
     attach_to_submission(submission_id=s1, package_id=pid, actor_id=a)
     detach_from_submission(submission_id=s1, package_id=pid)
     assert get_packages_for_submission(s1) == []
-    s2 = str(uuid.uuid4())
+    s2 = _submission(a, "Deal Two")
     attach_to_submission(submission_id=s2, package_id=pid, actor_id=a)
     soft_delete_package(package_id=pid, actor_id=a)
     assert get_packages_for_submission(s2) == []  # deleted_at filters it out
