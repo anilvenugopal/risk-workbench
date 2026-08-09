@@ -1,12 +1,13 @@
 {# One treaty as a .dtable row (spec 004 US2, FR-020–FR-023). Context: `t`
    (treaty_service.TreatyRow). Collapsed: the 8/5 D2–D7 field set (Type ·
-   Attachment · Occurrence limit · Risk limit · Cedent · Lines of business ·
-   Currency · Effective), read defensively from the documented RM treaty
-   schema. Both limits are labeled columns (D2 — one coalesced "Limit" is not
-   interpretable); no share percentage (D5 — one of four misleads, so show
-   none); cedent and LOB report presence, not granularity (D6 — first value
-   +N); attachment basis and exposure level did not fit (O9-4) and live in
-   the expanded grid.
+   Attachment · Basis · Occurrence limit · Risk limit · Cedent · Lines of
+   business · Currency · Effective), read defensively from the documented RM
+   treaty schema. Both limits are labeled columns (D2 — one coalesced "Limit"
+   is not interpretable); no share percentage (D5 — one of four misleads, so
+   show none); cedent and LOB report presence, not granularity (D6 — first
+   value +N). Attachment BASIS (risks-attaching vs. losses-occurring) is a
+   column of its own (8/7 D9), distinct from attachment point beside it;
+   exposure level still did not fit (O9-4) and lives in the expanded grid.
    Expanded: the FULL attribute grid — every stored field (minus RM's internal
    `uri`; values shaped service-side, 8/4 CR18) — for mis-coding checks
    (FR-021); the pinned .drow__body scrolls its own overflow (FR-023).
@@ -44,6 +45,7 @@
       </span></span></span>
     <span class="l">{{ attr_val(t.display('treatyType')) }}</span>
     <span>{{ money(a.get('attachmentPoint')) }}</span>
+    <span class="l">{{ attr_val(t.display('attachmentBasis')) }}</span>
     <span>{{ money(a.get('occurrenceLimit')) }}</span>
     <span>{{ money(a.get('riskLimit')) }}</span>
     <span class="l">{{ presence(t.display_presence('cedant')) }}</span>

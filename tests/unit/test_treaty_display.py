@@ -100,10 +100,10 @@ def test_diverging_alias_pairs_stay_visible_for_mis_coding_checks():
 
 def test_display_shapes_a_single_attribute_for_the_condensed_columns():
     row = TreatyRow(id="t1", edm_id="e1", name="Cat XoL", irp_id="1042",
-                    attributes={"treatyType": "QUOT", "attachmentLevel": "PORT"},
+                    attributes={"treatyType": "QUOT", "attachmentBasis": "R"},
                     as_of="2026-07-24")
     assert row.display("treatyType") == "Quota Share"
-    assert row.display("attachmentLevel") == "Portfolio"
+    assert row.display("attachmentBasis") == "Risks attaching"   # 8/7 D9
     assert row.display("occurrenceLimit") is None    # absent stays graceful
 
 
