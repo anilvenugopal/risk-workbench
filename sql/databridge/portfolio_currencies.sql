@@ -13,6 +13,12 @@
 --                                treaty table
 --   agport.EXPOSCUR              the aggregate-exposure model keys on its own
 --                                AGPORTID and never joins to portinfo
+--
+-- Each UNION ALL leg folds case/whitespace and groups itself down to its own
+-- distinct portfolio/currency pairs. Without the per-leg GROUP BY, a large EDM
+-- pushes 15-25M rows through the UNION ALL and the portinfo join to reach a
+-- result of a few currencies per portfolio; with it, each leg hands over tens
+-- of rows. The table scans are the same either way.
 
 WITH acct AS (
     SELECT pa.PORTINFOID, pa.ACCGRPID
@@ -25,15 +31,19 @@ loc AS (
         ON p.ACCGRPID = a.ACCGRPID
 ),
 stated AS (
-    SELECT a.PORTINFOID, v.Currency
+    -- cedent-populated char columns hold both "usd" and "USD"; without the
+    -- fold they render as two currencies
+    SELECT a.PORTINFOID, f.Currency
     FROM acct AS a
     INNER JOIN dbo.policy AS po
         ON po.ACCGRPID = a.ACCGRPID
     CROSS APPLY (VALUES (po.UNDCOVCUR), (po.PARTOFCUR), (po.MINDEDCUR),
                         (po.MAXDEDCUR), (po.BLANLIMCUR), (po.BLANDEDCUR),
                         (po.BLANPRECUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY a.PORTINFOID, f.Currency
 
-    UNION ALL SELECT a.PORTINFOID, v.Currency
+    UNION ALL SELECT a.PORTINFOID, f.Currency
     FROM acct AS a
     INNER JOIN dbo.policy AS po
         ON po.ACCGRPID = a.ACCGRPID
@@ -41,70 +51,87 @@ stated AS (
         ON pc.POLICYID = po.POLICYID
     CROSS APPLY (VALUES (pc.LIMITCUR), (pc.DEDUCTCUR),
                         (pc.PREMCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY a.PORTINFOID, f.Currency
 
-    UNION ALL SELECT a.PORTINFOID, v.Currency
+    UNION ALL SELECT a.PORTINFOID, f.Currency
     FROM acct AS a
     INNER JOIN dbo.hdsteppolicy AS sp
         ON sp.ACCGRPID = a.ACCGRPID
     CROSS APPLY (VALUES (sp.PAYOUTCUR), (sp.EXCESSCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY a.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.loccvg AS lc
         ON lc.LOCID = l.LOCID
     CROSS APPLY (VALUES (lc.VALUECUR), (lc.LIMITCUR),
                         (lc.DEDUCTCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.eqdet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.hudet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.fldet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.frdet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.todet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 
-    UNION ALL SELECT l.PORTINFOID, v.Currency
+    UNION ALL SELECT l.PORTINFOID, f.Currency
     FROM loc AS l
     INNER JOIN dbo.trdet AS d
         ON d.LOCID = l.LOCID
     CROSS APPLY (VALUES (d.SITELIMCUR), (d.SITEDEDCUR), (d.COMBINEDLIMCUR),
                         (d.COMBINEDDEDCUR)) AS v(Currency)
+    CROSS APPLY (VALUES (UPPER(LTRIM(RTRIM(v.Currency))))) AS f(Currency)
+    GROUP BY l.PORTINFOID, f.Currency
 )
 SELECT DISTINCT
     s.PORTINFOID AS PortfolioId,
     pi.PORTNAME AS PortfolioName,
-    -- cedent-populated char columns hold both "usd" and "USD"; without the
-    -- fold they render as two currencies
-    UPPER(LTRIM(RTRIM(s.Currency))) AS Currency
+    s.Currency AS Currency
 FROM stated AS s
 INNER JOIN dbo.portinfo AS pi
     ON pi.PORTINFOID = s.PORTINFOID
-WHERE NULLIF(LTRIM(RTRIM(s.Currency)), '') IS NOT NULL
+WHERE s.Currency IS NOT NULL
+  AND s.Currency <> ''
 ORDER BY PortfolioId, Currency;
