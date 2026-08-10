@@ -1,6 +1,19 @@
-{# Master list + pager. This is the swap unit: the filter form and the pager links
-   both target #sub-list, and app/routers/submissions.py returns this file alone
-   for those requests instead of the whole page. #}
+{# Master list + pager. This is the swap unit: the filter form, the sort headers and
+   the pager links all target #sub-list, and app/routers/submissions.py returns this
+   file alone for those requests instead of the whole page. #}
+
+{# One sortable header cell (D15). The route builds the href, so the link carries the
+   applied filters and the direction this click asks for; it is a real href as well as
+   an hx-get, so the header still sorts with JavaScript off. #}
+{% macro sort_th(link, title) %}
+<th aria-sort="{{ link.aria }}">
+  <a class="sort-th{{ ' is-sorted' if link.active }}" href="{{ link.href }}"
+     hx-get="{{ link.href }}" hx-target="#sub-list" hx-swap="outerHTML"
+     hx-push-url="true">{{ title
+    }}<span class="sort-th__caret" aria-hidden="true">{{ link.caret }}</span></a>
+</th>
+{% endmacro %}
+
 <div id="sub-list">
   {% if validation_error %}
   <div class="banner banner--error" role="alert">{{ validation_error }}</div>
@@ -8,8 +21,12 @@
   <table class="mk-table sub-table">
     <thead>
       <tr>
-        <th>Name</th><th>Cedant</th><th>CRM ID</th><th>Treaty type</th>
-        <th>Inception</th><th>Year</th><th>Status</th><th>Owner</th>
+        {{ sort_th(sort_links["name"], "Name") }}
+        {{ sort_th(sort_links["cedant"], "Cedant") }}
+        <th>CRM ID</th><th>Treaty type</th>
+        {{ sort_th(sort_links["inception"], "Inception") }}
+        {{ sort_th(sort_links["year"], "Year") }}
+        <th>Status</th><th>Owner</th>
       </tr>
     </thead>
     <tbody>

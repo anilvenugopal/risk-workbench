@@ -381,14 +381,25 @@ def test_list_filter_narrows_by_crm_id(client):
     assert "Tagged deal" in body and "Untagged deal" not in body
 
 
+def _menu_option(body: str, code: str) -> str:
+    """The opening tag of the multi-select menu row whose value is ``code``."""
+    match = re.search(rf'<button class="ta__opt"[^>]*data-code="{code}"[^>]*>', body)
+    assert match, f"no menu row for {code}"
+    return match.group(0)
+
+
+def _is_picked(body: str, code: str) -> bool:
+    return 'aria-selected="true"' in _menu_option(body, code)
+
+
 def test_list_owner_filter_offers_every_active_user(client):
     client.post("/submissions", data=_payload(name="Deal owned by A"))
     body = client.get("/submissions").text
     # Every active user is a menu row, so the analyst picks instead of typing.
-    assert 'data-name="Analyst A"' in body
-    assert 'data-name="Analyst B"' in body
+    assert 'data-label="Analyst A"' in body
+    assert 'data-label="Analyst B"' in body
     # The row carries the id the filter runs on; the name is only the label.
-    assert f'data-id="{client.db.user_a}"' in body
+    assert f'data-code="{client.db.user_a}"' in body
     a, b = client.db.user_a, client.db.user_b
     assert "Deal owned by A" in client.get(f"/submissions?owner={a}").text
     assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
@@ -410,11 +421,11 @@ def test_list_shows_each_deals_crm_ids(client):
     assert "CRM-1" in body and "+2 more" in body
 
 
-def test_list_renders_every_status_and_shows_the_selected_one(client):
+def test_list_renders_every_status_and_marks_the_picked_ones(client):
     body = client.get("/submissions?status=COMPLETED").text
-    assert 'data-code="CANCELLED">Cancelled</button>' in body
-    # The trigger, not the menu row, carries the applied label.
-    assert '<span x-ref="label">Completed</span>' in body
+    assert 'data-code="CANCELLED" data-label="Cancelled"' in body
+    assert _is_picked(body, "COMPLETED")
+    assert not _is_picked(body, "ACTIVE") and not _is_picked(body, "CANCELLED")
 
 
 def test_list_echoes_every_filter_back_into_its_input(client):
@@ -426,13 +437,11 @@ def test_list_echoes_every_filter_back_into_its_input(client):
                         ("crm_id", "CRM-9"),
                         ("inception", "2026-04-01"), ("treaty_year", "2026")):
         assert f'name="{name}"' in body and f'value="{value}"' in body
+    # Each picked value comes back as its own hidden input and a ticked menu row.
     for name, value in (("status", "ACTIVE"), ("treaty_type", "cat_xol"),
                         ("owner", str(client.db.user_b))):
         assert f'name="{name}" value="{value}"' in body
-    # The Owner box shows the picked analyst's name; the hidden input holds the id.
-    assert 'value="Analyst B"' in body
-    assert '<span x-ref="label">Active</span>' in body
-    assert '<span x-ref="label">Cat XoL</span>' in body
+        assert _is_picked(body, value)
 
 
 def test_filtered_empty_list_offers_to_clear_the_filters(client):
@@ -543,7 +552,7 @@ def test_the_list_lands_on_the_signed_in_analysts_deals(client):
     body = client.get("/submissions").text
     assert "Deal owned by A" in body and "Deal owned by B" not in body
     assert f'name="owner" value="{client.db.user_a}"' in body
-    assert 'value="Analyst A"' in body
+    assert _is_picked(body, str(client.db.user_a))
 
 
 def test_owner_any_lists_every_analysts_deals(client):
@@ -551,6 +560,227 @@ def test_owner_any_lists_every_analysts_deals(client):
     _mk_owned_by_b(client, "Deal owned by B")
     body = client.get("/submissions?owner=any").text
     assert "Deal owned by A" in body and "Deal owned by B" in body
+
+
+# ── D16: multi-select filters ────────────────────────────────────────────────
+
+def test_repeated_filter_parameters_or_within_the_filter(client):
+    client.post("/submissions", data=_payload(name="Cat deal",
+                                              treaty_type_code="cat_xol"))
+    client.post("/submissions", data=_payload(name="Quota deal", cedant_name="Q Re",
+                                              treaty_type_code="quota_share"))
+    client.post("/submissions", data=_payload(name="Surplus deal", cedant_name="S Re",
+                                              treaty_type_code="surplus"))
+    body = client.get("/submissions?treaty_type=cat_xol&treaty_type=quota_share").text
+    assert "Cat deal" in body and "Quota deal" in body
+    assert "Surplus deal" not in body
+
+
+def test_repeated_treaty_years_or_within_the_filter(client):
+    for name, inception in (("Y2025", "2025-04-01"), ("Y2026", "2026-04-01"),
+                            ("Y2027", "2027-04-01")):
+        client.post("/submissions", data=_payload(name=name, cedant_name=f"{name} Re",
+                                                  inception_date=inception))
+    body = client.get("/submissions?treaty_year=2025&treaty_year=2027").text
+    assert "Y2025" in body and "Y2027" in body and "Y2026" not in body
+
+
+def test_several_owners_are_listed_together(client):
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    a, b = client.db.user_a, client.db.user_b
+    body = client.get(f"/submissions?owner={a}&owner={b}").text
+    assert "Deal owned by A" in body and "Deal owned by B" in body
+    # Both menu rows come back ticked, and both ids come back as hidden inputs.
+    assert _is_picked(body, str(a)) and _is_picked(body, str(b))
+    assert body.count('name="owner" value="') == 2
+
+
+def test_owner_any_wins_over_a_listed_owner(client):
+    """The Owner menu's "Any owner" row clears the rest, but a hand-built URL can
+    carry both. Every owner is the wider answer, so it wins."""
+    client.post("/submissions", data=_payload(name="Deal owned by A"))
+    _mk_owned_by_b(client, "Deal owned by B")
+    body = client.get(f"/submissions?owner={client.db.user_a}&owner=any").text
+    assert "Deal owned by A" in body and "Deal owned by B" in body
+
+
+def test_pager_and_sort_links_carry_every_repeated_filter_value(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get(
+        "/submissions?q=paged&status=ACTIVE&treaty_type=cat_xol"
+        "&treaty_type=quota_share").text
+    applied = ("q=paged&amp;treaty_type=cat_xol&amp;treaty_type=quota_share"
+               "&amp;status=ACTIVE")
+    assert f'href="/submissions?{applied}&amp;page=2"' in body
+    assert f'href="/submissions?{applied}&amp;sort=name&amp;dir=asc"' in body
+
+
+def test_htmx_push_url_carries_every_repeated_filter_value(client):
+    response = client.get(
+        "/submissions?treaty_year=2025&treaty_year=2026",
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.headers["HX-Push-Url"] == (
+        "/submissions?treaty_year=2025&treaty_year=2026")
+
+
+@pytest.mark.parametrize(
+    ("parameter", "label"),
+    [("status", "Status"), ("treaty_type", "Treaty type"),
+     ("treaty_year", "Treaty year"), ("owner", "Owner")],
+)
+def test_more_than_twenty_values_on_one_filter_never_reaches_the_query(
+        client, monkeypatch, parameter, label):
+    """SQL Server rejects a statement carrying more than 2,100 bound parameters, so
+    the cap is refused with the banner rather than sent."""
+    def fail(**kwargs):
+        pytest.fail("list_submissions was called")
+
+    monkeypatch.setattr(submission_service, "list_submissions", fail)
+    response = client.get(
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(21)))
+    assert response.status_code == 422
+    assert f"{label} accepts 20 values or fewer." in response.text
+
+
+@pytest.mark.parametrize("parameter", ["status", "treaty_type", "treaty_year",
+                                       "owner"])
+def test_exactly_twenty_values_on_one_filter_are_accepted(client, parameter):
+    response = client.get(
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(20)))
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("year", ["20x6", "999", "20255", "3000"])
+def test_a_treaty_year_that_is_not_a_year_never_reaches_the_query(
+        client, monkeypatch, year):
+    def fail(**kwargs):
+        pytest.fail("list_submissions was called")
+
+    monkeypatch.setattr(submission_service, "list_submissions", fail)
+    response = client.get("/submissions", params={"treaty_year": year})
+    assert response.status_code == 422
+    assert "Treaty year must be a year between 1900 and 2999." in response.text
+
+
+def test_applied_treaty_years_come_back_as_chips(client):
+    body = client.get("/submissions?treaty_year=2025&treaty_year=2026").text
+    for year in ("2025", "2026"):
+        assert f'<input type="hidden" name="treaty_year" value="{year}">' in body
+        assert f'aria-label="Remove {year}"' in body
+
+
+# ── D17: copy/paste-able cells ───────────────────────────────────────────────
+
+def test_a_list_row_opens_from_a_data_href_and_a_name_link(client):
+    """The inline onclick swallowed a drag-selection of the CRM ID. The row now
+    carries the target for the delegated handler in app.js, and the Name cell is a
+    real link so keyboard and middle-click still open the deal."""
+    created = client.post("/submissions", data=_payload(name="Copyable deal",
+                                                        crm_ids="CRM-4417"))
+    sid = created.headers["location"].rsplit("/", 1)[-1]
+    body = client.get("/submissions").text
+    assert f'<tr class="data-row" data-href="/submissions/{sid}">' in body
+    assert f'<a class="open-link" href="/submissions/{sid}">Copyable deal</a>' in body
+    assert "location.href='/submissions/" not in body
+
+
+# ── D15: click-to-sort ───────────────────────────────────────────────────────
+
+def _three_sortable_deals(client) -> None:
+    for name, cedant, inception in (
+            ("Alpha", "Zulu Re", "2026-01-01"),
+            ("Bravo", "Yankee Re", "2026-03-01"),
+            ("Charlie", "Xray Re", "2026-02-01")):
+        client.post("/submissions", data=_payload(
+            name=name, cedant_name=cedant, inception_date=inception))
+
+
+def _row_order(body: str) -> list[str]:
+    return [name for _, name in sorted(
+        (body.index(name), name) for name in ("Alpha", "Bravo", "Charlie"))]
+
+
+def test_the_list_lands_sorted_by_inception_with_a_caret_on_that_column(client):
+    _three_sortable_deals(client)
+    body = client.get("/submissions").text
+    assert _row_order(body) == ["Bravo", "Charlie", "Alpha"]
+    # One column is sorted; the other three announce themselves as sortable.
+    assert body.count('aria-sort="descending"') == 1
+    assert body.count('aria-sort="none"') == 3
+    assert "▼</span>" in body and "▲</span>" not in body
+    # Clicking the sorted column flips it; a text column starts A→Z and the other
+    # date-ish column starts newest-first.
+    assert 'href="/submissions?sort=inception&amp;dir=asc"' in body
+    assert 'href="/submissions?sort=name&amp;dir=asc"' in body
+    assert 'href="/submissions?sort=year&amp;dir=desc"' in body
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("sort=name&dir=asc", ["Alpha", "Bravo", "Charlie"]),
+        ("sort=name&dir=desc", ["Charlie", "Bravo", "Alpha"]),
+        ("sort=cedant&dir=asc", ["Charlie", "Bravo", "Alpha"]),
+        ("sort=inception&dir=asc", ["Alpha", "Charlie", "Bravo"]),
+    ],
+)
+def test_the_list_reads_in_the_requested_order(client, query, expected):
+    _three_sortable_deals(client)
+    assert _row_order(client.get(f"/submissions?{query}").text) == expected
+
+
+def test_the_sorted_column_carries_the_direction_it_is_read_in(client):
+    body = client.get("/submissions?sort=name&dir=asc").text
+    assert 'aria-sort="ascending"' in body and "▲</span>" in body
+    # Clicking it again flips to descending; the others keep their own start.
+    assert 'href="/submissions?sort=name&amp;dir=desc"' in body
+    assert 'href="/submissions?sort=inception&amp;dir=desc"' in body
+
+
+def test_sort_links_carry_the_applied_filters(client):
+    body = client.get("/submissions?q=paged&status=ACTIVE").text
+    assert ('href="/submissions?q=paged&amp;status=ACTIVE&amp;sort=name&amp;dir=asc"'
+            in body)
+
+
+def test_pager_links_carry_the_applied_order(client):
+    _fill_a_page_and_a_bit(client)
+    body = client.get("/submissions?sort=name&dir=asc").text
+    assert 'href="/submissions?sort=name&amp;dir=asc&amp;page=2"' in body
+
+
+def test_htmx_push_url_carries_the_applied_order(client):
+    response = client.get(
+        "/submissions?sort=name&dir=asc",
+        headers={"HX-Request": "true", "HX-Target": "sub-list"},
+    )
+    assert response.headers["HX-Push-Url"] == "/submissions?sort=name&dir=asc"
+
+
+@pytest.mark.parametrize("query", ["sort=owner&dir=asc", "sort=inception&dir=desc"])
+def test_an_unknown_or_default_order_leaves_the_url_bare(client, query):
+    """An unknown column reads the default list rather than answering 422, and
+    neither it nor the default order is echoed into the pushed URL."""
+    _three_sortable_deals(client)
+    response = client.get(
+        f"/submissions?{query}",
+        headers={"HX-Request": "true", "HX-Target": "sub-list"})
+    assert response.status_code == 200
+    assert response.headers["HX-Push-Url"] == "/submissions"
+
+
+def test_an_unknown_sort_column_still_reads_the_default_order(client):
+    _three_sortable_deals(client)
+    assert _row_order(client.get("/submissions?sort=owner&dir=asc").text) == [
+        "Bravo", "Charlie", "Alpha"]
+
+
+def test_an_unknown_direction_reads_the_columns_own_starting_direction(client):
+    _three_sortable_deals(client)
+    body = client.get("/submissions?sort=name&dir=sideways").text
+    assert _row_order(body) == ["Alpha", "Bravo", "Charlie"]
 
 
 @pytest.mark.parametrize("parameter", ["q", "cedant", "crm_id"])
