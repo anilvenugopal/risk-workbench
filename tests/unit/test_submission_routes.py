@@ -31,7 +31,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.services import submission_service
-from db import execute, execute_scalar
+from db import execute, execute_command, execute_scalar
 
 
 @pytest.fixture()
@@ -405,6 +405,19 @@ def test_list_owner_filter_offers_every_active_user(client):
     assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
 
 
+def test_list_preserves_a_selected_inactive_owner(client):
+    _mk_owned_by_b(client, "Deal owned by inactive analyst")
+    execute_command(
+        "UPDATE app_user SET is_active = 0 WHERE id = :id",
+        {"id": client.db.user_b}, connection="WORKBENCH")
+
+    body = client.get(f"/submissions?owner={client.db.user_b}").text
+
+    assert "Deal owned by inactive analyst" in body
+    assert f'name="owner" value="{client.db.user_b}"' in body
+    assert _is_picked(body, str(client.db.user_b))
+
+
 def test_list_owner_filter_ignores_a_name_typed_into_the_url(client):
     """The Owner box submits an id. A display name in ?owner= is not one, so it
     narrows to nothing rather than substring-matching two analysts at once."""
@@ -630,25 +643,23 @@ def test_htmx_push_url_carries_every_repeated_filter_value(client):
     [("status", "Status"), ("treaty_type", "Treaty type"),
      ("treaty_year", "Treaty year"), ("owner", "Owner")],
 )
-def test_more_than_twenty_values_on_one_filter_never_reaches_the_query(
+def test_more_than_four_hundred_values_on_one_filter_never_reaches_the_query(
         client, monkeypatch, parameter, label):
-    """SQL Server rejects a statement carrying more than 2,100 bound parameters, so
-    the cap is refused with the banner rather than sent."""
     def fail(**kwargs):
         pytest.fail("list_submissions was called")
 
     monkeypatch.setattr(submission_service, "list_submissions", fail)
     response = client.get(
-        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(21)))
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(401)))
     assert response.status_code == 422
-    assert f"{label} accepts 20 values or fewer." in response.text
+    assert f"{label} accepts 400 values or fewer." in response.text
 
 
 @pytest.mark.parametrize("parameter", ["status", "treaty_type", "treaty_year",
                                        "owner"])
-def test_exactly_twenty_values_on_one_filter_are_accepted(client, parameter):
+def test_exactly_four_hundred_values_on_one_filter_are_accepted(client, parameter):
     response = client.get(
-        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(20)))
+        "/submissions?" + "&".join(f"{parameter}=2025" for _ in range(400)))
     assert response.status_code == 200
 
 

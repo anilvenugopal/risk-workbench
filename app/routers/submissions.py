@@ -230,9 +230,9 @@ def _not_found(request: Request):
 _LIST_TARGET = "sub-list"
 _SEARCH_MAX_CHARACTERS = 100
 _SEARCH_MAX_WORDS = 10
-# A hand-built query string can repeat a filter parameter without limit; the menus
-# never offer this many.
-_MAX_FILTER_VALUES = 20
+# Four filters at this limit plus the text-search parameters stay below SQL
+# Server's 2,100-parameter limit.
+_MAX_FILTER_VALUES = 400
 _MULTI_FILTER_LABELS = {"status": "Status", "treaty_type": "Treaty type",
                         "treaty_year": "Treaty year", "owner": "Owner"}
 _TEXT_FILTER_LABELS = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM ID"}

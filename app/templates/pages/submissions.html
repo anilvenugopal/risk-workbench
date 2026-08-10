@@ -16,6 +16,7 @@
 {% macro multi_picker(name, title, options, selected, any_label='Any',
                       empty_value='', search_placeholder='') %}
 {% set picked = selected | map('string') | map('lower') | list %}
+{% set option_codes = options | map(attribute=0) | map('string') | map('lower') | list %}
 <div class="filters__field">
   <span id="{{ name }}-label">{{ title }}</span>
   <div class="filters__combo" x-data="multiPicker" @click.outside="close()">
@@ -54,6 +55,12 @@
                 id="{{ name }}-opt-{{ loop.index0 }}"
                 data-code="{{ code }}" data-label="{{ text }}">
           <span class="ta__check" aria-hidden="true"></span>{{ text }}</button>
+        {% endfor %}
+        {% for value in selected if value|string|lower not in option_codes %}
+        <button class="ta__opt" type="button" role="option" aria-selected="true"
+                id="{{ name }}-opt-missing-{{ loop.index0 }}"
+                data-code="{{ value }}" data-label="{{ value }}">
+          <span class="ta__check" aria-hidden="true"></span>{{ value }}</button>
         {% endfor %}
       </div>
       {% if search_placeholder %}
