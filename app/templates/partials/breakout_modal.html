@@ -102,7 +102,16 @@
 
       {% if custom_mode %}
       {% if cart_ready %}
-      <div x-data="{ dim: '{{ groupable[0].dimension }}' }">
+      {# Add group is gated the way Import is (importForm pattern): disabled
+         until the as-you-type check comes back usable — 'ok', or 'unchecked'
+         when Risk Modeler was unreachable (fail-open; the Add-time re-check
+         in the group-preview route is the backstop). #}
+      <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending',
+                     get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
+                     get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
+           @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
+           @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
+           @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
         <div class="bo-pills">
           {% for d in gate.dimensions %}
           {% if d.eligible %}
@@ -134,11 +143,12 @@
         <div class="bo-addrow">
           <input type="text" name="group_label" maxlength="{{ name_max }}"
                  placeholder="Group name — e.g. Coastal HU" class="nc-input"
-                 @input="ncReset($el.closest('form').querySelector('.name-collision'))"
+                 @input="nameVal = $el.value; nameState = 'pending';
+                         ncReset($el.closest('form').querySelector('.name-collision'))"
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"
                  hx-target="next .name-collision" hx-swap="outerHTML">
-          <button type="button" class="btn-sm"
+          <button type="button" class="btn-sm" :disabled="!nameCleared"
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
@@ -148,9 +158,11 @@
                     f.querySelector('[name=group_label]').value = '';
                     f.querySelector('#bo-cart-error').innerHTML = '';
                     ncReset(f.querySelector('.name-collision'));
+                    nameVal = ''; nameState = 'pending';
                   }">Add group</button>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
+        <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
       </div>
       <div id="bo-cart-error"></div>
       <div class="bo-cart">
