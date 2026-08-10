@@ -2,9 +2,9 @@
    the pager links all target #sub-list, and app/routers/submissions.py returns this
    file alone for those requests instead of the whole page. #}
 
-{# One sortable header cell (D15). The route builds the href, so the link carries the
-   applied filters and the direction this click asks for; it is a real href as well as
-   an hx-get, so the header still sorts with JavaScript off. #}
+{# One sortable header cell (D15). The route builds the href, carrying the applied
+   filters and the direction this click asks for. A real href as well as an hx-get,
+   so the header still sorts with JavaScript off. #}
 {% macro sort_th(link, title) %}
 <th aria-sort="{{ link.aria }}">
   <a class="sort-th{{ ' is-sorted' if link.active }}" href="{{ link.href }}"

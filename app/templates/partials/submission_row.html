@@ -1,7 +1,6 @@
-{# The row opens the submission from the delegated handler in app.js, not an inline
-   onclick: a click that ends a drag-selection must leave the selected text alone so
-   the CRM ID can be copied out (D17). The Name cell is a real link, so keyboard,
-   middle-click and open-in-new-tab all work. #}
+{# The row opens from the delegated handler in app.js, not an inline onclick: a click
+   that ends a drag-selection must leave the selected CRM ID alone (D17). The Name
+   cell is a real link, so keyboard and open-in-new-tab work. #}
 <tr class="data-row" data-href="/submissions/{{ row.id }}">
   <td><a class="open-link" href="/submissions/{{ row.id }}">{{ row.name }}</a></td>
   <td>{{ row.cedant_name }}</td>

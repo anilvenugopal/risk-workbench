@@ -5,19 +5,14 @@
 <a href="/submissions/new" class="btn-sm btn-sm--primary">+ New submission</a>
 {% endblock %}
 
-{# Status, Treaty type and Owner (D16). Each is a menu of options the analyst ticks:
-   clicking one toggles it and leaves the menu open, the trigger shows the picked
-   values as chips, and the component writes one hidden input per value and
-   dispatches filter-picked, which the form listens for.
+{# Status, Treaty type and Owner (D16) — a menu of options the analyst ticks, driven
+   by multiPicker in app.js, which paints the chips, ticks and hidden inputs from the
+   options' aria-selected.
 
-   `search_placeholder` adds the narrowing text box Owner needs — twenty-odd
-   analysts is a list worth typing into, three statuses is not. `empty_value` is the
-   sentinel written when nothing is picked: Owner sends `any` because a request
-   carrying no owner at all lands back on the analyst's own deals, while an unpicked
-   Status simply sends nothing.
-
-   The chips, the ticks and the hidden inputs are painted by multiPicker from the
-   options' aria-selected, so this template renders each fact once. #}
+   `search_placeholder` adds the narrowing box Owner needs; twenty-odd analysts is a
+   list worth typing into, three statuses is not. `empty_value` is what is sent when
+   nothing is picked: Owner sends `any` because a request carrying no owner at all
+   lands back on the analyst's own deals. #}
 {% macro multi_picker(name, title, options, selected, any_label='Any',
                       empty_value='', search_placeholder='') %}
 {% set picked = selected | map('string') | map('lower') | list %}
@@ -48,9 +43,8 @@
       {% endif %}
       <div role="listbox" aria-multiselectable="true" x-ref="options"
            @click="pick($event.target.closest('.ta__opt'))">
-        {# The clear-all row carries its label in data-any, not data-label: the
-           narrowing box keeps every option that has no data-label, so this one
-           stays on screen whatever is typed. #}
+        {# data-any, not data-label: the narrowing box keeps every option without a
+           data-label, so the clear-all row stays on screen whatever is typed. #}
         <button class="ta__opt" type="button" role="option" aria-selected="false"
                 data-any="{{ any_label }}" id="{{ name }}-opt-any">
           <span class="ta__check" aria-hidden="true"></span>{{ any_label }}</button>
@@ -98,9 +92,8 @@
         <input class="wf-field__input" type="text" name="crm_id"
                value="{{ filter_values.crm_id }}" autocomplete="off" maxlength="100">
       </label>
-      {# Owner — every active user ships with the page, so the menu opens on click
-         and narrows in place as the analyst types, with no request per keystroke.
-         Two analysts can share a display name, so the name is the label and the
+      {# Owner — every active user ships with the page, so the menu narrows in place
+         with no request per keystroke. Two analysts can share a display name, so the
          app_user id is always the value the route filters on. #}
       {{ multi_picker("owner", "Owner", owner_options, filter_values.owner,
                       any_label="Any owner", empty_value="any",
@@ -112,10 +105,8 @@
       <label>Inception
         <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
       </label>
-      {# Treaty year is typed, not picked — there is no list of years to offer. Enter
-         turns a 4-digit year into a chip carrying its own hidden input; Backspace on
-         an empty box and each chip's × remove one. The box itself has no name, so a
-         half-typed year is never sent as a filter. #}
+      {# Treaty year is typed, not picked — there is no list of years to offer. The
+         box itself has no name, so a half-typed year is never sent as a filter. #}
       <div class="filters__field" style="min-width: 240px;">
         <span id="treaty-year-label">Treaty year</span>
         <div class="chip-input" x-data="yearChips({{ min_treaty_year }}, {{ max_treaty_year }})"

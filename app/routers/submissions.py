@@ -230,12 +230,9 @@ def _not_found(request: Request):
 _LIST_TARGET = "sub-list"
 _SEARCH_MAX_CHARACTERS = 100
 _SEARCH_MAX_WORDS = 10
-# Values one multi-select filter may carry. SQL Server rejects a statement carrying
-# more than 2,100 bound parameters, and one request can spend them on four filters,
-# fifty CRM-id lookups and ten search words at once.
+# A hand-built query string can repeat a filter parameter without limit; the menus
+# never offer this many.
 _MAX_FILTER_VALUES = 20
-# The four filters the analyst can pick several values for (D16). Each maps its
-# query-string key to the label the banner names it by.
 _MULTI_FILTER_LABELS = {"status": "Status", "treaty_type": "Treaty type",
                         "treaty_year": "Treaty year", "owner": "Owner"}
 _TEXT_FILTER_LABELS = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM ID"}
@@ -244,13 +241,11 @@ _TEXT_FILTER_LABELS = {"name": "Name", "cedant_name": "Cedant", "crm_id": "CRM I
 def _filter_validation_error(
     text_filters: dict[str, str], multi_values: dict[str, list[str]],
 ) -> str | None:
-    """The one message the list banner shows, or None when every filter is usable.
-    A request that fails here is answered with the banner and never queried."""
+    """The one message the list banner shows, or None when every filter is usable."""
     for key, value in text_filters.items():
         if len(value) > _SEARCH_MAX_CHARACTERS:
             return (f"{_TEXT_FILTER_LABELS[key]} must be {_SEARCH_MAX_CHARACTERS} "
                     "characters or fewer.")
-    for key, value in text_filters.items():
         if len(value.split()) > _SEARCH_MAX_WORDS:
             return (f"{_TEXT_FILTER_LABELS[key]} must contain {_SEARCH_MAX_WORDS} "
                     "words or fewer.")
@@ -268,9 +263,7 @@ def _filter_validation_error(
 
 def _sort_links(sort_query: str, sort: str, descending: bool) -> dict[str, dict]:
     """One link per sortable header cell (D15). Clicking the sorted column flips its
-    direction; clicking another starts it in the direction that column reads best
-    (``SORT_STARTS_DESCENDING``). ``sort_query`` carries the applied filters and no
-    order, so each link appends its own."""
+    direction; clicking another starts it in ``SORT_STARTS_DESCENDING``."""
     stem = "/submissions?" + (f"{sort_query}&" if sort_query else "")
     links = {}
     for key in submission_service.SORT_COLUMNS:
@@ -293,17 +286,15 @@ def list_submissions_page(request: Request):
         "cedant_name": (request.query_params.get("cedant") or "").strip(),
         "crm_id": (request.query_params.get("crm_id") or "").strip(),
     }
-    # Each multi-select menu writes one input per picked value, so the four arrive
-    # as repeated query parameters (D16).
+    # Each multi-select menu writes one input per picked value (D16).
     multi_values = {
         key: [value.strip() for value in request.query_params.getlist(key)
               if value.strip()]
         for key in _MULTI_FILTER_LABELS
     }
     validation_error = _filter_validation_error(text_filters, multi_values)
-    # The Owner menu sends app_user ids. No `owner` at all — a nav click, a bare
-    # bookmark — lands the analyst on their own deals (FR-020); `owner=any` asks
-    # for every deal, and is what the menu sends once the last owner chip is gone.
+    # No `owner` at all — a nav click, a bare bookmark — lands the analyst on their
+    # own deals (FR-020); `owner=any` asks for every deal.
     owner_ids = ([str(request.state.user.id)]
                  if not request.query_params.getlist("owner")
                  else [] if "any" in multi_values["owner"]
@@ -312,14 +303,12 @@ def list_submissions_page(request: Request):
         **{key: value or None for key, value in text_filters.items()},
         "treaty_type_codes": multi_values["treaty_type"],
         "inception_date": _parse_date(request.query_params.get("inception")),
-        "treaty_years": [year for year in
-                         (_parse_int(value) for value in multi_values["treaty_year"])
-                         if year is not None],
+        "treaty_years": [_parse_int(value)
+                         for value in multi_values["treaty_year"]],
         "status_codes": multi_values["status"],
     }
     page = _parse_int(request.query_params.get("page")) or 1
-    # A hand-edited ?sort=/&dir= falls back to the default order rather than
-    # answering 422 — the analyst asked for the list, not for a validation message.
+    # A hand-edited ?sort=/&dir= falls back to the default order rather than 422.
     sort = request.query_params.get("sort", "")
     direction = request.query_params.get("dir", "")
     if sort not in submission_service.SORT_COLUMNS:
@@ -331,17 +320,15 @@ def list_submissions_page(request: Request):
         if validation_error is None else None)
     # Echoed back into the inputs so a filtered request re-renders what was typed,
     # and read by the template to tell "nothing matches" from "nothing here yet".
-    # Owner carries the resolved ids, not the raw parameter: on the default landing
-    # the hidden input has to hold the analyst's own id so the next filter request
-    # keeps it, and an every-owner list has to keep saying so.
     filter_values = {
         key: request.query_params.get(key, "")
         for key in ("q", "cedant", "crm_id", "inception")
     }
     filter_values |= multi_values
+    # The resolved ids, not the raw parameter: on the default landing the hidden
+    # input has to hold the analyst's own id so the next request keeps it.
     filter_values["owner"] = owner_ids or ["any"]
-    # A list of pairs, not a dict: urlencode has to emit one repeated key per picked
-    # value for the multi-select filters.
+    # Pairs, not a dict: urlencode emits one repeated key per picked value.
     query_values = [
         (query_key, filter_values[query_key].strip())
         for query_key, filter_key in (
@@ -352,13 +339,11 @@ def list_submissions_page(request: Request):
     ]
     for key in ("treaty_type", "treaty_year", "status", "owner"):
         query_values += [(key, value) for value in filter_values[key]]
-    # Lowercased: the id reaches here from a query string while ``app_user.id``
-    # arrives from the driver.
+    # Lowercased: the id arrives from a query string, `app_user.id` from the driver.
     if ([value.lower() for value in filter_values["owner"]]
             == [str(request.state.user.id).lower()]):
         query_values = [(key, value) for key, value in query_values if key != "owner"]
-    # The default order is what a bare /submissions already reads, so leaving it out
-    # keeps the landing URL clean and the back button meaningful.
+    # The default order is what a bare /submissions already reads, so it stays out.
     default_sort = submission_service.DEFAULT_SORT
     order_values = (
         [] if (sort, descending) == (
@@ -370,9 +355,8 @@ def list_submissions_page(request: Request):
         "page": listing.page if listing else page,
         "has_next": listing.has_next if listing else False,
         # The applied filters and order, for the pager links to carry; each link
-        # appends its own page number. `owner` goes even when empty — dropping it
-        # would make page 2 of an every-owner list default back to the analyst's
-        # own deals.
+        # appends its own page number. `owner=any` goes too — dropping it would make
+        # page 2 of an every-owner list default back to the analyst's own deals.
         "filter_query": urlencode(query_values + order_values),
         "sort_links": _sort_links(sort_query, sort, descending),
         "is_filtered": bool(owner_ids) or any(filters.values()),

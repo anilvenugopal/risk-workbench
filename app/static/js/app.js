@@ -367,23 +367,14 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Status, Treaty type and Owner filters on the submissions list (D16). One
-  // component for all three: the options are already in the DOM, clicking one
-  // toggles it and leaves the menu open, and the component then writes one hidden
-  // input per picked value and dispatches `filter-picked`, which the form listens
-  // for. The trigger shows the picks as chips.
+  // Status, Treaty type and Owner filters on the submissions list (D16). The
+  // options are already in the DOM; clicking one toggles it and leaves the menu
+  // open, and the component writes one hidden input per picked value and
+  // dispatches `filter-picked`, which the form listens for.
   //
-  // Two options the markup declares:
-  //   data-any            — the "Any"/"Any owner" row: picking it clears the rest.
-  //                         It reads as selected while nothing else is.
-  //   data-empty-value    — on the inputs container, the value sent when nothing is
-  //                         picked. Owner sends `any`, because a request carrying no
-  //                         owner at all lands back on the analyst's own deals; the
-  //                         other two send nothing.
-  //
-  // The narrowing text box (Owner only) hides options in place — it never filters
-  // the list itself, and @input.stop keeps the keystroke off the form's `input`
-  // trigger.
+  // The data-any row clears the rest and reads as selected while nothing else is.
+  // The narrowing box (Owner only) hides options in place; it never filters the
+  // list itself.
   const MAX_TRIGGER_CHIPS = 3;
 
   Alpine.data('multiPicker', () => ({
@@ -391,8 +382,7 @@ document.addEventListener('alpine:init', () => {
     activeIndex: -1,
     noMatch: false,
     init() {
-      // $nextTick, not straight away: x-ref on the options and the trigger is
-      // registered as Alpine walks the children, after this component's init.
+      // $nextTick: the children's x-ref are registered after this init runs.
       this.$nextTick(() => this.render());
     },
     get allOptions() {
@@ -416,8 +406,7 @@ document.addEventListener('alpine:init', () => {
       this.isOpen = true;
       this.activeIndex = -1;
       if (this.$refs.search) {
-        // Opening shows every option again: a term left over from the last visit
-        // would hide rows the analyst never chose to hide.
+        // A term left over from the last visit would hide rows on reopening.
         this.$refs.search.value = '';
         this.narrow();
         this.$nextTick(() => this.$refs.search.focus());
@@ -433,8 +422,7 @@ document.addEventListener('alpine:init', () => {
       const term = this.$refs.search.value.trim().toLowerCase();
       let matched = 0;
       this.allOptions.forEach((opt) => {
-        // The "Any owner" row carries no label and always stays: clearing the
-        // filter is one click, whatever is typed.
+        // The data-any row carries no label and always stays.
         const keep = !opt.dataset.label
           || opt.dataset.label.toLowerCase().includes(term);
         opt.hidden = !keep;
@@ -508,8 +496,7 @@ document.addEventListener('alpine:init', () => {
     },
     render() {
       // Ticks, chips and hidden inputs all derive from the options' aria-selected,
-      // so init() can paint the server-rendered selection without also asking for a
-      // list request.
+      // so init() paints the server-rendered selection without a list request.
       const chosen = this.chosen;
       const any = this.anyOption;
       if (any) any.setAttribute('aria-selected', chosen.length ? 'false' : 'true');
@@ -564,10 +551,8 @@ document.addEventListener('alpine:init', () => {
   }));
 
   // Treaty year on the submissions list (D16). Typed, not picked — there is no list
-  // of years to offer. Enter turns a 4-digit year into a chip carrying its own
-  // hidden input; Backspace on an empty box and each chip's × remove one. A year
-  // outside the range never becomes a chip, so it never reaches the query: the box
-  // shows the message and the list keeps answering the chips already committed.
+  // of years to offer. A year outside the range never becomes a chip, so it never
+  // reaches the query: the box shows the message and the committed chips stand.
   Alpine.data('yearChips', (minYear, maxYear) => ({
     error: '',
     get years() {
@@ -650,14 +635,9 @@ document.addEventListener('alpine:init', () => {
 });
 
 // ── Row click → open the submission (D17) ─────────────────────────────────────
-// Delegated from the document rather than bound to the table: htmx replaces the
-// whole #sub-list on every filter, sort and page change, and a listener on the
-// table would go with it.
-//
-// Two clicks are left alone. One that ends a drag-selection keeps the selection,
-// so an analyst can select a CRM ID out of a row and copy it — the reason the
-// inline onclick had to go. One that lands on a link or a control lets that
-// element do its own job, including the Name cell's own link.
+// Delegated from the document: htmx replaces the whole #sub-list on every filter,
+// sort and page change, and a listener on the table would go with it. A click that
+// ends a drag-selection keeps the selection, so a CRM ID can be copied out of a row.
 document.addEventListener('click', (e) => {
   const target = e.target instanceof Element ? e.target : null;
   const row = target && target.closest('.data-row[data-href]');

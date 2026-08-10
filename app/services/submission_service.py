@@ -271,8 +271,8 @@ def _submission_rows(
     """Run the shared row query: the master list, the look-alike check and the "links
     to" typeahead all select the same columns, and differ only in their predicates.
 
-    ``order_by`` is SQL, so only ``list_submissions`` passes it, and only from
-    ``SORT_COLUMNS`` — an analyst's ``?sort=`` value never reaches here.
+    ``order_by`` is interpolated SQL, never a bound value: pass ``SORT_COLUMNS``
+    text, never a query-string value.
 
     ``exclude_id`` drops one submission from the results — the deal being renamed, or
     the one being edited so it cannot be offered as its own link. A value that is not
@@ -292,12 +292,8 @@ def _submission_rows(
 def _in_clause(
     column: str, values: list[Any], prefix: str,
 ) -> tuple[str, dict[str, Any]]:
-    """An ``IN (...)`` predicate over ``values``, one generated bound parameter each
-    (the pattern ``_attach_crm_ids`` uses). ``prefix`` namespaces them so two
-    multi-value filters in one query cannot collide.
-
-    The caller caps how many values reach here — SQL Server rejects a statement
-    carrying more than 2,100 bound parameters."""
+    """An ``IN (...)`` predicate over ``values``, one bound parameter each.
+    ``prefix`` namespaces them so two filters in one query cannot collide."""
     params = {f"{prefix}{index}": value for index, value in enumerate(values)}
     placeholders = ", ".join(f":{key}" for key in params)
     return f"{column} IN ({placeholders})", params
@@ -449,10 +445,9 @@ def get_submission(submission_id: Any) -> Submission | None:
     )
 
 
-# The four columns the list header can sort on (D15). The request carries the key;
-# the column is looked up here and never interpolated from the query string. Status,
-# owner and treaty type are picked from the filter menus instead of sorted, and CRM
-# ID does not sort at all — a deal carries several.
+# The columns the list header can sort on (D15). The request carries the key; the
+# column text is looked up here and never taken from the query string. CRM ID does
+# not sort — a deal carries several.
 SORT_COLUMNS = {
     "name": "s.name",
     "cedant": "s.cedant_name",
@@ -460,17 +455,15 @@ SORT_COLUMNS = {
     "year": "s.treaty_year",
 }
 DEFAULT_SORT = "inception"
-# The direction a column starts in when the analyst first clicks it: newest first
-# for the two date-ish columns, A→Z for the two text ones.
+# The direction a column starts in when the analyst first clicks it.
 SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
                           "inception": True, "year": True}
 
 
-def _order_by(sort: str | None, descending: bool) -> str:
-    """The ORDER BY for one page of the master list. Name and id follow the sorted
-    column so a page boundary falls in the same place every request when the sorted
-    column ties — half the deals on the list share a treaty year."""
-    column = SORT_COLUMNS.get(sort or DEFAULT_SORT, SORT_COLUMNS[DEFAULT_SORT])
+def _order_by(sort: str, descending: bool) -> str:
+    """Name and id follow the sorted column so a page boundary falls in the same
+    place every request when the sorted column ties."""
+    column = SORT_COLUMNS[sort]
     tiebreakers = [c for c in ("s.name", "s.id") if c != column]
     return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
 
@@ -481,16 +474,14 @@ def list_submissions(
     cedant_name: str | None = None, crm_id: str | None = None,
     treaty_type_codes: list[str] | None = None, inception_date: Any = None,
     treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
-    page: int = 1, sort: str | None = None, descending: bool = True,
+    page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
     """One page of the master list. Filters AND-combine as bound predicates
     (FR-021). Every deal is visible to every analyst regardless of owner
     (Article 6) — ``owner_ids`` is a plain predicate, never an access gate (R7).
 
-    ``owner_ids``, ``treaty_type_codes``, ``treaty_years`` and ``status_codes``
-    each accept several values, which OR within the filter and AND against the
-    others (D16). An empty list turns that filter off: ``owner_ids=[]`` lists
-    every owner's deals.
+    The list filters OR within themselves and AND against the others (D16). An
+    empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
     ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
     ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
@@ -498,8 +489,8 @@ def list_submissions(
     exact.
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
-    reads the first page rather than a negative offset. ``sort`` names a key of
-    ``SORT_COLUMNS``; anything else reads in the default inception order.
+    reads the first page rather than a negative offset. ``sort`` is a key of
+    ``SORT_COLUMNS``.
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""

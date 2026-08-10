@@ -414,11 +414,17 @@ def test_list_sorts_on_each_whitelisted_column(
 
 
 @pytest.mark.parametrize("sort", ["status", "s.name; DROP TABLE submission", "", None])
-def test_list_sort_outside_the_whitelist_reads_the_default_order(iteration1_db, sort):
+def test_list_sort_outside_the_whitelist_is_rejected(iteration1_db, sort):
     """The key is looked up in SORT_COLUMNS, so nothing from the query string reaches
     the ORDER BY."""
     a = _sorted_deals(iteration1_db)
-    assert [r.name for r in list_submissions(owner_ids=[a], sort=sort).rows] == [
+    with pytest.raises(KeyError):
+        list_submissions(owner_ids=[a], sort=sort)
+
+
+def test_list_defaults_to_newest_inception_first(iteration1_db):
+    a = _sorted_deals(iteration1_db)
+    assert [r.name for r in list_submissions(owner_ids=[a]).rows] == [
         "Bravo", "Charlie", "Alpha"]
 
 
