@@ -47,6 +47,12 @@ _SUFFIX_RESERVE = 4
 # identity; the number is).
 _MIN_SOURCE_CHARS = 4
 _SEPARATOR = " - "
+# A custom group's label is the token ``_compose_name`` keeps whole, so it caps
+# where the minimum source part, the separator, and the collision reserve still
+# fit PORTFOLIO_NAME_MAX — a longer label would be truncated inside the
+# generated portfolio name.
+GROUP_LABEL_MAX = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
+                   - _MIN_SOURCE_CHARS)
 
 # Above this many sub-portfolios the preview adds the plain statement that the
 # run takes several minutes (FR-006c / P-15). One named constant — no cap, no
@@ -1071,8 +1077,9 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
         if not isinstance(label, str) or not label.strip():
             raise GateRefused("every group needs a name")
         label = label.strip()
-        if len(label) > 256:
-            raise GateRefused("group names cap at 256 characters")
+        if len(label) > GROUP_LABEL_MAX:
+            raise GateRefused(
+                f"group names cap at {GROUP_LABEL_MAX} characters")
         filters = _validate_group_filters(gate, g.get("filters"))
         key = compute_group_key(filters)
         if any(p.key == key for p in plans):

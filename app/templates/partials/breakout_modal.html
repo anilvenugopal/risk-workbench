@@ -24,7 +24,7 @@
 <button type="button" class="bo-link"
         hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
         hx-vals='{"csrf_token": "{{ generate_csrf_token() }}"}'
-        @htmx:after-request="$root.remove()"
+        @htmx:after-request="$el.closest('.modal').remove()"
         title="Runs the page's Sync and closes this dialog — Break out re-enables when the refresh finishes">{{ label }}</button>
 {%- endmacro -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
@@ -35,7 +35,7 @@
   {% if confirmable %}
   <form class="bo-modal" method="post" action="{{ base_url }}"
         hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
-        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="dimension" value="{{ modal.dimension }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
@@ -48,7 +48,7 @@
         hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
         @htmx:after-settle="recount()"
-        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
   {% else %}
@@ -129,12 +129,18 @@
         </div>
         {% endfor %}
         <div class="bo-addrow">
-          <input type="text" name="group_label" maxlength="256"
+          <input type="text" name="group_label" maxlength="{{ group_label_max }}"
                  placeholder="Group name — e.g. Coastal HU">
           <button type="button" class="btn-sm"
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
-                  hx-include="closest form">Add group</button>
+                  hx-include="closest form"
+                  @htmx:after-request="if ($event.detail.successful) {
+                    const f = $el.closest('form');
+                    f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
+                    f.querySelector('[name=group_label]').value = '';
+                    f.querySelector('#bo-cart-error').innerHTML = '';
+                  }">Add group</button>
         </div>
       </div>
       <div id="bo-cart-error"></div>
@@ -275,16 +281,16 @@
     <div class="bo-modal__footer">
       {% if confirmable %}
       <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
-      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
       <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
       {% elif cart_ready %}
       <span class="bo-modal__count"><strong x-text="n">0</strong>
         <span x-text="n === 1 ? 'group' : 'groups'">groups</span></span>
-      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
       <button type="submit" class="btn-sm btn-sm--primary" :disabled="n === 0"
               x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
       {% else %}
-      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Close</button>
       {% endif %}
     </div>
 

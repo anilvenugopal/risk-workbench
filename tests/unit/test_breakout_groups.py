@@ -134,6 +134,8 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
     refuse([_group("G", {})], "at least one dimension")
     refuse([_group("G", {"state": []})], "no values selected")
     refuse([_group("  ", {"state": ["TX"]})], "needs a name")
+    too_long = "X" * (breakout_service.GROUP_LABEL_MAX + 1)
+    refuse([_group(too_long, {"state": ["TX"]})], "cap at")
     refuse([_group("A", {"state": ["TX"]}),
             _group("B", {"state": ["TX"]})], "same members")
 

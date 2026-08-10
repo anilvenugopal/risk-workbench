@@ -57,6 +57,7 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
         "mode": ("custom" if mode == "custom" else "quick"),
         "large_fanout_threshold": breakout_service.LARGE_FANOUT_THRESHOLD,
         "missing_summary_reason": breakout_service.MISSING_SUMMARY_REASON,
+        "group_label_max": breakout_service.GROUP_LABEL_MAX,
     }
     if modal is None:
         return _partial(request, "partials/breakout_modal.html", ctx,
