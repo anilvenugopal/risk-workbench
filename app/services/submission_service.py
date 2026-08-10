@@ -266,10 +266,13 @@ def _word_and_clauses(
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
     limit: int | None = None, offset: int = 0,
+    order_by: str = "s.inception_date DESC, s.name",
 ) -> list[SubmissionRow]:
     """Run the shared row query: the master list, the look-alike check and the "links
-    to" typeahead all select the same columns in the same newest-inception-first
-    order, and differ only in their predicates.
+    to" typeahead all select the same columns, and differ only in their predicates.
+
+    ``order_by`` is interpolated SQL, never a bound value: pass ``SORT_COLUMNS``
+    text, never a query-string value.
 
     ``exclude_id`` drops one submission from the results — the deal being renamed, or
     the one being edited so it cannot be offered as its own link. A value that is not
@@ -280,10 +283,20 @@ def _submission_rows(
         clauses = [*clauses, "s.id <> :exclude"]
         params = {**params, "exclude": excluded}
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = _ROW_SELECT + where + " ORDER BY s.inception_date DESC, s.name"
+    sql = _ROW_SELECT + where + f" ORDER BY {order_by}"
     if limit is not None:
         sql += " " + row_limit(limit, offset=offset)
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
+
+
+def _in_clause(
+    column: str, values: list[Any], prefix: str,
+) -> tuple[str, dict[str, Any]]:
+    """An ``IN (...)`` predicate over ``values``, one bound parameter each.
+    ``prefix`` namespaces them so two filters in one query cannot collide."""
+    params = {f"{prefix}{index}": value for index, value in enumerate(values)}
+    placeholders = ", ".join(f":{key}" for key in params)
+    return f"{column} IN ({placeholders})", params
 
 
 def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
@@ -432,18 +445,43 @@ def get_submission(submission_id: Any) -> Submission | None:
     )
 
 
+# The columns the list header can sort on (D15). The request carries the key; the
+# column text is looked up here and never taken from the query string. CRM ID does
+# not sort — a deal carries several.
+SORT_COLUMNS = {
+    "name": "s.name",
+    "cedant": "s.cedant_name",
+    "inception": "s.inception_date",
+    "year": "s.treaty_year",
+}
+DEFAULT_SORT = "inception"
+# The direction a column starts in when the analyst first clicks it.
+SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
+                          "inception": True, "year": True}
+
+
+def _order_by(sort: str, descending: bool) -> str:
+    """Name and id follow the sorted column so a page boundary falls in the same
+    place every request when the sorted column ties."""
+    column = SORT_COLUMNS[sort]
+    tiebreakers = [c for c in ("s.name", "s.id") if c != column]
+    return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
+
+
 def list_submissions(
-    *, owner_id: Any = None,
+    *, owner_ids: list[Any] | None = None,
     name: str | None = None,
     cedant_name: str | None = None, crm_id: str | None = None,
-    treaty_type_code: str | None = None, inception_date: Any = None,
-    treaty_year: int | None = None, status_code: str | None = None,
-    page: int = 1,
+    treaty_type_codes: list[str] | None = None, inception_date: Any = None,
+    treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
+    page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
-    """One page of the master list. ``owner_id`` set → deals assigned to that
-    analyst (plain predicate, R7); ``None`` → every owner. Filters AND-combine as
-    bound predicates (FR-021). Every deal is visible to every analyst regardless
-    of owner (Article 6).
+    """One page of the master list. Filters AND-combine as bound predicates
+    (FR-021). Every deal is visible to every analyst regardless of owner
+    (Article 6) — ``owner_ids`` is a plain predicate, never an access gate (R7).
+
+    The list filters OR within themselves and AND against the others (D16). An
+    empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
     ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
     ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
@@ -451,17 +489,20 @@ def list_submissions(
     exact.
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
-    reads the first page rather than a negative offset.
+    reads the first page rather than a negative offset. ``sort`` is a key of
+    ``SORT_COLUMNS``.
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    if owner_id is not None:
-        clauses.append("s.assigned_analyst_id = :owner")
+    if owner_ids:
         # An owner id that is not a UUID binds NULL, which matches no row — the
         # hand-typed-URL case ``_as_uuid`` exists for.
-        params["owner"] = _as_uuid(owner_id)
+        clause, owner_params = _in_clause(
+            "s.assigned_analyst_id", [_as_uuid(o) for o in owner_ids], "owner")
+        clauses.append(clause)
+        params |= owner_params
     if name:
         name_clauses, name_params = _word_and_clauses(name, ("s.name",), "n")
         clauses += name_clauses
@@ -477,23 +518,29 @@ def list_submissions(
             "EXISTS (SELECT 1 FROM submission_crm_id c "
             "WHERE c.submission_id = s.id AND c.crm_id LIKE :crm ESCAPE '\\')")
         params["crm"] = f"%{_escape_like(crm_id.strip())}%"
-    if treaty_type_code:
-        clauses.append("s.treaty_type_code = :tt")
-        params["tt"] = treaty_type_code
+    if treaty_type_codes:
+        clause, treaty_type_params = _in_clause(
+            "s.treaty_type_code", treaty_type_codes, "tt")
+        clauses.append(clause)
+        params |= treaty_type_params
     if inception_date is not None:
         clauses.append("s.inception_date = :inc")
         params["inc"] = _as_date(inception_date)
-    if treaty_year is not None:
-        clauses.append("s.treaty_year = :ty")
-        params["ty"] = int(treaty_year)
-    if status_code:
-        clauses.append("s.status_code = :status")
-        params["status"] = status_code
+    if treaty_years:
+        clause, treaty_year_params = _in_clause(
+            "s.treaty_year", [int(year) for year in treaty_years], "ty")
+        clauses.append(clause)
+        params |= treaty_year_params
+    if status_codes:
+        clause, status_params = _in_clause("s.status_code", status_codes, "status")
+        clauses.append(clause)
+        params |= status_params
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
     # without a COUNT(*) over the same predicates.
     rows = _submission_rows(clauses, params, limit=PAGE_SIZE + 1,
-                            offset=(page - 1) * PAGE_SIZE)
+                            offset=(page - 1) * PAGE_SIZE,
+                            order_by=_order_by(sort, descending))
     has_next = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
     _attach_crm_ids(rows)
