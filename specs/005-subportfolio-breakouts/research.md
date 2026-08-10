@@ -78,7 +78,7 @@ The three columns move together and never move again: `portfolio_service` stamps
 
 **Rationale.** Lineage is provenance the display, idempotency, and audit all need; three nullable columns keep the entity thin (DATA_MODEL §5 style). The dimension is an app-defined closed set the code dispatches on → kind table (Article 3 default); the value is external exposure vocabulary stored verbatim → plain column (the spec-004 snapshot rationale). The filtered unique index makes "detect already-created sub-portfolios" a constraint, not a convention.
 
-**Alternatives considered.** (a) A first-class `breakout` table (header + child rows) — rejected: it would duplicate what `rwb_job.input_data`/`output_data` + the lineage columns already record, and nothing queries a breakout as an entity (Article 1). Revisit only if breakout history/re-run UX becomes a feature. (b) A JSON `breakout_filter` snapshot column — rejected: the two directed breakouts are fully described by dimension + value; a filter-spec blob is the custom-filter-builder's concern (out of scope). (c) Recording lineage only in the name — rejected: names are truncated and collision-suffixed (R4), so parsing them is fragile.
+**Alternatives considered.** (a) A first-class `breakout` table (header + child rows) — rejected: it would duplicate what `rwb_job.input_data`/`output_data` + the lineage columns already record, and nothing queries a breakout as an entity (Article 1). Revisit only if breakout history/re-run UX becomes a feature. (b) A JSON `breakout_filter` snapshot column — rejected: the two directed breakouts are fully described by dimension + value; a filter-spec blob is the custom-filter-builder's concern (out of scope). *(Superseded 2026-08-09 for custom grouping: the filter builder became a product requirement and its member-filter JSON lives on the new `breakout_group` table — see the session entry and T-12. The R3 triple itself is unchanged.)* (c) Recording lineage only in the name — rejected: names are truncated and collision-suffixed (R4), so parsing them is fragile.
 
 ---
 
@@ -243,6 +243,47 @@ Both figures are now measured per account by `portfolio_state_coverage.sql` / `p
 
 ---
 
+## R14 — Peril values are `loccvg.PERIL` codes, code-only display, grouping-only
+
+*(New 2026-08-10, from the W-21 probe run — the Workstream-3 prerequisite for
+custom grouping.)*
+
+**Decision.** The peril dimension enumerates `loccvg.PERIL` through the same
+three-script shape as state: `portfolio_perils.sql` (per-value account
+counts), `portfolio_peril_coverage.sql` (the two FR-007 counts),
+`breakout_peril_accounts.sql` (the selection read), all joining
+`portacct → Property (LOCID) → loccvg` — the join path
+`portfolio_currencies.sql` already proved. The stored value is the numeric
+code **stringified** (`"1"`, `"2"`); `label` is always null and every display
+renders the code, because the EDM carries no code→name lookup (W-21) and P-12
+forbids synthesizing one. Peril is **grouping-only** (P-19): it gets a noun
+and the three scripts, but no `_DIMENSION_LETTER` entry, no
+`run_breakout_peril` job type, and no worker actor — `DimensionEligibility`
+carries `quick=False` and the quick-mode chooser, `modal_context`'s
+dimension selection, and `request_breakout` all exclude it. Sub-peril detail
+(fire-following, flood) rides its parent peril's coverage rows (W-21), so
+`loccvg` alone is the honest enumeration source.
+
+**Rationale.** D14 asks for peril AND geography / peril AND LOB — the group
+model's intersection — and D16 rejected one-per-peril splitting as
+combinatorial bloat; D15 leans profile-side for pure-peril filtering. The
+numeric code is the only selection vocabulary the EDM holds, and the
+name/code split that burned state (R6/W-16) cannot recur when no name exists
+at all.
+
+**Alternatives considered.** (a) A hardcoded RMS code→mnemonic map (1=EQ,
+2=HU, …) — rejected: exactly the "pre-defined constant" the design record
+warns against, and a P-12 violation (a synthesized label that geocoding-style
+vocabulary drift would falsify). Revisit only if an authoritative in-EDM or
+API lookup appears. (b) Deriving perils from the detail tables
+(eqdet/hudet/…) — rejected: sub-peril detail rides parent perils (W-21), so
+detail-table presence over-enumerates what a coverage filter can select.
+(c) Standalone peril quick mode — deferred pending the D15 team validation
+(P-19); the add is the registration lockstep (job-type seed + actor +
+letter) on top of what ships here.
+
+---
+
 ## Clarifications
 
 Q&A history behind the spec's Open product decisions table. The spec carries the decision rows (P-nn); this section carries the exchanges.
@@ -286,6 +327,19 @@ The probe run closed the T-08 spike. Three decisions follow from it; the evidenc
 - **Q: Non-US geography values are numeric `Admin1Code`s, so a Caribbean breakout names its sub-portfolios `cbhu - 200` and the UI shows `010, 020, 030, 200` — should names and display use `Admin1Name` instead?** → **A: Product decision — the name token and every display use the stored display label when the summary carries one, falling back to the code; nothing else changes.** The filter value, the stored `breakout_value`, the `portfolio_number` token, the sort order, and the idempotency keys (FR-011's lineage match, the `uq_irp_portfolio_breakout` index) all stay `Admin1Code` — the label is nullable and non-unique, so it can decorate but never select or dedupe. One rule, no code-shape heuristic, with three consequences accepted: (1) US names change too — `usfl - FL` becomes `usfl - Florida` once geocoding writes the label; (2) a breakout run before geocoding names by code, and a re-run after geocoding does **not** rename it (idempotency matches on the value and skips it); (3) the lineage badge and the geography column resolve the label at read time from the source portfolio's stored summary — nothing new is stored, and a miss (source pruned, value gone from a rewritten summary, no label yet) falls back to the code, which is what rendered before. The Risk Modeler description keeps the raw value and adds the label beside it (`… by Geography (state): 200 (Puerto Rico)`), so both vocabularies stay searchable in Risk Modeler. Storing a label column on `irp_portfolio` was rejected: the label is cosmetic, the fallback is exactly today's rendering, and the read model already fetches every row of the EDM — the lookup is in-memory. → spec **P-12** (revised), **P-10**/**P-11** (wording), behavior in FR-010/FR-014
 
 - **Q: The overlap statement says "N of this portfolio's M accounts match more than one state" and claims a clean partition when `Σ per-value counts == account_total`. Does that arithmetic measure either thing?** → **A: No, and it is replaced by two counts measured per account at Sync.** `Σ counts − account_total` mixes memberships against accounts (an account in three states adds 2) with a denominator that includes accounts carrying no value at all (which no per-value count sees), and the two errors cancel: a 1,701-account portfolio where 100 accounts carry a state reported a clean partition while 1,601 accounts landed in no sub-portfolio. FR-007 asks how many accounts land in more than one sub-portfolio and SC-002 promises that every account lands in at least one, so both are now read from `summary.breakout_coverage[dimension]` — `multi_value` and `account_total − covered` — and the partition claim requires both to be zero. Renaming the field to "excess memberships" and weakening the copy was rejected: it answers neither requirement. Full reasoning and the two errors in R11. → **P-13** (revised), behavior in FR-007
+
+### Session 2026-08-09
+
+Follow-on work from the Aug 6 CIC demo (minutes: `Risk_Modeler_Interface_Design_Minutes_8-6-26.md`; execution plan: `docs/pm/2026-08-09_spec005_followon_plan.md`).
+
+- **Q: D11 — the demo audience read the breakout disclosures as a wall of text. What survives the cut?** → **A: One quantified line per disclosure; the counts stay mandatory, the explanation goes.** The overlap line reads `Warning: overlapping accounts — N of M accounts match more than one {dimension} and are included in full in each matching sub-portfolio` (zero repeats → "No overlapping accounts — …"; no measured coverage → the qualitative sentence alone); the blank-value line reads `N of M accounts carry no {dimension} value and are left out` (zero → "None left out — …"; no coverage → qualitative). Nothing in the measurement machinery changes — `compute_overlap`, the coverage scripts, and P-13's per-account counting stand. **Deleted prose, and why it was there:** the exposure-inflation sentence ("the inflation in exposure can exceed the inflation in account count — the accounts appearing in several sub-portfolios tend to be the largest", from W-4's 1.27× accounts vs 6.6× TIV finding) and the geography multi-state paragraphs (the O6-1 account-bucketing consequence stated per P-02). Both were written when the whole-account semantics were new to the room; the Aug 6 demo showed CIC understands the bucketing and resolves overlap loss-side, so the count alone carries the judgment and the mechanism explanation lives in this file and probe-findings.md Part 4, not in the modal. → spec **P-21** (FR-007 revised)
+
+- **Q: D14 asks for breakouts by peril AND geography or peril AND LOB — does peril ship as a third quick-mode dimension?** → **A: No — peril ships inside custom grouping only (P-19).** The group model is exactly what D14 describes (select FL + peril 2 → one portfolio); the minutes never ask for a one-per-peril breakout, D16 rejected peril splitting as combinatorial bloat, and D15 leans profile-side for pure-peril filtering — so quick mode keeps lob/state as demoed, and standalone peril quick mode is **Deferred** pending the D15 team validation. Probe findings and the enumeration design in **R14**/W-21; O-01 closed there, O-02 (code-only display) rides the grouping-modal preview approval. → spec **P-19**
+
+- **Q: D12/D13/D17 — analysts want "these three LOBs → one portfolio". What shape does custom grouping take?** → **A: A cart of named groups in the breakout modal; each group is one `rwb_job`; quick mode survives alongside.** A group holds selected values per dimension — **OR within a dimension, AND across dimensions** (`state IN (FL, GA) AND peril IN (2)`); quick mode stays single-dimension (P-20). Group identity is the **canonical member set**, hashed to a 12-hex `group_key` (dimensions and values sorted, deduped): the same members re-confirmed under a new name **adopt** the existing group — no rename, no duplicate (P-22) — and the generated number is `P{rm id}-G-{key token}`, so adoption resolves exactly as quick mode's does. Overlapping groups **warn, never block** (P-18 — CIC resolves overlap loss-side); the cart's per-row note is a may-overlap heuristic (groups sharing a selected value), honest because disjoint filters can still share a multi-value account. Preview counts are upper bounds — "up to N accounts", min over dimensions of the summed per-value counts (P-23); exact counts arrive in completion outcomes. One breakout episode per portfolio, either direction: a live cart blocks a quick confirm and vice versa (FR-020). One job per group (not one per cart) keeps the per-group idempotent re-run, the durable per-group error line, and `ensure_pending_rwb_job` revival — the cart is reconstructed for display through the shared `cart_id`. → spec **P-17**, **P-18**, **P-20**, **P-22**, **P-23** (FR-018–021)
+- **Technical shape (T-12–T-15), and one supersession.** New `breakout_group` table — one row per (source, member set), `UNIQUE(source_portfolio_id, group_key)`, the row's UUID as the job's `requestor_id` (T-13: `rwb_job.requestor_id` is a Uuid column, so a composite string key failed) — **supersedes R3's "no filter-spec storage" (alternative b)**: the filter builder R3 deferred is now a product requirement, and the stored `filters` JSON is the approved plan, not a convenience blob. Generated rows keep the R3 triple with dimension `custom` and the group_key as `breakout_value`, so `uq_irp_portfolio_breakout` is untouched; the label/filters live only on the group row (one source of truth). Group selection is **app-side set algebra** over the existing per-dimension DataBridge reads — union within, intersect across (T-14); a combined SQL query was rejected: dynamic IN-lists through the templater, a new probe, and no correctness gain over intersecting probe-verified selections. The modal's custom pane is an Alpine sliver over server-rendered rows (T-15): one fetch renders every dimension's checkbox list (`x-show` pills — the per-dimension `hx-get` swap quick mode uses would discard ticked state), "Add group" posts to a server-side group-preview route, and the confirm re-validates every posted value against the stored summary. → plan **T-12**, **T-13**, **T-14**, **T-15**
+
+- **Q: The demo hit a `uq_irp_portfolio_breakout` violation twice — break out → delete the sub-portfolios in Risk Modeler → sync → break out again, and every later sync of the EDM failed. Root cause?** → **A: The re-breakout inserted a ghost twin of each soft-deleted lineage row, and the next sync's resurrect-by-name revived the ghost into a duplicate live key.** The chain: `prune_missing` soft-deletes the RM-deleted sub-portfolios; the re-breakout regenerates the identical names (the collision universe is live-only) and, because `_write_generated`'s pre-check and its unique-violation recovery both read live rows only, inserts a second row per triple (the filtered index ignores dead rows, and the new RM ids miss `uq_irp_portfolio_edm_irp`); the next sync's `_snapshot_prune` resurrects the dead row by its **name** match, putting two live rows on one `(source_portfolio_id, breakout_dimension_code, breakout_value)` key — the violation fires inside `prune_missing`, uncaught, failing that sync and every one after it. Secondary defects found with it: `_UPDATE_BY_NAME` had no `deleted_at IS NULL` filter (a new RM portfolio reusing a dead sub-portfolio's name would stamp its irp_id onto the dead row and stay invisible), and `_write_generated`'s recovery re-select was live-only (a dead-row violation surfaced as `RuntimeError`, not `skipped_existing`). **Fix — reclaim in place (T-16):** `_write_generated` resolves against rows *including soft-deleted* — (edm, irp_id) identity first, lineage triple second — and reclaims a dead match (`deleted_at` cleared, new irp_id/name stamped onto the same row; a dead row holding a *different* lineage still refuses); `prune_missing` passes `AND source_portfolio_id IS NULL` into the resurrect-by-name leg (irp_id match unchanged); the snapshot upsert's name match is live-only. Hard-deleting the pruned rows instead was rejected: soft-delete is the table-wide convention, the dead row preserves provenance, and reclaim keeps the row id stable for anything holding it. Regression tests: `tests/unit/test_breakout_prune_rerun.py` (the full demo sequence), reclaim/refuse/revive cases in `test_portfolio_lineage.py`. → plan **T-16**, behavior in FR-011
 
 ### Carried from the design record
 

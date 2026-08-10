@@ -60,8 +60,10 @@ Standard kind-table shape:
 |---|---|---|
 | `lob` | Line of business | 10 |
 | `state` | Geography (state) | 20 |
+| `peril` | Peril | 30 |
+| `custom` | Custom group | 40 |
 
-App code dispatches on `code` — which entry of `summary.breakout_values` to read, which selection read to run. `code` is also the key inside `breakout_values` (§5), so there is no second vocabulary to keep in step. Follow-on dimensions (complement, country) add rows here, not enum literals.
+App code dispatches on `code` — which entry of `summary.breakout_values` to read, which selection read to run. `code` is also the key inside `breakout_values` (§5), so there is no second vocabulary to keep in step. Follow-on dimensions (complement, country) add rows here, not enum literals. `peril` is grouping-only (P-19: values are `loccvg.PERIL` codes stringified, label always null — W-21); `custom` is the grouping lineage code (§9), not a value dimension — the gate never enumerates it.
 
 ## 3. `rwb_job_type_kind` — two new seed rows (R2)
 
@@ -69,6 +71,7 @@ App code dispatches on `code` — which entry of `summary.breakout_values` to re
 |---|---|
 | `run_breakout_lob` | Portfolio breakout by line of business |
 | `run_breakout_state` | Portfolio breakout by geography (state) |
+| `run_breakout_custom` | Portfolio breakout by custom group (§9 — requestor type `breakout_group`) |
 
 Two types — not one — because the idempotent-enqueue key is `UNIQUE(requestor_type, requestor_id, rwb_job_type)`: with `requestor_type='analyst_request'`, `requestor_id=<source portfolio id>`, each dimension gets its own live-job slot per portfolio (a LOB and a state breakout on the same portfolio don't collide; a re-request of the same dimension revives the terminal row via `ensure_pending_rwb_job`). Both codes dispatch to the same worker body in `app/workers/portfolio_jobs.py` (loader convention: actor name == `rwb_job_type`).
 
@@ -172,3 +175,43 @@ Source scripts, all read-only and worker-side through `irp-integration` (Article
 5. SQL Server tier test (`tests/sqlserver/test_detail_tables_migration.py`): columns/FK/index built; a duplicate live generated portfolio rejected; a soft-deleted one does not block re-creation (filtered index).
 
 > **DB lifecycle**: schema-affecting → Rebuild / Refresh / Skip decision at implement time; **Rebuild** recommended (`make db-rebuild`).
+
+## 9. Follow-on: `breakout_group` — the custom-group entity (T-12/T-13)
+
+One row per (source portfolio, canonical member set). The row's UUID is the group job's `rwb_job.requestor_id` — `requestor_id` is a Uuid column, so a composite string key was not an option (T-13). Supersedes R3's "no filter-spec storage": custom grouping is now a product requirement (FR-018–021), and the filter set is the approved plan.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | UNIQUEIDENTIFIER PK, default `NEWID()` | the group job's `requestor_id` |
+| `source_portfolio_id` | UNIQUEIDENTIFIER NOT NULL, FK → `irp_portfolio.id` | |
+| `group_key` | NVARCHAR(64) NOT NULL | `sha256(canonical filters)[:12]` — the identity (P-22) |
+| `label` | NVARCHAR(256) NOT NULL | the analyst's group name; adopt-not-rename |
+| `filters` | NVARCHAR(MAX) NOT NULL | canonical member-filter JSON: `{"state": ["FL","GA"], "peril": ["2"]}` — OR within, AND across (P-20) |
+| `name` / `number` | NVARCHAR(256) / NVARCHAR(64) NOT NULL | the approved plan values (rule 8); number = `P{rm id}-G-{key token}` |
+| `cart_id` | UNIQUEIDENTIFIER NOT NULL | the confirm that most recently carried the group — banner aggregation (FR-020) |
+| audit | | `inserted_at`/`updated_at` NOT NULL; `inserted_by`/`updated_by` NULL FK → `app_user.id` |
+
+- `UNIQUE(source_portfolio_id, group_key)` (`uq_breakout_group_source_key`): a re-confirm of the same member set reuses the row, which dedups the job through `UNIQUE(requestor_type, requestor_id, rwb_job_type)` with no `rwb_job` change.
+- `irp_portfolio` += `breakout_group_id` (UNIQUEIDENTIFIER NULL, FK `fk_irp_portfolio_breakout_group`). A generated group portfolio stores `breakout_dimension_code='custom'` with the **group_key** as `breakout_value` — `uq_irp_portfolio_breakout` DDL unchanged; label/filters read via the join (one source of truth).
+- New kind rows: `breakout_dimension_kind ('custom','Custom group',40)`, `rwb_job_type_kind 'run_breakout_custom'`, `rwb_job_requestor_type_kind 'breakout_group'`.
+
+**Group job `input_data`** (per group; the worker reads `group` and nothing else):
+
+```jsonc
+{
+  "edm_id": "<uuid>", "portfolio_id": "<uuid>",   // the SOURCE portfolio
+  "dimension": "custom", "actor_id": "<uuid>",
+  "cart_id": "<uuid>",                            // shared across the cart's jobs
+  "group": {
+    "id": "<breakout_group.id>", "key": "a1b2c3d4e5f6",
+    "label": "Coastal HU",
+    "filters": {"peril": ["2"], "state": ["FL", "GA"]},
+    "name": "usfl_commercial - Coastal HU", "number": "P1-G-A1B2C3D4E1B2C3",
+    "accounts_upper_bound": 1445                  // P-23 preview figure
+  }
+}
+```
+
+`output_data` keeps the §4 shape with one `sub_portfolios` entry whose `value` is the group_key.
+
+**Read models**: `list_portfolios` LEFT JOINs `breakout_group` for the label and parsed filters (a custom row's display label IS the group label); `page_state` resolves group jobs to their source portfolio through `breakout_group.source_portfolio_id`, renders one flight per portfolio over the live cart ("custom groups: k of n done"), and aggregates terminal jobs sharing the newest `cart_id` into one banner.

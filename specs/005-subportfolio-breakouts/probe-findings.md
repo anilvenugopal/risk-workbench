@@ -689,6 +689,46 @@ short add rather than as a stale read. T061 asserts it first; a lagging read
 gets its observed delay recorded here and a bounded re-read added to
 `irp_gateway._member_count`.
 
+**Closed 2026-08-10.** The full T061 pass ran
+`test_create_add_readback_chunking_and_idempotent_readd` against the sandbox:
+a 1,701-account composition (two 1,000-id add chunks) read back the full
+member count on the FIRST DataBridge read, no retry and no sleep — write
+visibility holds. No re-read was added to `_member_count`.
+
+## W-21 `loccvg.PERIL` is a numeric smallint code with no in-EDM label source
+
+*(Probe run 2026-08-10 — read-only DataBridge queries across all 8 sandbox
+EDMs, for the peril grouping dimension: follow-on plan O-01/O-02.)*
+
+- `loccvg.PERIL` is `smallint`, never NULL and never blank in any sandbox EDM.
+  Observed values: the `usfl*` books carry {2}; `breakout_edm` /
+  `demo_test_edm` / `tuesday_edm` carry {1, 2}; the two `TY2607_SampleCo`
+  EDMs carry {1, 2, 3}.
+- The codes line up with the SampleCo portfolio naming: `EQ_*` → 1,
+  `WS_*`/`HU_*` → 2, `SS_US` → 3. `FF_US` (fire-following) rides peril 1 (EQ):
+  a sub-peril's coverage rows are written under its parent peril.
+- **Every sandbox portfolio carries exactly one distinct peril**, including
+  every portfolio of the three-peril SampleCo EDMs. A peril pill (offered only
+  at ≥ 2 distinct values) would appear on no sandbox portfolio today — the
+  multi-peril-per-portfolio book D14 describes is what CIC has and the sandbox
+  lacks. Test fixtures must select peril values through the gateway directly.
+- There is **no in-EDM code→name lookup**: no table named like `%peril%`
+  exists in any EDM. The peril-ish columns that do exist are not lookups —
+  `agport.PERIL` char(2) belongs to the aggregate-exposure model (never joins
+  `portinfo`), `HazBitPackMetadata`/`HazFieldMetadata`/`riskscore` carry
+  hazard/score metadata, and `exposure_metrics.perilExposed` is an
+  RM-computed aggregate string ("WS, EQ"), not a per-code mapping.
+- The per-peril detail tables can imply perils `loccvg` misses: SampleCo
+  carries 35,714 `fldet` and 35,630 `frdet` rows while its `loccvg` shows only
+  {1, 2, 3} — flood and fire detail riding parent perils' coverage rows. The
+  peril enumeration therefore reads `loccvg` alone and reports what the
+  coverages carry, exactly as lob/state read their own source tables.
+
+Consequence (R14): the breakout value is the peril code as a string
+(`"1"`, `"2"`), `label` is null everywhere (P-12 — never synthesized), and
+displays render the code. Whether code-only display is acceptable goes to the
+approver with the grouping-modal preview (O-02).
+
 ---
 
 # Part 4 — Design record: why sub-portfolios, and why the overlap is accepted
