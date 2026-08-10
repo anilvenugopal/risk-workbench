@@ -190,6 +190,18 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
             {"PortfolioId": 1, "PortfolioName": "A",
              "LineOfBusiness": "Auto", "AccountCount": 900},
         ],
+        # Follow-on P-19: peril values are numeric RMS codes (loccvg.PERIL,
+        # W-21) — stringified, label always None (no in-EDM lookup, P-12).
+        "portfolio_perils.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Peril": 1,
+             "AccountCount": 517},
+            {"PortfolioId": 1, "PortfolioName": "A", "Peril": 2,
+             "AccountCount": 1701},
+        ],
+        "portfolio_peril_coverage.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "CoveredAccounts": 1701,
+             "MultiValueAccounts": 517},
+        ],
         "portfolio_currencies.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "Currency": "USD"},
         ],
@@ -227,12 +239,16 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
                   "lob": [
                       {"value": "Auto", "label": None, "accounts": 900},
                       {"value": "Commercial", "label": None, "accounts": 812}],
+                  "peril": [
+                      {"value": "1", "label": None, "accounts": 517},
+                      {"value": "2", "label": None, "accounts": 1701}],
                   "state": [
                       {"value": "BY", "label": "BAYERN", "accounts": 9},
                       {"value": "FL", "label": "FLORIDA", "accounts": 1241},
                       {"value": "TX", "label": None, "accounts": 412}]},
               "breakout_coverage": {
                   "lob": {"covered": 1690, "multi_value": 22},
+                  "peril": {"covered": 1701, "multi_value": 517},
                   "state": {"covered": 1624, "multi_value": 38}}},
         "2": {"portfolio_name": "B", "countries": [],
               "states": [], "lines_of_business": [], "currencies": [],
@@ -240,7 +256,7 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
               "breakout_coverage": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 8
+    assert [db for _, db in calls] == ["edm_db"] * 10
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():

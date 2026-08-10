@@ -57,6 +57,7 @@ _ADD_CHUNK_SIZE = 1000
 _SELECTION_SCRIPTS = {
     "lob": "breakout_lob_accounts.sql",
     "state": "breakout_state_accounts.sql",
+    "peril": "breakout_peril_accounts.sql",
 }
 
 # The overlap coverage read per dimension — whole-EDM aggregates run by
@@ -67,6 +68,7 @@ _SELECTION_SCRIPTS = {
 _COVERAGE_SCRIPTS = {
     "lob": "portfolio_lob_coverage.sql",
     "state": "portfolio_state_coverage.sql",
+    "peril": "portfolio_peril_coverage.sql",
 }
 
 # A free-text descriptor with more distinct values than this is not saved into
@@ -661,6 +663,15 @@ class _RealGateway:
             count = row.get("AccountCount")
             e["breakout_values"].setdefault("lob", []).append({
                 "value": value, "label": None,
+                "accounts": (int(count) if count is not None else 0)})
+        for row in rows("portfolio_perils.sql"):
+            # spec 005 follow-on (P-19): peril breakout values, for custom
+            # grouping only. The value is loccvg.PERIL — a numeric RMS peril
+            # code with no in-EDM code→name lookup (W-21) — so the code is its
+            # own display and the label is never synthesized (P-12).
+            count = row.get("AccountCount")
+            entry(row)["breakout_values"].setdefault("peril", []).append({
+                "value": str(row["Peril"]), "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for dimension, script in _COVERAGE_SCRIPTS.items():
             # spec 005 FR-007 as revised 2026-08-05: `covered` is the account
