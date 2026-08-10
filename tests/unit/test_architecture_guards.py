@@ -146,10 +146,11 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
     for code in grouping_only:
         assert code not in breakout_service._DIMENSION_LETTER, code
         assert f"run_breakout_{code}" not in job_types, code
-    # custom (T-12): the grouping lineage code — a number letter, the job
-    # type, and the group worker body; selections run through the value
-    # dimensions' scripts, so it must never gain scripts of its own.
-    assert "custom" in breakout_service._DIMENSION_LETTER
+    # custom (T-12): the grouping lineage code — the job type and the group
+    # worker body, but NO number letter (P-26: a group's number is its name
+    # truncated to 20); selections run through the value dimensions' scripts,
+    # so it must never gain scripts of its own.
+    assert "custom" not in breakout_service._DIMENSION_LETTER
     assert "custom" in breakout_service._DIMENSION_NOUN
     assert "run_breakout_custom" in job_types
     assert "run_breakout_custom" in portfolio_jobs._BODIES

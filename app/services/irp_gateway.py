@@ -267,6 +267,9 @@ class IRPGateway(Protocol):
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]: ...
 
+    def find_portfolio_by_name(self, *, exposure_irp_id: str,
+                               name: str) -> list[PortfolioHit]: ...
+
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
@@ -548,6 +551,27 @@ class _RealGateway:
             hits.append(PortfolioHit(
                 irp_id=str(pid), name=str(r.get("name") or
                                           r.get("portfolioName") or ""),
+                stamp=(str(stamp) if stamp is not None else None)))
+        return hits
+
+    def find_portfolio_by_name(self, *, exposure_irp_id: str,
+                               name: str) -> list[PortfolioHit]:
+        # The group-name check (spec 005 P-25): the same exposure-scoped
+        # portfolioName search the duplicate-name verification trusts (W-10).
+        # Every hit counts — the check blocks, it never adopts, so ambiguity
+        # is fine here. Request-path-legal: the submit-time pattern of
+        # constitution Art. 2, like fetch_portfolio_stamp above.
+        rows = self._client().portfolio.search_portfolios_paginated(
+            int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
+        hits: list[PortfolioHit] = []
+        for r in rows:
+            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
+            if pid is None:
+                continue
+            stamp = r.get("stampDate")
+            hits.append(PortfolioHit(
+                irp_id=str(pid),
+                name=str(r.get("name") or r.get("portfolioName") or name),
                 stamp=(str(stamp) if stamp is not None else None)))
         return hits
 
@@ -909,6 +933,12 @@ def find_portfolio_by_number(*, exposure_irp_id: str,
         exposure_irp_id=exposure_irp_id, number=number)
 
 
+def find_portfolio_by_name(*, exposure_irp_id: str,
+                           name: str) -> list[PortfolioHit]:
+    return _active().find_portfolio_by_name(
+        exposure_irp_id=exposure_irp_id, name=name)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
@@ -921,4 +951,5 @@ __all__ = [
     "search_treaties", "get_analysis_metadata", "fetch_portfolio_stamp",
     "select_breakout_accounts", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
+    "find_portfolio_by_name",
 ]

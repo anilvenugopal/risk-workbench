@@ -11,7 +11,9 @@
   <input type="hidden" name="group" value="{{ group_json }}">
   <div class="bo-cart-row__top">
     <span class="bo-cart-row__label">{{ plan.label }}</span>
-    <span class="bo-cart-row__name">{{ plan.name }}</span>
+    {# name == label since P-24 (name is the label as typed); a group adopted
+       from before that change can still carry a distinct composed name #}
+    {% if plan.name != plan.label %}<span class="bo-cart-row__name">{{ plan.name }}</span>{% endif %}
     <button type="button" class="bo-cart-row__remove"
             @click="$event.target.closest('.bo-cart-row').remove(); recount()">remove</button>
   </div>

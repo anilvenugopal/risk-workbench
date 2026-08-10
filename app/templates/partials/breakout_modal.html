@@ -128,9 +128,16 @@
           {% endfor %}
         </div>
         {% endfor %}
+        {# The name is the sub-portfolio name, exactly as typed (P-24); the
+           as-you-type check and the Add-time block refuse a name already
+           present in the EDM (P-25 — the EDM import name-check pattern). #}
         <div class="bo-addrow">
-          <input type="text" name="group_label" maxlength="{{ group_label_max }}"
-                 placeholder="Group name — e.g. Coastal HU">
+          <input type="text" name="group_label" maxlength="{{ name_max }}"
+                 placeholder="Group name — e.g. Coastal HU" class="nc-input"
+                 @input="ncReset($el.closest('form').querySelector('.name-collision'))"
+                 hx-get="{{ base_url }}/name-check"
+                 hx-trigger="keyup changed delay:500ms"
+                 hx-target="next .name-collision" hx-swap="outerHTML">
           <button type="button" class="btn-sm"
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
@@ -140,8 +147,10 @@
                     f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
                     f.querySelector('[name=group_label]').value = '';
                     f.querySelector('#bo-cart-error').innerHTML = '';
+                    ncReset(f.querySelector('.name-collision'));
                   }">Add group</button>
         </div>
+        {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
       </div>
       <div id="bo-cart-error"></div>
       <div class="bo-cart">

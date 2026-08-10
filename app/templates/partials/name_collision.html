@@ -8,26 +8,32 @@
      (absent)   nothing checked yet (first paint, or an empty name) — pending
 
    No fixed id: the swap target is positional (hx-target="next .name-collision"),
-   so the same fragment serves the standalone import pages and each package-modal
-   row. `check` is None on first paint; `name` is the value that was checked —
-   an empty one comes back clear but must not claim the name is available. #}
+   so the same fragment serves the standalone import pages, each package-modal
+   row, and the breakout modal's group-name check (kind='portfolio', which also
+   switches scope to "this EDM" and the blocked verb to `action`). `check` is
+   None on first paint; `name` is the value that was checked — an empty one
+   comes back clear but must not claim the name is available. #}
 {% set nc = 'blocked' if (check and check.names)
        else ('unchecked' if (check and not check.checked)
        else ('ok' if (check and (name or '')|trim) else '')) %}
+{% set where = scope or 'Risk Modeler' %}
 <div class="name-collision"{% if nc %} data-nc="{{ nc }}"{% endif %}>
   {% if nc == 'blocked' %}
   <div class="name-collision__error" role="alert">
-    <strong>Name taken:</strong> an {{ kind or 'entity' }} with this name already
-    exists in Risk Modeler. Saving is blocked — choose a different name.
+    <strong>Name taken:</strong> {{ 'a' if kind == 'portfolio' else 'an' }}
+    {{ kind or 'entity' }} with this name already
+    exists in {{ where }}. {{ action or 'Saving' }} is blocked — choose a different name.
   </div>
   {% elif nc == 'unchecked' %}
   <div class="name-collision__warn" role="status">
-    Couldn't reach Risk Modeler to check this name. You can still save, but the
-    import will fail if the name is already taken.
+    Couldn't reach Risk Modeler to check this name.
+    {% if kind == 'portfolio' %}You can still add the group, but its run will
+    fail if the name is already taken.{% else %}You can still save, but the
+    import will fail if the name is already taken.{% endif %}
   </div>
   {% elif nc == 'ok' %}
   <div class="name-collision__ok" role="status">
-    <strong>Name available</strong> — no {{ kind or 'entity' }} in Risk Modeler
+    <strong>Name available</strong> — no {{ kind or 'entity' }} in {{ where }}
     uses this name.
   </div>
   {% endif %}

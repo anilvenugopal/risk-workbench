@@ -383,6 +383,26 @@ class FakeIRP:
         # EVERY hit — the worker refuses to adopt when there is more than one
         return list(self.hits_by_number.get(number, []))
 
+    def find_portfolio_by_name(self, *, exposure_irp_id: str,
+                               name: str) -> list[PortfolioHit]:
+        # The group-name check's RM leg (spec 005 P-25): casefolded exact match
+        # over the exposure's seeded + created portfolios; raise_on_search
+        # forces the fail-open path, as for the EDM/RDM checks.
+        self.search_calls.append(("portfolio", name))
+        if self.raise_on_search:
+            raise RuntimeError("fake IRP: forced search failure")
+        wanted = name.casefold()
+        hits = [PortfolioHit(irp_id=p["irp_id"], name=p["name"],
+                             stamp=p.get("stamp"))
+                for p in self._portfolios.get(str(exposure_irp_id), [])
+                if p["name"].casefold() == wanted]
+        hits += [PortfolioHit(irp_id=c["portfolio_irp_id"], name=c["name"],
+                              stamp=None)
+                 for c in self.created_sub_portfolios
+                 if (c["exposure_irp_id"] == str(exposure_irp_id)
+                     and c["name"].casefold() == wanted)]
+        return hits
+
     def get_import_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))

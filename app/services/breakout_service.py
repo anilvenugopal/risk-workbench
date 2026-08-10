@@ -29,8 +29,9 @@ from typing import Any, Collection, Sequence
 
 from sqlalchemy import text
 
-from app.services import irp_gateway, rwb_job_service
+from app.services import irp_gateway, name_check, rwb_job_service
 from app.services._common import _parse_json_dict, _uid, _utcnow
+from app.services.name_check import CollisionCheck
 from app.workers import dispatch
 from db import execute, execute_one, get_connection, is_unique_violation
 
@@ -47,21 +48,15 @@ _SUFFIX_RESERVE = 4
 # identity; the number is).
 _MIN_SOURCE_CHARS = 4
 _SEPARATOR = " - "
-# A custom group's label is the token ``_compose_name`` keeps whole, so it caps
-# where the minimum source part, the separator, and the collision reserve still
-# fit PORTFOLIO_NAME_MAX — a longer label would be truncated inside the
-# generated portfolio name.
-GROUP_LABEL_MAX = (PORTFOLIO_NAME_MAX - _SUFFIX_RESERVE - len(_SEPARATOR)
-                   - _MIN_SOURCE_CHARS)
 
 # Above this many sub-portfolios the preview adds the plain statement that the
 # run takes several minutes (FR-006c / P-15). One named constant — no cap, no
 # second gate.
 LARGE_FANOUT_THRESHOLD = 25
 
-# The dimension letter inside the generated portfolio_number (R4; "custom" is
-# the group letter — the token is the group_key, T-12).
-_DIMENSION_LETTER = {"lob": "L", "state": "S", "custom": "G"}
+# The dimension letter inside the generated portfolio_number (R4) — quick-mode
+# dimensions only; a custom group's number is its name truncated to 20 (P-26).
+_DIMENSION_LETTER = {"lob": "L", "state": "S"}
 # Analyst-facing noun per dimension for disabled-with-reason copy.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
                    "peril": "peril", "custom": "custom group"}
@@ -1056,17 +1051,21 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                        groups: Sequence[dict]) -> list[GroupPlan]:
     """Validate and compose a whole cart in submission order. Each element of
     ``groups`` is ``{"label": str, "filters": {dim: [values]}}`` (the modal's
-    hidden-input JSON). Names are collision-suffixed against every live
-    portfolio name AND the cart's earlier rows; a member set that already has
-    a ``breakout_group`` row adopts its stored label/name/number (P-22); a
-    member set appearing twice in one cart is refused. The overlap note is a
-    may-overlap heuristic (P-18 — warn, never block): two groups sharing a
-    selected value in some dimension can share accounts; disjoint filters can
-    too (a multi-value account), which is why the copy says "may"."""
+    hidden-input JSON). The name is the label exactly as typed (P-24) and its
+    number is the name truncated to 20 characters (P-26); a name already
+    carried by a live portfolio in the EDM or an earlier cart row is refused,
+    never suffixed (P-25). A member set that already has a ``breakout_group``
+    row adopts its stored label/name/number (P-22) — its name IS its own
+    portfolio, so it skips the availability check; a member set appearing
+    twice in one cart is refused. The overlap note is a may-overlap heuristic
+    (P-18 — warn, never block): two groups sharing a selected value in some
+    dimension can share accounts; disjoint filters can too (a multi-value
+    account), which is why the copy says "may"."""
     if gate.source_name is None or gate.source_irp_id is None:
         raise GateRefused("the source portfolio has no Risk Modeler id — "
                           "Sync the EDM, then retry")
-    taken = {n.casefold() for n in _live_portfolio_names(edm_id)}
+    live = {n.casefold() for n in _live_portfolio_names(edm_id)}
+    taken = set(live)
     existing = _group_rows(portfolio_id)
     live_keys = _existing_breakout_values(portfolio_id, "custom")
     plans: list[GroupPlan] = []
@@ -1077,9 +1076,9 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
         if not isinstance(label, str) or not label.strip():
             raise GateRefused("every group needs a name")
         label = label.strip()
-        if len(label) > GROUP_LABEL_MAX:
+        if len(label) > PORTFOLIO_NAME_MAX:
             raise GateRefused(
-                f"group names cap at {GROUP_LABEL_MAX} characters")
+                f"group names cap at {PORTFOLIO_NAME_MAX} characters")
         filters = _validate_group_filters(gate, g.get("filters"))
         key = compute_group_key(filters)
         if any(p.key == key for p in plans):
@@ -1091,8 +1090,13 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
             label, name, number = (str(row["label"]), str(row["name"]),
                                    str(row["number"]))
         else:
-            name = _compose_name(gate.source_name, label, taken)
-            number = _compose_number(gate.source_irp_id, "custom", key)
+            name = label
+            if name.casefold() in taken:
+                where = ("in this EDM" if name.casefold() in live
+                         else "in the cart")
+                raise GateRefused(f"a portfolio named {name!r} already exists "
+                                  f"{where} — choose a different name")
+            number = name[:PORTFOLIO_NUMBER_MAX].rstrip()
         taken.add(name.casefold())
         overlap = [p.label for p in plans
                    if any(set(filters.get(d, ())) & set(p.filters.get(d, ()))
@@ -1103,6 +1107,29 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
             exists=(key in live_keys), adopted=(row is not None),
             may_overlap_with=overlap))
     return plans
+
+
+def check_group_name(edm_id: Any, name: str) -> CollisionCheck:
+    """The immediate group-name check (P-25) behind the custom pane's
+    as-you-type fragment and the Add-time block: a group's portfolio name must
+    not already exist in the EDM. Workbench rows answer first (no network);
+    Risk Modeler is then asked through the cached ``name_check`` leg so
+    portfolios created outside the workbench are caught too. Fails open when
+    Risk Modeler is unreachable — the confirm-time compose and the worker's
+    duplicate-name handling are the backstops."""
+    trimmed = (name or "").strip()
+    if not trimmed:
+        return CollisionCheck()
+    if trimmed.casefold() in {n.casefold()
+                              for n in _live_portfolio_names(edm_id)}:
+        return CollisionCheck(names=(trimmed,))
+    edm = execute_one(
+        "SELECT irp_id FROM irp_edm WHERE id = :e AND deleted_at IS NULL",
+        {"e": str(edm_id)}, connection="WORKBENCH")
+    if edm is None or edm["irp_id"] is None:
+        return CollisionCheck(checked=False)
+    return name_check.check_portfolio_name(
+        exposure_irp_id=str(edm["irp_id"]), name=trimmed)
 
 
 _INSERT_GROUP = """
@@ -1335,5 +1362,6 @@ __all__ = [
     "request_breakout",
     "load_approved_plan", "SubPortfolioOutcome", "summarize_outcomes",
     "compute_group_key", "GroupPlan", "compose_group_cart",
+    "check_group_name",
     "request_group_breakout", "ApprovedGroup", "load_approved_group",
 ]

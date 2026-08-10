@@ -584,6 +584,10 @@ def test_modal_custom_mode_renders_pills_checkboxes_and_cart(
     assert 'name="dimension"' not in r.text
     assert "No groups yet" in r.text
     assert f'action="{_url(edm_id, pid)}/groups"' in r.text
+    # the group-name input carries the as-you-type check (P-25) and the
+    # 40-char RM name limit directly (P-24)
+    assert f'hx-get="{_url(edm_id, pid)}/name-check"' in r.text
+    assert 'maxlength="40"' in r.text
 
 
 def test_modal_custom_mode_disables_single_value_pill(routes_db, client):
@@ -605,7 +609,8 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     r = _add_group(client, edm_id, pid, label="Coastal HU",
                    selections={"state": ["TX", "CA"], "peril": ["2"]})
     assert r.status_code == 200
-    assert "usfl_commercial - Coastal HU" in r.text
+    assert "Coastal HU" in r.text                        # the label as typed (P-24)
+    assert "usfl_commercial - Coastal HU" not in r.text  # no composed prefix
     assert 'name="group"' in r.text
     # upper bound = min(Σ state counts, Σ peril counts) = min(1701, 1701)
     assert "up to 1,701 accounts" in r.text
@@ -616,15 +621,60 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     assert _breakout_jobs() == []
 
 
-def test_group_preview_suffixes_and_warns_against_the_cart(
+def test_group_preview_blocks_cart_duplicate_and_warns_overlap(
         routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     carted = ({"label": "Coastal HU", "filters": {"state": ["TX"]}},)
-    r = _add_group(client, edm_id, pid, label="Coastal HU",
-                   selections={"state": ["TX", "CA"]}, carted=carted)
+    dup = _add_group(client, edm_id, pid, label="Coastal HU",
+                     selections={"state": ["TX", "CA"]}, carted=carted)
+    assert dup.status_code == 409                        # blocked, never suffixed (P-25)
+    assert "already exists in the cart" in dup.text
+    ok = _add_group(client, edm_id, pid, label="Inland",
+                    selections={"state": ["TX", "CA"]}, carted=carted)
+    assert ok.status_code == 200
+    assert "may overlap with Coastal HU" in ok.text      # shared TX (P-18)
+
+
+def test_group_preview_blocks_name_taken_in_rm(routes_db, client, fake_irp):
+    # A portfolio Risk Modeler holds but the workbench has no row for — the
+    # Add-time RM leg (P-25) refuses it.
+    edm_id, pid = _custom_pair(fake_irp)
+    fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="77", name="Coastal")
+    r = _add_group(client, edm_id, pid, label="Coastal")
+    assert r.status_code == 409
+    assert "already exists in this EDM" in r.text
+    assert _group_row_ids() == []
+
+
+def test_group_preview_adopted_set_is_not_name_blocked(
+        routes_db, client, fake_irp):
+    # Re-adding an existing member set adopts its approved name (P-22) — that
+    # name IS the group's own portfolio, so the name check must not refuse it.
+    edm_id, pid = _custom_pair(fake_irp)
+    groups = [{"label": "Coastal", "filters": {"state": ["TX"]}}]
+    assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
+    fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="88", name="Coastal")
+    r = _add_group(client, edm_id, pid, label="Coastal",
+                   selections={"state": ["TX"]})
     assert r.status_code == 200
-    assert "usfl_commercial - Coastal HU (2)" in r.text  # cart-wide suffixing
-    assert "may overlap with Coastal HU" in r.text       # shared TX (P-18)
+    assert "existing group" in r.text
+
+
+def test_breakout_name_check_renders_the_collision_fragment(
+        routes_db, client, fake_irp):
+    edm_id, pid = _custom_pair(fake_irp)
+    url = _url(edm_id, pid) + "/name-check"
+    blocked = client.get(url + "?group_label=usfl_commercial")
+    assert blocked.status_code == 200
+    assert 'data-nc="blocked"' in blocked.text
+    flat = " ".join(blocked.text.split())
+    assert "a portfolio with this name already exists in this EDM" in flat
+    assert "Adding is blocked" in flat
+    ok = client.get(url + "?group_label=Fresh")
+    assert 'data-nc="ok"' in ok.text
+    assert "this EDM" in ok.text
+    pending = client.get(url + "?group_label=%20")
+    assert "data-nc" not in pending.text
 
 
 def test_group_preview_refusal_retargets_the_error_slot(

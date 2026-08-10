@@ -522,6 +522,16 @@ def test_find_portfolio_by_number_returns_every_hit():
         ("900", "src - TX"), ("901", "src - TX (2)")]
 
 
+def test_find_portfolio_by_name_returns_every_hit():
+    # The group-name check's RM leg (P-25): trusts the portfolioName filter —
+    # the same search the duplicate-name verification (W-10) relies on.
+    gw = _compose_gw(name_taken=True)
+    hits = gw.find_portfolio_by_name(exposure_irp_id="42", name="Coastal")
+    assert [h.irp_id for h in hits] == ["900"]
+    assert _compose_gw(name_taken=False).find_portfolio_by_name(
+        exposure_irp_id="42", name="Coastal") == []
+
+
 def test_fetch_portfolio_stamp_matches_on_portfolio_id():
     rows = [{"portfolioId": 1, "portfolioName": "A",
              "stampDate": "2026-07-31T09:15:00.000Z"},

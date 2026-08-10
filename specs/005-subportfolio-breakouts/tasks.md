@@ -205,6 +205,11 @@ continue from the tables in spec.md/plan.md.
 - [X] T083 [FR-018–021] Tests: unit `tests/unit/test_breakout_groups.py` (group key, cart composition + refusals, confirm rows/jobs/dedup, one-episode both directions, worker intersection/empty/error/reclaim, page_state flights + cart banner, list labels — 15 tests; route/pill tests follow T082); SQL Server `breakout_group` DDL + duplicate live custom triple + custom reclaim in `test_detail_tables_migration.py` (**unverified** — db-rebuild pending); `tests/irp` two-dimension group round-trip
   - Proof: `uv run pytest tests/unit` green (946 passed, 2026-08-10); `tests/irp/test_breakout.py::test_two_dimension_group_round_trip` green against the sandbox (2026-08-10)
 
+### Workstream 5 — group naming as typed (P-24/P-25/P-26, session 2026-08-10)
+
+- [X] T084 [P-24] [P-25] [P-26] [FR-018] [FR-019] Group name = the label exactly as typed (no source prefix, no collision suffix, cap 40 = `PORTFOLIO_NAME_MAX`); duplicates refused: `compose_group_cart` blocks against live portfolio names + the cart (adopted sets exempt), `check_group_name` + `GET …/breakout/name-check` add the as-you-type fragment (shared `partials/name_collision.html`, portfolio copy) and the Add-time Risk Modeler leg (fail-open; new `find_portfolio_by_name` gateway read, cached in `name_check`); number = name truncated to 20 — `P{rm id}-G-{key}` dropped, `_DIMENSION_LETTER["custom"]` removed (supersedes that part of T079). Pre-change `breakout_group` rows keep their stored name/number (rule 8)
+  - Proof: `uv run pytest tests/unit` green (1015 passed, 2026-08-10)
+
 ---
 
 ## Dependencies & Execution Order

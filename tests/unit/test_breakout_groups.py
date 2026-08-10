@@ -1,8 +1,10 @@
 """Unit tests for custom grouping (spec 005 follow-on — FR-018–021, T-12/T-14).
 
 Covers the group identity (canonical member-set hash), the cart composition
-(validation against the stored summary, adopt-not-rename, cart-wide name
-suffixing, upper-bound counts, the may-overlap note), the cart confirm
+(validation against the stored summary, adopt-not-rename, name exactly as
+typed with duplicate names blocked — P-24/P-25, name-derived numbers — P-26,
+upper-bound counts, the may-overlap note), the immediate name check
+(``check_group_name``), the cart confirm
 (ordered refusals writing no rows; one ``breakout_group`` row and one
 ``run_breakout_custom`` job per group, keyed on the group row's UUID; the
 one-episode rule in both directions), the group worker (union within a
@@ -21,6 +23,7 @@ from datetime import datetime
 import pytest
 
 from app.services import breakout_service, portfolio_service
+from app.services.name_check import CollisionCheck
 from app.services.breakout_service import (
     GateRefused,
     StaleSummary,
@@ -101,15 +104,16 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
     gate = evaluate_gate(edm_id, pid)
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid, groups=[
         _group("Coastal", {"state": ["TX", "CA"], "lob": ["EQ Comm"]}),
-        _group("Coastal", {"state": ["TX"]}),
+        _group("Florida Hurricane Commercial Book", {"state": ["TX"]}),
     ])
 
     first, second = plans
-    assert first.name == "usfl_commercial - Coastal"
-    assert second.name == "usfl_commercial - Coastal (2)"   # cart-wide suffixing
-    assert first.number.startswith("P1-G-")
-    assert len(first.number) <= breakout_service.PORTFOLIO_NUMBER_MAX
-    assert first.number != second.number
+    # name = the label exactly as typed (P-24); number = the name truncated
+    # to 20 characters (P-26)
+    assert (first.name, first.number) == ("Coastal", "Coastal")
+    assert second.name == "Florida Hurricane Commercial Book"
+    assert second.number == "Florida Hurricane Co"
+    assert len(second.number) <= breakout_service.PORTFOLIO_NUMBER_MAX
     # upper bound = min over dimensions of Σ selected per-value counts (P-23)
     assert first.accounts_upper_bound == 801       # min(220+1481, 801)
     assert second.accounts_upper_bound == 220
@@ -134,10 +138,54 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
     refuse([_group("G", {})], "at least one dimension")
     refuse([_group("G", {"state": []})], "no values selected")
     refuse([_group("  ", {"state": ["TX"]})], "needs a name")
-    too_long = "X" * (breakout_service.GROUP_LABEL_MAX + 1)
+    too_long = "X" * (breakout_service.PORTFOLIO_NAME_MAX + 1)
     refuse([_group(too_long, {"state": ["TX"]})], "cap at")
     refuse([_group("A", {"state": ["TX"]}),
             _group("B", {"state": ["TX"]})], "same members")
+
+
+def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
+    """P-25: a name already carried by a live portfolio in the EDM or an
+    earlier cart row refuses — case-insensitive, never suffixed."""
+    edm_id = _mk_edm()
+    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)   # live "usfl_commercial"
+    gate = evaluate_gate(edm_id, pid)
+
+    def refuse(groups, match):
+        with pytest.raises(GateRefused, match=match):
+            compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid,
+                               groups=groups)
+
+    refuse([_group("usfl_commercial", {"state": ["TX"]})],
+           "already exists in this EDM")
+    refuse([_group("USFL_Commercial", {"state": ["TX"]})],
+           "already exists in this EDM")               # case-insensitive
+    refuse([_group("Coastal", {"state": ["TX"]}),
+            _group("coastal", {"lob": ["EQ Comm"]})],
+           "already exists in the cart")
+
+
+# ── the immediate name check (P-25) ───────────────────────────────────────────────
+
+def test_check_group_name_blocks_local_and_rm_names(iteration2_db, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+
+    # a live workbench row answers without Risk Modeler
+    assert breakout_service.check_group_name(edm_id, "usfl_commercial").collides
+    # an RM-side portfolio the workbench has no row for — case-insensitive
+    fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="77", name="Coastal")
+    assert breakout_service.check_group_name(edm_id, "coastal").collides
+    # a free name and a blank one
+    assert not breakout_service.check_group_name(edm_id, "Fresh").collides
+    assert breakout_service.check_group_name(edm_id, "  ") == CollisionCheck()
+
+
+def test_check_group_name_fails_open_when_rm_unreachable(
+        iteration2_db, fake_irp):
+    edm_id, pid = _eligible_pair(fake_irp)
+    fake_irp.raise_on_search = True
+    check = breakout_service.check_group_name(edm_id, "Anything")
+    assert not check.collides and check.checked is False
 
 
 # ── the cart confirm ──────────────────────────────────────────────────────────────
@@ -215,7 +263,7 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
     rows = _group_rows(pid)
     assert len(rows) == 1                          # one row per member set
     assert rows[0]["label"] == "Coastal"           # P-22: no rename
-    assert rows[0]["name"] == "usfl_commercial - Coastal"
+    assert rows[0]["name"] == "Coastal"            # the label as typed (P-24)
     assert rows[0]["cart_id"] != old_cart          # the new cart claimed it
     jobs = _custom_jobs()
     assert len(jobs) == 1                          # the terminal row revived
@@ -299,8 +347,8 @@ def test_group_worker_unions_within_and_intersects_across(
     assert out["backfill_enqueued"] is True
     # union within state = {1,2,3,7}; intersect with lob {2,3,4} → {2,3}
     assert fake_irp.created_sub_portfolios[0]["account_ids"] == [2, 3]
-    assert fake_irp.created_sub_portfolios[0]["name"] == (
-        "usfl_commercial - Coastal")
+    assert fake_irp.created_sub_portfolios[0]["name"] == "Coastal"
+    assert fake_irp.created_sub_portfolios[0]["number"] == "Coastal"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
         "Breakout of portfolio usfl_commercial by custom group Coastal: "
         "lob IN (EQ Comm) AND state IN (CA, TX)")

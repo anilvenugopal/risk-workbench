@@ -57,7 +57,7 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
         "mode": ("custom" if mode == "custom" else "quick"),
         "large_fanout_threshold": breakout_service.LARGE_FANOUT_THRESHOLD,
         "missing_summary_reason": breakout_service.MISSING_SUMMARY_REASON,
-        "group_label_max": breakout_service.GROUP_LABEL_MAX,
+        "name_max": breakout_service.PORTFOLIO_NAME_MAX,
     }
     if modal is None:
         return _partial(request, "partials/breakout_modal.html", ctx,
@@ -78,6 +78,20 @@ def breakout_modal(request: Request, edm_id: str, portfolio_id: str):
     return _modal(request, edm_id, portfolio_id,
                   request.query_params.get("dimension"),
                   mode=request.query_params.get("mode") or "quick")
+
+
+@router.get("/edms/{edm_id}/portfolios/{portfolio_id}/breakout/name-check",
+            response_class=HTMLResponse)
+def breakout_name_check(request: Request, edm_id: str, portfolio_id: str):
+    """As-you-type group-name check (P-25 — the EDM import pattern): renders
+    ``partials/name_collision.html`` with the verdict for the typed name
+    against this EDM's portfolios. GET, no writes; the Risk Modeler leg fails
+    open."""
+    name = request.query_params.get("group_label", "")
+    return _partial(request, "partials/name_collision.html",
+                    {"check": breakout_service.check_group_name(edm_id, name),
+                     "name": name, "kind": "portfolio", "scope": "this EDM",
+                     "action": "Adding"})
 
 
 def _planned_count(job_id: str) -> int:
@@ -200,13 +214,21 @@ async def breakout_group_preview(request: Request, edm_id: str,
         plans = breakout_service.compose_group_cart(
             gate, edm_id=edm_id, portfolio_id=portfolio_id,
             groups=[*_carted_groups(form), new_group])
+        plan = plans[-1]
+        # The Add is where a duplicate name blocks (P-25): compose covered the
+        # workbench rows and the cart; this is the Risk Modeler leg, fail-open
+        # (an unreachable RM never blocks the Add). An adopted member set
+        # keeps its approved name — that name IS its own portfolio.
+        if not plan.adopted and breakout_service.check_group_name(
+                edm_id, plan.name).collides:
+            raise GateRefused(f"a portfolio named {plan.name!r} already "
+                              "exists in this EDM — choose a different name")
     except GateRefused as exc:
         response = _partial(request, "partials/breakout_cart_row.html",
                             {"error": exc.reason}, status_code=409)
         response.headers["HX-Retarget"] = "#bo-cart-error"
         response.headers["HX-Reswap"] = "innerHTML"
         return response
-    plan = plans[-1]
     return _partial(request, "partials/breakout_cart_row.html", {
         "plan": plan,
         "group_json": json.dumps({"label": plan.label,
