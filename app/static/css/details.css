@@ -155,6 +155,37 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* a POST-backed action rendered as an inline link (the modal's Sync pointers) */
 .bo-link { background: none; border: none; padding: 0; font: inherit; color: var(--color-brand); font-weight: var(--fw-medium); text-decoration: underline; cursor: pointer; }
 
+/* custom grouping (follow-on FR-018–021) — mode tabs, dimension pills,
+   value checkboxes, and the cart */
+.bo-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
+.bo-tab { font: inherit; font-size: var(--fs-label); font-weight: var(--fw-medium); color: var(--text-tertiary); background: none; border: none; border-bottom: 2px solid transparent; padding: var(--space-1) var(--space-2); cursor: pointer; }
+.bo-tab[aria-selected="true"] { color: var(--color-brand); border-bottom-color: var(--color-brand); font-weight: var(--fw-semibold); }
+.bo-pills { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.bo-pill { font: inherit; font-size: var(--fs-caption); font-weight: var(--fw-medium); border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: 2px var(--space-3); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.bo-pill[aria-pressed="true"] { border-color: var(--color-brand); background: var(--color-brand-faint); color: var(--color-brand); font-weight: var(--fw-semibold); }
+.bo-pill:disabled { cursor: not-allowed; background: var(--surface-recessed); color: var(--text-disabled); }
+.bo-pill__meta { font-weight: var(--fw-regular); color: var(--text-tertiary); }
+.bo-checks { border: 1px solid var(--border-default); border-radius: var(--radius-md); max-height: 170px; overflow-y: auto; padding: var(--space-1) var(--space-2); }
+.bo-check { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-label); padding: 2px var(--space-1); }
+.bo-check input { margin: 0; }
+.bo-check__label { color: var(--text-tertiary); font-size: var(--fs-caption); }
+.bo-check__accounts { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-tertiary); font-size: var(--fs-caption); }
+.bo-addrow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.bo-addrow input[type=text] { flex: 1; height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; font-size: var(--fs-label); }
+.bo-cart { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
+.bo-cart__head { background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-2) var(--space-3); }
+.bo-cart__empty { padding: var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); text-align: center; }
+.bo-cart-row { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-faint); display: flex; flex-direction: column; gap: 2px; }
+.bo-cart-row:last-child { border-bottom: none; }
+.bo-cart-row__top { display: flex; align-items: baseline; gap: var(--space-2); }
+.bo-cart-row__label { font-size: var(--fs-label); font-weight: var(--fw-semibold); }
+.bo-cart-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-cart-row__remove { margin-left: auto; font: inherit; font-size: var(--fs-caption); color: var(--text-tertiary); background: none; border: none; cursor: pointer; }
+.bo-cart-row__remove:hover { color: var(--color-danger); }
+.bo-cart-row__filters { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-cart-row__meta { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-cart-row__warn { font-size: var(--fs-caption); color: var(--color-warning); }
+
 /* in-flight (modal body + portfolio row) */
 .bo-spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--color-brand-border); border-top-color: var(--color-brand); border-radius: 50%; animation: bo-spin .7s linear infinite; display: inline-block; vertical-align: -2px; margin-right: var(--space-2); }
 @keyframes bo-spin { to { transform: rotate(360deg); } }

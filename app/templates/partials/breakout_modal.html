@@ -1,16 +1,25 @@
-{# Breakout modal (spec 005 — FR-001/FR-006/FR-007/FR-006c, approved preview
-   docs/ui_previews/breakout_modal.html). Fetched into #breakout-modal-mount on
-   the EDM detail page — OUTSIDE the self-polling #edm-detail wrapper, so the
-   3-second poll never removes an open modal (package_modal precedent). The
-   mount carries the hx-on::before-swap handler that lets the 404/409 fragments
-   swap in. One stored-summary snapshot per render: switching dimension
-   re-fetches this fragment; the confirm carries the snapshot's as_of (FR-002b);
-   a Sync submitted from inside CLOSES the dialog and hands progress to the
-   page's own indicator + self-poll. #}
+{# Breakout modal (spec 005 — FR-001/FR-006/FR-007/FR-006c; custom grouping
+   FR-018–021 — preview docs/ui_previews/breakout_modal.html). Fetched into
+   #breakout-modal-mount on the EDM detail page — OUTSIDE the self-polling
+   #edm-detail wrapper, so the 3-second poll never removes an open modal
+   (package_modal precedent). The mount carries the hx-on::before-swap handler
+   that lets the 404/409 fragments swap in. One stored-summary snapshot per
+   render: switching dimension or mode re-fetches this fragment; the confirm
+   carries the snapshot's as_of (FR-002b); a Sync submitted from inside CLOSES
+   the dialog and hands progress to the page's own indicator + self-poll.
+   The custom pane renders EVERY groupable dimension's checkbox list in this
+   one fetch — Alpine pills toggle x-show, so switching dimensions loses no
+   ticked state (T-15); cart rows arrive server-composed from the
+   group-preview POST. #}
 {%- set base_url = '/edms/' ~ edm_id ~ '/portfolios/' ~ portfolio_id ~ '/breakout' -%}
 {%- set gate = modal.gate if not missing else None -%}
-{%- set confirmable = (not missing) and gate.portfolio_eligible
-      and not gate.in_flight and modal.dimension and error_kind != 'stale' -%}
+{%- set custom_mode = mode == 'custom' -%}
+{%- set groupable = (gate.dimensions | selectattr('eligible') | list)
+      if not missing else [] -%}
+{%- set pane_open = (not missing) and gate.portfolio_eligible
+      and not gate.in_flight and error_kind != 'stale' -%}
+{%- set confirmable = pane_open and not custom_mode and modal.dimension -%}
+{%- set cart_ready = pane_open and custom_mode and groupable -%}
 {%- macro sync_button(label) -%}
 <button type="button" class="bo-link"
         hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
@@ -29,6 +38,18 @@
         @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="dimension" value="{{ modal.dimension }}">
+    <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
+  {% elif cart_ready %}
+  {# The cart form (FR-018): "Add group" posts THIS form's fields to the
+     group-preview route (server-composed row appended to the cart); the
+     submit posts the carted group JSONs to the cart confirm. n counts the
+     cart rows — a tiny Alpine sliver; the server re-validates everything. #}
+  <form class="bo-modal" method="post" action="{{ base_url }}/groups"
+        hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+        x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
+        @htmx:after-settle="recount()"
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
   {% else %}
   <div class="bo-modal">
@@ -68,8 +89,88 @@
          would refuse again, so only the Sync path is offered (banner above) #}
 
       {% else %}
-      <div class="bo-dims">
+      {% if pane_open %}
+      <div class="bo-tabs">
+        <button type="button" class="bo-tab"
+                {% if not custom_mode %}aria-selected="true"{% else %}hx-get="{{ base_url }}"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Quick breakout</button>
+        <button type="button" class="bo-tab"
+                {% if custom_mode %}aria-selected="true"{% else %}hx-get="{{ base_url }}?mode=custom"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Custom groups</button>
+      </div>
+      {% endif %}
+
+      {% if custom_mode %}
+      {% if cart_ready %}
+      <div x-data="{ dim: '{{ groupable[0].dimension }}' }">
+        <div class="bo-pills">
+          {% for d in gate.dimensions %}
+          {% if d.eligible %}
+          <button type="button" class="bo-pill" :aria-pressed="dim === '{{ d.dimension }}'"
+                  @click="dim = '{{ d.dimension }}'">{{ d.label }}
+            <span class="bo-pill__meta">· {{ d.values|length }}</span></button>
+          {% else %}
+          <button type="button" class="bo-pill" disabled
+                  title="{{ d.reason }}">{{ d.label }}</button>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% for d in groupable %}
+        <div class="bo-checks" x-show="dim === '{{ d.dimension }}'"
+             {% if not loop.first %}style="display:none"{% endif %}>
+          {% for v in d.values %}
+          <label class="bo-check">
+            <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}">
+            <span>{{ v.value }}</span>
+            {% if v.label %}<span class="bo-check__label">{{ v.label }}</span>{% endif %}
+            <span class="bo-check__accounts">{{ '{:,}'.format(v.accounts) }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% endfor %}
+        <div class="bo-addrow">
+          <input type="text" name="group_label" maxlength="256"
+                 placeholder="Group name — e.g. Coastal HU">
+          <button type="button" class="btn-sm"
+                  hx-post="{{ base_url }}/group-preview"
+                  hx-target="#bo-cart-rows" hx-swap="beforeend"
+                  hx-include="closest form">Add group</button>
+        </div>
+      </div>
+      <div id="bo-cart-error"></div>
+      <div class="bo-cart">
+        <div class="bo-cart__head">Cart</div>
+        <div id="bo-cart-rows"></div>
+        <div class="bo-cart__empty" x-show="n === 0">No groups yet — tick
+          values across any dimensions, name the group, and Add.</div>
+      </div>
+      <div class="bo-note bo-note--overlap">Groups can overlap — an account
+        matching every filter of two groups is included in full in each.
+        Exact counts arrive when the run completes.</div>
+      {% else %}
+      <div class="bo-pills">
         {% for d in gate.dimensions %}
+        <button type="button" class="bo-pill" disabled
+                {% if d.reason %}title="{{ d.reason }}"{% endif %}>{{ d.label }}</button>
+        {% endfor %}
+      </div>
+      {% if gate.refresh_in_flight %}
+      <div class="bo-note bo-note--plain">Close this dialog — when the sync
+        finishes the page updates on its own and Break out re-enables.</div>
+      {% elif not gate.portfolio_eligible %}
+      <div class="bo-note bo-note--plain">Breakout is not available right now:
+        {{ gate.reason }}.</div>
+      {% else %}
+      <div class="bo-note bo-note--plain">No dimension carries two or more
+        distinct values — custom groups read the stored exposure summary.
+        {{ sync_button('Run Sync') }} to refresh it.</div>
+      {% endif %}
+      {% endif %}
+
+      {% else %}
+      <div class="bo-dims">
+        {# quick-mode dimensions only — peril is grouping-only (P-19) #}
+        {% for d in gate.dimensions if d.quick %}
         {% if not gate.portfolio_eligible %}
         <div class="bo-dim bo-dim--disabled">
           <span class="bo-dim__name">{{ dim_title(d) }}</span>
@@ -134,55 +235,38 @@
       </div>
       {% endif %}
 
-      {# ── disclosures (FR-007): quantified overlap + blank values. For the
-            geography dimension the multi-state-account consequence is stated
-            explicitly (US2/T047): a commercial account with locations in
-            several states lands WHOLE in every state sub-portfolio it
-            touches. #}
+      {# ── disclosures (FR-007 as revised / P-21): two short quantified
+            lines — overlap and blank values — with qualitative one-liners
+            when the summary carries no measured coverage. #}
       {% set ov = modal.overlap %}
-      {% set geo = modal.dimension == 'state' %}
       {% if ov.repeats is none %}
       <div class="bo-note bo-note--overlap">Accounts matching more than one
-        {{ modal.noun }} are included in full in each matching sub-portfolio,
-        so the sub-portfolios can overlap{% if geo %} — a commercial
-        account with locations in several states lands <strong>whole</strong>
-        in every state sub-portfolio it touches{% endif %}. The inflation in
-        exposure can exceed the inflation in account count.</div>
-      {% elif ov.repeats == 0 %}
-      <div class="bo-note bo-note--overlap"><strong>None of the
-        {{ '{:,}'.format(ov.covered) }} accounts that carry a {{ modal.noun }}
-        match more than one</strong> — the sub-portfolios do not
-        overlap{% if ov.partition %}, and together they hold every account in the
-        source{% endif %}.{% if geo %} A commercial account with locations in
-        several states would land whole in every state sub-portfolio it
-        touches; here none does.{% endif %} The inflation in exposure can
-        exceed the inflation in account count when accounts repeat; here none
-        do.</div>
-      {% else %}
-      <div class="bo-note bo-note--overlap"><strong>{{ '{:,}'.format(ov.repeats) }}
-        of the {{ '{:,}'.format(ov.covered) }} accounts that carry a
-        {{ modal.noun }} match more than one</strong> and will be included in
-        full in each one{% if geo %} — a commercial account with locations in
-        several states lands <strong>whole</strong> in every state
-        sub-portfolio it touches{% endif %}. The inflation in exposure can
-        exceed the inflation in account count — the accounts appearing in
-        several sub-portfolios tend to be the largest.</div>
-      {% endif %}
-      {# FR-007(b): the coverage shortfall, measured where the summary carries
-         the coverage counts and stated qualitatively where it does not. #}
-      {% if ov.uncovered %}
-      <div class="bo-note bo-note--plain"><strong>{{ '{:,}'.format(ov.uncovered) }}
-        of this portfolio's {{ '{:,}'.format(ov.account_total) }} accounts carry no
-        {{ modal.noun }} value</strong> and are not included in any
+        {{ modal.noun }} are included in full in each matching
         sub-portfolio.</div>
-      {% elif ov.uncovered == 0 %}
-      <div class="bo-note bo-note--plain">Every account in this portfolio carries
-        a {{ modal.noun }} value, so none is left out of the sub-portfolios.</div>
+      {% elif ov.repeats == 0 %}
+      <div class="bo-note bo-note--overlap">No overlapping accounts — none of
+        the {{ '{:,}'.format(ov.covered) }} accounts that carry a
+        {{ modal.noun }} matches more than one.</div>
       {% else %}
-      <div class="bo-note bo-note--plain">Exposure with no {{ modal.noun }}
-        value is not included in any sub-portfolio.</div>
+      <div class="bo-note bo-note--overlap"><strong>Warning: overlapping
+        accounts</strong> — {{ '{:,}'.format(ov.repeats) }} of
+        {{ '{:,}'.format(ov.covered) }} accounts match more than one
+        {{ modal.noun }} and are included in full in each matching
+        sub-portfolio.</div>
+      {% endif %}
+      {% if ov.uncovered %}
+      <div class="bo-note bo-note--plain">{{ '{:,}'.format(ov.uncovered) }} of
+        {{ '{:,}'.format(ov.account_total) }} accounts carry no
+        {{ modal.noun }} value and are left out.</div>
+      {% elif ov.uncovered == 0 %}
+      <div class="bo-note bo-note--plain">None left out — every account
+        carries a {{ modal.noun }} value.</div>
+      {% else %}
+      <div class="bo-note bo-note--plain">Accounts with no {{ modal.noun }}
+        value are left out.</div>
       {% endif %}
 
+      {% endif %}
       {% endif %}
       {% endif %}
       {% endif %}
@@ -193,12 +277,18 @@
       <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
       <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
       <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      {% elif cart_ready %}
+      <span class="bo-modal__count"><strong x-text="n">0</strong>
+        <span x-text="n === 1 ? 'group' : 'groups'">groups</span></span>
+      <button type="button" class="btn-sm" @click="$root.remove()">Cancel</button>
+      <button type="submit" class="btn-sm btn-sm--primary" :disabled="n === 0"
+              x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
       {% else %}
       <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
       {% endif %}
     </div>
 
-  {% if confirmable %}
+  {% if confirmable or cart_ready %}
   </form>
   {% else %}
   </div>

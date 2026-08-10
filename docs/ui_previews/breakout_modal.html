@@ -108,6 +108,36 @@ h1,h2,h3{margin:0}
 .bo-note--plain{background:var(--surface-recessed);border:1px solid var(--border-faint);color:var(--text-tertiary)}
 .bo-note strong{font-weight:var(--fw-semibold)}
 
+/* custom grouping (follow-on FR-018–021) — mode tabs, dimension pills,
+   value checkboxes, and the cart */
+.bo-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--border-default)}
+.bo-tab{font:inherit;font-size:var(--fs-label);font-weight:var(--fw-medium);color:var(--text-tertiary);background:none;border:none;border-bottom:2px solid transparent;padding:var(--space-1) var(--space-2);cursor:pointer}
+.bo-tab[aria-selected="true"]{color:var(--color-brand);border-bottom-color:var(--color-brand);font-weight:var(--fw-semibold)}
+.bo-pills{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.bo-pill{font:inherit;font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--border-default);border-radius:var(--radius-pill);padding:2px var(--space-3);background:var(--surface-panel);cursor:pointer;color:var(--text-secondary)}
+.bo-pill[aria-pressed="true"]{border-color:var(--color-brand);background:var(--color-brand-faint);color:var(--color-brand);font-weight:var(--fw-semibold)}
+.bo-pill:disabled{cursor:not-allowed;background:var(--surface-recessed);color:var(--text-disabled)}
+.bo-pill__meta{font-weight:var(--fw-regular);color:var(--text-tertiary)}
+.bo-checks{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:170px;overflow-y:auto;padding:var(--space-1) var(--space-2)}
+.bo-check{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);padding:2px var(--space-1)}
+.bo-check input{margin:0}
+.bo-check__label{color:var(--text-tertiary);font-size:var(--fs-caption)}
+.bo-check__accounts{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--text-tertiary);font-size:var(--fs-caption)}
+.bo-addrow{display:flex;gap:var(--space-2)}
+.bo-addrow input[type=text]{flex:1;height:30px;border:1px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font:inherit;font-size:var(--fs-label)}
+.bo-cart{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden}
+.bo-cart__head{background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3)}
+.bo-cart__empty{padding:var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+.bo-cart-row{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--c-border-faint);display:flex;flex-direction:column;gap:2px}
+.bo-cart-row:last-child{border-bottom:none}
+.bo-cart-row__top{display:flex;align-items:baseline;gap:var(--space-2)}
+.bo-cart-row__label{font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.bo-cart-row__name{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bo-cart-row__remove{margin-left:auto;font:inherit;font-size:var(--fs-caption);color:var(--text-tertiary);background:none;border:none;cursor:pointer}
+.bo-cart-row__filters{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.bo-cart-row__meta{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.bo-cart-row__warn{font-size:var(--fs-caption);color:var(--color-warning)}
+
 /* in-flight / banner (page-side) */
 .bo-flight{display:flex;align-items:center;font-size:var(--fs-label);color:var(--text-secondary);background:var(--color-brand-faint);border:1px solid var(--color-brand-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)}
 .bo-banner{border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-label);margin-bottom:var(--space-3)}
@@ -121,7 +151,9 @@ h1,h2,h3{margin:0}
 <div class="wrap">
 
   <div class="scaffold-note">
-    <strong>PREVIEW — spec 005 breakout modal (T026 + T043).</strong>
+    <strong>PREVIEW — spec 005 breakout modal (T026 + T043; revised for the follow-on: P-21 short
+    disclosures shipped, section 3 adds the custom-grouping cart — T082, approval blocks the
+    template/routes).</strong>
     One-click portfolio breakouts by LOB &amp; geography. Every state below; the confirm carries a hidden
     <code>summary_as_of</code> field (FR-002b) and CSRF token. 👍 in chat approves; the Jinja2 template is wired after.
   </div>
@@ -161,13 +193,11 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>311 of the 1,690 accounts that carry a line of business match more than one</strong>
-            and will be included in full in each one. The inflation in exposure can exceed the
-            inflation in account count — the accounts appearing in several sub-portfolios tend to be the largest.
+            <strong>Warning: overlapping accounts</strong> — 311 of 1,690 accounts match more than
+            one line of business and are included in full in each matching sub-portfolio.
           </div>
           <div class="bo-note bo-note--plain">
-            <strong>11 of this portfolio's 1,701 accounts carry no line of business value</strong>
-            and are not included in any sub-portfolio.
+            11 of 1,701 accounts carry no line of business value and are left out.
           </div>
         </div>
         <div class="bo-modal__footer">
@@ -204,19 +234,15 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>None of the 500 accounts that carry a line of business match more than one</strong> —
-            the sub-portfolios do not overlap, and together they hold every account in the source.
-            The inflation in exposure can exceed the inflation in account count when accounts repeat;
-            here none do.
+            No overlapping accounts — none of the 500 accounts that carry a line of business
+            matches more than one.
           </div>
           <div class="bo-note bo-note--plain">
-            Every account in this portfolio carries a line of business value, so none is left out of the
-            sub-portfolios.
+            None left out — every account carries a line of business value.
           </div>
           <div class="bo-note bo-note--overlap" style="opacity:.75">
             <em>(absent breakout_coverage variant — a summary written before the 2026-08-05 revision)</em> Accounts matching more than one line of business are
-            included in full in each matching sub-portfolio, so the sub-portfolios can overlap. The inflation
-            in exposure can exceed the inflation in account count.
+            included in full in each matching sub-portfolio.
           </div>
         </div>
         <div class="bo-modal__footer">
@@ -228,7 +254,7 @@ h1,h2,h3{margin:0}
     </div>
   </div>
 
-  <div class="eyebrow">2 · Geography (state) — the US2 case, labels beside codes, multi-state consequence</div>
+  <div class="eyebrow">2 · Geography (state) — the US2 case, labels beside codes</div>
   <div class="board">
     <div class="tile">
       <div class="tile__label">eligible · by geography (state) — Admin1Code values, Admin1Name labels where geocoded</div>
@@ -258,14 +284,11 @@ h1,h2,h3{margin:0}
             </div>
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>252 of the 1,624 accounts that carry a state match more than one</strong> and will be
-            included in full in each one — a commercial account with locations in several states lands
-            <strong>whole</strong> in every state sub-portfolio it touches. The inflation in exposure can
-            exceed the inflation in account count.
+            <strong>Warning: overlapping accounts</strong> — 252 of 1,624 accounts match more than
+            one state and are included in full in each matching sub-portfolio.
           </div>
           <div class="bo-note bo-note--plain">
-            <strong>77 of this portfolio's 1,701 accounts carry no state value</strong> and are not
-            included in any sub-portfolio.
+            77 of 1,701 accounts carry no state value and are left out.
           </div>
         </div>
         <div class="bo-modal__footer">
@@ -314,12 +337,11 @@ h1,h2,h3{margin:0}
             <strong>43 sub-portfolios is a large run</strong> — it will take several minutes.
           </div>
           <div class="bo-note bo-note--overlap">
-            <strong>1,004 of this portfolio's 4,880 accounts match more than one state</strong> and will be
-            included in full in each one — a multi-state account lands whole in every state sub-portfolio it
-            touches. The inflation in exposure can exceed the inflation in account count.
+            <strong>Warning: overlapping accounts</strong> — 1,004 of 4,880 accounts match more
+            than one state and are included in full in each matching sub-portfolio.
           </div>
           <div class="bo-note bo-note--plain">
-            Exposure with no state value is not included in any sub-portfolio.
+            Accounts with no state value are left out.
           </div>
         </div>
         <div class="bo-modal__footer">
@@ -331,7 +353,185 @@ h1,h2,h3{margin:0}
     </div>
   </div>
 
-  <div class="eyebrow">3 · Disabled &amp; in-flight states</div>
+  <div class="eyebrow">3 · Custom groups — the cart (follow-on FR-018–021; D12/D13/D14/D17)</div>
+  <div class="sub" style="font-size:var(--fs-caption);max-width:900px">
+    Mode tabs sit above the pane: <strong>Quick breakout</strong> is sections 1–2 unchanged;
+    <strong>Custom groups</strong> is below. Dimension pills toggle the checkbox list client-side
+    (one fetch, no state loss); the server composes every cart row (name, key, upper-bound count).
+    ⚠ <strong>O-02 for this review:</strong> peril values are numeric RMS codes (1 = EQ, 2 = HU/WS in
+    the sandbox) — the EDM carries no code→name lookup and labels are never invented (P-12), so the
+    checkboxes and badges show the bare code. Say if code-only display is unacceptable.
+  </div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">custom mode · empty cart — pills + checkboxes, nothing added yet</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button">Line of business <span class="bo-pill__meta">· 6</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 14</span></button>
+            <button class="bo-pill" type="button">Peril <span class="bo-pill__meta">· 2</span></button>
+          </div>
+          <div class="bo-checks">
+            <label class="bo-check"><input type="checkbox"> <span>AL</span> <span class="bo-check__label">ALABAMA</span> <span class="bo-check__accounts">96</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>FL</span> <span class="bo-check__label">FLORIDA</span> <span class="bo-check__accounts">1,241</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>GA</span> <span class="bo-check__label">GEORGIA</span> <span class="bo-check__accounts">204</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>TX</span> <span class="bo-check__accounts">412</span></label>
+          </div>
+          <div class="bo-addrow">
+            <input type="text" placeholder="Group name — e.g. Coastal HU">
+            <button class="btn btn--secondary" type="button" disabled>Add group</button>
+          </div>
+          <div class="bo-cart">
+            <div class="bo-cart__head">Cart</div>
+            <div class="bo-cart__empty">No groups yet — tick values across any dimensions, name the group, and Add.</div>
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>0</strong> groups</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">cart with 3 groups — one multi-dimension incl. peril, one overlap warning, up-to counts (P-23)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button">Line of business <span class="bo-pill__meta">· 6</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 2 selected</span></button>
+            <button class="bo-pill" type="button">Peril <span class="bo-pill__meta">· 1 selected</span></button>
+          </div>
+          <div class="bo-checks" style="max-height:96px">
+            <label class="bo-check"><input type="checkbox"> <span>AL</span> <span class="bo-check__label">ALABAMA</span> <span class="bo-check__accounts">96</span></label>
+            <label class="bo-check"><input type="checkbox" checked> <span>FL</span> <span class="bo-check__label">FLORIDA</span> <span class="bo-check__accounts">1,241</span></label>
+            <label class="bo-check"><input type="checkbox" checked> <span>GA</span> <span class="bo-check__label">GEORGIA</span> <span class="bo-check__accounts">204</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>TX</span> <span class="bo-check__accounts">412</span></label>
+          </div>
+          <div class="bo-addrow">
+            <input type="text" value="Coastal wind">
+            <button class="btn btn--secondary" type="button">Add group</button>
+          </div>
+          <div class="bo-cart">
+            <div class="bo-cart__head">Cart — 3 groups</div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">Coastal HU</span>
+                <span class="bo-cart-row__name">usfl_commercial - Coastal HU</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: FL, GA · peril: 2</div>
+              <div class="bo-cart-row__meta">up to 1,445 accounts</div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">Inland book</span>
+                <span class="bo-cart-row__name">usfl_commercial - Inland book</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: AL, TX</div>
+              <div class="bo-cart-row__meta">up to 508 accounts</div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">FL earthquake</span>
+                <span class="bo-cart-row__name">usfl_commercial - FL earthquake</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: FL · lob: EQ Comm</div>
+              <div class="bo-cart-row__meta">up to 801 accounts <span class="bo-cart-row__warn">· may overlap with Coastal HU</span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--overlap">
+            Groups can overlap — an account matching every filter of two groups is included in
+            full in each. Exact counts arrive when the run completes.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>3</strong> groups · up to 2,754 accounts</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 3 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">disabled pills — a dimension with one distinct value is not offered (matches quick mode)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">mono_line · Portfolio #9 · 1,240 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button" disabled title="only one line of business present">Line of business <span class="bo-pill__meta">· 1</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 5</span></button>
+            <button class="bo-pill" type="button" disabled title="only one peril present">Peril <span class="bo-pill__meta">· 1</span></button>
+          </div>
+          <div class="bo-note bo-note--plain" style="text-align:center">(checkbox list + cart render as in the tiles above)</div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>0</strong> groups</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">cart in flight — one episode per portfolio (blocks quick mode too); page chip below</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-flight"><span class="spinner"></span>
+            <span>A <strong>custom group</strong> breakout is already running for this portfolio —
+            sub-portfolios appear in the list as they are created.</span>
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+        <span style="float:right"><span class="spinner"></span><span style="color:var(--text-secondary)">custom groups — 1 of 3 done</span></span>
+      </div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+        <span style="color:var(--text-tertiary);font-size:10px">▸</span>
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial - Coastal HU</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #24</span>
+        <div style="font-size:var(--fs-caption);color:var(--text-tertiary)" title="state: FL, GA · peril: 2">↳ from usfl_commercial · group: Coastal HU</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">4 · Disabled &amp; in-flight states</div>
   <div class="board">
     <div class="tile">
       <div class="tile__label">missing summary — both dimensions disabled, Sync pointer</div>
@@ -442,7 +642,7 @@ h1,h2,h3{margin:0}
     </div>
   </div>
 
-  <div class="eyebrow">4 · Confirm refusals (409 — modal re-rendered with the reason, no job created)</div>
+  <div class="eyebrow">5 · Confirm refusals (409 — modal re-rendered with the reason, no job created; the cart confirm maps to the same variants)</div>
   <div class="board">
     <div class="tile">
       <div class="tile__label">confirm refused: a Sync rewrote the exposure summary while the modal was open (FR-002b)</div>
@@ -487,12 +687,23 @@ h1,h2,h3{margin:0}
     </div>
   </div>
 
-  <div class="eyebrow">5 · Page-side: completion banner + durable per-row error line (FR-012)</div>
+  <div class="eyebrow">6 · Page-side: completion banner + durable per-row error line (FR-012; a cart's terminal jobs aggregate into ONE banner)</div>
   <div class="board">
     <div class="tile">
       <div class="tile__label">completion — full success (toast + banner on first poll after terminal)</div>
       <div>
         <div class="bo-banner bo-banner--ok"><strong>LOB breakout of usfl_commercial:</strong> 6 created — exposure figures are filling in automatically.</div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="tile__label">cart completion — the newest cart's jobs aggregated (FR-020)</div>
+      <div>
+        <div class="bo-banner bo-banner--partial"><strong>Custom group breakout of usfl_commercial:</strong> 2 created, 1 failed.</div>
+        <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+          <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+          <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+          <div class="bo-row-error"><strong>usfl_commercial - Inland book failed:</strong> no account matches every filter of this group — nothing was created.</div>
+        </div>
       </div>
     </div>
     <div class="tile">

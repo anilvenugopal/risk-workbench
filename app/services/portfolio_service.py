@@ -65,13 +65,22 @@ class PortfolioRow:
     # Display label for breakout_value (Admin1Name for a state code), resolved
     # at read time from the SOURCE portfolio's stored summary — never stored,
     # never a filter input; None falls back to the code in the template
-    # (P-12 as revised 2026-08-05).
+    # (P-12 as revised 2026-08-05). For a custom-group row (T-12) it is the
+    # group's label, read off the joined breakout_group row.
     breakout_value_label: str | None = None
+    # Custom-group lineage (spec 005 follow-on T-12), joined from
+    # breakout_group; None for quick-mode and broker-arrived rows. filters is
+    # the parsed member-filter dict for the badge tooltip.
+    breakout_group_label: str | None = None
+    breakout_group_filters: dict | None = None
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is
 # primary (UNIQUE(edm_id, irp_id)); the name match is the fallback for a row
-# first written without its RM id (it backfills irp_id) — data-model §2.
+# first written without its RM id (it backfills irp_id) — data-model §2. The
+# name match is live-only (T-16): a soft-deleted sub-portfolio's name can be
+# regenerated for a NEW RM portfolio, and stamping the dead row's irp_id would
+# leave the enumerated portfolio without a live row.
 _UPDATE_BY_IRP = """
     UPDATE irp_portfolio
     SET name = :name, exposure_detail = :snap, as_of = :asof, updated_at = :now
@@ -80,7 +89,7 @@ _UPDATE_BY_IRP = """
 _UPDATE_BY_NAME = """
     UPDATE irp_portfolio
     SET irp_id = :irp, exposure_detail = :snap, as_of = :asof, updated_at = :now
-    WHERE edm_id = :edm AND name = :name
+    WHERE edm_id = :edm AND name = :name AND deleted_at IS NULL
 """
 _INSERT = """
     INSERT INTO irp_portfolio (id, edm_id, name, irp_id, exposure_detail, as_of,
@@ -114,10 +123,15 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
     (deleted RM-side) and resurrect pruned rows it returned again. ``seen`` is
     the enumerated (irp_id, name) set — including portfolios whose exposure
     read later fails (existence comes from the enumeration, not the detail
-    read). Returns the rows pruned."""
+    read). Resurrect-by-name is restricted to non-generated rows (T-16): a
+    re-breakout regenerates a deleted sub-portfolio's exact name for a NEW RM
+    portfolio, and reviving the dead row by that name would put two live rows
+    on one uq_irp_portfolio_breakout key. A dead generated row still
+    resurrects on its irp_id match. Returns the rows pruned."""
     with _txn(conn) as working:
         return _snapshot_prune(working, table="irp_portfolio", edm_id=edm_id,
-                               seen=seen, now=now)
+                               seen=seen, now=now,
+                               name_resurrect_filter="AND source_portfolio_id IS NULL")
 
 
 # ── Breakout lineage writes (spec 005 — R3/R7, contracts/data-access.md §2) ─────
@@ -137,29 +151,44 @@ class GeneratedWrite:
     created: bool
 
 
-_SELECT_LIVE_BY_EDM_IRP = """
-    SELECT id, source_portfolio_id, breakout_dimension_code, breakout_value
+_SELECT_BY_EDM_IRP = """
+    SELECT id, deleted_at, source_portfolio_id, breakout_dimension_code,
+        breakout_value
     FROM irp_portfolio
-    WHERE edm_id = :edm AND irp_id = :irp AND deleted_at IS NULL
+    WHERE edm_id = :edm AND irp_id = :irp
 """
-_UPDATE_GENERATED_BY_ID = """
+# Stamps the full identity + lineage onto an existing row and clears its
+# soft-delete (T-16). Serves both claim paths: a (edm_id, irp_id) match gets
+# its lineage stamped (irp_id/deleted_at writes are no-ops there when the row
+# is live), and a soft-deleted lineage-triple match gets the NEW RM identity
+# and comes back to life on the same row.
+_RECLAIM_GENERATED_BY_ID = """
     UPDATE irp_portfolio
-    SET name = :name, source_portfolio_id = :src, breakout_dimension_code = :dim,
-        breakout_value = :val, inserted_by = COALESCE(inserted_by, :by),
+    SET deleted_at = NULL, name = :name, irp_id = :irp,
+        source_portfolio_id = :src, breakout_dimension_code = :dim,
+        breakout_value = :val, breakout_group_id = :grp,
+        inserted_by = COALESCE(inserted_by, :by),
         updated_at = :now, updated_by = :by
     WHERE id = :row_id
 """
 _INSERT_GENERATED = """
     INSERT INTO irp_portfolio (id, edm_id, name, irp_id, source_portfolio_id,
-        breakout_dimension_code, breakout_value, inserted_at, updated_at,
-        inserted_by, updated_by)
-    VALUES (:id, :edm, :name, :irp, :src, :dim, :val, :now, :now, :by, :by)
+        breakout_dimension_code, breakout_value, breakout_group_id,
+        inserted_at, updated_at, inserted_by, updated_by)
+    VALUES (:id, :edm, :name, :irp, :src, :dim, :val, :grp, :now, :now,
+        :by, :by)
 """
 _SELECT_GENERATED = """
     SELECT id, edm_id, name, irp_id, exposure_detail, as_of
     FROM irp_portfolio
     WHERE source_portfolio_id = :src AND breakout_dimension_code = :dim
       AND breakout_value = :val AND deleted_at IS NULL
+"""
+_SELECT_GENERATED_ANY = """
+    SELECT id, deleted_at
+    FROM irp_portfolio
+    WHERE source_portfolio_id = :src AND breakout_dimension_code = :dim
+      AND breakout_value = :val
 """
 
 
@@ -178,7 +207,7 @@ def find_generated(source_portfolio_id: Any, dimension_code: str,
 
 def _write_generated(edm_id: Any, *, name: str, irp_id: str,
                      source_portfolio_id: Any, dimension_code: str, value: str,
-                     actor_id: Any) -> GeneratedWrite:
+                     actor_id: Any, group_id: Any = None) -> GeneratedWrite:
     if not (source_portfolio_id and dimension_code and value):
         raise ValueError(
             "breakout lineage integrity: source portfolio, dimension, and value "
@@ -196,66 +225,93 @@ def _write_generated(edm_id: Any, *, name: str, irp_id: str,
     params = {
         "id": str(uuid.uuid4()), "edm": _uid(edm_id), "name": name,
         "irp": str(irp_id), "src": _uid(source_portfolio_id),
-        "dim": dimension_code, "val": value, "now": _utcnow(),
+        "dim": dimension_code, "val": value, "grp": _uid(group_id),
+        "now": _utcnow(),
         "by": (_uid(actor_id) if actor_id is not None else None),
     }
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             try:
                 with conn.begin_nested():
-                    # The row may already exist WITHOUT lineage — a backfill
-                    # enumerated the RM portfolio before this run recorded it.
-                    # Stamp the lineage in place rather than violating
-                    # UNIQUE(edm_id, irp_id). A row that already carries a
-                    # DIFFERENT lineage is never reassigned: the breakout that
-                    # owns it keeps it and this write fails, so a generated
-                    # portfolio cannot silently move between breakout keys.
-                    existing = conn.execute(text(_SELECT_LIVE_BY_EDM_IRP),
-                                            params).mappings().first()
-                    if existing is not None:
-                        held_source, held_dim, held_val = (
-                            _uid(existing["source_portfolio_id"]),
-                            existing["breakout_dimension_code"],
-                            existing["breakout_value"])
-                        if held_source is not None and (
-                                held_source, held_dim, held_val) != (
-                                params["src"], params["dim"], params["val"]):
-                            raise ValueError(
-                                "breakout lineage integrity: Risk Modeler portfolio "
-                                f"{params['irp']} is already the {held_dim}={held_val} "
-                                f"breakout of source portfolio {held_source}")
-                        conn.execute(text(_UPDATE_GENERATED_BY_ID),
-                                     dict(params, row_id=existing["id"]))
-                        return GeneratedWrite(portfolio_id=_uid(existing["id"]),
-                                              created=True)
+                    claimed = _claim_existing(conn, params)
+                    if claimed is not None:
+                        return claimed
                     conn.execute(text(_INSERT_GENERATED), params)
                     return GeneratedWrite(portfolio_id=params["id"], created=True)
             except Exception as exc:  # noqa: BLE001 — a UNIQUE race is a skip, not a failure
                 if not is_unique_violation(exc):
                     raise
-            # uq_irp_portfolio_breakout says a live row already owns this
-            # lineage key (concurrent identical breakout / redelivered job) —
-            # the skipped_existing outcome, never an error (FR-011).
-            row = conn.execute(text(_SELECT_GENERATED), {
-                "src": params["src"], "dim": params["dim"], "val": params["val"],
-            }).mappings().first()
-            if row is None:
+            # uq_irp_portfolio_breakout or uq_irp_portfolio_edm_irp says another
+            # writer now holds one of this write's identities (concurrent
+            # identical breakout / redelivered job / raced backfill) —
+            # re-resolve against what the table holds now, never an error for
+            # the healthy race (FR-011).
+            claimed = _claim_existing(conn, params)
+            if claimed is None:
                 raise RuntimeError(
-                    "breakout lineage write lost a UNIQUE race but no live row "
-                    "matches the lineage key — refusing to guess")
-            return GeneratedWrite(portfolio_id=_uid(row["id"]), created=False)
+                    "breakout lineage write lost a UNIQUE race but no row "
+                    "matches the lineage key or the RM id — refusing to guess")
+            return claimed
+
+
+def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
+    """Resolve the write onto a row the table already holds, live OR
+    soft-deleted — the (edm_id, irp_id) identity first, the lineage triple
+    second. Runs before the insert and again as the unique-violation recovery.
+
+    A (edm_id, irp_id) match may exist WITHOUT lineage (a backfill enumerated
+    the RM portfolio before this run recorded it) or soft-deleted (the prune
+    saw it gone; the same RM portfolio is now being adopted again): both are
+    stamped and revived in place. A match carrying a DIFFERENT lineage is
+    never reassigned — live or dead, the breakout that owns it keeps it and
+    this write fails, so a generated portfolio cannot silently move between
+    breakout keys.
+
+    A soft-deleted lineage-triple match is RECLAIMED — deleted_at cleared and
+    the new RM identity stamped onto the same row (T-16: breakout → delete in
+    RM → sync prunes → re-breakout reuses the row; a second row would be a
+    ghost the next sync could revive into a duplicate live lineage key). A
+    live triple match is the concurrent-duplicate skip (created=False).
+    ``None`` means no row holds either identity — the caller inserts."""
+    existing = conn.execute(text(_SELECT_BY_EDM_IRP), params).mappings().first()
+    if existing is not None:
+        held_source, held_dim, held_val = (
+            _uid(existing["source_portfolio_id"]),
+            existing["breakout_dimension_code"],
+            existing["breakout_value"])
+        if held_source is not None and (
+                held_source, held_dim, held_val) != (
+                params["src"], params["dim"], params["val"]):
+            raise ValueError(
+                "breakout lineage integrity: Risk Modeler portfolio "
+                f"{params['irp']} is already the {held_dim}={held_val} "
+                f"breakout of source portfolio {held_source}")
+        conn.execute(text(_RECLAIM_GENERATED_BY_ID),
+                     dict(params, row_id=existing["id"]))
+        return GeneratedWrite(portfolio_id=_uid(existing["id"]), created=True)
+    rows = conn.execute(text(_SELECT_GENERATED_ANY), params).mappings().all()
+    live = next((r for r in rows if r["deleted_at"] is None), None)
+    if live is not None:
+        return GeneratedWrite(portfolio_id=_uid(live["id"]), created=False)
+    if rows:
+        conn.execute(text(_RECLAIM_GENERATED_BY_ID),
+                     dict(params, row_id=rows[0]["id"]))
+        return GeneratedWrite(portfolio_id=_uid(rows[0]["id"]), created=True)
+    return None
 
 
 def insert_generated(edm_id: Any, *, name: str, irp_id: str,
                      source_portfolio_id: Any, dimension_code: str, value: str,
-                     actor_id: Any) -> GeneratedWrite:
+                     actor_id: Any, group_id: Any = None) -> GeneratedWrite:
     """Persist a freshly created sub-portfolio with its lineage (FR-009). Called
     by the breakout worker immediately after ``create_sub_portfolio`` returns —
-    RM call first, row second (worker-poller.md ordering)."""
+    RM call first, row second (worker-poller.md ordering). ``group_id`` links a
+    custom-group portfolio to its ``breakout_group`` row (T-12); its
+    ``breakout_value`` is the group_key."""
     result = _write_generated(edm_id, name=name, irp_id=irp_id,
                               source_portfolio_id=source_portfolio_id,
                               dimension_code=dimension_code, value=value,
-                              actor_id=actor_id)
+                              actor_id=actor_id, group_id=group_id)
     logger.info("generated portfolio %s (%s=%s) recorded for source %s%s",
                 name, dimension_code, value, source_portfolio_id,
                 "" if result.created else " (already present — skipped)")
@@ -264,7 +320,7 @@ def insert_generated(edm_id: Any, *, name: str, irp_id: str,
 
 def adopt_generated(edm_id: Any, *, name: str, irp_id: str,
                     source_portfolio_id: Any, dimension_code: str, value: str,
-                    actor_id: Any) -> GeneratedWrite:
+                    actor_id: Any, group_id: Any = None) -> GeneratedWrite:
     """Same write as ``insert_generated`` for a sub-portfolio Risk Modeler
     already holds (resolved by ``portfolioNumber`` — R7/T-07): claims the
     existing (edm_id, irp_id) row in place when a backfill already captured it,
@@ -272,7 +328,7 @@ def adopt_generated(edm_id: Any, *, name: str, irp_id: str,
     result = _write_generated(edm_id, name=name, irp_id=irp_id,
                               source_portfolio_id=source_portfolio_id,
                               dimension_code=dimension_code, value=value,
-                              actor_id=actor_id)
+                              actor_id=actor_id, group_id=group_id)
     logger.info("existing RM portfolio %s (irp_id=%s, %s=%s) adopted for "
                 "source %s%s", name, irp_id, dimension_code, value,
                 source_portfolio_id,
@@ -290,11 +346,13 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         "SELECT p.id, p.edm_id, p.name, p.irp_id, p.exposure_detail, p.as_of, "
         "p.source_portfolio_id, s.name AS source_name, "
         "p.breakout_dimension_code, k.label AS breakout_dimension_label, "
-        "p.breakout_value "
+        "p.breakout_value, "
+        "bg.label AS breakout_group_label, bg.filters AS breakout_group_filters "
         "FROM irp_portfolio p "
         "LEFT JOIN irp_portfolio s ON p.source_portfolio_id = s.id "
         "LEFT JOIN breakout_dimension_kind k "
         "  ON p.breakout_dimension_code = k.code "
+        "LEFT JOIN breakout_group bg ON p.breakout_group_id = bg.id "
         "WHERE p.edm_id = :e AND p.deleted_at IS NULL "
         "ORDER BY p.name",
         {"e": str(edm_id)}, connection="WORKBENCH")
@@ -308,7 +366,10 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         source_name=r["source_name"],
         breakout_dimension_code=r["breakout_dimension_code"],
         breakout_dimension_label=r["breakout_dimension_label"],
-        breakout_value=r["breakout_value"]) for r in rows]
+        breakout_value=r["breakout_value"],
+        breakout_group_label=r["breakout_group_label"],
+        breakout_group_filters=_parse_json_dict(
+            r["breakout_group_filters"], "breakout_group.filters")) for r in rows]
     _resolve_breakout_value_labels(portfolios)
     return portfolios
 
@@ -322,6 +383,12 @@ def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
     leaves ``None`` and the template falls back to the code."""
     by_id = {p.id: p for p in portfolios}
     for p in portfolios:
+        # A custom-group row's display label IS the group label (one source of
+        # truth — the joined breakout_group row); its breakout_value is the
+        # group_key and never appears in any summary (T-12).
+        if p.breakout_dimension_code == "custom":
+            p.breakout_value_label = p.breakout_group_label
+            continue
         source = by_id.get(p.source_portfolio_id or "")
         if source is None or not p.breakout_dimension_code or not p.breakout_value:
             continue

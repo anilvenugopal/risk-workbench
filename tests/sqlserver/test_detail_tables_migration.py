@@ -135,14 +135,50 @@ class TestDetailTablesMigration:
             "SELECT code, label FROM breakout_dimension_kind ORDER BY sort_order",
             {}, connection="WORKBENCH")
         assert [(r["code"], r["label"]) for r in rows] == [
-            ("lob", "Line of business"), ("state", "Geography (state)")]
+            ("lob", "Line of business"), ("state", "Geography (state)"),
+            ("peril", "Peril"), ("custom", "Custom group")]
 
     def test_run_breakout_job_type_seeds_present(self):
         rows = execute(
             "SELECT code FROM rwb_job_type_kind "
-            "WHERE code IN ('run_breakout_lob', 'run_breakout_state')",
+            "WHERE code IN ('run_breakout_lob', 'run_breakout_state', "
+            "'run_breakout_custom')",
             {}, connection="WORKBENCH")
-        assert len(rows) == 2
+        assert len(rows) == 3
+
+    def test_breakout_group_requestor_type_seed_present(self):
+        rows = execute(
+            "SELECT code FROM rwb_job_requestor_type_kind "
+            "WHERE code = 'breakout_group'", {}, connection="WORKBENCH")
+        assert len(rows) == 1
+
+    # ── spec 005 follow-on (T-12): the custom-group entity ─────────────────────
+
+    def test_breakout_group_table_columns_and_constraints(self):
+        assert _table_exists("breakout_group") == 1
+        cols = _columns("breakout_group")
+        assert {"id", "source_portfolio_id", "group_key", "label", "filters",
+                "name", "number", "cart_id", "inserted_at", "updated_at",
+                "inserted_by", "updated_by"} <= cols
+        assert "customer_id" not in cols  # Article 6
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.key_constraints "
+            "WHERE name = 'uq_breakout_group_source_key' "
+            "AND parent_object_id = OBJECT_ID('dbo.breakout_group')",
+            {}, connection="WORKBENCH")
+        assert n == 1  # one row per (source, member set) — the job-dedup key
+        fk_out = execute_scalar(
+            "SELECT COUNT(*) FROM sys.foreign_keys "
+            "WHERE parent_object_id = OBJECT_ID('dbo.breakout_group') "
+            "AND referenced_object_id = OBJECT_ID('dbo.irp_portfolio')",
+            {}, connection="WORKBENCH")
+        assert fk_out == 1
+        assert "breakout_group_id" in _columns("irp_portfolio")
+        fk_back = execute_scalar(
+            "SELECT COUNT(*) FROM sys.foreign_keys "
+            "WHERE name = 'fk_irp_portfolio_breakout_group'",
+            {}, connection="WORKBENCH")
+        assert fk_back == 1
 
     def test_breakout_filtered_unique_index_present(self):
         row = execute(
@@ -172,9 +208,13 @@ def scratch_edm():
         connection="WORKBENCH")
     yield edm_id
     # generated rows first — the self-FK forbids removing a source portfolio
-    # while a generated row still references it
+    # while a generated row still references it; group rows next, before their
+    # source portfolio goes
     execute_command("DELETE FROM irp_portfolio WHERE edm_id = :e "
                     "AND source_portfolio_id IS NOT NULL",
+                    {"e": edm_id}, connection="WORKBENCH")
+    execute_command("DELETE FROM breakout_group WHERE source_portfolio_id IN "
+                    "(SELECT id FROM irp_portfolio WHERE edm_id = :e)",
                     {"e": edm_id}, connection="WORKBENCH")
     execute_command("DELETE FROM irp_portfolio WHERE edm_id = :e",
                     {"e": edm_id}, connection="WORKBENCH")
@@ -272,8 +312,10 @@ class TestBreakoutLineageBehavior:
             "AND deleted_at IS NULL", {"s": source_id}, connection="WORKBENCH")
         assert n == 1
 
-    def test_soft_deleted_generated_row_does_not_block_recreation(
+    def test_soft_deleted_generated_row_is_reclaimed_in_place(
             self, scratch_edm):
+        # T-16: the re-run reuses the soft-deleted row — deleted_at cleared,
+        # the new RM id stamped — never a ghost twin for the same triple.
         source_id = self._source(scratch_edm)
         first = portfolio_service.insert_generated(
             scratch_edm, name="Source 2026 - TX", irp_id="9100",
@@ -283,9 +325,69 @@ class TestBreakoutLineageBehavior:
             "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
             {"now": datetime.utcnow(), "i": str(first.portfolio_id)},
             connection="WORKBENCH")
-        # the index is filtered on deleted_at IS NULL — re-creation succeeds
         second = portfolio_service.insert_generated(
             scratch_edm, name="Source 2026 - TX", irp_id="9102",
             source_portfolio_id=source_id, dimension_code="state", value="TX",
             actor_id=None)
         assert second.created is True
+        assert str(second.portfolio_id).lower() == str(first.portfolio_id).lower()
+        rows = execute(
+            "SELECT irp_id, deleted_at FROM irp_portfolio "
+            "WHERE source_portfolio_id = :s", {"s": source_id},
+            connection="WORKBENCH")
+        assert len(rows) == 1
+        assert rows[0]["irp_id"] == "9102" and rows[0]["deleted_at"] is None
+
+    def _group_row(self, source_id: str, key: str = "abc123def456") -> str:
+        gid = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO breakout_group (id, source_portfolio_id, group_key, "
+            "label, filters, name, number, cart_id, inserted_at, updated_at) "
+            "VALUES (:i, :s, :k, 'Coastal', :f, 'Source 2026 - Coastal', "
+            "'P9001-G-ABC', :c, :now, :now)",
+            {"i": gid, "s": source_id, "k": key,
+             "f": json.dumps({"state": ["TX"], "peril": ["2"]}),
+             "c": str(uuid.uuid4()), "now": datetime.utcnow()},
+            connection="WORKBENCH")
+        return gid
+
+    def test_duplicate_live_custom_triple_rejected_as_skip(self, scratch_edm):
+        # The same filtered unique index guards custom rows: one LIVE
+        # generated portfolio per (source, 'custom', group_key).
+        source_id = self._source(scratch_edm)
+        gid = self._group_row(source_id)
+        first = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - Coastal", irp_id="9200",
+            source_portfolio_id=source_id, dimension_code="custom",
+            value="abc123def456", actor_id=None, group_id=gid)
+        assert first.created is True
+        second = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - Coastal (2)", irp_id="9201",
+            source_portfolio_id=source_id, dimension_code="custom",
+            value="abc123def456", actor_id=None, group_id=gid)
+        assert second.created is False
+        assert str(second.portfolio_id).lower() == str(first.portfolio_id).lower()
+
+    def test_soft_deleted_custom_row_is_reclaimed(self, scratch_edm):
+        source_id = self._source(scratch_edm)
+        gid = self._group_row(source_id)
+        first = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - Coastal", irp_id="9200",
+            source_portfolio_id=source_id, dimension_code="custom",
+            value="abc123def456", actor_id=None, group_id=gid)
+        execute_command(
+            "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
+            {"now": datetime.utcnow(), "i": str(first.portfolio_id)},
+            connection="WORKBENCH")
+        second = portfolio_service.insert_generated(
+            scratch_edm, name="Source 2026 - Coastal", irp_id="9202",
+            source_portfolio_id=source_id, dimension_code="custom",
+            value="abc123def456", actor_id=None, group_id=gid)
+        assert second.created is True
+        assert str(second.portfolio_id).lower() == str(first.portfolio_id).lower()
+        row = execute(
+            "SELECT irp_id, deleted_at, breakout_group_id FROM irp_portfolio "
+            "WHERE id = :i", {"i": str(first.portfolio_id)},
+            connection="WORKBENCH")[0]
+        assert row["irp_id"] == "9202" and row["deleted_at"] is None
+        assert str(row["breakout_group_id"]).lower() == gid.lower()

@@ -149,7 +149,7 @@ ITERATION3_SCHEMA = [
         id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
         exposure_detail TEXT, as_of TEXT,
         source_portfolio_id TEXT, breakout_dimension_code TEXT,
-        breakout_value TEXT,
+        breakout_value TEXT, breakout_group_id TEXT,
         deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (edm_id, irp_id)
@@ -158,6 +158,16 @@ ITERATION3_SCHEMA = [
         ON irp_portfolio (source_portfolio_id, breakout_dimension_code,
                           breakout_value)
         WHERE source_portfolio_id IS NOT NULL AND deleted_at IS NULL""",
+    # spec 005 follow-on (T-12): one row per custom group; the row's UUID is
+    # the group job's rwb_job.requestor_id. UNIQUE(source, group_key) IS kept —
+    # re-confirming the same member set reuses the row, which dedups the job
+    # through rwb_job's uniqueness key.
+    """CREATE TABLE breakout_group (
+        id TEXT PRIMARY KEY, source_portfolio_id TEXT, group_key TEXT,
+        label TEXT, filters TEXT, name TEXT, number TEXT, cart_id TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
+        UNIQUE (source_portfolio_id, group_key)
+    )""",
     """CREATE TABLE irp_treaty (
         id TEXT PRIMARY KEY, edm_id TEXT, name TEXT, irp_id TEXT,
         attributes TEXT, as_of TEXT, deleted_at TEXT,
@@ -180,16 +190,20 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("notify_analyst", "Notify Analyst", 60),
                      ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80),
                      ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
-                     ("run_breakout_state", "Portfolio breakout by geography (state)", 100)]
+                     ("run_breakout_state", "Portfolio breakout by geography (state)", 100),
+                     ("run_breakout_custom", "Portfolio breakout by custom group", 110)]  # T-12
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
-                               ("rwb_job", "RWB Job", 30)]
+                               ("rwb_job", "RWB Job", 30),
+                               ("breakout_group", "Breakout Group", 40)]  # T-13
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                             ("ready", "Ready", 30), ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
-                           ("state", "Geography (state)", 20)]
+                           ("state", "Geography (state)", 20),
+                           ("peril", "Peril", 30),  # grouping-only (P-19)
+                           ("custom", "Custom group", 40)]  # lineage code (T-12)
 
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────
 # Tables whose mirror must match the real migrated schema column-for-column. A new
@@ -203,8 +217,9 @@ EXACT_MATCH_TABLES = (
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",
-    # Iteration 4 — breakout dimension kind table (spec 005).
-    "breakout_dimension_kind",
+    # Iteration 4 — breakout dimension kind table (spec 005) + the custom
+    # group entity (follow-on T-12).
+    "breakout_dimension_kind", "breakout_group",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # package service touches; the real tables carry extra Iteration-2 IRP columns

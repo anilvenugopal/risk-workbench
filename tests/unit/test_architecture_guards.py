@@ -114,24 +114,47 @@ def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
         f"on the request path (Article 11): {sorted(calls)}")
 
 
-def test_every_seeded_breakout_dimension_has_its_whole_vocabulary():
-    """A dimension code lives in four places: ``breakout_dimension_kind`` (the
-    seed), the ``portfolio_number`` letter, the analyst-facing noun, and the two
-    DataBridge scripts (selection + coverage). Adding a row to the kind table
-    without the other three would compose a wrong number, render a missing noun,
-    or fail the run at the selection read — so the seed is the list every other
-    place must cover."""
+def test_every_seeded_breakout_dimension_has_its_vocabulary():
+    """Per-dimension requirements (reworked for P-19). Quick-mode dimensions
+    (lob, state) need the ``portfolio_number`` letter, the noun, both
+    DataBridge scripts (selection + coverage), the ``run_breakout_{code}``
+    job-type seed, and the worker body — a missing entry composes a wrong
+    number, renders a missing noun, or fails the run. Grouping-only dimensions
+    (peril) need the noun and the scripts but MUST NOT gain a letter or a
+    per-value job type: those would silently open quick mode for them."""
     from app.services import breakout_service, irp_gateway
-    from tests.iteration1_mirror import BREAKOUT_DIMENSION_SEED
+    from app.workers import portfolio_jobs
+    from tests.iteration1_mirror import (
+        BREAKOUT_DIMENSION_SEED,
+        RWB_JOB_TYPE_SEED,
+    )
 
     seeded = {code for code, _label, _order in BREAKOUT_DIMENSION_SEED}
-    missing = {
-        "_DIMENSION_LETTER": seeded - set(breakout_service._DIMENSION_LETTER),
-        "_DIMENSION_NOUN": seeded - set(breakout_service._DIMENSION_NOUN),
-        "_SELECTION_SCRIPTS": seeded - set(irp_gateway._SELECTION_SCRIPTS),
-        "_COVERAGE_SCRIPTS": seeded - set(irp_gateway._COVERAGE_SCRIPTS),
-    }
-    assert {k: v for k, v in missing.items() if v} == {}
+    quick = set(breakout_service._QUICK_DIMENSIONS)
+    grouping_only = {"peril"}
+    assert seeded == quick | grouping_only | {"custom"}
+
+    job_types = {code for code, _label, _order in RWB_JOB_TYPE_SEED}
+    for code in quick | grouping_only:      # the value dimensions
+        assert code in breakout_service._DIMENSION_NOUN, code
+        assert code in irp_gateway._SELECTION_SCRIPTS, code
+        assert code in irp_gateway._COVERAGE_SCRIPTS, code
+    for code in quick:
+        assert code in breakout_service._DIMENSION_LETTER, code
+        assert f"run_breakout_{code}" in job_types, code
+        assert f"run_breakout_{code}" in portfolio_jobs._BODIES, code
+    for code in grouping_only:
+        assert code not in breakout_service._DIMENSION_LETTER, code
+        assert f"run_breakout_{code}" not in job_types, code
+    # custom (T-12): the grouping lineage code — a number letter, the job
+    # type, and the group worker body; selections run through the value
+    # dimensions' scripts, so it must never gain scripts of its own.
+    assert "custom" in breakout_service._DIMENSION_LETTER
+    assert "custom" in breakout_service._DIMENSION_NOUN
+    assert "run_breakout_custom" in job_types
+    assert "run_breakout_custom" in portfolio_jobs._BODIES
+    assert "custom" not in irp_gateway._SELECTION_SCRIPTS
+    assert "custom" not in irp_gateway._COVERAGE_SCRIPTS
 
     sql_dir = _REPO_ROOT / "sql" / "databridge"
     absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,

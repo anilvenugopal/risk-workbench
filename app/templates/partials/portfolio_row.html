@@ -45,9 +45,14 @@
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
         {# spec 005 US3 (FR-014): the lineage badge on generated rows —
            the IMMEDIATE source only, never a rendered chain; broker-arrived
-           rows (source_name null) are unchanged. #}
+           rows (source_name null) are unchanged. A custom-group row (T-12)
+           badges its group label with the member filters in the tooltip. #}
         {% if p.source_name %}
+        {% if p.breakout_dimension_code == 'custom' %}
+        <span class="bo-lineage"{% if p.breakout_group_filters %} title="{% for dim, vals in p.breakout_group_filters.items()|sort %}{{ dim }}: {{ vals|join(', ') }}{% if not loop.last %} · {% endif %}{% endfor %}"{% endif %}>↳ from <strong>{{ p.source_name }}</strong> · group: <strong>{{ p.breakout_group_label or p.breakout_value }}</strong></span>
+        {% else %}
         <span class="bo-lineage">↳ from <strong>{{ p.source_name }}</strong> · {{ p.breakout_dimension_label or p.breakout_dimension_code }}: <strong>{{ p.breakout_value_label or p.breakout_value }}</strong></span>
+        {% endif %}
         {% endif %}
       </span>
       {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
@@ -60,7 +65,7 @@
       <button class="bo-btn" type="button" onclick="event.stopPropagation()"
               hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
               hx-target="#breakout-modal-mount" hx-swap="innerHTML"
-              title="Create one sub-portfolio per line of business or state">Break out</button>
+              title="One sub-portfolio per line of business or state, or custom groups">Break out</button>
       {% endif %}
     </span>
   </span>

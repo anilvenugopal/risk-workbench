@@ -102,8 +102,10 @@ def _compose_or_adopt(sandbox: dict, *, name: str, number: str,
 def test_selection_vocabulary_matches_the_stored_summary(sandbox):
     # The selection script mirrors the summary script's joins (R1 revised
     # 2026-08-05): filtering on the summary's own values must return exactly
-    # the per-value account counts the summary reported — for BOTH dimensions.
-    for dimension in ("lob", "state"):
+    # the per-value account counts the summary reported — for all three
+    # dimensions (peril is grouping-only but its selection read is the same
+    # shape, P-19/W-21).
+    for dimension in ("lob", "state", "peril"):
         values = sandbox["summary"]["breakout_values"].get(dimension) or []
         if not values:
             continue
@@ -167,6 +169,30 @@ def test_create_add_readback_chunking_and_idempotent_readd(sandbox):
         edm_name=EDM_NAME, exposure_irp_id=sandbox["exposure_id"],
         portfolio_irp_id=result.portfolio_irp_id, account_ids=ids)
     assert healed.account_count == len(ids)
+
+
+def test_two_dimension_group_round_trip(sandbox):
+    # Follow-on T-14 (custom grouping): union within a dimension, intersect
+    # across — one real state ∩ lob group composed through the same gateway
+    # calls the run_breakout_custom worker makes, verified by the read-back.
+    values = sandbox["summary"]["breakout_values"]
+    states = [v["value"] for v in (values.get("state") or [])][:2]
+    lobs = [v["value"] for v in (values.get("lob") or [])][:1]
+    if not states or not lobs:
+        pytest.skip("fixture portfolio lacks state or lob values")
+    state_union = set().union(*(
+        _select(sandbox, "state", states).accounts_by_value.get(v) or []
+        for v in states))
+    lob_union = set().union(*(
+        _select(sandbox, "lob", lobs).accounts_by_value.get(v) or []
+        for v in lobs))
+    ids = sorted(state_union & lob_union)
+    if not ids:
+        pytest.skip("fixture intersection is empty — pick other values")
+    result = _compose_or_adopt(sandbox, name="rwbt group",
+                               number=f"P{TEST_SOURCE_TOKEN}-G-GROUP",
+                               account_ids=ids)
+    assert result.account_count == len(ids)
 
 
 def test_name_and_number_limits_raise_client_side(sandbox):

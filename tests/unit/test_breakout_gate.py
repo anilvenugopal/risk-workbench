@@ -255,6 +255,47 @@ def test_gate_zero_and_one_value_dimensions_disable_with_reason(iteration2_db):
     assert state.reason == "no state values present"
 
 
+def test_peril_is_grouping_only_never_quick(iteration2_db, fake_irp):
+    # P-19: peril appears in the gate (the custom-grouping pane reads its
+    # eligibility) but never runs in quick mode — quick=False, modal_context
+    # never selects it, and a hand-crafted confirm refuses with no job row.
+    edm_id = _mk_edm()
+    summary = dict(SUMMARY, breakout_values=dict(
+        SUMMARY["breakout_values"],
+        peril=[{"value": "1", "label": None, "accounts": 517},
+               {"value": "2", "label": None, "accounts": 1701}]))
+    pid = _mk_portfolio(edm_id, summary=summary)
+
+    gate = evaluate_gate(edm_id, pid)
+    peril = _dim(gate, "peril")
+    assert (peril.quick, peril.eligible) == (False, True)
+    assert peril.noun == "peril"
+    assert _dim(gate, "lob").quick is True
+    assert _dim(gate, "state").quick is True
+
+    modal = breakout_service.modal_context(edm_id, pid)
+    assert modal.dimension == "lob"          # first QUICK eligible wins
+
+    with pytest.raises(GateRefused, match="one-per-value"):
+        request_breakout(edm_id, pid, "peril", AS_OF, iteration2_db.user_a)
+    assert _breakout_jobs() == []
+
+
+def test_modal_selects_nothing_when_only_peril_is_eligible(iteration2_db):
+    # lob/state each carry one value; peril carries two: no quick-mode
+    # dimension is selectable and no per-value plan is composed.
+    edm_id = _mk_edm()
+    summary = dict(SUMMARY, breakout_values={
+        "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}],
+        "state": [{"value": "FL", "label": None, "accounts": 1701}],
+        "peril": [{"value": "1", "label": None, "accounts": 517},
+                  {"value": "2", "label": None, "accounts": 1701}]})
+    pid = _mk_portfolio(edm_id, summary=summary)
+    modal = breakout_service.modal_context(edm_id, pid)
+    assert modal.dimension is None
+    assert modal.plan == []
+
+
 def test_gate_reports_in_flight_breakout_dimension(iteration2_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)

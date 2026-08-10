@@ -90,16 +90,23 @@ def _snapshot_upsert(conn, params: dict, *, update_by_irp: str,
 
 
 def _snapshot_prune(conn, *, table: str, edm_id: Any,
-                    seen: list[tuple[str | None, str]], now: Any) -> int:
+                    seen: list[tuple[str | None, str]], now: Any,
+                    name_resurrect_filter: str = "") -> int:
     """Reconcile a snapshot table's row set against a SUCCESSFUL full Risk
     Modeler enumeration: soft-delete (``deleted_at``) this EDM's live rows the
     enumeration no longer returned (the entity was deleted in RM — its stale
     snapshot must not keep rendering with a fresh-looking ``as_of``), and clear
     ``deleted_at`` on pruned rows it returned again (RM-side delete/recreate).
     "Seen" mirrors ``_snapshot_upsert``'s identity resolution: an irp_id match
-    OR a name match keeps the row. Never call this after a failed or partial
-    enumeration — pruning is only valid against the full set. ``table`` is a
-    module-supplied literal, never user input. Returns the rows pruned."""
+    OR a name match keeps the row. ``name_resurrect_filter`` is a caller-supplied
+    SQL predicate ANDed onto the NAME-match resurrect leg only (irp_id match
+    unchanged) — ``portfolio_service.prune_missing`` passes
+    ``"AND source_portfolio_id IS NULL"`` because a re-breakout regenerates a
+    deleted sub-portfolio's exact name for a NEW RM portfolio, and resurrecting
+    the dead row by that name would put two live rows on one lineage key
+    (T-16). Never call this after a failed or partial enumeration — pruning is
+    only valid against the full set. ``table`` and the filter are
+    module-supplied literals, never user input. Returns the rows pruned."""
     ids = [str(irp_id) for irp_id, _ in seen if irp_id is not None]
     names = [name for _, name in seen]
     params: dict[str, Any] = {"edm": str(edm_id), "now": now}
@@ -108,13 +115,16 @@ def _snapshot_prune(conn, *, table: str, edm_id: Any,
     id_marks = [f":i{i}" for i in range(len(ids))]
     name_marks = [f":n{i}" for i in range(len(names))]
 
-    kept: list[str] = []       # a live row stays when either identity matched
-    stale: list[str] = []      # ... and is pruned when neither did
+    kept: list[str] = []       # resurrect predicate: either identity matched
+    stale: list[str] = []      # a live row is pruned when neither did
     if id_marks:
         kept.append(f"irp_id IN ({', '.join(id_marks)})")
         stale.append(f"(irp_id IS NULL OR irp_id NOT IN ({', '.join(id_marks)}))")
     if name_marks:
-        kept.append(f"name IN ({', '.join(name_marks)})")
+        name_match = f"name IN ({', '.join(name_marks)})"
+        if name_resurrect_filter:
+            name_match = f"({name_match} {name_resurrect_filter})"
+        kept.append(name_match)
         stale.append(f"name NOT IN ({', '.join(name_marks)})")
     if kept:  # resurrect first so the caller's upserts see a live row to claim
         conn.execute(text(
