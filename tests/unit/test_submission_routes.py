@@ -405,6 +405,13 @@ def test_list_owner_filter_offers_every_active_user(client):
     assert "Deal owned by A" not in client.get(f"/submissions?owner={b}").text
 
 
+def test_list_owner_any_renders_only_the_clear_all_option(client):
+    body = client.get("/submissions?owner=any").text
+
+    assert body.count('data-any="Any owner"') == 1
+    assert 'data-code="any"' not in body
+
+
 def test_list_preserves_a_selected_inactive_owner(client):
     _mk_owned_by_b(client, "Deal owned by inactive analyst")
     execute_command(

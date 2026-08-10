@@ -56,7 +56,9 @@
                 data-code="{{ code }}" data-label="{{ text }}">
           <span class="ta__check" aria-hidden="true"></span>{{ text }}</button>
         {% endfor %}
-        {% for value in selected if value|string|lower not in option_codes %}
+        {% for value in selected
+               if value|string|lower not in option_codes
+               and value|string|lower != empty_value|string|lower %}
         <button class="ta__opt" type="button" role="option" aria-selected="true"
                 id="{{ name }}-opt-missing-{{ loop.index0 }}"
                 data-code="{{ value }}" data-label="{{ value }}">
