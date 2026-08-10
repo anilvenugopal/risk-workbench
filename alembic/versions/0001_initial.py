@@ -548,6 +548,53 @@ def upgrade() -> None:
             "source_portfolio_id IS NOT NULL AND deleted_at IS NULL"),
     )
 
+    # ── breakout_group (spec 005 follow-on T-12/T-13 — one row per custom
+    #    group). The row's UUID is the group job's rwb_job.requestor_id
+    #    (requestor_id is a Uuid column, so a composite string key was not an
+    #    option — T-13). UNIQUE(source_portfolio_id, group_key) makes
+    #    re-confirming the same member set reuse the row, which dedups the job
+    #    through UNIQUE(requestor_type, requestor_id, rwb_job_type) with no
+    #    rwb_job change. Generated portfolios point back via
+    #    irp_portfolio.breakout_group_id (added below — the two tables
+    #    reference each other, so the column arrives after both exist);
+    #    their breakout_value holds the group_key.
+    op.create_table(
+        "breakout_group",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("source_portfolio_id", sa.Uuid, nullable=False),
+        sa.Column("group_key", sa.NVARCHAR(64), nullable=False),
+        # The analyst's group name — display + the generated name's token.
+        # Adopt-not-rename (P-22): re-confirming the same members under a new
+        # label keeps this one.
+        sa.Column("label", sa.NVARCHAR(256), nullable=False),
+        # Canonical member-filter JSON: {"state": ["FL","GA"], "peril": ["2"]}
+        # — OR within a dimension, AND across dimensions (P-20). The group_key
+        # is its hash.
+        sa.Column("filters", sa.NVARCHAR(None), nullable=False),
+        # The approved plan values (AGENTS.md rule 8): the worker executes
+        # these verbatim.
+        sa.Column("name", sa.NVARCHAR(256), nullable=False),
+        sa.Column("number", sa.NVARCHAR(64), nullable=False),
+        # The confirm that most recently carried this group — the banner
+        # aggregates terminal jobs sharing the newest cart_id (FR-020).
+        sa.Column("cart_id", sa.Uuid, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["source_portfolio_id"], ["irp_portfolio.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        sa.UniqueConstraint("source_portfolio_id", "group_key",
+                            name="uq_breakout_group_source_key"),
+    )
+    op.add_column("irp_portfolio",
+                  sa.Column("breakout_group_id", sa.Uuid, nullable=True))
+    op.create_foreign_key("fk_irp_portfolio_breakout_group", "irp_portfolio",
+                          "breakout_group", ["breakout_group_id"], ["id"])
+
     # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
     op.create_table(
         "irp_treaty",
@@ -604,21 +651,29 @@ def upgrade() -> None:
         "('delete_rdm', 'Delete RDM', 70), "
         "('delete_edm', 'Delete EDM', 80), "
         "('run_breakout_lob', 'Portfolio breakout by line of business', 90), "
-        "('run_breakout_state', 'Portfolio breakout by geography (state)', 100)"
+        "('run_breakout_state', 'Portfolio breakout by geography (state)', 100), "
+        "('run_breakout_custom', 'Portfolio breakout by custom group', 110)"
     ))
     # breakout_dimension_kind — the two directed breakout dimensions (spec 005
-    # data-model §2). run_breakout_* enqueues under the already-seeded
-    # analyst_request requestor-type code — no new requestor-type row.
+    # data-model §2) plus peril, grouping-only (P-19: no run_breakout_peril job
+    # type, no quick-mode entry), plus custom — the grouping pane's lineage
+    # code (generated group portfolios carry breakout_dimension_code='custom'
+    # with the group_key as breakout_value; T-12). Quick-mode run_breakout_*
+    # enqueues under the already-seeded analyst_request requestor-type code;
+    # group jobs enqueue under breakout_group (the group row's UUID — T-13).
     op.execute(sa.text(
         "INSERT INTO breakout_dimension_kind (code, label, sort_order) VALUES "
         "('lob', 'Line of business', 10), "
-        "('state', 'Geography (state)', 20)"
+        "('state', 'Geography (state)', 20), "
+        "('peril', 'Peril', 30), "
+        "('custom', 'Custom group', 40)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
         "('irp_job', 'IRP Job', 10), "
         "('analyst_request', 'Analyst Request', 20), "
-        "('rwb_job', 'RWB Job', 30)"
+        "('rwb_job', 'RWB Job', 30), "
+        "('breakout_group', 'Breakout Group', 40)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_status_kind (code, label, sort_order) VALUES "
@@ -667,6 +722,12 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
+    # breakout_group and irp_portfolio reference each other — drop the
+    # irp_portfolio-side FK/column first, then the group table.
+    op.drop_constraint("fk_irp_portfolio_breakout_group", "irp_portfolio",
+                       type_="foreignkey")
+    op.drop_column("irp_portfolio", "breakout_group_id")
+    op.drop_table("breakout_group")
     op.drop_index("uq_irp_portfolio_breakout", table_name="irp_portfolio")
     op.drop_index("ix_irp_portfolio_edm_id", table_name="irp_portfolio")
     op.drop_table("irp_portfolio")
