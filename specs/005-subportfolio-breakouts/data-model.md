@@ -123,7 +123,6 @@ The spec-004 JSON snapshot, written by `backfill_edm_detail`. No DDL — this is
 ```jsonc
 {
   "portfolio_name": "usfl_commercial",
-  "total_tiv": 30437380495.0,
   "states": ["CA", "FL", "TX"],          // CHANGED: Admin1Code (was COALESCE(Admin1Name, Admin1Code))
   "lines_of_business": ["FLD Comm"],     // unchanged — the display lists
   "currencies": ["USD"],

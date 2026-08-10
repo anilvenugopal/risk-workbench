@@ -1,21 +1,12 @@
 /* submissions.css — submission list / detail / status-chip / CRM-tag styling.
    ITCSS component layer. Tokens only — no hardcoded hex (Article 9). */
 
-/* ── My / All toggle ─────────────────────────────────────────────────────── */
-.sub-toggle { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); }
-.sub-toggle__btn {
-  padding: 6px var(--space-3); font-size: var(--fs-label);
-  color: var(--text-secondary); text-decoration: none;
-  border: 1px solid var(--border-default); border-radius: var(--radius-md);
-  background: var(--surface-panel);
-}
-.sub-toggle__btn:hover { border-color: var(--border-strong); }
-.sub-toggle__btn.is-active {
-  color: var(--btn-primary-fg); background: var(--btn-primary-bg);
-  border-color: var(--btn-primary-bg);
-}
-
 .sub-table { margin-top: var(--space-2); }
+
+/* ── List pager ──────────────────────────────────────────────────────────── */
+.pager { display: flex; align-items: center; gap: var(--space-3);
+  margin-top: var(--space-3); }
+.pager__at { font-size: var(--fs-label); color: var(--text-tertiary); }
 
 /* ── Status chips ────────────────────────────────────────────────────────── */
 .status-chip {
@@ -58,6 +49,51 @@
 }
 
 .form-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+
+/* ── Required marking + per-field errors (CR4) ───────────────────────────── */
+/* `.wf-field` is a 120px/1fr grid; `grid-column: 2` puts the message under the
+   input rather than beside the label. */
+.wf-fields__legend { font-size: var(--fs-caption); color: var(--text-tertiary);
+  margin-bottom: var(--space-1); }
+.wf-field__req { color: var(--color-danger); margin-left: 2px;
+  font-weight: var(--fw-semibold); }
+.wf-field__msg { grid-column: 2; font-size: var(--fs-caption); margin-top: 3px; }
+.wf-field__error { color: var(--color-danger); }
+.wf-field__hint { color: var(--text-tertiary); }
+.wf-field__input--error { border-color: var(--color-danger);
+  background: var(--color-danger-bg); }
+
+/* ── Typeahead (cedant names + the "links to" picker) ────────────────────── */
+.ta { position: relative; grid-column: 2; }
+.ta__menu {
+  position: absolute; z-index: 20; top: calc(100% + 3px); left: 0; right: 0;
+  background: var(--surface-panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+  max-height: 240px; overflow: auto; padding: var(--space-1);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.ta__opt {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  cursor: pointer; padding: 6px var(--space-2); border-radius: var(--radius-sm);
+  font: inherit; font-size: var(--fs-label); color: var(--text-primary);
+}
+.ta__opt:hover, .ta__opt.is-active { background: var(--color-brand-faint); }
+.ta__opt-main { display: block; }
+.ta__opt-meta { display: block; font-size: var(--fs-caption);
+  color: var(--text-tertiary); margin-top: 1px; }
+.ta__empty { padding: var(--space-2); font-size: var(--fs-caption);
+  color: var(--text-tertiary); text-align: center; }
+.ta__chosen {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 5px var(--space-2) 5px var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  background: var(--surface-recessed); font-size: var(--fs-label); max-width: 100%;
+}
+.ta__chosen-name { color: var(--text-primary); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.ta__clear { border: 0; background: none; color: var(--text-tertiary);
+  cursor: pointer; line-height: 1; padding: 0 2px; font-size: var(--fs-label); }
+.ta__clear:hover { color: var(--color-danger); }
 
 /* ── Duplicate-warning fragment ──────────────────────────────────────────── */
 .dup-warn {

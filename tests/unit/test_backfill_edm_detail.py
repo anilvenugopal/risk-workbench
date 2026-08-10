@@ -167,14 +167,14 @@ def test_one_portfolio_exposure_failure_does_not_abort_the_rest(
 
 
 # ── the DataBridge exposure summary (Addendum A T057) ─────────────────────────────
-# One aggregate read per EDM supplies TIV/geography/LOB/currency (the RM
+# One aggregate read per EDM supplies geography/LOB/currency (the RM
 # /metrics ceiling carries none of them). Enrichment only: ANY summary failure
 # degrades to "summary": null — the job still succeeds and metrics still land.
 
 SUMMARY_A = {
     "portfolio_name": "Primary 2026",
-    "total_tiv": 2.8e9,
     "currencies": ["USD"],
+    "countries": ["US"],
     "states": ["FL", "LA", "TX"],
     "lines_of_business": ["Commercial"],
 }
@@ -371,8 +371,7 @@ def test_malformed_stored_snapshot_renders_empty_not_error(
     treaties = treaty_service.list_treaties(edm_id=edm_id)
     assert [p.exposure_detail for p in portfolios] == [None]
     assert [t.attributes for t in treaties] == [None]
-    # ... and the derived layers stay graceful too
-    assert portfolio_service.aggregate_exposure(portfolios) is None
+    # ... and the derived layer stays graceful too
     assert treaties[0].attribute_items() == []
 
 
@@ -536,7 +535,8 @@ def test_backfill_stores_stamp_date_and_counted_summary(
 
 def test_pre_iteration_snapshot_still_parses(iteration2_db, fake_irp, drive):
     # A row written by the spec-004 builder — no stamp_date key, a summary with
-    # no breakout_values/account_total — parses and aggregates as before.
+    # no breakout_values/account_total — still parses, and its generated rows
+    # carry no breakout value label (nothing to resolve one from).
     edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm_id, irp_id="777", name="Legacy 2025",
@@ -546,9 +546,8 @@ def test_pre_iteration_snapshot_still_parses(iteration2_db, fake_irp, drive):
     rows = portfolio_service.list_portfolios(edm_id=edm_id)
     assert rows[0].exposure_detail["summary"] == SUMMARY_A
     assert "stamp_date" not in rows[0].exposure_detail
-    aggregate = portfolio_service.aggregate_exposure(rows)
-    assert aggregate is not None
-    assert aggregate.states == ["FL", "LA", "TX"]
+    assert rows[0].exposure_detail["summary"]["states"] == ["FL", "LA", "TX"]
+    assert rows[0].breakout_value_label is None
 
 
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):

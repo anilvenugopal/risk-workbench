@@ -271,6 +271,290 @@ document.addEventListener('alpine:init', () => {
       if (ncFailOpen(e)) this.onSwap();
     },
   }));
+
+  // Typeahead menu shared by the submission form's CEDANT field and its "links
+  // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
+  // open/close, the keyboard, and committing a pick.
+  //
+  // Two shapes, told apart by whether the markup provides an x-ref="value":
+  //   - cedant     — free text, the chosen name goes straight into the input
+  //   - links to   — the id goes into the hidden value input and the chosen
+  //                  submission's name is shown as a chip instead
+  // With JS off the cedant field degrades to plain text the server still reads;
+  // the "links to" picker needs JavaScript.
+  //
+  // `minTerm` comes from the template, which renders it from the route context's
+  // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
+  // the hx-trigger filter, this component, and the service that answers.
+  Alpine.data('typeahead', (opts = {}) => ({
+    minTerm: opts.minTerm || 2,
+    isOpen: false,
+    activeIndex: -1,
+    chosen: !!opts.initialLabel,
+    chosenLabel: opts.initialLabel || '',
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    open() {
+      this.isOpen = !!this.$refs.menu.querySelector('.ta__menu');
+      if (!this.isOpen) this.activeIndex = -1;
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.$refs.menu.innerHTML = '';
+      this.paint();
+    },
+    paint() {
+      // aria-activedescendant is how a screen reader follows the arrow keys: the
+      // focus stays in the input, so the highlighted row has to be named by id.
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onInput() {
+      // Below the minimum htmx sends nothing, so the menu from a longer term
+      // would stay on screen offering matches for text no longer in the input.
+      if (this.$refs.input.value.trim().length < this.minTerm) this.close();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter' && this.isOpen && this.activeIndex >= 0) {
+        // Only swallow Enter when a menu row is highlighted, so Enter still
+        // submits the form when the analyst is just typing.
+        e.preventDefault();
+        this.pick(this.options[this.activeIndex]);
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      const value = opt.dataset.value;
+      const label = opt.dataset.label || value;
+      if (this.$refs.value) {
+        this.$refs.value.value = value;
+        this.chosenLabel = label;
+        this.chosen = true;
+        this.$refs.input.value = '';
+      } else {
+        this.$refs.input.value = label;
+      }
+      this.close();
+    },
+    clear() {
+      if (this.$refs.value) this.$refs.value.value = '';
+      this.chosen = false;
+      this.chosenLabel = '';
+      this.close();
+      this.$nextTick(() => this.$refs.input.focus());
+    },
+  }));
+
+  // Owner filter on the submissions list. Unlike `typeahead`, the whole active-user
+  // list is already in the DOM, so typing hides rows rather than asking the server.
+  //
+  // Only a picked user filters the list: the template stops the keystroke before it
+  // reaches the form's `input` trigger, and pick() dispatches `filter-picked`, which
+  // the form also listens for. Closing without picking puts back the applied name,
+  // so a half-typed name never sits in the box next to an unfiltered list.
+  Alpine.data('ownerPicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    noMatch: false,
+    applied: '',
+    init() {
+      this.applied = this.$refs.input.value;
+    },
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'))
+        .filter((opt) => !opt.hidden);
+    },
+    open() {
+      if (this.isOpen) return;
+      this.isOpen = true;
+      this.activeIndex = -1;
+      // Opening shows every user even though the box holds the applied name:
+      // filtering on it would leave a one-row menu and no way to switch owner
+      // without clearing the text first. The text is selected, so typing replaces
+      // it and filter() takes over from there.
+      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
+        opt.hidden = false;
+      });
+      this.noMatch = false;
+      this.paint();
+      this.$refs.input.select();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.$refs.input.value = this.applied;
+      this.paint();
+    },
+    filter() {
+      const term = this.$refs.input.value.trim().toLowerCase();
+      this.isOpen = true;
+      let matched = 0;
+      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
+        // "Any owner" carries no name and always stays: clearing the filter is
+        // one click, whatever is typed.
+        const keep = !opt.dataset.name
+          || opt.dataset.name.toLowerCase().includes(term);
+        opt.hidden = !keep;
+        if (keep && opt.dataset.name) matched += 1;
+      });
+      this.noMatch = matched === 0;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.open(); this.move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter') {
+        // Enter commits the highlighted row, or the only remaining match. With
+        // neither, it does nothing rather than filtering on a partial name.
+        e.preventDefault();
+        const options = this.options.filter((opt) => opt.dataset.name);
+        this.pick(this.options[this.activeIndex]
+          || (options.length === 1 ? options[0] : null));
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      // The id is what the route filters on; the name is only what the box shows.
+      this.$refs.value.value = opt.dataset.id;
+      this.applied = opt.dataset.name;
+      this.$refs.input.value = this.applied;
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+      this.$refs.input.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
+  // Status and Treaty type filters on the submissions list. Same menu as
+  // `ownerPicker`, without the text box: both lists are short and closed, so the
+  // trigger shows the applied label and the menu is the only way to change it.
+  // The hidden input carries the code the route reads.
+  Alpine.data('codePicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    toggle() {
+      if (this.isOpen) this.close(); else this.open();
+    },
+    open() {
+      this.isOpen = true;
+      this.activeIndex = this.options.findIndex(
+        (opt) => opt.dataset.code === this.$refs.value.value);
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.trigger.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.trigger.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.isOpen) this.move(1); else this.open();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this.isOpen) this.move(-1); else this.open();
+      } else if (e.key === 'Escape') {
+        this.close();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        // The trigger is a button, so Enter and Space would otherwise fire the
+        // click handler and toggle the menu shut over the highlighted row.
+        e.preventDefault();
+        if (this.isOpen) this.pick(this.options[this.activeIndex]);
+        else this.open();
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      this.$refs.value.value = opt.dataset.code;
+      this.$refs.label.textContent = opt.textContent;
+      this.close();
+      this.$refs.trigger.focus();
+      this.$refs.value.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
+  // Treaty year follows the inception year until the analyst types their own
+  // (CR5, design note 08 D4). Changing the inception date moves the year unless
+  // it was edited on this render.
+  Alpine.data('treatyYear', () => ({
+    edited: false,
+    onYearInput() {
+      this.edited = !!this.$refs.year.value.trim();
+    },
+    onDateChange(e) {
+      if (this.edited) return;
+      const year = (e.target.value || '').slice(0, 4);
+      if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+  }));
 });
 
 // ── Local-time stamps ──────────────────────────────────────────────────────────

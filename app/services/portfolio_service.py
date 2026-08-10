@@ -47,11 +47,6 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
-    # US3 (FR-037): the broker analyses LINKED to this portfolio (bucketed by
-    # the R9 read-time resolution in edm_service.get_edm_detail) — the inline
-    # panel; empty for group/unresolved analyses (standalone-only) and for
-    # every caller that doesn't attach them.
-    analyses: list = field(default_factory=list)
     # Spec 005 (FR-012), attached by edm_service.get_edm_detail: the live
     # breakout run on this portfolio (breakout_service.BreakoutFlight, None
     # when idle) and the durable failure lines from the latest terminal run
@@ -123,89 +118,6 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
     with _txn(conn) as working:
         return _snapshot_prune(working, table="irp_portfolio", edm_id=edm_id,
                                seen=seen, now=now)
-
-
-@dataclass
-class EdmAggregate:
-    """The quick-orientation EDM rollup (US4 — FR-040/FR-041/FR-042), derived
-    from the per-portfolio snapshots at read time (R4): SUM counts (record
-    volume == locations, FR-013) + TIV, UNION perils/lines of business,
-    COMBINE geography (states) + the currency set. Never stored; never a
-    request-path fetch. The three counts and the TIV are nullable (no snapshot
-    carried them); the collections are always present, possibly empty."""
-    portfolio_count: int
-    with_snapshot: int                     # portfolios that contributed figures
-    locations: int | None
-    accounts: int | None
-    policies: int | None
-    perils: list[str]                      # union, sorted
-    lines_of_business: list[str]
-    states: list[str]
-    currencies: list[str]
-    total_tiv: float | None                # sum of per-portfolio totals
-
-
-def aggregate_exposure(portfolios: list[PortfolioRow]) -> EdmAggregate | None:
-    """Derive the EDM-aggregate (R4) — a pure function over the already-fetched
-    snapshots (no DB, no Risk Modeler). ``None`` when no portfolio carries a
-    snapshot → the caller renders the pending/unavailable state (FR-042/FR-043).
-    Reads both snapshot shapes defensively: the namespaced {"metrics","summary"}
-    form and the flat pre-2026-07-23 /metrics payload."""
-    snaps = [p.exposure_detail for p in portfolios if p.exposure_detail]
-    if not snaps:
-        return None
-
-    counts: dict[str, int | None] = {"totalLocations": None,
-                                     "totalAccounts": None,
-                                     "totalPolicies": None}
-    perils: set[str] = set()
-    lines_of_business: set[str] = set()
-    states: set[str] = set()
-    currencies: set[str] = set()
-    total_tiv: float | None = None
-    for snap in snaps:
-        metrics = snap.get("metrics") if isinstance(snap.get("metrics"), dict) \
-            else snap  # flat fallback (pre-capability rows)
-        for key in counts:
-            value = metrics.get(key)
-            if isinstance(value, (int, float)):
-                counts[key] = int(value) + (counts[key] or 0)
-        perils.update(p.strip() for p in str(metrics.get("perilsExposed") or "")
-                      .split(",") if p.strip())
-        summary = snap.get("summary") if isinstance(snap.get("summary"), dict) \
-            else {}
-        lines_of_business.update(
-            v for v in (summary.get("lines_of_business") or []) if v)
-        # Geography displays the state's label (Admin1Name) where the summary
-        # carries one, falling back to the code — P-12 as revised 2026-08-05.
-        # A pre-005 summary has no breakout_values: its states list renders
-        # verbatim (the old name/code mix).
-        container = summary.get("breakout_values")
-        entries = (container.get("state")
-                   if isinstance(container, dict) else None)
-        if isinstance(entries, list) and entries:
-            states.update(e.get("label") or e.get("value") for e in entries
-                          if isinstance(e, dict)
-                          and (e.get("label") or e.get("value")))
-        else:
-            states.update(v for v in (summary.get("states") or []) if v)
-        currencies.update(v for v in (summary.get("currencies") or []) if v)
-        tiv = summary.get("total_tiv")
-        if isinstance(tiv, (int, float)):
-            total_tiv = float(tiv) + (total_tiv or 0.0)
-
-    return EdmAggregate(
-        portfolio_count=len(portfolios),
-        with_snapshot=len(snaps),
-        locations=counts["totalLocations"],
-        accounts=counts["totalAccounts"],
-        policies=counts["totalPolicies"],
-        perils=sorted(perils),
-        lines_of_business=sorted(lines_of_business),
-        states=sorted(states),
-        currencies=sorted(currencies),
-        total_tiv=total_tiv,
-    )
 
 
 # ── Breakout lineage writes (spec 005 — R3/R7, contracts/data-access.md §2) ─────
@@ -426,7 +338,6 @@ def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
                 break
 
 
-__all__ = ["PortfolioRow", "EdmAggregate", "GeneratedWrite",
-           "upsert_portfolio_detail", "prune_missing", "list_portfolios",
-           "aggregate_exposure", "insert_generated", "adopt_generated",
-           "find_generated"]
+__all__ = ["PortfolioRow", "GeneratedWrite", "upsert_portfolio_detail",
+           "prune_missing", "list_portfolios", "insert_generated",
+           "adopt_generated", "find_generated"]

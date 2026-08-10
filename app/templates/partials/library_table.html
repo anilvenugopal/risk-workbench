@@ -57,7 +57,7 @@
       {% else %}
         {% if filter_values.q or filter_values.status %}
         <tr><td colspan="6" class="empty">No {{ entity_label }}s match —
-          <a class="lib-clear" href="{{ list_route }}">clear filters</a>.</td></tr>
+          <a class="clear-filters" href="{{ list_route }}">clear filters</a>.</td></tr>
         {% else %}
         <tr><td colspan="6" class="empty">No {{ entity_label }}s imported yet. Import one to get started.</td></tr>
         {% endif %}

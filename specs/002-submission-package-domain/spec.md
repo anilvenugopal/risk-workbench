@@ -46,18 +46,18 @@ An analyst receives a new broker submission and records it in the workbench as a
 
 ### User Story 2 - Find and filter submissions (Priority: P1)
 
-An analyst opens the submission list and, by default, sees only the deals they own ("My Submissions"). They can switch to "All Submissions" to see every deal in the workbench, and narrow either view by cedant, treaty type, or inception.
+An analyst opens the submission list and, by default, sees only the deals they own. They can set the Owner filter to another analyst, or to every owner, to see the rest of the workbench, and narrow the list by cedant, treaty type, or inception.
 
 **Why this priority**: During peak season each analyst owns a deal end-to-end; getting to *their* deals instantly, while still being able to see everyone's, is the core daily interaction. Without it the submission list is unusable at scale.
 
-**Independent Test**: Seed submissions owned by two different analysts; confirm the default view for a given analyst shows only their own, the "All" toggle shows every submission regardless of owner, and each filter (cedant / treaty type / inception) narrows the current view to matching rows only.
+**Independent Test**: Seed submissions owned by two different analysts; confirm the default view for a given analyst shows only their own, an Owner filter set to every owner shows every submission regardless of owner, and each filter (cedant / treaty type / inception) narrows the current view to matching rows only.
 
 **Acceptance Scenarios**:
 
 1. **Given** submissions owned by several analysts, **When** analyst A opens the list, **Then** the default view shows only submissions where A is the owner.
-2. **Given** the default "My Submissions" view, **When** analyst A toggles to "All Submissions", **Then** every submission is shown, including those owned by other analysts.
+2. **Given** the list showing analyst A's own deals, **When** A sets the Owner filter to every owner, **Then** every submission is shown, including those owned by other analysts.
 3. **Given** any list view, **When** the analyst filters by cedant, by treaty type, or by inception, **Then** only submissions matching the chosen filter(s) are shown, and filters combine.
-4. **Given** the "All Submissions" view, **When** analyst A opens a submission owned by analyst B, **Then** A can view it fully (there is no access restriction by owner).
+4. **Given** the list showing every owner, **When** analyst A opens a submission owned by analyst B, **Then** A can view it fully (there is no access restriction by owner).
 5. **Given** a submission owned by analyst A, **When** any analyst reassigns its owner to analyst B, **Then** it leaves A's "My Submissions" view and appears in B's, while remaining fully visible to everyone.
 
 ---
@@ -146,14 +146,14 @@ The system can represent a **package**: a bundle of one or more EDM and/or RDM m
 
 ### Functional Requirements — Submission
 
-- **FR-001**: The system MUST let an authenticated analyst create a submission capturing a name, a cedant, a treaty type, and an inception date, with optional treaty year, shared-drive directory path, and renewal link.
+- **FR-001**: The system MUST let an authenticated analyst create a submission capturing a name, a cedant, a treaty type, and an inception date, with an optional shared-drive directory path and link to a related submission. The four required fields MUST be marked as required, and a rejected submit MUST name each field that failed (CR4). Treaty year MUST default to the inception year and MUST remain editable (CR5).
 - **FR-002**: The system MUST identify each submission by an identity independent of its name, so that two submissions may have the same name and attributes and still be distinct records.
 - **FR-003**: The system MUST NOT enforce uniqueness on the submission name.
 - **FR-004**: On create or rename, the system MUST perform a **non-blocking** "a similar deal already exists" check — triggered when another submission shares the same **name**, **or** the same combination of **cedant + treaty type + inception date** — and warn the analyst, while always allowing them to proceed.
 - **FR-005**: The system MUST record the creating analyst as the submission's owner (a soft owner for filtering only — see FR-020).
 - **FR-005a**: The system MUST allow any analyst to reassign a submission's owner after creation (a deal handoff). Reassignment changes only which analyst's "My Submissions" view the deal appears in; it never changes who may view or act on it.
-- **FR-006**: The system MUST support autocomplete of cedant name from values already present on other submissions, without introducing a separate cedant registry.
-- **FR-007**: The system MUST allow a submission's renewal link to reference another submission, and MUST prevent a submission from referencing itself as its own renewal.
+- **FR-006**: The system MUST support a keyboard-navigable typeahead of cedant name over values already present on other submissions, matching anywhere in the name, without introducing a separate cedant registry.
+- **FR-007**: The system MUST allow a submission to link to another submission ("links to", CR8 — a related deal, not necessarily a renewal), MUST let the analyst pick that submission by name rather than by id, and MUST prevent a submission from linking to itself.
 - **FR-008**: The system MUST treat treaty type as a controlled value drawn from a maintained list of treaty-type kinds (see FR-030).
 - **FR-009**: The system MUST present submissions in a master-detail layout: a filterable list plus a detail view showing the submission's attributes.
 
@@ -175,7 +175,7 @@ The system can represent a **package**: a bundle of one or more EDM and/or RDM m
 ### Functional Requirements — Access & filtering
 
 - **FR-019**: The system MUST NOT apply any row-level access restriction: every authenticated analyst MUST be able to view and act on every submission and everything beneath it.
-- **FR-020**: The system MUST provide a "My Submissions" list view (submissions owned by the current analyst) as the **default**, with a toggle to an "All Submissions" view.
+- **FR-020**: The submission list MUST open on the submissions owned by the current analyst by **default**, and the Owner filter MUST let the analyst switch to another analyst or to every owner.
 - **FR-021**: The system MUST let the analyst filter any list view by cedant, by treaty type, and by inception, with filters combining.
 - **FR-022**: The system MUST gate *functions* by role (e.g. admin-only maintenance), checked server-side on every request, and MUST NOT use roles to restrict which submissions a user may read or write.
 

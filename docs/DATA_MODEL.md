@@ -108,8 +108,8 @@ erDiagram
     string cedant_name "primary filter; plain string + autocomplete"
     string treaty_type_code FK "treaty_type_kind; primary filter"
     date inception_date "primary filter"
-    int treaty_year "nullable"
-    uniqueidentifier renews_from_submission_id FK "nullable; self-ref renewal link"
+    int treaty_year "nullable; defaults to the inception year"
+    uniqueidentifier links_to_submission_id FK "nullable; self-ref link to a related submission"
     string directory_path "nullable; per-deal shared-drive directory"
     string status_code FK "submission_status_kind; cached current"
     datetime inserted_at
@@ -162,10 +162,10 @@ erDiagram
 ```
 
 **Submission:**
-- **`submission` is the root.** No hierarchy above it. `cedant_name`, `treaty_type_code`, and `inception_date` are the primary filters; `treaty_year` (parsed from the `TY{YY}` naming convention) supports renewal-year grouping. These are the system of record — there is no CRM/treaty-system integration to derive them from.
+- **`submission` is the root.** No hierarchy above it. `cedant_name`, `treaty_type_code`, and `inception_date` are the primary filters; `treaty_year` defaults to the inception year and supports renewal-year grouping. These are the system of record — there is no CRM/treaty-system integration to derive them from.
 - **`cedant_name` is a plain string**, kept consistent by autocomplete over existing values — deliberately not its own table.
 - **`submission_crm_id`** holds 0..N CRM-ID tags at the submission level. A package's effective CRM IDs derive from the submission it is viewed under.
-- **`renews_from_submission_id`** is a manual, nullable self-reference (match cedant + treaty type across treaty years); most deals have none.
+- **`links_to_submission_id`** is a manual, nullable self-reference to a related submission — usually last year's deal for the same cedant and treaty type, but not necessarily a renewal (design note 08 CR8, superseding the earlier `renews_from_submission_id`). Most deals have none. The analyst picks the related deal by name; a submission cannot link to itself (`ck_submission_no_self_link`).
 - **`submission.name` is NOT unique.** Two genuinely distinct deals can share every naming-convention attribute (same cedant, inception, treaty type) and differ only by the manual/optional CRM ID (design note 03 §4). The UUID `id` is the key; create/rename runs a **non-blocking** "a similar deal already exists" warning, never a hard reject. *(Unlike the EDM/RDM name-collision check, which is **blocking** as of 2026-07-27 — issue #17, §5.)*
 - **Status** is `ACTIVE` / `COMPLETED` / `CANCELLED`, event-sourced, no system-enforced transition preconditions (`COMPLETED → ACTIVE` allowed). **There is no delete** — a submission can carry real Risk Modeler assets; `CANCELLED` is the withdrawal state.
 

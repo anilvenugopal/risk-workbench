@@ -3,7 +3,7 @@
 Run with: pytest tests/sqlserver --run-sqlserver  (requires live SQL Server)
 
 Covers:
-  - the migration builds all nine Iteration-1 tables + the self-renewal CHECK,
+  - the migration builds all nine Iteration-1 tables + the no-self-link CHECK,
     with the CR-003 tables gone and the two kind seeds present (T018);
   - the event-sourced status transaction is atomic — the submission_status_event
     insert and the cached submission.status_code stamp commit **and** roll back
@@ -72,19 +72,41 @@ class TestSubmissionMigration:
         assert "customer_id" not in cols
         assert "assigned_analyst_id" in cols
 
-    def test_self_renewal_check_exists(self):
+    def test_no_self_link_check_exists(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.check_constraints "
-            "WHERE name = 'ck_submission_no_self_renewal'",
+            "WHERE name = 'ck_submission_no_self_link'",
             {}, connection="WORKBENCH")
         assert n == 1
+
+    def test_master_list_index_keys_and_covers(self):
+        """``ix_submission_list_order`` is what keeps a filtered list read off the
+        clustered table. Its DESC key and its included columns are both invisible to
+        the SQLite mirror, so only this tier can check them."""
+        cols = execute(
+            "SELECT c.name, ic.is_descending_key, ic.is_included_column "
+            "FROM sys.indexes i "
+            "JOIN sys.index_columns ic ON ic.object_id = i.object_id "
+            "                         AND ic.index_id = i.index_id "
+            "JOIN sys.columns c ON c.object_id = i.object_id "
+            "                  AND c.column_id = ic.column_id "
+            "WHERE i.object_id = OBJECT_ID('dbo.submission') "
+            "  AND i.name = 'ix_submission_list_order' "
+            "ORDER BY ic.is_included_column, ic.key_ordinal",
+            {}, connection="WORKBENCH")
+        keys = [(r["name"], bool(r["is_descending_key"]))
+                for r in cols if not r["is_included_column"]]
+        assert keys == [("inception_date", True), ("name", False)]
+        included = {r["name"] for r in cols if r["is_included_column"]}
+        assert included == {"cedant_name", "treaty_type_code", "treaty_year",
+                            "status_code", "assigned_analyst_id", "updated_at"}
 
     def test_submission_foreign_keys_present(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.submission')",
             {}, connection="WORKBENCH")
-        assert n >= 5  # analyst, treaty_type, status, self-renewal, inserted/updated_by
+        assert n >= 5  # analyst, treaty_type, status, links_to, inserted/updated_by
 
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────

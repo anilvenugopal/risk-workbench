@@ -39,7 +39,7 @@ Conventions inherited wholesale: `_render`/`_partial` helpers, `validate_csrf_to
 
 **Module**: `app/routers/edms.py` (the EDM detail page owns its own poll targets — `GET /edms/{edm_id}/body` is the precedent).
 
-- Renders `partials/edm_portfolios_live.html`: the `#edm-portfolios` section (the poll's own swap target) plus **two out-of-band swaps** — `#edm-detail-meta` (the header line: portfolio count, sync stamp, Sync button state) and `#edm-rollup` (the rollup strip's Portfolios cell). Those are the only elements outside the section that move while sub-portfolios are created.
+- Renders `partials/edm_portfolios_live.html`: the `#edm-portfolios` section (the poll's own swap target) plus **one out-of-band swap** — `#edm-detail-meta` (the header line: portfolio count, sync stamp, Sync button state). It is the only element outside the section that moves while sub-portfolios are created.
 - Emits the `every 3s` trigger only while the breakout episode is live — a `run_breakout_*` job `pending|running`, or its FR-013 follow-up `backfill_edm_detail` still filling figures in — so polling self-terminates on the first render after the episode ends.
 - EDM hard-gone mid-poll → a terminal section with no trigger, so the poll ends instead of 404-looping.
 - Read-only: stored state only, no writes, no Risk Modeler call (Article 11).

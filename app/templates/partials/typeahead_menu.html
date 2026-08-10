@@ -1,0 +1,24 @@
+{# Typeahead menu — the HTMX target for both the CEDANT field and the "links to"
+   picker (CR7/CR8). Buttons are type="button" so a keyboard pick never submits
+   the form. Each option's id is built from `menu_id`, which the input names in
+   `aria-activedescendant` — the create form renders both menus, so a bare index
+   would collide.
+
+   `searched` is false when no search ran, and the menu stays blank rather than
+   reporting no match. #}
+{% if options %}
+<div class="ta__menu" role="listbox">
+  {% for option in options %}
+  <button class="ta__opt" type="button" role="option" aria-selected="false"
+          id="{{ menu_id }}-opt-{{ loop.index0 }}"
+          data-value="{{ option.value }}" data-label="{{ option.label }}">
+    <span class="ta__opt-main">{{ option.label }}</span>
+    {% if option.meta %}<span class="ta__opt-meta">{{ option.meta }}</span>{% endif %}
+  </button>
+  {% endfor %}
+</div>
+{% elif searched %}
+<div class="ta__menu">
+  <div class="ta__empty" role="status">{{ empty_message }}</div>
+</div>
+{% endif %}

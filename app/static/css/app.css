@@ -89,9 +89,22 @@
 .home__section-title { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); margin-bottom: var(--space-2); }
 
 /* ── Filters ─────────────────────────────────────────────────────────────── */
-.filters { display: flex; gap: 18px; margin-bottom: 14px; }
+.filters { display: flex; flex-wrap: wrap; gap: 14px 18px; margin-bottom: 14px; }
+/* The submissions bar carries eight controls plus Clear filters. Each row takes the
+   full width so it breaks where the template says, not where the viewport runs out. */
+.filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
+/* The Owner picker cannot wrap its input in a <label>: a click on a menu row
+   inside a label is forwarded to the input, which reopens the menu it just
+   closed. Label and combobox are siblings, stacked like the other filters. */
+.filters__field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.filters__combo { position: relative; min-width: 170px; }
+/* Status and Treaty type are buttons, not <select>, so their closed control and
+   their menu match the Owner picker. Buttons inherit neither the page font nor
+   left alignment. */
+.filters__trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-family: inherit; text-align: left; color: var(--text-primary); cursor: pointer; }
+.filters__chevron { color: var(--text-tertiary); font-size: 10px; }
 
 /* ── EDM / RDM libraries (US7) ─────────────────────────────────────────────── */
 /* muted em-dash for "no value yet" cells (no Risk Modeler id until import
@@ -104,11 +117,12 @@
 .lib-table td.lib-deal { max-width: 220px; }
 .lib-table .lib-src .mono,
 .lib-table .lib-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-/* trailing "clear filters" affordance on the filtered-empty row */
-.lib-clear { color: var(--color-brand); font-size: var(--fs-label); }
+/* trailing "clear filters" affordance on any filtered-empty row */
+.clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }
+.detail-crumbs { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-label); margin-bottom: var(--space-2); }
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }

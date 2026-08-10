@@ -127,8 +127,8 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the
-# four set-based sql/databridge/ scripts through the wheel's generic executor,
-# assembling {portfolioId(str): {portfolio_name, total_tiv, states,
+# five set-based sql/databridge/ scripts through the wheel's generic executor,
+# assembling {portfolioId(str): {portfolio_name, countries, states,
 # lines_of_business, currencies}}.
 
 class _Frame:
@@ -161,9 +161,13 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         {"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"},
     ]
     results = {
-        "portfolio_total_tiv.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "TotalTIV": 2.8e9},
-            {"PortfolioId": 2, "PortfolioName": "B", "TotalTIV": 0},
+        "portfolio_list.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A"},
+            {"PortfolioId": 2, "PortfolioName": "B"},
+        ],
+        "portfolio_countries.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US"},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CA"},
         ],
         "portfolio_account_total.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "AccountTotal": 1701},
@@ -208,14 +212,14 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
-    # gets an entry from the TIV seed with empty lists. account_total,
-    # breakout_values and breakout_coverage are the spec-005 additions (R11 and
-    # the 2026-08-05 FR-007 revision) — the breakout_values container's PRESENCE
-    # is what marks a post-005 summary; entries are sorted by value. states
-    # holds Admin1Code (P-12); a state's label is Admin1Name where geocoded and
-    # None otherwise; a lob value is its own label → None.
+    # gets an entry from the portinfo enumeration seed with empty lists.
+    # account_total, breakout_values and breakout_coverage are the spec-005
+    # additions (R11 and the 2026-08-05 FR-007 revision) — the breakout_values
+    # container's PRESENCE is what marks a post-005 summary; entries are sorted
+    # by value. states holds Admin1Code (P-12); a state's label is Admin1Name
+    # where geocoded and None otherwise; a lob value is its own label → None.
     assert summary == {
-        "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
+        "1": {"portfolio_name": "A", "countries": ["CA", "US"],
               "states": ["BY", "FL", "TX"],
               "lines_of_business": ["Auto", "Commercial"],
               "currencies": ["USD"],
@@ -230,13 +234,13 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
               "breakout_coverage": {
                   "lob": {"covered": 1690, "multi_value": 22},
                   "state": {"covered": 1624, "multi_value": 38}}},
-        "2": {"portfolio_name": "B", "total_tiv": 0.0,
+        "2": {"portfolio_name": "B", "countries": [],
               "states": [], "lines_of_business": [], "currencies": [],
               "account_total": None, "breakout_values": {},
               "breakout_coverage": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 7
+    assert [db for _, db in calls] == ["edm_db"] * 8
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
@@ -514,3 +518,28 @@ def test_fetch_portfolio_stamp_matches_on_portfolio_id():
         exposure_irp_id="42", portfolio_irp_id="2") is None   # no stampDate field
     assert gw.fetch_portfolio_stamp(
         exposure_irp_id="42", portfolio_irp_id="99") is None  # portfolio gone
+
+
+def test_lob_lists_over_the_free_text_cap_are_not_stored():
+    # 8/4 D15: LOB is user-defined free text — cedants fill it with account
+    # numbers or underwriter names. Over 500 distinct values → not saved out.
+    hits = [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}]
+    results = {
+        "portfolio_list.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A"},
+            {"PortfolioId": 2, "PortfolioName": "B"},
+        ],
+        "portfolio_lines_of_business.sql": (
+            [{"PortfolioId": 1, "PortfolioName": "A",
+              "LineOfBusiness": f"lob-{i}"} for i in range(501)]
+            + [{"PortfolioId": 2, "PortfolioName": "B",
+                "LineOfBusiness": f"lob-{i}"} for i in range(500)]),
+    }
+    summary = _summary_gw(hits, results).get_edm_exposure_summary(
+        edm_name="EDM", edm_irp_id=42)
+    assert summary["1"]["lines_of_business"] == []          # 501 → dropped
+    assert len(summary["2"]["lines_of_business"]) == 500    # at the cap → kept
+    # spec 005: the dropped list takes its breakout values with it — the
+    # breakout enumerates from breakout_values, so lob must not survive it.
+    assert "lob" not in summary["1"]["breakout_values"]
+    assert "lob" in summary["2"]["breakout_values"]

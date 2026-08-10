@@ -69,6 +69,10 @@ _COVERAGE_SCRIPTS = {
     "state": "portfolio_state_coverage.sql",
 }
 
+# A free-text descriptor with more distinct values than this is not saved into
+# the stored summary (8/4 D15 — lines of business is the known case).
+_FREE_TEXT_STORAGE_CAP = 500
+
 
 class DuplicatePortfolioNameError(Exception):
     """``create_portfolio`` refused because the name is already taken in the
@@ -579,7 +583,7 @@ class _RealGateway:
 
     def get_edm_exposure_summary(self, *, edm_name: str,
                                  edm_irp_id: int) -> dict[str, dict]:
-        # Per-EDM DataBridge SQL aggregate (TIV/geography/LOB/currency — none
+        # Per-EDM DataBridge SQL aggregate (geography/LOB/currency — none
         # of which any RM REST endpoint returns; IRP_INTEGRATION_FOLLOWUPS §6).
         # Interim implementation: the requested wheel method
         # (get_portfolio_exposure_summary) doesn't exist yet, so the gateway
@@ -600,9 +604,9 @@ class _RealGateway:
                 str(_DATABRIDGE_SQL_DIR / script), database=database)
             return frames[0].to_dict("records") if frames else []
 
-        # Seed every portfolio from the TIV script (it LEFT JOINs from
-        # portinfo, so it covers portfolios with no accounts/locations too);
-        # the DISTINCT list scripts then only add to existing entries.
+        # Seed every portfolio from the portinfo enumeration (it covers
+        # portfolios with no accounts/locations too); the DISTINCT list
+        # scripts then only add to existing entries.
         summary: dict[str, dict] = {}
 
         def entry(row: dict) -> dict:
@@ -611,7 +615,7 @@ class _RealGateway:
                 name = row.get("PortfolioName")
                 summary[key] = {
                     "portfolio_name": (str(name) if name is not None else None),
-                    "total_tiv": None, "states": [],
+                    "countries": [], "states": [],
                     "lines_of_business": [], "currencies": [],
                     # spec 005 (R11): the overlap denominator and the breakout
                     # enumeration source, keyed by breakout_dimension_kind.code.
@@ -626,13 +630,14 @@ class _RealGateway:
                 }
             return summary[key]
 
-        for row in rows("portfolio_total_tiv.sql"):
-            tiv = row.get("TotalTIV")
-            entry(row)["total_tiv"] = (float(tiv) if tiv is not None else 0.0)
+        for row in rows("portfolio_list.sql"):
+            entry(row)
         for row in rows("portfolio_account_total.sql"):
             total = row.get("AccountTotal")
             entry(row)["account_total"] = (int(total) if total is not None
                                            else None)
+        for row in rows("portfolio_countries.sql"):
+            entry(row)["countries"].append(str(row["Country"]))
         for row in rows("portfolio_states.sql"):
             # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
             # states list now holds codes, not the old COALESCE(name, code)
@@ -674,11 +679,19 @@ class _RealGateway:
         for row in rows("portfolio_currencies.sql"):
             entry(row)["currencies"].append(str(row["Currency"]))
         for values in summary.values():
-            for key in ("states", "lines_of_business", "currencies"):
+            for key in ("countries", "states", "lines_of_business", "currencies"):
                 values[key] = sorted(set(values[key]))
             for dim, entries in values["breakout_values"].items():
                 values["breakout_values"][dim] = sorted(
                     entries, key=lambda e: e["value"])
+            # 8/4 D15/CR19: line of business is user-defined free text that
+            # cedants fill with account numbers or underwriter names — "if
+            # it's over 500 values, we're not going to save it out." The lob
+            # breakout values go with it: spec 005 enumerates the breakout from
+            # the stored summary, so a dropped list must not leave them behind.
+            if len(values["lines_of_business"]) > _FREE_TEXT_STORAGE_CAP:
+                values["lines_of_business"] = []
+                values["breakout_values"].pop("lob", None)
         return summary
 
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]:

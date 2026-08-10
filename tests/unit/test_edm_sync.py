@@ -457,9 +457,9 @@ def test_body_poll_204_while_a_breakout_fills_figures_in(monkeypatch):
 
 
 def test_section_poll_emits_trigger_and_oob_fragments_while_running(monkeypatch):
-    # The poll response is the section plus two out-of-band swaps: the header
-    # meta line and the rollup strip both carry a portfolio count that moves as
-    # the worker creates sub-portfolios.
+    # The poll response is the section plus one out-of-band swap: the header
+    # meta line carries a portfolio count that moves as the worker creates
+    # sub-portfolios.
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(
                             detail_state="populated", portfolio_count=4,
@@ -469,7 +469,6 @@ def test_section_poll_emits_trigger_and_oob_fragments_while_running(monkeypatch)
     assert r.status_code == 200
     assert 'id="edm-portfolios"' in r.text and "every 3s" in r.text
     assert 'id="edm-detail-meta" hx-swap-oob="true"' in r.text
-    assert 'id="edm-rollup" hx-swap-oob="true"' in r.text
     assert "4 portfolios" in r.text
     assert 'id="edm-detail"' not in r.text     # never the scrolling wrapper
     assert "</html>" not in r.text             # a fragment — no shell
@@ -508,7 +507,7 @@ def test_page_render_carries_the_section_and_oob_targets_without_oob_attrs(
                             as_of="2026-08-05 10:00:00"))
     html = _client().get("/edms/edm-1").text
     for anchor in ('id="edm-portfolios"', 'id="edm-detail-meta"',
-                   'id="edm-rollup"', 'id="edm-treaties"'):
+                   'id="edm-treaties"'):
         assert anchor in html
     assert "hx-swap-oob" not in html
 

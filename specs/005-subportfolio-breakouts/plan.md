@@ -32,7 +32,7 @@
 | Database | `rwb_workbench` only: 3 lineage columns on `irp_portfolio`, `breakout_dimension_kind` + 2 seeds, 2 `rwb_job_type_kind` seeds, 1 filtered unique index — folded into `0001_initial.py`. EXPOSURE, LOSS, DATABRIDGE untouched. |
 | Worker | New `portfolio_jobs.py`: `run_breakout_lob`/`run_breakout_state` actors (shared body) — executes the persisted plan, per-sub-portfolio loop, adopt-by-number, outcomes in `output_data`, completion enqueue of `backfill_edm_detail`. `backfill_edm_detail` additionally captures `stampDate` and the counted summary. Poller untouched (both writes are synchronous — no `irp_job` rows). |
 | DataBridge SQL | `portfolio_states.sql` returns `Admin1Code` + nullable `Admin1Name` + account count, grouped and filtered on the code (the `COALESCE` goes); `portfolio_lines_of_business.sql` gains an account count; new `portfolio_account_total.sql`; new `portfolio_state_coverage.sql` / `portfolio_lob_coverage.sql` count per account (covered, more-than-one) for the FR-007 disclosure. Read-only, worker-side, via `irp-integration` as before. |
-| UI | New `breakout_modal.html` + modal GET / confirm POST in new `routers/portfolios.py`; breakout action + lineage badge on `portfolio_row.html`; in-flight indicator + outcome banner in the Portfolios section, split out of `edm_detail_body.html` into `edm_portfolios_section.html` with its own 3-second poll (`GET /edms/{id}/portfolios-section` in `routers/edms.py`, T-11); token-based styles in `details.css`. The `states` column renders state codes (P-12) on `portfolio_row.html` and `edm_aggregate_strip.html`. No new nav node. |
+| UI | New `breakout_modal.html` + modal GET / confirm POST in new `routers/portfolios.py`; breakout action + lineage badge on `portfolio_row.html`; in-flight indicator + outcome banner in the Portfolios section, split out of `edm_detail_body.html` into `edm_portfolios_section.html` with its own 3-second poll (`GET /edms/{id}/portfolios-section` in `routers/edms.py`, T-11); token-based styles in `details.css`. The `states` column renders state codes (P-12) on `portfolio_row.html`. No new nav node. |
 | Services | New `breakout_service.py` (gate, enumeration, name/number plan builder, plan persistence, enqueue, outcome read model); `irp_gateway.py` gains `select_breakout_accounts` (account ids per value, resolved once per run) and `create_sub_portfolio` (create → add → verify), plus the extended summary builder, all mirrored in the CI fake; `portfolio_service.py` gains the lineage-aware list and insert/adopt helpers. |
 | Library | `irp-integration` PR #21: paginated selection reads, `manage_portfolio_accounts`, name/number validation, raising pagination. Delivered — this repo consumes it, no library work in scope here ([contracts/irp-library.md](contracts/irp-library.md) records the consumed contract). |
 
@@ -50,7 +50,7 @@
 | T-08 | Sandbox spike — **closed**. U1 selection endpoints and tokens, U2 add semantics, U4 state vocabulary, U5 account bucketing, U6 pagination all answered, plus the 40-character name limit | Approved | [probe-findings.md](probe-findings.md) |
 | T-09 | `queryFilter` one-call populate and an EDM-level deep-filter read — **closed permanently, not deferred**: no filter names a source portfolio, so the one-call form cannot express "the TX accounts of portfolio 1", and `allowDeepFilters=true` returns zero rows with HTTP 200 | Rejected | [research.md#R1](research.md), W-6/W-7 |
 | T-10 | The worker executes the plan persisted at confirm; it does not recompute names, because collision suffixing reads portfolio names the run itself changes | Approved | [research.md#R10](research.md) |
-| T-11 | A breakout episode polls the **Portfolios section**, not the whole body: `#edm-detail` is the page's scrolling element, so swapping it every 3 seconds scrolled the analyst back to the top mid-run. The section swaps itself and out-of-band-swaps the header meta line and the rollup strip; `app.js` reapplies the scroll offset and every `<details>` open state after any swap | Approved | [contracts/http-routes.md](contracts/http-routes.md), `app/routers/edms.py` |
+| T-11 | A breakout episode polls the **Portfolios section**, not the whole body: `#edm-detail` is the page's scrolling element, so swapping it every 3 seconds scrolled the analyst back to the top mid-run. The section swaps itself and out-of-band-swaps the header meta line; `app.js` reapplies the scroll offset and every `<details>` open state after any swap | Approved | [contracts/http-routes.md](contracts/http-routes.md), `app/routers/edms.py` |
 
 ---
 
@@ -98,9 +98,8 @@ app/
 │   ├── portfolio_row.html        # breakout action; lineage badge; states column renders codes
 │   ├── edm_portfolios_section.html  # NEW: the Portfolios section — in-flight counter, outcome
 │   │                             # banner, generated rows; polls itself during a breakout (T-11)
-│   ├── edm_portfolios_live.html  # NEW: the poll response — section + 2 out-of-band swaps
+│   ├── edm_portfolios_live.html  # NEW: the poll response — section + 1 out-of-band swap
 │   ├── edm_detail_meta.html      # NEW: the header meta line, out-of-band-swapped by that poll
-│   ├── edm_aggregate_strip.html  # states rollup renders codes; out-of-band-swapped by that poll
 │   └── edm_detail_body.html      # includes the section; its own poll stays out of breakouts
 ├── static/js/app.js              # reapplies scroll offset + <details> state after any swap (T-11)
 └── static/css/details.css        # modal + badge styles via tokens

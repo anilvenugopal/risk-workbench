@@ -61,7 +61,7 @@ Technical approach: extend the existing Iteration-0 stack (FastAPI + Jinja2 + HT
 | Article | Title | Status | Notes |
 |---------|-------|--------|-------|
 | 1 | Navigation Manifest Is the One Versioned Source of Truth | ✅ | `submissions` rail + `submissions.mine`/`submissions.all` sidebar nodes already exist (Iteration 0). New submission-detail routes are added as manifest nodes + handler + template — no scattered config. |
-| 2 | Sequencing Is Derived, Not Stored | ✅ | No stored process topology. `renews_from_submission_id` is a direct entity self-reference (Article 2 permits "entity rows reference each other directly"), not a stage machine or DAG. |
+| 2 | Sequencing Is Derived, Not Stored | ✅ | No stored process topology. `links_to_submission_id` is a direct entity self-reference (Article 2 permits "entity rows reference each other directly"), not a stage machine or DAG. |
 | 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | ✅ | `treaty_type_kind`, `submission_status_kind` are kind tables (FK-referenced). `irp_edm.status`/`irp_rdm.status` columns are created as plain `VARCHAR` per the Article 3 carve-out (external-status mirrors) but carry no behavior this iteration. |
 | 4 | Status Is Event-Sourced with Cached Current | ✅ | `submission.status_code` is the one event-sourced status: every transition inserts `submission_status_event` **and** stamps the cached column in one transaction (`get_connection` + `conn.begin()`); `execute_command` is not used for it. |
 | 5 | Mechanical Follow-up Auto-fires; Judgment Waits for a Click | N/A | No auto-fire ops this iteration (package *behavior* + IRP jobs are Iteration 2). |
@@ -105,7 +105,7 @@ app/
 ├── main.py                       # EDIT: register the submissions router (app.include_router)
 ├── services/
 │   ├── errors.py                 # NEW: typed service errors (SubmissionClosed, ConcurrencyConflict,
-│   │                             #      SelfRenewalError, EmptyPackageError)
+│   │                             #      SelfLinkError, EmptyPackageError)
 │   ├── submission_service.py     # NEW: create/get/list/update/reassign, status transitions
 │   │                             #      (event-sourced), CRM-tag add/edit/remove, duplicate
 │   │                             #      warning, optimistic-concurrency conflict, read-only gate

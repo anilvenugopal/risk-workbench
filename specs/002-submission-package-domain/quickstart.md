@@ -32,7 +32,7 @@ pytest tests/unit
 ```
 
 **Expected — new/changed coverage passes** (maps to the contract's test obligations):
-- `test_submission_service.py` — create (+ initial ACTIVE event), My/All list, each filter and
+- `test_submission_service.py` — create (+ initial ACTIVE event), the owner-filtered list, each filter and
   combination, `find_similar` (name-match **and** attribute-match, empty for a new deal),
   status transitions + history, reopen from COMPLETED **and** CANCELLED, same-status no-op,
   read-only gate raises `SubmissionClosed`, stale-write raises `ConcurrencyConflict`,
@@ -51,7 +51,7 @@ pytest tests/sqlserver --run-sqlserver
 ```
 
 **Expected:** `test_submission_migration.py` — migration builds all tables/FKs incl. the
-self-renewal CHECK; seeds present; the **event-sourced status transaction is atomic**
+no-self-link CHECK; seeds present; the **event-sourced status transaction is atomic**
 (`submission_status_event` insert + cached `submission.status_code` stamp commit/rollback
 together).
 
@@ -61,9 +61,9 @@ Log in (dev fixture `admin@example.com`), then:
 
 1. **Create** — `/submissions/new` → enter name, cedant, treaty type, inception → save.
    *Expect:* redirect to detail; status **ACTIVE**; you are the owner. (US1 / SC-001)
-2. **My vs All** — land on `/submissions/mine` (default) → your new deal shows. Toggle to
-   `/submissions` (All) → still shows, plus deals owned by others; open one owned by another
-   analyst → fully viewable. (US2 / SC-002)
+2. **Owner filter** — land on `/submissions` → the Owner box holds your name and your new
+   deal shows. Pick "Any owner" → still shows, plus deals owned by others; open one owned by
+   another analyst → fully viewable. (US2 / SC-002)
 3. **Filter** — narrow by cedant, treaty type, inception; combine two → only matching rows. (SC-003)
 4. **Duplicate warning** — create a second submission with the **same** name (or same
    cedant+type+inception) → non-blocking "a similar deal already exists" warning → "Create
