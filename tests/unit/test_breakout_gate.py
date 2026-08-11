@@ -208,7 +208,7 @@ def test_gate_no_snapshot_reads_as_missing_summary(iteration2_db):
     gate = evaluate_gate(edm_id, pid)
     assert gate.portfolio_eligible is True  # the EDM half passes
     assert gate.summary_as_of is None
-    for code in ("lob", "state"):
+    for code in ("lob", "state", "country"):
         assert _dim(gate, code).eligible is False
         assert _dim(gate, code).reason == MISSING_SUMMARY_REASON
 
@@ -279,6 +279,20 @@ def test_peril_is_grouping_only_never_quick(iteration2_db, fake_irp):
     with pytest.raises(GateRefused, match="one-per-value"):
         request_breakout(edm_id, pid, "peril", AS_OF, iteration2_db.user_a)
     assert _breakout_jobs() == []
+
+
+def test_country_is_a_quick_dimension_when_the_summary_carries_values(
+        iteration2_db):
+    edm_id = _mk_edm()
+    summary = dict(SUMMARY, breakout_values=dict(
+        SUMMARY["breakout_values"],
+        country=[{"value": "US", "label": None, "accounts": 1650},
+                 {"value": "CA", "label": None, "accounts": 51}]))
+    pid = _mk_portfolio(edm_id, summary=summary)
+    country = _dim(evaluate_gate(edm_id, pid), "country")
+    assert (country.quick, country.eligible) == (True, True)
+    assert country.noun == "country"
+    assert [v.value for v in country.values] == ["CA", "US"]
 
 
 def test_modal_selects_nothing_when_only_peril_is_eligible(iteration2_db):

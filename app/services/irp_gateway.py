@@ -57,6 +57,7 @@ _ADD_CHUNK_SIZE = 1000
 _SELECTION_SCRIPTS = {
     "lob": "breakout_lob_accounts.sql",
     "state": "breakout_state_accounts.sql",
+    "country": "breakout_country_accounts.sql",
     "peril": "breakout_peril_accounts.sql",
 }
 
@@ -68,6 +69,7 @@ _SELECTION_SCRIPTS = {
 _COVERAGE_SCRIPTS = {
     "lob": "portfolio_lob_coverage.sql",
     "state": "portfolio_state_coverage.sql",
+    "country": "portfolio_country_coverage.sql",
     "peril": "portfolio_peril_coverage.sql",
 }
 
@@ -663,7 +665,15 @@ class _RealGateway:
             entry(row)["account_total"] = (int(total) if total is not None
                                            else None)
         for row in rows("portfolio_countries.sql"):
-            entry(row)["countries"].append(str(row["Country"]))
+            # dbo.Address carries country only as codes, so the code is its
+            # own display and the label is never synthesized (P-12).
+            e = entry(row)
+            value = str(row["Country"])
+            e["countries"].append(value)
+            count = row.get("AccountCount")
+            e["breakout_values"].setdefault("country", []).append({
+                "value": value, "label": None,
+                "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_states.sql"):
             # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
             # states list now holds codes, not the old COALESCE(name, code)

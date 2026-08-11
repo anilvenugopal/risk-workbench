@@ -191,6 +191,7 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80),
                      ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
                      ("run_breakout_state", "Portfolio breakout by geography (state)", 100),
+                     ("run_breakout_country", "Portfolio breakout by country", 105),
                      ("run_breakout_custom", "Portfolio breakout by custom group", 110)]  # T-12
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
@@ -202,6 +203,7 @@ IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 2
                             ("ready", "Ready", 30), ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
                            ("state", "Geography (state)", 20),
+                           ("country", "Country", 25),
                            ("peril", "Peril", 30),  # grouping-only (P-19)
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
 

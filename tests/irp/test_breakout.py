@@ -102,10 +102,10 @@ def _compose_or_adopt(sandbox: dict, *, name: str, number: str,
 def test_selection_vocabulary_matches_the_stored_summary(sandbox):
     # The selection script mirrors the summary script's joins (R1 revised
     # 2026-08-05): filtering on the summary's own values must return exactly
-    # the per-value account counts the summary reported — for all three
-    # dimensions (peril is grouping-only but its selection read is the same
+    # the per-value account counts the summary reported — for every value
+    # dimension (peril is grouping-only but its selection read is the same
     # shape, P-19/W-21).
-    for dimension in ("lob", "state", "peril"):
+    for dimension in ("lob", "state", "country", "peril"):
         values = sandbox["summary"]["breakout_values"].get(dimension) or []
         if not values:
             continue

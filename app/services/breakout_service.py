@@ -56,15 +56,15 @@ LARGE_FANOUT_THRESHOLD = 25
 
 # The dimension letter inside the generated portfolio_number (R4) — quick-mode
 # dimensions only; a custom group's number is its name truncated to 20 (P-26).
-_DIMENSION_LETTER = {"lob": "L", "state": "S"}
+_DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C"}
 # Analyst-facing noun per dimension for disabled-with-reason copy.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
-                   "peril": "peril", "custom": "custom"}
+                   "country": "country", "peril": "peril", "custom": "custom"}
 # Quick mode (one sub-portfolio per value) runs these dimensions only. peril
 # is grouping-only (P-19): no portfolio_number letter, no run_breakout_peril
 # job type, never offered in the quick-mode chooser. "custom" is the grouping
 # pane itself — a lineage code, not a value dimension (T-12).
-_QUICK_DIMENSIONS = frozenset({"lob", "state"})
+_QUICK_DIMENSIONS = frozenset({"lob", "state", "country"})
 
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "

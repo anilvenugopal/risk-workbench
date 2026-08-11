@@ -379,7 +379,7 @@ def test_modal_missing_summary_disables_both_with_sync_pointer(
     pid = _mk_portfolio(edm_id, detail=None, as_of=None)
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
-    assert r.text.count("bo-dim--disabled") == 2
+    assert r.text.count("bo-dim--disabled") == 3
     assert "exposure summary not available" in r.text
     assert "run Sync" in r.text
     assert f'hx-post="/edms/{edm_id}/sync"' in r.text

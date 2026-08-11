@@ -57,6 +57,11 @@ def test_short_names_compose_untouched():
     assert [p.number for p in plan] == ["P1-S-CA", "P1-S-TX"]
 
 
+def test_country_dimension_numbers_with_its_own_letter():
+    plan = _plan([_bv("US"), _bv("CA")], dimension="country")
+    assert [p.number for p in plan] == ["P1-C-CA", "P1-C-US"]
+
+
 def test_long_source_is_truncated_and_value_kept_whole():
     source = "TY2607 Meridian Cedant Commercial Book"  # 38 chars
     plan = _plan([_bv("General Liability", 5), _bv("Homeowners", 7)],

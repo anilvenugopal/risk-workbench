@@ -141,6 +141,7 @@ def main() -> int:
                     ('delete_edm',                'Delete EDM',                80),
                     ('run_breakout_lob',   'Portfolio breakout by line of business', 90),
                     ('run_breakout_state', 'Portfolio breakout by geography (state)', 100),
+                    ('run_breakout_country', 'Portfolio breakout by country', 105),
                     ('run_breakout_custom', 'Portfolio breakout by custom group', 110)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
@@ -188,16 +189,17 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            # breakout_dimension_kind — the two directed breakout dimensions
-            # (spec 005 data-model §2) plus peril, grouping-only (P-19), plus
-            # custom — the grouping lineage code (T-12).
+            # breakout_dimension_kind — the three quick-mode breakout
+            # dimensions (spec 005 data-model §2) plus peril, grouping-only
+            # (P-19), plus custom — the grouping lineage code (T-12).
             conn.execute(text("""
                 MERGE breakout_dimension_kind AS target
                 USING (VALUES
-                    ('lob',    'Line of business',  10),
-                    ('state',  'Geography (state)', 20),
-                    ('peril',  'Peril',             30),
-                    ('custom', 'Custom group',      40)
+                    ('lob',     'Line of business',  10),
+                    ('state',   'Geography (state)', 20),
+                    ('country', 'Country',           25),
+                    ('peril',   'Peril',             30),
+                    ('custom',  'Custom group',      40)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

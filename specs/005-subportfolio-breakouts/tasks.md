@@ -210,6 +210,13 @@ continue from the tables in spec.md/plan.md.
 - [X] T084 [P-24] [P-25] [P-26] [FR-018] [FR-019] Group name = the label exactly as typed (no source prefix, no collision suffix, cap 40 = `PORTFOLIO_NAME_MAX`); duplicates refused: `compose_group_cart` blocks against live portfolio names + the cart (adopted sets exempt), `check_group_name` + `GET …/breakout/name-check` add the as-you-type fragment (shared `partials/name_collision.html`, portfolio copy) and the Add-time Risk Modeler leg (fail-open; new `find_portfolio_by_name` gateway read, cached in `name_check`); number = name truncated to 20 — `P{rm id}-G-{key}` dropped, `_DIMENSION_LETTER["custom"]` removed (supersedes that part of T079). Pre-change `breakout_group` rows keep their stored name/number (rule 8)
   - Proof: `uv run pytest tests/unit` green (1015 passed, 2026-08-10)
 
+### Workstream 6 — country as a quick + grouping dimension (FR-004 as amended 2026-08-10)
+
+- [X] T085 [FR-004] [FR-005] [FR-007] DataBridge SQL: `portfolio_countries.sql` gains `COUNT(DISTINCT pa.ACCGRPID) AS AccountCount` (GROUP BY the COALESCE'd country code); new `portfolio_country_coverage.sql` + `breakout_country_accounts.sql` mirroring its joins (the P-12 vocabulary invariant); `country` registered in `_SELECTION_SCRIPTS` / `_COVERAGE_SCRIPTS`; summary-builder leg writes `breakout_values["country"]` (codes, label null — no name column in `dbo.Address`)
+- [X] T086 [FR-004] [FR-010] Registry: `_DIMENSION_LETTER["country"] = "C"`, `_DIMENSION_NOUN["country"]`, `country` in `_QUICK_DIMENSIONS`; worker actor `run_breakout_country` + `_BODIES` entry; seeds `('country','Country',25)` + `('run_breakout_country','Portfolio breakout by country',105)` in `0001_initial.py`, `seed_db.py`, and the unit mirror; modal `dim_meta` country pluralization + the two "line of business or state" copy strings. Dev DB pending the developer's seed refresh (`make db-rebuild` or re-run `seed_db.py`); pre-change stored summaries show Country disabled with the run-Sync reason until re-synced
+- [X] T087 [FR-004] Tests: gate country quick+eligible case, plan `P{n}-C-{token}` numbering, gateway summary + coverage legs, missing-summary loop and disabled-count assertions extended; SQL Server seed assertions updated (**unverified** — seed refresh pending); `tests/irp` selection-vocabulary loop extended with `country`
+  - Proof: `uv run pytest tests/unit` green (1018 passed, 2026-08-10)
+
 ---
 
 ## Dependencies & Execution Order

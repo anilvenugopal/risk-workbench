@@ -15,7 +15,8 @@ From the EDM detail page, an analyst can split a source portfolio into one sub-p
 
 - Break out by line of business: one sub-portfolio per distinct LOB present in the source portfolio
 - Break out by geography: one sub-portfolio per distinct state or state-equivalent (first-level administrative division) present in the source portfolio — global portfolios included
-- **Custom grouping** (follow-on, Aug 6 CIC demo — D12/D13/D17): named groups of selected values combined across dimensions (state, LOB, peril) into one sub-portfolio each, built in a cart and confirmed once (FR-018–021)
+- Break out by country (follow-on, 2026-08-10 — the extension research.md P-03 anticipated): one sub-portfolio per distinct country present in the source portfolio; values are the `Address.CountryCode`/`CountryRMSCode` codes, no name column exists in the EDM
+- **Custom grouping** (follow-on, Aug 6 CIC demo — D12/D13/D17): named groups of selected values combined across dimensions (state, LOB, country, peril) into one sub-portfolio each, built in a cart and confirmed once (FR-018–021)
 - Peril as a grouping-only dimension (P-19) — values are `loccvg.PERIL` codes
 - Preview and confirm before anything is created, with the account-overlap and blank-value disclosures
 - Lineage (source portfolio + dimension + value) stored and shown in the portfolio list; deterministic collision-safe naming
@@ -26,7 +27,7 @@ From the EDM detail page, an analyst can split a source portfolio into one sub-p
 
 - Complement split ("X vs. not-X"), "do the opposite"
 - Standalone one-per-peril quick breakout — Deferred pending the D15 team validation (P-19)
-- Country, CRESTA, or ZIP geography grain — state/state-equivalent only
+- CRESTA or ZIP geography grain — state/state-equivalent and country only
 - Portfolio edit, delete, or merge; rollback of created portfolios
 - A new current-split view — spec 004's per-portfolio table already serves that purpose and hosts these actions
 
@@ -101,7 +102,7 @@ An analyst needs a cedant's book split by state — e.g. a treaty carries a diff
 2. **Given** the preview, **When** the analyst confirms, **Then** M sub-portfolios are created — each containing exactly the source portfolio's accounts matching its state or state-equivalent — persisted and listed with lineage (dimension = state, value), same as user story 1.
 3. **Given** a multi-state commercial account in the source, **When** sub-portfolios are created, **Then** that account's full exposure appears in every state sub-portfolio it touches — and the preview's disclosure said so before the analyst confirmed.
 4. **Given** a global portfolio mixing US and non-US exposure, **When** the analyst chooses By geography (state), **Then** the preview lists every first-level administrative division present — US states and non-US equivalents side by side — with no US-only restriction.
-5. **Given** the granularity cap (§10A.2), **When** the analyst looks for finer-than-state options (CRESTA, ZIP) or a country grain, **Then** none are offered — state/state-equivalent is the only geography grain this iteration.
+5. **Given** the granularity cap (§10A.2), **When** the analyst looks for finer-than-state options (CRESTA, ZIP), **Then** none are offered — state/state-equivalent and country are the only geography grains.
 6. **Given** a source portfolio whose EDM has not been geocoded, **When** the analyst chooses By geography (state), **Then** the preview still lists every state present (codes arrive with the exposure import, names do not) and the breakout creates correctly populated sub-portfolios — geocoding is not a prerequisite.
 7. **Given** a global portfolio carrying more than 25 first-level administrative divisions, **When** the analyst opens the preview, **Then** every value is listed with nothing truncated and nothing refused, and the preview states that the run takes several minutes — one confirm, no extra gate.
 
@@ -140,7 +141,7 @@ An analyst needs "these three LOBs as one portfolio" or "Florida and Georgia hur
 
 **Breakout dimensions & value enumeration**
 
-- **FR-004**: The system MUST offer exactly two one-click breakout dimensions this iteration: **line of business** and **geography at state-or-state-equivalent grain** — the exposure's first-level administrative division (a US state, Canadian province, or equivalent), the same Moody's attribute for US and non-US exposure alike, so global portfolios break out with no separate mode. No custom filter builder, no complement split, no "do the opposite", no country/CRESTA/ZIP grain.
+- **FR-004**: The system MUST offer exactly three one-click breakout dimensions: **line of business**, **geography at state-or-state-equivalent grain** — the exposure's first-level administrative division (a US state, Canadian province, or equivalent), the same Moody's attribute for US and non-US exposure alike, so global portfolios break out with no separate mode — and **country** (added 2026-08-10; the follow-on research.md P-03 anticipated). Country values are the `Address` country codes (`CountryCode`, falling back to `CountryRMSCode`); the EDM carries no country-name column, so the code is its own display and no label is synthesized (P-12). No custom filter builder, no complement split, no "do the opposite", no CRESTA/ZIP grain.
 - **FR-005**: The values fanned out over MUST be the distinct values actually present in the source portfolio, read from the **stored** per-portfolio exposure summary maintained by the Iteration-3 backfill. Each value MUST carry the account count behind it (FR-007) and, for geography, an optional display label. Geography values are `Admin1Code` — the first-level administrative division's code, the same field for US and non-US exposure, so a global portfolio enumerates through it with no separate mode; the state *name* is a separate exposure attribute that is absent until the EDM is geocoded and MUST NOT be used as a value (P-12). The request path MUST NOT query DataBridge or Risk Modeler to enumerate values (constitution Art. 11), and the analyst MUST NOT be able to type a value (pick-list only, FR §3). The enumeration source excludes blank/unassigned values (scrubbed in the summary SQL), so blank-value exposure lands in no sub-portfolio — disclosed per FR-007; a remainder sub-portfolio is complement-split territory, out of scope.
 
 **Preview, confirmation & disclosure**

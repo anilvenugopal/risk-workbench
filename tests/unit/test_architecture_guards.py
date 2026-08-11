@@ -116,7 +116,7 @@ def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
 
 def test_every_seeded_breakout_dimension_has_its_vocabulary():
     """Per-dimension requirements (reworked for P-19). Quick-mode dimensions
-    (lob, state) need the ``portfolio_number`` letter, the noun, both
+    (lob, state, country) need the ``portfolio_number`` letter, the noun, both
     DataBridge scripts (selection + coverage), the ``run_breakout_{code}``
     job-type seed, and the worker body — a missing entry composes a wrong
     number, renders a missing noun, or fails the run. Grouping-only dimensions

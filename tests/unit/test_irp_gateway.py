@@ -165,9 +165,13 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
             {"PortfolioId": 1, "PortfolioName": "A"},
             {"PortfolioId": 2, "PortfolioName": "B"},
         ],
+        # Country values are the COALESCE'd Address codes — no name column in
+        # the EDM, so the code is its own display and the label is None (P-12).
         "portfolio_countries.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US"},
-            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CA"},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US",
+             "AccountCount": 1650},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CA",
+             "AccountCount": 51},
         ],
         "portfolio_account_total.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "AccountTotal": 1701},
@@ -217,6 +221,10 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
             {"PortfolioId": 1, "PortfolioName": "A", "CoveredAccounts": 1690,
              "MultiValueAccounts": 22},
         ],
+        "portfolio_country_coverage.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "CoveredAccounts": 1698,
+             "MultiValueAccounts": 3},
+        ],
     }
     calls: list = []
     gw = _summary_gw(hits, results, calls)
@@ -236,6 +244,9 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
               "lines_of_business": ["Auto", "Commercial"],
               "currencies": ["USD"],
               "account_total": 1701, "breakout_values": {
+                  "country": [
+                      {"value": "CA", "label": None, "accounts": 51},
+                      {"value": "US", "label": None, "accounts": 1650}],
                   "lob": [
                       {"value": "Auto", "label": None, "accounts": 900},
                       {"value": "Commercial", "label": None, "accounts": 812}],
@@ -247,6 +258,7 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
                       {"value": "FL", "label": "FLORIDA", "accounts": 1241},
                       {"value": "TX", "label": None, "accounts": 412}]},
               "breakout_coverage": {
+                  "country": {"covered": 1698, "multi_value": 3},
                   "lob": {"covered": 1690, "multi_value": 22},
                   "peril": {"covered": 1701, "multi_value": 517},
                   "state": {"covered": 1624, "multi_value": 38}}},
@@ -256,7 +268,7 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
               "breakout_coverage": {}},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 10
+    assert [db for _, db in calls] == ["edm_db"] * 11
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():

@@ -441,6 +441,12 @@ def run_breakout_state(rwb_job_id: str) -> None:
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+def run_breakout_country(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _run_breakout_body(rwb_job_id))
+
+
+@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_custom(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
                     body=lambda: _run_breakout_group_body(rwb_job_id))
@@ -451,6 +457,7 @@ def run_breakout_custom(rwb_job_id: str) -> None:
 _BODIES: dict[str, Callable[[Any], runtime.JobResult]] = {
     "run_breakout_lob": _run_breakout_body,
     "run_breakout_state": _run_breakout_body,
+    "run_breakout_country": _run_breakout_body,
     "run_breakout_custom": _run_breakout_group_body,
 }
 
@@ -466,5 +473,5 @@ def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") ->
                            body=lambda: body(rwb_job_id))
 
 
-__all__ = ["run_breakout_lob", "run_breakout_state", "run_breakout_custom",
-           "run_one"]
+__all__ = ["run_breakout_lob", "run_breakout_state", "run_breakout_country",
+           "run_breakout_custom", "run_one"]
