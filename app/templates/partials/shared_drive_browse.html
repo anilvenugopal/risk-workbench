@@ -2,19 +2,27 @@
   {% if error %}
   <div class="drive-browse__error">{{ error }}</div>
   {% else %}
+  {# dirs_only: the submission form's directory picker. Folders still navigate;
+     the bar button picks the folder being listed. app.js `directoryPicker` reads
+     data-select-dir off a delegated click, since this fragment arrives via htmx. #}
+  {% set mode = '&dirs_only=1' if dirs_only else '' %}
   <div class="drive-browse__bar">
     <span class="drive-browse__path" title="{{ listing.path }}">{{ listing.path }}</span>
+    {% if dirs_only %}
+    <button class="btn-sm" type="button" data-select-dir="{{ listing.path }}">
+      Use this folder</button>
+    {% endif %}
     {% if listing.parent %}
-    <a class="btn-sm" href="#" hx-get="/browse?path={{ listing.parent | urlencode }}"
+    <a class="btn-sm" href="#" hx-get="/browse?path={{ listing.parent | urlencode }}{{ mode }}"
        hx-target="#shared-drive-browse" hx-swap="outerHTML">↑ Up</a>
     {% endif %}
   </div>
 
   <ul class="drive-browse__list">
-    {% for entry in listing.entries %}
+    {% for entry in listing.entries if entry.is_dir or not dirs_only %}
       {% if entry.is_dir %}
       <li class="drive-browse__row drive-browse__row--dir">
-        <a href="#" hx-get="/browse?path={{ entry.path | urlencode }}"
+        <a href="#" hx-get="/browse?path={{ entry.path | urlencode }}{{ mode }}"
            hx-target="#shared-drive-browse" hx-swap="outerHTML">📁 {{ entry.name }}</a>
       </li>
       {% else %}
@@ -29,7 +37,9 @@
       </li>
       {% endif %}
     {% else %}
-    <li class="drive-browse__empty">This folder is empty.</li>
+    <li class="drive-browse__empty">
+      {{ "This folder has no subfolders." if dirs_only else "This folder is empty." }}
+    </li>
     {% endfor %}
   </ul>
   {% endif %}

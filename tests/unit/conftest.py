@@ -42,15 +42,17 @@ def fake_irp():
 
 @pytest.fixture()
 def drive(tmp_path, monkeypatch):
-    """A real on-disk shared-drive root with a few exposure files, wired into
-    ``settings.shared_drive_root`` so ``shared_drive.validate_selection`` (and thus
-    ``import_edm``/``import_rdm``) accept selections within it. Returns the root
-    ``Path``; build a source path with ``str(drive / 'edm1.bak')``."""
+    """A real on-disk shared-drive root with a few exposure files and a nested
+    ``deals/zephyr`` folder, wired into ``settings.shared_drive_root`` so
+    ``shared_drive.validate_selection`` (and thus ``import_edm``/``import_rdm``) accept
+    selections within it, and ``validate_directory`` accepts the folders. Returns the
+    root ``Path``; build a source path with ``str(drive / 'edm1.bak')``."""
     from app.config import settings
 
     root = tmp_path / "share"
     root.mkdir()
     for fname in ("edm1.bak", "edm2.bak", "rdm1.mdf", "rdm2.mdf"):
         (root / fname).write_text("x")
+    (root / "deals" / "zephyr").mkdir(parents=True)
     monkeypatch.setattr(settings, "shared_drive_root", str(root))
     return root

@@ -96,4 +96,14 @@ def validate_selection(path: str) -> str:
     return resolved
 
 
-__all__ = ["DirEntry", "DirListing", "browse", "validate_selection"]
+def validate_directory(path: str) -> str:
+    """Confirm ``path`` is within the root and is a directory; return the canonical
+    path to store on the submission. Raises ``InvalidSourceFile`` otherwise."""
+    resolved = _resolve_within_root(path)
+    if not os.path.isdir(resolved):
+        raise InvalidSourceFile(f"Not a directory: {path!r}")
+    return resolved
+
+
+__all__ = ["DirEntry", "DirListing", "browse", "validate_directory",
+           "validate_selection"]
