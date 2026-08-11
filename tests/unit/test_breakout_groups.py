@@ -350,7 +350,7 @@ def test_group_worker_unions_within_and_intersects_across(
     assert fake_irp.created_sub_portfolios[0]["name"] == "Coastal"
     assert fake_irp.created_sub_portfolios[0]["number"] == "Coastal"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
-        "Breakout of portfolio usfl_commercial by custom group Coastal: "
+        "Custom breakout Coastal of portfolio usfl_commercial: "
         "lob IN (EQ Comm) AND state IN (CA, TX)")
     rows = _generated_rows(pid)
     assert len(rows) == 1
@@ -435,7 +435,7 @@ def test_group_worker_unusable_group_fails_with_nothing(
          "now": datetime.utcnow()}, connection="WORKBENCH")
     job = _run(jid)
     assert job["status_code"] == "failed"
-    assert "approved group unusable" in job["error_detail"]
+    assert "approved breakout unusable" in job["error_detail"]
     assert _generated_rows(pid) == []
 
 
@@ -489,7 +489,7 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
     banner = state.banner
     assert banner is not None
     assert (banner.created, banner.failed, banner.ok) == (1, 1, False)
-    assert banner.noun == "custom group"
+    assert banner.noun == "custom"
     assert banner.filling_in is True               # the follow-up backfill queued
     lines = state.errors[pid]
     assert len(lines) == 1

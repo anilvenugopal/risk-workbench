@@ -59,7 +59,7 @@ LARGE_FANOUT_THRESHOLD = 25
 _DIMENSION_LETTER = {"lob": "L", "state": "S"}
 # Analyst-facing noun per dimension for disabled-with-reason copy.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
-                   "peril": "peril", "custom": "custom group"}
+                   "peril": "peril", "custom": "custom"}
 # Quick mode (one sub-portfolio per value) runs these dimensions only. peril
 # is grouping-only (P-19): no portfolio_number letter, no run_breakout_peril
 # job type, never offered in the quick-mode chooser. "custom" is the grouping
@@ -670,7 +670,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     them, which also rules out bounding the read by age. Custom-group jobs
     reach their source portfolio through ``breakout_group.source_portfolio_id``
     (FR-015 as amended); a live cart renders one flight per portfolio
-    ("custom groups: k of n done") and terminal jobs sharing the newest
+    ("custom breakouts: k of n done") and terminal jobs sharing the newest
     ``cart_id`` aggregate into one banner (FR-020)."""
     live = execute(
         "SELECT rj.requestor_id, rj.rwb_job_type, rj.input_data "
@@ -714,7 +714,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
     for row in live_custom:
         live_by_pid.setdefault(_uid(row["pid"]), []).append(row)
     for pid, live_rows in live_by_pid.items():
-        # The episode is the cart (FR-020): "custom groups: k of n done" counts
+        # The episode is the cart (FR-020): "custom breakouts: k of n done" counts
         # every group of the live jobs' cart — the already-completed ones
         # included — with done = the groups whose live lineage row exists, so
         # the counter advances every poll like the quick flight's.
@@ -917,7 +917,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
         raise GateRefused(f"unknown breakout dimension {dimension!r}")
     if not eligibility.quick:
         raise GateRefused(f"{eligibility.label} does not run as a one-per-value "
-                          "breakout — use a custom group (P-19)")
+                          "breakout — use a custom breakout (P-19)")
     if not eligibility.eligible:
         raise GateRefused(eligibility.reason or "dimension is not eligible")
 
@@ -1004,7 +1004,7 @@ def _validate_group_filters(gate: BreakoutGate, filters: Any,
     every value exists in it — client JSON is never trusted. Returns the
     canonical (sorted, deduped) filter dict."""
     if not isinstance(filters, dict) or not filters:
-        raise GateRefused("a group needs at least one dimension filter")
+        raise GateRefused("a breakout needs at least one dimension filter")
     canonical: dict[str, list[str]] = {}
     for code in sorted(filters):
         values = filters[code]
@@ -1020,7 +1020,7 @@ def _validate_group_filters(gate: BreakoutGate, filters: Any,
         if unknown:
             raise GateRefused(
                 f"unknown {d.noun} value(s): {', '.join(unknown)} — the stored "
-                "summary does not carry them; Sync the EDM and rebuild the group")
+                "summary does not carry them; Sync the EDM and rebuild the breakout")
         canonical[code] = sorted(set(values))
     return canonical
 
@@ -1071,20 +1071,20 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
     plans: list[GroupPlan] = []
     for g in groups:
         if not isinstance(g, dict):
-            raise GateRefused("malformed group")
+            raise GateRefused("malformed breakout")
         label = g.get("label")
         if not isinstance(label, str) or not label.strip():
-            raise GateRefused("every group needs a name")
+            raise GateRefused("every breakout needs a name")
         label = label.strip()
         if len(label) > PORTFOLIO_NAME_MAX:
             raise GateRefused(
-                f"group names cap at {PORTFOLIO_NAME_MAX} characters")
+                f"breakout names cap at {PORTFOLIO_NAME_MAX} characters")
         filters = _validate_group_filters(gate, g.get("filters"))
         key = compute_group_key(filters)
         if any(p.key == key for p in plans):
             raise GateRefused(
-                f"two groups in the cart have the same members — a group is "
-                f"its member set, so {label!r} duplicates an earlier row")
+                f"two breakouts in the cart have the same members — a breakout "
+                f"is its member set, so {label!r} duplicates an earlier row")
         row = existing.get(key)
         if row is not None:
             label, name, number = (str(row["label"]), str(row["name"]),
@@ -1197,7 +1197,7 @@ def request_group_breakout(edm_id: Any, portfolio_id: Any,
     if gate.in_flight is not None:
         return None
     if not groups:
-        raise GateRefused("the cart is empty — add at least one group")
+        raise GateRefused("the cart is empty — add at least one breakout")
     if gate.summary_as_of != (str(summary_as_of) if summary_as_of else None):
         raise SummaryRewritten(
             "This EDM was synced while you were reviewing — here is the "
@@ -1256,18 +1256,18 @@ def load_approved_group(input_data: dict) -> ApprovedGroup:
     nothing created."""
     raw = (input_data or {}).get("group")
     if not isinstance(raw, dict):
-        raise ValueError("approved group is missing in input_data")
+        raise ValueError("approved breakout is missing in input_data")
     fields = {k: raw.get(k) for k in ("id", "key", "label", "name", "number")}
     if not all(isinstance(v, str) and v for v in fields.values()):
-        raise ValueError("approved group is missing id/key/label/name/number")
+        raise ValueError("approved breakout is missing id/key/label/name/number")
     filters_raw = raw.get("filters")
     if not isinstance(filters_raw, dict) or not filters_raw:
-        raise ValueError("approved group carries no member filters")
+        raise ValueError("approved breakout carries no member filters")
     filters: dict[str, list[str]] = {}
     for dim, values in filters_raw.items():
         if not (isinstance(dim, str) and dim and isinstance(values, list)
                 and values and all(isinstance(v, str) and v for v in values)):
-            raise ValueError("approved group filters are malformed")
+            raise ValueError("approved breakout filters are malformed")
         filters[dim] = list(values)
     return ApprovedGroup(id=fields["id"], key=fields["key"],
                          label=fields["label"], filters=filters,

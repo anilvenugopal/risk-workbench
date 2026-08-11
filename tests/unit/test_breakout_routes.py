@@ -572,7 +572,7 @@ def test_modal_custom_mode_renders_pills_checkboxes_and_cart(
     r = client.get(_url(edm_id, pid) + "?mode=custom")
     assert r.status_code == 200
     # mode tabs, with Custom selected
-    assert "Quick breakout" in r.text and "Custom groups" in r.text
+    assert "Quick breakout" in r.text and "Custom breakouts" in r.text
     # every eligible dimension is a pill — peril included (P-19)
     assert "Peril" in r.text
     # every dimension's checkboxes arrive in this one fetch (T-15)
@@ -582,7 +582,7 @@ def test_modal_custom_mode_renders_pills_checkboxes_and_cart(
     # no quick preview list, no quick confirm
     assert "Generated name" not in r.text
     assert 'name="dimension"' not in r.text
-    assert "No groups yet" in r.text
+    assert "No breakouts yet" in r.text
     assert f'action="{_url(edm_id, pid)}/groups"' in r.text
     # the group-name input carries the as-you-type check (P-25) and the
     # 40-char RM name limit directly (P-24)
@@ -657,7 +657,7 @@ def test_group_preview_adopted_set_is_not_name_blocked(
     r = _add_group(client, edm_id, pid, label="Coastal",
                    selections={"state": ["TX"]})
     assert r.status_code == 200
-    assert "existing group" in r.text
+    assert "existing breakout" in r.text
 
 
 def test_breakout_name_check_renders_the_collision_fragment(
@@ -703,7 +703,7 @@ def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
     assert r.status_code == 200
     assert r.headers["HX-Retarget"] == "#edm-detail"
     toast = json.loads(r.headers["HX-Trigger"])["rwb:toast"]
-    assert toast["message"] == "Breakout started — 2 groups"
+    assert toast["message"] == "Breakout started — 2 sub-portfolios"
     jobs = _breakout_jobs()
     assert len(jobs) == 2
     assert {j["requestor_type"] for j in jobs} == {"breakout_group"}

@@ -40,7 +40,7 @@
     <input type="hidden" name="dimension" value="{{ modal.dimension }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
   {% elif cart_ready %}
-  {# The cart form (FR-018): "Add group" posts THIS form's fields to the
+  {# The cart form (FR-018): "Add breakout" posts THIS form's fields to the
      group-preview route (server-composed row appended to the cart); the
      submit posts the carted group JSONs to the cart confirm. n counts the
      cart rows — a tiny Alpine sliver; the server re-validates everything. #}
@@ -96,13 +96,13 @@
                 hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Quick breakout</button>
         <button type="button" class="bo-tab"
                 {% if custom_mode %}aria-selected="true"{% else %}hx-get="{{ base_url }}?mode=custom"
-                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Custom groups</button>
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Custom breakouts</button>
       </div>
       {% endif %}
 
       {% if custom_mode %}
       {% if cart_ready %}
-      {# Add group is gated the way Import is (importForm pattern): disabled
+      {# Add breakout is gated the way Import is (importForm pattern): disabled
          until the as-you-type check comes back usable — 'ok', or 'unchecked'
          when Risk Modeler was unreachable (fail-open; the Add-time re-check
          in the group-preview route is the backstop). #}
@@ -142,7 +142,7 @@
            present in the EDM (P-25 — the EDM import name-check pattern). #}
         <div class="bo-addrow">
           <input type="text" name="group_label" maxlength="{{ name_max }}"
-                 placeholder="Group name — e.g. Coastal HU" class="nc-input"
+                 placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
                  @input="nameVal = $el.value; nameState = 'pending';
                          ncReset($el.closest('form').querySelector('.name-collision'))"
                  hx-get="{{ base_url }}/name-check"
@@ -159,7 +159,7 @@
                     f.querySelector('#bo-cart-error').innerHTML = '';
                     ncReset(f.querySelector('.name-collision'));
                     nameVal = ''; nameState = 'pending';
-                  }">Add group</button>
+                  }">Add breakout</button>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
@@ -168,11 +168,11 @@
       <div class="bo-cart">
         <div class="bo-cart__head">Cart</div>
         <div id="bo-cart-rows"></div>
-        <div class="bo-cart__empty" x-show="n === 0">No groups yet — tick
-          values across any dimensions, name the group, and Add.</div>
+        <div class="bo-cart__empty" x-show="n === 0">No breakouts yet — tick
+          values across any dimensions, name the breakout, and Add.</div>
       </div>
-      <div class="bo-note bo-note--overlap">Groups can overlap — an account
-        matching every filter of two groups is included in full in each.
+      <div class="bo-note bo-note--overlap">Breakouts can overlap — an account
+        matching every filter of two breakouts is included in full in each.
         Exact counts arrive when the run completes.</div>
       {% else %}
       <div class="bo-pills">
@@ -189,7 +189,7 @@
         {{ gate.reason }}.</div>
       {% else %}
       <div class="bo-note bo-note--plain">No dimension carries two or more
-        distinct values — custom groups read the stored exposure summary.
+        distinct values — custom breakouts read the stored exposure summary.
         {{ sync_button('Run Sync') }} to refresh it.</div>
       {% endif %}
       {% endif %}
@@ -306,7 +306,7 @@
       <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
       {% elif cart_ready %}
       <span class="bo-modal__count"><strong x-text="n">0</strong>
-        <span x-text="n === 1 ? 'group' : 'groups'">groups</span></span>
+        <span x-text="n === 1 ? 'breakout' : 'breakouts'">breakouts</span></span>
       <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
       <button type="submit" class="btn-sm btn-sm--primary" :disabled="n === 0"
               x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>

@@ -345,7 +345,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
     try:
         group = breakout_service.load_approved_group(ctx)
     except ValueError as exc:
-        return runtime.JobResult.fail(f"approved group unusable: {exc}")
+        return runtime.JobResult.fail(f"approved breakout unusable: {exc}")
     entry = breakout_service.SubPortfolioPlan(
         value=group.key, label=group.label, name=group.name,
         number=group.number, accounts=0, exists=False)
@@ -378,8 +378,8 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
 
     # The RM description lists the full filter set untruncated (FR-010
     # pattern) — it carries the membership rule the 40-character name cannot.
-    description = (f"Breakout of portfolio {source['name']} by custom group "
-                   f"{group.label}: "
+    description = (f"Custom breakout {group.label} of portfolio "
+                   f"{source['name']}: "
                    + " AND ".join(f"{dim} IN ({', '.join(group.filters[dim])})"
                                   for dim in sorted(group.filters)))
     if not ids:
@@ -387,7 +387,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
         # exist, but no single account carries one from EVERY dimension.
         outcomes = [_failed(entry, source_id=source["id"], actor_id=actor_id,
                             error="no account matches every filter of this "
-                                  "group — nothing was created")]
+                                  "breakout — nothing was created")]
     else:
         selection = irp_gateway.BreakoutSelection(
             accounts_by_value={group.key: sorted(ids)}, errors_by_value={})
@@ -417,7 +417,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
                 outcomes[0].outcome)
     if succeeded == 0:
         return runtime.JobResult.fail(
-            outcomes[0].error or "the group failed", **output)
+            outcomes[0].error or "the breakout failed", **output)
     return runtime.JobResult(status="succeeded", output=output)
 
 

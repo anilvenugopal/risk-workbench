@@ -9,7 +9,7 @@
 
    No fixed id: the swap target is positional (hx-target="next .name-collision"),
    so the same fragment serves the standalone import pages, each package-modal
-   row, and the breakout modal's group-name check (kind='portfolio', which also
+   row, and the breakout modal's breakout-name check (kind='portfolio', which also
    switches scope to "this EDM" and the blocked verb to `action`). `check` is
    None on first paint; `name` is the value that was checked — an empty one
    comes back clear but must not claim the name is available. #}
@@ -27,7 +27,7 @@
   {% elif nc == 'unchecked' %}
   <div class="name-collision__warn" role="status">
     Couldn't reach Risk Modeler to check this name.
-    {% if kind == 'portfolio' %}You can still add the group, but its run will
+    {% if kind == 'portfolio' %}You can still add the breakout, but its run will
     fail if the name is already taken.{% else %}You can still save, but the
     import will fail if the name is already taken.{% endif %}
   </div>

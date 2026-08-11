@@ -180,10 +180,10 @@ def _carted_groups(form) -> list[dict]:
             parsed = json.loads(raw)
         except ValueError:
             raise GateRefused("a cart row is malformed — remove it and add "
-                              "the group again") from None
+                              "the breakout again") from None
         if not isinstance(parsed, dict):
             raise GateRefused("a cart row is malformed — remove it and add "
-                              "the group again")
+                              "the breakout again")
         groups.append({"label": parsed.get("label"),
                        "filters": parsed.get("filters")})
     return groups
@@ -280,7 +280,8 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
     response.headers["HX-Reswap"] = "outerHTML"
     n = len(job_ids)
     response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": f"Breakout started — {n} group{'' if n == 1 else 's'}",
+        "message": f"Breakout started — {n} sub-portfolio"
+                   f"{'' if n == 1 else 's'}",
         "type": "success"}})
     return response
 
