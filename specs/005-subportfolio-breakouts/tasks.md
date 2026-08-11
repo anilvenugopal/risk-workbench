@@ -221,6 +221,7 @@ continue from the tables in spec.md/plan.md.
 
 - [X] T088 [P-27] [FR-014] `portfolio_row.html`: the `bo-lineage` badge leaves the collapsed row; the expanded panel of a generated row gains a Base portfolio + Breakout criteria block above the value lists — quick rows render `{dimension label} IN ({display value})`, custom rows the `dim IN (…)` AND-joined filter set from `breakout_group.filters` (the RM description format); `.bo-lineage` CSS replaced by `.drow-lineage`. Template-only — the read model already carries every field. Render test in `test_edm_sync.py` (badge absent, both criteria formats, base rows render nothing)
   - Proof: `uv run pytest tests/unit` green (1019 passed, 2026-08-11)
+- [X] T089 [P-27] [FR-014] Removing the badge left nothing on the collapsed row to say a portfolio came from a breakout. `portfolio_row.html`: a `Breakout` marker (`.dt-flag`, hover title naming the base portfolio) sits on the name cell's sub-line beside `Portfolio #{id}`; the criteria stay in the expanded panel. `.dt-subline` + `.dt-flag` added to `details.css`. Render test in `test_edm_sync.py` counts the marker on generated rows only
 
 ---
 

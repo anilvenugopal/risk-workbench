@@ -513,11 +513,11 @@ def test_page_render_carries_the_section_and_oob_targets_without_oob_attrs(
 
 
 def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
-    # FR-014 as revised 2026-08-11: the collapsed table row carries no lineage
-    # badge; expanding a generated row shows the base portfolio and the
-    # breakout criteria in the Risk Modeler description format — the dimension
-    # label + display value for a quick breakout, the AND-joined filter set for
-    # a custom group. Base rows render neither.
+    # FR-014 as revised 2026-08-11: the collapsed table row carries only the
+    # Breakout marker; expanding a generated row shows the base portfolio and
+    # the breakout criteria in the Risk Modeler description format — the
+    # dimension label + display value for a quick breakout, the AND-joined
+    # filter set for a custom group. Base rows render neither.
     from app.services.portfolio_service import PortfolioRow
     common = dict(edm_id="edm-1", exposure_detail=None, as_of=None)
     base = PortfolioRow(id="p0", name="cbhu", irp_id="1", **common)
@@ -540,10 +540,10 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                             portfolios=[base, quick, custom],
                             as_of="2026-08-11 10:00:00"))
     html = _client().get("/edms/edm-1/portfolios-section").text
-    assert "bo-lineage" not in html
+    assert html.count("dt-flag") == 2          # the two generated rows only
     assert "Line of business IN (Homeowners)" in html
     assert "lob IN (Homeowners) AND state IN (FL, GA)" in html
-    assert html.count("Base portfolio") == 2   # the two generated rows only
+    assert html.count("Base portfolio") == 2
 
 
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):

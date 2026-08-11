@@ -44,7 +44,13 @@
     <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
-        {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+        <span class="dt-subline">
+          {# spec 005 US3 (FR-014 rev. 2026-08-11): the collapsed row marks a
+             generated sub-portfolio as a breakout and nothing more — the base
+             portfolio and the criteria are in the expanded panel below. #}
+          {% if p.source_name %}<span class="dt-flag" title="Sub-portfolio broken out from {{ p.source_name }} — expand the row for the breakout criteria">Breakout</span>{% endif %}
+          {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+        </span>
       </span>
       {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
          near the expand affordance; EDM ready only. Clicking must not toggle
