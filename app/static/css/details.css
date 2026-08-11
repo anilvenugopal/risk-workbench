@@ -170,6 +170,11 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .bo-check input { margin: 0; }
 .bo-check__label { color: var(--text-tertiary); font-size: var(--fs-caption); }
 .bo-check__accounts { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-tertiary); font-size: var(--fs-caption); }
+.bo-picked { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.bo-picked__chip { display: inline-flex; align-items: center; gap: var(--space-1); font: inherit; font-size: var(--fs-caption); border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: 1px var(--space-2); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.bo-picked__chip:hover { border-color: var(--color-danger); color: var(--color-danger); }
+.bo-picked__dim { color: var(--text-tertiary); }
+.bo-picked__x { color: var(--text-tertiary); }
 .bo-addrow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 .bo-addrow input[type=text] { flex: 1; height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; font-size: var(--fs-label); }
 .bo-cart { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }

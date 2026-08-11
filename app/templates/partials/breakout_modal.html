@@ -106,9 +106,12 @@
          until the as-you-type check comes back usable — 'ok', or 'unchecked'
          when Risk Modeler was unreachable (fail-open; the Add-time re-check
          in the group-preview route is the backstop). #}
-      <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending',
+      <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
+                     resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
+                       ({ name: c.name, v: c.value, d: c.closest('.bo-checks').dataset.dimlabel })) },
                      get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
                      get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
+           @change="resel()"
            @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
@@ -126,6 +129,7 @@
         </div>
         {% for d in groupable %}
         <div class="bo-checks" x-show="dim === '{{ d.dimension }}'"
+             data-dimlabel="{{ d.label }}"
              {% if not loop.first %}style="display:none"{% endif %}>
           {% for v in d.values %}
           <label class="bo-check">
@@ -137,6 +141,19 @@
           {% endfor %}
         </div>
         {% endfor %}
+        {# Ticked values across every dimension, as chips — derived from the
+           checkboxes, so it clears with them when Add breakout succeeds.
+           Clicking a chip unticks the box. #}
+        <div class="bo-picked" x-show="sel.length" x-cloak>
+          <template x-for="s in sel" :key="s.name + '|' + s.v">
+            <button type="button" class="bo-picked__chip" :title="'Remove ' + s.v"
+                    @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
+                              .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
+                            resel()">
+              <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.v"></span><span class="bo-picked__x">×</span>
+            </button>
+          </template>
+        </div>
         {# The name is the sub-portfolio name, exactly as typed (P-24); the
            as-you-type check and the Add-time block refuse a name already
            present in the EDM (P-25 — the EDM import name-check pattern). #}
@@ -158,7 +175,7 @@
                     f.querySelector('[name=group_label]').value = '';
                     f.querySelector('#bo-cart-error').innerHTML = '';
                     ncReset(f.querySelector('.name-collision'));
-                    nameVal = ''; nameState = 'pending';
+                    nameVal = ''; nameState = 'pending'; resel();
                   }">Add breakout</button>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
