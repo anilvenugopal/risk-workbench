@@ -512,6 +512,40 @@ def test_page_render_carries_the_section_and_oob_targets_without_oob_attrs(
     assert "hx-swap-oob" not in html
 
 
+def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
+    # FR-014 as revised 2026-08-11: the collapsed table row carries no lineage
+    # badge; expanding a generated row shows the base portfolio and the
+    # breakout criteria in the Risk Modeler description format — the dimension
+    # label + display value for a quick breakout, the AND-joined filter set for
+    # a custom group. Base rows render neither.
+    from app.services.portfolio_service import PortfolioRow
+    common = dict(edm_id="edm-1", exposure_detail=None, as_of=None)
+    base = PortfolioRow(id="p0", name="cbhu", irp_id="1", **common)
+    quick = PortfolioRow(id="p1", name="cbhu - Homeowners", irp_id="2",
+                         source_portfolio_id="p0", source_name="cbhu",
+                         breakout_dimension_code="lob",
+                         breakout_dimension_label="Line of business",
+                         breakout_value="Homeowners", **common)
+    custom = PortfolioRow(id="p2", name="Coastal HU", irp_id="3",
+                          source_portfolio_id="p0", source_name="cbhu",
+                          breakout_dimension_code="custom",
+                          breakout_value="a1b2c3",
+                          breakout_group_label="Coastal HU",
+                          breakout_group_filters={"state": ["FL", "GA"],
+                                                  "lob": ["Homeowners"]},
+                          **common)
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=3,
+                            portfolios=[base, quick, custom],
+                            as_of="2026-08-11 10:00:00"))
+    html = _client().get("/edms/edm-1/portfolios-section").text
+    assert "bo-lineage" not in html
+    assert "Line of business IN (Homeowners)" in html
+    assert "lob IN (Homeowners) AND state IN (FL, GA)" in html
+    assert html.count("Base portfolio") == 2   # the two generated rows only
+
+
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):
     # Treaties polish (2026-07-24): the Export button sits IN the header row
     # (no sec__action block below it any more) and the old read-only note is a

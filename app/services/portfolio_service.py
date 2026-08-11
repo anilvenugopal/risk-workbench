@@ -53,8 +53,8 @@ class PortfolioRow:
     # per dimension (list of breakout_service.BreakoutRowError).
     breakout_flight: Any = None
     breakout_errors: list = field(default_factory=list)
-    # Spec 005 US3 (FR-014): breakout lineage for the row badge
-    # "↳ from {source} · {dimension label}: {value}". All None/absent for
+    # Spec 005 US3 (FR-014 as revised 2026-08-11): breakout lineage for the
+    # expanded row's base-portfolio + criteria block. All None/absent for
     # broker-arrived portfolios. source_name is the IMMEDIATE source only —
     # chained lineage is never rendered as a chain.
     source_portfolio_id: str | None = None
@@ -70,7 +70,7 @@ class PortfolioRow:
     breakout_value_label: str | None = None
     # Custom-group lineage (spec 005 follow-on T-12), joined from
     # breakout_group; None for quick-mode and broker-arrived rows. filters is
-    # the parsed member-filter dict for the badge tooltip.
+    # the parsed member-filter dict the criteria line renders.
     breakout_group_label: str | None = None
     breakout_group_filters: dict | None = None
 

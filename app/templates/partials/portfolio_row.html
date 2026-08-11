@@ -8,7 +8,9 @@
    an error. Records == locations, so there is no separate Records column
    (preview rev 7). Expanding the row (8/4 CR15) reveals the FULL value lists
    the collapsed cells truncate — lines of business, countries, states,
-   currencies — capped at 100 values each (CR19). #}
+   currencies — capped at 100 values each (CR19) — and, on a generated
+   sub-portfolio, its lineage: the base portfolio and the breakout criteria
+   (FR-014 as revised 2026-08-11; the collapsed row carries no lineage). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -43,17 +45,6 @@
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
-        {# spec 005 US3 (FR-014): the lineage badge on generated rows —
-           the IMMEDIATE source only, never a rendered chain; broker-arrived
-           rows (source_name null) are unchanged. A custom-group row (T-12)
-           badges its group label with the member filters in the tooltip. #}
-        {% if p.source_name %}
-        {% if p.breakout_dimension_code == 'custom' %}
-        <span class="bo-lineage"{% if p.breakout_group_filters %} title="{% for dim, vals in p.breakout_group_filters.items()|sort %}{{ dim }}: {{ vals|join(', ') }}{% if not loop.last %} · {% endif %}{% endfor %}"{% endif %}>↳ from <strong>{{ p.source_name }}</strong> · breakout: <strong>{{ p.breakout_group_label or p.breakout_value }}</strong></span>
-        {% else %}
-        <span class="bo-lineage">↳ from <strong>{{ p.source_name }}</strong> · {{ p.breakout_dimension_label or p.breakout_dimension_code }}: <strong>{{ p.breakout_value_label or p.breakout_value }}</strong></span>
-        {% endif %}
-        {% endif %}
       </span>
       {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
          near the expand affordance; EDM ready only. Clicking must not toggle
@@ -103,6 +94,32 @@
   </span>
   </summary>
   <div class="drow__body drow__body--recessed">
+    {# spec 005 US3 (FR-014 as revised 2026-08-11): lineage renders here, in
+       the expanded panel of a generated row only — the IMMEDIATE source, never
+       a rendered chain, plus the breakout criteria in the Risk Modeler
+       description format. Base and broker-arrived rows render none of it. #}
+    {% if p.source_name %}
+    <dl class="drow-lists drow-lineage">
+      <div>
+        <dt>Base portfolio</dt>
+        <dd>{{ p.source_name }}</dd>
+      </div>
+      <div>
+        <dt>Breakout criteria</dt>
+        <dd>
+          {%- if p.breakout_dimension_code == 'custom' -%}
+            {%- if p.breakout_group_filters -%}
+              {%- for dim, vals in p.breakout_group_filters|dictsort -%}
+                {{ dim }} IN ({{ vals|join(', ') }}){% if not loop.last %} AND {% endif %}
+              {%- endfor -%}
+            {%- else -%}{{ p.breakout_group_label or p.breakout_value }}{%- endif -%}
+          {%- else -%}
+            {{ p.breakout_dimension_label or p.breakout_dimension_code }} IN ({{ p.breakout_value_label or p.breakout_value }})
+          {%- endif -%}
+        </dd>
+      </div>
+    </dl>
+    {% endif %}
     {% if lobs or countries or states or curr %}
     <dl class="drow-lists">
       {% for label, values in [('Lines of business', lobs), ('Countries', countries),

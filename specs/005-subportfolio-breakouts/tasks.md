@@ -217,6 +217,11 @@ continue from the tables in spec.md/plan.md.
 - [X] T087 [FR-004] Tests: gate country quick+eligible case, plan `P{n}-C-{token}` numbering, gateway summary + coverage legs, missing-summary loop and disabled-count assertions extended; SQL Server seed assertions updated (**unverified** — seed refresh pending); `tests/irp` selection-vocabulary loop extended with `country`
   - Proof: `uv run pytest tests/unit` green (1018 passed, 2026-08-10)
 
+### Workstream 7 — lineage moved into the expanded row (P-27, FR-014 rev. 2026-08-11)
+
+- [X] T088 [P-27] [FR-014] `portfolio_row.html`: the `bo-lineage` badge leaves the collapsed row; the expanded panel of a generated row gains a Base portfolio + Breakout criteria block above the value lists — quick rows render `{dimension label} IN ({display value})`, custom rows the `dim IN (…)` AND-joined filter set from `breakout_group.filters` (the RM description format); `.bo-lineage` CSS replaced by `.drow-lineage`. Template-only — the read model already carries every field. Render test in `test_edm_sync.py` (badge absent, both criteria formats, base rows render nothing)
+  - Proof: `uv run pytest tests/unit` green (1019 passed, 2026-08-11)
+
 ---
 
 ## Dependencies & Execution Order
