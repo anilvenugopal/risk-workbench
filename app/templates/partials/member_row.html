@@ -1,10 +1,9 @@
 {# One package member as an expandable row (Option C). Collapsed: kind + name
    (a link to the member's detail page — spec 004) + status chip + source path.
-   Expanded: the per-EDM aggregate orientation line (FR-041, from the same
-   derived rollup as the EDM-page strip; graceful pending when no snapshot,
-   FR-043) + the now-POPULATED analysis counts (FR-050) — or the retry action
-   for a failed import. The whole card is the HTMX swap target, so retry
-   re-renders the parent card. #}
+   Expanded: the analysis counts (FR-050) + the detail-page link — or the retry
+   action for a failed import. The per-EDM aggregate line is gone with the EDM
+   aggregate strip (8/4 D12 — its location count double-counts). The whole card
+   is the HTMX swap target, so retry re-renders the parent card. #}
 {%- set detail_url = '/edms/' ~ member.id if member.kind == 'edm' else '/rdms/' ~ member.id -%}
 <details class="member-xrow" id="member-{{ member.id }}">
   <summary>
@@ -66,28 +65,13 @@
     </div>
     {% elif member.kind == 'edm' %}
     <div style="grid-column: 1 / -1;">
-      {% if member.aggregate %}
-      {%- set agg = member.aggregate -%}
-      <dd class="member-agg" style="margin: 0;">
-        <strong>{{ agg.portfolio_count }}</strong> portfolio{{ '' if agg.portfolio_count == 1 else 's' }}
-        {%- if agg.locations is not none %} · <strong>{{ '{:,.0f}'.format(agg.locations) }}</strong> locations{% endif %}
-        {%- if agg.perils %} · {{ agg.perils | join(', ') }}{% endif %}
-        {%- if agg.currencies %} · {{ agg.currencies[:3] | join(', ') }}{% endif %}
-        {%- if member.analysis_counts and member.analysis_counts.total -%}
-          · <strong>{{ member.analysis_counts.total }}</strong> broker analys{{ 'is' if member.analysis_counts.total == 1 else 'es' }}
-          ({{ member.analysis_counts.linked }} linked)
-        {%- endif %}
-        · <a href="{{ detail_url }}">Open EDM →</a>
-      </dd>
-      {% else %}
       <dd class="tag-empty" style="margin: 0;">
-        Exposure detail pending — populated automatically after import
+        Per-portfolio detail is on the EDM page
         {%- if member.analysis_counts and member.analysis_counts.total -%}
           &nbsp;· <strong>{{ member.analysis_counts.total }}</strong> broker analys{{ 'is' if member.analysis_counts.total == 1 else 'es' }}
         {%- endif %}
         · <a href="{{ detail_url }}">Open EDM →</a>
       </dd>
-      {% endif %}
     </div>
     {% else %}
     <div style="grid-column: 1 / -1;">

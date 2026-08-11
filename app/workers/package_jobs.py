@@ -454,7 +454,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
                        edm_id, exc)
         return runtime.JobResult.fail(f"portfolio enumeration failed: {exc}")
 
-    # ONE DataBridge aggregate per EDM (TIV/geography/LOB/currency — absent
+    # ONE DataBridge aggregate per EDM (geography/LOB/currency — absent
     # from every RM REST read; Addendum A T057). Enrichment only: ANY failure
     # (databaseName resolution / databridge extra / env / SQL) degrades to
     # "summary": null — the metrics half of the snapshot must still land.

@@ -27,10 +27,10 @@ fan-in) → `_delete_edm_body` (async) → `poller.run._handle_delete_edm_termin
 | 3 | `irp_rdm` | UPDATE `status='deleted'` (after the **synchronous** RM delete; **no `irp_job` written**) | `_delete_rdm_body` | 🟩 worker |
 | 4 | `rwb_job` | INSERT `delete_edm` head per EDM — **fan-in**, only when 0 RDMs remain live (same txn, `enqueue(conn)`) | `_delete_rdm_body` | 🟩 worker |
 | 5 | `irp_edm` | UPDATE `→ delete_pending` — atomic claim guard | `claim_for_delete` | 🟩 worker |
-| 6a | `irp_edm` | UPDATE `→ deleted` **inline** + finalize — when the EDM has no `irp_id` (never imported; no async op) | `_delete_edm_body` | 🟩 worker |
+| 6a | `irp_edm` | UPDATE `→ deleted` **inline** + finalize — when the EDM has no `irp_id` (read as "never imported"; no async op) — ⚠️ see the `irp_id IS NULL` note below | `_delete_edm_body` | 🟩 worker |
 | 6b | `irp_job` | INSERT `delete_edm`, `QUEUED`, `irp_id` — when the EDM *was* imported | `record_submitted_irp_job` | 🟩 worker |
 | 7 | `irp_job` | UPDATE status mirror per pass; terminal on finish | `update_tracking` | 🟪 poller |
-| 8 | `irp_edm` | UPDATE `→ deleted` (FINISHED) — or `→ error` (FAILED/CANCELED) | `set_deleted` / `backfill_on_terminal` | 🟪 poller |
+| 8 | `irp_edm` | UPDATE `→ deleted` (FINISHED) — or `→ error` (FAILED/CANCELLED) | `set_deleted` / `backfill_on_terminal` | 🟪 poller |
 | 9 | `package`, `irp_edm`, `irp_rdm` | UPDATE `deleted_at` — **idempotent finalize** once no live member remains | `finalize_package` | 🟩 worker or 🟪 poller (whoever is last) |
 
 ## Sequence
@@ -47,6 +47,7 @@ sequenceDiagram
     rect rgb(238,244,255)
         Note over User,DB: REQUEST PATH — enqueue reverse-order removals, return
         User->>App: POST /packages/{id}/delete
+        App->>DB: _package_actionable? — 409 if every attached submission is closed
         alt package has RDMs
             loop each RDM
                 App->>DB: ensure_pending rwb_job (delete_rdm, requestor_id = rdm.id)
@@ -89,8 +90,9 @@ sequenceDiagram
         W->>DB: claim rwb_job (delete_edm) + heartbeat
         W->>DB: UPDATE irp_edm (→delete_pending) — atomic claim_for_delete
         Note over W: lost race ⇒ skip (another worker owns it)
-        alt EDM never imported (irp_id IS NULL)
+        alt "never imported" (irp_id IS NULL)
             W->>DB: UPDATE irp_edm (→deleted) + finalize_package
+            Note over W,DB: ⚠️ also catches an EDM that imported fine but whose<br/>exposureId never resolved — that exposure is orphaned in RM
         else EDM was imported
             W->>RM: submit_delete_edm(edm_irp_id)
             RM-->>W: irp_id + resourceUri
@@ -109,7 +111,7 @@ sequenceDiagram
             alt FINISHED
                 P->>DB: UPDATE irp_edm (→deleted)
                 P->>DB: finalize_package — idempotent soft-delete once no live member
-            else FAILED / CANCELED
+            else FAILED / CANCELLED
                 P->>DB: UPDATE irp_edm (→error)
             end
         end
@@ -137,5 +139,23 @@ sequenceDiagram
 - **`claim_for_delete` is the atomic delete guard.** It flips the EDM to `delete_pending`
   only if it isn't already deleting/deleted, so a redelivered/duplicated `delete_edm` can't
   submit the RM delete twice.
+- **A failed EDM delete deliberately *keeps* its `irp_id`.** `mark_delete_error` preserves
+  it, unlike the import path's `backfill_on_terminal`, which nulls it on a non-ready
+  terminal. Without that, a re-triggered delete would take the "never imported" inline
+  branch (step 6a) and mark an EDM `deleted` that still exists in Risk Modeler.
+- **⚠️ `irp_id IS NULL` is not actually a reliable "never imported" test.** The bullet above
+  guards the *delete-failure* route into step 6a, but the same hazard exists on the *import*
+  route and is currently unguarded: an import that reaches FINISHED while
+  `_resolve_edm_exposure_id` misses lands the EDM at `ready` with `irp_id=NULL`
+  (see [import an EDM](../entities/import_edm.md), step 11a). Deleting that EDM takes the
+  inline branch, marks it `deleted` locally, and never calls Risk Modeler — orphaning a real
+  exposure. It takes a double miss to get there (`backfill_edm_detail` retries the resolve),
+  but nothing prevents it. The discriminator already exists in the schema:
+  `created_by_irp_job_irp_id` is stamped on every ready transition whether or not the
+  exposureId resolved, so step 6a should require **both** columns NULL and otherwise fail the
+  job for recovery rather than delete locally.
 - **Soft delete only.** Every "delete" here is a `deleted_at` / `status='deleted'` stamp.
   Rows are never removed — the audit trail and the Jobs list stay intact.
+- **The request path is gated on the submissions, not the package.** `_package_actionable`
+  409s when *every* submission the package is attached to is closed — but the card itself
+  stays visible (Article 6: reads are never scoped). The gate governs the buttons.

@@ -1,10 +1,11 @@
-"""Unit tests for the EDM-page analyses read (spec 004 US3, T035b — FR-037).
+"""Unit tests for the EDM-page analyses read (spec 004 US3, rescoped 8/5 D15).
 
-``analysis_service.list_edm_analyses(edm_id)`` returns the EDM's broker
-analyses grouped by source ``rdm_id`` with resolved portfolios; the per-
-portfolio bucketing keeps ONLY clearly-linked analyses inside a portfolio
-(group / unresolved rows stay standalone-only — ui.md §4), and
-``edm_service.get_edm_detail`` carries both.
+``analysis_service.list_edm_analyses(edm_id)`` returns every RDM in the EDM's
+package, each grouped with its broker analyses — including RDMs with none. A
+packageless EDM falls back to the analyses applied against it.
+``edm_service.get_edm_detail`` carries the groups. No analysis is attributed
+to a portfolio (8/4 D8), even though ``exposure_resource_id`` is still
+captured.
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ def _mk(table: str, **cols) -> str:
 
 
 def _seed_edm_with_analyses():
-    """One EDM, two source RDMs, portfolios 501/502; analyses: linked to 501,
-    linked to 502, a group, and an unresolved one."""
+    """One EDM, two source RDMs, portfolios 501/502; analyses: two carrying an
+    exposure pointer, a group, and one with no pointer."""
     edm = _mk("irp_edm", name="meridian_edm_2026", status="ready")
     rdm1 = _mk("irp_rdm", name="meridian_q4_results", status="ready", irp_id=88)
     rdm2 = _mk("irp_rdm", name="retro_2025_view", status="ready", irp_id=71)
@@ -50,66 +51,76 @@ def _seed_edm_with_analyses():
     mk_analysis(rdm_id=rdm1, irp_id="2", name="OEP", exposure_resource_id="502",
                 is_group=0)
     mk_analysis(rdm_id=rdm2, irp_id="3", name="Suite", is_group=1)
-    mk_analysis(rdm_id=rdm2, irp_id="4", name="Rollup", is_group=0)  # unresolved
+    mk_analysis(rdm_id=rdm2, irp_id="4", name="Rollup", is_group=0)
     return edm, rdm1, rdm2
 
 
-def test_list_edm_analyses_groups_by_source_rdm_with_resolution(iteration2_db):
+def test_list_edm_analyses_groups_by_source_rdm(iteration2_db):
     edm, rdm1, rdm2 = _seed_edm_with_analyses()
 
     groups = analysis_service.list_edm_analyses(edm_id=edm)
 
     assert [g.rdm_name for g in groups] == [
         "meridian_q4_results", "retro_2025_view"]
-    g1 = groups[0]
-    assert {a.irp_id for a in g1.analyses} == {"1", "2"}
-    assert {a.portfolio.name for a in g1.analyses} == {
-        "Primary 2026", "Excess 2026"}
-    g2 = groups[1]
-    by_irp = {a.irp_id: a for a in g2.analyses}
-    assert by_irp["3"].is_group is True and by_irp["3"].portfolio is None
-    assert by_irp["4"].is_group is False and by_irp["4"].portfolio is None
+    assert {a.irp_id for a in groups[0].analyses} == {"1", "2"}
+    by_irp = {a.irp_id: a for a in groups[1].analyses}
+    assert by_irp["3"].is_group is True
+    assert by_irp["4"].is_group is False
 
 
-def test_bucketing_keeps_group_and_unresolved_standalone_only(iteration2_db):
-    edm, _, _ = _seed_edm_with_analyses()
-    groups = analysis_service.list_edm_analyses(edm_id=edm)
-
-    buckets = analysis_service.bucket_by_portfolio(groups)
-
-    linked_ids = {a.irp_id for rows in buckets.values() for a in rows}
-    assert linked_ids == {"1", "2"}          # group + unresolved NEVER bucketed
-    # each bucket keys on the workbench portfolio id
-    by_name = {rows[0].portfolio.name: [a.irp_id for a in rows]
-               for rows in buckets.values()}
-    assert by_name == {"Primary 2026": ["1"], "Excess 2026": ["2"]}
-
-
-def test_get_edm_detail_carries_analyses_and_portfolio_buckets(iteration2_db):
+def test_get_edm_detail_carries_the_rdm_grouped_analyses(iteration2_db):
     edm, _, _ = _seed_edm_with_analyses()
 
     detail = edm_service.get_edm_detail(edm)
 
-    # the standalone RDM-grouped list rides the payload (FR-037)
     assert [g.rdm_name for g in detail.analyses] == [
         "meridian_q4_results", "retro_2025_view"]
-    # each portfolio carries ONLY its linked analyses, inline (US3/FR-037)
-    by_name = {p.name: p for p in detail.portfolios}
-    assert [a.irp_id for a in by_name["Primary 2026"].analyses] == ["1"]
-    assert [a.irp_id for a in by_name["Excess 2026"].analyses] == ["2"]
 
 
-def test_resolution_order_independent_on_the_edm_page(iteration2_db):
-    # the portfolio lands AFTER the analysis was captured — same read heals
-    edm = _mk("irp_edm", name="E", status="ready")
-    rdm = _mk("irp_rdm", name="R", status="ready")
-    _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="1", is_group=0,
-        status_code="ready", exposure_resource_id="777")
-    [g] = analysis_service.list_edm_analyses(edm_id=edm)
-    assert g.analyses[0].portfolio is None
+# ── 8/5 D15: the read is package-scoped ────────────────────────────────────────
 
-    portfolio_service.upsert_portfolio_detail(
-        edm_id=edm, irp_id="777", name="Late Portfolio",
-        exposure_detail={"metrics": {}}, as_of=_utcnow())
-    [g] = analysis_service.list_edm_analyses(edm_id=edm)
-    assert g.analyses[0].portfolio.name == "Late Portfolio"
+
+def _seed_package_pair():
+    """Wendy's paired book: one package, two EDMs (in-force + projected), two
+    RDMs — analyses applied against EDM 1 only; a third, packageless RDM's
+    analysis also targets EDM 1."""
+    pkg = _mk("package", name="Pkg")
+    edm1 = _mk("irp_edm", name="edm_in_force", status="ready", package_id=pkg)
+    edm2 = _mk("irp_edm", name="edm_projected", status="ready", package_id=pkg)
+    rdm1 = _mk("irp_rdm", name="rdm_in_force", status="ready", irp_id=88,
+               package_id=pkg)
+    rdm2 = _mk("irp_rdm", name="rdm_projected", status="ready", irp_id=71,
+               package_id=pkg)
+    stray = _mk("irp_rdm", name="stray_rdm", status="ready", irp_id=99)
+    mk = lambda **kw: _mk("irp_analysis", status_code="ready", **kw)  # noqa: E731
+    mk(edm_id=edm1, rdm_id=rdm1, irp_id="1", name="AEP", is_group=0)
+    mk(edm_id=edm1, rdm_id=rdm2, irp_id="2", name="OEP", is_group=0)
+    mk(edm_id=edm1, rdm_id=stray, irp_id="3", name="Stray", is_group=0)
+    return pkg, edm1, edm2
+
+
+def test_every_rdm_in_the_package_is_listed_on_every_edm_page(iteration2_db):
+    _, edm1, edm2 = _seed_package_pair()
+    # both EDM pages list both package RDMs identically — "if you have 12
+    # analyses in one, you have 12 analyses in the other"
+    for edm in (edm1, edm2):
+        groups = analysis_service.list_edm_analyses(edm_id=edm)
+        assert [g.rdm_name for g in groups] == ["rdm_in_force", "rdm_projected"]
+        assert [len(g.analyses) for g in groups] == [1, 1]
+
+
+def test_rdm_with_no_analyses_still_gets_an_empty_group(iteration2_db):
+    pkg, edm1, _ = _seed_package_pair()
+    _mk("irp_rdm", name="rdm_empty", status="ready", irp_id=12, package_id=pkg)
+
+    groups = analysis_service.list_edm_analyses(edm_id=edm1)
+    assert [g.rdm_name for g in groups] == [
+        "rdm_in_force", "rdm_projected", "rdm_empty"]
+    assert len(groups[2].analyses) == 0
+
+
+def test_packageless_edm_falls_back_to_its_applied_analyses(iteration2_db):
+    edm, rdm1, rdm2 = _seed_edm_with_analyses()   # no package anywhere
+    groups = analysis_service.list_edm_analyses(edm_id=edm)
+    assert [g.rdm_name for g in groups] == [
+        "meridian_q4_results", "retro_2025_view"]

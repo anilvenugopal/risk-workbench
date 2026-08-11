@@ -11,6 +11,7 @@ delete function.
 from __future__ import annotations
 
 import time
+import uuid
 from datetime import date
 
 import pytest
@@ -27,14 +28,17 @@ from app.services.submission_service import (
     list_submissions,
     reassign_owner,
     remove_crm_id,
+    search_submissions_for_link,
     set_status,
     update_submission,
 )
 from app.services.errors import (
     ConcurrencyConflict,
-    SelfRenewalError,
+    SelfLinkError,
     SubmissionClosed,
+    UnknownLinkError,
 )
+from db import execute_command
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -87,7 +91,7 @@ def test_get_submission_has_no_access_restriction(iteration1_db):
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
 
 
-def test_cedant_suggestions_distinct_prefix(iteration1_db):
+def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
     _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="cat_xol",
         inc=date(2026, 1, 1))
     _mk(iteration1_db, name="B", cedant="Acme Mutual", tt="quota_share",
@@ -103,8 +107,43 @@ def test_cedant_suggestions_distinct_prefix(iteration1_db):
     out = cedant_suggestions("Ac")
     ours = [c for c in out if c in {"Acadia Re", "Acme Mutual"}]
     assert ours == ["Acadia Re", "Acme Mutual"]
-    assert "Beta Insurance" not in out  # prefix filter excludes non-matches
+    assert "Beta Insurance" not in out
     assert cedant_suggestions("") == []
+
+
+def test_cedant_suggestions_match_anywhere_in_the_name(iteration1_db):
+    # CR7: prefix matching never found "American Family Mutual" from "fam".
+    _mk(iteration1_db, name="AF", cedant="American Family Mutual", tt="cat_xol",
+        inc=date(2026, 5, 1))
+    assert "American Family Mutual" in cedant_suggestions("fam")
+
+
+def test_cedant_suggestions_treat_wildcards_literally(iteration1_db):
+    _mk(iteration1_db, name="Pct", cedant="50% Quota Co", tt="surplus",
+        inc=date(2026, 6, 1))
+    _mk(iteration1_db, name="Plain", cedant="Zeta Re", tt="surplus",
+        inc=date(2026, 7, 1))
+    out = cedant_suggestions("0%")
+    assert "50% Quota Co" in out and "Zeta Re" not in out
+
+
+def test_suggestions_ignore_a_one_character_term(iteration1_db):
+    # A one-character LIKE '%a%' scans every submission for a menu the analyst
+    # cannot read; both searches wait for the second character.
+    _mk(iteration1_db, name="Solo", cedant="Solo Re", tt="surplus",
+        inc=date(2026, 8, 1))
+    assert cedant_suggestions("S") == []
+    assert cedant_suggestions("  s  ") == []
+    assert search_submissions_for_link("S") == []
+    assert "Solo Re" in cedant_suggestions("So")
+
+
+def test_suggestions_cap_the_row_count_in_the_query(iteration1_db):
+    for index in range(6):
+        _mk(iteration1_db, name=f"Capped {index}", cedant=f"Capped Re {index}",
+            tt="surplus", inc=date(2026, 9, 1))
+    assert len(cedant_suggestions("Capped Re", limit=3)) == 3
+    assert len(search_submissions_for_link("Capped", limit=2)) == 2
 
 
 # ── US2: list / filter / reassign ─────────────────────────────────────────────
@@ -116,12 +155,12 @@ def test_list_owner_predicate_is_not_an_access_gate(iteration1_db):
              cedant="Beta", inc=date(2026, 2, 1)).submission_id
     # Owner filter is scoped to the (throwaway) owner, so exact-match is safe:
     # nothing else in the DB is owned by this freshly-created analyst.
-    mine = {r.id for r in list_submissions(owner_id=iteration1_db.user_a)}
+    mine = {r.id for r in list_submissions(owner_ids=[iteration1_db.user_a]).rows}
     assert mine == {a1}
-    # "All" (owner=None) must include BOTH owners' deals — that is the property
+    # "All" (owner_ids=[]) must include BOTH owners' deals — that is the property
     # under test (no row-level scoping). Assert membership, not exact equality,
     # so unrelated deals already present in a shared dev DB don't fail the test.
-    all_ids = {r.id for r in list_submissions(owner_id=None)}
+    all_ids = {r.id for r in list_submissions(owner_ids=[]).rows}
     assert {a1, b1} <= all_ids  # All shows every deal regardless of owner
 
 
@@ -135,15 +174,278 @@ def test_list_filters_combine(iteration1_db):
         inc=date(2025, 1, 1), ty=2025)
 
     # Scope every filter query to this test's throwaway owner so rows already
-    # present in a shared dev DB can't skew the counts. owner_id is itself just
+    # present in a shared dev DB can't skew the counts. owner_ids is itself just
     # another AND-predicate, so this still exercises filter combination.
-    assert len(list_submissions(owner_id=a, cedant_name="Acme")) == 2
-    assert len(list_submissions(owner_id=a, treaty_type_code="cat_xol")) == 2
-    assert len(list_submissions(owner_id=a, inception_date=date(2026, 6, 1))) == 1
-    assert len(list_submissions(owner_id=a, treaty_year=2025)) == 1
+    assert len(list_submissions(owner_ids=[a], cedant_name="Acme").rows) == 2
+    assert len(list_submissions(owner_ids=[a], treaty_type_codes=["cat_xol"]).rows) == 2
+    assert len(list_submissions(owner_ids=[a], inception_date=date(2026, 6, 1)).rows) == 1
+    assert len(list_submissions(owner_ids=[a], treaty_years=[2025]).rows) == 1
     # combined AND: Acme + cat_xol → only X
-    combo = list_submissions(owner_id=a, cedant_name="Acme", treaty_type_code="cat_xol")
+    combo = list_submissions(
+        owner_ids=[a], cedant_name="Acme", treaty_type_codes=["cat_xol"]).rows
     assert len(combo) == 1 and combo[0].name == "X"
+
+
+def test_list_search_by_name_ands_every_word(iteration1_db):
+    """CR1/CR2 on the master list. Same rule as the "links to" picker, but the list's
+    search box is name-only — cedant has its own field."""
+    a = iteration1_db.user_a
+    amfam = _mk(iteration1_db, owner=a, name="American Family Renewal",
+                cedant="American Family Mutual", inc=date(2026, 5, 1)).submission_id
+    ammod = _mk(iteration1_db, owner=a, name="American Modern Renewal",
+                cedant="American Modern", inc=date(2026, 6, 1)).submission_id
+    assert {r.id for r in list_submissions(
+        owner_ids=[a], name="american family").rows} == {amfam}
+    assert {r.id for r in list_submissions(
+        owner_ids=[a], name="american").rows} == {amfam, ammod}
+    # "mutual" is in a cedant and in no name, so the search box does not match it.
+    assert list_submissions(owner_ids=[a], name="mutual").rows == []
+
+
+def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
+    """The cedant box is free text, so it has to match the way an analyst types it —
+    a fragment, in whatever case. Exact equality returned nothing for "fam"."""
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a, name="Cedant partial",
+              cedant="American Family Mutual").submission_id
+    assert {r.id for r in list_submissions(owner_ids=[a], cedant_name="fam").rows} == {sid}
+    assert {r.id for r in list_submissions(
+        owner_ids=[a], cedant_name="american mutual").rows} == {sid}
+
+
+def test_list_filter_by_owner_id(iteration1_db):
+    """The Owner filter matches the assigned analyst's id, so two analysts sharing a
+    display name stay apart."""
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    tag = uuid.uuid4().hex[:8]
+    mine = _mk(iteration1_db, owner=a, name=f"Owned {tag} A").submission_id
+    theirs = _mk(iteration1_db, owner=b, name=f"Owned {tag} B").submission_id
+    execute_command(
+        "UPDATE app_user SET display_name = 'Chris Doyle' WHERE id IN (:a, :b)",
+        {"a": str(a), "b": str(b)}, connection="WORKBENCH")
+
+    assert [r.id for r in list_submissions(
+        name=f"Owned {tag}", owner_ids=[b]).rows] == [theirs]
+    assert {r.id for r in list_submissions(
+        name=f"Owned {tag}").rows} == {mine, theirs}
+
+
+def test_list_owner_id_that_is_not_a_uuid_matches_nothing(iteration1_db):
+    """A hand-typed ?owner=… reaches the uniqueidentifier comparison, which SQL
+    Server refuses. It has to read as "no match", not as an error."""
+    _mk(iteration1_db, owner=iteration1_db.user_a, name="Some deal")
+    assert list_submissions(owner_ids=["not-a-uuid"]).rows == []
+
+
+def test_list_filter_by_crm_id(iteration1_db):
+    a = iteration1_db.user_a
+    tagged = _mk(iteration1_db, owner=a, name="Tagged deal").submission_id
+    _mk(iteration1_db, owner=a, name="Untagged deal", inc=date(2026, 7, 1))
+    add_crm_id(submission_id=tagged, crm_id="CRM-4417", actor_id=a)
+    add_crm_id(submission_id=tagged, crm_id="CRM-4418", actor_id=a)
+    # A substring of either tag finds the deal, and finds it ONCE even though both
+    # tags match — the predicate is EXISTS, not a join.
+    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="441").rows] == [tagged]
+    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="4418").rows] == [tagged]
+    assert list_submissions(owner_ids=[a], crm_id="9999").rows == []
+
+
+def test_list_rows_carry_their_crm_ids(iteration1_db):
+    a = iteration1_db.user_a
+    tagged = _mk(iteration1_db, owner=a, name="Has tags").submission_id
+    untagged = _mk(iteration1_db, owner=a, name="No tags",
+                   inc=date(2026, 7, 1)).submission_id
+    add_crm_id(submission_id=tagged, crm_id="CRM-1", actor_id=a)
+    _bump()  # distinct inserted_at, so "oldest tag first" is deterministic here
+    add_crm_id(submission_id=tagged, crm_id="CRM-2", actor_id=a)
+    rows = {r.id: r for r in list_submissions(owner_ids=[a]).rows}
+    assert rows[tagged].crm_ids == ["CRM-1", "CRM-2"]
+    assert rows[untagged].crm_ids == []
+
+
+def test_list_filter_by_status(iteration1_db):
+    a = iteration1_db.user_a
+    active = _mk(iteration1_db, owner=a, name="Still active").submission_id
+    done = _mk(iteration1_db, owner=a, name="Wrapped up",
+               inc=date(2026, 7, 1)).submission_id
+    set_status(submission_id=done, to_status="COMPLETED", reason="delivered",
+               expected_updated_at=_marker(done), actor_id=a)
+    assert [r.id for r in list_submissions(
+        owner_ids=[a], status_codes=["COMPLETED"]).rows] == [done]
+    assert [r.id for r in list_submissions(
+        owner_ids=[a], status_codes=["ACTIVE"]).rows] == [active]
+
+
+def test_list_search_treats_a_wildcard_as_a_literal(iteration1_db):
+    a = iteration1_db.user_a
+    literal = _mk(iteration1_db, owner=a, name="100% quota share").submission_id
+    _mk(iteration1_db, owner=a, name="100 quota share", inc=date(2026, 7, 1))
+    assert [r.id for r in list_submissions(owner_ids=[a], name="100%").rows] == [literal]
+
+
+def test_list_returns_one_page_at_a_time(iteration1_db):
+    """Every read is capped at PAGE_SIZE, so ``_attach_crm_ids`` can never bind more
+    ids than SQL Server accepts in one statement (2,100 bound parameters).
+
+    Distinct cedants keep each create's look-alike check empty, and one shared
+    inception date leaves the name as the only sort key, so the two pages are in a
+    known order."""
+    a = iteration1_db.user_a
+    tag = uuid.uuid4().hex[:8]
+    for i in range(svc.PAGE_SIZE + 2):
+        _mk(iteration1_db, owner=a, name=f"{tag} deal {i:03d}",
+            cedant=f"{tag} cedant {i:03d}", inc=date(2026, 4, 1))
+
+    first = list_submissions(owner_ids=[a])
+    assert len(first.rows) == svc.PAGE_SIZE
+    assert first.page == 1 and first.has_next is True
+
+    second = list_submissions(owner_ids=[a], page=2)
+    assert [r.name for r in second.rows] == [
+        f"{tag} deal {svc.PAGE_SIZE:03d}", f"{tag} deal {svc.PAGE_SIZE + 1:03d}"]
+    assert second.page == 2 and second.has_next is False
+
+    past_the_end = list_submissions(owner_ids=[a], page=3)
+    assert past_the_end.rows == [] and past_the_end.has_next is False
+
+
+def test_list_page_below_one_reads_the_first_page(iteration1_db):
+    """A hand-typed ?page=0 must not reach the query as a negative offset."""
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, owner=a, name="Only deal").submission_id
+    for page in (0, -5):
+        result = list_submissions(owner_ids=[a], page=page)
+        assert result.page == 1 and [r.id for r in result.rows] == [sid]
+
+
+# ── D16: multi-value filters ─────────────────────────────────────────────────
+
+def _four_mixed_deals(db):
+    """One deal per (treaty type, treaty year, status) combination the tests below
+    select on, so a filter that ORs too widely shows up as an extra row."""
+    a = db.user_a
+    made = {}
+    for name, treaty_type, year in (
+            ("Cat 2025", "cat_xol", 2025), ("Cat 2026", "cat_xol", 2026),
+            ("Quota 2025", "quota_share", 2025), ("Surplus 2027", "surplus", 2027)):
+        made[name] = _mk(db, owner=a, name=name, cedant=name, tt=treaty_type,
+                         inc=date(year, 4, 1), ty=year).submission_id
+    return a, made
+
+
+def test_list_ors_within_a_multi_value_filter(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"]).rows} == {
+        "Cat 2025", "Cat 2026", "Quota 2025"}
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_years=[2025, 2027]).rows} == {
+        "Cat 2025", "Quota 2025", "Surplus 2027"}
+
+
+def test_list_ands_one_multi_value_filter_against_another(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"],
+        treaty_years=[2025, 2027]).rows} == {"Cat 2025", "Quota 2025"}
+
+
+def test_list_treats_an_empty_list_as_no_filter(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert len(list_submissions(
+        owner_ids=[a], treaty_type_codes=[], treaty_years=[],
+        status_codes=[]).rows) == 4
+
+
+def test_list_filters_on_several_statuses(iteration1_db):
+    a, made = _four_mixed_deals(iteration1_db)
+    for name in ("Cat 2025", "Quota 2025"):
+        set_status(submission_id=made[name], to_status="COMPLETED", reason=None,
+                   expected_updated_at=_marker(made[name]), actor_id=a)
+    set_status(submission_id=made["Cat 2026"], to_status="CANCELLED", reason=None,
+               expected_updated_at=_marker(made["Cat 2026"]), actor_id=a)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], status_codes=["COMPLETED", "CANCELLED"]).rows} == {
+        "Cat 2025", "Quota 2025", "Cat 2026"}
+
+
+def test_list_filters_on_several_owners(iteration1_db):
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    mine = _mk(iteration1_db, owner=a, name="Mine", cedant="Mine Re").submission_id
+    theirs = _mk(iteration1_db, owner=b, name="Theirs",
+                 cedant="Theirs Re").submission_id
+    assert {r.id for r in list_submissions(owner_ids=[a, b]).rows} == {mine, theirs}
+    # An id that is not a UUID binds NULL and matches nothing, without taking the
+    # other owner's deals down with it.
+    assert {r.id for r in list_submissions(
+        owner_ids=[a, "not-a-uuid"]).rows} == {mine}
+
+
+# ── D15: click-to-sort ───────────────────────────────────────────────────────
+
+def _sorted_deals(db):
+    """Three deals whose name, cedant, inception and treaty year each order them
+    differently, so one ordering cannot pass for another."""
+    a = db.user_a
+    _mk(db, owner=a, name="Alpha", cedant="Zulu Re", inc=date(2026, 1, 1), ty=2026)
+    _mk(db, owner=a, name="Bravo", cedant="Yankee Re", inc=date(2026, 3, 1), ty=2024)
+    _mk(db, owner=a, name="Charlie", cedant="Xray Re", inc=date(2026, 2, 1), ty=2025)
+    return a
+
+
+@pytest.mark.parametrize(
+    ("sort", "descending", "expected"),
+    [
+        ("name", False, ["Alpha", "Bravo", "Charlie"]),
+        ("name", True, ["Charlie", "Bravo", "Alpha"]),
+        ("cedant", False, ["Charlie", "Bravo", "Alpha"]),
+        ("cedant", True, ["Alpha", "Bravo", "Charlie"]),
+        ("inception", True, ["Bravo", "Charlie", "Alpha"]),
+        ("inception", False, ["Alpha", "Charlie", "Bravo"]),
+        ("year", True, ["Alpha", "Charlie", "Bravo"]),
+        ("year", False, ["Bravo", "Charlie", "Alpha"]),
+    ],
+)
+def test_list_sorts_on_each_whitelisted_column(
+        iteration1_db, sort, descending, expected):
+    a = _sorted_deals(iteration1_db)
+    assert [r.name for r in list_submissions(
+        owner_ids=[a], sort=sort, descending=descending).rows] == expected
+
+
+@pytest.mark.parametrize("sort", ["status", "s.name; DROP TABLE submission", "", None])
+def test_list_sort_outside_the_whitelist_is_rejected(iteration1_db, sort):
+    """The key is looked up in SORT_COLUMNS, so nothing from the query string reaches
+    the ORDER BY."""
+    a = _sorted_deals(iteration1_db)
+    with pytest.raises(KeyError):
+        list_submissions(owner_ids=[a], sort=sort)
+
+
+def test_list_defaults_to_newest_inception_first(iteration1_db):
+    a = _sorted_deals(iteration1_db)
+    assert [r.name for r in list_submissions(owner_ids=[a]).rows] == [
+        "Bravo", "Charlie", "Alpha"]
+
+
+def test_list_breaks_a_sort_tie_the_same_way_on_every_page(iteration1_db):
+    """Every deal here shares a treaty year, so the sorted column decides nothing and
+    the tiebreaker decides the whole order. Without it the two pages could repeat a
+    deal and skip another."""
+    a = iteration1_db.user_a
+    for i in range(svc.PAGE_SIZE + 2):
+        _mk(iteration1_db, owner=a, name=f"deal {i:03d}", cedant=f"cedant {i:03d}",
+            inc=date(2026, 4, 1), ty=2026)
+    first = list_submissions(owner_ids=[a], sort="year", descending=True)
+    second = list_submissions(owner_ids=[a], sort="year", descending=True, page=2)
+    names = [r.name for r in first.rows] + [r.name for r in second.rows]
+    assert names == sorted(names)
+    assert len(set(names)) == svc.PAGE_SIZE + 2
+
+
+def test_status_kinds_lists_every_status_in_display_order(iteration1_db):
+    assert svc.status_kinds() == [
+        ("ACTIVE", "Active"), ("COMPLETED", "Completed"), ("CANCELLED", "Cancelled")]
 
 
 def test_reassign_owner_moves_my_view(iteration1_db):
@@ -151,11 +453,11 @@ def test_reassign_owner_moves_my_view(iteration1_db):
     reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
                    expected_updated_at=_marker(sid), actor_id=iteration1_db.user_a)
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
-    assert list_submissions(owner_id=iteration1_db.user_a) == []
-    assert len(list_submissions(owner_id=iteration1_db.user_b)) == 1
+    assert list_submissions(owner_ids=[iteration1_db.user_a]).rows == []
+    assert len(list_submissions(owner_ids=[iteration1_db.user_b]).rows) == 1
     # Still visible in the global ("everyone") list — assert the deal is present
     # rather than that it is the ONLY row, so a shared dev DB doesn't fail this.
-    assert sid in {r.id for r in list_submissions(owner_id=None)}
+    assert sid in {r.id for r in list_submissions(owner_ids=[]).rows}
 
 
 def test_reassign_owner_stale_marker_conflicts(iteration1_db):
@@ -242,6 +544,16 @@ def test_crm_blank_rejected_duplicates_are_silent_noops(iteration1_db):
     assert [t.crm_id for t in list_crm_ids(sid)] == ["DUP"]
 
 
+def test_create_stores_crm_ids_dropping_blanks_and_repeats(iteration1_db):
+    res = create_submission(
+        name="TY2604_CrmAtCreate", cedant_name="Acme Mutual",
+        treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+        crm_ids=["CRM-1", " ", "CRM-2", " crm-1 "],
+        actor_id=iteration1_db.user_a, confirmed=True,
+    )
+    assert {t.crm_id for t in list_crm_ids(res.submission_id)} == {"CRM-1", "CRM-2"}
+
+
 def test_crm_mutations_gated_when_closed(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id
@@ -306,12 +618,126 @@ def test_update_rename_warns_then_confirms(iteration1_db):
     assert get_submission(second).name == "Alpha"
 
 
-def test_update_self_renewal_rejected(iteration1_db):
+def test_update_self_link_rejected(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db).submission_id
-    with pytest.raises(SelfRenewalError):
+    with pytest.raises(SelfLinkError):
         update_submission(submission_id=sid, expected_updated_at=_marker(sid),
-                          actor_id=a, renews_from_submission_id=sid)
+                          actor_id=a, links_to_submission_id=sid)
+
+
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_value):
+    # links_to_submission_id is a foreign key to submission.id, so an id naming no
+    # deal has to be refused before the INSERT turns it into a driver error.
+    with pytest.raises(UnknownLinkError):
+        create_submission(
+            name="Stale link", cedant_name="American Family",
+            treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
+            links_to_submission_id=link_value, actor_id=iteration1_db.user_a,
+            confirmed=True)
+    # Scoped to this test's throwaway owner, so the assertion is "the deal was not
+    # written" rather than "a page of the list is the same length".
+    assert list_submissions(
+        owner_ids=[iteration1_db.user_a], name="Stale link").rows == []
+
+
+@pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])
+def test_update_to_an_unknown_link_target_is_rejected(iteration1_db, link_value):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Keeps its link").submission_id
+    with pytest.raises(UnknownLinkError):
+        update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                          actor_id=a, links_to_submission_id=link_value)
+    assert get_submission(sid).links_to_submission_id is None
+
+
+def test_link_target_is_kept_across_an_edit_that_never_mentions_it(iteration1_db):
+    # The merged value is re-checked on every update, so an untouched link must
+    # still pass — the check reads the target, it does not require it to be resent.
+    a = iteration1_db.user_a
+    target = _mk(iteration1_db, name="Last year", inc=date(2025, 4, 1)).submission_id
+    sid = _mk(iteration1_db, name="This year").submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, links_to_submission_id=target)
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, name="This year, renamed")
+    assert get_submission(sid).links_to_submission_id == target
+
+
+def test_treaty_year_defaults_to_the_inception_year(iteration1_db):
+    sid = _mk(iteration1_db, name="No year given", inc=date(2026, 4, 1),
+              ty=None).submission_id
+    assert get_submission(sid).treaty_year == 2026
+
+
+def test_entered_treaty_year_survives_create_and_update(iteration1_db):
+    # A December inception is often written into the following treaty year, so an
+    # entered value must never be replaced by the derived one (CR5).
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Dec incept", inc=date(2026, 12, 15),
+              ty=2027).submission_id
+    assert get_submission(sid).treaty_year == 2027
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, treaty_year=2027,
+                      inception_date=date(2026, 12, 20))
+    assert get_submission(sid).treaty_year == 2027
+
+
+def test_clearing_treaty_year_on_update_refills_it_from_the_inception_date(
+        iteration1_db):
+    a = iteration1_db.user_a
+    sid = _mk(iteration1_db, name="Cleared year", inc=date(2026, 4, 1),
+              ty=2030).submission_id
+    update_submission(submission_id=sid, expected_updated_at=_marker(sid),
+                      actor_id=a, confirmed=True, treaty_year=None)
+    assert get_submission(sid).treaty_year == 2026
+
+
+# ── "Links to" picker search (CR8) ───────────────────────────────────────────
+
+def test_search_for_link_ands_every_term(iteration1_db):
+    # CR2: "There must be 1000 companies that have American in the name."
+    amfam = _mk(iteration1_db, name="TY2506_AmericanFamily",
+                cedant="American Family Mutual", inc=date(2025, 6, 1)).submission_id
+    amnat = _mk(iteration1_db, name="TY2501_AmericanNational",
+                cedant="American National", inc=date(2025, 1, 1)).submission_id
+    found = {row.id for row in search_submissions_for_link("american fam")}
+    assert amfam in found and amnat not in found
+    both = {row.id for row in search_submissions_for_link("american")}
+    assert {amfam, amnat} <= both
+
+
+def test_search_for_link_matches_every_word_however_many(iteration1_db):
+    sid = _mk(iteration1_db, name="American Family Renewal",
+              cedant="American Family Mutual", inc=date(2026, 4, 1)).submission_id
+    matching = ["american", "family", "renewal", "mutual", "am", "fam", "ren"]
+    assert sid in {r.id for r in search_submissions_for_link(" ".join(matching))}
+    # The word past the ones that match still narrows the search — a term is never
+    # searched on a prefix of its words, which would return deals the analyst's
+    # last word rules out.
+    with_one_miss = " ".join(matching + ["nomatch"])
+    assert search_submissions_for_link(with_one_miss) == []
+
+
+def test_search_for_link_matches_name_or_cedant(iteration1_db):
+    sid = _mk(iteration1_db, name="Opaque code 9912",
+              cedant="Zenith Mutual", inc=date(2026, 2, 1)).submission_id
+    assert sid in {r.id for r in search_submissions_for_link("9912")}
+    assert sid in {r.id for r in search_submissions_for_link("zenith")}
+
+
+def test_search_for_link_excludes_the_submission_being_edited(iteration1_db):
+    sid = _mk(iteration1_db, name="Sole Match Deal",
+              cedant="Solo Re", inc=date(2026, 3, 1)).submission_id
+    assert sid in {r.id for r in search_submissions_for_link("Sole Match")}
+    assert search_submissions_for_link("Sole Match", exclude_id=sid) == []
+
+
+def test_search_for_link_empty_term_returns_nothing(iteration1_db):
+    _mk(iteration1_db, name="Anything", inc=date(2026, 8, 1))
+    assert search_submissions_for_link("") == []
+    assert search_submissions_for_link("   ") == []
 
 
 def test_update_stale_marker_conflicts(iteration1_db):

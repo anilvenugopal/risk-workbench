@@ -78,6 +78,27 @@ def execute_scalar(sql: str, params: Params = None, connection: str = "WORKBENCH
         ) from e
 
 
+def row_limit(count: int, connection: str = "WORKBENCH",
+              database: Optional[str] = None, *, offset: int = 0) -> str:
+    """The trailing row cap in the connection's own dialect.
+
+    SQL Server takes `OFFSET m ROWS FETCH NEXT n ROWS ONLY`; SQLite (the unit
+    tier) takes `LIMIT n OFFSET m`. Neither `TOP` nor `LIMIT` runs on both, so
+    callers that need a capped read append this instead of writing either one:
+
+        rows = execute(f"SELECT ... ORDER BY name {row_limit(10)}", ...)
+        page = execute(f"SELECT ... ORDER BY name {row_limit(50, offset=100)}", ...)
+
+    Append to a query that already ends in ORDER BY — SQL Server rejects
+    OFFSET/FETCH without one. `count` and `offset` are cast to int, so no caller
+    text reaches the SQL text.
+    """
+    n, skip = int(count), int(offset)
+    if get_engine(connection, database=database).dialect.name == "sqlite":
+        return f"LIMIT {n} OFFSET {skip}"
+    return f"OFFSET {skip} ROWS FETCH NEXT {n} ROWS ONLY"
+
+
 def execute_command(sql: str, params: Params = None, connection: str = "WORKBENCH",
                     database: Optional[str] = None) -> int:
     """Run INSERT/UPDATE/DELETE inside a transaction; return rows affected.
@@ -98,4 +119,5 @@ def execute_command(sql: str, params: Params = None, connection: str = "WORKBENC
         ) from e
 
 
-__all__ = ["execute", "execute_one", "execute_scalar", "execute_command"]
+__all__ = ["execute", "execute_one", "execute_scalar", "execute_command",
+           "row_limit"]

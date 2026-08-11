@@ -27,10 +27,8 @@ class TestChildren:
     def test_submissions_has_children(self):
         from app.nav.manifest import children
         kids = children("submissions")
-        assert len(kids) == 2
-        keys = [k["key"] for k in kids]
-        assert "submissions.all" in keys
-        assert "submissions.mine" in keys
+        assert len(kids) == 1
+        assert kids[0]["key"] == "submissions.all"
 
     def test_workflows_has_5_children(self):
         from app.nav.manifest import children

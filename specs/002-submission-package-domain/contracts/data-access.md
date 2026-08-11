@@ -5,7 +5,8 @@ The **primary interface** this iteration exposes (FR-029; US6 is explicitly deve
 Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 - `SubmissionClosed` — a mutation was attempted on a non-ACTIVE submission (R3 / FR-015) → HTTP 409/redirect with message.
 - `ConcurrencyConflict` — optimistic-concurrency marker mismatch (R1 / FR-031) → HTTP 409, input preserved.
-- `SelfRenewalError` — `renews_from_submission_id == id` (R9 / FR-007).
+- `SelfLinkError` — `links_to_submission_id == id` (R9 / FR-007).
+- `UnknownLinkError` — `links_to_submission_id` names no submission (FR-007) → HTTP 422 under the field.
 - `EmptyPackageError` — package would have zero members (R5 / FR-024).
 
 ---
@@ -17,7 +18,7 @@ Shared typed errors (raised by the service layer, mapped to HTTP by the router):
 ```python
 def create_submission(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: date,
-    treaty_year: int | None = None, renews_from_submission_id: UUID | None = None,
+    treaty_year: int | None = None, links_to_submission_id: UUID | None = None,
     directory_path: str | None = None, actor_id: UUID, confirmed: bool = False,
 ) -> CreateResult:
     """Create an ACTIVE submission owned by `actor_id`.
@@ -26,23 +27,42 @@ def create_submission(
     - Runs the duplicate check (find_similar). If matches exist and not `confirmed`,
       returns CreateResult(created=False, warnings=[...similar...]) WITHOUT writing
       (FR-004 non-blocking). Caller re-submits with confirmed=True to proceed.
-    - Raises SelfRenewalError only via edit; on create the id is new so N/A.
+    - treaty_year left None is filled from the inception year (CR5).
+    - Raises UnknownLinkError if links_to_submission_id names no submission,
+      before the duplicate check so a bad link never shows a look-alike warning.
+    - Raises SelfLinkError only via edit; on create the id is new so N/A.
     Returns CreateResult(created=True, submission_id=…) on success.
     """
 
 def get_submission(submission_id: UUID) -> Submission | None:
-    """Full detail incl. cached status_code. No access restriction (FR-019)."""
+    """Full detail incl. cached status_code. No access restriction (FR-019).
+    An id that is not a UUID returns None rather than reaching the query."""
 
 def list_submissions(
-    *, owner_id: UUID | None = None,        # set → "My Submissions"; None → "All"
-    cedant_name: str | None = None,
+    *, owner_id: UUID | None = None,        # set → that analyst's deals; None → every owner
+    name: str | None = None,                # word-AND substring match (CR1/CR2)
+    cedant_name: str | None = None,         # word-AND substring match
+    crm_id: str | None = None,              # substring of any CRM tag (CR3)
     treaty_type_code: str | None = None,
     inception_date: date | None = None,
     treaty_year: int | None = None,
-) -> list[SubmissionRow]:
-    """Master list. owner_id is a PLAIN predicate (assigned_analyst_id = owner_id),
-    NOT a scope wrapper (R7 / Article 6). Filters combine (AND) as bound predicates
-    (FR-021). All submissions are visible to every analyst regardless of owner."""
+    status_code: str | None = None,
+    page: int = 1,                          # 1-based; anything lower reads page 1
+) -> SubmissionPage:
+    """One page of the master list, at most PAGE_SIZE (50) rows. owner_id is a
+    PLAIN predicate (assigned_analyst_id = owner_id), NOT a scope wrapper
+    (R7 / Article 6); an owner_id that is not a UUID matches no row. Filters
+    combine (AND) as bound predicates (FR-021). All submissions are visible to
+    every analyst regardless of owner.
+    Each returned row's .crm_ids carries its CRM tags, oldest first.
+
+    Returns SubmissionPage(rows, page, has_next). has_next comes from reading one
+    row past the page, not a COUNT(*). The cap is what keeps the CRM-tag query
+    under SQL Server's 2,100-parameter limit — it binds one id per row."""
+
+def status_kinds() -> list[tuple[str, str]]:
+    """Every submission status as (code, label) in sort_order, read from
+    submission_status_kind, for the list's status filter."""
 
 def find_similar(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: date,
@@ -51,8 +71,20 @@ def find_similar(
     """Return submissions matching name OR (cedant+treaty_type+inception) (FR-004/R4).
     exclude_id skips the row being renamed. Never raises; empty list = no look-alikes."""
 
-def cedant_suggestions(prefix: str, limit: int = 10) -> list[str]:
-    """SELECT DISTINCT cedant_name … LIKE prefix% (FR-006/R6). No cedant table."""
+def cedant_suggestions(term: str, limit: int = 10) -> list[str]:
+    """SELECT DISTINCT cedant_name … LIKE %term% (FR-006/R6). No cedant table.
+    Contains, not prefix (CR7): "fam" has to find "American Family Mutual".
+    A term under 2 characters returns []; limit is applied by the server via
+    db.row_limit(), not by slicing the rows in Python."""
+
+def search_submissions_for_link(
+    term: str, *, exclude_id: UUID | None = None, limit: int = 10,
+) -> list[SubmissionRow]:
+    """Backs the "links to" picker (CR8). Every whitespace-separated term must
+    match the name or the cedant — AND, not OR (CR2). exclude_id drops the
+    submission being edited so it cannot be offered as its own link; a non-UUID
+    exclude_id excludes nothing. Same 2-character minimum and server-side limit
+    as cedant_suggestions."""
 ```
 
 ### Edit / reassign (gated + concurrency-checked)
@@ -63,9 +95,13 @@ def update_submission(
     confirmed: bool = False, **fields,
 ) -> UpdateResult:
     """Edit mutable fields (name, cedant, treaty_type, inception, treaty_year,
-    directory_path, renews_from). 
+    directory_path, links_to).
     - Raises SubmissionClosed unless current status is ACTIVE (R3/FR-015).
-    - Raises SelfRenewalError if renews_from_submission_id == submission_id (R9).
+    - Raises SelfLinkError if links_to_submission_id == submission_id (R9), and
+      UnknownLinkError if it names no submission (checked first; a deal's own id
+      exists, so linking to itself still reports SelfLinkError).
+    - treaty_year cleared to None is refilled from the inception year (CR5): the
+      column does not record "no treaty year".
     - On rename/attr change, runs find_similar; unconfirmed match → UpdateResult with
       warnings and no write (FR-004).
     - UPDATE … WHERE id=:id AND updated_at=:expected_updated_at; rowcount 0 →
@@ -160,5 +196,5 @@ Unit tier (SQLite via `register_engine`):
 - No-scope regression: `db` exposes no `apply_scope`/`scoped_execute`; no query references `customer_id` (SC-010).
 
 SQL-Server tier (`--run-sqlserver`):
-- Migration builds all tables + FKs + the self-renewal CHECK; seeds present.
+- Migration builds all tables + FKs + the no-self-link CHECK; seeds present.
 - Event-sourced status transaction is atomic (event + cached column) and rolls back together on failure.

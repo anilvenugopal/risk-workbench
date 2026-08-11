@@ -75,10 +75,7 @@ class MemberCard:
     name: str
     status: str | None
     source_file_path: str | None
-    # Spec 004 US4 (EDM members only): the per-EDM aggregate orientation line
-    # (FR-041 — same aggregate_exposure rollup as the EDM-page strip; None ⇒
-    # graceful pending, FR-043) and the now-POPULATED analysis counts (FR-050).
-    aggregate: Any = None
+    # Spec 004 (EDM members only): the analysis counts (FR-050).
     analysis_counts: Any = None
     # Issue #17 backstop surfacing: an ``error`` member's specific Risk Modeler
     # submit-failure message (failed upload head, worker framing stripped) —
@@ -556,10 +553,8 @@ def _attach_error_details(card: PackageCard) -> None:
 
 def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCard | None:
     """Card data for one package: members + their status chips, and (US5) the all/active/
-    failed job counts scoped to the package's members. Spec 004 US4: each EDM
-    member now carries the per-EDM aggregate orientation line (FR-041 — the same
-    derived rollup as the EDM-page strip; ``None`` ⇒ graceful pending, FR-043)
-    and populated analysis counts (FR-050). No rolled-up package status (FR-018).
+    failed job counts scoped to the package's members. Spec 004: each EDM member
+    carries its analysis counts (FR-050). No rolled-up package status (FR-018).
     ``None`` if the package is gone."""
     pid = str(package_id)
     row = execute_one(
@@ -573,10 +568,8 @@ def get_package_card(package_id: Any, *, with_counts: bool = False) -> PackageCa
         rdms=[_member_card(m, "rdm") for m in _live_members(pid, "irp_rdm")],
     )
     _attach_error_details(card)
-    from app.services import analysis_service, portfolio_service  # noqa: PLC0415 — cycle guard
+    from app.services import analysis_service  # noqa: PLC0415 — cycle guard
     for member in card.edms:
-        member.aggregate = portfolio_service.aggregate_exposure(
-            portfolio_service.list_portfolios(edm_id=member.id))
         member.analysis_counts = analysis_service.analysis_counts(
             edm_id=member.id)
     if with_counts:

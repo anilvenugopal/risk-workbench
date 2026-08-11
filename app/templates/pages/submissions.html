@@ -5,67 +5,143 @@
 <a href="/submissions/new" class="btn-sm btn-sm--primary">+ New submission</a>
 {% endblock %}
 
+{# Status, Treaty type and Owner (D16) — a menu of options the analyst ticks, driven
+   by multiPicker in app.js, which paints the chips, ticks and hidden inputs from the
+   options' aria-selected.
+
+   `search_placeholder` adds the narrowing box Owner needs; twenty-odd analysts is a
+   list worth typing into, three statuses is not. `empty_value` is what is sent when
+   nothing is picked: Owner sends `any` because a request carrying no owner at all
+   lands back on the analyst's own deals. #}
+{% macro multi_picker(name, title, options, selected, any_label='Any',
+                      empty_value='', search_placeholder='') %}
+{% set picked = selected | map('string') | map('lower') | list %}
+{% set option_codes = options | map(attribute=0) | map('string') | map('lower') | list %}
+<div class="filters__field">
+  <span id="{{ name }}-label">{{ title }}</span>
+  <div class="filters__combo" x-data="multiPicker" @click.outside="close()">
+    <span x-ref="inputs" data-name="{{ name }}"
+          {% if empty_value %}data-empty-value="{{ empty_value }}"{% endif %}>
+      {% for value in selected %}
+      <input type="hidden" name="{{ name }}" value="{{ value }}">
+      {% endfor %}
+    </span>
+    <button type="button" id="{{ name }}-trigger" class="wf-field__input filters__trigger"
+            role="combobox" aria-controls="{{ name }}-menu" aria-haspopup="listbox"
+            aria-labelledby="{{ name }}-label {{ name }}-trigger"
+            :aria-expanded="isOpen" x-ref="trigger"
+            @click="onTrigger($event)" @keydown="onKey($event)">
+      <span class="filters__chips" x-ref="chips"></span>
+      <span class="filters__chevron" aria-hidden="true">▾</span>
+    </button>
+    <div id="{{ name }}-menu" class="ta__menu" x-show="isOpen" x-cloak>
+      {% if search_placeholder %}
+      <div class="ta__filter">
+        <input class="wf-field__input" type="text" x-ref="search" autocomplete="off"
+               placeholder="{{ search_placeholder }}" aria-label="{{ search_placeholder }}"
+               @input.stop="narrow()" @keydown="onKey($event)">
+      </div>
+      {% endif %}
+      <div role="listbox" aria-multiselectable="true" x-ref="options"
+           @click="pick($event.target.closest('.ta__opt'))">
+        {# data-any, not data-label: the narrowing box keeps every option without a
+           data-label, so the clear-all row stays on screen whatever is typed. #}
+        <button class="ta__opt" type="button" role="option" aria-selected="false"
+                data-any="{{ any_label }}" id="{{ name }}-opt-any">
+          <span class="ta__check" aria-hidden="true"></span>{{ any_label }}</button>
+        {% for code, text in options %}
+        <button class="ta__opt" type="button" role="option"
+                aria-selected="{{ 'true' if code|string|lower in picked else 'false' }}"
+                id="{{ name }}-opt-{{ loop.index0 }}"
+                data-code="{{ code }}" data-label="{{ text }}">
+          <span class="ta__check" aria-hidden="true"></span>{{ text }}</button>
+        {% endfor %}
+        {% for value in selected
+               if value|string|lower not in option_codes
+               and value|string|lower != empty_value|string|lower %}
+        <button class="ta__opt" type="button" role="option" aria-selected="true"
+                id="{{ name }}-opt-missing-{{ loop.index0 }}"
+                data-code="{{ value }}" data-label="{{ value }}">
+          <span class="ta__check" aria-hidden="true"></span>{{ value }}</button>
+        {% endfor %}
+      </div>
+      {% if search_placeholder %}
+      <div class="ta__empty" x-show="noMatch" x-cloak>No matching {{ title|lower }}.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
 {% block main %}
-{% set base = '/submissions/mine' if scope == 'mine' else '/submissions' %}
 <div class="page-pad">
 
-  {# ── My / All toggle ── #}
-  <div class="sub-toggle">
-    <a class="sub-toggle__btn{% if scope == 'mine' %} is-active{% endif %}"
-       href="/submissions/mine">My Submissions</a>
-    <a class="sub-toggle__btn{% if scope == 'all' %} is-active{% endif %}"
-       href="/submissions">All</a>
-  </div>
-
   {# ── Filters (combine with AND), applied as you type: one debounced request per
-        typing pause. hx-select narrows the swap to #sub-list — the form sits
-        outside it, so the field keeps focus and its value mid-filter, and the
-        pushed URL is the list's own (a fragment route would push its own path).
+        typing pause. The request goes to the list's own URL, which is what
+        hx-push-url pushes (a fragment route would push its own path) — the route
+        reads the #sub-list target and answers with the table alone. The form sits
+        outside that target, so the field keeps focus and its value mid-filter.
+        The form carries no page input, so re-filtering lands on page 1.
         method/action + the hidden submit are the no-JS fallback: a form with
         several text-ish fields and no submit button never submits on Enter. ── #}
-  <form class="filters" method="get" action="{{ base }}"
-        hx-get="{{ base }}" hx-trigger="input delay:300ms, submit"
-        hx-target="#sub-list" hx-select="#sub-list" hx-swap="outerHTML"
+  <form class="filters" method="get" action="/submissions"
+        hx-get="/submissions" hx-trigger="input delay:300ms, submit, filter-picked"
+        hx-target="#sub-list" hx-swap="outerHTML"
         hx-push-url="true">
-    <label>Cedant
-      <input class="wf-field__input" type="text" name="cedant"
-             value="{{ filter_values.cedant }}" autocomplete="off">
-    </label>
-    <label>Treaty type
-      <select class="wf-field__input" name="treaty_type">
-        <option value="">Any</option>
-        {% for code, label in treaty_types %}
-        <option value="{{ code }}"{% if filter_values.treaty_type == code %} selected{% endif %}>{{ label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Inception
-      <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
-    </label>
-    <label>Treaty year
-      <input class="wf-field__input" type="number" name="treaty_year" value="{{ filter_values.treaty_year }}"
-             min="1900" max="2999" style="min-width: 110px;">
-    </label>
+    <div class="filters__row">
+      <label>Name
+        <input class="wf-field__input" type="text" name="q"
+               value="{{ filter_values.q }}" autocomplete="off" maxlength="100">
+      </label>
+      <label>Cedant
+        <input class="wf-field__input" type="text" name="cedant"
+               value="{{ filter_values.cedant }}" autocomplete="off" maxlength="100">
+      </label>
+      <label>CRM ID
+        <input class="wf-field__input" type="text" name="crm_id"
+               value="{{ filter_values.crm_id }}" autocomplete="off" maxlength="100">
+      </label>
+      {# Owner — every active user ships with the page, so the menu narrows in place
+         with no request per keystroke. Two analysts can share a display name, so the
+         app_user id is always the value the route filters on. #}
+      {{ multi_picker("owner", "Owner", owner_options, filter_values.owner,
+                      any_label="Any owner", empty_value="any",
+                      search_placeholder="Narrow this list") }}
+    </div>
+    <div class="filters__row">
+      {{ multi_picker("status", "Status", statuses, filter_values.status) }}
+      {{ multi_picker("treaty_type", "Treaty type", treaty_types, filter_values.treaty_type) }}
+      <label>Inception
+        <input class="wf-field__input" type="date" name="inception" value="{{ filter_values.inception }}">
+      </label>
+      {# Treaty year is typed, not picked — there is no list of years to offer. The
+         box itself has no name, so a half-typed year is never sent as a filter. #}
+      <div class="filters__field" style="min-width: 240px;">
+        <span id="treaty-year-label">Treaty year</span>
+        <div class="chip-input" x-data="yearChips({{ min_treaty_year }}, {{ max_treaty_year }})"
+             :class="{ 'chip-input--error': !!error }" @click="onClick($event)">
+          <span class="chip-input__chips" x-ref="chips">
+            {% for year in filter_values.treaty_year -%}
+            <span class="filter-chip">{{ year }}<input type="hidden" name="treaty_year" value="{{ year }}"><button type="button" class="filter-chip__x" aria-label="Remove {{ year }}">×</button></span>
+            {%- endfor %}
+          </span>
+          <input class="chip-input__field" type="text" inputmode="numeric"
+                 x-ref="entry" autocomplete="off" aria-labelledby="treaty-year-label"
+                 placeholder="Type a year, press Enter"
+                 @input.stop="error = ''" @keydown="onKey($event)">
+        </div>
+        <div class="filters__hint" x-show="!error">Enter adds a year ·
+          Backspace removes the last one</div>
+        <div class="filters__msg" x-show="!!error" x-text="error" x-cloak></div>
+      </div>
+      {# A full navigation, not an hx-get: the form sits outside the swap target, so
+         only reloading the page empties the fields the analyst typed. `?owner=any`
+         clears the owner too — a bare /submissions would re-apply the analyst. #}
+      <a class="btn-sm" href="/submissions?owner=any">Clear filters</a>
+    </div>
     <button type="submit" hidden>Filter</button>
   </form>
 
-  {# ── Master list — the filter swap unit (see the form's hx-select). ── #}
-  <div id="sub-list">
-    <table class="mk-table sub-table">
-      <thead>
-        <tr>
-          <th>Name</th><th>Cedant</th><th>Treaty type</th><th>Inception</th>
-          <th>Year</th><th>Status</th><th>Owner</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-          {% include "partials/submission_row.html" %}
-        {% else %}
-        <tr><td colspan="7" class="empty">No submissions match.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% include "partials/submission_list.html" %}
 </div>
 {% endblock %}

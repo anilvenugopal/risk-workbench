@@ -1,6 +1,20 @@
-<tr class="data-row" onclick="location.href='/submissions/{{ row.id }}'">
-  <td>{{ row.name }}</td>
+{# The row opens from the delegated handler in app.js, not an inline onclick: a click
+   that ends a drag-selection must leave the selected CRM ID alone (D17). The Name
+   cell is a real link, so keyboard and open-in-new-tab work. #}
+<tr class="data-row" data-href="/submissions/{{ row.id }}">
+  <td><a class="open-link" href="/submissions/{{ row.id }}">{{ row.name }}</a></td>
   <td>{{ row.cedant_name }}</td>
+  <td>
+    {% if row.crm_ids %}
+      <span class="mono">{{ row.crm_ids[0] }}</span>
+      {% if row.crm_ids | length > 1 %}
+      <span class="muted" title="{{ row.crm_ids[1:] | join(', ') }}">
+        +{{ row.crm_ids | length - 1 }} more</span>
+      {% endif %}
+    {% else %}
+      <span class="na">—</span>
+    {% endif %}
+  </td>
   <td>{{ row.treaty_type_label or row.treaty_type_code }}</td>
   <td>{{ row.inception_date }}</td>
   <td>{{ row.treaty_year or '—' }}</td>

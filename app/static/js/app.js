@@ -317,6 +317,379 @@ document.addEventListener('alpine:init', () => {
       this.$nextTick(() => this.recount());
     },
   }));
+
+  // Typeahead menu shared by the submission form's CEDANT field and its "links
+  // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
+  // open/close, the keyboard, and committing a pick.
+  //
+  // Two shapes, told apart by whether the markup provides an x-ref="value":
+  //   - cedant     — free text, the chosen name goes straight into the input
+  //   - links to   — the id goes into the hidden value input and the chosen
+  //                  submission's name is shown as a chip instead
+  // With JS off the cedant field degrades to plain text the server still reads;
+  // the "links to" picker needs JavaScript.
+  //
+  // `minTerm` comes from the template, which renders it from the route context's
+  // `min_suggest_term` — one number, submission_service.MIN_SUGGEST_TERM, reaching
+  // the hx-trigger filter, this component, and the service that answers.
+  Alpine.data('typeahead', (opts = {}) => ({
+    minTerm: opts.minTerm || 2,
+    isOpen: false,
+    activeIndex: -1,
+    chosen: !!opts.initialLabel,
+    chosenLabel: opts.initialLabel || '',
+    get options() {
+      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
+    },
+    open() {
+      this.isOpen = !!this.$refs.menu.querySelector('.ta__menu');
+      if (!this.isOpen) this.activeIndex = -1;
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.$refs.menu.innerHTML = '';
+      this.paint();
+    },
+    paint() {
+      // aria-activedescendant is how a screen reader follows the arrow keys: the
+      // focus stays in the input, so the highlighted row has to be named by id.
+      this.options.forEach((opt, i) => {
+        const active = i === this.activeIndex;
+        opt.classList.toggle('is-active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.input.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.input.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onInput() {
+      // Below the minimum htmx sends nothing, so the menu from a longer term
+      // would stay on screen offering matches for text no longer in the input.
+      if (this.$refs.input.value.trim().length < this.minTerm) this.close();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); this.move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
+      else if (e.key === 'Escape') { this.close(); }
+      else if (e.key === 'Enter' && this.isOpen && this.activeIndex >= 0) {
+        // Only swallow Enter when a menu row is highlighted, so Enter still
+        // submits the form when the analyst is just typing.
+        e.preventDefault();
+        this.pick(this.options[this.activeIndex]);
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      const value = opt.dataset.value;
+      const label = opt.dataset.label || value;
+      if (this.$refs.value) {
+        this.$refs.value.value = value;
+        this.chosenLabel = label;
+        this.chosen = true;
+        this.$refs.input.value = '';
+      } else {
+        this.$refs.input.value = label;
+      }
+      this.close();
+    },
+    clear() {
+      if (this.$refs.value) this.$refs.value.value = '';
+      this.chosen = false;
+      this.chosenLabel = '';
+      this.close();
+      this.$nextTick(() => this.$refs.input.focus());
+    },
+  }));
+
+  // Status, Treaty type and Owner filters on the submissions list (D16). The
+  // options are already in the DOM; clicking one toggles it and leaves the menu
+  // open, and the component writes one hidden input per picked value and
+  // dispatches `filter-picked`, which the form listens for.
+  //
+  // The data-any row clears the rest and reads as selected while nothing else is.
+  // The narrowing box (Owner only) hides options in place; it never filters the
+  // list itself.
+  const MAX_TRIGGER_CHIPS = 3;
+
+  Alpine.data('multiPicker', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    noMatch: false,
+    init() {
+      // $nextTick: the children's x-ref are registered after this init runs.
+      this.$nextTick(() => this.render());
+    },
+    get allOptions() {
+      return Array.from(this.$refs.options.querySelectorAll('.ta__opt'));
+    },
+    get options() {
+      return this.allOptions.filter((opt) => !opt.hidden);
+    },
+    get anyOption() {
+      return this.$refs.options.querySelector('.ta__opt[data-any]');
+    },
+    get chosen() {
+      return this.allOptions.filter(
+        (opt) => !opt.hasAttribute('data-any')
+          && opt.getAttribute('aria-selected') === 'true');
+    },
+    toggle() {
+      if (this.isOpen) this.close(); else this.open();
+    },
+    open() {
+      this.isOpen = true;
+      this.activeIndex = -1;
+      if (this.$refs.search) {
+        // A term left over from the last visit would hide rows on reopening.
+        this.$refs.search.value = '';
+        this.narrow();
+        this.$nextTick(() => this.$refs.search.focus());
+      }
+      this.paint();
+    },
+    close() {
+      this.isOpen = false;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    narrow() {
+      const term = this.$refs.search.value.trim().toLowerCase();
+      let matched = 0;
+      this.allOptions.forEach((opt) => {
+        // The data-any row carries no label and always stays.
+        const keep = !opt.dataset.label
+          || opt.dataset.label.toLowerCase().includes(term);
+        opt.hidden = !keep;
+        if (keep && opt.dataset.label) matched += 1;
+      });
+      this.noMatch = matched === 0;
+      this.activeIndex = -1;
+      this.paint();
+    },
+    paint() {
+      this.options.forEach((opt, i) => {
+        opt.classList.toggle('is-active', i === this.activeIndex);
+      });
+      const active = this.options[this.activeIndex];
+      if (active) {
+        this.$refs.trigger.setAttribute('aria-activedescendant', active.id);
+        active.scrollIntoView({ block: 'nearest' });
+      } else {
+        this.$refs.trigger.removeAttribute('aria-activedescendant');
+      }
+    },
+    move(step) {
+      const count = this.options.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.paint();
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.isOpen) this.move(1); else this.open();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (this.isOpen) this.move(-1); else this.open();
+      } else if (e.key === 'Escape') {
+        this.close();
+        this.$refs.trigger.focus();
+      } else if (e.key === 'Enter'
+                 || (e.key === ' ' && e.target !== this.$refs.search)) {
+        // The trigger is a button, so Enter and Space would otherwise fire the
+        // click handler and toggle the menu shut over the highlighted row. Space
+        // inside the narrowing box is a space — analysts' names have them.
+        e.preventDefault();
+        if (this.isOpen) this.pick(this.options[this.activeIndex]);
+        else this.open();
+      }
+    },
+    onTrigger(e) {
+      // A chip's × sits inside the trigger button, so its click arrives here.
+      const remove = e.target.closest('.filter-chip__x');
+      if (!remove) { this.toggle(); return; }
+      const opt = this.allOptions.find(
+        (o) => o.dataset.code === remove.dataset.code);
+      if (opt) opt.setAttribute('aria-selected', 'false');
+      this.apply();
+    },
+    pick(opt) {
+      if (!opt) return;
+      if (opt.hasAttribute('data-any')) {
+        this.chosen.forEach((o) => o.setAttribute('aria-selected', 'false'));
+      } else {
+        opt.setAttribute('aria-selected',
+          opt.getAttribute('aria-selected') === 'true' ? 'false' : 'true');
+      }
+      this.apply();
+    },
+    apply() {
+      this.render();
+      this.$refs.inputs.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+    render() {
+      // Ticks, chips and hidden inputs all derive from the options' aria-selected,
+      // so init() paints the server-rendered selection without a list request.
+      const chosen = this.chosen;
+      const any = this.anyOption;
+      if (any) any.setAttribute('aria-selected', chosen.length ? 'false' : 'true');
+      this.allOptions.forEach((opt) => {
+        opt.querySelector('.ta__check').textContent =
+          opt.getAttribute('aria-selected') === 'true' ? '✓' : '';
+      });
+      this.renderInputs(chosen);
+      this.renderChips(chosen, any);
+    },
+    renderInputs(chosen) {
+      const name = this.$refs.inputs.dataset.name;
+      const empty = this.$refs.inputs.dataset.emptyValue;
+      const values = chosen.length
+        ? chosen.map((opt) => opt.dataset.code)
+        : (empty ? [empty] : []);
+      this.$refs.inputs.replaceChildren(...values.map((value) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        return input;
+      }));
+    },
+    renderChips(chosen, any) {
+      if (!chosen.length) {
+        const label = document.createElement('span');
+        label.className = 'filters__any';
+        label.textContent = any ? any.dataset.any : 'Any';
+        this.$refs.chips.replaceChildren(label);
+        return;
+      }
+      const shown = chosen.slice(0, MAX_TRIGGER_CHIPS).map((opt) => {
+        const chip = document.createElement('span');
+        chip.className = 'filter-chip';
+        chip.textContent = opt.dataset.label;
+        const remove = document.createElement('span');
+        remove.className = 'filter-chip__x';
+        remove.dataset.code = opt.dataset.code;
+        remove.textContent = '×';
+        chip.appendChild(remove);
+        return chip;
+      });
+      if (chosen.length > MAX_TRIGGER_CHIPS) {
+        const more = document.createElement('span');
+        more.className = 'filters__more';
+        more.textContent = `+${chosen.length - MAX_TRIGGER_CHIPS}`;
+        shown.push(more);
+      }
+      this.$refs.chips.replaceChildren(...shown);
+    },
+  }));
+
+  // Treaty year on the submissions list (D16). Typed, not picked — there is no list
+  // of years to offer. A year outside the range never becomes a chip, so it never
+  // reaches the query: the box shows the message and the committed chips stand.
+  Alpine.data('yearChips', (minYear, maxYear) => ({
+    error: '',
+    get years() {
+      return Array.from(this.$refs.chips.querySelectorAll('input')).map(
+        (input) => input.value);
+    },
+    onClick(e) {
+      const remove = e.target.closest('.filter-chip__x');
+      if (remove) {
+        remove.closest('.filter-chip').remove();
+        this.apply();
+      } else {
+        this.$refs.entry.focus();
+      }
+    },
+    onKey(e) {
+      if (e.key === 'Enter') {
+        // The form has a hidden submit, so Enter would otherwise reload the page
+        // around a year the analyst has not committed yet.
+        e.preventDefault();
+        this.commit();
+      } else if (e.key === 'Backspace' && !this.$refs.entry.value) {
+        const last = this.$refs.chips.lastElementChild;
+        if (!last) return;
+        e.preventDefault();
+        last.remove();
+        this.apply();
+      }
+    },
+    commit() {
+      const typed = this.$refs.entry.value.trim();
+      if (!typed) return;
+      const year = Number(typed);
+      if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
+        this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
+        return;
+      }
+      this.error = '';
+      this.$refs.entry.value = '';
+      if (this.years.includes(typed)) return;   // already applied — nothing changes
+      this.$refs.chips.appendChild(this.chip(typed));
+      this.apply();
+    },
+    chip(year) {
+      const chip = document.createElement('span');
+      chip.className = 'filter-chip';
+      chip.textContent = year;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'treaty_year';
+      input.value = year;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'filter-chip__x';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', `Remove ${year}`);
+      chip.append(input, remove);
+      return chip;
+    },
+    apply() {
+      this.$refs.chips.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+  }));
+
+  // Treaty year follows the inception year until the analyst types their own
+  // (CR5, design note 08 D4). Changing the inception date moves the year unless
+  // it was edited on this render.
+  Alpine.data('treatyYear', () => ({
+    edited: false,
+    onYearInput() {
+      this.edited = !!this.$refs.year.value.trim();
+    },
+    onDateChange(e) {
+      if (this.edited) return;
+      const year = (e.target.value || '').slice(0, 4);
+      if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+  }));
+});
+
+// ── Row click → open the submission (D17) ─────────────────────────────────────
+// Delegated from the document: htmx replaces the whole #sub-list on every filter,
+// sort and page change, and a listener on the table would go with it. A click that
+// ends a drag-selection keeps the selection, so a CRM ID can be copied out of a row.
+document.addEventListener('click', (e) => {
+  const target = e.target instanceof Element ? e.target : null;
+  const row = target && target.closest('.data-row[data-href]');
+  if (!row || target.closest('a, button, input, label')) return;
+  if (window.getSelection().toString()) return;
+  window.location.href = row.dataset.href;
 });
 
 // ── Local-time stamps ──────────────────────────────────────────────────────────

@@ -39,21 +39,57 @@ from app.services._common import (
 from db import execute
 
 
+# Documented Risk Modeler enum spellings (create-treaty reference,
+# knowledge/sources/moody-docs/raw/createtreaty-eaa46486.html). Cryptic codes
+# render spelled out (8/4 CR18: "loc" = location; attachment level ≠ basis).
+_ENUM_LABELS: dict[str, dict[str, str]] = {
+    "treatytype": {"CATA": "Catastrophe", "CORP": "Corporate Catastrophe",
+                   "NCAT": "Non-Catastrophe", "QUOT": "Quota Share",
+                   "STOP": "Stop Loss", "SURP": "Surplus Share",
+                   "WORK": "Working Excess"},
+    "attachmentlevel": {"ACCT": "Account", "LOC": "Location",
+                        "POL": "Policy", "PORT": "Portfolio"},
+    "attachmentbasis": {"L": "Losses occurring", "R": "Risks attaching"},
+}
+
+# RM's live treaty rows carry both spellings of the identity fields; when the
+# pair agrees, the grid shows only the treaty* one (8/4 CR18 — attributes
+# appearing twice). A diverging pair stays visible: the grid exists for
+# mis-coding checks (FR-021).
+_ALIAS_OF = {"id": "treatyId", "name": "treatyName", "number": "treatyNumber"}
+
+_LABEL_OVERRIDES = {"lobs": "Lines of Business"}
+
+_TIMESTAMPISH = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
+
+
 def _humanize_key(key: str) -> str:
     """A Risk Modeler camelCase attribute key as a display label:
     ``occurrenceLimit`` → ``Occurrence Limit``."""
+    override = _LABEL_OVERRIDES.get(str(key).lower())
+    if override:
+        return override
     spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ",
                     str(key)).replace("_", " ")
     return spaced[:1].upper() + spaced[1:]
 
 
-def _display_value(value: Any) -> Any:
+def _display_value(value: Any, key: str | None = None) -> Any:
     """An RM attribute value shaped for DISPLAY: a sub-object collapses to its
     human label — ``code`` first (currency ``{code: USD}``), else the first
     non-empty ``*Name`` key (cedant ``{cedantId, cedantName}`` → the name, not
     the "id, name" values join) — and a list of sub-objects to a comma-joined
-    label list (lobs → ``Lend, Prop``, never raw JSON). Scalars pass through
-    untouched; the template owns number/boolean formatting."""
+    label list (lobs → ``Lend, Prop``, never raw JSON). With ``key``, a
+    documented enum code spells out (PORT → Portfolio) and an ISO date-time
+    string date-truncates (8/4 CR18). Other scalars pass through untouched;
+    the template owns number/boolean formatting."""
+    if isinstance(value, str):
+        labels = _ENUM_LABELS.get((key or "").lower())
+        if labels and value.strip().upper() in labels:
+            return labels[value.strip().upper()]
+        if _TIMESTAMPISH.match(value):
+            return value[:10]
+        return value
     if isinstance(value, dict):
         code = value.get("code")
         if isinstance(code, str) and code.strip():
@@ -87,11 +123,40 @@ class TreatyRow:
     def attribute_items(self) -> list[tuple[str, Any]]:
         """The full attribute set as (display label, display value) pairs for
         the expanded grid (FR-021) — RM's camelCase keys humanized, sub-object/
-        list values collapsed to their labels, RM's internal ``uri`` dropped.
-        The Excel export does NOT use this — it stays verbatim."""
-        return [(_humanize_key(k), _display_value(v))
-                for k, v in (self.attributes or {}).items()
-                if k.lower() != "uri"]
+        list values collapsed to their labels, enum codes spelled out and
+        date-times date-truncated (8/4 CR18), RM's internal ``uri`` dropped,
+        and an alias key (``id``/``name``/``number``) dropped when its
+        ``treaty*`` twin agrees. The Excel export does NOT use this — it
+        stays verbatim."""
+        attrs = self.attributes or {}
+        items: list[tuple[str, Any]] = []
+        for k, v in attrs.items():
+            if k.lower() == "uri":
+                continue
+            twin = _ALIAS_OF.get(k.lower())
+            if twin and twin in attrs and str(attrs[twin]) == str(v):
+                continue
+            items.append((_humanize_key(k), _display_value(v, key=k)))
+        return items
+
+    def display(self, key: str) -> Any:
+        """One attribute shaped for display (the condensed columns): enum codes
+        spelled out, date-times date-truncated, sub-objects collapsed — same
+        shaping as the expanded grid."""
+        return _display_value((self.attributes or {}).get(key), key=key)
+
+    def display_presence(self, key: str) -> tuple[Any, int]:
+        """A multi-valued attribute (cedant, lobs) as (first display value,
+        how many more) — the condensed view reports presence, not granularity
+        (8/5 D6). A scalar attribute returns (value, 0)."""
+        value = (self.attributes or {}).get(key)
+        if isinstance(value, (list, tuple)):
+            labels = [x for x in (_display_value(v) for v in value)
+                      if x not in (None, "")]
+            if not labels:
+                return None, 0
+            return labels[0], len(labels) - 1
+        return _display_value(value, key=key), 0
 
 
 # The two in-place overwrite paths of the idempotent upsert — same pattern as

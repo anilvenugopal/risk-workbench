@@ -11,13 +11,26 @@ Code: `package_sync_service.save_package` / `save_and_sync` →
 `package_jobs._upload_edm_body` / `_upload_rdm_body` →
 `poller.run._handle_import_edm_terminal` (the chain link) → `_handle_import_rdm_terminal`.
 
-**Two request-path operations, both non-blocking (FR-042):**
+**Two request-path operations. Neither submits to Risk Modeler (FR-042):**
 
-- **Save** — `INSERT package` + one member entity per EDM/RDM (each `pending_import`) +
-  per-member collision **search** + `INSERT submission_package`. **No `rwb_job`, no RM
+- **Save** — per-member collision **check** + `INSERT package` + one member entity per
+  EDM/RDM (each `pending_import`) + `INSERT submission_package`. **No `rwb_job`, no RM
   submit.**
-- **Save & Sync** — one `upload_edm` `rwb_job` per pending EDM (idempotent). Returns
-  immediately. Everything after is worker + poller.
+- **Save & Sync** — the same, plus one `upload_edm` `rwb_job` per pending EDM (idempotent).
+  Returns immediately. Everything after is worker + poller.
+
+**The member name-check blocks** (003 amendment, 2026-07-27), the same three-way outcome as
+[import EDM](../entities/import_edm.md) but applied per member via
+`name_check.check_member_name(kind, name)`: a real collision raises and **nothing is
+written**; an unreachable gateway **fails open**, saving the package and raising an
+`HX-Trigger: rwb:toast` warning so the analyst knows the names went unverified. The modal
+also checks as-you-type through `GET /packages/member-name-check`, sharing the same cache.
+
+Two details of the batch check worth knowing: a name **repeated within the same package** is
+reported as a collision even though neither exists in RM yet (the first submit would create
+it and the second would fail minutes later at the worker backstop), and at *sync* time the
+check covers only members that will actually be (re)submitted — anything already
+`importing`/`ready` is skipped, so a `ready` member never collides with itself.
 
 ---
 
@@ -41,17 +54,23 @@ sequenceDiagram
     rect rgb(238,244,255)
         Note over User,RM: SAVE — synchronous. Persists structure, submits NOTHING
         User->>App: POST /submissions/{id}/packages (name, members[])
+        App->>DB: _submission_active? — 409 if the submission is closed
         App->>App: validate_selection(path) for each member
+        loop each member
+            App->>RM: check_member_name(kind, name) — collision READ, cached
+            RM-->>App: colliding names
+        end
+        alt any member name collides
+            App-->>User: 422 — modal re-renders, NOTHING written
+        else check unavailable
+            Note over App: fail open — save, then HX-Trigger rwb:toast warning
+        end
         Note over App,DB: one transaction
         App->>DB: INSERT package
         loop each member
             App->>DB: INSERT irp_edm / irp_rdm (pending_import, package_id)
         end
         App->>DB: SELECT member_count ≥ 1 (else EmptyPackageError)
-        loop each member (outside txn)
-            App->>RM: search_edms / search_rdms (collision — READ, non-blocking)
-            RM-->>App: colliding names (warnings)
-        end
         App->>DB: INSERT submission_package (attach, idempotent)
         App-->>User: 200 — package card (all chips: pending_import)
     end
@@ -78,7 +97,13 @@ This is the core. Follow **one EDM** through; the counts in the notes show the f
 | 9 | `rwb_job` | claim the head `pending→running` + heartbeat | worker | 🟩 worker |
 | 10 | `irp_job` | INSERT one per (RDM, this EDM) pair — `import_rdm`, `QUEUED` | `record_submitted_irp_job` | 🟩 worker |
 | 11 | `irp_rdm` | UPDATE `pending_import→importing` | `mark_importing` | 🟩 worker |
-| 12 | `irp_rdm` | UPDATE **rollup** `→ready` once every apply across every EDM is FINISHED | `rollup_on_terminal` | 🟪 poller |
+| 12 | `rwb_job` | INSERT — `backfill_rdm_analyses` per finished apply (poller, same txn as the mirror) | `enqueue_rwb_job` | 🟪 poller |
+| 13 | `irp_rdm` | UPDATE **rollup** `→ready` once every apply across every EDM is FINISHED | `rollup_on_terminal` | 🟩 worker |
+
+Step 12 is also where each EDM's own detail backfill starts — the poller transaction that
+flips an EDM to `ready` enqueues **both** the `upload_rdm` head *and* a
+`backfill_edm_detail` job. Those two chains then run independently; see
+[backfill the EDM's detail](../backfill/backfill_edm_detail.md).
 
 ```mermaid
 sequenceDiagram
@@ -92,11 +117,13 @@ sequenceDiagram
     rect rgb(238,244,255)
         Note over User,DB: SAVE & SYNC — record pending work, return immediately
         User->>App: POST /packages/{id}/sync
+        App->>DB: SELECT live members — EmptyPackageError if no EDM (RDM-only)
+        App->>RM: check_member_name × each non-locked member (blocking)
         loop each EDM not already ready/importing
             App->>DB: ensure_pending rwb_job (upload_edm, requestor_id = edm.id)
             App-->>W: dispatch(upload_edm)
         end
-        Note over App: RDM-only package ⇒ one upload_rdm head (requestor_id = package_id)
+        Note over App: an EDM already ready ⇒ enqueue its upload_rdm apply NOW
         App-->>User: 200 — package card (queued)
     end
 
@@ -180,6 +207,10 @@ first RDM applies start; each EDM's completion drives its own head.
   (poller). The `save_and_sync` request path also has a direct branch: if an EDM is
   *already* `ready` (e.g. RDMs added after the fact), it enqueues the `upload_rdm` apply
   immediately rather than waiting for a finish that already happened.
-- **A review-only package (RDMs, no EDMs)** skips the EDM phase entirely: Save & Sync
-  enqueues a single `upload_rdm` head keyed on the package id, whose applies carry
-  `irp_edm_id = NULL`.
+- **An RDM-only package cannot be synced.** `save_and_sync` raises `EmptyPackageError` when
+  the package has no EDM — every apply must target one (D3; review-only sync is deferred).
+  The package can still be *saved* that way and sits with every member `pending_import`
+  until an EDM is added. This is also what covers the empty-package case.
+- **The `_LOCKED` set is what makes re-clicking Sync safe.** Only members whose status is
+  outside `(importing, ready)` are name-checked and enqueued, so a partially-synced package
+  advances the stragglers and leaves the rest alone.

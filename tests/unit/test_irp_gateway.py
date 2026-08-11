@@ -127,8 +127,8 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the
-# four set-based sql/databridge/ scripts through the wheel's generic executor,
-# assembling {portfolioId(str): {portfolio_name, total_tiv, states,
+# five set-based sql/databridge/ scripts through the wheel's generic executor,
+# assembling {portfolioId(str): {portfolio_name, countries, states,
 # lines_of_business, currencies}}.
 
 class _Frame:
@@ -161,9 +161,13 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
         {"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"},
     ]
     results = {
-        "portfolio_total_tiv.sql": [
-            {"PortfolioId": 1, "PortfolioName": "A", "TotalTIV": 2.8e9},
-            {"PortfolioId": 2, "PortfolioName": "B", "TotalTIV": 0},
+        "portfolio_list.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A"},
+            {"PortfolioId": 2, "PortfolioName": "B"},
+        ],
+        "portfolio_countries.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "US"},
+            {"PortfolioId": 1, "PortfolioName": "A", "Country": "CA"},
         ],
         "portfolio_states.sql": [
             {"PortfolioId": 1, "PortfolioName": "A", "State": "TX"},
@@ -183,16 +187,16 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
 
     # keys stringified; lists sorted; portfolio 2 (no locations/policies) still
-    # gets an entry from the TIV seed with empty lists
+    # gets an entry from the portinfo enumeration seed with empty lists
     assert summary == {
-        "1": {"portfolio_name": "A", "total_tiv": 2.8e9,
+        "1": {"portfolio_name": "A", "countries": ["CA", "US"],
               "states": ["FL", "TX"], "lines_of_business": ["Commercial"],
               "currencies": ["USD"]},
-        "2": {"portfolio_name": "B", "total_tiv": 0.0,
+        "2": {"portfolio_name": "B", "countries": [],
               "states": [], "lines_of_business": [], "currencies": []},
     }
     # every script ran against the databaseName of the exposureId-matched hit
-    assert [db for _, db in calls] == ["edm_db"] * 4
+    assert [db for _, db in calls] == ["edm_db"] * 5
 
 
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
@@ -203,3 +207,24 @@ def test_edm_exposure_summary_raises_when_database_name_unresolvable():
     with pytest.raises(ValueError):
         # the matched hit carries no databaseName
         gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=1)
+
+
+def test_lob_lists_over_the_free_text_cap_are_not_stored():
+    # 8/4 D15: LOB is user-defined free text — cedants fill it with account
+    # numbers or underwriter names. Over 500 distinct values → not saved out.
+    hits = [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}]
+    results = {
+        "portfolio_list.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A"},
+            {"PortfolioId": 2, "PortfolioName": "B"},
+        ],
+        "portfolio_lines_of_business.sql": (
+            [{"PortfolioId": 1, "PortfolioName": "A",
+              "LineOfBusiness": f"lob-{i}"} for i in range(501)]
+            + [{"PortfolioId": 2, "PortfolioName": "B",
+                "LineOfBusiness": f"lob-{i}"} for i in range(500)]),
+    }
+    summary = _summary_gw(hits, results).get_edm_exposure_summary(
+        edm_name="EDM", edm_irp_id=42)
+    assert summary["1"]["lines_of_business"] == []          # 501 → dropped
+    assert len(summary["2"]["lines_of_business"]) == 500    # at the cap → kept

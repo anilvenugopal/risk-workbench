@@ -609,7 +609,10 @@ rather than assumed from prose:
   **not** create, tag, or expose any analysis records tied to the RDM as a
   documented return value or side effect in this library version.
 - **This directly contradicts existing project documentation.** The
-  project's own `docs/sequence_diagrams/granular/rdm_upload.md` states broker
+  project's own `docs/sequence_diagrams/granular/rdm_upload.md` *(as it stood
+  when this CR was written; that file was retired once spec 003/004 shipped the
+  real flow — see `docs/sequence_diagrams/entities/import_rdm.md` and
+  `docs/sequence_diagrams/backfill/backfill_rdm_analyses.md`)* states broker
   analyses become discoverable post-import via
   `analysis.search_analyses_paginated(filter='sourceRdmName="<rdm_name>"')` —
   **a filter key that does not exist in the installed library's actual

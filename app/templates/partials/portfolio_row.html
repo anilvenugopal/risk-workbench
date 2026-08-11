@@ -1,16 +1,14 @@
-{# One portfolio's exposure figures — a .dtable row (spec 004 US1 + US3,
-   FR-012/FR-013/FR-037). Context: `p` (portfolio_service.PortfolioRow, with
-   `analyses` = the broker analyses LINKED to this portfolio, bucketed by the
-   R9 resolution). The snapshot is namespaced (data-model §2): "metrics" = RM
-   /metrics verbatim (counts + perilsExposed string); "summary" = the
-   DataBridge aggregate (TIV/geography/LOB/currency), null until available.
-   Rows written before 2026-07-23 hold the flat /metrics payload — `m` falls
-   back to the flat shape. Every field is read defensively; a missing field
-   renders "—", never an error. Records == locations, so there is no separate
-   Records column (preview rev 7). Expanding the row (default closed) reveals
-   the pinned + rail-connected inline analyses panel (ui.md §1.1) listing ONLY
-   clearly-linked analyses; group/unresolved rows live in the standalone
-   Broker analyses section below. #}
+{# One portfolio's exposure figures — a .dtable row (spec 004 US1,
+   FR-012/FR-013). Context: `p` (portfolio_service.PortfolioRow). The snapshot
+   is namespaced (data-model §2): "metrics" = RM /metrics verbatim (counts +
+   perilsExposed string); "summary" = the DataBridge aggregate
+   (geography/LOB/currency), null until available. Rows written before
+   2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
+   shape. Every field is read defensively; a missing field renders "—", never
+   an error. Records == locations, so there is no separate Records column
+   (preview rev 7). Expanding the row (8/4 CR15) reveals the FULL value lists
+   the collapsed cells truncate — lines of business, countries, states,
+   currencies — capped at 100 values each (CR19). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -23,7 +21,10 @@
 {%- set d = p.exposure_detail or {} -%}
 {%- set m = d.get('metrics') or d -%}
 {%- set s = d.get('summary') or {} -%}
-{%- set n_linked = p.analyses | length -%}
+{%- set lobs = s.get('lines_of_business') or [] -%}
+{%- set countries = s.get('countries') or [] -%}
+{%- set states = s.get('states') or [] -%}
+{%- set curr = s.get('currencies') or [] -%}
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
   <span class="l">
@@ -43,66 +44,44 @@
     {{ csv(perils) }}
   </span>
   <span class="l">
-    {%- set lobs = s.get('lines_of_business') or [] -%}
     {%- if lobs -%}
       {{ lobs[:3]|join(', ') }}{% if lobs|length > 3 %} <span class="dt-geo-sub">+{{ lobs|length - 3 }} more</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {%- set states = s.get('states') or [] -%}
-    {%- if states -%}
-      {{ states[:4]|join(', ') }}{% if states|length > 4 %} <span class="dt-geo-sub">+{{ states|length - 4 }} more</span>{% endif %}
+    {#- Collapse rule (8/4 D11): the single value when there is one, otherwise
+        "multi-country" / a state count. Named regions are never the collapse
+        value — regions are treaty-dependent (note 06 §2.2). Countries are
+        codes (US, CA): dbo.Address has no country-name column. -#}
+    {%- if countries|length == 1 -%}{{ countries[0] }}
+    {%- elif countries -%}multi-country <span class="dt-geo-sub">({{ countries|length }})</span>
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
   <span class="l">
-    {%- set curr = s.get('currencies') or [] -%}
+    {%- if states|length == 1 -%}{{ states[0] }}
+    {%- elif states -%}{{ states|length }} states
+    {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
+  </span>
+  <span class="l">
     {%- if curr -%}
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
-  <span>
-    {#- total_tiv: Moody's precomputed exposure_metrics account rollup summed
-        per portfolio — one figure with no currency attribution (currencies
-        have their own column), so no symbol is shown. -#}
-    {%- set tiv = s.get('total_tiv') -%}
-    {%- if tiv is not number -%}<span class="na">&mdash;</span>
-    {%- else -%}
-      <span title="{{ '{:,.0f}'.format(tiv) }}">
-        {%- if tiv >= 1e9 -%}{{ '%.1f'|format(tiv / 1e9) }}B
-        {%- elif tiv >= 1e6 -%}{{ '%.1f'|format(tiv / 1e6) }}M
-        {%- else -%}{{ '{:,.0f}'.format(tiv) }}
-        {%- endif -%}
-      </span>
-    {%- endif -%}
-  </span>
-  <span class="l pf-ana">
-    {%- if n_linked -%}
-      <strong>{{ n_linked }}</strong> broker analys{{ 'is' if n_linked == 1 else 'es' }}
-    {%- else -%}None{%- endif -%}
-  </span>
   </summary>
   <div class="drow__body drow__body--recessed">
-    {% if n_linked %}
-    <p class="mini-cap">Broker analyses linked to {{ p.name }}</p>
-    <div class="mini-shell"><table class="mini">
-      <thead><tr><th>Analysis</th><th>RDM</th><th>Type</th><th>Peril</th><th>Region</th><th>Engine</th><th>Rate</th></tr></thead>
-      <tbody>
-        {% for a in p.analyses %}
-        <tr>
-          <td class="nm">{{ a.name or 'Analysis ' ~ a.irp_id }}</td>
-          <td class="rdm">{{ a.rdm_name or '—' }}</td>
-          <td>{{ a.display.analysis_type or '—' }}</td>
-          <td>{% if a.display.peril %}{{ a.display.peril }}{% if a.display.peril_secondary %} + {{ a.display.peril_secondary }}{% endif %}{% else %}—{% endif %}</td>
-          <td>{{ a.display.region or '—' }}</td>
-          <td>{{ a.display.engine or '—' }}</td>
-          <td>{% if a.display.event_rate_scheme or a.display.rate_vintage %}{{ a.display.event_rate_scheme or a.display.rate_vintage }}{% else %}<span class="na">Missing</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table></div>
-    <a class="mini-more" href="#edm-broker-analyses">Full settings for these ↓ in the Broker analyses table</a>
+    {% if lobs or countries or states or curr %}
+    <dl class="drow-lists">
+      {% for label, values in [('Lines of business', lobs), ('Countries', countries),
+                               ('States', states), ('Currencies', curr)] if values %}
+      <div>
+        <dt>{{ label }} ({{ values|length }})</dt>
+        <dd>{{ values[:100]|join(', ') }}{% if values|length > 100 %} <span class="na">… +{{ values|length - 100 }} more not shown</span>{% endif %}</dd>
+      </div>
+      {% endfor %}
+    </dl>
     {% else %}
-    <p class="mini-cap" style="margin:0">No broker analyses linked to {{ p.name }}</p>
+    <p class="tag-empty" style="margin:0">No value lists available — the
+      DataBridge summary hasn't been stored for this portfolio.</p>
     {% endif %}
   </div>
 </details>
