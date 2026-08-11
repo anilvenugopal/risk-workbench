@@ -340,8 +340,9 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty) and its breakout lineage
     (FR-014): the immediate source portfolio's name and the dimension label
-    joined in, ordering unchanged by name — grouping and indent stay display
-    concerns. No row scoping (Article 6)."""
+    joined in. Oldest ``inserted_at`` first, so a newly created sub-portfolio
+    appears at the bottom of the Portfolios table; name breaks the tie between
+    portfolios one backfill recorded together. No row scoping (Article 6)."""
     rows = execute(
         "SELECT p.id, p.edm_id, p.name, p.irp_id, p.exposure_detail, p.as_of, "
         "p.source_portfolio_id, s.name AS source_name, "
@@ -354,7 +355,7 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         "  ON p.breakout_dimension_code = k.code "
         "LEFT JOIN breakout_group bg ON p.breakout_group_id = bg.id "
         "WHERE p.edm_id = :e AND p.deleted_at IS NULL "
-        "ORDER BY p.name",
+        "ORDER BY p.inserted_at, p.name",
         {"e": str(edm_id)}, connection="WORKBENCH")
     portfolios = [PortfolioRow(
         id=_uid(r["id"]), edm_id=_uid(r["edm_id"]), name=r["name"],
