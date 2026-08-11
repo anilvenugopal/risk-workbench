@@ -123,7 +123,8 @@ document.addEventListener('alpine:init', () => {
     open: false,
     selected: '',
     init() {
-      this.selected = this.$refs.value.value;
+      // $nextTick: the hidden input's x-ref is registered after this init runs.
+      this.$nextTick(() => { this.selected = this.$refs.value.value; });
     },
     onPick(e) {
       const btn = e.target.closest('[data-select-dir]');
