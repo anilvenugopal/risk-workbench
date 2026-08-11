@@ -116,10 +116,30 @@
         </div>
       </div>
 
-      <div class="wf-field">
+      {# The directory is picked, never typed: the browser lists folders only and
+         writes the chosen path into the hidden input. On edit it opens at the saved
+         directory; /browse falls back to the root if that directory has moved. #}
+      <div class="wf-field" x-data="directoryPicker" @click="onPick($event)">
         <label>DIRECTORY PATH</label>
-        <input class="wf-field__input" type="text" name="directory_path"
-               value="{{ form.directory_path or '' }}" placeholder="optional shared-drive path">
+        <div class="dir-picker">
+          <input type="hidden" name="directory_path" x-ref="value"
+                 value="{{ form.directory_path or '' }}">
+          <button class="browse-trigger" type="button" @click="open = !open">
+            <span class="browse-trigger__icon">🗂</span>
+            <span x-text="open ? 'Hide drive browser' : 'Browse shared drive…'">Browse shared drive…</span>
+          </button>
+          <span class="dir-picker__chosen mono" x-text="selected || 'no directory chosen'"></span>
+          <button class="btn-sm" type="button" x-show="selected" x-cloak
+                  @click="clear()">Clear</button>
+          <div class="dir-picker__panel" x-show="open" x-cloak
+               hx-get="/browse?dirs_only=1{% if form.directory_path %}&path={{ form.directory_path | urlencode }}{% endif %}"
+               hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+            Loading the shared drive…
+          </div>
+          {% if field_errors.directory_path %}
+          <div class="wf-field__msg wf-field__error">{{ field_errors.directory_path }}</div>
+          {% endif %}
+        </div>
       </div>
 
       {# On create only: CRM IDs are added and removed on the submission page

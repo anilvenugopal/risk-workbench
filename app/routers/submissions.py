@@ -27,9 +27,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import package_sync_service, submission_service
+from app.services import package_sync_service, shared_drive, submission_service
 from app.services.errors import (
     ConcurrencyConflict,
+    InvalidSourceFile,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
@@ -97,7 +98,7 @@ MIN_TREATY_YEAR, MAX_TREATY_YEAR = 1900, 2999
 
 def _validate_submission_form(
     *, name: str, cedant_name: str, treaty_type_code: str, inception_date: str,
-    treaty_year: str,
+    treaty_year: str, directory_path: str,
 ) -> tuple[dict[str, str], date | None, int | None]:
     """One message per bad field (CR4), plus the parsed inception date and treaty
     year so the caller does not parse twice. An empty dict means valid."""
@@ -121,6 +122,16 @@ def _validate_submission_form(
             and MIN_TREATY_YEAR <= parsed_treaty_year <= MAX_TREATY_YEAR):
         errors["treaty_year"] = (
             f"Enter a year between {MIN_TREATY_YEAR} and {MAX_TREATY_YEAR}.")
+
+    # The form picks the directory from the drive browser, so a path that no longer
+    # resolves means it moved or was deleted between the pick and the save.
+    if directory_path.strip():
+        try:
+            shared_drive.validate_directory(directory_path.strip())
+        except InvalidSourceFile:
+            errors["directory_path"] = (
+                "That folder is no longer on the shared drive — browse and pick it "
+                "again.")
 
     return errors, parsed_inception_date, parsed_treaty_year
 
@@ -490,7 +501,7 @@ def create(
         _validate_submission_form(
             name=name, cedant_name=cedant_name,
             treaty_type_code=treaty_type_code, inception_date=inception_date,
-            treaty_year=treaty_year,
+            treaty_year=treaty_year, directory_path=directory_path,
         )
     )
     if field_errors:
@@ -589,7 +600,7 @@ def update(
         _validate_submission_form(
             name=name, cedant_name=cedant_name,
             treaty_type_code=treaty_type_code, inception_date=inception_date,
-            treaty_year=treaty_year,
+            treaty_year=treaty_year, directory_path=directory_path,
         )
     )
     if field_errors:

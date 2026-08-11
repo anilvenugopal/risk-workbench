@@ -117,6 +117,27 @@ function whenHtmxReady(fn) {
 }
 
 document.addEventListener('alpine:init', () => {
+  // Submission form directory field. The "Use this folder" button arrives with an
+  // htmx swap, so the click is delegated from the field wrapper.
+  Alpine.data('directoryPicker', () => ({
+    open: false,
+    selected: '',
+    init() {
+      this.selected = this.$refs.value.value;
+    },
+    onPick(e) {
+      const btn = e.target.closest('[data-select-dir]');
+      if (!btn) return;
+      this.selected = btn.dataset.selectDir;
+      this.$refs.value.value = this.selected;
+      this.open = false;
+    },
+    clear() {
+      this.selected = '';
+      this.$refs.value.value = '';
+    },
+  }));
+
   Alpine.data('packageModal', () => ({
     members: [],
     browseOpen: true,
