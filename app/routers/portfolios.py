@@ -217,8 +217,9 @@ async def breakout_group_preview(request: Request, edm_id: str,
         plan = plans[-1]
         # The Add is where a duplicate name blocks (P-25): compose covered the
         # workbench rows and the cart; this is the Risk Modeler leg, fail-open
-        # (an unreachable RM never blocks the Add). An adopted member set
-        # keeps its approved name — that name IS its own portfolio.
+        # (an unreachable RM never blocks the Add). An adopted member set is
+        # exempt — its own already-created portfolio may carry the very name
+        # being re-confirmed; the run's duplicate-name handling backstops.
         if not plan.adopted and breakout_service.check_group_name(
                 edm_id, plan.name).collides:
             raise GateRefused(f"a portfolio named {plan.name!r} already "

@@ -184,7 +184,6 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .bo-cart-row:last-child { border-bottom: none; }
 .bo-cart-row__top { display: flex; align-items: baseline; gap: var(--space-2); }
 .bo-cart-row__label { font-size: var(--fs-label); font-weight: var(--fw-semibold); }
-.bo-cart-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bo-cart-row__remove { margin-left: auto; font: inherit; font-size: var(--fs-caption); color: var(--text-tertiary); background: none; border: none; cursor: pointer; }
 .bo-cart-row__remove:hover { color: var(--color-danger); }
 .bo-cart-row__filters { font-size: var(--fs-caption); color: var(--text-tertiary); }

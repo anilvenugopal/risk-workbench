@@ -255,20 +255,39 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
         {"i": first[0]}, connection="WORKBENCH")
     old_cart = _group_rows(pid)[0]["cart_id"]
 
-    # same members, different label and value order → adopts, never renames
+    # same members, different label and value order → adopts the row (no
+    # duplicate) and the row takes the name as typed (P-22 rev. 2026-08-10)
     second = request_group_breakout(
         edm_id, pid, [_group("Renamed!", {"peril": ["2"], "state": ["TX"]})],
         AS_OF, iteration2_db.user_b)
 
     rows = _group_rows(pid)
     assert len(rows) == 1                          # one row per member set
-    assert rows[0]["label"] == "Coastal"           # P-22: no rename
-    assert rows[0]["name"] == "Coastal"            # the label as typed (P-24)
+    assert rows[0]["label"] == "Renamed!"          # the label as typed (P-24)
+    assert rows[0]["name"] == "Renamed!"
+    assert rows[0]["number"] == "Renamed!"
     assert rows[0]["cart_id"] != old_cart          # the new cart claimed it
     jobs = _custom_jobs()
     assert len(jobs) == 1                          # the terminal row revived
     assert second == [jobs[0]["id"]]
     assert jobs[0]["status_code"] == "pending"
+
+
+def test_reconfirm_created_breakout_under_its_own_name(
+        iteration2_db, fake_irp):
+    """A breakout's own created portfolio never blocks its name — the
+    re-confirm heal path (FR-011/FR-019)."""
+    fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
+    edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
+    assert _run(jid)["status_code"] == "succeeded"   # "Coastal" is now live
+
+    second = request_group_breakout(
+        edm_id, pid,
+        [_group("Coastal", {"state": ["TX"], "lob": ["EQ Comm"]})],
+        AS_OF, iteration2_db.user_b)
+
+    assert second is not None
+    assert _group_rows(pid)[0]["name"] == "Coastal"
 
 
 def test_one_episode_per_portfolio_blocks_both_directions(

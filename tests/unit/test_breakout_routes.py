@@ -646,18 +646,25 @@ def test_group_preview_blocks_name_taken_in_rm(routes_db, client, fake_irp):
     assert _group_row_ids() == []
 
 
-def test_group_preview_adopted_set_is_not_name_blocked(
+def test_group_preview_shows_the_name_as_typed_for_adopted_sets(
         routes_db, client, fake_irp):
-    # Re-adding an existing member set adopts its approved name (P-22) — that
-    # name IS the group's own portfolio, so the name check must not refuse it.
+    # Re-adding a confirmed member set adopts the row (P-22 — no duplicate)
+    # but the cart shows the name exactly as typed, and the set's own
+    # approved name is never refused (the re-confirm heal path).
     edm_id, pid = _custom_pair(fake_irp)
     groups = [{"label": "Coastal", "filters": {"state": ["TX"]}}]
     assert _confirm_cart(client, edm_id, pid, groups).status_code == 200
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="88", name="Coastal")
-    r = _add_group(client, edm_id, pid, label="Coastal",
+
+    r = _add_group(client, edm_id, pid, label="Fresh name",
                    selections={"state": ["TX"]})
     assert r.status_code == 200
+    assert "Fresh name" in r.text and "Coastal" not in r.text
     assert "existing breakout" in r.text
+
+    r2 = _add_group(client, edm_id, pid, label="Coastal",
+                    selections={"state": ["TX"]})
+    assert r2.status_code == 200
 
 
 def test_breakout_name_check_renders_the_collision_fragment(

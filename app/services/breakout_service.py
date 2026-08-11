@@ -986,11 +986,11 @@ def compute_group_key(filters: dict[str, list[str]]) -> str:
 class GroupPlan:
     """One cart row, composed server-side — the group-preview POST and the
     cart confirm build the same object (preview-confirm intact)."""
-    label: str                        # effective label: adopted row's, else the analyst's
+    label: str                        # as the analyst typed
     filters: dict[str, list[str]]     # canonical: dimensions/values sorted, deduped
     key: str                          # compute_group_key(filters)
-    name: str                         # ≤ 40: adopted row's, else composed from the label
-    number: str                       # ≤ 20: P{source RM id}-G-{key token}
+    name: str                         # ≤ 40: the label as typed (P-24)
+    number: str                       # ≤ 20: the name truncated (P-26)
     accounts_upper_bound: int         # "up to N accounts" (P-23)
     exists: bool                      # a live lineage row already matches the key
     adopted: bool                     # a breakout_group row already carries this member set
@@ -1054,10 +1054,11 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
     hidden-input JSON). The name is the label exactly as typed (P-24) and its
     number is the name truncated to 20 characters (P-26); a name already
     carried by a live portfolio in the EDM or an earlier cart row is refused,
-    never suffixed (P-25). A member set that already has a ``breakout_group``
-    row adopts its stored label/name/number (P-22) — its name IS its own
-    portfolio, so it skips the availability check; a member set appearing
-    twice in one cart is refused. The overlap note is a may-overlap heuristic
+    never suffixed (P-25) — except an adopted row's own stored name, which IS
+    its portfolio (the re-confirm heal path). A member set that already has a
+    ``breakout_group`` row adopts the row (P-22): no second row, no second
+    portfolio; the confirm writes the newest label/name/number onto it. A
+    member set appearing twice in one cart is refused. The overlap note is a may-overlap heuristic
     (P-18 — warn, never block): two groups sharing a selected value in some
     dimension can share accounts; disjoint filters can too (a multi-value
     account), which is why the copy says "may"."""
@@ -1086,17 +1087,15 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                 f"two breakouts in the cart have the same members — a breakout "
                 f"is its member set, so {label!r} duplicates an earlier row")
         row = existing.get(key)
-        if row is not None:
-            label, name, number = (str(row["label"]), str(row["name"]),
-                                   str(row["number"]))
-        else:
-            name = label
-            if name.casefold() in taken:
-                where = ("in this EDM" if name.casefold() in live
-                         else "in the cart")
-                raise GateRefused(f"a portfolio named {name!r} already exists "
-                                  f"{where} — choose a different name")
-            number = name[:PORTFOLIO_NUMBER_MAX].rstrip()
+        name = label
+        own_name = (row is not None
+                    and name.casefold() == str(row["name"]).casefold())
+        if name.casefold() in taken and not own_name:
+            where = ("in this EDM" if name.casefold() in live
+                     else "in the cart")
+            raise GateRefused(f"a portfolio named {name!r} already exists "
+                              f"{where} — choose a different name")
+        number = name[:PORTFOLIO_NUMBER_MAX].rstrip()
         taken.add(name.casefold())
         overlap = [p.label for p in plans
                    if any(set(filters.get(d, ())) & set(p.filters.get(d, ()))
@@ -1141,16 +1140,17 @@ _INSERT_GROUP = """
 """
 _STAMP_GROUP_CART = """
     UPDATE breakout_group
-    SET cart_id = :cart, updated_at = :now, updated_by = :by
+    SET label = :label, name = :name, number = :number,
+        cart_id = :cart, updated_at = :now, updated_by = :by
     WHERE source_portfolio_id = :s AND group_key = :k
 """
 
 
 def _upsert_group_row(portfolio_id: Any, plan: GroupPlan, *, cart_id: str,
                       actor_id: Any) -> str:
-    """One row per (source, member set): stamp the new cart_id onto an
-    existing row — label/name/number stay as approved the first time (P-22) —
-    or insert. UNIQUE(source_portfolio_id, group_key) absorbs the race."""
+    """One row per (source, member set): stamp the new cart_id and the
+    approved label/name/number onto an existing row, or insert.
+    UNIQUE(source_portfolio_id, group_key) absorbs the race."""
     params = {
         "id": str(uuid.uuid4()), "s": str(portfolio_id), "k": plan.key,
         "label": plan.label, "filters": json.dumps(plan.filters),
