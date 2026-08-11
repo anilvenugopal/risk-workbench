@@ -46,9 +46,9 @@
         <span class="dt-title">{{ p.name }}</span>
         <span class="dt-subline">
           {# spec 005 US3 (FR-014 rev. 2026-08-11): the collapsed row marks a
-             generated sub-portfolio as a breakout and nothing more — the base
+             generated sub-portfolio with the arrow and nothing more — the base
              portfolio and the criteria are in the expanded panel below. #}
-          {% if p.source_name %}<span class="dt-flag" title="Sub-portfolio broken out from {{ p.source_name }} — expand the row for the breakout criteria">Breakout</span>{% endif %}
+          {% if p.source_name %}<span class="dt-frommark" title="Broken out from {{ p.source_name }} — expand the row for the breakout criteria">↳</span>{% endif %}
           {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
         </span>
       </span>

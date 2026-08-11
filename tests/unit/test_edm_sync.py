@@ -540,7 +540,7 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                             portfolios=[base, quick, custom],
                             as_of="2026-08-11 10:00:00"))
     html = _client().get("/edms/edm-1/portfolios-section").text
-    assert html.count("dt-flag") == 2          # the two generated rows only
+    assert html.count("dt-frommark") == 2      # the two generated rows only
     assert "Line of business IN (Homeowners)" in html
     assert "lob IN (Homeowners) AND state IN (FL, GA)" in html
     assert html.count("Base portfolio") == 2
