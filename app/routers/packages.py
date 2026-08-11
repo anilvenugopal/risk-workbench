@@ -116,8 +116,14 @@ def new_modal(request: Request, submission_id: str):
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": True},
                         status_code=409)
+    # Open the drive browser where the analyst stages this deal's files. /browse
+    # falls back to the root when the directory is unset or has moved.
+    browse_path = execute_scalar(
+        "SELECT directory_path FROM submission WHERE id = :id",
+        {"id": submission_id}, connection="WORKBENCH")
     return _partial(request, "partials/package_modal.html",
-                    {"submission_id": submission_id, "closed": False})
+                    {"submission_id": submission_id, "closed": False,
+                     "browse_path": browse_path})
 
 
 # ── As-you-type member name check ─────────────────────────────────────────────

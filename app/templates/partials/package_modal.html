@@ -42,8 +42,9 @@
       </button>
       <span class="browse-hint"
             x-text="members.length ? members.length + ' file' + (members.length === 1 ? '' : 's') + ' added' : 'tick files to add them below'"></span>
-      <div x-show="browseOpen" hx-get="/browse" hx-trigger="load"
-           hx-target="this" hx-swap="innerHTML">
+      <div x-show="browseOpen"
+           hx-get="/browse{% if browse_path %}?path={{ browse_path | urlencode }}{% endif %}"
+           hx-trigger="load" hx-target="this" hx-swap="innerHTML">
         Loading the shared drive…
       </div>
     </div>
