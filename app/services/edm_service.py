@@ -12,6 +12,11 @@ proceeds with ``ImportResult.collision_unchecked=True`` (the router warns) and t
 worker-side submit validation is the backstop. No function applies row scoping —
 every analyst sees every EDM (Article 6 / FR-037).
 
+``list_adoptable_edms`` / ``adopt_edms`` take in an EDM that already exists in Risk
+Modeler: the workbench never imported it, so there is nothing to submit. Listing is
+a second permitted request-path *read*; the adopt is a plain insert plus one
+``backfill_edm_detail`` head, which fetches the portfolios and treaties.
+
 Portability matches ``submission_service`` / ``package_service``: app-side UUIDs bound
 as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 """
@@ -26,7 +31,7 @@ from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
-    analysis_service, name_check, package_service,
+    analysis_service, irp_gateway, name_check, package_service,
     portfolio_service, rwb_job_service, treaty_service)
 from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
@@ -56,6 +61,9 @@ STATUSES = (PENDING, IMPORTING, READY, ERROR, DELETE_PENDING, DELETED)
 # Statuses a worker still moves on its own — the library list polls while any row
 # sits in one of these and stops once every row is terminal.
 TRANSIENT_STATUSES = (PENDING, IMPORTING, DELETE_PENDING)
+# Rows per page on the "sync existing EDMs" list. Matches submission_service's
+# PAGE_SIZE so the two paged lists step through at the same rate.
+ADOPTABLE_PAGE_SIZE = 50
 
 
 @dataclass
@@ -130,6 +138,169 @@ def import_edm(
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
     return ImportResult(entity_id=edm_id, collision_unchecked=not check.checked)
+
+
+# ── adopting EDMs that already live in Risk Modeler ──────────────────────────────
+
+@dataclass
+class AdoptableEdm:
+    """One Risk Modeler EDM with no ``irp_edm`` row. ``server_name`` is what the
+    adopt writes to ``irp_edm.server_name``; the rest is display-only, straight from
+    Risk Modeler's exposures list, except ``rm_url`` — the deep link into Risk
+    Modeler's own portfolios screen, which the workbench builds."""
+    irp_id: int
+    name: str
+    status: str | None = None
+    server_name: str | None = None
+    portfolio_count: int | None = None
+    treaty_count: int | None = None
+    updated_at: str | None = None
+    rm_url: str | None = None
+
+
+@dataclass
+class AdoptablePage:
+    """One page of the adoptable list. ``total`` is every EDM the diff and the name
+    filter left, not just this page — it is what the page count is drawn from, and
+    it is free here because the diff already holds the whole list in memory."""
+    rows: list[AdoptableEdm]
+    page: int
+    has_next: bool
+    total: int
+
+
+@dataclass
+class AdoptResult:
+    """``adopted`` is the new ``irp_edm.id`` per EDM taken in; ``skipped`` holds the
+    exposureIds another analyst claimed first."""
+    adopted: list[str] = field(default_factory=list)
+    skipped: list[int] = field(default_factory=list)
+
+
+def _claimed_exposure_ids() -> set[str]:
+    """Every RM exposureId a live ``irp_edm`` row already holds."""
+    rows = execute(
+        "SELECT irp_id FROM irp_edm "
+        "WHERE deleted_at IS NULL AND irp_id IS NOT NULL",
+        connection="WORKBENCH")
+    return {str(r["irp_id"]) for r in rows}
+
+
+def _unresolved_names() -> set[str]:
+    """Names of live rows that hold no exposureId, so the exposureId arm of the
+    diff cannot see them. Two ways a row gets here: it is still importing
+    (``irp_id`` is written only at import FINISHED), or the poller's by-name
+    resolution missed and it reached ``ready`` with ``irp_id`` NULL anyway
+    (``_handle_import_edm_terminal`` passes ``resolved.get('edm_exposure_id')``,
+    which may be None).
+
+    ``error`` and ``deleted`` are excluded: a failed import created nothing in
+    Risk Modeler, so an EDM there under the same name is a different one and
+    stays adoptable."""
+    rows = execute(
+        "SELECT name FROM irp_edm WHERE deleted_at IS NULL AND irp_id IS NULL "
+        "AND status NOT IN (:e, :d)",
+        {"e": ERROR, "d": DELETED}, connection="WORKBENCH")
+    return {r["name"] for r in rows}
+
+
+def list_adoptable_edms(*, page: int = 1,
+                        name: str | None = None) -> AdoptablePage:
+    """Risk Modeler's EDMs minus the ones the workbench already tracks. The one
+    Risk Modeler call on the request path is this *read* (permitted, Article 11 —
+    same latitude ``name_check`` takes); it is not cached, because a stale list
+    would offer an EDM that is already gone.
+
+    A soft-deleted ``irp_edm`` row hides nothing: an EDM deleted in the workbench
+    but still present in Risk Modeler is offered again.
+
+    Paging and the ``name`` search are applied here rather than passed to Risk
+    Modeler as ``limit``/``offset``/``filter``. Removing the already-tracked EDMs
+    is what makes a page, and that subtraction can only happen after the whole
+    list is in hand: a 50-row page from Risk Modeler would arrive ragged, and on a
+    tenant whose EDMs are mostly synced the early pages would come back empty
+    while later ones were full. ``page`` is 1-based; anything lower reads page 1,
+    so a hand-typed ``?page=0`` cannot produce a negative offset."""
+    claimed = _claimed_exposure_ids()
+    unresolved = _unresolved_names()
+    term = (name or "").strip().lower()
+    adoptable = [
+        AdoptableEdm(
+            irp_id=int(e.irp_id), name=e.name, status=e.status,
+            server_name=e.server_name, portfolio_count=e.portfolio_count,
+            treaty_count=e.treaty_count, updated_at=e.updated_at,
+            rm_url=_rm_datasource_url(e.name, "portfolios"))
+        for e in irp_gateway.list_edms()
+        if e.irp_id not in claimed and e.name not in unresolved
+        and (not term or term in e.name.lower())
+    ]
+    adoptable.sort(key=lambda a: a.name.lower())
+    page = max(1, int(page or 1))
+    start = (page - 1) * ADOPTABLE_PAGE_SIZE
+    return AdoptablePage(rows=adoptable[start:start + ADOPTABLE_PAGE_SIZE],
+                         page=page, has_next=len(adoptable) > start + ADOPTABLE_PAGE_SIZE,
+                         total=len(adoptable))
+
+
+def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
+    """Create an ``irp_edm`` for each Risk Modeler EDM the analyst selected and
+    enqueue one ``backfill_edm_detail`` head each, which fills in the portfolios,
+    their exposure figures, and the treaties.
+
+    Not routed through ``import_edm``: that path demands a shared-drive
+    ``source_file_path`` and raises ``NameCollisionError`` on exactly the
+    already-in-Risk-Modeler name every adoption uses. An adopted row therefore has
+    ``source_file_path`` NULL, no package, and ``status='ready'`` — the import
+    already happened, in Risk Modeler, before the workbench ever saw it.
+
+    ``irp_edm.irp_id`` carries no unique constraint, so each insert is guarded by
+    its own ``WHERE NOT EXISTS`` on the exposureId rather than a read followed by
+    an insert — under READ COMMITTED two concurrent adopts of the same EDM would
+    both pass a prior read. Rowcount 0 means another analyst got there first, and
+    the exposureId is reported in ``skipped``."""
+    result = AdoptResult()
+    wanted = {int(i) for i in irp_ids}
+    if not wanted:
+        return result
+
+    by_irp_id = {e.irp_id: e for e in irp_gateway.list_edms()}
+    now = _utcnow()
+    actor = str(actor_id)
+    for irp_id in sorted(wanted):
+        entry = by_irp_id.get(str(irp_id))
+        if entry is None:
+            logger.warning("adopt_edms: exposureId %s is not in Risk Modeler's "
+                           "list — skipped", irp_id)
+            result.skipped.append(irp_id)
+            continue
+        edm_id = str(uuid.uuid4())
+        rows = execute_command(
+            """
+            INSERT INTO irp_edm (id, name, irp_id, server_name, status,
+                inserted_at, updated_at, inserted_by, updated_by)
+            SELECT :id, :n, :iid, :srv, :s, :now, :now, :by, :by
+            WHERE NOT EXISTS (
+                SELECT 1 FROM irp_edm
+                WHERE irp_id = :iid AND deleted_at IS NULL)
+            """,
+            {"id": edm_id, "n": entry.name, "iid": irp_id,
+             "srv": entry.server_name, "s": READY, "now": now, "by": actor},
+            connection="WORKBENCH",
+        )
+        if rows == 0:
+            result.skipped.append(irp_id)
+            continue
+        result.adopted.append(edm_id)
+
+    for edm_id in result.adopted:
+        job_id = rwb_job_service.ensure_pending_rwb_job(
+            requestor_type="analyst_request", requestor_id=edm_id,
+            rwb_job_type="backfill_edm_detail",
+            input_data={"edm_id": edm_id}, actor_id=actor)
+        dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")
+    logger.info("adopted %d EDM(s) from Risk Modeler by analyst %s (%d skipped)",
+                len(result.adopted), actor, len(result.skipped))
+    return result
 
 
 def _to_row(row: dict) -> EdmRow:
@@ -303,21 +474,24 @@ def _analyses_backfill_running(edm_id: str) -> bool:
     return row is not None
 
 
-def _rm_treaties_url(name: str) -> str | None:
-    """The Risk Modeler UI deep link for this EDM's treaties screen —
+def _rm_datasource_url(name: str, screen: str) -> str | None:
+    """The Risk Modeler UI deep link for one of this EDM's datasource screens —
     ``https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
-    <edm-name>/treaties``, where ``<rm-domain>`` is the registrable domain of
+    <edm-name>/<screen>``, where ``<rm-domain>`` is the registrable domain of
     ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
     RM's web UI lives on the TENANT subdomain, not the API host. A plain
     navigation link, never an API call (Article 11). ``None`` when the tenant
-    name or base URL is not configured (e.g. api-key auth deployments)."""
+    name or base URL is not configured (e.g. api-key auth deployments).
+
+    RM addresses the datasource by *name*, not exposureId, and EDM names are not
+    unique — for a duplicated name the link lands on whichever one RM picks."""
     tenant = settings.risk_modeler_tenant_name.strip()
     api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
     domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
     if not tenant or not domain:
         return None
     return (f"https://{tenant}.{domain}/riskmodeler/datasources/"
-            f"{quote(str(name), safe='')}/treaties")
+            f"{quote(str(name), safe='')}/{screen}")
 
 
 def _detail_state(status: str | None, as_of: Any,
@@ -387,7 +561,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         analyses=analyses,
         package_name=package_name,
         submissions=submissions,
-        rm_treaties_url=_rm_treaties_url(row["name"]),
+        rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
     )
@@ -584,9 +758,12 @@ def mark_delete_error(conn, *, edm_id: Any) -> None:
 
 
 __all__ = [
-    "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
+    "ImportResult", "EdmRow", "EdmDetail", "AdoptableEdm", "AdoptablePage",
+    "AdoptResult",
+    "PENDING", "IMPORTING", "READY", "ERROR",
     "DELETE_PENDING", "DELETED", "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
+    "list_adoptable_edms", "adopt_edms",
     "latest_import_error", "get_edm_detail", "sync_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
