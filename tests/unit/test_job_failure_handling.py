@@ -18,14 +18,13 @@ from __future__ import annotations
 from app.poller import run as poller
 from app.services import (
     edm_service,
-    irp_job_service,
     rdm_service,
 )
 from app.services import (
     package_sync_service as sync,
 )
 from app.workers import package_jobs
-from db import execute, execute_command, execute_one, get_connection
+from db import execute, execute_one
 
 MS = sync.MemberSpec
 
@@ -102,10 +101,8 @@ def test_retry_import_resets_errored_edm_to_pending(iteration2_db, fake_irp, dri
 def test_upload_rdm_submit_failure_fails_rwb_job_and_errors_rdm(
         iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e = edm_service.import_edm(name="E", source_file_path=str(drive / "edm1.bak"),
-                               actor_id=a).entity_id
     r = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
-                               applied_edm_ids=[e], actor_id=a).entity_id
+                                 actor_id=a).entity_id
     fake_irp.raise_on_submit = True
     package_jobs.run_pending()                        # both upload_edm + upload_rdm fail
 
@@ -114,37 +111,55 @@ def test_upload_rdm_submit_failure_fails_rwb_job_and_errors_rdm(
     assert rdm_service.get_rdm(r).status == rdm_service.ERROR
 
 
-def test_rdm_rollup_stays_error_when_an_apply_submission_failed(
+def test_rdm_rolls_up_ready_after_a_retry_that_followed_a_submission_failure(
         iteration2_db, fake_irp, drive):
-    """The combined rollup must count a ``SUBMISSION FAILED`` apply as a failure, so a
-    later FINISHED apply cannot mask it by flipping the RDM to ``ready``."""
+    """Issue #38: the superseded ``SUBMISSION FAILED`` row from the first attempt must
+    not drag the successful re-import back to ``error``, and ``irp_id`` must still be
+    backfilled from the import that finished."""
     a = iteration2_db.user_a
-    pid = sync.save_package(
-        package_id=None, name="P",
-        members=[MS(kind="edm", name="E1", source_file_path=str(drive / "edm1.bak")),
-                 MS(kind="edm", name="E2", source_file_path=str(drive / "edm2.bak")),
-                 MS(kind="rdm", name="R1", source_file_path=str(drive / "rdm1.mdf"))],
-        actor_id=a).package_id
-    edms = [row["id"] for row in execute(
-        "SELECT id FROM irp_edm WHERE package_id = :p", {"p": pid},
-        connection="WORKBENCH")]
-    rid = execute_one("SELECT id FROM irp_rdm WHERE package_id = :p",
-                      {"p": pid}, connection="WORKBENCH")["id"]
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 actor_id=a)
+    fake_irp.raise_on_submit = True
+    package_jobs.run_pending()                        # never reached RM
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.ERROR
 
-    # One apply reached FINISHED; the other never reached RM (SUBMISSION FAILED).
-    irp_job_service.record_submitted_irp_job(
-        package_id=pid, irp_job_type="import_rdm", irp_edm_id=edms[0],
-        irp_rdm_id=rid, irp_id="500")
-    execute_command("UPDATE irp_job SET status = 'FINISHED' WHERE irp_id = '500'",
-                    {}, connection="WORKBENCH")
-    irp_job_service.record_submission_failure(
-        package_id=pid, irp_job_type="import_rdm", irp_edm_id=edms[1], irp_rdm_id=rid)
+    fake_irp.raise_on_submit = False
+    rdm_service.retry_import(rdm_id=res.entity_id, actor_id=a)
+    package_jobs.run_pending()                        # resubmits
+    for row in execute(
+            "SELECT irp_id FROM irp_job WHERE irp_job_type = 'import_rdm' "
+            "AND status <> 'SUBMISSION FAILED'", {}, connection="WORKBENCH"):
+        fake_irp.finish(str(row["irp_id"]))
+    poller.poll_once()
+    package_jobs.run_pending()                        # backfill + rollup
 
-    with get_connection("WORKBENCH") as conn:
-        with conn.begin():
-            rdm_service.rollup_on_terminal(conn, rdm_id=rid, rm_status="FINISHED",
-                                           irp_id="500")
-    assert rdm_service.get_rdm(rid).status == rdm_service.ERROR
+    rdm = rdm_service.get_rdm(res.entity_id)
+    assert rdm.status == rdm_service.READY
+    assert rdm.irp_id is not None
+
+
+def test_retry_resubmits_after_an_rm_side_import_failure(
+        iteration2_db, fake_irp, drive):
+    """The worker gates on the RDM's status, not on ``import_rdm`` job history — a
+    ``FAILED`` import is not "already submitted", so retry must fire a second import
+    rather than leaving the RDM stuck in ``pending_import`` with nothing in flight."""
+    a = iteration2_db.user_a
+    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
+                                 actor_id=a)
+    package_jobs.run_pending()
+    first = execute_one("SELECT irp_id FROM irp_job WHERE irp_job_type = 'import_rdm'",
+                        {}, connection="WORKBENCH")["irp_id"]
+    fake_irp.fail(str(first))
+    poller.poll_once()                                # RM failed the import → error
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.ERROR
+
+    rdm_service.retry_import(rdm_id=res.entity_id, actor_id=a)
+    package_jobs.run_pending()
+
+    assert rdm_service.get_rdm(res.entity_id).status == rdm_service.IMPORTING
+    assert execute_one(
+        "SELECT COUNT(*) AS n FROM irp_job WHERE irp_job_type = 'import_rdm'",
+        {}, connection="WORKBENCH")["n"] == 2
 
 
 # ── delete_edm submit failure ────────────────────────────────────────────────────

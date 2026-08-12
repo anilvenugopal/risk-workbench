@@ -1,10 +1,10 @@
-"""RDM routes — import (applied to ≥1 EDM), detail, recovery, name check (US2).
+"""RDM routes — import, detail, recovery, name check (US2).
 
-Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
-every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
-POST (Article 13). Risk Modeler *submits* stay worker-side; the one RM call on a
-request path is the name-collision **read** (permitted by Article 11, cached per
-``name_check``). No row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+Mirrors ``edms.py``. The import body carries a name and one source file: the RDM is
+imported standalone, so no EDM is named. CSRF on every POST (Article 13). Risk
+Modeler *submits* stay worker-side; the one RM call on a request path is the
+name-collision **read** (permitted by Article 11, cached per ``name_check``). No row
+scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
@@ -14,10 +14,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service
+from app.services import rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
-    EmptyPackageError,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
@@ -93,8 +92,7 @@ def library_table(request: Request):
 @router.get("/rdms/import", response_class=HTMLResponse)
 def import_form(request: Request):
     return _render(request, "pages/rdm_import.html",
-                   {"form": {"name": ""}, "errors": [], "check": None,
-                    "edms": edm_service.list_edms()})
+                   {"form": {"name": ""}, "errors": [], "check": None})
 
 
 @router.get("/rdms/name-check", response_class=HTMLResponse)
@@ -110,34 +108,26 @@ def create_import(
     request: Request,
     name: str = Form(...),
     source_paths: list[str] = Form(default=[]),
-    applied_edm_ids: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse("/rdms/import", status_code=303)
 
     source = source_paths[0] if source_paths else ""
-    edm_ids = [e for e in applied_edm_ids if e]
     form = {"name": name}
     if not name.strip() or not source:
         return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
+            "form": form,
             "errors": ["A name and a source file selection are required."],
-            "check": None}, status_code=422)
-    if not edm_ids:
-        return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
-            "errors": ["Select at least one EDM to apply the RDM to."],
             "check": None}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
-            applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName,
-            NameCollisionError) as exc:
+            actor_id=request.state.user.id)
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _render(request, "pages/rdm_import.html",
-                       {"form": form, "edms": edm_service.list_edms(),
-                        "errors": [str(exc)], "check": None}, status_code=422)
+                       {"form": form, "errors": [str(exc)], "check": None},
+                       status_code=422)
     # Fail-open marker (issue #17): the collision check couldn't reach Risk
     # Modeler — the detail page shows a warning banner once, via the query flag.
     suffix = "?nc=unchecked" if result.collision_unchecked else ""

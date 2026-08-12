@@ -1,9 +1,9 @@
 """Unit tests for ``analysis_service.list_broker_analyses`` (spec 004 US3, T035).
 
 The RDM page's read model (FR-030/FR-031/FR-035, R8): broker analyses grouped
-by ``rdm_id`` (an analysis applied across M EDMs shown ONCE), parsed
-``settings_metadata`` (missing/partial → blank, never error), and ``is_group``
-surfaced. No analysis is attributed to a portfolio (8/4 D8).
+by ``rdm_id``, parsed ``settings_metadata`` (missing/partial → blank, never
+error), and ``is_group`` surfaced. A broker analysis carries no ``edm_id`` — the
+RDM is imported standalone — and none is attributed to a portfolio (8/4 D8).
 """
 
 from __future__ import annotations
@@ -56,12 +56,18 @@ def _mk(table: str, **cols) -> str:
     return row_id
 
 
-def _edm(name: str) -> str:
-    return _mk("irp_edm", name=name, status="ready")
+def _package(name: str = "P") -> str:
+    return _mk("package", name=name)
 
 
-def _rdm(name: str, irp_id: int | None = None) -> str:
-    return _mk("irp_rdm", name=name, status="ready", irp_id=irp_id)
+def _edm(name: str, package_id: str | None = None) -> str:
+    return _mk("irp_edm", name=name, status="ready", package_id=package_id)
+
+
+def _rdm(name: str, irp_id: int | None = None,
+         package_id: str | None = None) -> str:
+    return _mk("irp_rdm", name=name, status="ready", irp_id=irp_id,
+               package_id=package_id)
 
 
 def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
@@ -77,34 +83,11 @@ def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
     return _mk("irp_analysis", **cols)
 
 
-def test_dedup_merges_settings_from_any_handle(iteration2_db):
-    """Settings come from ANY handle that has them — the representative is the
-    first seen, which here is the handle with no snapshot."""
-    rdm = _rdm("R")
-    e1, e2 = _edm("edm_a"), _edm("edm_b")
-    # first-seen handle (row_id pins the ORDER BY a.id tie): no settings
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="5521", name="AEP",
-              row_id="00000000-0000-0000-0000-000000000001")
-    _analysis(rdm_id=rdm, edm_id=e2, irp_id="5521", name="AEP",
-              settings=SETTINGS_PARTIAL,
-              row_id="ffffffff-ffff-ffff-ffff-ffffffffffff")
-
-    groups = analysis_service.list_broker_analyses(rdm_id=rdm)
-
-    assert len(groups) == 1 and len(groups[0].analyses) == 1
-    a = groups[0].analyses[0]
-    assert a.display.analysis_type == "EP"          # settings merged in
-    assert a.edm_name == "edm_a"                    # representative = first seen
-    assert sorted(a.edm_names) == ["edm_a", "edm_b"]  # both EDMs still listed
-
-
-def test_analysis_across_m_edms_shown_once_grouped_by_rdm(iteration2_db):
+def test_analyses_grouped_by_rdm(iteration2_db):
     rdm = _rdm("meridian_q4_results", irp_id=88)
-    e1, e2 = _edm("edm_a"), _edm("edm_b")
-    # DATA_MODEL §6: M handle rows share ONE irp_id, one per (RDM×EDM) pair
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="5521", name="AEP")
-    _analysis(rdm_id=rdm, edm_id=e2, irp_id="5521", name="AEP")
-    _analysis(rdm_id=rdm, edm_id=e1, irp_id="5522", name="OEP")
+    # One row per analysis, edm_id null — the RDM was imported standalone.
+    _analysis(rdm_id=rdm, edm_id=None, irp_id="5521", name="AEP")
+    _analysis(rdm_id=rdm, edm_id=None, irp_id="5522", name="OEP")
 
     groups = analysis_service.list_broker_analyses(rdm_id=rdm)
 
@@ -112,10 +95,7 @@ def test_analysis_across_m_edms_shown_once_grouped_by_rdm(iteration2_db):
     g = groups[0]
     assert g.rdm_name == "meridian_q4_results"
     assert str(g.rdm_irp_id) == "88"
-    assert {a.irp_id for a in g.analyses} == {"5521", "5522"}  # shown once
-    aep = next(a for a in g.analyses if a.irp_id == "5521")
-    assert sorted(aep.edm_names) == ["edm_a", "edm_b"]  # spans both EDMs
-    assert g.edm_count == 2
+    assert {a.irp_id for a in g.analyses} == {"5521", "5522"}
 
 
 def test_settings_metadata_parsed_and_missing_fields_blank_not_error(
@@ -190,11 +170,20 @@ def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
 
 
 def test_analysis_counts_populated(iteration2_db):
-    rdm, rdm2, edm = _rdm("R"), _rdm("R2"), _edm("E")
-    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
-    _analysis(rdm_id=rdm, edm_id=edm, irp_id="2")
-    _analysis(rdm_id=rdm2, edm_id=edm, irp_id="3", is_group=True)
+    # Counted through package membership — the EDM's own analyses column is null.
+    pkg = _package()
+    rdm, rdm2 = _rdm("R", package_id=pkg), _rdm("R2", package_id=pkg)
+    edm = _edm("E", package_id=pkg)
+    _analysis(rdm_id=rdm, edm_id=None, irp_id="1")
+    _analysis(rdm_id=rdm, edm_id=None, irp_id="2")
+    _analysis(rdm_id=rdm2, edm_id=None, irp_id="3", is_group=True)
 
     counts = analysis_service.analysis_counts(edm_id=edm)
     assert counts.total == 3       # FR-050 — no longer empty
     assert counts.rdm_count == 2
+
+
+def test_analysis_counts_zero_for_packageless_edm(iteration2_db):
+    rdm = _rdm("R")
+    _analysis(rdm_id=rdm, edm_id=None, irp_id="1")
+    assert analysis_service.analysis_counts(edm_id=_edm("E")).total == 0

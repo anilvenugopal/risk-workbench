@@ -45,20 +45,20 @@ def test_package_job_counts_scoped_to_members(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
     sid = _submission(a)
     pid = _package(drive, a, sid)
-    sync.save_and_sync(package_id=pid, actor_id=a)     # 1 upload_edm rwb_job
-    package_jobs.run_pending()                          # → 1 import_edm irp_job (QUEUED)
+    sync.save_and_sync(package_id=pid, actor_id=a)     # upload_edm + upload_rdm
+    package_jobs.run_pending()                          # → 2 irp_jobs (QUEUED)
     counts = job_query.package_job_counts(pid)
-    assert counts.all == 2          # 1 rwb_job (succeeded) + 1 irp_job (active)
-    assert counts.active == 1       # the QUEUED import job
+    assert counts.all == 4          # 2 rwb_jobs (succeeded) + 2 irp_jobs (active)
+    assert counts.active == 2       # both QUEUED import jobs
     assert counts.failed == 0
 
-    row = execute_one(  # find the import job's irp_id
-        "SELECT irp_id FROM irp_job WHERE package_id=:p", {"p": pid},
-        connection="WORKBENCH")
+    row = execute_one(  # fail the EDM import
+        "SELECT irp_id FROM irp_job WHERE package_id=:p AND irp_job_type='import_edm'",
+        {"p": pid}, connection="WORKBENCH")
     fake_irp.fail(str(row["irp_id"]))
     poller.poll_once()
     after = job_query.package_job_counts(pid)
-    assert after.active == 0 and after.failed == 1  # terminal failure counted
+    assert after.active == 1 and after.failed == 1  # terminal failure counted
 
 
 # ── card shape: chips, source paths, no rolled-up status ─────────────────────────

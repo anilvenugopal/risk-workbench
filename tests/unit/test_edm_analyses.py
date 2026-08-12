@@ -1,8 +1,9 @@
 """Unit tests for the EDM-page analyses read (spec 004 US3, rescoped 8/5 D15).
 
 ``analysis_service.list_edm_analyses(edm_id)`` returns every RDM in the EDM's
-package, each grouped with its broker analyses — including RDMs with none. A
-packageless EDM falls back to the analyses applied against it.
+package, each grouped with its broker analyses — including RDMs with none.
+Package membership is the whole association: an analysis carries no ``edm_id``
+(the RDM is imported standalone), so a packageless EDM lists nothing.
 ``edm_service.get_edm_detail`` carries the groups. No analysis is attributed
 to a portfolio (8/4 D8), even though ``exposure_resource_id`` is still
 captured.
@@ -31,11 +32,14 @@ def _mk(table: str, **cols) -> str:
 
 
 def _seed_edm_with_analyses():
-    """One EDM, two source RDMs, portfolios 501/502; analyses: two carrying an
-    exposure pointer, a group, and one with no pointer."""
-    edm = _mk("irp_edm", name="meridian_edm_2026", status="ready")
-    rdm1 = _mk("irp_rdm", name="meridian_q4_results", status="ready", irp_id=88)
-    rdm2 = _mk("irp_rdm", name="retro_2025_view", status="ready", irp_id=71)
+    """One package holding an EDM and two source RDMs, portfolios 501/502;
+    analyses: two carrying an exposure pointer, a group, and one with none."""
+    pkg = _mk("package", name="Pkg")
+    edm = _mk("irp_edm", name="meridian_edm_2026", status="ready", package_id=pkg)
+    rdm1 = _mk("irp_rdm", name="meridian_q4_results", status="ready", irp_id=88,
+               package_id=pkg)
+    rdm2 = _mk("irp_rdm", name="retro_2025_view", status="ready", irp_id=71,
+               package_id=pkg)
     now = _utcnow()
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm, irp_id="501", name="Primary 2026",
@@ -43,7 +47,7 @@ def _seed_edm_with_analyses():
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm, irp_id="502", name="Excess 2026",
         exposure_detail={"metrics": {}}, as_of=now)
-    mk_analysis = lambda **kw: _mk("irp_analysis", edm_id=edm,  # noqa: E731
+    mk_analysis = lambda **kw: _mk("irp_analysis",  # noqa: E731
                                    status_code="ready", **kw)
     mk_analysis(rdm_id=rdm1, irp_id="1", name="AEP", exposure_resource_id="501",
                 is_group=0,
@@ -93,9 +97,9 @@ def _seed_package_pair():
                package_id=pkg)
     stray = _mk("irp_rdm", name="stray_rdm", status="ready", irp_id=99)
     mk = lambda **kw: _mk("irp_analysis", status_code="ready", **kw)  # noqa: E731
-    mk(edm_id=edm1, rdm_id=rdm1, irp_id="1", name="AEP", is_group=0)
-    mk(edm_id=edm1, rdm_id=rdm2, irp_id="2", name="OEP", is_group=0)
-    mk(edm_id=edm1, rdm_id=stray, irp_id="3", name="Stray", is_group=0)
+    mk(rdm_id=rdm1, irp_id="1", name="AEP", is_group=0)
+    mk(rdm_id=rdm2, irp_id="2", name="OEP", is_group=0)
+    mk(rdm_id=stray, irp_id="3", name="Stray", is_group=0)
     return pkg, edm1, edm2
 
 
@@ -119,8 +123,8 @@ def test_rdm_with_no_analyses_still_gets_an_empty_group(iteration2_db):
     assert len(groups[2].analyses) == 0
 
 
-def test_packageless_edm_falls_back_to_its_applied_analyses(iteration2_db):
-    edm, rdm1, rdm2 = _seed_edm_with_analyses()   # no package anywhere
-    groups = analysis_service.list_edm_analyses(edm_id=edm)
-    assert [g.rdm_name for g in groups] == [
-        "meridian_q4_results", "retro_2025_view"]
+def test_packageless_edm_lists_nothing(iteration2_db):
+    # Package membership is the only EDM↔RDM association — an EDM in no package
+    # has no RDMs, so there is nothing to group.
+    edm = _mk("irp_edm", name="lone_edm", status="ready")
+    assert analysis_service.list_edm_analyses(edm_id=edm) == []

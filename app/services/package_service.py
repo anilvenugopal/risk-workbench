@@ -39,20 +39,15 @@ _NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 # ``package_sync_service.finalize_package`` already hardcodes ``'deleted'`` in SQL.
 # Article 3 carve-out column.
 #
-# ATTACH takes ``ready`` and nothing else. An entity that is still importing has no name
-# in Risk Modeler yet, so the RDM applies a later Save & Sync submits against it would be
-# rejected — and a ``pending_import``/``error`` one would need the poller's package-gated
-# chain to wake it, which a standalone entity's ``import_edm`` job cannot do. Requiring
-# ``ready`` removes that whole class of ordering hazard instead of handling it: a ready
-# EDM takes ``sync_package``'s direct apply branch. Recovering a failed standalone import
-# is still the library's own Retry, after which it becomes attachable.
+# ATTACH takes ``ready`` and nothing else: the picker offers entities that already exist
+# in Risk Modeler. An entity whose import is pending, in flight, or failed is finished or
+# retried from its own library page, and becomes attachable once it reads ``ready``.
 _ATTACHABLE = "ready"
 
 # DETACH is deliberately wider than attach: a member that arrived as a package file and
 # then failed (or has not synced yet) must be removable, or the only way out is the
 # card's Delete, which removes every member FROM Risk Modeler. So ``pending_import`` and
-# ``error`` members detach fine. ``importing`` does not — its import is in flight and the
-# poller will still chain this package's RDM applies onto it when the job lands — and
+# ``error`` members detach fine. ``importing`` does not — its import is in flight — and
 # neither do members already on their way out.
 _UNDETACHABLE = ("importing", "delete_pending", "deleted")
 
@@ -223,8 +218,8 @@ def remove_member(
 
     Wider than ``add_member`` on purpose (``_UNDETACHABLE``): a ``pending_import`` or
     ``error`` member must be removable, since it cannot be attached back and the only
-    other way out would be the card's Delete. An ``importing`` one must not be — the
-    poller still has this package's RDM applies to chain onto it. A detached
+    other way out would be the card's Delete. An ``importing`` one must not be — its
+    import is in flight in Risk Modeler. A detached
     ``error`` member is only re-attachable after the library's Retry lands it ``ready``.
 
     The package is bound in the WHERE clause: without it a mismatched

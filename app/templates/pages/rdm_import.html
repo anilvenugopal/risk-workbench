@@ -17,10 +17,10 @@
   {% endif %}
 
   {# Source file first: picking a file auto-populates the name (packageModal
-     parity); Import stays disabled until file + name + ≥1 applied EDM are set
-     and the collision check has come back clear (importForm in app.js — #17 UX). #}
+     parity); Import stays disabled until file + name are set and the collision
+     check has come back clear (importForm in app.js — issue #17 UX). #}
   <form method="post" action="/rdms/import" class="entity-import-form"
-        x-data="importForm({requireApplied: true})" @change="onChange($event)"
+        x-data="importForm" @change="onChange($event)"
         @htmx:after-swap="onSwap()"
         @htmx:response-error="onCheckError($event)"
         @htmx:send-error="onCheckError($event)">
@@ -45,22 +45,6 @@
 
     {% with name = form.name %}{% include "partials/name_collision.html" %}{% endwith %}
     <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
-
-    <div class="wf-field">
-      <label>APPLIED EDMs <span class="wf-field__hint">(select at least one)</span></label>
-      <div class="edm-apply-list">
-        {% for e in edms %}
-        <label class="edm-apply-list__row">
-          <input type="checkbox" name="applied_edm_ids" value="{{ e.id }}">
-          <span>{{ e.name }}</span>
-          <span class="status-chip status-chip--{{ (e.status or 'unknown')|lower|replace(' ', '-') }}">
-            {{ e.status or 'unknown' }}</span>
-        </label>
-        {% else %}
-        <span class="tag-empty">No EDMs yet — import an EDM first.</span>
-        {% endfor %}
-      </div>
-    </div>
 
     <div class="form-actions">
       <button class="btn-sm btn-sm--primary" type="submit"

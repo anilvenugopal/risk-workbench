@@ -102,14 +102,14 @@ class FakeIRP:
         """The exposureId assigned to a known/imported EDM (test assertion helper)."""
         return self._edm_exposure_ids.get(name)
 
-    def add_analysis(self, *, source_rdm_name: str, exposure_name: str,
+    def add_analysis(self, *, source_rdm_name: str,
                      analysis_id: str, name: str | None = None,
                      exposure_resource_id: str | None = None,
                      exposure_resource_type: str | None = None,
                      is_group: bool = False,
                      metadata: dict | None = None) -> None:
-        """Seed an analysis discoverable by ``search_analyses`` for this (RDM, EDM)
-        pair — the backfill worker captures it as an ``irp_analysis`` row (D2).
+        """Seed an analysis discoverable by ``search_analyses`` for this RDM — the
+        backfill worker captures it as an ``irp_analysis`` row (D2).
 
         Spec 004 (R9): optionally carries RM's exposure pointer — seed
         ``exposure_resource_type="PORTFOLIO"`` for a linkable analysis, ``GROUP``/
@@ -117,7 +117,7 @@ class FakeIRP:
         paths — plus ``is_group`` and a ``metadata`` settings payload."""
         self._analyses.append({
             "analysis_id": str(analysis_id), "name": name,
-            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
+            "source_rdm_name": source_rdm_name,
             "exposure_resource_id": (str(exposure_resource_id)
                                      if exposure_resource_id is not None else None),
             "exposure_resource_type": exposure_resource_type,
@@ -190,10 +190,9 @@ class FakeIRP:
         self._exposure_id_for(name)
         return result
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult:
+    def submit_rdm_import(self, *, name: str, source_file_path: str) -> SubmitResult:
         return self._submit("import_rdm", name=name,
-                            source_file_path=source_file_path, edm_name=edm_name)
+                            source_file_path=source_file_path)
 
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
         return self._submit("delete_edm", edm_irp_id=edm_irp_id)
@@ -202,22 +201,18 @@ class FakeIRP:
         # Synchronous single-analysis delete — no irp_job (R6). Record the call.
         self.deleted_analysis_ids.append(int(analysis_id))
 
-    def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]:
-        # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
-        # builds the filter string internally (safe json.dumps quoting), so the fake
-        # matches on the pair args directly rather than parsing a filter string.
-        hits: list[AnalysisHit] = []
-        for a in self._analyses:
-            if (a["source_rdm_name"] == source_rdm_name
-                    and a["exposure_name"] == exposure_name):
-                hits.append(AnalysisHit(
-                    analysis_id=a["analysis_id"], name=a["name"],
-                    source_rdm_name=a["source_rdm_name"],
-                    exposure_name=a["exposure_name"],
-                    exposure_resource_id=a.get("exposure_resource_id"),
-                    exposure_resource_type=a.get("exposure_resource_type")))
-        return hits
+    def search_analyses(self, *, source_rdm_name: str) -> list[AnalysisHit]:
+        # Return every seeded analysis of this RDM. The gateway builds the filter
+        # string internally (safe json.dumps quoting), so the fake matches on the
+        # arg directly rather than parsing a filter string.
+        return [
+            AnalysisHit(
+                analysis_id=a["analysis_id"], name=a["name"],
+                source_rdm_name=a["source_rdm_name"],
+                exposure_resource_id=a.get("exposure_resource_id"),
+                exposure_resource_type=a.get("exposure_resource_type"))
+            for a in self._analyses if a["source_rdm_name"] == source_rdm_name
+        ]
 
     # ── spec-004 detail reads (mirrors the extended IRPGateway surface) ─────────
 

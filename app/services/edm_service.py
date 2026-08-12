@@ -322,23 +322,23 @@ def _latest_backfill_status(edm_id: str) -> str | None:
 
 
 def _analyses_backfill_running(edm_id: str) -> bool:
-    """True while ANY ``backfill_rdm_analyses`` touching this EDM is in flight —
-    the poller's heads key on the pair's ``import_rdm`` apply (joined to its
-    EDM), a manual RDM Sync's on the RDM id (paired to this EDM via the same
-    applies). Folded into ``EdmDetail.sync_running`` so the live body keeps
-    polling (and the Sync button stays disabled) until the analyses land too —
-    the EDM page's Sync refreshes both (2026-07-24)."""
+    """True while ANY ``backfill_rdm_analyses`` for an RDM in this EDM's package
+    is in flight — the poller's heads key on the finished ``import_rdm`` (hence
+    the join), a manual RDM Sync's on the RDM id directly. Folded into
+    ``EdmDetail.sync_running`` so the live body keeps polling (and the Sync button
+    stays disabled) until the analyses land too — the EDM page's Sync refreshes
+    both (2026-07-24). Package membership is the EDM↔RDM association (the RDMs
+    merely share the package; an RDM imports standalone)."""
     row = execute_one(
         "SELECT rj.id FROM rwb_job rj "
         "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
         "AND rj.requestor_id = ij.id "
         "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
         "AND rj.status_code IN ('pending', 'running') "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id IN ("
-        "         SELECT irp_rdm_id FROM irp_job "
-        "         WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm' "
-        "         AND irp_rdm_id IS NOT NULL)))",
+        "AND COALESCE(ij.irp_rdm_id, rj.requestor_id) IN ("
+        "    SELECT r.id FROM irp_rdm r "
+        "    JOIN irp_edm e ON e.package_id = r.package_id "
+        "    WHERE e.id = :e AND r.deleted_at IS NULL)",
         {"e": edm_id}, connection="WORKBENCH")
     return row is not None
 

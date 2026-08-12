@@ -51,7 +51,6 @@ from db import (
     execute,
     execute_command,
     execute_one,
-    execute_scalar,
     get_connection,
     is_unique_violation,
 )
@@ -90,9 +89,8 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.ok(skipped="edm missing")
     # Live membership beats the head's input_data snapshot (issue #22): an EDM imported
     # standalone and attached BEFORE its pending upload_edm head ran would otherwise
-    # submit with package_id=None — the import_edm irp_job carries NULL and the poller
-    # gates the upload_rdm chain on it, so the package's RDMs would silently never
-    # apply. ensure_pending_rwb_job does not rewrite input_data on a pending head.
+    # record the import_edm irp_job with package_id NULL, because
+    # ensure_pending_rwb_job does not rewrite input_data on a pending head.
     package_id = edm.package_id
     if edm.status != edm_service.PENDING:
         # already submitted/imported/errored — nothing to do this run.
@@ -130,30 +128,23 @@ def upload_edm(rwb_job_id: str) -> None:
 
 # ── upload_rdm (US2) ─────────────────────────────────────────────────────────────
 
-def _apply_exists(rdm_id: Any, edm_id: Any) -> bool:
-    """True if an ``import_rdm`` apply already exists for this (RDM, EDM) pair (a
-    prior successful submit). Makes the fan-out idempotent per pair across re-runs."""
-    n = execute_scalar(
-        "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm' "
-        "AND irp_rdm_id=:r AND irp_edm_id=:e AND status<>'SUBMISSION FAILED'",
-        {"r": str(rdm_id), "e": str(edm_id)}, connection="WORKBENCH")
-    return bool(n)
-
-
 def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Fan out one apply per (RDM, EDM) pair — every apply targets an EDM (D3;
-    review-only is deferred). One ``irp_job(import_rdm)`` per apply; idempotent per
-    pair. The EDM is name-resolved at submit time (Article 2).
+    """Submit one import per RDM. The RDM is imported standalone — against an
+    exposure set of its own name, never into an EDM — so the ``irp_job(import_rdm)``
+    carries no ``irp_edm_id`` and nothing waits on an EDM import.
 
-    Each apply that never reaches Risk Modeler is recorded as a ``SUBMISSION FAILED``
-    ``irp_job`` (for the retry batch) and flips the RDM to ``error`` — its combined
-    rollup is ``error`` if *any* apply fails (rdm_service). The ``rwb_job`` fails only
-    when the fan-out submitted nothing at all (every attempted apply failed); a partial
-    fan-out ``succeeds`` (the failures are carried by their ``irp_job`` rows + the RDM's
+    Idempotent on the RDM's status, not on its job history: only a ``pending_import``
+    RDM is submitted. Gating on "an ``import_rdm`` row exists" instead would treat an
+    RM-side ``FAILED`` import as done, so retry / replace-source-file would silently
+    submit nothing and leave the RDM stuck in ``pending_import``.
+
+    An import that never reaches Risk Modeler is recorded as a ``SUBMISSION FAILED``
+    ``irp_job`` (for the retry batch) and flips the RDM to ``error``. The ``rwb_job``
+    fails only when nothing at all was submitted; a batch that submitted some RDMs
+    ``succeeds`` (the failures are carried by their ``irp_job`` rows + the RDM's
     ``error`` state)."""
     ctx = _load_input(rwb_job_id)
     rdm_ids = ctx.get("rdm_ids", [])
-    edm_ids = [e for e in (ctx.get("edm_ids") or []) if e]
     package_id = ctx.get("package_id")
 
     submitted = 0
@@ -161,49 +152,38 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     last_error: str | None = None
     for rdm_id in rdm_ids:
         rdm = rdm_service.get_rdm(rdm_id)
-        if rdm is None:
+        if rdm is None or rdm.status != rdm_service.PENDING:
             continue
-        for edm_id in edm_ids:
-            if _apply_exists(rdm_id, edm_id):
-                continue
-            edm = edm_service.get_edm(edm_id)
-            edm_name = edm.name if edm is not None else None
-            if edm_name is None:
-                continue  # target EDM vanished — nothing to apply against
-            try:
-                res = irp_gateway.submit_rdm_import(
-                    name=rdm.name, source_file_path=rdm.source_file_path,
-                    edm_name=edm_name)
-            except Exception as exc:  # noqa: BLE001 — SUBMISSION FAILED, not a crash
-                logger.warning("upload_rdm submit failed (rdm=%s edm=%s): %s",
-                               rdm_id, edm_id, exc)
-                irp_job_service.record_submission_failure(
-                    package_id=package_id, irp_job_type="import_rdm",
-                    irp_edm_id=edm_id, irp_rdm_id=rdm_id,
-                    payload={"name": rdm.name, "edm_name": edm_name})
-                rdm_service.mark_error(rdm_id=rdm_id)
-                last_error = str(exc)
-                failed += 1
-                continue
-            # AT-LEAST-ONCE WINDOW (see module docstring): the apply above reached RM;
-            # a crash before this record leaves the pair un-recorded → a retry re-applies.
-            irp_job_service.record_submitted_irp_job(
+        try:
+            res = irp_gateway.submit_rdm_import(
+                name=rdm.name, source_file_path=rdm.source_file_path)
+        except Exception as exc:  # noqa: BLE001 — SUBMISSION FAILED, not a crash
+            logger.warning("upload_rdm submit failed (rdm=%s): %s", rdm_id, exc)
+            irp_job_service.record_submission_failure(
                 package_id=package_id, irp_job_type="import_rdm",
-                irp_edm_id=edm_id, irp_rdm_id=rdm_id, irp_id=res.irp_id,
-                resource_uri=res.resource_uri, payload=res.payload,
-                response=res.response)
-            rdm_service.mark_importing(rdm_id=rdm_id)
-            logger.info("import_rdm submitted (rdm=%s edm=%s irp_id=%s)",
-                        rdm_id, edm_id, res.irp_id)
-            submitted += 1
+                irp_rdm_id=rdm_id, payload={"name": rdm.name})
+            rdm_service.mark_error(rdm_id=rdm_id)
+            last_error = str(exc)
+            failed += 1
+            continue
+        # AT-LEAST-ONCE WINDOW (see module docstring): the import above reached RM;
+        # a crash before this record leaves the RDM un-recorded → a retry re-imports.
+        irp_job_service.record_submitted_irp_job(
+            package_id=package_id, irp_job_type="import_rdm",
+            irp_rdm_id=rdm_id, irp_id=res.irp_id,
+            resource_uri=res.resource_uri, payload=res.payload,
+            response=res.response)
+        rdm_service.mark_importing(rdm_id=rdm_id)
+        logger.info("import_rdm submitted (rdm=%s irp_id=%s)", rdm_id, res.irp_id)
+        submitted += 1
     if failed and submitted == 0:
         # Same framing as upload_edm so the read-side surfacing
         # (rdm_service.latest_import_error) strips it uniformly and the page
         # shows the Risk Modeler reason itself (issue #17).
         return runtime.JobResult.fail(
             f"upload_rdm submit failed: {last_error}",
-            applies_submitted=0, applies_failed=failed)
-    return runtime.JobResult.ok(applies_submitted=submitted, applies_failed=failed)
+            imports_submitted=0, imports_failed=failed)
+    return runtime.JobResult.ok(imports_submitted=submitted, imports_failed=failed)
 
 
 @dramatiq.actor(max_retries=0)
@@ -221,7 +201,7 @@ _INSERT_ANALYSIS_IF_ABSENT = """
     SELECT :id, :rdm, :edm, :pkg, :irp, :name, :srdm, 'ready', :cby, 0, :now, :now
     WHERE NOT EXISTS (
         SELECT 1 FROM irp_analysis
-        WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+        WHERE rdm_id = :rdm AND irp_id = :irp
     )
 """
 
@@ -233,45 +213,46 @@ _UPDATE_ANALYSIS_DETAIL = """
     UPDATE irp_analysis
     SET settings_metadata = :sm, is_group = :grp, exposure_resource_id = :x,
         updated_at = :now
-    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+    WHERE rdm_id = :rdm AND irp_id = :irp
 """
 _UPDATE_ANALYSIS_POINTER = """
     UPDATE irp_analysis
     SET exposure_resource_id = :x, updated_at = :now
-    WHERE rdm_id = :rdm AND edm_id = :edm AND irp_id = :irp
+    WHERE rdm_id = :rdm AND irp_id = :irp
 """
 
 
-def _prune_pair_analyses(conn, *, rdm_id: Any, edm_id: Any,
-                         seen_ids: list[str], now: Any) -> int:
-    """Reconcile one (RDM, EDM) pair's captured rows against a SUCCESSFUL
-    ``search_analyses`` enumeration: soft-delete rows RM no longer returns
-    (the analysis was deleted in RM — the same ``deleted_at`` the delete_rdm
-    path stamps, so every read and the delete-enumeration skip it), and clear
-    ``deleted_at`` on ids it returns again. Returns the rows pruned."""
-    params: dict[str, Any] = {"rdm": str(rdm_id), "edm": str(edm_id), "now": now}
+def _prune_rdm_analyses(conn, *, rdm_id: Any, seen_ids: list[str], now: Any) -> int:
+    """Reconcile one RDM's captured rows against a SUCCESSFUL ``search_analyses``
+    enumeration: soft-delete rows RM no longer returns (the analysis was deleted
+    in RM — the same ``deleted_at`` the delete_rdm path stamps, so every read and
+    the delete-enumeration skip it), and clear ``deleted_at`` on ids it returns
+    again. Returns the rows pruned."""
+    params: dict[str, Any] = {"rdm": str(rdm_id), "now": now}
     params.update({f"a{i}": str(v) for i, v in enumerate(seen_ids)})
     marks = ", ".join(f":a{i}" for i in range(len(seen_ids)))
     if marks:
         conn.execute(text(
             "UPDATE irp_analysis SET deleted_at = NULL, updated_at = :now "
-            "WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NOT NULL "
+            "WHERE rdm_id = :rdm AND deleted_at IS NOT NULL "
             f"AND irp_id IN ({marks})"), params)
     stale = f" AND irp_id NOT IN ({marks})" if marks else ""
     return conn.execute(text(
         "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now "
-        f"WHERE rdm_id = :rdm AND edm_id = :edm AND deleted_at IS NULL{stale}"),
+        f"WHERE rdm_id = :rdm AND deleted_at IS NULL{stale}"),
         params).rowcount
 
 
 def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
-    """Capture this (RDM, EDM) pair's broker analyses as ``irp_analysis`` rows so a
-    later package delete can enumerate them (D2, data-model §6a). Enqueued by the
-    poller when an ``import_rdm`` apply reaches FINISHED. Idempotent on
-    ``UNIQUE(rdm_id, edm_id, irp_id)``; each pair's successful enumeration also
-    PRUNES (soft-deletes) captured rows RM no longer returns. Once every apply
-    of the RDM is FINISHED, roll ``irp_rdm.status`` up to ``ready`` (combined
-    rollup, worker-poller.md §2).
+    """Capture this RDM's broker analyses as ``irp_analysis`` rows so a later
+    package delete can enumerate them (D2, data-model §6a). Enqueued by the poller
+    when the ``import_rdm`` reaches FINISHED, and by the analyst's manual Sync.
+    Idempotent on ``UNIQUE(rdm_id, edm_id, irp_id)``; a successful enumeration also
+    PRUNES (soft-deletes) captured rows RM no longer returns, then rolls
+    ``irp_rdm.status`` up to ``ready`` (worker-poller.md §2).
+
+    ``edm_id`` is left NULL: the RDM is imported standalone, so its analyses belong
+    to no EDM in Risk Modeler. The app-side association is package membership.
 
     Spec 004 US3 extension (R3/R9): per captured analysis, also fetch its
     settings/metadata (single-item ``get_analysis_metadata``, looped app-side)
@@ -279,112 +260,88 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     ``exposureResourceId`` to the typed column ONLY when the resource type is
     PORTFOLIO (null otherwise). One analysis's failed metadata read leaves its
     fields blank and never aborts the capture (blank, not error). No portfolio
-    lookup here — resolution is read-time in ``analysis_service``.
-
-    Manual RDM sync (spec 004 follow-up, 2026-07-24): the analyst-keyed head
-    carries NO ``edm_id`` — the body then derives every applied (RDM, EDM) pair
-    from the ``import_rdm`` irp_job rows and re-captures each, so rows captured
-    before the detail extension shipped pick up their settings/pointer without
-    a re-import."""
+    lookup here — resolution is read-time in ``analysis_service``."""
     ctx = _load_input(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     package_id = ctx.get("package_id")
     apply_irp_id = ctx.get("apply_irp_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
     if rdm is None:
-        return {"skipped": "rdm/edm missing"}
-    if ctx.get("edm_id"):
-        edm_ids = [str(ctx["edm_id"])]
-    else:  # analyst sync — every EDM this RDM was ever applied to
-        edm_ids = [str(r["irp_edm_id"]) for r in execute(
-            "SELECT DISTINCT irp_edm_id FROM irp_job "
-            "WHERE irp_rdm_id = :r AND irp_job_type = 'import_rdm' "
-            "AND irp_edm_id IS NOT NULL",
-            {"r": str(rdm_id)}, connection="WORKBENCH")]
-    pairs = [(eid, edm) for eid in edm_ids
-             if (edm := edm_service.get_edm(eid)) is not None]
-    if not pairs:
-        return {"skipped": "rdm/edm missing"}
+        return {"skipped": "rdm missing"}
 
-    # Per pair: enumerate + fetch every analysis's metadata BEFORE opening the
-    # transaction (no txn across a gateway round-trip, Article 11); per-analysis
-    # isolation. The gateway builds the filter with safe json.dumps quoting —
-    # never interpolate names into a filter here.
-    hits_by_edm: dict[str, list] = {}
+    # Enumerate + fetch every analysis's metadata BEFORE opening the transaction
+    # (no txn across a gateway round-trip, Article 11); per-analysis isolation.
+    # The gateway builds the filter with safe json.dumps quoting — never
+    # interpolate names into a filter here.
+    hits = irp_gateway.search_analyses(source_rdm_name=rdm.name)
     meta_by_id: dict[str, Any] = {}
     metadata_failures = 0
-    for eid, edm in pairs:
-        hits_by_edm[eid] = irp_gateway.search_analyses(
-            source_rdm_name=rdm.name, exposure_name=edm.name)
-        for hit in hits_by_edm[eid]:
-            if hit.analysis_id in meta_by_id:
-                continue
-            try:
-                meta_by_id[hit.analysis_id] = irp_gateway.get_analysis_metadata(
-                    analysis_id=int(hit.analysis_id))
-            except Exception as exc:  # noqa: BLE001 — blank, never error (US3 acc. 3)
-                logger.warning("backfill_rdm_analyses: metadata read failed "
-                               "(analysis=%s): %s", hit.analysis_id, exc)
-                metadata_failures += 1
+    for hit in hits:
+        if hit.analysis_id in meta_by_id:
+            continue
+        try:
+            meta_by_id[hit.analysis_id] = irp_gateway.get_analysis_metadata(
+                analysis_id=int(hit.analysis_id))
+        except Exception as exc:  # noqa: BLE001 — blank, never error (US3 acc. 3)
+            logger.warning("backfill_rdm_analyses: metadata read failed "
+                           "(analysis=%s): %s", hit.analysis_id, exc)
+            metadata_failures += 1
 
     now = _utcnow()
-    pruned = 0
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
-            for edm_id, hits in hits_by_edm.items():
-                pruned += _prune_pair_analyses(
-                    conn, rdm_id=rdm_id, edm_id=edm_id,
-                    seen_ids=[h.analysis_id for h in hits], now=now)
-                for hit in hits:
-                    # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
-                    # a concurrent backfill of the same pair can win the race and
-                    # leave this insert violating UNIQUE(rdm_id, edm_id, irp_id).
-                    # Absorb that in a SAVEPOINT as a dedup hit so the outer txn
-                    # (and the rollup) survives.
-                    try:
-                        with conn.begin_nested():
-                            conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
-                                "id": str(uuid.uuid4()),
-                                "rdm": str(rdm_id), "edm": str(edm_id),
-                                "pkg": (str(package_id) if package_id else None),
-                                "irp": str(hit.analysis_id), "name": hit.name,
-                                "srdm": rdm.name,
-                                "cby": (str(apply_irp_id)
-                                        if apply_irp_id is not None else None),
-                                "now": now})
-                    except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
-                        if not is_unique_violation(exc):
-                            raise
-                    # Detail overwrite (US3): the pointer prefers the per-analysis
-                    # metadata, falling back to the search hit; promoted ONLY for
-                    # exposureResourceType == "PORTFOLIO" (R9).
-                    meta = meta_by_id.get(hit.analysis_id)
-                    rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
-                    if meta is not None and meta.exposure_resource_id is not None:
-                        rid, rtype = (meta.exposure_resource_id,
-                                      meta.exposure_resource_type)
-                    pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
-                    key = {"rdm": str(rdm_id), "edm": str(edm_id),
-                           "irp": str(hit.analysis_id), "x": pointer, "now": now}
-                    if meta is not None:
-                        conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
-                            **key,
-                            "sm": (json.dumps(meta.payload) if meta.payload else None),
-                            "grp": (1 if meta.is_group else 0)})
-                    elif pointer is not None:
-                        # metadata read failed — refresh the pointer only when
-                        # the search hit actually carried one
-                        conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
-            # Combined rollup: irp_rdm → ready once all its applies are FINISHED;
-            # stamp the RDM's last-synced trust signal alongside (FR-052).
+            pruned = _prune_rdm_analyses(
+                conn, rdm_id=rdm_id,
+                seen_ids=[h.analysis_id for h in hits], now=now)
+            for hit in hits:
+                # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
+                # a concurrent backfill of the same RDM can win the race and
+                # leave this insert violating UNIQUE(rdm_id, edm_id, irp_id).
+                # Absorb that in a SAVEPOINT as a dedup hit so the outer txn
+                # (and the rollup) survives.
+                try:
+                    with conn.begin_nested():
+                        conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
+                            "id": str(uuid.uuid4()),
+                            "rdm": str(rdm_id), "edm": None,
+                            "pkg": (str(package_id) if package_id else None),
+                            "irp": str(hit.analysis_id), "name": hit.name,
+                            "srdm": rdm.name,
+                            "cby": (str(apply_irp_id)
+                                    if apply_irp_id is not None else None),
+                            "now": now})
+                except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
+                    if not is_unique_violation(exc):
+                        raise
+                # Detail overwrite (US3): the pointer prefers the per-analysis
+                # metadata, falling back to the search hit; promoted ONLY for
+                # exposureResourceType == "PORTFOLIO" (R9).
+                meta = meta_by_id.get(hit.analysis_id)
+                rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
+                if meta is not None and meta.exposure_resource_id is not None:
+                    rid, rtype = (meta.exposure_resource_id,
+                                  meta.exposure_resource_type)
+                pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
+                key = {"rdm": str(rdm_id), "irp": str(hit.analysis_id),
+                       "x": pointer, "now": now}
+                if meta is not None:
+                    conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
+                        **key,
+                        "sm": (json.dumps(meta.payload) if meta.payload else None),
+                        "grp": (1 if meta.is_group else 0)})
+                elif pointer is not None:
+                    # metadata read failed — refresh the pointer only when
+                    # the search hit actually carried one
+                    conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
+            # irp_rdm → ready now the import is FINISHED; stamp the RDM's
+            # last-synced trust signal alongside (FR-052).
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)
             conn.execute(text(
                 "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
             ), {"now": now, "id": str(rdm_id)})
-    captured = sum(len(h) for h in hits_by_edm.values())
-    logger.info("captured %d analysis row(s) for rdm=%s across %d edm(s)",
-                captured, rdm_id, len(hits_by_edm))
+    captured = len(hits)
+    logger.info("captured %d analysis row(s) for rdm=%s", captured, rdm_id)
     out: dict[str, Any] = {"captured": captured}
     if pruned:
         out["pruned"] = pruned

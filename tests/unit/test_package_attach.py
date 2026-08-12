@@ -29,7 +29,8 @@ import uuid
 import pytest
 
 from app.poller import run as poller
-from app.services import edm_service, package_service, rdm_service
+from app.services import (
+    analysis_service, edm_service, package_service, rdm_service)
 from app.services import package_sync_service as sync
 from app.workers import package_jobs
 from db import execute, execute_command, execute_one, execute_scalar
@@ -316,13 +317,14 @@ def test_attach_batch_with_no_picks_is_a_no_op(iteration2_db, fake_irp, drive):
 
 # ── the sync consequence: no new sync logic needed ────────────────────────────────
 
-def test_save_and_sync_applies_package_rdms_to_a_newly_attached_ready_edm(
+def test_attaching_a_ready_rdm_submits_nothing_to_risk_modeler(
         iteration2_db, fake_irp, drive):
-    """The Article 5 payoff: attaching submits nothing, and the analyst's separate
-    Save & Sync click applies the package's RDMs to the already-``ready`` EDM
-    without re-importing it. Re-clicking never double-applies (``_apply_exists``)."""
+    """The Article 5 payoff, now the whole story: an attached RDM is already
+    imported in Risk Modeler, and it no longer has to be applied to the package's
+    EDMs, so a Save & Sync after the attach submits nothing at all. The
+    association it gains is package membership, which the EDM page reads."""
     a = iteration2_db.user_a
-    pid = _package(drive, a, edms=[("E1", "edm1.bak")])   # EDM-only → no RDM chain
+    pid = _package(drive, a, edms=[("E1", "edm1.bak")])   # EDM-only
     sync.save_and_sync(package_id=pid, actor_id=a)
     package_jobs.run_pending()                            # submit the EDM import
     for row in execute("SELECT irp_id FROM irp_job WHERE irp_job_type='import_edm'",
@@ -331,30 +333,28 @@ def test_save_and_sync_applies_package_rdms_to_a_newly_attached_ready_edm(
     poller.poll_once()                                    # EDM → ready
     assert execute_scalar("SELECT status FROM irp_edm WHERE package_id = :p",
                           {"p": pid}, connection="WORKBENCH") == "ready"
-    assert execute_scalar("SELECT COUNT(*) FROM rwb_job "
-                          "WHERE rwb_job_type='upload_rdm'", {},
-                          connection="WORKBENCH") == 0    # nothing to apply yet
 
-    orphan = _orphan("rdm", "FreeR")
+    orphan = _orphan("rdm", "FreeR")                      # already ready in RM
     package_service.add_member(package_id=pid, member_id=orphan,
                                member_kind="rdm", actor_id=a)
     sync.save_and_sync(package_id=pid, actor_id=a)
+    package_jobs.run_pending()
 
-    heads = execute("SELECT input_data FROM rwb_job WHERE rwb_job_type='upload_rdm'",
-                    {}, connection="WORKBENCH")
-    assert len(heads) == 1
-    assert orphan in heads[0]["input_data"]
-    # the ready EDM is left alone — one upload_edm total, from the first sync
+    # neither member is resubmitted: both are ready
+    assert execute_scalar("SELECT COUNT(*) FROM rwb_job "
+                          "WHERE rwb_job_type='upload_rdm'", {},
+                          connection="WORKBENCH") == 0
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job "
                           "WHERE rwb_job_type='upload_edm'", {},
-                          connection="WORKBENCH") == 1
+                          connection="WORKBENCH") == 1    # from the first sync
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm'", {},
+        connection="WORKBENCH") == 0
 
-    package_jobs.run_pending()
-    applies = "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm'"
-    assert execute_scalar(applies, {}, connection="WORKBENCH") == 1
-    sync.save_and_sync(package_id=pid, actor_id=a)   # analyst clicks again
-    package_jobs.run_pending()
-    assert execute_scalar(applies, {}, connection="WORKBENCH") == 1  # no double-apply
+    # the attach is what associates them: the EDM page now lists the RDM
+    edm_id = next(iter(_member_ids(pid, "irp_edm")))
+    assert [g.rdm_name for g in
+            analysis_service.list_edm_analyses(edm_id=edm_id)] == ["FreeR"]
 
 
 def test_upload_edm_uses_live_membership_over_the_head_snapshot(
@@ -366,9 +366,9 @@ def test_upload_edm_uses_live_membership_over_the_head_snapshot(
     Detach is the reachable way to desynchronise the two, now that attach takes only
     ``ready`` entities: a package member is detached while its ``upload_edm`` head is
     still pending, so the head still says ``package_id: P`` while the EDM says NULL. If
-    the worker trusted the snapshot the ``import_edm`` job would carry P, and the
-    poller — which chains the ``upload_rdm`` applies off exactly that column — would
-    apply the package's RDMs to an EDM that is no longer one of its members."""
+    the worker trusted the snapshot the ``import_edm`` job would carry P, and every
+    package-scoped read — the card's job counts, the delete finalize — would count a
+    job for an EDM that is no longer one of its members."""
     a = iteration2_db.user_a
     pid = _package(drive, a, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
     sync.save_and_sync(package_id=pid, actor_id=a)        # enqueues the upload_edm head
@@ -385,12 +385,6 @@ def test_upload_edm_uses_live_membership_over_the_head_snapshot(
     job = execute_one("SELECT package_id, irp_id FROM irp_job "
                       "WHERE irp_job_type='import_edm'", {}, connection="WORKBENCH")
     assert job["package_id"] is None                      # live membership won
-
-    fake_irp.finish(str(job["irp_id"]))
-    poller.poll_once()
-    assert execute_scalar("SELECT COUNT(*) FROM rwb_job "
-                          "WHERE rwb_job_type='upload_rdm'", {},
-                          connection="WORKBENCH") == 0    # no apply to a non-member
 
 
 def test_finalize_package_soft_deletes_an_attached_member_too(

@@ -92,12 +92,12 @@ def _rwb_jobs_of(rwb_job_type: str) -> list[dict]:
         {"t": rwb_job_type}, connection="WORKBENCH")
 
 
-def test_finished_enqueues_both_upload_rdm_and_backfill_edm_detail(
+def test_finished_enqueues_backfill_edm_detail_and_no_rdm_work(
         iteration2_db, fake_irp, drive):
-    """A package member's import_edm FINISHED enqueues BOTH heads — the existing
-    upload_rdm fan-out AND the new backfill_edm_detail — as distinct rows under
-    UNIQUE(requestor_type, requestor_id, rwb_job_type); a re-poll re-inserts
-    neither (worker-poller.md §3)."""
+    """A package member's import_edm FINISHED enqueues backfill_edm_detail and
+    nothing else. The package's RDMs already have their own upload_rdm heads from
+    save_and_sync, so the poller must not chain a second one (worker-poller.md §3);
+    a re-poll re-inserts neither."""
     actor = iteration2_db.user_a
     pid = sync.save_package(
         package_id=None, name="P",
@@ -105,39 +105,36 @@ def test_finished_enqueues_both_upload_rdm_and_backfill_edm_detail(
                  MS(kind="rdm", name="RDM", source_file_path=str(drive / "rdm1.mdf"))],
         actor_id=actor).package_id
     sync.save_and_sync(package_id=pid, actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")  # submit import_edm
+    assert len(_rwb_jobs_of("upload_rdm")) == 1          # enqueued at sync, not chained
+    package_jobs.run_pending(worker_id="w1")  # submit import_edm + import_rdm
     job = execute_one(
         "SELECT id, irp_id, irp_edm_id FROM irp_job WHERE irp_job_type='import_edm'",
         {}, connection="WORKBENCH")
     fake_irp.finish(str(job["irp_id"]))
     poller.poll_once()
 
-    uploads = _rwb_jobs_of("upload_rdm")
     backfills = _rwb_jobs_of("backfill_edm_detail")
-    assert len(uploads) == 1
     assert len(backfills) == 1
-    # both keyed on the SAME finished irp_job (distinct rwb_job_type admits both)
-    assert uploads[0]["requestor_type"] == "irp_job"
     assert backfills[0]["requestor_type"] == "irp_job"
-    assert uploads[0]["requestor_id"] == backfills[0]["requestor_id"] == str(job["id"])
+    assert backfills[0]["requestor_id"] == str(job["id"])
     assert str(job["irp_edm_id"]) in backfills[0]["input_data"]
+    assert len(_rwb_jobs_of("upload_rdm")) == 1          # still the sync-time head only
 
     poller.poll_once()  # re-poll: idempotent — no double backfill
-    assert len(_rwb_jobs_of("upload_rdm")) == 1
     assert len(_rwb_jobs_of("backfill_edm_detail")) == 1
 
 
 def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
         iteration2_db, fake_irp, drive):
-    """A standalone import (no package, no RDMs) gets its detail backfilled too —
-    the enqueue is independent of package_id and sits before the RDM guard."""
+    """A standalone import (no package) gets its detail backfilled too — the
+    enqueue is independent of package_id."""
     edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
     fake_irp.finish(irp_id)
     poller.poll_once()
     backfills = _rwb_jobs_of("backfill_edm_detail")
     assert len(backfills) == 1
     assert edm_id in backfills[0]["input_data"]
-    assert _rwb_jobs_of("upload_rdm") == []  # nothing to apply
+    assert _rwb_jobs_of("upload_rdm") == []  # no RDM in play
 
 
 def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, drive):

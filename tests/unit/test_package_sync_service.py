@@ -122,18 +122,22 @@ def test_edit_stale_marker_conflicts(iteration2_db, fake_irp, drive):
                           expected_updated_at="1999-01-01 00:00:00")
 
 
-# ── save_and_sync: one upload_edm per EDM, idempotent, review-only ────────────────
+# ── save_and_sync: one head per member, idempotent, any package shape ─────────────
 
-def test_sync_enqueues_one_upload_edm_per_edm(iteration2_db, fake_irp, drive):
+def test_sync_enqueues_one_head_per_member(iteration2_db, fake_irp, drive):
     res = sync.save_package(
         package_id=None, name="B",
         members=_members(drive, edms=[("E1", "edm1.bak"), ("E2", "edm2.bak")],
                          rdms=[("R1", "rdm1.mdf")]),
         actor_id=iteration2_db.user_a)
     sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
-    n = execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_edm'",
-                       {}, connection="WORKBENCH")
-    assert n == 2  # one per EDM; RDM applies arrive via chaining, not here
+    # EDM and RDM heads go out together — the RDM never waits on an EDM import.
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_edm'",
+        {}, connection="WORKBENCH") == 2
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_rdm'",
+        {}, connection="WORKBENCH") == 1
 
 
 def test_resync_is_idempotent(iteration2_db, fake_irp, drive):
@@ -213,17 +217,21 @@ def test_sync_fail_open_returns_unchecked_names(iteration2_db, fake_irp, drive):
                           {}, connection="WORKBENCH") == 1  # fail open: still enqueued
 
 
-def test_rdm_only_package_sync_rejected(iteration2_db, fake_irp, drive):
-    # An RDM-only package can be SAVED, but SYNC requires an EDM (D3 / FR-016).
+def test_rdm_only_package_syncs(iteration2_db, fake_irp, drive):
+    # Each RDM imports standalone, so a package with no EDM is syncable.
     res = sync.save_package(package_id=None, name="RdmOnly",
                             members=_members(drive, rdms=[("R1", "rdm1.mdf"),
                                                           ("R2", "rdm2.mdf")]),
                             actor_id=iteration2_db.user_a)
-    with pytest.raises(EmptyPackageError):
-        sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
-    # nothing enqueued — review-only sync is deferred
-    assert execute_scalar("SELECT COUNT(*) FROM rwb_job", {},
-                          connection="WORKBENCH") == 0
+    sync.save_and_sync(package_id=res.package_id, actor_id=iteration2_db.user_a)
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='upload_rdm'",
+        {}, connection="WORKBENCH") == 2
+    from app.workers import package_jobs
+    package_jobs.run_pending()
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM irp_job WHERE irp_job_type='import_rdm'",
+        {}, connection="WORKBENCH") == 2
 
 
 def test_sync_empty_package_raises(iteration2_db, fake_irp, drive):
@@ -243,8 +251,8 @@ def test_sync_empty_package_raises(iteration2_db, fake_irp, drive):
 
 def test_card_surfaces_member_error_detail(iteration2_db, fake_irp, drive):
     """An ``error`` member's card carries the specific submit-failure message
-    (failed upload head, worker framing stripped); a member that never
-    submitted stays ``None``."""
+    (failed upload head, worker framing stripped). Both members submit in the
+    same pass now, so a gateway that is down errors both."""
     from app.workers import package_jobs
     a = iteration2_db.user_a
     res = sync.save_package(
@@ -253,13 +261,13 @@ def test_card_surfaces_member_error_detail(iteration2_db, fake_irp, drive):
         actor_id=a)
     sync.save_and_sync(package_id=res.package_id, actor_id=a)
     fake_irp.raise_on_submit = True
-    package_jobs.run_pending()          # upload_edm submit fails → EDM error
+    package_jobs.run_pending()          # both submits fail → both members error
 
     card = sync.get_package_card(res.package_id)
     assert card.edms[0].status == "error"
     assert card.edms[0].error_detail == "fake IRP: forced submit failure"
-    # the RDM never had a failed analyst-keyed head — nothing to attribute
-    assert card.rdms[0].error_detail is None
+    assert card.rdms[0].status == "error"
+    assert card.rdms[0].error_detail == "fake IRP: forced submit failure"
 
 
 def test_card_surfaces_rdm_error_detail_from_failed_head(iteration2_db, fake_irp, drive):

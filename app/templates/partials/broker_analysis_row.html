@@ -1,12 +1,11 @@
 {# One broker analysis as a .dtable row (spec 004 US3, FR-030–FR-035) — shared
    by the RDM page AND the EDM standalone section. Context:
-     `a`        — analysis_service.BrokerAnalysis
-     `show_edm` — render the EDM column (RDM page only; the caller's --cols
-                  grid must match)
-   No portfolio is shown: an RDM analysis cannot be tied to an EDM portfolio
-   trustworthily (8/4 D8). `is_group` still marks the analysis itself (FR-035).
-   Missing settings fields render blank / "not provided", never an error. No
-   loss numbers (FR-033). #}
+     `a` — analysis_service.BrokerAnalysis
+   No EDM and no portfolio is shown: the RDM is imported standalone, so its
+   analyses belong to no EDM, and an RDM analysis cannot be tied to an EDM
+   portfolio trustworthily (8/4 D8). `is_group` still marks the analysis itself
+   (FR-035). Missing settings fields render blank / "not provided", never an
+   error. No loss numbers (FR-033). #}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
@@ -20,13 +19,6 @@
           {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span>
         <span class="dt-sub">A-{{ a.irp_id }}</span>
       </span></span></span>
-    {% if show_edm %}
-    <span class="l">
-      {%- if a.edm_names|length > 1 -%}
-        {{ a.edm_names[0] }} <span class="dt-geo-sub">+{{ a.edm_names|length - 1 }} more</span>
-      {%- else -%}{{ cell(a.edm_name) }}{%- endif -%}
-    </span>
-    {% endif %}
     <span class="l">{{ cell('Group' if a.is_group and not d.analysis_type else d.analysis_type) }}</span>
     <span class="l">{{ cell(peril_cell) }}</span>
     <span class="l">{{ cell(d.region) }}</span>
@@ -38,9 +30,6 @@
   </summary>
   <div class="drow__body">
     <dl class="settings-grid">
-      {% if show_edm %}
-      <div><dt>EDM</dt><dd{% if not a.edm_name %} class="blank"{% endif %}>{{ a.edm_names|join(', ') or a.edm_name or 'not provided' }}</dd></div>
-      {% endif %}
       {% if a.is_group %}
       <div><dt>Group</dt>
         <dd class="blank">combines multiple analyses; member breakdown not available</dd></div>

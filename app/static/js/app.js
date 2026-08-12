@@ -232,9 +232,8 @@ document.addEventListener('alpine:init', () => {
   // file is picked, a name is present, and the collision check has come back
   // clear. Server-side validation still backs all of this — with JS off the
   // button is simply never disabled.
-  Alpine.data('importForm', (opts = {}) => ({
+  Alpine.data('importForm', () => ({
     sourceSelected: false,
-    appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
     nameVal: '',
     nameState: 'pending',
     init() {
@@ -250,8 +249,8 @@ document.addEventListener('alpine:init', () => {
       return !!this.nameVal.trim() && this.nameState === 'pending';
     },
     get canSubmit() {
-      return this.sourceSelected && this.appliedSelected
-        && !!this.nameVal.trim() && ncCleared(this.nameState);
+      return this.sourceSelected && !!this.nameVal.trim()
+        && ncCleared(this.nameState);
     },
     onName(e) {
       this.nameVal = e.target.value;
@@ -260,25 +259,20 @@ document.addEventListener('alpine:init', () => {
     },
     onChange(e) {
       const cb = e.target;
-      if (cb.type !== 'checkbox') return;
-      if (cb.name === 'source_paths') {
-        if (cb.checked) {
-          // Radio-like: the standalone import takes exactly one source file.
-          this.$root.querySelectorAll('input[name="source_paths"]').forEach((o) => {
-            if (o !== cb) o.checked = false;
-          });
-          const base = cb.value.split(/[\\/]/).pop();
-          const name = this.$refs.name;
-          name.value = defaultMemberName(base);
-          this.onName({ target: name });                // the old verdict is void
-          name.dispatchEvent(new Event('recheck'));     // re-run the collision check
-        }
-        this.sourceSelected =
-          !!this.$root.querySelector('input[name="source_paths"]:checked');
-      } else if (cb.name === 'applied_edm_ids') {
-        this.appliedSelected =
-          !!this.$root.querySelector('input[name="applied_edm_ids"]:checked');
+      if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
+      if (cb.checked) {
+        // Radio-like: the standalone import takes exactly one source file.
+        this.$root.querySelectorAll('input[name="source_paths"]').forEach((o) => {
+          if (o !== cb) o.checked = false;
+        });
+        const base = cb.value.split(/[\\/]/).pop();
+        const name = this.$refs.name;
+        name.value = defaultMemberName(base);
+        this.onName({ target: name });                // the old verdict is void
+        name.dispatchEvent(new Event('recheck'));     // re-run the collision check
       }
+      this.sourceSelected =
+        !!this.$root.querySelector('input[name="source_paths"]:checked');
     },
     onSwap() {
       // Any HTMX swap inside the form (collision fragment, browse navigation)

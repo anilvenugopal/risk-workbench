@@ -43,8 +43,8 @@ def test_package_save_and_sync_log_the_analyst_action(
         _build(drive, a, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
     msgs = _messages(caplog, "app.services.package_sync_service")
     assert any("created by analyst" in m and str(a) in m for m in msgs)
-    assert any("sync requested by analyst" in m and "1 upload head(s)" in m
-               for m in msgs)
+    assert any("sync requested by analyst" in m and "2 upload head(s)" in m
+               for m in msgs)   # one per member — the EDM and the RDM together
 
 
 def test_submit_success_logged_with_irp_id(iteration2_db, fake_irp, drive, caplog):
@@ -60,11 +60,11 @@ def test_submit_success_logged_with_irp_id(iteration2_db, fake_irp, drive, caplo
 def test_poller_logs_the_chained_head(iteration2_db, fake_irp, drive, caplog):
     _build(drive, iteration2_db.user_a,
            edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
-    package_jobs.run_pending()  # submit the import_edm
-    for row in execute("SELECT irp_id FROM irp_job WHERE irp_job_type='import_edm'",
+    package_jobs.run_pending()  # submit both imports
+    for row in execute("SELECT irp_id FROM irp_job WHERE irp_job_type='import_rdm'",
                        {}, connection="WORKBENCH"):
         fake_irp.finish(str(row["irp_id"]))
     with caplog.at_level(logging.INFO, logger="app.poller.run"):
         poller.poll_once()
     msgs = _messages(caplog, "app.poller.run")
-    assert any("chained upload_rdm head" in m for m in msgs)
+    assert any("chained backfill_rdm_analyses head" in m for m in msgs)

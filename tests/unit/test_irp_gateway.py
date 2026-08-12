@@ -228,3 +228,41 @@ def test_lob_lists_over_the_free_text_cap_are_not_stored():
         edm_name="EDM", edm_irp_id=42)
     assert summary["1"]["lines_of_business"] == []          # 501 → dropped
     assert len(summary["2"]["lines_of_business"]) == 500    # at the cap → kept
+
+
+# ── standalone RDM import + analysis search (issue #22 follow-up) ─────────────────
+
+class _RecordingRdm:
+    def __init__(self):
+        self.kwargs = None
+
+    def submit_rdm_import_job(self, **kwargs):
+        self.kwargs = kwargs
+        return 77, {"resourceUri": "/platform/riskdata/v1/exposuresets/9"}
+
+
+def test_rdm_import_targets_an_exposure_set_named_after_the_rdm():
+    # The wheel treats edm_name and exposure_set_name as mutually exclusive, so
+    # naming an EDM here is exactly what would re-link the RDM to it in RM.
+    rdm = _RecordingRdm()
+    res = _gw(rdm=rdm).submit_rdm_import(name="R1", source_file_path="/s/r1.mdf")
+    assert rdm.kwargs == {"rdm_name": "R1", "rdm_file_path": "/s/r1.mdf",
+                          "exposure_set_name": "R1"}
+    assert res.irp_id == "77"
+    assert res.resource_uri == "/platform/riskdata/v1/exposuresets/9"
+
+
+def test_analysis_search_filters_on_source_rdm_name_alone():
+    captured = {}
+
+    def search_analyses_paginated(*, filter):
+        captured["filter"] = filter
+        return [{"analysisId": 5521, "analysisName": "AEP",
+                 "sourceRdmName": 'R "quoted"'}]
+
+    gw = _gw(analysis=SimpleNamespace(
+        search_analyses_paginated=search_analyses_paginated))
+    [hit] = gw.search_analyses(source_rdm_name='R "quoted"')
+    # no exposureName half, and the name is json-quoted so a quote can't malform it
+    assert captured["filter"] == 'sourceRdmName="R \\"quoted\\""'
+    assert hit.analysis_id == "5521"

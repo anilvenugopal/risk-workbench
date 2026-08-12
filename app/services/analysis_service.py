@@ -4,13 +4,15 @@ Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``
 (broker ⇔ ``rdm_id`` set — DATA_MODEL §6; no stored origin column):
 
   • ``list_broker_analyses(rdm_id)`` — the RDM page (FR-030/FR-031, R8):
-    grouped by ``rdm_id`` so an analysis applied across M EDMs is shown ONCE
-    (the M pair-rows are handles sharing one ``irp_id``); each with its parsed
-    ``settings_metadata`` (missing/partial → blank, never error) and
-    ``is_group`` (FR-035).
+    grouped by ``rdm_id``, each with its parsed ``settings_metadata``
+    (missing/partial → blank, never error) and ``is_group`` (FR-035).
   • ``list_edm_analyses(edm_id)`` — the EDM page (8/5 D15): every RDM in the
     EDM's package, each grouped with its analyses — including RDMs with none.
   • ``analysis_counts`` — un-empties the package-card / EDM counts (FR-050).
+
+An analysis carries no ``edm_id``: the RDM is imported standalone, so no EDM is
+named in Risk Modeler. Both EDM-facing reads therefore key on **package
+membership** — the RDMs and EDMs that share a package.
 
 **No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
 way to tie an RDM analysis to an EDM portfolio, and every analysis here is
@@ -67,14 +69,12 @@ class AnalysisSettings:
 
 @dataclass
 class BrokerAnalysis:
-    """One broker analysis (deduped across its M (RDM×EDM) handle rows)."""
-    id: str                      # workbench row id of the representative handle
+    """One broker analysis."""
+    id: str                      # workbench row id
     irp_id: str                  # Moody's analysisId
     name: str | None
     rdm_id: str
     rdm_name: str | None         # source-RDM name
-    edm_name: str | None         # representative handle's EDM
-    edm_names: list[str] = field(default_factory=list)  # every EDM it spans
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
@@ -87,10 +87,6 @@ class BrokerAnalysisGroup:
     rdm_name: str | None
     rdm_irp_id: Any
     analyses: list[BrokerAnalysis] = field(default_factory=list)
-
-    @property
-    def edm_count(self) -> int:
-        return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
 
 @dataclass
@@ -156,52 +152,27 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
     )
 
 
-# One row per (RDM×EDM) handle.
-_HANDLE_SELECT = """
+# One row per captured analysis (UNIQUE(rdm_id, edm_id, irp_id), edm_id null).
+_ANALYSIS_SELECT = """
     SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
-           e.name AS edm_name,
            r.name AS rdm_name, r.irp_id AS rdm_irp_id
     FROM irp_analysis a
-    LEFT JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_rdm r ON r.id = a.rdm_id
     WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
 """
 
 
-def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
-    """Collapse the M (RDM×EDM) handle rows sharing one ``irp_id`` into ONE
-    display row (R8): the representative handle is the first seen;
-    ``edm_names`` collects every EDM spanned; settings come from any handle that
-    has them (the snapshot is per-analysis)."""
-    out: list[BrokerAnalysis] = []
-    by_key: dict[tuple, BrokerAnalysis] = {}
-    for r in rows:
-        key = (_uid(r["rdm_id"]), str(r["irp_id"]))
-        existing = by_key.get(key)
-        if existing is None:
-            settings = _parse_settings(r["settings_metadata"])
-            entry = BrokerAnalysis(
-                id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
-                rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
-                edm_name=r["edm_name"],
-                edm_names=[r["edm_name"]] if r["edm_name"] else [],
-                is_group=bool(r["is_group"]), settings=settings,
-                display=_to_display(settings))
-            by_key[key] = entry
-            out.append(entry)
-            continue
-        if r["edm_name"] and r["edm_name"] not in existing.edm_names:
-            existing.edm_names.append(r["edm_name"])
-        if existing.settings is None:
-            settings = _parse_settings(r["settings_metadata"])
-            if settings is not None:
-                existing.settings = settings
-                existing.display = _to_display(settings)
-    return out
+def _to_analysis(r: dict) -> BrokerAnalysis:
+    settings = _parse_settings(r["settings_metadata"])
+    return BrokerAnalysis(
+        id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
+        rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
+        is_group=bool(r["is_group"]), settings=settings,
+        display=_to_display(settings))
 
 
 def _group_by_rdm(rows: list[dict]) -> list[BrokerAnalysisGroup]:
-    analyses = _dedup_handles(rows)
+    analyses = [_to_analysis(r) for r in rows]
     rdm_meta = {_uid(r["rdm_id"]): (r["rdm_name"], r["rdm_irp_id"])
                 for r in rows}
     groups: dict[str, BrokerAnalysisGroup] = {}
@@ -219,11 +190,10 @@ def _group_by_rdm(rows: list[dict]) -> list[BrokerAnalysisGroup]:
 
 
 def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The RDM page's read (FR-030/FR-031/R8): this RDM's broker analyses,
-    deduped across their M EDM handles (shown once), each with parsed settings
-    and ``is_group``. No scoping (Article 6)."""
+    """The RDM page's read (FR-030/FR-031/R8): this RDM's broker analyses, each
+    with parsed settings and ``is_group``. No scoping (Article 6)."""
     rows = execute(
-        f"{_HANDLE_SELECT} AND a.rdm_id = :r ORDER BY a.name, a.irp_id, a.id",
+        f"{_ANALYSIS_SELECT} AND a.rdm_id = :r ORDER BY a.name, a.irp_id, a.id",
         {"r": str(rdm_id)}, connection="WORKBENCH")
     return _group_by_rdm([dict(r) for r in rows])
 
@@ -235,20 +205,16 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     point is Wendy's paired-book check: "were the same analyses run… if you
     have 12 analyses in one, you have 12 analyses in the other." Listing
     asserts no EDM↔RDM link (the RDMs merely share the package). A packageless
-    EDM falls back to the analyses applied against it. Never attributed to a
-    portfolio (8/4 D8). No scoping (Article 6)."""
+    EDM has no RDMs to list. Never attributed to a portfolio (8/4 D8). No
+    scoping (Article 6)."""
     edm = execute_one("SELECT package_id FROM irp_edm WHERE id = :id",
                       {"id": str(edm_id)}, connection="WORKBENCH")
     package_id = edm["package_id"] if edm else None
     if not package_id:
-        rows = execute(
-            f"{_HANDLE_SELECT} AND a.edm_id = :e "
-            "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
-            {"e": str(edm_id)}, connection="WORKBENCH")
-        return _group_by_rdm([dict(r) for r in rows])
+        return []
 
     rows = execute(
-        f"{_HANDLE_SELECT} AND r.package_id = :p AND r.deleted_at IS NULL "
+        f"{_ANALYSIS_SELECT} AND r.package_id = :p AND r.deleted_at IS NULL "
         "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
         {"p": str(package_id)}, connection="WORKBENCH")
     by_rdm = {g.rdm_id: g for g in _group_by_rdm([dict(r) for r in rows])}
@@ -267,19 +233,20 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 
 def analysis_counts(*, edm_id: Any) -> AnalysisCounts:
     """FR-050: populated counts for one EDM (the package card renders these
-    per member, the EDM detail directly). ``total`` dedups on (rdm_id, irp_id)
-    — one per broker analysis, not per handle."""
+    per member, the EDM detail directly). Counts the analyses of every RDM in
+    the EDM's package — the same membership ``list_edm_analyses`` renders, so
+    the badge and the list can never disagree. A packageless EDM counts zero."""
     rows = execute(
         """
         SELECT a.rdm_id, a.irp_id
         FROM irp_analysis a
-        WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
-          AND a.edm_id = :e
+        JOIN irp_rdm r ON r.id = a.rdm_id AND r.deleted_at IS NULL
+        JOIN irp_edm e ON e.package_id = r.package_id
+        WHERE a.deleted_at IS NULL AND e.id = :e
         """,
         {"e": str(edm_id)}, connection="WORKBENCH")
-    # Dedup app-side on (rdm_id, irp_id) — the handle → analysis collapse (R8).
-    # Portable (no dialect string-concat in aggregates); the per-view row count
-    # is small.
+    # Counted app-side (no dialect string-concat in aggregates); the per-view
+    # row count is small.
     keys = {(_uid(r["rdm_id"]), str(r["irp_id"])) for r in rows}
     return AnalysisCounts(total=len(keys),
                           rdm_count=len({k[0] for k in keys}))

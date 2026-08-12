@@ -13,13 +13,12 @@ validation is the backstop.
     **Submits nothing.** ≥1-member invariant (``EmptyPackageError``); optimistic
     concurrency on edit (``ConcurrencyConflict``).
   • ``save_and_sync`` — record the pending work and **return immediately**. Enqueues one
-    ``upload_edm`` head per EDM; the poller chains one ``upload_rdm`` per finished EDM,
-    fanning out to one apply per (EDM × RDM) pair. **Every apply targets an EDM (D3):**
-    an RDM-only package (no EDM) is rejected with ``EmptyPackageError`` — review-only
-    sync is deferred. Idempotent: re-sync skips ready/in-flight members and re-enqueues
-    only unstarted/errored ones. Collision-checks only the members it will actually
-    (re)submit — a ``ready`` member's name legitimately exists in RM (it *is* that
-    entity).
+    ``upload_edm`` head per EDM and one ``upload_rdm`` head per RDM, in the same pass:
+    an RDM imports standalone, so nothing waits on an EDM and a package of any shape
+    (EDM-only, RDM-only, both) syncs. Idempotent: re-sync skips ready/in-flight members
+    and re-enqueues only unstarted/errored ones. Collision-checks only the members it
+    will actually (re)submit — a ``ready`` member's name legitimately exists in RM (it
+    *is* that entity).
 
 ``delete_package`` / ``get_package_cards`` are added in US4 / US5.
 """
@@ -160,9 +159,8 @@ def list_unattached_members(
     """One page of ``ready`` EDMs/RDMs with no owning package — the attach picker's
     candidate set (issue #22). EDMs first, then RDMs, newest-first within each (the
     libraries' own order). Only ``ready`` entities are offered: anything still importing
-    (or failed, or on its way out of Risk Modeler) is excluded by the queries, which is
-    what keeps a later Save & Sync from applying this package's RDMs against an EDM that
-    does not exist in Risk Modeler yet. See ``edm_service.list_unattached``.
+    (or failed, or on its way out of Risk Modeler) is excluded by the queries, matching
+    ``package_service._ATTACHABLE``. See ``edm_service.list_unattached``.
 
     Lives here rather than in ``package_service`` because that module deliberately
     imports neither entity service; the ``WHERE package_id IS NULL`` reads themselves sit
@@ -297,8 +295,8 @@ def attach_existing_members(
     """Attach already-imported EDMs/RDMs to an existing package (issue #22). Pure
     bookkeeping: **nothing is submitted to Risk Modeler** and no name-collision check
     runs — the entity is already in RM under a name RM itself accepted, so re-checking it
-    would report a collision with itself. The analyst's separate Save & Sync click is
-    what applies the package's RDMs to its EDMs (Article 5).
+    would report a collision with itself. A later Save & Sync skips it too — a ``ready``
+    member is in ``_LOCKED``, so it is never re-submitted.
 
     **Each pick is attached independently, and a failure is a skip rather than an
     abort.** One transaction around the batch would mean a single stale pick — something
@@ -365,10 +363,11 @@ def _member_count(package_id: str) -> int:
 
 def save_and_sync(*, package_id: Any, actor_id: Any) -> list[str]:
     """Record the pending work and return immediately (FR-015/FR-042/FR-044) — the
-    only Risk Modeler touch is the cached name-collision read (Article 11). **Every
-    apply targets an EDM (D3):** an RDM-only package (no EDM) is rejected with
-    ``EmptyPackageError`` — review-only sync is deferred; this also covers the
-    empty-package case. Idempotent on the dedup key (re-sync skips ready/in-flight).
+    only Risk Modeler touch is the cached name-collision read (Article 11).
+    EDM and RDM heads are enqueued in the same pass: an RDM imports standalone, so
+    it never waits on an EDM, and a package of any shape (EDM-only, RDM-only, both)
+    syncs — only one with no live members left is rejected (``EmptyPackageError``).
+    Idempotent on the dedup key (re-sync skips ready/in-flight).
 
     Blocking name check (issue #17) covers only members that will actually be
     (re)submitted — status not in ``_LOCKED`` — so a ``ready`` member never
@@ -379,10 +378,9 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> list[str]:
     actor = str(actor_id)
     edms = _live_members(pid, "irp_edm")
     rdms = _live_members(pid, "irp_rdm")
-    if not edms:
-        raise EmptyPackageError(
-            "A package must include at least one EDM to sync "
-            "(RDM-only / review-only sync is deferred).")
+    if not edms and not rdms:
+        # every member was removed since the package was saved (defensive, SC-012)
+        raise EmptyPackageError("A package must have at least one member.")
 
     colliding, unchecked = _check_member_names(
         (kind, m["name"])
@@ -394,39 +392,41 @@ def save_and_sync(*, package_id: Any, actor_id: Any) -> list[str]:
             "in Risk Modeler. Rename the affected member(s) before syncing; "
             "nothing was submitted.")
 
-    rdm_ids = [str(r["id"]) for r in rdms]
+    # An errored member is reset to pending_import before its head is enqueued —
+    # the worker bodies only submit a pending_import row, so without this an
+    # error → re-sync would be skipped by the worker.
+    def _reset_errored(table: str, service, member_id: str) -> None:
+        execute_command(
+            f"UPDATE {table} SET status = :p, updated_at = :now, updated_by = :by "
+            "WHERE id = :id AND status = :err",
+            {"p": service.PENDING, "err": service.ERROR, "now": _utcnow(),
+             "by": actor, "id": member_id}, connection="WORKBENCH")
 
     heads = 0
     for edm in edms:
+        if edm["status"] in _LOCKED:
+            continue
         edm_id = str(edm["id"])
-        if edm["status"] not in _LOCKED:
-            # pending/errored EDM → (re)enqueue its import; the poller chains the
-            # per-pair RDM applies once it FINISHES. Reset an errored EDM back to
-            # pending_import first — the worker body only advances a pending_import row,
-            # so without this an error → re-sync would be skipped by the worker.
-            if edm["status"] == edm_service.ERROR:
-                execute_command(
-                    "UPDATE irp_edm SET status = :p, updated_at = :now, updated_by = :by "
-                    "WHERE id = :id AND status = :err",
-                    {"p": edm_service.PENDING, "err": edm_service.ERROR,
-                     "now": _utcnow(), "by": actor, "id": edm_id},
-                    connection="WORKBENCH")
-            job_id = rwb_job_service.ensure_pending_rwb_job(
-                requestor_type="analyst_request", requestor_id=edm_id,
-                rwb_job_type="upload_edm",
-                input_data={"edm_id": edm_id, "package_id": pid}, actor_id=actor)
-            dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-            heads += 1
-        elif edm["status"] == "ready" and rdm_ids:
-            # EDM already imported (e.g. RDMs added after) → apply the package RDMs
-            # to it directly; the body is idempotent per (EDM, RDM) pair.
-            job_id = rwb_job_service.ensure_pending_rwb_job(
-                requestor_type="analyst_request", requestor_id=edm_id,
-                rwb_job_type="upload_rdm",
-                input_data={"rdm_ids": rdm_ids, "edm_ids": [edm_id],
-                            "package_id": pid}, actor_id=actor)
-            dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-            heads += 1
+        if edm["status"] == edm_service.ERROR:
+            _reset_errored("irp_edm", edm_service, edm_id)
+        job_id = rwb_job_service.ensure_pending_rwb_job(
+            requestor_type="analyst_request", requestor_id=edm_id,
+            rwb_job_type="upload_edm",
+            input_data={"edm_id": edm_id, "package_id": pid}, actor_id=actor)
+        dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
+        heads += 1
+    for rdm in rdms:
+        if rdm["status"] in _LOCKED:
+            continue
+        rdm_id = str(rdm["id"])
+        if rdm["status"] == rdm_service.ERROR:
+            _reset_errored("irp_rdm", rdm_service, rdm_id)
+        job_id = rwb_job_service.ensure_pending_rwb_job(
+            requestor_type="analyst_request", requestor_id=rdm_id,
+            rwb_job_type="upload_rdm",
+            input_data={"rdm_ids": [rdm_id], "package_id": pid}, actor_id=actor)
+        dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
+        heads += 1
     logger.info("package %s sync requested by analyst %s (%d upload head(s))",
                 pid, actor, heads)
     return unchecked

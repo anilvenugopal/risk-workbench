@@ -9,9 +9,9 @@ One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
 2. **Reconciler** (Article 10) — reclaim ``rwb_job`` rows a dead worker left
    ``running`` (heartbeat older than ``RWB_HEARTBEAT_STALE_SECS``) back to ``pending``.
 3. **Dispatch pending heads** — wake a worker for every ``pending`` ``rwb_job``. The
-   heads this poller enqueues in step 1 (``upload_rdm``, ``backfill_rdm_analyses``,
+   heads this poller enqueues in step 1 (``backfill_rdm_analyses``,
    ``backfill_edm_detail``) are never dispatched at enqueue time (the poller is a
-   separate process from the worker), so without this the EDM→RDM chain stalls; this
+   separate process from the worker), so without this the backfills stall; this
    also delivers the rows step 2 reset.
 4. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
    under the configured max (a single-threaded batch, not a Dramatiq actor; scaffold
@@ -30,8 +30,6 @@ from __future__ import annotations
 import argparse
 import logging
 from datetime import datetime, timezone
-
-from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
@@ -62,11 +60,12 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     resolved by name into ``resolved['edm_exposure_id']``) as ``irp_id`` and the import
     job id as ``created_by_irp_job_irp_id``; then idempotently enqueue the
     ``backfill_edm_detail`` head (spec 004 — independent of ``package_id``, so a
-    standalone/EDM-only import backfills its detail too) and, for a package member,
-    the ``upload_rdm`` head that fans out to one apply per RDM of THIS just-finished
-    EDM (per-pair, FR-015/FR-043). The two heads share the requestor key but carry
-    distinct ``rwb_job_type``s, so ``UNIQUE(requestor_type, requestor_id,
-    rwb_job_type)`` admits both. Any other terminal → ``error`` and NO backfill."""
+    standalone/EDM-only import backfills its detail too). Any other terminal →
+    ``error`` and NO backfill.
+
+    No RDM work is chained here: an RDM imports standalone, so its ``upload_rdm``
+    head is enqueued alongside the EDM's at sync time and neither waits on the
+    other."""
     if status == "FINISHED":
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.READY,
@@ -81,36 +80,19 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     else:
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)
-    if status != "FINISHED" or not job.get("package_id"):
-        return
-    rdm_rows = conn.execute(text(
-        "SELECT id FROM irp_rdm WHERE package_id = :p AND deleted_at IS NULL"
-    ), {"p": str(job["package_id"])}).mappings().all()
-    rdm_ids = [str(r["id"]) for r in rdm_rows]
-    if not rdm_ids:
-        return  # EDM-only package — nothing to apply
-    jid = rwb_job_service.enqueue_rwb_job(
-        requestor_type="irp_job", requestor_id=job["id"], rwb_job_type="upload_rdm",
-        input_data={"rdm_ids": rdm_ids, "edm_ids": [str(job["irp_edm_id"])],
-                    "package_id": str(job["package_id"])},
-        conn=conn,
-    )
-    if jid:
-        logger.info("chained upload_rdm head (%d rdm(s) to apply)", len(rdm_ids))
 
 
 def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
-    """On ``FINISHED`` idempotently enqueue this apply's ``backfill_rdm_analyses`` head
-    (D2) — the worker captures the pair's ``irp_analysis`` rows AND rolls ``irp_rdm.status``
-    up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
-    itself must NOT flip the RDM to ``ready``. Any other terminal → ``error`` here."""
+    """On ``FINISHED`` idempotently enqueue the RDM's ``backfill_rdm_analyses`` head
+    (D2) — the worker captures the ``irp_analysis`` rows AND rolls ``irp_rdm.status``
+    up to ``ready`` (worker-poller.md §2/§3). The poller itself must NOT flip the RDM
+    to ``ready``. Any other terminal → ``error`` here."""
     if status == "FINISHED":
         jid = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
             input_data={
                 "rdm_id": (str(job["irp_rdm_id"]) if job["irp_rdm_id"] else None),
-                "edm_id": (str(job["irp_edm_id"]) if job["irp_edm_id"] else None),
                 "package_id": (str(job["package_id"]) if job["package_id"] else None),
                 "apply_irp_id": job["irp_id"]},
             conn=conn,
@@ -269,12 +251,11 @@ def _track_irp_jobs() -> None:
 def _dispatch_pending() -> None:
     """Deliver every currently-``pending`` ``rwb_job`` to a worker.
 
-    The poller enqueues the chained heads (``upload_rdm`` + ``backfill_edm_detail``
-    when an ``import_edm`` reaches FINISHED; ``backfill_rdm_analyses`` when an
-    ``import_rdm`` does) but runs in its own process, so — unlike the request path
-    and the worker's own follow-on enqueues — those rows are never dispatched at
-    enqueue time. Without this sweep they sit
-    ``pending`` forever and the EDM→RDM chain stalls.
+    The poller enqueues the chained heads (``backfill_edm_detail`` when an
+    ``import_edm`` reaches FINISHED; ``backfill_rdm_analyses`` when an ``import_rdm``
+    does) but runs in its own process, so — unlike the request path and the worker's
+    own follow-on enqueues — those rows are never dispatched at enqueue time.
+    Without this sweep they sit ``pending`` forever and the backfills stall.
 
     A Dramatiq message is only a wake-up (Article 10): re-sending one for a row already
     in flight is harmless — the worker's atomic claim (``UPDATE ... WHERE

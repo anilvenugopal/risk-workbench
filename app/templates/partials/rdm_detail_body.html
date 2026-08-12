@@ -13,7 +13,6 @@
    plain-POST fallback is PRG.
    Context: rdm, analyses, sync_running, sync_status, import_error. #}
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
-{% set edm_total = analyses | map(attribute='edm_count') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
 <div class="page-pad" id="rdm-detail"
   {%- if live %}
@@ -33,8 +32,7 @@
       {% endif %}
       {% if analysis_total %}
       <span class="crumb__sep">·</span>
-      <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}
-        across {{ edm_total }} EDM{{ '' if edm_total == 1 else 's' }}</span>
+      <span>{{ analysis_total }} broker analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
       {% endif %}
       {% if rdm.as_of %}
       <span class="crumb__sep">·</span>
@@ -69,7 +67,7 @@
   {% endwith %}
   {% endif %}
 
-  {# ── Broker analyses (US3) — grouped by rdm_id, EDM column ── #}
+  {# ── Broker analyses (US3) — grouped by rdm_id ── #}
   <details class="sec" open>
     <summary>
       <span class="sec__caret">▸</span>
@@ -87,15 +85,15 @@
       comparison; those arrive with the results iteration.</div>
 
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:210px 150px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1100px">
+      <div class="dtable" style="--cols:210px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:950px">
         <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Type</span>
+          <span class="l">Analysis</span><span class="l">Type</span>
           <span class="l">Peril</span><span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span>
           <span class="l">Term</span><span class="l">PLA</span><span class="l">Rate</span>
         </div>
         {% for group in analyses %}
         {% for a in group.analyses %}
-        {% with show_edm = true %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+        {% include "partials/broker_analysis_row.html" %}
         {% endfor %}
         {% endfor %}
       </div>

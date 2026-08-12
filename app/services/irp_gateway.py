@@ -83,17 +83,17 @@ RdmHit = EntityHit
 @dataclass(frozen=True)
 class AnalysisHit:
     """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
-    Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
-    are echoed back so the backfill worker can persist lineage on ``irp_analysis``.
+    Moody's ``analysisId`` as a string — the ``delete_analysis`` key.
+    ``source_rdm_name`` is echoed back so the backfill worker can persist lineage on
+    ``irp_analysis``.
 
-    Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
-    ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
-    the backfill worker can promote the portfolio pointer to
-    ``irp_analysis.exposure_resource_id`` when the type is ``PORTFOLIO``."""
+    Spec 004 (R9/FR-036): the hit also carries RM's exposure pointer —
+    ``exposure_resource_id`` + ``exposure_resource_type`` — so the backfill worker
+    can promote the portfolio pointer to ``irp_analysis.exposure_resource_id`` when
+    the type is ``PORTFOLIO``."""
     analysis_id: str
     name: str | None = None
     source_rdm_name: str | None = None
-    exposure_name: str | None = None
     exposure_resource_id: str | None = None
     exposure_resource_type: str | None = None
 
@@ -145,15 +145,14 @@ class AnalysisMetadata:
 class IRPGateway(Protocol):
     def submit_edm_import(self, *, name: str, source_file_path: str) -> SubmitResult: ...
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult: ...
+    def submit_rdm_import(self, *, name: str,
+                          source_file_path: str) -> SubmitResult: ...
 
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult: ...
 
     def delete_analysis(self, *, analysis_id: int) -> None: ...
 
-    def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]: ...
+    def search_analyses(self, *, source_rdm_name: str) -> list[AnalysisHit]: ...
 
     def get_import_job(self, irp_id: str) -> JobStatus: ...
 
@@ -181,14 +180,14 @@ class IRPGateway(Protocol):
 # ── The real implementation — imports irp-integration lazily ─────────────────────
 
 class _RealGateway:
-    """Thin wrapper over ``irp-integration`` 0.2.0 (manager-based). ``IRPClient()``
+    """Thin wrapper over ``irp-integration`` 0.4.0 (manager-based). ``IRPClient()``
     reads all config from env vars — no constructor args. The library is imported
     lazily (inside ``_client``) so importing this module never requires the wheel;
     unit tests inject a fake and never construct this class.
 
     Every call maps to exactly one manager method — all single-status-check;
     ``poll_*_to_completion`` is never wrapped (Article 11). Method signatures were
-    re-confirmed against the active 0.2.0 wheel; re-confirm before trusting a new
+    re-confirmed against the active 0.4.0 wheel; re-confirm before trusting a new
     source (``make irp-status``) since the wheel is pre-release (R1).
     """
 
@@ -211,14 +210,14 @@ class _RealGateway:
         return SubmitResult(irp_id=str(job_id),
                             resource_uri=body.get("resourceUri"), payload=body)
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult:
-        # D3: every RDM apply targets an EDM. The wheel requires edm_name — a
-        # no-EDM apply is a programming error, not a runtime IRP failure.
-        if not edm_name:
-            raise ValueError("submit_rdm_import requires an edm_name (D3).")
+    def submit_rdm_import(self, *, name: str, source_file_path: str) -> SubmitResult:
+        # The RDM imports against an exposure set of its own name (created on
+        # demand by the wheel), never into an EDM: broker results cannot be tied
+        # to an EDM's portfolios reliably, so the Risk Modeler-side RDM→EDM link
+        # is not made at all. edm_name and exposure_set_name are mutually
+        # exclusive in the wheel — passing both raises IRPValidationError.
         job_id, body = self._client().rdm.submit_rdm_import_job(
-            rdm_name=name, edm_name=edm_name, rdm_file_path=source_file_path)
+            rdm_name=name, rdm_file_path=source_file_path, exposure_set_name=name)
         return SubmitResult(irp_id=str(job_id),
                             resource_uri=body.get("resourceUri"), payload=body)
 
@@ -233,21 +232,20 @@ class _RealGateway:
     def delete_analysis(self, *, analysis_id: int) -> None:
         self._client().analysis.delete_analysis(analysis_id)
 
-    def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]:
-        # Build the pair filter here with json.dumps quoting (mirrors search_edms /
+    def search_analyses(self, *, source_rdm_name: str) -> list[AnalysisHit]:
+        # Build the filter here with json.dumps quoting (mirrors search_edms /
         # search_rdms) so a name with a quote/space can never malform the filter —
         # the callers pass raw names, never a pre-built filter string.
-        filter = (f"sourceRdmName={json.dumps(source_rdm_name)} "
-                  f"AND exposureName={json.dumps(exposure_name)}")
-        # Paginated so delete-enumeration captures every analysis for the pair (D2).
+        # sourceRdmName alone identifies the analyses: one RDM is imported once,
+        # standalone, so there is no exposure to narrow by.
+        filter = f"sourceRdmName={json.dumps(source_rdm_name)}"
+        # Paginated so delete-enumeration captures every analysis of the RDM (D2).
         rows = self._client().analysis.search_analyses_paginated(filter=filter)
         return [
             AnalysisHit(
                 analysis_id=str(r["analysisId"]),
                 name=r.get("analysisName"),
                 source_rdm_name=r.get("sourceRdmName"),
-                exposure_name=r.get("exposureName"),
                 # R9: carry RM's exposure pointer (previously dropped) so the
                 # backfill can promote it when the type is PORTFOLIO.
                 exposure_resource_id=(
@@ -471,10 +469,9 @@ def submit_edm_import(*, name: str, source_file_path: str) -> SubmitResult:
     return _active().submit_edm_import(name=name, source_file_path=source_file_path)
 
 
-def submit_rdm_import(*, name: str, source_file_path: str,
-                      edm_name: str | None) -> SubmitResult:
+def submit_rdm_import(*, name: str, source_file_path: str) -> SubmitResult:
     return _active().submit_rdm_import(
-        name=name, source_file_path=source_file_path, edm_name=edm_name)
+        name=name, source_file_path=source_file_path)
 
 
 def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
@@ -485,10 +482,8 @@ def delete_analysis(*, analysis_id: int) -> None:
     return _active().delete_analysis(analysis_id=analysis_id)
 
 
-def search_analyses(*, source_rdm_name: str,
-                    exposure_name: str) -> list[AnalysisHit]:
-    return _active().search_analyses(source_rdm_name=source_rdm_name,
-                                     exposure_name=exposure_name)
+def search_analyses(*, source_rdm_name: str) -> list[AnalysisHit]:
+    return _active().search_analyses(source_rdm_name=source_rdm_name)
 
 
 def get_import_job(irp_id: str) -> JobStatus:
