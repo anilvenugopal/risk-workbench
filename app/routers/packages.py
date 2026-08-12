@@ -25,7 +25,7 @@ from app.services import package_sync_service as sync
 from app.services.errors import (
     ConcurrencyConflict, EmptyPackageError, InvalidMemberName,
     InvalidSourceFile, NameCollisionError)
-from db import execute_scalar
+from db import execute_one, execute_scalar
 
 router = APIRouter()
 
@@ -112,12 +112,18 @@ def _parse_members(kinds, names, paths) -> list[sync.MemberSpec]:
 
 @router.get("/submissions/{submission_id}/packages/new", response_class=HTMLResponse)
 def new_modal(request: Request, submission_id: str):
-    if not _submission_active(submission_id):
+    submission = execute_one(
+        "SELECT status_code, directory_path FROM submission WHERE id = :id",
+        {"id": submission_id}, connection="WORKBENCH")
+    if not submission or submission["status_code"] != "ACTIVE":
         return _partial(request, "partials/package_modal.html",
                         {"submission_id": submission_id, "closed": True},
                         status_code=409)
+    # Open the drive browser where the analyst stages this deal's files. /browse
+    # falls back to the root when the directory is unset or has moved.
     return _partial(request, "partials/package_modal.html",
-                    {"submission_id": submission_id, "closed": False})
+                    {"submission_id": submission_id, "closed": False,
+                     "browse_path": submission["directory_path"]})
 
 
 # ── As-you-type member name check ─────────────────────────────────────────────
