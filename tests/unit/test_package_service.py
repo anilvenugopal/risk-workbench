@@ -142,9 +142,8 @@ def test_add_member_refuses_a_soft_deleted_member(iteration1_db):
     "status", ["pending_import", "importing", "error", "delete_pending", "deleted", None])
 def test_add_member_takes_ready_and_nothing_else(iteration1_db, status):
     """``ready`` is the whole rule (``_ATTACHABLE``). An entity that has not finished
-    importing has no name in Risk Modeler for a later Save & Sync to apply this
-    package's RDMs against, so it is refused rather than handled — including a NULL
-    status, which is not evidence of a finished import."""
+    importing is not yet in Risk Modeler under its name, so it is refused rather than
+    handled — including a NULL status, which is not evidence of a finished import."""
     a = iteration1_db.user_a
     pid = create_package(name="P", edm_ids=[_edm()], actor_id=a)
     not_ready = _rdm("NotReady", status=status)

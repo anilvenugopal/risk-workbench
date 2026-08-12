@@ -180,11 +180,11 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
 
 def list_unattached(*, name: str | None = None) -> list[EdmRow]:
     """``ready`` EDMs belonging to no package — the attach picker's EDM candidates
-    (issue #22), newest-first. Only ``ready``: an entity that has not finished importing
-    has no name in Risk Modeler for a later Save & Sync to apply RDMs against, so
-    offering one would be offering an ordering hazard. A failed import is recovered by
-    the EDM library's own Retry, which makes it ``ready`` and therefore attachable —
-    ``package_service._ATTACHABLE`` carries the same rule in the write predicate.
+    (issue #22), newest-first. Only ``ready``: the picker offers entities that already
+    exist in Risk Modeler under their own name; a pending, importing, or failed one is
+    finished or retried from the EDM library's own page, and becomes attachable once it
+    reads ``ready`` — ``package_service._ATTACHABLE`` carries the same rule in the
+    write predicate.
 
     Deliberately *not* ``list_edms(package_id=…)``: that signature uses
     ``package_id=None`` to mean "no filter", so it cannot express ``IS NULL``. It also

@@ -271,8 +271,8 @@ def add_members(
     existing_rdm_ids: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
 ):
-    """Attach the picked entities. Nothing is submitted to Risk Modeler (Article 5) —
-    the analyst's separate Save & Sync click applies the package's RDMs to its EDMs.
+    """Attach the picked entities — membership bookkeeping only. Nothing is submitted
+    to Risk Modeler (Article 5): every pick is already imported there under its own name.
 
     A partial attach returns **200 with the card**, not 422: htmx drops non-2xx bodies, so
     a 422 would leave the modal open over a stale candidate list inviting a re-submit
@@ -296,8 +296,8 @@ def add_members(
     # Plain .form-banner, not --error: the toast scraper only picks up the error variant,
     # so this reads as information rather than a failure.
     return _card_partial(request, package_id, notice=(
-        f"{note} Nothing was submitted to Risk Modeler — click Save & Sync to apply "
-        "this package's RDMs to its EDMs."))
+        f"{note} Nothing was submitted to Risk Modeler — attaching only records that "
+        "they belong to this package."))
 
 
 @router.post("/packages/{package_id}/members/{member_id}/remove")
