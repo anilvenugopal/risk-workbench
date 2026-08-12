@@ -56,7 +56,7 @@ def test_get_edm_detail_lineage_rows_pending_state_and_immediate_source(
     assert generated.breakout_value == "X"
     chained = by_name["A - X - TX"]
     assert chained.source_name == "A - X"            # immediate source only
-    assert chained.breakout_dimension_label == "Geography (state)"
+    assert chained.breakout_dimension_label == "Geography - State"
 
 
 def _setup_source(edm_name: str = "EDM") -> tuple[str, object]:

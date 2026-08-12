@@ -466,7 +466,7 @@ def test_create_sub_portfolio_success_is_the_read_back_never_completed():
     result = gw.create_sub_portfolio(
         edm_name="EDM", exposure_irp_id="42", name="src - TX",
         number="P1-S-TX", description="Breakout of portfolio src by "
-        "Geography (state): TX", account_ids=[101, 102])
+        "Geography - State: TX", account_ids=[101, 102])
     assert result.portfolio_irp_id == "431"
     # the add reported completed 0 — success comes from the read-back (W-9),
     # counted via DataBridge against the CREATED portfolio's id

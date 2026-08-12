@@ -135,8 +135,8 @@ class TestDetailTablesMigration:
             "SELECT code, label FROM breakout_dimension_kind ORDER BY sort_order",
             {}, connection="WORKBENCH")
         assert [(r["code"], r["label"]) for r in rows] == [
-            ("lob", "Line of business"), ("state", "Geography (state)"),
-            ("country", "Country"), ("peril", "Peril"),
+            ("lob", "Line of business"), ("state", "Geography - State"),
+            ("country", "Geography - Country"), ("peril", "Peril"),
             ("custom", "Custom group")]
 
     def test_run_breakout_job_type_seeds_present(self):

@@ -139,7 +139,7 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
     # US2 (T046/FR-004): run_breakout_state runs the same body — the lineage
     # rows carry dimension 'state' with Admin1Code values (P-12), the
     # selection read is asked for the state dimension, and the RM description
-    # names the Geography (state) dimension label.
+    # names the Geography - State dimension label.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"CA": [3], "TX": [1, 2]}
@@ -158,7 +158,7 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
             for r in rows] == [("state", "CA"), ("state", "TX")]
     assert fake_irp.selection_calls[0]["dimension"] == "state"
     assert fake_irp.created_sub_portfolios[0]["description"] == (
-        "Breakout of portfolio usfl_commercial by Geography (state): "
+        "Breakout of portfolio usfl_commercial by Geography - State: "
         "CA (CALIFORNIA)")
 
 

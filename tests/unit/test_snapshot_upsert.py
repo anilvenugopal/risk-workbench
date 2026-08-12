@@ -111,7 +111,7 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
     assert generated.source_portfolio_id == source.id
     assert generated.source_name == "usfl_commercial"
     assert generated.breakout_dimension_code == "state"
-    assert generated.breakout_dimension_label == "Geography (state)"
+    assert generated.breakout_dimension_label == "Geography - State"
     assert generated.breakout_value == "TX"
     # the source snapshot carries no summary → no display label, and the
     # template falls back to the code (P-12 as revised 2026-08-05)

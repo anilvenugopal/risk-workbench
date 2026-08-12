@@ -202,8 +202,8 @@ RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                             ("ready", "Ready", 30), ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
-                           ("state", "Geography (state)", 20),
-                           ("country", "Country", 25),
+                           ("state", "Geography - State", 20),
+                           ("country", "Geography - Country", 25),
                            ("peril", "Peril", 30),  # grouping-only (P-19)
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
 

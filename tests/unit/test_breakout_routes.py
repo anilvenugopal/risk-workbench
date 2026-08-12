@@ -156,7 +156,7 @@ def test_modal_eligible_renders_list_count_and_hidden_as_of(routes_db, client):
     # LOB is the first eligible dimension → selected; both choosers render
     assert 'aria-pressed="true"' in r.text
     assert "By line of business" in r.text
-    assert "By geography (state)" in r.text
+    assert "By geography - state" in r.text
     # preview list: value, generated name, account count per row (FR-006)
     assert "usfl_commercial - EQ Comm" in r.text
     assert "usfl_commercial - FLD Comm" in r.text
@@ -196,7 +196,7 @@ def test_modal_quick_chooser_never_offers_peril(routes_db, client):
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
     assert "By peril" not in r.text
-    assert "By line of business" in r.text and "By geography (state)" in r.text
+    assert "By line of business" in r.text and "By geography - state" in r.text
 
     refused = _confirm(client, edm_id, pid, dimension="peril")
     assert refused.status_code == 409
