@@ -12,6 +12,8 @@ accounts carrying at least one value, accounts carrying more than one — and
 never derives either from Σ accounts, which counts memberships. Blank values
 never appear in the value list (the summary SQL scrubs them); how many accounts
 they cost is what ``uncovered`` states.
+``display_value`` turns a peril code into its mnemonic and leaves every other
+dimension's value untouched.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from app.services.breakout_service import (
     DimensionCoverage,
     build_breakout_plan,
     compute_overlap,
+    display_value,
 )
 
 
@@ -267,3 +270,22 @@ def test_overlap_uncovered_never_negative():
                                                         multi_value=0))
     assert overlap.uncovered == 0
     assert overlap.partition is True
+
+
+# ── peril display (D4 — closes O-02) ────────────────────────────────────────────
+
+def test_peril_codes_display_as_mnemonics():
+    assert [display_value(v, "peril")
+            for v in ("1", "2", "3", "4", "5", "6", "7")] == [
+        "EQ", "WS", "CS/WT", "FL", "FR", "TR", "WC"]
+
+
+def test_unmapped_peril_code_displays_as_itself():
+    # A code the maintained map does not carry is shown raw — never a guessed
+    # mnemonic (the same rule P-12 applies to labels).
+    assert display_value("42", "peril") == "42"
+
+
+def test_other_dimensions_display_their_value_verbatim():
+    assert display_value("2", "state") == "2"
+    assert display_value("EQ Comm", "lob") == "EQ Comm"

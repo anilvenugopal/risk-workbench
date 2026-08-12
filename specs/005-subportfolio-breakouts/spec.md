@@ -17,7 +17,7 @@ From the EDM detail page, an analyst can split a source portfolio into one sub-p
 - Break out by geography: one sub-portfolio per distinct state or state-equivalent (first-level administrative division) present in the source portfolio — global portfolios included
 - Break out by country (follow-on, 2026-08-10 — the extension research.md P-03 anticipated): one sub-portfolio per distinct country present in the source portfolio; values are the `Address.CountryCode`/`CountryRMSCode` codes, no name column exists in the EDM
 - **Custom grouping** (follow-on, Aug 6 CIC demo — D12/D13/D17): named groups of selected values combined across dimensions (state, LOB, country, peril) into one sub-portfolio each, built in a cart and confirmed once (FR-018–021)
-- Peril as a grouping-only dimension (P-19) — values are `loccvg.PERIL` codes
+- Peril as a grouping-only dimension (P-19) — values are `loccvg.PERIL` codes, displayed as peril mnemonics (P-30)
 - Preview and confirm before anything is created, with the account-overlap and blank-value disclosures
 - Lineage (source portfolio + dimension + value) stored, and shown in each generated row's expanded panel (P-27); deterministic collision-safe naming
 - Automatic exposure-detail refresh for generated portfolios; audit of each breakout run
@@ -72,8 +72,9 @@ From the EDM detail page, an analyst can split a source portfolio into one sub-p
 | P-27 | Lineage displays in the **expanded row only**: expanding a generated sub-portfolio shows its base portfolio and its breakout criteria in the Risk Modeler description format (`Line of business IN (Homeowners)`; a custom group's AND-joined filter set). The collapsed table row carries no lineage badge; base and broker-arrived rows render none of it | Approved | [research.md#session-2026-08-11](research.md#session-2026-08-11) |
 | P-28 | **Caribbean geography maps CB → country, island → state**: an address whose `CountryRMSCode` is `CB` takes `CB` as its country value and its own ISO3A `CountryCode` as its state value, in place of `Admin1Code`. One value breaks out the whole region; `PRI`/`VIR` break out single islands. Caribbean state values carry no display label | Approved | [research.md#session-2026-08-11](research.md#session-2026-08-11) |
 | P-29 | **A custom breakout no account matches is refused at Add**, before it reaches the cart: the intersection is counted in DataBridge on the request path (one row, one integer), a one-dimension breakout skips the read, and the check fails open. The stored summary cannot answer it — two values that each have accounts can still share none | Approved | [research.md#session-2026-08-12](research.md#session-2026-08-12) |
+| P-30 | **Peril values display as their mnemonic** (D4 — `1` reads `EQ`, `2` `WS`, `3` `CS/WT`, `4` `FL`, `5` `FR`, `6` `TR`, `7` `WC`) in the grouping pane, the cart, the lineage criteria, and the Risk Modeler description. Neither the EDM nor Risk Modeler pairs the code with a name (W-21), so the vocabulary is maintained in `breakout_service`; a code outside it displays raw. Display only — the checkbox value, `breakout_group.filters`, the selection read, and `breakout_value` all stay the numeric code | Approved | [research.md#R14](research.md) |
 | O-01 | `loccvg.PERIL` vocabulary in the sandbox EDMs — numeric RMS codes (smallint), no blanks, one distinct peril per sandbox portfolio; sub-peril detail rides parent perils | Closed | [probe-findings.md#W-21](probe-findings.md), [research.md#R14](research.md) |
-| O-02 | Peril display is the numeric code only (no in-EDM label source; P-12 forbids synthesizing one) — acceptable to analysts? Decided at the grouping-modal preview approval | Open | [research.md#R14](research.md) |
+| O-02 | Peril display is the numeric code only — acceptable to analysts? | Closed | answered no; superseded by P-30 |
 
 ---
 

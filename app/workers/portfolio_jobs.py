@@ -378,9 +378,12 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
 
     # The RM description lists the full filter set untruncated (FR-010
     # pattern) — it carries the membership rule the 40-character name cannot.
+    shown = {dim: ", ".join(breakout_service.display_value(v, dim)
+                            for v in values)
+             for dim, values in group.filters.items()}
     description = (f"Custom breakout {group.label} of portfolio "
                    f"{source['name']}: "
-                   + " AND ".join(f"{dim} IN ({', '.join(group.filters[dim])})"
+                   + " AND ".join(f"{dim} IN ({shown[dim]})"
                                   for dim in sorted(group.filters)))
     if not ids:
         # A legitimate data outcome, not summary drift: the selected values

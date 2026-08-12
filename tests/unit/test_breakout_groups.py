@@ -385,6 +385,22 @@ def test_group_worker_unions_within_and_intersects_across(
         == [("lob", ["EQ Comm"]), ("state", ["CA", "TX"])]
 
 
+def test_group_description_names_perils_by_mnemonic(iteration2_db, fake_irp):
+    # D4: the description is what an analyst reads in Risk Modeler, so the
+    # peril filter shows WS — while the selection read still runs on the code.
+    fake_irp.selection_by_value = {"TX": [1, 2], "2": [2, 3]}
+    edm_id, pid, jid = _confirmed_group(
+        fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
+
+    assert _run(jid)["status_code"] == "succeeded"
+
+    assert fake_irp.created_sub_portfolios[0]["description"] == (
+        "Custom breakout Coastal of portfolio usfl_commercial: "
+        "peril IN (WS) AND state IN (TX)")
+    assert [(c["dimension"], c["values"]) for c in fake_irp.selection_calls] \
+        == [("peril", ["2"]), ("state", ["TX"])]
+
+
 def test_group_worker_empty_intersection_fails_with_nothing_created(
         iteration2_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [2]}

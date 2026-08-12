@@ -725,9 +725,9 @@ EDMs, for the peril grouping dimension: follow-on plan O-01/O-02.)*
   coverages carry, exactly as lob/state read their own source tables.
 
 Consequence (R14): the breakout value is the peril code as a string
-(`"1"`, `"2"`), `label` is null everywhere (P-12 — never synthesized), and
-displays render the code. Whether code-only display is acceptable goes to the
-approver with the grouping-modal preview (O-02).
+(`"1"`, `"2"`) and the summary's `label` is null everywhere. Because no lookup
+exists to read, the mnemonics analysts see are maintained in
+`breakout_service._PERIL_MNEMONIC` (P-30, closing O-02).
 
 ---
 

@@ -116,7 +116,7 @@
           {%- if p.breakout_dimension_code == 'custom' -%}
             {%- if p.breakout_group_filters -%}
               {%- for dim, vals in p.breakout_group_filters|dictsort -%}
-                {{ dim }} IN ({{ vals|join(', ') }}){% if not loop.last %} AND {% endif %}
+                {{ dim }} IN ({{ vals|map('breakout_display', dim)|join(', ') }}){% if not loop.last %} AND {% endif %}
               {%- endfor -%}
             {%- else -%}{{ p.breakout_group_label or p.breakout_value }}{%- endif -%}
           {%- else -%}

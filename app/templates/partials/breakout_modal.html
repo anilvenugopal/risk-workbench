@@ -108,7 +108,8 @@
          in the group-preview route is the backstop). #}
       <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
                      resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
-                       ({ name: c.name, v: c.value, d: c.closest('.bo-checks').dataset.dimlabel })) },
+                       ({ name: c.name, v: c.value, shown: c.dataset.display,
+                          d: c.closest('.bo-checks').dataset.dimlabel })) },
                      get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
                      get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
            @change="resel(); boClearCartError($el)"
@@ -132,9 +133,11 @@
              data-dimlabel="{{ d.label }}"
              {% if not loop.first %}style="display:none"{% endif %}>
           {% for v in d.values %}
+          {%- set shown = v.value | breakout_display(d.dimension) -%}
           <label class="bo-check">
-            <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}">
-            <span>{{ v.value }}</span>
+            <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}"
+                   data-display="{{ shown }}">
+            <span>{{ shown }}</span>
             {% if v.label %}<span class="bo-check__label">{{ v.label }}</span>{% endif %}
             <span class="bo-check__accounts">{{ '{:,}'.format(v.accounts) }}</span>
           </label>
@@ -146,11 +149,11 @@
            Clicking a chip unticks the box. #}
         <div class="bo-picked" x-show="sel.length" x-cloak>
           <template x-for="s in sel" :key="s.name + '|' + s.v">
-            <button type="button" class="bo-picked__chip" :title="'Remove ' + s.v"
+            <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
                     @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
                               .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
                             resel()">
-              <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.v"></span><span class="bo-picked__x">×</span>
+              <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
             </button>
           </template>
         </div>

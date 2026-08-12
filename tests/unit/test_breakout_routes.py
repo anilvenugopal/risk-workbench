@@ -105,6 +105,7 @@ def client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import portfolios
+    from app.services.breakout_service import display_value
 
     app = FastAPI()
     templates = Jinja2Templates(directory="app/templates")
@@ -112,6 +113,7 @@ def client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.filters["breakout_display"] = display_value
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(portfolios.router)
@@ -579,6 +581,10 @@ def test_modal_custom_mode_renders_pills_checkboxes_and_cart(
     for name in ('name="values:lob"', 'name="values:state"',
                  'name="values:peril"'):
         assert name in r.text
+    # a peril checkbox reads as its mnemonic and still posts the EDM's code (D4)
+    flat = " ".join(r.text.split())
+    assert 'name="values:peril" value="2" data-display="WS"' in flat
+    assert "<span>WS</span>" in flat
     # no quick preview list, no quick confirm
     assert "Generated name" not in r.text
     assert 'name="dimension"' not in r.text
@@ -615,7 +621,8 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     # upper bound = min(Σ state counts, Σ peril counts) = min(1701, 1701)
     assert "up to 1,701 accounts" in r.text
     flat = " ".join(r.text.split())
-    assert "peril: 2 · state: CA, TX" in flat    # canonical filter line
+    # canonical filter line, peril by mnemonic (D4)
+    assert "peril: WS · state: CA, TX" in flat
     # preview writes NOTHING — no group row, no job
     assert _group_row_ids() == []
     assert _breakout_jobs() == []

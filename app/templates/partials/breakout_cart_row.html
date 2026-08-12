@@ -15,7 +15,7 @@
     <button type="button" class="bo-cart-row__remove"
             @click="$event.target.closest('.bo-cart-row').remove(); recount()">remove</button>
   </div>
-  <div class="bo-cart-row__filters">{% for dim, vals in plan.filters.items() %}{{ dim }}: {{ vals|join(', ') }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  <div class="bo-cart-row__filters">{% for dim, vals in plan.filters.items() %}{{ dim }}: {{ vals|map('breakout_display', dim)|join(', ') }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
   <div class="bo-cart-row__meta">up to {{ '{:,}'.format(plan.accounts_upper_bound) }} accounts
     {%- if plan.adopted %} · existing breakout{% if plan.exists %} — already created, the run will skip it{% endif %}{% endif %}
     {%- if plan.may_overlap_with %} <span class="bo-cart-row__warn">· may overlap with {{ plan.may_overlap_with|join(', ') }}</span>{% endif %}</div>

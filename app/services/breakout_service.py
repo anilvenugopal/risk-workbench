@@ -60,6 +60,14 @@ _DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C"}
 # Analyst-facing noun per dimension for disabled-with-reason copy.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
                    "country": "country", "peril": "peril", "custom": "custom"}
+# The peril dimension's values are `loccvg.PERIL` numeric codes, and neither the
+# EDM nor Risk Modeler pairs a code with a name (W-21), so the mnemonics
+# analysts read are maintained here (D4, closing O-02): 1 earthquake,
+# 2 windstorm/hurricane, 3 severe convective storm/winterstorm, 4 flood,
+# 5 fire, 6 terrorism, 7 workers compensation/human casualty. A code this map
+# does not carry displays as itself rather than as a guessed mnemonic.
+_PERIL_MNEMONIC = {"1": "EQ", "2": "WS", "3": "CS/WT", "4": "FL", "5": "FR",
+                   "6": "TR", "7": "WC"}
 # Quick mode (one sub-portfolio per value) runs these dimensions only. peril
 # is grouping-only (P-19): no portfolio_number letter, no run_breakout_peril
 # job type, never offered in the quick-mode chooser. "custom" is the grouping
@@ -69,6 +77,16 @@ _QUICK_DIMENSIONS = frozenset({"lob", "state", "country"})
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
                             "being rewritten")
+
+
+def display_value(value: str, dimension: str) -> str:
+    """The analyst-facing text for one breakout value, registered as the
+    ``breakout_display`` Jinja filter. Display only: the checkbox value, the
+    stored ``breakout_group.filters``, the selection read, the stored
+    ``breakout_value``, and the number token all stay the raw value."""
+    if dimension == "peril":
+        return _PERIL_MNEMONIC.get(value, value)
+    return value
 
 
 def _dimension_letter(dimension: str) -> str:
@@ -1382,6 +1400,7 @@ __all__ = [
     "PORTFOLIO_NAME_MAX", "PORTFOLIO_NUMBER_MAX", "LARGE_FANOUT_THRESHOLD",
     "MISSING_SUMMARY_REASON", "REFRESH_IN_FLIGHT_REASON",
     "BreakoutRefused", "GateRefused", "SummaryRewritten", "StaleSummary",
+    "display_value",
     "BreakoutValue", "DimensionCoverage", "DimensionEligibility",
     "BreakoutGate", "evaluate_gate",
     "SubPortfolioPlan", "build_breakout_plan", "compose_plan",

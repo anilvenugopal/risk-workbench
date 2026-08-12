@@ -243,7 +243,7 @@ Both figures are now measured per account by `portfolio_state_coverage.sql` / `p
 
 ---
 
-## R14 — Peril values are `loccvg.PERIL` codes, code-only display, grouping-only
+## R14 — Peril values are `loccvg.PERIL` codes, displayed as mnemonics, grouping-only
 
 *(New 2026-08-10, from the W-21 probe run — the Workstream-3 prerequisite for
 custom grouping.)*
@@ -254,9 +254,9 @@ counts), `portfolio_peril_coverage.sql` (the two FR-007 counts),
 `breakout_peril_accounts.sql` (the selection read), all joining
 `portacct → Property (LOCID) → loccvg` — the join path
 `portfolio_currencies.sql` already proved. The stored value is the numeric
-code **stringified** (`"1"`, `"2"`); `label` is always null and every display
-renders the code, because the EDM carries no code→name lookup (W-21) and P-12
-forbids synthesizing one. Peril is **grouping-only** (P-19): it gets a noun
+code **stringified** (`"1"`, `"2"`) and the summary's `label` is always null,
+because the EDM carries no code→name lookup (W-21). Displays render the
+mnemonic instead (P-30, below). Peril is **grouping-only** (P-19): it gets a noun
 and the three scripts, but no `_DIMENSION_LETTER` entry, no
 `run_breakout_peril` job type, and no worker actor — `DimensionEligibility`
 carries `quick=False` and the quick-mode chooser, `modal_context`'s
@@ -271,14 +271,29 @@ numeric code is the only selection vocabulary the EDM holds, and the
 name/code split that burned state (R6/W-16) cannot recur when no name exists
 at all.
 
-**Alternatives considered.** (a) A hardcoded RMS code→mnemonic map (1=EQ,
-2=HU, …) — rejected: exactly the "pre-defined constant" the design record
-warns against, and a P-12 violation (a synthesized label that geocoding-style
-vocabulary drift would falsify). Revisit only if an authoritative in-EDM or
-API lookup appears. (b) Deriving perils from the detail tables
+**Code-only display is reversed — the map ships (P-30, 2026-08-12).** Note 12
+§3 D4 asked for the name outright ("we need the name"), and the approver
+supplied the vocabulary: 1 EQ earthquake, 2 WS windstorm/hurricane, 3 CS/WT
+severe convective storm/winterstorm, 4 FL flood, 5 FR fire, 6 TR terrorism,
+7 WC workers compensation/human casualty. `breakout_service._PERIL_MNEMONIC`
+holds it and `display_value` — the `breakout_display` Jinja filter — is the
+one place any display passes through: the grouping pane's checkboxes and
+chips, the cart's filter line, the expanded row's breakout criteria, and the
+Risk Modeler description the group worker writes. A code the map does not
+carry displays raw; nothing about the stored value, the filters JSON, the
+selection read, or the number token changes. The 2026-08-10 rejection reasoned
+from P-12, which protects labels the EDM itself supplies inconsistently
+(`Admin1Name`, absent until geocoding) — RMS peril codes are a fixed published
+vocabulary with no EDM column to disagree with. Before hardcoding, the RM
+Platform reference-data routes were checked for a peril list: `/platform/
+referencedata/v1/` serves tags only, and `perilCode` appears in model
+profiles, event rate schemes, and simulation sets as mnemonics never paired
+with the EDM's numeric code.
+
+**Alternatives considered.** (a) Deriving perils from the detail tables
 (eqdet/hudet/…) — rejected: sub-peril detail rides parent perils (W-21), so
 detail-table presence over-enumerates what a coverage filter can select.
-(c) Standalone peril quick mode — deferred pending the D15 team validation
+(b) Standalone peril quick mode — deferred pending the D15 team validation
 (P-19); the add is the registration lockstep (job-type seed + actor +
 letter) on top of what ships here.
 

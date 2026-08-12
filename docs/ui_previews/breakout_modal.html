@@ -358,9 +358,9 @@ h1,h2,h3{margin:0}
     Mode tabs sit above the pane: <strong>Quick breakout</strong> is sections 1–2 unchanged;
     <strong>Custom groups</strong> is below. Dimension pills toggle the checkbox list client-side
     (one fetch, no state loss); the server composes every cart row (name, key, upper-bound count).
-    ⚠ <strong>O-02 for this review:</strong> peril values are numeric RMS codes (1 = EQ, 2 = HU/WS in
-    the sandbox) — the EDM carries no code→name lookup and labels are never invented (P-12), so the
-    checkboxes and badges show the bare code. Say if code-only display is unacceptable.
+    Peril values are numeric RMS codes in the EDM and display as their mnemonic — 1 reads
+    <code>EQ</code>, 2 <code>WS</code> (P-30, closing O-02): no lookup exists to read, so
+    <code>breakout_service</code> maintains the vocabulary and shows an unmapped code raw.
   </div>
   <div class="board">
     <div class="tile">
@@ -438,7 +438,7 @@ h1,h2,h3{margin:0}
                 <span class="bo-cart-row__name">usfl_commercial - Coastal HU</span>
                 <button class="bo-cart-row__remove" type="button">remove</button>
               </div>
-              <div class="bo-cart-row__filters">state: FL, GA · peril: 2</div>
+              <div class="bo-cart-row__filters">state: FL, GA · peril: WS</div>
               <div class="bo-cart-row__meta">up to 1,445 accounts</div>
             </div>
             <div class="bo-cart-row">
@@ -526,7 +526,7 @@ h1,h2,h3{margin:0}
         <span style="color:var(--text-tertiary);font-size:10px">▸</span>
         <span style="font-weight:var(--fw-semibold)">usfl_commercial - Coastal HU</span>
         <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #24</span>
-        <div style="font-size:var(--fs-caption);color:var(--text-tertiary)" title="state: FL, GA · peril: 2">↳ from usfl_commercial · group: Coastal HU</div>
+        <div style="font-size:var(--fs-caption);color:var(--text-tertiary)" title="state: FL, GA · peril: WS">↳ from usfl_commercial · group: Coastal HU</div>
       </div>
     </div>
   </div>

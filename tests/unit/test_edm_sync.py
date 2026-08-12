@@ -261,6 +261,7 @@ def _client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import edms
+    from app.services.breakout_service import display_value
 
     app = FastAPI()
     templates = Jinja2Templates(directory="app/templates")
@@ -268,6 +269,7 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.filters["breakout_display"] = display_value
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -532,7 +534,8 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                           breakout_value="a1b2c3",
                           breakout_group_label="Coastal HU",
                           breakout_group_filters={"state": ["FL", "GA"],
-                                                  "lob": ["Homeowners"]},
+                                                  "lob": ["Homeowners"],
+                                                  "peril": ["2"]},
                           **common)
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(
@@ -542,7 +545,8 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
     html = _client().get("/edms/edm-1/portfolios-section").text
     assert html.count("dt-frommark") == 2      # the two generated rows only
     assert "Line of business IN (Homeowners)" in html
-    assert "lob IN (Homeowners) AND state IN (FL, GA)" in html
+    # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4)
+    assert "lob IN (Homeowners) AND peril IN (WS) AND state IN (FL, GA)" in html
     assert html.count("Base portfolio") == 2
 
 
