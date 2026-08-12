@@ -12,13 +12,12 @@ the library, so these are ours to make.
 
 ## Feature gaps (block a deferred workbench feature)
 
-### 1. Optional-EDM RDM import (review-only / RDM-only packages)
-`rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` makes `edm_name` **mandatory** — it
-resolves the EDM's `resourceUri` via `search_edms` and raises if none is found. Standalone-RDM import
-(analyses with no exposure) is a real Risk Modeler capability but has no code path here.
-- **Change:** make `edm_name` optional and add a no-EDM import path (analyses with `edm_id` null).
-- **Unblocks:** workbench FR-002 (review-only import), FR-016, SC-004 (RDM-only package) — all deferred
-  by spec 003 D3.
+### 1. ~~Optional-EDM RDM import (review-only / RDM-only packages)~~ — **DELIVERED in 0.4.0**
+`rdm.submit_rdm_import_job` now takes keyword-only `edm_name` **or** `exposure_set_name` (exactly one;
+both or neither raises `IRPValidationError`). With `exposure_set_name` the RDM imports against an
+exposure set — created on demand by `EDMManager.get_or_create_exposure_set` — and no EDM is involved.
+- **Adopted 2026-08-11:** the workbench passes the RDM's own name as `exposure_set_name` for **every**
+  import, so spec 003 D3 is reversed and no RDM is ever linked to an EDM in Risk Modeler.
 
 ---
 

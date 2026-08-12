@@ -19,13 +19,13 @@ Code: `POST /edms/{id}/sync` → `edm_service.sync_detail` **+**
 
 | Action | Jobs enqueued | Key |
 |---|---|---|
-| **Sync** on the EDM detail page | one `backfill_edm_detail` for this EDM, **plus** one `backfill_rdm_analyses` for *each* RDM ever applied to it | `('analyst_request', edm_id)` and `('analyst_request', rdm_id)` |
+| **Sync** on the EDM detail page | one `backfill_edm_detail` for this EDM, **plus** one `backfill_rdm_analyses` for *each* RDM in this EDM's package | `('analyst_request', edm_id)` and `('analyst_request', rdm_id)` |
 | **Sync** on the RDM detail page | one `backfill_rdm_analyses` for this RDM | `('analyst_request', rdm_id)` |
 
-The applied-RDM fan-out is derived from the job history:
-`SELECT DISTINCT irp_rdm_id FROM irp_job WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm'`.
-Each of those jobs is enqueued **without** an `edm_id`, which is the switch that makes the
-worker re-do *every* applied pair rather than one — see
+The RDM list comes from package membership — `SELECT r.id FROM irp_rdm r JOIN irp_edm e ON
+e.package_id = r.package_id WHERE e.id = :e` — the same membership the page lists the
+analyses by. No RDM is applied to an EDM in Risk Modeler; the RDMs merely share the package.
+Each head is keyed `('analyst_request', rdm_id)` — see
 [backfill RDM analyses](backfill_rdm_analyses.md#one-job-shape-two-enqueue-keys).
 
 ## Records written (in order)
@@ -64,9 +64,9 @@ sequenceDiagram
         App->>DB: SELECT irp_edm — skip if missing / importing / backfill already in flight
         App->>DB: ensure_pending rwb_job (backfill_edm_detail, analyst_request key)
         App-->>W: dispatch
-        App->>DB: SELECT DISTINCT irp_rdm_id FROM irp_job (RDMs ever applied to this EDM)
-        loop each applied RDM
-            App->>DB: ensure_pending rwb_job (backfill_rdm_analyses, NO edm_id in input)
+        App->>DB: SELECT irp_rdm JOIN irp_edm ON package_id (the EDM's package members)
+        loop each RDM in the package
+            App->>DB: ensure_pending rwb_job (backfill_rdm_analyses — rdm_id, package_id)
             App-->>W: dispatch
         end
         App-->>User: HTMX → the full body partial (its live trigger is now on) · else 303
@@ -152,9 +152,9 @@ at least one analysis group has analyses.
   wasteful, not wrong.
 - **Clicking Sync twice does nothing the second time** — the `pending`/`running` guard
   absorbs it, and the button's own state comes from the same derived `sync_running`.
-- **Sync can move an RDM's status backwards.** It re-runs the unconditional rollup, so an RDM
-  with any failed apply goes `ready → error`. And because the RDM prune trusts the RM search,
-  a renamed RDM will soft-delete its captured analyses. Neither is a bug in Sync; both are
-  properties of the flows it re-runs.
+- **Sync always rolls the RDM to `ready`.** The worker calls `rollup_on_terminal` with
+  `FINISHED` regardless of how the import went, so syncing an `error` RDM promotes it. And
+  because the RDM prune trusts the RM search, a renamed RDM will soft-delete its captured
+  analyses. Neither is a bug in Sync; both are properties of the flows it re-runs.
 - **The only Risk Modeler contact is in the worker.** The request path performs no read at
   all here — not even the cached name check the import paths do.

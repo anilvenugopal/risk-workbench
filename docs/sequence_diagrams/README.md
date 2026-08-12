@@ -131,7 +131,7 @@ Stated once here so the individual documents don't repeat them:
 
 | Flow | User action (spec) | Request-path writes | Worker | Poller | Chaining |
 |---|---|---|---|---|---|
-| [Assemble & sync a package](packages/save_and_sync_package.md) | 003 US3 | `package` + member entities; then N `rwb_job`(upload_edm) | submit each EDM; then apply each RDM | on each EDM FINISHED, enqueue an `upload_rdm` head **and** a `backfill_edm_detail` | **N EDMs → N heads → N×M applies** |
+| [Assemble & sync a package](packages/save_and_sync_package.md) | 003 US3 | `package` + member entities; then N `rwb_job`(upload_edm) + M `rwb_job`(upload_rdm) | submit every member, no ordering | on each FINISHED, enqueue that member's backfill | **N EDMs + M RDMs → N+M heads → N+M imports** |
 | [Delete a package](packages/delete_package.md) | 003 US4 | N `rwb_job`(delete_rdm) *or* delete_edm | RDM delete **synchronous (no `irp_job`)**; EDM delete async | on delete_edm FINISHED, mark deleted + finalize | RDM→EDM fan-in; idempotent finalize |
 
 ### Detail backfill

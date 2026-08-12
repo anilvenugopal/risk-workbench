@@ -3,21 +3,23 @@
 The headline action. The analyst assembles a package (EDMs + RDMs) on the submission
 detail, **Saves** it (persists the shell + members, submits nothing), then **Save & Syncs**
 (records the pending work and returns). All the Risk Modeler work is carried off-request by
-the worker and poller, and the **EDM→RDM chaining is poller-mediated**: each EDM that
-finishes importing triggers one `upload_rdm` head that fans out to one apply per RDM of
-*that* EDM. For **N EDMs × M RDMs** that is **N heads → N×M applies**.
+the worker and poller. **The members are independent:** an RDM is imported standalone, so
+for **N EDMs and M RDMs** Save & Sync enqueues **N + M heads in one pass**, and no member
+waits on another.
 
 Code: `package_sync_service.save_package` / `save_and_sync` →
 `package_jobs._upload_edm_body` / `_upload_rdm_body` →
-`poller.run._handle_import_edm_terminal` (the chain link) → `_handle_import_rdm_terminal`.
+`poller.run._handle_import_edm_terminal` / `_handle_import_rdm_terminal` (each enqueues
+only its own backfill).
 
 **Two request-path operations. Neither submits to Risk Modeler (FR-042):**
 
 - **Save** — per-member collision **check** + `INSERT package` + one member entity per
   EDM/RDM (each `pending_import`) + `INSERT submission_package`. **No `rwb_job`, no RM
   submit.**
-- **Save & Sync** — the same, plus one `upload_edm` `rwb_job` per pending EDM (idempotent).
-  Returns immediately. Everything after is worker + poller.
+- **Save & Sync** — the same, plus one `upload_edm` `rwb_job` per pending EDM and one
+  `upload_rdm` per pending RDM (idempotent). Returns immediately. Everything after is
+  worker + poller.
 
 **The member name-check blocks** (003 amendment, 2026-07-27), the same three-way outcome as
 [import EDM](../entities/import_edm.md) but applied per member via
@@ -78,31 +80,29 @@ sequenceDiagram
 
 ---
 
-## Phase B — Save & Sync + the chaining (async)
+## Phase B — Save & Sync (async)
 
-This is the core. Follow **one EDM** through; the counts in the notes show the fan-out.
+This is the core. The EDM column and the RDM column below run **concurrently** — they share
+no step.
 
-### Records written (per EDM, then per pair)
+### Records written (per EDM, and per RDM)
 
 | # | Table | Row / change | Written by | Process |
 |---|---|---|---|---|
-| 1 | `rwb_job` | INSERT/ensure — `upload_edm`, `pending`, `requestor_id=edm.id` (one per pending EDM) | `ensure_pending_rwb_job` | 🟦 request |
+| 1a | `rwb_job` | INSERT/ensure — `upload_edm`, `pending`, `requestor_id=edm.id` (one per pending EDM) | `ensure_pending_rwb_job` | 🟦 request |
+| 1b | `rwb_job` | INSERT/ensure — `upload_rdm`, `pending`, `requestor_id=rdm.id` (one per pending RDM) | `ensure_pending_rwb_job` | 🟦 request |
 | 2 | `rwb_job` | claim `pending→running` + heartbeat | worker | 🟩 worker |
-| 3 | `irp_job` | INSERT — `import_edm`, `QUEUED`, `irp_id` | `record_submitted_irp_job` | 🟩 worker |
-| 4 | `irp_edm` | UPDATE `pending_import→importing` | `mark_importing` | 🟩 worker |
+| 3a | `irp_job` | INSERT — `import_edm`, `QUEUED`, `irp_id` | `record_submitted_irp_job` | 🟩 worker |
+| 3b | `irp_job` | INSERT — `import_rdm`, `QUEUED`, `irp_id`, **`irp_edm_id` NULL** | `record_submitted_irp_job` | 🟩 worker |
+| 4 | `irp_edm` / `irp_rdm` | UPDATE `pending_import→importing` | `mark_importing` | 🟩 worker |
 | 5 | `rwb_job` | UPDATE `running→succeeded` | `complete_rwb_job` | 🟩 worker |
 | 6 | `irp_job` | UPDATE terminal (FINISHED) — *in the same txn as ↓* | `update_tracking` | 🟪 poller |
-| 7 | `irp_edm` | UPDATE `importing→ready` + backfill `irp_id` | `backfill_on_terminal` | 🟪 poller |
-| 8 | **`rwb_job`** | **INSERT — `upload_rdm` head, `requestor_type='irp_job'`, `requestor_id=<this import_edm irp_job.id>`, `input={rdm_ids:[all package RDMs], edm_ids:[this EDM]}`** — *the chain link, same txn* | `enqueue_rwb_job(conn=…)` | 🟪 poller |
-| 9 | `rwb_job` | claim the head `pending→running` + heartbeat | worker | 🟩 worker |
-| 10 | `irp_job` | INSERT one per (RDM, this EDM) pair — `import_rdm`, `QUEUED` | `record_submitted_irp_job` | 🟩 worker |
-| 11 | `irp_rdm` | UPDATE `pending_import→importing` | `mark_importing` | 🟩 worker |
-| 12 | `rwb_job` | INSERT — `backfill_rdm_analyses` per finished apply (poller, same txn as the mirror) | `enqueue_rwb_job` | 🟪 poller |
-| 13 | `irp_rdm` | UPDATE **rollup** `→ready` once every apply across every EDM is FINISHED | `rollup_on_terminal` | 🟩 worker |
+| 7a | `irp_edm` | UPDATE `importing→ready` + backfill `irp_id` | `backfill_on_terminal` | 🟪 poller |
+| 7b | `rwb_job` | INSERT — `backfill_edm_detail`, keyed on the finished `import_edm` job | `enqueue_rwb_job(conn=…)` | 🟪 poller |
+| 8 | `rwb_job` | INSERT — `backfill_rdm_analyses`, keyed on the finished `import_rdm` job | `enqueue_rwb_job` | 🟪 poller |
+| 9 | `irp_rdm` | UPDATE **rollup** `→ready`, in the same txn as the analysis capture | `rollup_on_terminal` | 🟩 worker |
 
-Step 12 is also where each EDM's own detail backfill starts — the poller transaction that
-flips an EDM to `ready` enqueues **both** the `upload_rdm` head *and* a
-`backfill_edm_detail` job. Those two chains then run independently; see
+Step 7b is where each EDM's own detail backfill starts; see
 [backfill the EDM's detail](../backfill/backfill_edm_detail.md).
 
 ```mermaid
@@ -117,74 +117,60 @@ sequenceDiagram
     rect rgb(238,244,255)
         Note over User,DB: SAVE & SYNC — record pending work, return immediately
         User->>App: POST /packages/{id}/sync
-        App->>DB: SELECT live members — EmptyPackageError if no EDM (RDM-only)
+        App->>DB: SELECT live members — EmptyPackageError only if NONE remain
         App->>RM: check_member_name × each non-locked member (blocking)
         loop each EDM not already ready/importing
             App->>DB: ensure_pending rwb_job (upload_edm, requestor_id = edm.id)
             App-->>W: dispatch(upload_edm)
         end
-        Note over App: an EDM already ready ⇒ enqueue its upload_rdm apply NOW
+        loop each RDM not already ready/importing
+            App->>DB: ensure_pending rwb_job (upload_rdm, requestor_id = rdm.id)
+            App-->>W: dispatch(upload_rdm)
+        end
         App-->>User: 200 — package card (queued)
     end
 
     rect rgb(238,255,244)
-        Note over W,RM: WORKER — submit each EDM import (fans out across N EDMs)
-        W->>DB: claim rwb_job (upload_edm) + heartbeat
-        W->>RM: submit_edm_import (HEAVY)
-        RM-->>W: irp_id + resourceUri
-        W->>DB: INSERT irp_job (import_edm, QUEUED) + resource
-        W->>DB: UPDATE irp_edm (→importing)
-        W->>DB: UPDATE rwb_job (→succeeded)
-    end
-
-    rect rgb(245,238,255)
-        Note over P,RM: POLLER — the EDM finish is the CHAIN LINK
-        loop each pass
-            P->>RM: get_import_job(import_edm.irp_id)
-            RM-->>P: FINISHED
-            Note over P,DB: ONE transaction — terminal + backfill + chained head are atomic
-            P->>DB: UPDATE irp_job (import_edm → FINISHED)
-            P->>DB: UPDATE irp_edm (importing→ready, irp_id)
-            P->>DB: INSERT rwb_job (upload_rdm head, requestor_type='irp_job', requestor_id = this irp_job.id)
-            P-->>W: dispatch(upload_rdm)
-        end
-        Note over P: keyed on the finished irp_job.id ⇒ exactly ONE head per EDM,<br/>idempotent if the poller re-processes (enqueue dedups, never revives)
-    end
-
-    rect rgb(238,255,244)
-        Note over W,RM: WORKER — the head fans out to one apply per (RDM × this EDM)
-        W->>DB: claim rwb_job (upload_rdm head) + heartbeat
-        loop each RDM of the package
-            W->>DB: _apply_exists (RDM, this EDM)? skip if so
-            W->>RM: submit_rdm_import (rdm, edm resolved by name)
-            RM-->>W: irp_id
-            W->>DB: INSERT irp_job (import_rdm, QUEUED, irp_edm_id = this EDM)
+        Note over W,RM: WORKER — every member submits independently, no ordering
+        par each EDM
+            W->>DB: claim rwb_job (upload_edm) + heartbeat
+            W->>RM: submit_edm_import (HEAVY)
+            RM-->>W: irp_id + resourceUri
+            W->>DB: INSERT irp_job (import_edm, QUEUED) + resource
+            W->>DB: UPDATE irp_edm (→importing)
+        and each RDM
+            W->>DB: claim rwb_job (upload_rdm) + heartbeat
+            W->>RM: submit_rdm_import (rdm name as exposure_set_name, HEAVY)
+            RM-->>W: irp_id + resourceUri
+            W->>DB: INSERT irp_job (import_rdm, QUEUED, irp_edm_id NULL) + resource
             W->>DB: UPDATE irp_rdm (→importing)
         end
         W->>DB: UPDATE rwb_job (→succeeded)
     end
 
     rect rgb(245,238,255)
-        Note over P,RM: POLLER — combined rollup per RDM across ALL its applies
+        Note over P,RM: POLLER — each finish enqueues only its OWN backfill
         loop each pass
-            P->>RM: get_import_job(import_rdm.irp_id)
+            P->>RM: get_import_job(irp_id)
             RM-->>P: FINISHED
-            P->>DB: UPDATE irp_job (import_rdm → FINISHED)
-            P->>DB: SELECT COUNT applies for this RDM still non-terminal
-            alt none remain AND none failed
-                P->>DB: UPDATE irp_rdm (→ready)
-            else more applies in flight (other EDMs not done)
-                Note over P: RDM stays importing
+            Note over P,DB: ONE transaction — terminal + backfill head are atomic
+            alt import_edm
+                P->>DB: UPDATE irp_edm (importing→ready, irp_id)
+                P->>DB: INSERT rwb_job (backfill_edm_detail, requestor_id = this irp_job.id)
+                P-->>W: dispatch(backfill_edm_detail)
+            else import_rdm
+                P->>DB: INSERT rwb_job (backfill_rdm_analyses, requestor_id = this irp_job.id)
+                P-->>W: dispatch(backfill_rdm_analyses)
+                Note over P: the RDM stays importing — the WORKER promotes it<br/>alongside the analysis capture
             end
         end
     end
 ```
 
-**Fan-out summary:** 1 Save & Sync click → **N** `upload_edm` `rwb_job`s → (poller, one per
-EDM finish) **N** `upload_rdm` heads → (worker) **N × M** `import_rdm` applies → (poller)
-**M** RDM rollups, each promoted only once its applies across *all* N EDMs are `FINISHED`.
-The N EDMs proceed **independently** — there is no barrier waiting for all EDMs before the
-first RDM applies start; each EDM's completion drives its own head.
+**Fan-out summary:** 1 Save & Sync click → **N + M** heads → **N** `import_edm` + **M**
+`import_rdm` jobs, all in flight at once → (poller) **N** `backfill_edm_detail` + **M**
+`backfill_rdm_analyses` heads. Nothing waits on anything: the EDM's DataBridge import and
+the RDM's standalone import are unrelated operations in Risk Modeler.
 
 ---
 
@@ -193,24 +179,20 @@ first RDM applies start; each EDM's completion drives its own head.
 - **Save vs. Save & Sync is the deliberate submit boundary.** Save is pure structure —
   the package can sit half-built indefinitely with every member `pending_import` and *zero*
   jobs. Nothing reaches Risk Modeler until Sync.
-- **The chain link is one atomic poller transaction** (diagram steps 6–8): "mark the
-  `import_edm` FINISHED", "flip the EDM to `ready`", and "enqueue the `upload_rdm` head" all
-  commit together. A crash leaves either the whole step done or none of it — on retry
-  `update_tracking` is an in-place no-op and `enqueue_rwb_job` dedups.
-- **The head is keyed on the finished `import_edm` `irp_job.id`, not the package.** That is
-  what makes N EDMs each spawn exactly one fan-out head, and makes re-processing idempotent
-  (the unique key `(requestor_type, requestor_id, rwb_job_type)` collapses a duplicate).
+- **Each terminal step is one atomic poller transaction**: "mark the `irp_job` FINISHED",
+  "flip the entity", and "enqueue the backfill head" all commit together. A crash leaves
+  either the whole step done or none of it — on retry `update_tracking` is an in-place
+  no-op and `enqueue_rwb_job` dedups.
+- **A backfill head is keyed on the finished `irp_job.id`, not the package.** That is what
+  makes N EDMs each spawn exactly one head, and makes re-processing idempotent (the unique
+  key `(requestor_type, requestor_id, rwb_job_type)` collapses a duplicate).
 - **`enqueue` (poller, mechanical) never revives a terminal row; `ensure_pending` (request
   path, human) does.** Re-clicking Sync resets a *failed* member's head to `pending` and
   skips ready/in-flight ones — a mechanical re-poll can never do that.
-- **Two RDM-attach shapes exist.** The normal path applies RDMs when their EDM finishes
-  (poller). The `save_and_sync` request path also has a direct branch: if an EDM is
-  *already* `ready` (e.g. RDMs added after the fact), it enqueues the `upload_rdm` apply
-  immediately rather than waiting for a finish that already happened.
-- **An RDM-only package cannot be synced.** `save_and_sync` raises `EmptyPackageError` when
-  the package has no EDM — every apply must target one (D3; review-only sync is deferred).
-  The package can still be *saved* that way and sits with every member `pending_import`
-  until an EDM is added. This is also what covers the empty-package case.
+- **A package of any shape syncs.** EDM-only, RDM-only, or both: every member is submitted
+  the same way, and `save_and_sync` raises `EmptyPackageError` only when no live member
+  remains at all. Attaching an already-`ready` RDM therefore submits nothing — it is
+  already in Risk Modeler, and there is no per-EDM apply left to perform.
 - **The `_LOCKED` set is what makes re-clicking Sync safe.** Only members whose status is
   outside `(importing, ready)` are name-checked and enqueued, so a partially-synced package
   advances the stragglers and leaves the rest alone.

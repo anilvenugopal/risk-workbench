@@ -172,15 +172,15 @@ erDiagram
 **Package:**
 - **A package is a bundle, not a pair.** It holds **any combination** of EDMs and RDMs — several of each, EDM-only, or RDM-only (design note 03 §6.1, correcting the earlier one-EDM-one-RDM assumption). Membership lives on the child rows: `irp_edm.package_id` and `irp_rdm.package_id` (both nullable FKs → `package`). There is **no** `edm_id`/`rdm_id` on `package`.
 - **The ≥1-member rule is an app-enforced invariant, not a column CHECK.** A package must have at least one EDM or RDM pointing at it; the creation flow requires selecting ≥1 file, and a package left with no members is treated as empty (soft-deleted / ignored). A single two-column CHECK can no longer express this once membership spans two child tables.
-- **EDM vs RDM are asymmetric (design note 03 / July 9).** An EDM is a **DataBridge SQL database** (persistent, storage-limited, never duplicated). An RDM is a broker results *file* we track — importing it is **not** a DataBridge asset; it creates analyses — on an EDM when one is supplied, or with **no EDM** for a review-only RDM-only import (the analyses exist, they just have no exposure). An RDM in a bundle is applied to **every** EDM in that bundle (full grid, derived from membership); the EDM↔RDM associations live in the apply jobs (§8) and the resulting `irp_analysis` rows (§6), never as a stored pair table.
+- **EDM vs RDM are asymmetric (design note 03 / July 9).** An EDM is a **DataBridge SQL database** (persistent, storage-limited, never duplicated). An RDM is a broker results *file* we track — importing it is **not** a DataBridge asset; it creates analyses against an exposure set named for the RDM itself, never inside an EDM. **The EDM↔RDM association is package membership and nothing else**: it exists only in the workbench, is never sent to Risk Modeler, and is not stored as a pair table.
 - **Many-to-many with submission via `submission_package`** (composite PK `(submission_id, package_id)`). EDM/RDM entities reach `submission` transitively through `package` → `submission_package`. Reuse across deals is reuse of the *package* (the bundle attaches to multiple submissions), not the same EDM placed in two packages.
 - **No status column.** Each EDM and RDM carries its own `status`; the UI displays the members' status chips rather than caching an aggregate.
 - **Soft delete** via `deleted_at`, consistent with `submission`.
 
 **Package actions** (enqueue `rwb_job` rows, §8):
 - **Save** — persist the package and any edited EDM/RDM names (runs the **blocking** name-collision check — a hit rejects the save, issue #17). No job.
-- **Save and Sync** — one `upload_edm` job per EDM plus one `upload_rdm` (apply) job **per (EDM × RDM) pair** in the bundle (full grid). Ordering is **per-pair, not global**: each `upload_rdm(R→E)` waits only for `E`'s `upload_edm` to succeed, so applications fan out in parallel as each EDM lands. The old "EDM is always *the* single head job / all EDMs before all RDMs" rule is gone. A review-only RDM (no EDM in the bundle) submits a single `upload_rdm` with no EDM.
-- **Delete** — the two sides are now independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker); deleting an **RDM** removes only the broker analyses it created across EDMs. When the last member-delete job succeeds, the `package` row is stamped `deleted_at`.
+- **Save and Sync** — one `upload_edm` job per EDM plus one `upload_rdm` job per RDM, enqueued **in the same pass**. There is no ordering between them: an RDM is imported standalone (against an exposure set of its own name), so it never waits on an EDM import, and a bundle of any shape — EDM-only, RDM-only, or both — syncs.
+- **Delete** — the two sides are independent (no shared DataBridge asset): deleting an **EDM** drops its DataBridge database and cascades to the analyses on it (own + broker); deleting an **RDM** removes only the broker analyses it created. When the last member-delete job succeeds, the `package` row is stamped `deleted_at`.
 
 ---
 
@@ -219,7 +219,7 @@ erDiagram
     int irp_id "nullable; backfilled by poller on import FINISHED"
     string created_by_irp_job_irp_id "nullable"
     datetime as_of "nullable"
-    string status "plain string; combined rollup of this RDM's apply jobs"
+    string status "plain string; mirrors this RDM's import job"
     datetime deleted_at "nullable"
     datetime inserted_at
     datetime updated_at
@@ -253,7 +253,7 @@ erDiagram
 ```
 
 - **`source_file_path`** is the whole file-handling model (no `file_artifact`, no versioning). It may point to a `.bak`, `.mdf`, or `.csv`; CSV-sourced results are handled the same way (the IRP integration differs under the hood).
-- **`irp_rdm` has no `edm_id`.** An RDM is applied to *every* EDM in its package (full grid), so it has no single owning EDM; the EDM associations live in the apply jobs (§8) and the resulting `irp_analysis` rows (§6). A review-only RDM (imported with no EDM) still creates analyses — they simply have no `edm_id` (§6). `irp_rdm.status` is a **combined rollup** of its apply jobs.
+- **`irp_rdm` has no `edm_id`.** An RDM is imported into Risk Modeler standalone — against an exposure set of its own name, never into an EDM — because broker results cannot be tied to an EDM's portfolios trustworthily (8/4 D8). Which EDMs an RDM belongs with is an app-side fact only, carried by **package membership** (`irp_edm.package_id` = `irp_rdm.package_id`); nothing about it is sent to Risk Modeler. `irp_rdm.status` mirrors its single `import_rdm` job.
 - **`status`** on EDM/RDM is a plain string (mirrors IRP's own EDM/RDM lifecycle vocabulary, which can drift): `pending_import` / `importing` / `ready` / `error` / `delete_pending` / `deleted`.
 - **`created_by_irp_job_irp_id`** links EDM/RDM back to the async import job that created the entity. `irp_portfolio` and `irp_treaty` have none — their creation is synchronous.
 - **Name-collision check.** Setting or renaming an EDM/RDM name runs `client.edm.search_edms()` / `search_rdms()` — **blocking** since 2026-07-27 (issue #17, spec 003 FR-012 as amended): a hit rejects the save/sync (irp-integration ≥ 0.2.1 would fail the submit anyway). When Risk Modeler is unreachable the check fails open with a visible warning and the worker-side submit validation is the backstop.
@@ -263,19 +263,19 @@ erDiagram
 
 ## 6. Analysis (`irp_analysis`)
 
-An analysis belonging to an EDM — or, for an RDM-only import, to an RDM with no EDM (`edm_id` null). When `is_group = true`, the row *is* a group (a group is an analysis in Risk Modeler, viewed/exported identically). Creation is async, so the table carries creation lineage.
+An analysis belonging to an EDM (analyst-run) or to an RDM (broker-supplied, `edm_id` null — the RDM was imported standalone). When `is_group = true`, the row *is* a group (a group is an analysis in Risk Modeler, viewed/exported identically). Creation is async, so the table carries creation lineage.
 
 ```mermaid
 erDiagram
-  irp_edm |o--o{ irp_analysis : "produces (edm_id nullable — RDM-only has none)"
+  irp_edm |o--o{ irp_analysis : "produces (edm_id nullable — broker analyses have none)"
   irp_rdm |o--o{ irp_analysis : "source of broker analyses (nullable)"
   irp_analysis ||--o{ irp_analysis : "group members (self-ref)"
   irp_analysis_status_kind ||--o{ irp_analysis : states
 
   irp_analysis {
     uniqueidentifier id PK
-    uniqueidentifier edm_id FK "nullable; null for RDM-only analyses (no exposure). CHECK: edm_id or rdm_id set"
-    uniqueidentifier rdm_id FK "nullable; set → broker, null → own; required when edm_id is null (RDM-only)"
+    uniqueidentifier edm_id FK "nullable; always null for broker analyses. CHECK: edm_id or rdm_id set"
+    uniqueidentifier rdm_id FK "nullable; set → broker, null → own; required when edm_id is null"
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
     string name "IRP analysis name"
     int irp_id "nullable; resolves only after FINISHED"
@@ -297,9 +297,9 @@ erDiagram
   }
 ```
 
-- **`edm_id` and `rdm_id` are both nullable, with a CHECK that ≥1 is set.** Three cases: **own** (edm_id set, rdm_id null — analyst-run on an EDM); **broker applied to an EDM** (both set); **broker RDM-only** (edm_id null, rdm_id set — the RDM was imported with no EDM, so its analyses have no exposure). Retrieval works for all three: analyses can be **searched independently and filtered by `sourceRdmName`** (the RDM name supplied at import) together with `exposureName`, via `search_analyses` — so RDM-only analyses with no EDM are enumerable, which is what lets `edm_id` be nullable (reversing the earlier "edm_id NOT NULL because IRP lists only by exposureName" assumption, which was incorrect). *(Confirmed vs `irp-integration` 0.2.0, 2026-07-14: the filter field is `sourceRdmName`, not `rdmName`; spec 003 captures these into a local `irp_analysis` row at import for delete-enumeration.)*
+- **`edm_id` and `rdm_id` are both nullable, with a CHECK that ≥1 is set.** Two cases: **own** (edm_id set, rdm_id null — analyst-run on an EDM); **broker** (edm_id null, rdm_id set — the RDM was imported standalone, so its analyses name no exposure). Broker analyses are enumerated by **`sourceRdmName` alone** via `search_analyses` — the RDM name supplied at import identifies them, and since one RDM means one import there is no exposure to narrow by. *(Confirmed vs `irp-integration` 0.2.0, 2026-07-14: the filter field is `sourceRdmName`, not `rdmName`; spec 003 captures these into a local `irp_analysis` row at import for delete-enumeration.)*
 - **Own vs. broker is derived from `rdm_id`** (`null` → own, set → broker), computed in the view layer — no stored `origin` column.
-- **A broker RDM applied across M EDMs yields M `irp_analysis` rows** — one per Moody's analysis object (distinct `edm_id`, own `irp_id`, independently editable name), all sharing one `rdm_id`. The full-grid apply (every RDM × every EDM in the package) is derived from `package_id` membership, not stored as pairs. Display groups these by `rdm_id` ("1 broker analysis across 4 EDMs"); the result **data** is deduped by `rdm_id` (§9), so the M rows are handles — not M copies of the broker's static numbers. Never key on name (Moody's allows duplicates and lets them be edited); key on `irp_id`. (An **RDM-only** import has no EDMs, so its analyses are the RDM's own — `edm_id` null, `rdm_id` set.)
+- **One `irp_analysis` row per broker analysis** — one per Moody's analysis object, keyed `UNIQUE(rdm_id, edm_id, irp_id)` with `edm_id` null. Display groups them by `rdm_id`. Never key on name (Moody's allows duplicates and lets them be edited); key on `irp_id`. An EDM page reaches broker analyses through **package membership** (the RDMs sharing the EDM's package), never through `edm_id`.
 - **`status_code` is a kind table** (app-defined vocabulary), unlike the plain-string EDM/RDM `status`.
 
 ---
@@ -467,7 +467,7 @@ erDiagram
 ```
 
 **`irp_job`:**
-- **Grain is the package** (nullable `package_id`), not the submission. Entity-lineage FKs are populated per job type: EDM import → `irp_edm_id`; **RDM import/apply → `irp_rdm_id` + `irp_edm_id`, one job per EDM the RDM is applied to** (full grid = every RDM × every EDM in the package; a review-only RDM import omits `irp_edm_id`); portfolio/GeoHaz → `irp_portfolio_id` (+ `irp_edm_id`).
+- **Grain is the package** (nullable `package_id`), not the submission. Entity-lineage FKs are populated per job type: EDM import → `irp_edm_id`; **RDM import → `irp_rdm_id` only, one job per RDM** (`irp_edm_id` is always null — the import names no EDM); portfolio/GeoHaz → `irp_portfolio_id` (+ `irp_edm_id`).
 - **`irp_job_type` is a kind table** (closed, app-defined) but **`status` is a plain string** — RM can add status values at any time, and an unknown value must not crash the poller.
 - **`status` vocabulary:** RM non-terminal `PENDING`/`QUEUED`/`RUNNING`/`CANCEL_REQUESTED`/`CANCELLING`; RM terminal `FINISHED` (only success)/`FAILED`/`CANCELLED`; app-local non-terminal `UNSUBMITTED`/`SUBMITTING`/`BLOCKED`; app-local terminal `SUBMISSION FAILED` (never reached RM — no `irp_id`). `SUBMISSION FAILED` vs `FAILED` distinguishes submit-side failure from RM-ran-it-and-failed.
 - **`irp_job_resource`** carries the typed `(resource_type, resource_uri)` submit payload; the URI must be captured at submit time (RM's completion response omits it).
@@ -478,8 +478,8 @@ erDiagram
 
 | `rwb_job_type` | Worker responsibility | Chains to |
 |---|---|---|
-| `upload_edm` | Package sync — submit `import_edm` for one EDM | `upload_rdm` *(poller-mediated on `import_edm` FINISHED)* |
-| `upload_rdm` | Package sync — submit `import_rdm` (apply) per RDM onto the just-finished EDM | `retrieve_analysis_results` *(Iteration 6; poller-mediated on `import_rdm` FINISHED)* |
+| `upload_edm` | Package sync — submit `import_edm` for one EDM | `backfill_edm_detail` *(poller-mediated on `import_edm` FINISHED)* |
+| `upload_rdm` | Package sync — submit the standalone `import_rdm` for one RDM | `backfill_rdm_analyses` *(poller-mediated on `import_rdm` FINISHED)*; `retrieve_analysis_results` *(Iteration 6)* |
 | `retrieve_analysis_results` | `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` | `download_export_file` |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |
@@ -495,11 +495,11 @@ erDiagram
 
 **Package sync/delete chaining (A21, resolved 2026-07-13).** The one flow where an IRP-job completion must trigger the next Risk Modeler operation — and back — is resolved as **lineage chaining with all member ops run as `rwb_job`s and every Risk Modeler call performed by a worker** (not the request path):
 
-1. **Request path (Save-and-Sync / Delete):** insert the initial head `rwb_job` rows with `requestor_type='analyst_request'`, `requestor_id=package.id` — one `upload_edm` per EDM for sync (a review-only RDM with no EDM inserts one `upload_rdm` directly); one `delete_rdm` per RDM for delete (or `delete_edm` per EDM when the package has no RDMs). Return immediately; **no Risk Modeler call on the request path** (Article 11 permits, but does not require, request-path submit — batch/dependent member operations are deferred to workers).
-2. **Worker performs its Risk Modeler call, then succeeds:** each package worker makes the matching Risk Modeler call — `upload_edm`→`submit_edm_import_job`, `upload_rdm`→`submit_rdm_import_job` (per RDM applied to that EDM), `delete_edm`→`submit_delete_edm_job` — writes the resulting `irp_job`, and marks its `rwb_job` succeeded; its unit of work is the *submit*, not the remote completion. **`delete_rdm` is different: it performs a *synchronous* delete of the RDM's analysis entities inline, writes no `irp_job`, and succeeds only once that delete has completed.**
-3. **Poller bridges the boundary (async ops only):** when the poller observes an `irp_job` reach `FINISHED`, it writes the dependent head `rwb_job` (`requestor_type='irp_job'`, `requestor_id=` the finished `irp_job.id`) via idempotent insert on the composite key — `import_edm` FINISHED → one `upload_rdm` (fans out to an apply per RDM in the package); `delete_edm` FINISHED → package finalize. (There is no `delete_rdm` `irp_job`; the RDM→EDM step is handled app-side in step 4.)
-4. **Fan-in is idempotent, never counted:** the `delete_edm` head rows are enqueued only once **all** the package's `delete_rdm` workers have succeeded — each `delete_rdm` worker, on success, runs the app-side check `NOT EXISTS (SELECT 1 FROM irp_rdm WHERE package_id=:p AND status <> 'deleted')` and, if satisfied, enqueues the `delete_edm` rows (idempotent insert on the composite key). Each `delete_edm` worker then submits its Risk Modeler job under an atomic guard (`UPDATE irp_edm SET status='delete_pending' WHERE id=:e AND status NOT IN ('delete_pending','deleted')`; rowcount 0 → already handled). The `package.deleted_at` stamp is an idempotent `UPDATE … WHERE deleted_at IS NULL AND NOT EXISTS (live members)`. A re-poll, worker redelivery, or reconciler re-enqueue cannot double-submit or advance a fan-in early. Sync-side rollup is the same shape: `irp_rdm.status='ready'` once all its `import_rdm` applies are FINISHED.
-5. **Recovery:** Save-and-Sync is **idempotent** — it re-inserts head rows only for members not already `ready`/in-flight (re-submitting `error`/unstarted ones). A **per-member retry** re-inserts a single member's head row. **Replacing a failed member's `source_file_path`** and retrying re-imports against the new file (the expected fix for a bad broker `.bak`). Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried by the single-threaded `submission_retry` batch. **EDM delete is asynchronous** (`edm.submit_delete_edm_job(exposure_id)` → pollable id) and followed by the poller via `risk_data_job.get_risk_data_job` (confirmed vs `irp-integration` 0.2.0, 2026-07-14). **RDM delete is synchronous** — the `delete_rdm` worker loops `analysis.delete_analysis(id)` over the RDM's analyses (enumerated from local `irp_analysis` rows captured at import via `search_analyses('sourceRdmName="…" AND exposureName="…"')`, spec 003 D2), with no `irp_job` and no polling.
+1. **Request path (Save-and-Sync / Delete):** insert the initial head `rwb_job` rows with `requestor_type='analyst_request'` — one `upload_edm` per EDM **and** one `upload_rdm` per RDM for sync, in the same pass and in no particular order; one `delete_rdm` per RDM for delete (or `delete_edm` per EDM when the package has no RDMs). Return immediately; **no Risk Modeler call on the request path** (Article 11 permits, but does not require, request-path submit — batch/dependent member operations are deferred to workers).
+2. **Worker performs its Risk Modeler call, then succeeds:** each package worker makes the matching Risk Modeler call — `upload_edm`→`submit_edm_import_job`, `upload_rdm`→`submit_rdm_import_job` (standalone, against an exposure set named for the RDM), `delete_edm`→`submit_delete_edm_job` — writes the resulting `irp_job`, and marks its `rwb_job` succeeded; its unit of work is the *submit*, not the remote completion. **`delete_rdm` is different: it performs a *synchronous* delete of the RDM's analysis entities inline, writes no `irp_job`, and succeeds only once that delete has completed.**
+3. **Poller bridges the boundary (async ops only):** when the poller observes an `irp_job` reach `FINISHED`, it writes the dependent head `rwb_job` (`requestor_type='irp_job'`, `requestor_id=` the finished `irp_job.id`) via idempotent insert on the composite key — `import_edm` FINISHED → `backfill_edm_detail`; `import_rdm` FINISHED → `backfill_rdm_analyses`; `delete_edm` FINISHED → package finalize. **No sync step waits on another:** the EDM and RDM imports are independent. (There is no `delete_rdm` `irp_job`; the RDM→EDM delete step is handled app-side in step 4.)
+4. **Fan-in is idempotent, never counted:** the `delete_edm` head rows are enqueued only once **all** the package's `delete_rdm` workers have succeeded — each `delete_rdm` worker, on success, runs the app-side check `NOT EXISTS (SELECT 1 FROM irp_rdm WHERE package_id=:p AND status <> 'deleted')` and, if satisfied, enqueues the `delete_edm` rows (idempotent insert on the composite key). Each `delete_edm` worker then submits its Risk Modeler job under an atomic guard (`UPDATE irp_edm SET status='delete_pending' WHERE id=:e AND status NOT IN ('delete_pending','deleted')`; rowcount 0 → already handled). The `package.deleted_at` stamp is an idempotent `UPDATE … WHERE deleted_at IS NULL AND NOT EXISTS (live members)`. A re-poll, worker redelivery, or reconciler re-enqueue cannot double-submit or advance a fan-in early. Sync-side rollup is the same shape: `irp_rdm.status='ready'` once its `import_rdm` is FINISHED.
+5. **Recovery:** Save-and-Sync is **idempotent** — it re-inserts head rows only for members not already `ready`/in-flight (re-submitting `error`/unstarted ones). A **per-member retry** re-inserts a single member's head row. **Replacing a failed member's `source_file_path`** and retrying re-imports against the new file (the expected fix for a bad broker `.bak`). Submit-side failures (`SUBMISSION FAILED`, no `irp_id`) are retried by the single-threaded `submission_retry` batch. **EDM delete is asynchronous** (`edm.submit_delete_edm_job(exposure_id)` → pollable id) and followed by the poller via `risk_data_job.get_risk_data_job` (confirmed vs `irp-integration` 0.2.0, 2026-07-14). **RDM delete is synchronous** — the `delete_rdm` worker loops `analysis.delete_analysis(id)` over the RDM's analyses (enumerated from local `irp_analysis` rows captured at import via `search_analyses('sourceRdmName="…"')`, spec 003 D2), with no `irp_job` and no polling. The exposure set the standalone import created is left in Risk Modeler.
 
 ---
 
@@ -698,10 +698,10 @@ erDiagram
 | `submission_package` | Deal ↔ package M:N join (composite PK). |
 | `package` | Bundle of EDMs/RDMs (any combination). Members carry `package_id`; no `edm_id`/`rdm_id` on the package. ≥1-member rule app-enforced. No status column. |
 | `irp_edm` | An EDM in IRP (DataBridge SQL DB). `package_id` (bundle), `source_file_path`; status plain string. |
-| `irp_rdm` | Broker results file (one row per file; not a DataBridge asset). `package_id` (bundle); no `edm_id`; status = combined rollup of apply jobs. |
+| `irp_rdm` | Broker results file (one row per file; not a DataBridge asset). `package_id` (bundle); no `edm_id`; status mirrors its one standalone import job. |
 | `irp_portfolio` | Portfolio within an EDM; `irp_id` written synchronously. |
 | `irp_treaty` | Treaty in IRP, belonging to one EDM; referenced by name. |
-| `irp_analysis` | Analysis/group. `edm_id`/`rdm_id` both nullable, CHECK ≥1 (RDM-only → edm_id null); broker/own via `rdm_id`. |
+| `irp_analysis` | Analysis/group. `edm_id`/`rdm_id` both nullable, CHECK ≥1 (broker → edm_id null); broker/own via `rdm_id`. |
 | `irp_analysis_status_kind` | `pending` / `running` / `ready` / `error`. |
 | `analysis_template` | Saved analysis-job config (global). |
 | `analysis_template_tag` | Tags on a template (junction). |
@@ -751,7 +751,7 @@ erDiagram
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - Whether `analysis_result_meta` should carry an `irp_portfolio` FK (which portfolio the result was run against).
 - ~~Package job sequencing under the bundle model … how a poller-observed IRP-job completion triggers the chained `rwb_job` across the IRP-job/RWB-job boundary (A21).~~ **Resolved 2026-07-13** (spec 003): lineage chaining, member ops run as `rwb_job`s with workers performing every Risk Modeler call, poller-mediated cross-boundary chaining for the asynchronous ops (imports and EDM delete), **synchronous RDM delete** with app-side fan-in, idempotent fan-in, and idempotent-resync + per-member-retry + source-file-replacement recovery. See §8 → **Package sync/delete chaining**.
-- **`irp_analysis.edm_id` is nullable** (corrected 2026-07-10): an RDM-only import (no EDM) **does** create analyses — `rdm_id` set, `edm_id` null. Both columns nullable, CHECK ≥1 set. Retrieval is supported: `search_analyses` filters **by `sourceRdmName`** (the RDM name supplied at import) plus `exposureName` (confirmed vs `irp-integration` 0.2.0, 2026-07-14 — the field is `sourceRdmName`, **not** `rdmName`), so no-EDM analyses are enumerable and the `rdm_id`-keyed result dedup (§9) can pull them by RDM. *(Note: RDM-only **import** is deferred by spec 003 pending a library change; the nullable-`edm_id` model stays for when it lands.)*
+- ~~**`irp_analysis.edm_id` is nullable** (corrected 2026-07-10) … RDM-only **import** is deferred by spec 003 pending a library change.~~ **Resolved 2026-08-11** (issue #22 follow-up): the library change landed in `irp-integration` 0.4.0 (`submit_rdm_import_job(exposure_set_name=…)`), and every RDM now imports standalone, so `edm_id` is **always** null on a broker analysis. `search_analyses` filters by `sourceRdmName` alone. See §5, §6, §8.
 - Auth-audit trail — `audit_log` is deferred, so state-changing actions currently have no backing log; decide whether auth logging needs a narrow carve-out.
 
 **Reopened by the July 9 CIC session (design note 03; §4 is provisional until these close at the wireframe review):**

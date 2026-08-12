@@ -19,13 +19,13 @@ opens (Article 11); everything then commits atomically.
 
 ## One job shape, two enqueue keys
 
-The `edm_id` in the job input is the load-bearing switch between the automatic and manual
-paths:
+Both paths do the same work — capture one RDM's analyses — and differ only in what they key
+on and whether they carry the import's `irp_id`:
 
-| Enqueued by | Key | Input | Pairs the worker processes |
-|---|---|---|---|
-| poller, on `import_rdm` FINISHED | `('irp_job', <apply's irp_job.id>)` | `rdm_id`, **`edm_id`**, `package_id`, `apply_irp_id` | exactly the one `(RDM, EDM)` pair that just finished |
-| `rdm_service.sync_detail` (manual) | `('analyst_request', rdm_id)` | `rdm_id`, `package_id` — no `edm_id` | **every** applied pair, derived from `SELECT DISTINCT irp_edm_id FROM irp_job WHERE irp_rdm_id = :r AND irp_job_type = 'import_rdm'` |
+| Enqueued by | Key | Input |
+|---|---|---|
+| poller, on `import_rdm` FINISHED | `('irp_job', <the import's irp_job.id>)` | `rdm_id`, `package_id`, `apply_irp_id` |
+| `rdm_service.sync_detail` (manual) | `('analyst_request', rdm_id)` | `rdm_id`, `package_id` |
 
 Because the two keys differ, the unique constraint
 `(requestor_type, requestor_id, rwb_job_type)` admits both at once — a manual Sync can run
@@ -41,8 +41,8 @@ All in **`rwb_workbench`**.
 | 1 | `rwb_job` | INSERT — `backfill_rdm_analyses`, `pending` (see the two keys above) | `enqueue_rwb_job` / `ensure_pending_rwb_job` | 🟪 poller / 🟦 request |
 | 2 | `rwb_job` | UPDATE — `pending → running` (atomic claim) | `claim_rwb_job` | 🟩 worker |
 | 3 | `rwb_job_heartbeat` | UPSERT | `upsert_heartbeat` | 🟩 worker |
-| 4 | `irp_analysis` | **per pair** — prune: resurrect `deleted_at=NULL` for ids RM returned again, then stamp `deleted_at` on live rows it no longer returns | `_prune_pair_analyses` | 🟩 worker |
-| 5 | `irp_analysis` | **per hit** — `INSERT … WHERE NOT EXISTS`: `rdm_id`, `edm_id`, `package_id`, `irp_id`, `name`, `source_rdm_name`, `status_code='ready'`, `created_by_irp_job_irp_id`, `is_group=0` — inside a `begin_nested()` SAVEPOINT | `_INSERT_ANALYSIS_IF_ABSENT` | 🟩 worker |
+| 4 | `irp_analysis` | prune: resurrect `deleted_at=NULL` for ids RM returned again, then stamp `deleted_at` on live rows it no longer returns | `_prune_rdm_analyses` | 🟩 worker |
+| 5 | `irp_analysis` | **per hit** — `INSERT … WHERE NOT EXISTS`: `rdm_id`, `edm_id` (NULL), `package_id`, `irp_id`, `name`, `source_rdm_name`, `status_code='ready'`, `created_by_irp_job_irp_id`, `is_group=0` — inside a `begin_nested()` SAVEPOINT | `_INSERT_ANALYSIS_IF_ABSENT` | 🟩 worker |
 | 6 | `irp_analysis` | **per hit** — UPDATE `settings_metadata`, `is_group`, `exposure_resource_id` (metadata read succeeded) — **or** `exposure_resource_id` only (metadata failed but the search hit carried a PORTFOLIO pointer) — **or nothing at all** | `_UPDATE_ANALYSIS_DETAIL` / `_UPDATE_ANALYSIS_POINTER` | 🟩 worker |
 | 7 | `irp_rdm` | UPDATE — **the `ready` rollup**, backfilling `irp_id` + `created_by_irp_job_irp_id` only when currently NULL | `rollup_on_terminal` | 🟩 worker |
 | 8 | `irp_rdm` | UPDATE — `as_of` | `_backfill_rdm_analyses_body` | 🟩 worker |
@@ -63,13 +63,13 @@ sequenceDiagram
     participant RM as Risk Modeler
 
     rect rgb(245,238,255)
-        Note over P,DB: POLLER — mirrors the apply, then hands the status flip OVER
+        Note over P,DB: POLLER — mirrors the import, then hands the status flip OVER
         P->>RM: get_import_job(import_rdm.irp_id) — ONE status check
         RM-->>P: status
-        Note over P,DB: one transaction per apply
+        Note over P,DB: one transaction per import
         P->>DB: UPDATE irp_job (status mirror, last_tracked_at)
         alt FINISHED
-            P->>DB: INSERT rwb_job (backfill_rdm_analyses — rdm_id, edm_id, apply_irp_id)
+            P->>DB: INSERT rwb_job (backfill_rdm_analyses — rdm_id, apply_irp_id)
             P-->>W: dispatch
             Note over P: irp_rdm deliberately left `importing` — the worker promotes it
         else FAILED / CANCELLED
@@ -80,16 +80,9 @@ sequenceDiagram
     rect rgb(238,255,244)
         Note over W,RM: WORKER, PHASE 1 — every RM read, BEFORE any transaction
         W->>DB: UPDATE rwb_job (pending→running) + UPSERT heartbeat
-        alt input carries edm_id (poller path)
-            Note over W: one pair
-        else no edm_id (manual sync)
-            W->>DB: SELECT DISTINCT irp_edm_id FROM irp_job — every applied pair
-        end
-        loop each (RDM, EDM) pair
-            W->>RM: search_analyses(source_rdm_name, exposure_name)
-            RM-->>W: hits — incl. exposureResourceId / exposureResourceType
-        end
-        loop each DISTINCT analysis id (deduped across pairs)
+        W->>RM: search_analyses(source_rdm_name) — the RDM name alone, no exposure
+        RM-->>W: hits — incl. exposureResourceId / exposureResourceType
+        loop each DISTINCT analysis id
             W->>RM: get_analysis_metadata(analysis_id)
             alt read ok
                 RM-->>W: settings/metadata + isGroup
@@ -101,9 +94,7 @@ sequenceDiagram
 
     rect rgb(238,255,244)
         Note over W,DB: WORKER, PHASE 2 — ONE transaction for everything below
-        loop each pair
-            W->>DB: UPDATE irp_analysis (prune — resurrect returned, soft-delete missing)
-        end
+        W->>DB: UPDATE irp_analysis (prune — resurrect returned, soft-delete missing)
         loop each hit
             W->>DB: INSERT irp_analysis IF NOT EXISTS (SAVEPOINT absorbs the unique race)
             alt metadata read succeeded
@@ -114,14 +105,7 @@ sequenceDiagram
                 Note over W,DB: NO write — the prior good snapshot survives
             end
         end
-        W->>DB: SELECT COUNT applies for this RDM — non-terminal? failed?
-        alt none non-terminal AND none failed
-            W->>DB: UPDATE irp_rdm (→ready, backfill irp_id if NULL)
-        else any failed
-            W->>DB: UPDATE irp_rdm (→error)
-        else some still in flight (other EDMs not done)
-            Note over W,DB: NO status write — the RDM stays importing
-        end
+        W->>DB: UPDATE irp_rdm (→ready, backfill irp_id if NULL) — rollup_on_terminal
         W->>DB: UPDATE irp_rdm (as_of)
         W->>DB: UPDATE rwb_job (→succeeded — captured, pruned, metadata_failures)
     end
@@ -136,28 +120,29 @@ Each analysis gets an `exposure_resource_id` pointer, and the rule is strict:
 3. keep the id **only if the type is `PORTFOLIO`** — a `GROUP`- or `ACCOUNT`-typed pointer is
    stored as **NULL**.
 
-No portfolio lookup happens in this worker. Linkage is resolved at **read time** by a LEFT
-JOIN on `(pf.edm_id = a.edm_id AND pf.irp_id = a.exposure_resource_id AND pf.deleted_at IS
-NULL)`. That is what makes the whole thing import-order safe and self-healing: an analysis
-captured before its portfolio snapshot exists simply reads as unlinked, and starts resolving
-the moment [`backfill_edm_detail`](backfill_edm_detail.md) lands the portfolio — with no
-re-run of this job.
+No portfolio lookup happens in this worker, and **nothing reads the pointer** (8/4 D8): no
+analysis is attributed to a portfolio, because there is no trustworthy way to tie a broker
+RDM's analysis to an EDM's portfolio. The column is captured because it is defensible for
+analyses CIC runs itself, which is a later iteration.
 
 `is_group` comes from the metadata's first-class `isGroup` boolean, falling back to
 `'GROUP'`-literal markers.
 
 ## The rollup, precisely
 
-`rollup_on_terminal` is a pure re-derivation over *all* of that RDM's `import_rdm` applies:
+`rollup_on_terminal` writes from the status of the one `import_rdm` the caller is handling:
 
-| State of the apply set | Write |
+| Status of the import | Write |
 |---|---|
-| any apply still non-terminal | **none** — returns without touching `status` |
-| any apply `FAILED` / `CANCELLED` / `SUBMISSION FAILED` | `status = 'error'` |
-| all `FINISHED` | `status = 'ready'`, plus `irp_id` and `created_by_irp_job_irp_id` **only where currently NULL** |
+| `FINISHED` | `status = 'ready'`, plus `irp_id` and `created_by_irp_job_irp_id` **only where currently NULL** |
+| anything else terminal | `status = 'error'` |
 
-Because it re-derives rather than transitions, calling it again is harmless — which is
-exactly what lets manual Sync reuse it.
+It deliberately does not scan the RDM's `import_rdm` history. Counting rows instead left a
+superseded `SUBMISSION FAILED` attempt dragging a successful re-import back to `error`, with
+`irp_id` never backfilled (issue #38).
+
+Because it writes the same result each time for the same import, calling it again is
+harmless — which is exactly what lets manual Sync reuse it.
 
 ---
 
@@ -170,27 +155,24 @@ exactly what lets manual Sync reuse it.
   never interleave. That is what permits the single transaction — and it is the reverse
   trade-off from the EDM detail backfill, which must interleave and therefore uses many small
   transactions.
-- **The SAVEPOINT is not decoration.** Two backfills for the same RDM can race (a poller
-  enqueue and a manual Sync, or two applies finishing together). `INSERT … WHERE NOT EXISTS`
-  narrows the window; `begin_nested()` absorbs the `UNIQUE(rdm_id, edm_id, irp_id)` violation
-  if it loses anyway, without rolling back the whole transaction.
+- **The SAVEPOINT is not decoration.** Two backfills for the same RDM can race — a poller
+  enqueue and a manual Sync. `INSERT … WHERE NOT EXISTS` narrows the window; `begin_nested()`
+  absorbs the `UNIQUE(rdm_id, edm_id, irp_id)` violation if it loses anyway, without rolling
+  back the whole transaction.
 - **A metadata failure never destroys data.** The three-way branch in step 6 exists so that a
   transient `GET /analyses/{id}` failure degrades to "keep what we already had" rather than
   overwriting a good snapshot with nulls. `metadata_failures` is reported in `output_data` so
   the loss is visible.
-- **Pruning is keyed on the pair, and it trusts the search.** Anything the search didn't
-  return for that `(RDM, EDM)` pair is soft-deleted. That has a real consequence for manual
-  Sync: if the RDM was renamed in Risk Modeler, `search_analyses` legitimately returns
-  nothing and **every captured analysis for that pair is soft-deleted**. Nothing is lost
-  permanently (soft delete only), but the page will empty out.
-- **A manual Sync can move the RDM backwards.** The rollup is unconditional, so re-syncing an
-  RDM that has any failed apply flips a `ready` RDM to `error`. Related: `as_of` is stamped
-  in step 8 *regardless* of whether the rollup wrote a status — so freshness can advance
-  while status stays put.
+- **Pruning is keyed on the RDM, and it trusts the search.** Anything the search didn't
+  return for that RDM is soft-deleted. That has a real consequence for manual Sync: if the
+  RDM was renamed in Risk Modeler, `search_analyses` legitimately returns nothing and **every
+  captured analysis for it is soft-deleted**. Nothing is lost permanently (soft delete only),
+  but the page will empty out.
+- **`as_of` advances even when the status does not.** It is stamped in step 8 regardless of
+  what the rollup wrote, so freshness can move while status stays put.
 - **`group_parent_id` is deferred** (004 T005). The column exists; nothing populates it. So a
-  group analysis is identifiable (`is_group`) but its membership is not — which is why
-  grouped analyses are deliberately excluded from the per-portfolio buckets on the
-  [EDM detail page](../entities/view_edm_detail.md).
+  group analysis is identifiable (`is_group`) but its membership is not — the RDM and EDM
+  pages both list a group analysis as one row alongside the others.
 - **No loss numbers.** This flow captures identity, settings and linkage only. Retrieving
   actual results is Iteration 6 — the `retrieve_analysis_results` `rwb_job_type` is seeded
   with no actor.
