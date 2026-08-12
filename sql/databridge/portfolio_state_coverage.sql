@@ -5,10 +5,11 @@
 -- portfolio_states.sql's per-value counts: summing those counts memberships,
 -- and an account with three states adds three.
 --
--- The joins and the code filter mirror portfolio_states.sql exactly, so these
--- counts describe the same account population as the per-value counts the
--- analyst reads. Admin1Code is the grouping value (P-12); Admin1Name is never
--- a grouping key. Read-only SELECT; the target EDM database is selected at the
+-- The joins, the code filter, and the Caribbean branch (D5, rationale in
+-- portfolio_states.sql) mirror portfolio_states.sql exactly, so these counts
+-- describe the same account population as the per-value counts the analyst
+-- reads. Admin1Code is the grouping value (P-12); Admin1Name is never a
+-- grouping key. Read-only SELECT; the target EDM database is selected at the
 -- connection level (no USE here).
 --
 -- CoveredAccounts is the SC-002 coverage figure: portfolio_account_total.sql's
@@ -19,13 +20,15 @@ WITH pairs AS (
     SELECT DISTINCT
         pa.PORTINFOID AS PortfolioId,
         pa.ACCGRPID AS AccountId,
-        a.Admin1Code AS Value
+        CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
+             ELSE a.Admin1Code END AS Value
     FROM dbo.portacct AS pa
     INNER JOIN dbo.Property AS p
         ON p.ACCGRPID = pa.ACCGRPID
     INNER JOIN dbo.Address AS a
         ON a.AddressID = p.ADDRESSID
-    WHERE NULLIF(LTRIM(RTRIM(a.Admin1Code)), '') IS NOT NULL
+    WHERE NULLIF(LTRIM(RTRIM(CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryCode
+                                  ELSE a.Admin1Code END)), '') IS NOT NULL
 ),
 per_account AS (
     SELECT PortfolioId, AccountId, COUNT(*) AS ValueCount

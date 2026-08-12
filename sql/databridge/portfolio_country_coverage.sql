@@ -7,7 +7,9 @@
 --
 -- The joins and the code filter mirror portfolio_countries.sql exactly, so
 -- these counts describe the same account population as the per-value counts
--- the analyst reads. The COALESCE'd country code is the grouping value (P-12).
+-- the analyst reads — including the Caribbean branch, which keeps CB as the
+-- country value rather than the per-island ISO code (D5, rationale in
+-- portfolio_countries.sql). The country code is the grouping value (P-12).
 -- Read-only SELECT; the target EDM database is selected at the connection
 -- level (no USE here).
 --
@@ -19,13 +21,15 @@ WITH pairs AS (
     SELECT DISTINCT
         pa.PORTINFOID AS PortfolioId,
         pa.ACCGRPID AS AccountId,
-        COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) AS Value
+        CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
+             ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END AS Value
     FROM dbo.portacct AS pa
     INNER JOIN dbo.Property AS p
         ON p.ACCGRPID = pa.ACCGRPID
     INNER JOIN dbo.Address AS a
         ON a.AddressID = p.ADDRESSID
-    WHERE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) IS NOT NULL
+    WHERE CASE WHEN a.CountryRMSCode = 'CB' THEN a.CountryRMSCode
+               ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode) END IS NOT NULL
 ),
 per_account AS (
     SELECT PortfolioId, AccountId, COUNT(*) AS ValueCount

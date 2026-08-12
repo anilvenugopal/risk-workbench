@@ -223,6 +223,10 @@ continue from the tables in spec.md/plan.md.
   - Proof: `uv run pytest tests/unit` green (1019 passed, 2026-08-11)
 - [X] T089 [P-27] [FR-014] Removing the badge left nothing on the collapsed row to say a portfolio came from a breakout. `portfolio_row.html`: the `↳` arrow (`.dt-frommark`, hover title naming the base portfolio) sits on the name cell's sub-line before `Portfolio #{id}`; the criteria stay in the expanded panel. `.dt-subline` + `.dt-frommark` added to `details.css`. Render test in `test_edm_sync.py` counts the arrow on generated rows only
 
+### Workstream 8 — Caribbean geography (P-28, FR-004/FR-005, note 12 D5)
+
+- [X] T090 [P-28] [FR-004] [FR-005] The CB branch across all six geography scripts — `portfolio_countries.sql`, `portfolio_country_coverage.sql`, `breakout_country_accounts.sql` keep `CountryRMSCode` over the ISO code when it is `CB`; `portfolio_states.sql`, `portfolio_state_coverage.sql`, `breakout_state_accounts.sql` take `CountryCode` in place of `Admin1Code` there, with a NULL label. SQL only — no Python behavior changes, and the summary builder reads the same column names. **Verified against DataBridge only**: the unit tier feeds these scripts' results from fakes and cannot exercise the SQL
+
 ---
 
 ## Dependencies & Execution Order

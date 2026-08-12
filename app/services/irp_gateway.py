@@ -53,7 +53,8 @@ _ADD_CHUNK_SIZE = 1000
 # DataBridge scripts ({{ portfolio_id }}), executed by select_breakout_accounts
 # below. Each script mirrors its summary script's joins, so the selection
 # vocabulary matches the stored breakout_values the plan was approved from
-# (LOBNAME for lob, Admin1Code for state — P-12).
+# (LOBNAME for lob, Admin1Code for state — or the island's ISO3A CountryCode
+# where the country is CB, D5 — P-12).
 _SELECTION_SCRIPTS = {
     "lob": "breakout_lob_accounts.sql",
     "state": "breakout_state_accounts.sql",
@@ -677,8 +678,10 @@ class _RealGateway:
         for row in rows("portfolio_states.sql"):
             # spec 005 (FR-005/P-12): the value is Admin1Code — the summary's
             # states list now holds codes, not the old COALESCE(name, code)
-            # mix. Admin1Name rides along as a nullable display label (absent
-            # until the EDM is geocoded, never synthesized from the code).
+            # mix — or the island's ISO3A country code for Caribbean addresses,
+            # which the script returns in the same column (D5). Admin1Name rides
+            # along as a nullable display label (absent until the EDM is
+            # geocoded, null for the Caribbean, never synthesized).
             e = entry(row)
             value = str(row["Admin1Code"])
             e["states"].append(value)
