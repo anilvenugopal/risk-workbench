@@ -653,16 +653,15 @@ def upgrade() -> None:
         "('run_breakout_lob', 'Portfolio breakout by line of business', 90), "
         "('run_breakout_state', 'Portfolio breakout by geography (state)', 100), "
         "('run_breakout_country', 'Portfolio breakout by country', 105), "
+        "('run_breakout_peril', 'Portfolio breakout by peril', 107), "
         "('run_breakout_custom', 'Portfolio breakout by custom group', 110)"
     ))
-    # breakout_dimension_kind — the three quick-mode breakout dimensions
-    # (spec 005 data-model §2) plus peril, grouping-only (P-19: no
-    # run_breakout_peril job type, no quick-mode entry), plus custom — the
-    # grouping pane's lineage code (generated group portfolios carry
-    # breakout_dimension_code='custom' with the group_key as breakout_value;
-    # T-12). Quick-mode run_breakout_* enqueues under the already-seeded
-    # analyst_request requestor-type code; group jobs enqueue under
-    # breakout_group (the group row's UUID — T-13).
+    # breakout_dimension_kind — the four value dimensions (spec 005
+    # data-model §2) plus custom, the grouping pane's lineage code (generated
+    # group portfolios carry breakout_dimension_code='custom' with the
+    # group_key as breakout_value; T-12). Quick-mode run_breakout_* enqueues
+    # under the already-seeded analyst_request requestor-type code; group jobs
+    # enqueue under breakout_group (the group row's UUID — T-13).
     op.execute(sa.text(
         "INSERT INTO breakout_dimension_kind (code, label, sort_order) VALUES "
         "('lob', 'Line of business', 10), "

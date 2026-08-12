@@ -184,10 +184,10 @@ def test_modal_dimension_param_selects_state(routes_db, client):
     assert 'name="dimension" value="state"' in r.text
 
 
-def test_modal_quick_chooser_never_offers_peril(routes_db, client):
-    # P-19: peril is grouping-only — no pill in the quick-mode chooser even
-    # when the stored summary carries multiple peril values, and a
-    # hand-crafted confirm refuses with 409 and no job row.
+def test_modal_quick_chooser_offers_peril(routes_db, client):
+    # D3 (replacing P-19): peril is a quick-mode dimension — a chooser tile
+    # counting its values, and a preview naming each sub-portfolio by mnemonic
+    # beside the code the plan stores (P-30).
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values=dict(
         SUMMARY["breakout_values"],
@@ -197,12 +197,12 @@ def test_modal_quick_chooser_never_offers_peril(routes_db, client):
 
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
-    assert "By peril" not in r.text
+    assert "By peril" in r.text and "2 perils present" in r.text
     assert "By line of business" in r.text and "By geography - state" in r.text
 
-    refused = _confirm(client, edm_id, pid, dimension="peril")
-    assert refused.status_code == 409
-    assert _breakout_jobs() == []
+    r = client.get(_url(edm_id, pid) + "?dimension=peril")
+    assert 'name="dimension" value="peril"' in r.text
+    assert "usfl_commercial - EQ" in r.text and "usfl_commercial - WS" in r.text
 
 
 def test_modal_marks_existing_rows_as_already_created(routes_db, client):
@@ -375,13 +375,13 @@ def test_modal_blank_value_disclosure_stays_qualitative_without_coverage(
     assert "carry no line of business value" not in flat
 
 
-def test_modal_missing_summary_disables_both_with_sync_pointer(
+def test_modal_missing_summary_disables_every_dimension_with_sync_pointer(
         routes_db, client):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, detail=None, as_of=None)
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
-    assert r.text.count("bo-dim--disabled") == 3
+    assert r.text.count("bo-dim--disabled") == 4
     assert "exposure summary not available" in r.text
     assert "run Sync" in r.text
     assert f'hx-post="/edms/{edm_id}/sync"' in r.text

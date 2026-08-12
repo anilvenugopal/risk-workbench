@@ -286,6 +286,20 @@ def test_unmapped_peril_code_displays_as_itself():
     assert display_value("42", "peril") == "42"
 
 
+def test_peril_plan_names_by_mnemonic_and_numbers_by_code():
+    # The name and the entry label read the mnemonic; the value the run filters
+    # on and the number token stay the numeric code (P-30).
+    plan = _plan([_bv("2", 1701), _bv("4", 517)], dimension="peril")
+    assert [(p.value, p.label, p.name, p.number) for p in plan] == [
+        ("2", "WS", "usfl_commercial - WS", "P1-P-2"),
+        ("4", "FL", "usfl_commercial - FL", "P1-P-4")]
+
+
+def test_unmapped_peril_code_names_by_code_and_carries_no_label():
+    plan = _plan([_bv("42")], dimension="peril")
+    assert (plan[0].name, plan[0].label) == ("usfl_commercial - 42", None)
+
+
 def test_other_dimensions_display_their_value_verbatim():
     assert display_value("2", "state") == "2"
     assert display_value("EQ Comm", "lob") == "EQ Comm"

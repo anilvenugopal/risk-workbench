@@ -243,7 +243,7 @@ Both figures are now measured per account by `portfolio_state_coverage.sql` / `p
 
 ---
 
-## R14 — Peril values are `loccvg.PERIL` codes, displayed as mnemonics, grouping-only
+## R14 — Peril values are `loccvg.PERIL` codes, displayed as mnemonics
 
 *(New 2026-08-10, from the W-21 probe run — the Workstream-3 prerequisite for
 custom grouping.)*
@@ -256,11 +256,9 @@ counts), `portfolio_peril_coverage.sql` (the two FR-007 counts),
 `portfolio_currencies.sql` already proved. The stored value is the numeric
 code **stringified** (`"1"`, `"2"`) and the summary's `label` is always null,
 because the EDM carries no code→name lookup (W-21). Displays render the
-mnemonic instead (P-30, below). Peril is **grouping-only** (P-19): it gets a noun
-and the three scripts, but no `_DIMENSION_LETTER` entry, no
-`run_breakout_peril` job type, and no worker actor — `DimensionEligibility`
-carries `quick=False` and the quick-mode chooser, `modal_context`'s
-dimension selection, and `request_breakout` all exclude it. Sub-peril detail
+mnemonic instead (P-30, below), and so does the generated portfolio name —
+`cbhu - WS`, never `cbhu - 2` — with the code kept as the plan's value, the
+stored `breakout_value`, and the number token. Sub-peril detail
 (fire-following, flood) rides its parent peril's coverage rows (W-21), so
 `loccvg` alone is the honest enumeration source.
 
@@ -290,12 +288,28 @@ referencedata/v1/` serves tags only, and `perilCode` appears in model
 profiles, event rate schemes, and simulation sets as mnemonics never paired
 with the EDM's numeric code.
 
+**Grouping-only is reversed — quick mode ships (P-19 rev., 2026-08-12).** Note
+12 §3 D3 aligned peril as a **quick** dimension, keeping it in custom grouping
+too. Wendy's reason is that an unfiltered EDM returns the EQ and the wind
+records for the same exposures — "that's just not how we run analyses" — so
+analysts separate perils as a matter of course; Ben: "breaking into
+peril-specific portfolios is key," Cheryl agreeing. That makes one-per-peril
+the common case rather than the combination D14 asked for, which is what the
+2026-08-09 deferral assumed. The change is the registration lockstep the
+deferral named — `_DIMENSION_LETTER["peril"] = "P"`, a
+`run_breakout_peril` job-type seed, the actor, the `_BODIES` entry — over the
+enumeration, coverage, and selection scripts already shipped. With every value
+dimension now quick, `_QUICK_DIMENSIONS` and `DimensionEligibility.quick` are
+deleted rather than left always-true, and the architecture guard asserts one
+lockstep for all four dimensions. The PRD's "we don't have to split it up by
+peril" (§10A, FR §3) predates it and is superseded for exposure breakouts.
+
 **Alternatives considered.** (a) Deriving perils from the detail tables
 (eqdet/hudet/…) — rejected: sub-peril detail rides parent perils (W-21), so
 detail-table presence over-enumerates what a coverage filter can select.
-(b) Standalone peril quick mode — deferred pending the D15 team validation
-(P-19); the add is the registration lockstep (job-type seed + actor +
-letter) on top of what ships here.
+(b) Naming peril sub-portfolios by code (`cbhu - 2`) — rejected with the same
+D4 reasoning that put the mnemonic on every other display; the code stays the
+number token, where it is identity rather than display.
 
 ---
 
@@ -374,10 +388,13 @@ Follow-up to note 11 §2.3 (criteria + "From" lineage surfacing).
 
 ### Session 2026-08-12
 
-Follow-up to note 12 §1.2 (cascading/dependent filters, O12-1).
+Follow-ups to note 12 — §1.2 cascading/dependent filters (O12-1) and §3 peril
+breakouts (D3/D4, O12-3).
 
 - **Q: A Japan + Earthquake custom breakout failed outright in the 2026-08-11 demo — both values are in the summary, no account carries one from each. Where does the check go, and does it need the cascading grey-out (D2) to work?** → **A: At Add, from one count-only DataBridge query on the request path (Ben, 2026-08-12).** Quick breakouts cannot produce this: every summary value exists because accounts carry it, so a single-dimension selection is never empty — the failure is only reachable through a multi-dimension custom group, where OR-within/AND-across can intersect to nothing. The stored summary cannot detect it either: it counts accounts per value and carries no cross-tab, and `_accounts_upper_bound` (min over dimensions of Σ selected counts) can never reach zero. So the answer has to come from DataBridge, and the constitution pinned every DataBridge read worker-side (Art. 11 v3.1.0) — **amended to v3.2.0** with a request-path exception for a bounded, single-row, fail-open point-of-action check, which is the shape this needs. `breakout_match_count.sql` runs one `EXISTS` per filtered dimension at account grain, the same whole-account semantics the run reaches by intersecting per-dimension selections, and the Add refuses on zero before the row enters the cart. **Rejected:** a `probe_breakout_group` rwb_job with a polling cart row — a job type, a synthetic `uuid5` cache key, and an invalidation rule to answer one integer the analyst is waiting on; and pairwise co-occurrence maps in the stored summary — six whole-EDM `GROUP BY` reads per sync, `lob × state` alone running to tens of thousands of pairs in `exposure_detail`, and above two dimensions pairwise emptiness is only a necessary condition, so the run guard would still be the real check. Neither buys anything this does not. → spec **P-29** (FR-021 rev.), plan **T-17**
 - **Known limit:** the count is a snapshot like every other figure the modal renders, so a group can still reach the run empty (exposure moved between Add and confirm) — the worker's empty-intersection guard stays the final check. The check also **fails open**: an unreachable DataBridge, a count that cannot be verified, or a portfolio with no Risk Modeler id lets the Add through.
+
+- **Q: Note 12 D3 aligns quick-breakout-by-peril, three days after P-19 deferred it. What does the reversal cost?** → **A: The registration lockstep and nothing else — peril already enumerates, counts coverage, and selects accounts.** `_DIMENSION_LETTER["peril"] = "P"`, the `run_breakout_peril` job-type seed, the actor, and the `_BODIES` entry; the shared `_run_breakout_body` runs it unchanged. Generated names read the mnemonic (`cbhu - WS`) through the same `display_value` the pane and the cart use, and the plan entry carries it as its label, so the preview row and the Risk Modeler description show mnemonic beside code exactly as a geography breakout shows `Admin1Name` beside `Admin1Code`. The value, the stored `breakout_value`, and the number token stay the numeric code. Peril remains a custom-grouping pill — quick mode is an addition, not a move. With all four value dimensions quick, `_QUICK_DIMENSIONS` and `DimensionEligibility.quick` are **deleted**: an always-true flag would leave the template, `modal_context`, and `request_breakout` branching on a distinction that no longer exists. Full reasoning and the minutes in **R14**. → spec **P-19** (revised), FR-004
 
 ### Carried from the design record
 

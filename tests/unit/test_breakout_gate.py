@@ -255,34 +255,34 @@ def test_gate_zero_and_one_value_dimensions_disable_with_reason(iteration2_db):
     assert state.reason == "no state values present"
 
 
-def test_peril_is_grouping_only_never_quick(iteration2_db, fake_irp):
-    # P-19: peril appears in the gate (the custom-grouping pane reads its
-    # eligibility) but never runs in quick mode — quick=False, modal_context
-    # never selects it, and a hand-crafted confirm refuses with no job row.
+def test_peril_breaks_out_one_sub_portfolio_per_code(iteration2_db, fake_irp):
+    # D3 (replacing P-19): peril runs in quick mode like the other value
+    # dimensions — the plan names by mnemonic (P-30) while the stored plan
+    # value and the number token stay the numeric code.
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values=dict(
         SUMMARY["breakout_values"],
         peril=[{"value": "1", "label": None, "accounts": 517},
                {"value": "2", "label": None, "accounts": 1701}]))
     pid = _mk_portfolio(edm_id, summary=summary)
+    fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
+                           name="usfl_commercial", stamp=RM_STAMP)
 
-    gate = evaluate_gate(edm_id, pid)
-    peril = _dim(gate, "peril")
-    assert (peril.quick, peril.eligible) == (False, True)
+    peril = _dim(evaluate_gate(edm_id, pid), "peril")
+    assert peril.eligible is True
     assert peril.noun == "peril"
-    assert _dim(gate, "lob").quick is True
-    assert _dim(gate, "state").quick is True
 
-    modal = breakout_service.modal_context(edm_id, pid)
-    assert modal.dimension == "lob"          # first QUICK eligible wins
+    job_id = request_breakout(edm_id, pid, "peril", AS_OF, iteration2_db.user_a)
+    assert job_id is not None
+    job = _breakout_jobs()[0]
+    assert job["rwb_job_type"] == "run_breakout_peril"
+    assert [(e["value"], e["label"], e["name"], e["number"])
+            for e in json.loads(job["input_data"])["plan"]] == [
+        ("1", "EQ", "usfl_commercial - EQ", "P1-P-1"),
+        ("2", "WS", "usfl_commercial - WS", "P1-P-2")]
 
-    with pytest.raises(GateRefused, match="one-per-value"):
-        request_breakout(edm_id, pid, "peril", AS_OF, iteration2_db.user_a)
-    assert _breakout_jobs() == []
 
-
-def test_country_is_a_quick_dimension_when_the_summary_carries_values(
-        iteration2_db):
+def test_country_is_eligible_when_the_summary_carries_values(iteration2_db):
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values=dict(
         SUMMARY["breakout_values"],
@@ -290,14 +290,14 @@ def test_country_is_a_quick_dimension_when_the_summary_carries_values(
                  {"value": "CA", "label": None, "accounts": 51}]))
     pid = _mk_portfolio(edm_id, summary=summary)
     country = _dim(evaluate_gate(edm_id, pid), "country")
-    assert (country.quick, country.eligible) == (True, True)
+    assert country.eligible is True
     assert country.noun == "country"
     assert [v.value for v in country.values] == ["CA", "US"]
 
 
-def test_modal_selects_nothing_when_only_peril_is_eligible(iteration2_db):
-    # lob/state each carry one value; peril carries two: no quick-mode
-    # dimension is selectable and no per-value plan is composed.
+def test_modal_selects_peril_when_it_is_the_only_eligible_dimension(
+        iteration2_db):
+    # lob/state each carry one value; peril carries two.
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}],
@@ -306,8 +306,9 @@ def test_modal_selects_nothing_when_only_peril_is_eligible(iteration2_db):
                   {"value": "2", "label": None, "accounts": 1701}]})
     pid = _mk_portfolio(edm_id, summary=summary)
     modal = breakout_service.modal_context(edm_id, pid)
-    assert modal.dimension is None
-    assert modal.plan == []
+    assert modal.dimension == "peril"
+    assert [p.name for p in modal.plan] == ["usfl_commercial - EQ",
+                                            "usfl_commercial - WS"]
 
 
 def test_gate_reports_in_flight_breakout_dimension(iteration2_db):

@@ -142,6 +142,7 @@ def main() -> int:
                     ('run_breakout_lob',   'Portfolio breakout by line of business', 90),
                     ('run_breakout_state', 'Portfolio breakout by geography (state)', 100),
                     ('run_breakout_country', 'Portfolio breakout by country', 105),
+                    ('run_breakout_peril', 'Portfolio breakout by peril', 107),
                     ('run_breakout_custom', 'Portfolio breakout by custom group', 110)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code

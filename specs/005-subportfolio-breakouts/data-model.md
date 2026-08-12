@@ -64,7 +64,7 @@ Standard kind-table shape:
 | `peril` | Peril | 30 |
 | `custom` | Custom group | 40 |
 
-App code dispatches on `code` — which entry of `summary.breakout_values` to read, which selection read to run. `code` is also the key inside `breakout_values` (§5), so there is no second vocabulary to keep in step. Follow-on dimensions (complement) add rows here, not enum literals — `country` was added this way 2026-08-10, quick-mode with number letter `C` (values are the `Address` country codes, label always null — no name column in the EDM). `peril` is grouping-only (P-19: values are `loccvg.PERIL` codes stringified, label always null — W-21); `custom` is the grouping lineage code (§9), not a value dimension — the gate never enumerates it.
+App code dispatches on `code` — which entry of `summary.breakout_values` to read, which selection read to run. `code` is also the key inside `breakout_values` (§5), so there is no second vocabulary to keep in step. Follow-on dimensions (complement) add rows here, not enum literals — `country` was added this way 2026-08-10, quick-mode with number letter `C` (values are the `Address` country codes, label always null — no name column in the EDM). `peril` was added 2026-08-10 for custom grouping and became quick-mode 2026-08-12 with number letter `P` (P-19: values are `loccvg.PERIL` codes stringified, label always null — W-21 — and every display and generated name reads the mnemonic, P-30); `custom` is the grouping lineage code (§9), not a value dimension — the gate never enumerates it.
 
 ## 3. `rwb_job_type_kind` — two new seed rows (R2)
 
@@ -73,6 +73,7 @@ App code dispatches on `code` — which entry of `summary.breakout_values` to re
 | `run_breakout_lob` | Portfolio breakout by line of business |
 | `run_breakout_state` | Portfolio breakout by geography (state) |
 | `run_breakout_country` | Portfolio breakout by country |
+| `run_breakout_peril` | Portfolio breakout by peril |
 | `run_breakout_custom` | Portfolio breakout by custom group (§9 — requestor type `breakout_group`) |
 
 One type per quick dimension — not one shared type — because the idempotent-enqueue key is `UNIQUE(requestor_type, requestor_id, rwb_job_type)`: with `requestor_type='analyst_request'`, `requestor_id=<source portfolio id>`, each dimension gets its own live-job slot per portfolio (a LOB and a state breakout on the same portfolio don't collide; a re-request of the same dimension revives the terminal row via `ensure_pending_rwb_job`). The quick-dimension codes dispatch to the same worker body in `app/workers/portfolio_jobs.py` (loader convention: actor name == `rwb_job_type`).

@@ -192,6 +192,7 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
                      ("run_breakout_state", "Portfolio breakout by geography (state)", 100),
                      ("run_breakout_country", "Portfolio breakout by country", 105),
+                     ("run_breakout_peril", "Portfolio breakout by peril", 107),
                      ("run_breakout_custom", "Portfolio breakout by custom group", 110)]  # T-12
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),

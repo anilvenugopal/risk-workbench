@@ -118,13 +118,11 @@ def test_breakout_request_path_reads_only_its_two_permitted_gateway_calls():
 
 
 def test_every_seeded_breakout_dimension_has_its_vocabulary():
-    """Per-dimension requirements (reworked for P-19). Quick-mode dimensions
-    (lob, state, country) need the ``portfolio_number`` letter, the noun, both
+    """Per-dimension registration lockstep. Every value dimension (lob, state,
+    country, peril) needs the ``portfolio_number`` letter, the noun, both
     DataBridge scripts (selection + coverage), the ``run_breakout_{code}``
     job-type seed, and the worker body — a missing entry composes a wrong
-    number, renders a missing noun, or fails the run. Grouping-only dimensions
-    (peril) need the noun and the scripts but MUST NOT gain a letter or a
-    per-value job type: those would silently open quick mode for them."""
+    number, renders a missing noun, or fails the run."""
     from app.services import breakout_service, irp_gateway
     from app.workers import portfolio_jobs
     from tests.iteration1_mirror import (
@@ -133,26 +131,21 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
     )
 
     seeded = {code for code, _label, _order in BREAKOUT_DIMENSION_SEED}
-    quick = set(breakout_service._QUICK_DIMENSIONS)
-    grouping_only = {"peril"}
-    assert seeded == quick | grouping_only | {"custom"}
+    values = seeded - {"custom"}
+    assert values == {"lob", "state", "country", "peril"}
 
     job_types = {code for code, _label, _order in RWB_JOB_TYPE_SEED}
-    for code in quick | grouping_only:      # the value dimensions
+    for code in values:
         assert code in breakout_service._DIMENSION_NOUN, code
+        assert code in breakout_service._DIMENSION_LETTER, code
         assert code in irp_gateway._SELECTION_SCRIPTS, code
         assert code in irp_gateway._COVERAGE_SCRIPTS, code
         # A value dimension with no clause in breakout_match_count.sql would
         # have its filter dropped, and the Add-time count would then include
         # accounts the breakout excludes (P-29).
         assert code in irp_gateway._MATCH_COUNT_PARAMS, code
-    for code in quick:
-        assert code in breakout_service._DIMENSION_LETTER, code
         assert f"run_breakout_{code}" in job_types, code
         assert f"run_breakout_{code}" in portfolio_jobs._BODIES, code
-    for code in grouping_only:
-        assert code not in breakout_service._DIMENSION_LETTER, code
-        assert f"run_breakout_{code}" not in job_types, code
     # custom (T-12): the grouping lineage code — the job type and the group
     # worker body, but NO number letter (P-26: a group's number is its name
     # truncated to 20); selections run through the value dimensions' scripts,

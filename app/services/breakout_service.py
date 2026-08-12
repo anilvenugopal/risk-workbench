@@ -54,9 +54,9 @@ _SEPARATOR = " - "
 # second gate.
 LARGE_FANOUT_THRESHOLD = 25
 
-# The dimension letter inside the generated portfolio_number (R4) — quick-mode
+# The dimension letter inside the generated portfolio_number (R4) — value
 # dimensions only; a custom group's number is its name truncated to 20 (P-26).
-_DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C"}
+_DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C", "peril": "P"}
 # Analyst-facing noun per dimension for disabled-with-reason copy.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
                    "country": "country", "peril": "peril", "custom": "custom"}
@@ -68,11 +68,6 @@ _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
 # does not carry displays as itself rather than as a guessed mnemonic.
 _PERIL_MNEMONIC = {"1": "EQ", "2": "WS", "3": "CS/WT", "4": "FL", "5": "FR",
                    "6": "TR", "7": "WC"}
-# Quick mode (one sub-portfolio per value) runs these dimensions only. peril
-# is grouping-only (P-19): no portfolio_number letter, no run_breakout_peril
-# job type, never offered in the quick-mode chooser. "custom" is the grouping
-# pane itself — a lineage code, not a value dimension (T-12).
-_QUICK_DIMENSIONS = frozenset({"lob", "state", "country"})
 
 MISSING_SUMMARY_REASON = "exposure summary not available — run Sync"
 REFRESH_IN_FLIGHT_REASON = ("this EDM is syncing — the exposure summary is "
@@ -161,7 +156,6 @@ class DimensionEligibility:
     eligible: bool
     values: list[BreakoutValue]   # from the stored summary ([] when ineligible)
     reason: str | None        # analyst-facing disabled-with-reason copy
-    quick: bool = True        # offered in quick mode; False = grouping-only (P-19)
 
 
 @dataclass(frozen=True)
@@ -344,23 +338,21 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
             # display label, never a value dimension the summary enumerates.
             continue
         noun = _DIMENSION_NOUN.get(code, label.lower())
-        quick = code in _QUICK_DIMENSIONS
         values = _parse_breakout_values(summary, code)
         if values is None:
             dimensions.append(DimensionEligibility(
                 dimension=code, label=label, noun=noun, eligible=False,
-                values=[], reason=MISSING_SUMMARY_REASON, quick=quick))
+                values=[], reason=MISSING_SUMMARY_REASON))
         elif len(values) < 2:
             dim_reason = (f"only one {noun} present" if len(values) == 1
                           else f"no {noun} values present")
             dimensions.append(DimensionEligibility(
                 dimension=code, label=label, noun=noun, eligible=False,
-                values=values, reason=dim_reason, quick=quick))
+                values=values, reason=dim_reason))
         else:
             dimensions.append(DimensionEligibility(
                 dimension=code, label=label, noun=noun,
-                eligible=portfolio_eligible, values=values, reason=None,
-                quick=quick))
+                eligible=portfolio_eligible, values=values, reason=None))
 
     account_total = None
     if isinstance(summary, dict):
@@ -491,12 +483,17 @@ def build_breakout_plan(*, source_name: str, source_portfolio_irp_id: str,
     for v in sorted(values, key=lambda bv: bv.value):
         # The NAME token is the display label when the summary carries one
         # (P-12 as revised 2026-08-05 — "cbhu - Puerto Rico", never
-        # "cbhu - 200"); the value stays the filter, the stored
-        # breakout_value, and the number token.
-        name = _compose_name(source_name, v.label or v.value, taken)
+        # "cbhu - 200"), else the value's display — the peril mnemonic
+        # (P-30 — "cbhu - WS", never "cbhu - 2"). The value itself stays the
+        # filter, the stored breakout_value, and the number token, and is
+        # carried as the entry's label so the preview row and the Risk Modeler
+        # description show both.
+        shown = v.label or display_value(v.value, dimension)
+        name = _compose_name(source_name, shown, taken)
         taken.add(name.casefold())
         plan.append(SubPortfolioPlan(
-            value=v.value, label=v.label, name=name,
+            value=v.value, label=(shown if shown != v.value else None),
+            name=name,
             number=_compose_number(source_portfolio_irp_id, dimension, v.value),
             accounts=v.accounts, exists=(v.value in already)))
     return plan
@@ -567,9 +564,7 @@ def modal_context(edm_id: Any, portfolio_id: Any,
     if not gate.rows_live:
         return None
 
-    # Quick-mode dimensions only: a grouping-only dimension (peril, P-19) is
-    # never the modal's selected dimension and composes no per-value plan.
-    eligible = [d.dimension for d in gate.dimensions if d.eligible and d.quick]
+    eligible = [d.dimension for d in gate.dimensions if d.eligible]
     selected = (dimension if dimension in eligible
                 else (eligible[0] if eligible else None))
     # A portfolio without its RM id cannot compose portfolio numbers; in
@@ -935,9 +930,6 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                        None)
     if eligibility is None:
         raise GateRefused(f"unknown breakout dimension {dimension!r}")
-    if not eligibility.quick:
-        raise GateRefused(f"{eligibility.label} does not run as a one-per-value "
-                          "breakout — use a custom breakout (P-19)")
     if not eligibility.eligible:
         raise GateRefused(eligibility.reason or "dimension is not eligible")
 

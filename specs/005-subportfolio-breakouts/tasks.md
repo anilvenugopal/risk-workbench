@@ -233,6 +233,12 @@ continue from the tables in spec.md/plan.md.
 - [X] T092 [P-29] [T-17] [FR-021] `sql/databridge/breakout_match_count.sql` + `irp_gateway.count_breakout_match` — one `EXISTS` per filtered dimension at account grain, value expressions mirroring the selection scripts (CB branch included), selected values passed as one CHAR(31)-joined scalar per dimension, `NULL` dropping an unfiltered dimension. A dimension missing from `_MATCH_COUNT_PARAMS` raises rather than silently dropping its filter; the guard test pins every value dimension to an entry. **Verified against DataBridge only** — the unit tier answers from the fake and cannot exercise the SQL
 - [X] T093 [P-29] [FR-021] `breakout_service.group_matches_no_accounts` (skips one-dimension groups, fails open) refuses the Add in `breakout_group_preview` before the row reaches the cart, in a threadpool so the query never holds the event loop. Route tests in `test_breakout_routes.py` cover the refusal, the one-dimension skip, and the fail-open path
 
+### Workstream 10 — peril as a quick dimension (P-19 rev., FR-004, note 12 D3)
+
+- [X] T094 [P-19] [FR-004] [FR-010] Registry: `_DIMENSION_LETTER["peril"] = "P"`, actor `run_breakout_peril` + `_BODIES` entry, seed `('run_breakout_peril','Portfolio breakout by peril',107)` in `0001_initial.py`, `seed_db.py`, and the unit mirror; `build_breakout_plan`'s name token falls back to `display_value`, so a peril sub-portfolio is named `cbhu - WS` and carries the mnemonic as its plan label (the code stays the value and the number token); modal `dim_meta` peril pluralization. Supersedes the grouping-only half of T076/T077. Dev DB pending the developer's seed refresh (`make db-rebuild` or re-run `seed_db.py`); the SQL Server seed assertion is updated but **unverified**
+- [X] T095 [P-19] `_QUICK_DIMENSIONS` and `DimensionEligibility.quick` deleted — every value dimension is quick, so the flag, the chooser's `if d.quick` filter, `modal_context`'s selection filter, and `request_breakout`'s not-quick refusal all go; the architecture guard asserts one letter/noun/scripts/job-type/actor lockstep for all four dimensions. Gate, route, and plan tests reworked to the peril-quick behavior
+  - Proof: `uv run pytest tests/unit` green (1029 passed, 2026-08-12)
+
 ---
 
 ## Dependencies & Execution Order

@@ -143,9 +143,10 @@ class TestDetailTablesMigration:
         rows = execute(
             "SELECT code FROM rwb_job_type_kind "
             "WHERE code IN ('run_breakout_lob', 'run_breakout_state', "
-            "'run_breakout_country', 'run_breakout_custom')",
+            "'run_breakout_country', 'run_breakout_peril', "
+            "'run_breakout_custom')",
             {}, connection="WORKBENCH")
-        assert len(rows) == 4
+        assert len(rows) == 5
 
     def test_breakout_group_requestor_type_seed_present(self):
         rows = execute(

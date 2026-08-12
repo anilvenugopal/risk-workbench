@@ -29,7 +29,7 @@
 {%- endmacro -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
 {%- macro dim_meta(d) -%}
-{{ d.values|length }} {% if d.dimension == 'lob' %}line{{ '' if d.values|length == 1 else 's' }}{% elif d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}state{{ '' if d.values|length == 1 else 's' }}{% endif %} present
+{{ d.values|length }} {% if d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}{% if d.dimension == 'lob' %}line{% elif d.dimension == 'peril' %}peril{% else %}state{% endif %}{{ '' if d.values|length == 1 else 's' }}{% endif %} present
 {%- endmacro -%}
 <div class="modal" id="breakout-modal" x-data>
   {% if confirmable %}
@@ -222,8 +222,7 @@
 
       {% else %}
       <div class="bo-dims">
-        {# quick-mode dimensions only — peril is grouping-only (P-19) #}
-        {% for d in gate.dimensions if d.quick %}
+        {% for d in gate.dimensions %}
         {% if not gate.portfolio_eligible %}
         <div class="bo-dim bo-dim--disabled">
           <span class="bo-dim__name">{{ dim_title(d) }}</span>

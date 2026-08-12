@@ -1,7 +1,8 @@
 """Dramatiq actors for the portfolio breakout fan-out (spec 005 — Article 10,
 contracts/worker-poller.md).
 
-``run_breakout_lob`` / ``run_breakout_state`` share ``_run_breakout_body``
+``run_breakout_lob`` / ``run_breakout_state`` / ``run_breakout_country`` /
+``run_breakout_peril`` share ``_run_breakout_body``
 (actor name == ``rwb_job_type``, the loader convention);
 ``run_breakout_custom`` runs ``_run_breakout_group_body`` — one job per
 custom group (T-13), same entry machinery. The worker **executes the plan
@@ -450,6 +451,12 @@ def run_breakout_country(rwb_job_id: str) -> None:
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+def run_breakout_peril(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+                    body=lambda: _run_breakout_body(rwb_job_id))
+
+
+@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_custom(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
                     body=lambda: _run_breakout_group_body(rwb_job_id))
@@ -461,6 +468,7 @@ _BODIES: dict[str, Callable[[Any], runtime.JobResult]] = {
     "run_breakout_lob": _run_breakout_body,
     "run_breakout_state": _run_breakout_body,
     "run_breakout_country": _run_breakout_body,
+    "run_breakout_peril": _run_breakout_body,
     "run_breakout_custom": _run_breakout_group_body,
 }
 
@@ -477,4 +485,4 @@ def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") ->
 
 
 __all__ = ["run_breakout_lob", "run_breakout_state", "run_breakout_country",
-           "run_breakout_custom", "run_one"]
+           "run_breakout_peril", "run_breakout_custom", "run_one"]
