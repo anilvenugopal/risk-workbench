@@ -271,6 +271,23 @@ def test_edm_exposure_summary_assembles_per_portfolio_from_the_scripts():
     assert [db for _, db in calls] == ["edm_db"] * 11
 
 
+def test_edm_exposure_summary_reads_a_dataframe_nan_as_no_label():
+    # The DataBridge executor returns DataFrames, which carry SQL NULL as NaN —
+    # and NaN is truthy, so an un-geocoded Admin1Name (NULL for every Caribbean
+    # row by D5) reached the summary as the label "nan". The value stays the
+    # island's ISO3A CountryCode the script returns in the Admin1Code column.
+    gw = _summary_gw(
+        [{"exposureId": 42, "exposureName": "EDM", "databaseName": "edm_db"}],
+        {"portfolio_states.sql": [
+            {"PortfolioId": 1, "PortfolioName": "A", "Admin1Code": "VIR",
+             "Admin1Name": float("nan"), "AccountCount": 7}]})
+
+    summary = gw.get_edm_exposure_summary(edm_name="EDM", edm_irp_id=42)
+
+    assert summary["1"]["breakout_values"]["state"] == [
+        {"value": "VIR", "label": None, "accounts": 7}]
+
+
 def test_edm_exposure_summary_raises_when_database_name_unresolvable():
     gw = _summary_gw([{"exposureId": 1, "exposureName": "EDM"}], {})
     with pytest.raises(ValueError):

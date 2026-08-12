@@ -631,7 +631,13 @@ class _RealGateway:
         def rows(script: str) -> list[dict]:
             frames = databridge.execute_query_from_file(
                 str(_DATABRIDGE_SQL_DIR / script), database=database)
-            return frames[0].to_dict("records") if frames else []
+            if not frames:
+                return []
+            # A DataFrame turns SQL NULL into NaN, and NaN is truthy: an
+            # un-geocoded Admin1Name reached the summary as the label "nan".
+            # `v != v` is true only for NaN/NaT and needs no pandas import.
+            return [{k: (None if v != v else v) for k, v in record.items()}
+                    for record in frames[0].to_dict("records")]
 
         # Seed every portfolio from the portinfo enumeration (it covers
         # portfolios with no accounts/locations too); the DISTINCT list
