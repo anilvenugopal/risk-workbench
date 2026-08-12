@@ -195,6 +195,26 @@ def test_the_redirect_reports_an_edm_another_analyst_already_took(
     assert second.headers["location"] == "/edms/sync?synced=0&skipped=1"
 
 
+def test_a_post_catalog_failure_redirects_without_writing(
+        iteration2_db, fake_irp):
+    fake_irp.add_catalog_edm(name="alpha", irp_id=501)
+    fake_irp.raise_on_list_edms = True
+
+    response = _client().post(
+        "/edms/sync", data={"irp_ids": ["501"], "csrf_token": _csrf()})
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/edms/sync?sync_error=unavailable"
+    assert execute("SELECT id FROM irp_edm", connection="WORKBENCH") == []
+
+
+def test_the_post_failure_banner_explains_that_nothing_was_synced(
+        iteration2_db, fake_irp):
+    body = _client().get("/edms/sync?sync_error=unavailable").text
+
+    assert "Nothing was synced because Risk Modeler could not be reached" in body
+
+
 def test_the_redirect_keeps_the_search_term(iteration2_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     dispatch.configure(lambda **kw: None)

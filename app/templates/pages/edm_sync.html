@@ -24,6 +24,11 @@
     tracked in the workbench, or no longer in Risk Modeler.
   </div>
   {% endif %}
+  {% if sync_error %}
+  <div class="form-banner form-banner--error">
+    Nothing was synced because Risk Modeler could not be reached. Try again.
+  </div>
+  {% endif %}
 
   {# No hx-get: this page is one live Risk Modeler read per render, so filtering as
      you type would be a call per keystroke. No page input, so a search lands on 1. #}

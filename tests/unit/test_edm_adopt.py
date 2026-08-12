@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from app.services import edm_service
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -276,6 +278,25 @@ def test_adopting_the_same_exposure_id_twice_creates_one_row(
     rows = execute("SELECT id FROM irp_edm WHERE irp_id = 501",
                    connection="WORKBENCH")
     assert len(rows) == 1
+
+
+def test_adopt_treats_a_unique_race_as_skipped(
+        iteration2_db, fake_irp, monkeypatch):
+    fake_irp.add_catalog_edm(name="alpha", irp_id=501)
+    execute_real = edm_service.execute_command
+
+    def lose_insert(sql, *args, **kwargs):
+        if "INSERT INTO irp_edm" in sql:
+            raise IntegrityError("duplicate", {}, Exception("duplicate"))
+        return execute_real(sql, *args, **kwargs)
+
+    monkeypatch.setattr(edm_service, "execute_command", lose_insert)
+
+    result = edm_service.adopt_edms(
+        irp_ids=[501], actor_id=iteration2_db.user_a)
+
+    assert result.adopted == []
+    assert result.skipped == [501]
 
 
 def test_adopt_skips_an_edm_an_in_flight_import_already_covers(

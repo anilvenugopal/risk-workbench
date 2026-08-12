@@ -13,6 +13,7 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
+from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request, Response
@@ -22,8 +23,12 @@ from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import edm_service, rdm_service
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
-    NameCollisionError)
+    ConcurrencyConflict,
+    EdmCatalogUnavailable,
+    InvalidMemberName,
+    InvalidSourceFile,
+    NameCollisionError,
+)
 
 router = APIRouter()
 
@@ -106,6 +111,7 @@ def _sync_context(request: Request) -> dict:
         # Set by the POST's redirect, so the banner survives Post/Redirect/Get.
         "synced": _int_param(request, "synced"),
         "skipped": _int_param(request, "skipped"),
+        "sync_error": request.query_params.get("sync_error") == "unavailable",
     }
 
 
@@ -128,16 +134,23 @@ def sync_list(request: Request):
 
 
 @router.post("/edms/sync")
-def sync_adopt(request: Request, irp_ids: list[int] = Form(default=[]),
-               csrf_token: str = Form(...)):
+def sync_adopt(request: Request, csrf_token: Annotated[str, Form()],
+               irp_ids: Annotated[list[int] | None, Form()] = None):
     """Take in the ticked EDMs, then Post/Redirect/Get back to this page, whose
     re-read is what drops the newly synced rows from the list."""
     if not validate_csrf_token(csrf_token):
         if request.headers.get("HX-Request") == "true":
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse("/edms/sync", status_code=303)
-    result = edm_service.adopt_edms(irp_ids=irp_ids,
-                                    actor_id=request.state.user.id)
+    try:
+        result = edm_service.adopt_edms(irp_ids=irp_ids or [],
+                                        actor_id=request.state.user.id)
+    except EdmCatalogUnavailable:
+        params = {"sync_error": "unavailable"}
+        q = (request.query_params.get("q") or "").strip()
+        if q:
+            params["q"] = q
+        return RedirectResponse(f"/edms/sync?{urlencode(params)}", status_code=303)
     # The form action carries the search term, so the analyst lands back inside the
     # list they were working through. `page` is dropped: the rows just taken in are
     # gone and the page they were on has re-flowed.

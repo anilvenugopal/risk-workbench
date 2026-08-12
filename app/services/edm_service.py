@@ -31,18 +31,28 @@ from urllib.parse import quote, urlsplit
 
 from app.config import settings
 from app.services import (
-    analysis_service, irp_gateway, name_check, package_service,
-    portfolio_service, rwb_job_service, treaty_service)
+    analysis_service,
+    irp_gateway,
+    name_check,
+    package_service,
+    portfolio_service,
+    rwb_job_service,
+    treaty_service,
+)
 from app.services._common import _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
-from app.services.errors import ConcurrencyConflict, NameCollisionError
+from app.services.errors import (
+    ConcurrencyConflict,
+    EdmCatalogUnavailable,
+    NameCollisionError,
+)
 from app.services.name_check import CollisionCheck
 from app.services.package_service import SubmissionRef
 from app.services.portfolio_service import PortfolioRow
-from app.services.treaty_service import TreatyRow
 from app.services.shared_drive import validate_selection
+from app.services.treaty_service import TreatyRow
 from app.workers import dispatch
-from db import execute, execute_command, execute_one
+from db import execute, execute_command, execute_one, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
@@ -248,17 +258,19 @@ def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
     already-in-Risk-Modeler name every adoption uses. An adopted row therefore has
     ``source_file_path`` NULL, no package, and ``status='ready'``.
 
-    ``irp_edm`` has no unique constraint on ``irp_id`` or ``name``, so each insert
-    carries its own ``WHERE NOT EXISTS`` rather than a read followed by an insert —
-    under READ COMMITTED two concurrent adopts of the same EDM would both pass a
-    prior read. The guard repeats both arms of the ``list_adoptable_edms`` diff.
-    Anything it or Risk Modeler's list rejects goes to ``skipped``."""
+    A filtered unique index on live ``irp_id`` values decides concurrent attempts;
+    the losing request reports the EDM as skipped. The insert guard also repeats the
+    unresolved-name arm of the ``list_adoptable_edms`` diff."""
     result = AdoptResult()
     wanted = {int(i) for i in irp_ids}
     if not wanted:
         return result
 
-    by_irp_id = {e.irp_id: e for e in irp_gateway.list_edms()}
+    try:
+        by_irp_id = {e.irp_id: e for e in irp_gateway.list_edms()}
+    except Exception as exc:
+        logger.exception("Risk Modeler EDM catalog unavailable during sync")
+        raise EdmCatalogUnavailable from exc
     now = _utcnow()
     actor = str(actor_id)
     for irp_id in sorted(wanted):
@@ -269,23 +281,28 @@ def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
             result.skipped.append(irp_id)
             continue
         edm_id = str(uuid.uuid4())
-        rows = execute_command(
-            """
-            INSERT INTO irp_edm (id, name, irp_id, server_name, status,
-                inserted_at, updated_at, inserted_by, updated_by)
-            SELECT :id, :n, :iid, :srv, :s, :now, :now, :by, :by
-            WHERE NOT EXISTS (
-                SELECT 1 FROM irp_edm
-                WHERE deleted_at IS NULL
-                  AND (irp_id = :iid
-                       OR (irp_id IS NULL AND name = :n
-                           AND status NOT IN (:err, :del))))
-            """,
-            {"id": edm_id, "n": entry.name, "iid": irp_id,
-             "srv": entry.server_name, "s": READY, "now": now, "by": actor,
-             "err": ERROR, "del": DELETED},
-            connection="WORKBENCH",
-        )
+        try:
+            rows = execute_command(
+                """
+                INSERT INTO irp_edm (id, name, irp_id, server_name, status,
+                    inserted_at, updated_at, inserted_by, updated_by)
+                SELECT :id, :n, :iid, :srv, :s, :now, :now, :by, :by
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM irp_edm
+                    WHERE deleted_at IS NULL
+                      AND (irp_id = :iid
+                           OR (irp_id IS NULL AND name = :n
+                               AND status NOT IN (:err, :del))))
+                """,
+                {"id": edm_id, "n": entry.name, "iid": irp_id,
+                 "srv": entry.server_name, "s": READY, "now": now, "by": actor,
+                 "err": ERROR, "del": DELETED},
+                connection="WORKBENCH",
+            )
+        except Exception as exc:
+            if not is_unique_violation(exc):
+                raise
+            rows = 0
         if rows == 0:
             result.skipped.append(irp_id)
             continue
