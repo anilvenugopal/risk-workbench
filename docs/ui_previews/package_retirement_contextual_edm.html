@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contextual EDM detail · Package retirement preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../app/static/css/app.css">
+  <style>
+    /* Proposed rules are limited to the contextual picker and preview states. */
+    .detail-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-5)}
+    .edm-picker{display:flex;flex-direction:column;gap:var(--space-1);min-width:260px}
+    .edm-picker label{font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);font-weight:var(--fw-medium)}
+    .edm-picker .wf-field__input{min-width:260px}
+    .preview-states{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--space-3);margin-top:var(--space-3)}
+    .preview-state{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-panel)}
+    .preview-state__label{padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+    .preview-state .state-box{border:0;border-radius:0;min-height:108px;display:grid;place-items:center}
+    .preview-spinner{width:18px;height:18px;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;margin:0 auto var(--space-2);animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media(max-width:900px){.detail-head-row{display:block}.edm-picker{margin-top:var(--space-3)}.preview-states{grid-template-columns:1fr 1fr}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <nav class="shell__rail">
+    <a class="shell__railbtn" href="#" title="Home"><img src="../../app/static/icons/home.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Submissions"><img src="../../app/static/icons/submissions.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Workflows"><img src="../../app/static/icons/workflows.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn is-active" href="#" title="Moody's IRP"><img src="../../app/static/icons/moodys.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Results"><img src="../../app/static/icons/results.svg" width="24" height="24" alt=""></a>
+    <div class="rail__spacer"></div>
+    <a class="shell__railbtn" href="#" title="Account"><img src="../../app/static/icons/user.svg" width="24" height="24" alt=""></a>
+  </nav>
+
+  <div class="shell__col">
+    <header class="shell__topbar">
+      <img class="topbar__appname" src="../../app/static/icons/rwb.svg" alt="Risk Workbench">
+      <button class="topbar__search"><span class="topbar__search-ico">⚲</span><span class="topbar__search-hint">Search</span><span class="topbar__kbd">Ctrl J</span></button>
+      <a class="topbar__help" href="#">Help</a>
+    </header>
+
+    <div class="shell__body">
+      <aside class="shell__sidebar"><div class="mk-sidehdr">Moody's IRP</div><div class="sidebar__nav"><a class="nav-item is-active" href="#">EDM Library</a><a class="nav-item" href="#">Sync from Risk Modeler</a><a class="nav-item" href="#">RDM Library</a></div></aside>
+      <main class="shell__main">
+        <div class="mk-pagehdr"><div class="topbar__crumbs"><a class="crumb" href="#">Moody's IRP</a><span class="crumb__sep">/</span><span class="crumb crumb--current">EDM Library</span></div></div>
+        <div class="page-pad" id="edm-detail">
+          <div class="detail-head">
+            <nav class="detail-crumbs" aria-label="Submission context"><a class="crumb" href="#">Meridian Property Cat XoL 2026</a><span class="crumb__sep">›</span><span class="crumb crumb--current">meridian_edm_2026</span></nav>
+            <div class="detail-head-row">
+              <div>
+                <h1>meridian_edm_2026 <span class="status-chip status-chip--ready">ready</span></h1>
+                <div class="detail-meta"><span class="mono">\\share\deals\meridian\2026\meridian_edm_2026.bak</span><span class="crumb__sep">·</span><span>RM EDM #48211</span><span class="crumb__sep">·</span><span>3 portfolios</span><span class="crumb__sep">·</span><span class="synced"><span class="synced__dot"></span> synced Aug 12, 2026 10:42 AM</span><span class="crumb__sep">·</span><button class="btn-sm">Sync</button></div>
+              </div>
+              <div class="edm-picker"><label for="edm-picker">EDM in Meridian Property Cat XoL 2026</label><select id="edm-picker" class="wf-field__input"><option>meridian_edm_2026</option><option>napa_property_2026</option><option>socal_commercial_2026</option><option>gulf_coast_property_2026</option></select></div>
+            </div>
+          </div>
+
+          <details class="sec" open>
+            <summary><span class="sec__caret">▷</span><span class="sec__title">Portfolios</span><span class="badge badge--neutral">3</span><span class="sec__spacer"></span><span class="sec__note">Read-only snapshot · split / breakout arrive Iteration 4</span></summary>
+            <div class="dtable-shell"><div class="dtable" style="--cols:230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px;min-width:1185px">
+              <div class="dtable__head"><span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span><span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span><span class="l">States</span><span class="l">Currency</span></div>
+              <details class="drow"><summary><span class="l"><span class="dt-name"><span class="dt-caret">▷</span><span class="dt-namecol"><span class="dt-title">Meridian Primary 2026</span><span class="dt-sub">P-33810</span></span></span></span><span>8,420</span><span>1,510</span><span>1,510</span><span class="l">Wind · EQ · Flood</span><span class="l">Commercial · Residential</span><span class="l">United States</span><span class="l">12 states</span><span class="l">USD</span></summary><div class="drow__body"><dl class="drow-lists"><div><dt>Perils present</dt><dd>Wind, Earthquake, Flood</dd></div><div><dt>Lines of business present</dt><dd>Commercial, Residential</dd></div></dl></div></details>
+              <details class="drow"><summary><span class="l"><span class="dt-name"><span class="dt-caret">▷</span><span class="dt-namecol"><span class="dt-title">Commercial Property</span><span class="dt-sub">P-33811</span></span></span></span><span>3,180</span><span>510</span><span>510</span><span class="l">Wind · EQ</span><span class="l">Commercial</span><span class="l">United States</span><span class="l">8 states</span><span class="l">USD</span></summary><div class="drow__body">Portfolio detail.</div></details>
+              <details class="drow"><summary><span class="l"><span class="dt-name"><span class="dt-caret">▷</span><span class="dt-namecol"><span class="dt-title">Residential Property</span><span class="dt-sub">P-33812</span></span></span></span><span>820</span><span>125</span><span>125</span><span class="l">Wind</span><span class="l">Residential</span><span class="l">United States</span><span class="l">Florida</span><span class="l">USD</span></summary><div class="drow__body">Portfolio detail.</div></details>
+            </div></div>
+          </details>
+
+          <details class="sec" open>
+            <summary><span class="sec__caret">▷</span><span class="sec__title">Treaties</span><span class="badge badge--neutral">2</span><span class="sec__spacer"></span><a class="sec__note sec__note--link" href="#">Edit in Risk Modeler ↗</a><button class="btn-sm btn-sm--primary">↳ Export to Excel</button></summary>
+            <div class="dtable-shell"><div class="dtable" style="--cols:230px minmax(110px,1fr) 115px 130px 130px 120px minmax(140px,1fr) minmax(150px,1.5fr) 80px 165px;min-width:1370px">
+              <div class="dtable__head"><span class="l">Treaty</span><span class="l">Type</span><span>Attachment</span><span class="l">Basis</span><span>Occurrence limit</span><span>Risk limit</span><span class="l">Cedent</span><span class="l">Lines of business</span><span class="l">Currency</span><span class="l">Effective</span></div>
+              <div class="drow-static"><span class="l"><span class="dt-title">Meridian Property Cat</span></span><span class="l">Cat XoL</span><span>10,000,000</span><span class="l">Occurrence</span><span>50,000,000</span><span>—</span><span class="l">Meridian Re</span><span class="l">Property</span><span class="l">USD</span><span class="l">2026-01-01</span></div>
+            </div></div>
+          </details>
+
+          <details class="sec" open id="edm-broker-analyses">
+            <summary><span class="sec__caret">▷</span><span class="sec__title">Broker analyses</span><span class="badge badge--neutral">4 RDMs · 135 analyses</span><span class="sec__spacer"></span><span class="sec__note">Every RDM in Meridian Property Cat XoL 2026 · settings &amp; metadata only · no loss numbers</span></summary>
+            <div class="dtable-shell"><div class="dtable" style="--cols:230px minmax(110px,1fr) minmax(120px,1fr) minmax(110px,1fr) 80px minmax(120px,1fr) 80px 70px 130px;min-width:1050px">
+              <div class="dtable__head"><span class="l">Analysis</span><span class="l">Type</span><span class="l">Peril</span><span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span><span class="l">Term</span><span class="l">PLA</span><span class="l">Rate</span></div>
+              <details class="dtable__rdm"><summary><div class="dtable__group"><span class="grp-caret">▷</span><span class="kind">RDM</span><span class="name">meridian_q4_results</span><span class="ref">#9211</span><span class="ref">18 analyses</span><a class="link" href="#">Open RDM →</a></div></summary><div class="drow-static"><span class="l"><span class="dt-title">Meridian AEP — All Perils</span></span><span class="l">EP</span><span class="l">EQ + Wind</span><span class="l">North America</span><span class="l">USD</span><span class="l">DLM · RL 23.0</span><span class="l">Long-term</span><span class="l">Off</span><span class="l">WSST 2020</span></div></details>
+              <details class="dtable__rdm"><summary><div class="dtable__group"><span class="grp-caret">▷</span><span class="kind">RDM</span><span class="name">worldwide_q4_results</span><span class="ref">#9212</span><span class="ref">60 analyses</span><a class="link" href="#">Open RDM →</a></div></summary><div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></details>
+              <details class="dtable__rdm"><summary><div class="dtable__group"><span class="grp-caret">▷</span><span class="kind">RDM</span><span class="name">retro_2025_view</span><span class="ref">#9213</span><span class="ref">45 analyses</span><a class="link" href="#">Open RDM →</a></div></summary><div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></details>
+              <details class="dtable__rdm"><summary><div class="dtable__group"><span class="grp-caret">▷</span><span class="kind">RDM</span><span class="name">cat_bond_view</span><span class="ref">#9214</span><span class="ref">12 analyses</span><a class="link" href="#">Open RDM →</a></div></summary><div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></details>
+            </div></div>
+          </details>
+
+          <div class="section-head"><h2>Preview states</h2></div>
+          <div class="preview-states">
+            <div class="preview-state"><div class="preview-state__label">No RDMs</div><div class="state-box">No RDMs are related to Meridian Property Cat XoL 2026.</div></div>
+            <div class="preview-state"><div class="preview-state__label">Loading analyses</div><div class="state-box"><div><div class="preview-spinner"></div>Loading stored analyses…</div></div></div>
+            <div class="preview-state"><div class="preview-state__label">Failed</div><div class="state-box state-box--warn"><div><strong>Analyses could not be loaded.</strong><br><a class="open-link" href="#">Try again</a></div></div></div>
+            <div class="preview-state"><div class="preview-state__label">Backfill pending</div><div class="state-box">Analysis metadata is not available yet.</div></div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <footer class="shell__statusbar"><div class="statusbar__left"><span class="statusbar__env statusbar__env--local">DEVELOPMENT</span><span class="statusbar__user">B. Bailey · Analyst</span></div><div></div><div></div></footer>
+  </div>
+</div>
+</body>
+</html>
