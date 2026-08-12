@@ -59,8 +59,8 @@ Standard kind-table shape:
 | code | label | sort_order |
 |---|---|---|
 | `lob` | Line of business | 10 |
-| `state` | Geography (state) | 20 |
-| `country` | Country | 25 |
+| `state` | Geography - State | 20 |
+| `country` | Geography - Country | 25 |
 | `peril` | Peril | 30 |
 | `custom` | Custom group | 40 |
 
