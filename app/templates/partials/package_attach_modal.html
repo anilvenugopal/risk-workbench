@@ -1,0 +1,71 @@
+{# "Add existing package" modal (issue #22) — attach live packages to this submission.
+   A package is one physical copy shared across deals (D7), so the candidates include
+   packages already attached to other submissions.
+
+   Deliberately simpler than package_members_modal.html: packages number a handful, not
+   hundreds, so no search field, no tray, no paging — plain checkbox rows, submitted in
+   one POST. The picks count lives in inline Alpine state; no app.js component needed. #}
+<div class="modal" id="package-modal" x-data="{ picks: 0 }"
+     @change="picks = $root.querySelectorAll('input[name=package_ids]:checked').length">
+  {% if closed %}
+  <div class="modal__panel">
+    <div class="form-banner form-banner--readonly">
+      This submission is closed — packages are read-only. Reopen it to make changes.
+    </div>
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+    </div>
+  </div>
+  {% elif not candidates %}
+  <div class="modal__panel">
+    <h2 class="modal__title">Add existing package</h2>
+    <div class="member-picker__empty">
+      Every existing package is already attached to this deal, or none has been
+      created yet.
+    </div>
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+    </div>
+  </div>
+  {% else %}
+  {# `$event.target === $el` mirrors package_members_modal.html: htmx events bubble, so
+     only the form's own submit may close the modal. #}
+  <form class="modal__panel" method="post"
+        action="/submissions/{{ submission_id }}/packages/attach"
+        hx-post="/submissions/{{ submission_id }}/packages/attach"
+        hx-target="#package-list" hx-swap="outerHTML"
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $root.remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <h2 class="modal__title">Add existing package</h2>
+    <p class="modal__lede">
+      Attaching records that this deal shares the package — one physical copy of its
+      EDMs and RDMs, nothing duplicated, nothing submitted to Risk Modeler. Work
+      against a shared package shows up in every deal that shares it.
+    </p>
+
+    <div class="member-picker__list">
+      {% for c in candidates %}
+      <div class="member-picker__row">
+        <label>
+          <input type="checkbox" name="package_ids" value="{{ c.id }}">
+          <span class="member-picker__name" title="{{ c.name or 'Untitled package' }}">
+            {{ c.name or 'Untitled package' }}</span>
+          <span class="member-picker__src">{{ c.member_count }} member{{ '' if c.member_count == 1 else 's' }}
+            {%- set refs = owners.get(c.id|lower, []) %}
+            {%- if refs %} · shared with {{ refs | map(attribute='name') | map('default', 'Untitled', true) | join(', ') }}
+            {%- else %} · in no deal{% endif %}</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="modal__actions">
+      <button type="button" class="btn-sm" @click="$root.remove()">Close</button>
+      <span class="spacer"></span>
+      <button class="btn-sm btn-sm--primary" type="submit"
+              disabled :disabled="picks === 0">
+        Attach <span x-text="picks || ''"></span> to this deal</button>
+    </div>
+  </form>
+  {% endif %}
+</div>

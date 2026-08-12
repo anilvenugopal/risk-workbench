@@ -145,7 +145,6 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     ``error`` state)."""
     ctx = _load_input(rwb_job_id)
     rdm_ids = ctx.get("rdm_ids", [])
-    package_id = ctx.get("package_id")
 
     submitted = 0
     failed = 0
@@ -154,6 +153,11 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
         rdm = rdm_service.get_rdm(rdm_id)
         if rdm is None or rdm.status != rdm_service.PENDING:
             continue
+        # Live membership beats the head's input_data snapshot (issue #22), same as
+        # _upload_edm_body: an RDM detached while its upload_rdm head is still pending
+        # would otherwise record the import_rdm irp_job with the package it already
+        # left — and irp_analysis.package_id inherits it from there.
+        package_id = rdm.package_id
         try:
             res = irp_gateway.submit_rdm_import(
                 name=rdm.name, source_file_path=rdm.source_file_path)

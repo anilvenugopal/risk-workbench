@@ -1,0 +1,41 @@
+{# The submission's package list (FR-022) — one full-width card per package, each
+   wrapped in a .package-item that also carries the detach form (issue #22).
+
+   The detach form sits in the wrapper, NOT in package_card.html: the card re-renders
+   itself from contexts that carry no submission id (the every-3s poll and every card
+   POST response target #package-card-{id} with outerHTML), so an in-card control
+   would vanish on the first swap. The wrapper is only ever rendered with the list,
+   which always knows its submission. Detach is bookkeeping on submission_package —
+   not the card's Delete (which removes members from Risk Modeler) and not member
+   removal.
+
+   `error`/`notice` are the attach POST's banners (same pair as package_card.html):
+   htmx drops non-2xx bodies, so a partial attach reports its skips from a 200. #}
+<div id="package-list" class="package-list">
+  {% if error %}
+  <div class="form-banner form-banner--error">{{ error }}</div>
+  {% endif %}
+  {% if notice %}
+  <div class="form-banner">{{ notice }}</div>
+  {% endif %}
+  {% for card in package_cards %}
+  <div class="package-item" id="package-item-{{ card.id }}">
+    {% include "partials/package_card.html" %}
+    {% if is_active and not card.deleted_at %}
+    <div class="package-item__bar">
+      <form method="post"
+            action="/submissions/{{ submission_id }}/packages/{{ card.id }}/detach"
+            class="inline-form"
+            hx-post="/submissions/{{ submission_id }}/packages/{{ card.id }}/detach"
+            hx-target="#package-list" hx-swap="outerHTML"
+            hx-confirm="Detach {{ card.name or 'Untitled package' }} from this deal? The package and its EDMs/RDMs stay in Risk Modeler and in any other deal that shares them, and it can be attached again later.">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <button class="btn-sm" type="submit">Detach from this deal</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <span class="tag-empty package-list__empty">No packages yet.</span>
+  {% endfor %}
+</div>

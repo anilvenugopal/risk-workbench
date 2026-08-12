@@ -10,9 +10,9 @@ consequences that make an attach actually *work*:
     without re-importing it, and the fan-out stays idempotent per (EDM, RDM) pair —
     the proof that attach needs no new sync logic (Article 5: the Risk Modeler
     consequence waits for the analyst's explicit Save & Sync click).
-  • ``_upload_edm_body`` reads membership **live** instead of trusting the head's
-    ``input_data`` snapshot, so a member detached while its import head is still
-    pending does not have the package's RDMs applied to it anyway.
+  • ``_upload_edm_body`` and ``_upload_rdm_body`` read membership **live** instead
+    of trusting the head's ``input_data`` snapshot, so a member detached while its
+    import head is still pending is not recorded against the package it left.
 
 Attach takes ``ready`` entities only; detach is wider (a ``pending_import`` or
 ``error`` member must be able to leave) — see ``test_package_service`` for the
@@ -384,6 +384,31 @@ def test_upload_edm_uses_live_membership_over_the_head_snapshot(
     package_jobs.run_pending()                            # the ORIGINAL pending head
     job = execute_one("SELECT package_id, irp_id FROM irp_job "
                       "WHERE irp_job_type='import_edm'", {}, connection="WORKBENCH")
+    assert job["package_id"] is None                      # live membership won
+
+
+def test_upload_rdm_uses_live_membership_over_the_head_snapshot(
+        iteration2_db, fake_irp, drive):
+    """The RDM mirror of the test above: an RDM detached while its ``upload_rdm``
+    head is still pending (``pending_import`` detaches fine) must not record the
+    ``import_rdm`` job against the package it already left — the poller stamps
+    ``irp_analysis.package_id`` from exactly that column, so the snapshot would put
+    the RDM's analyses on every EDM page of a package it is no longer in."""
+    a = iteration2_db.user_a
+    pid = _package(drive, a, edms=[("E1", "edm1.bak")], rdms=[("R1", "rdm1.mdf")])
+    sync.save_and_sync(package_id=pid, actor_id=a)        # enqueues both heads
+    rdm_id = next(iter(_member_ids(pid, "irp_rdm")))
+    assert f'"package_id": "{pid}"' in execute_scalar(
+        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'upload_rdm'",
+        {}, connection="WORKBENCH")
+
+    # the analyst removes it before the worker gets to the head
+    package_service.remove_member(package_id=pid, member_id=rdm_id,
+                                  member_kind="rdm", actor_id=a)
+
+    package_jobs.run_pending()                            # the ORIGINAL pending head
+    job = execute_one("SELECT package_id, irp_id FROM irp_job "
+                      "WHERE irp_job_type='import_rdm'", {}, connection="WORKBENCH")
     assert job["package_id"] is None                      # live membership won
 
 

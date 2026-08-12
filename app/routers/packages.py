@@ -56,6 +56,23 @@ def _card_partial(request: Request, package_id: str, status_code: int = 200,
                     status_code=status_code)
 
 
+def _package_list_partial(request: Request, submission_id: str,
+                          status_code: int = 200, error: str | None = None,
+                          notice: str | None = None, cards=None):
+    """The submission's whole package list, re-read — the response for both
+    package-level attach and detach (issue #22), so ordering matches a page
+    reload and the empty state reappears when the last package detaches.
+    ``is_active=True`` hardcoded like ``_card_partial``: every caller sits behind
+    the ``_submission_active`` gate, and htmx drops a 409 body anyway. Pass
+    ``cards`` when the caller already read them (the attach POST reads the list
+    to detect skipped picks)."""
+    cards = sync.get_package_cards(submission_id) if cards is None else cards
+    return _partial(request, "partials/package_list.html",
+                    {"package_cards": cards, "submission_id": submission_id,
+                     "is_active": True, "error": error, "notice": notice},
+                    status_code=status_code)
+
+
 def _with_unchecked_toast(response, unchecked_names: list[str]):
     """Attach the fail-open warning toast (issue #17): the save went through but
     these names couldn't be checked against Risk Modeler. htmx re-dispatches the
@@ -308,6 +325,85 @@ def remove_member(
     except MemberNotAttachable as exc:
         return _card_partial(request, package_id, error=str(exc))
     return _card_partial(request, package_id)
+
+
+# ── Attach an existing package to a submission (issue #22) ────────────────────
+
+@router.get("/submissions/{submission_id}/packages/attach", response_class=HTMLResponse)
+def attach_packages_modal(request: Request, submission_id: str):
+    """The "Add existing package" modal. GET, no CSRF — it writes nothing."""
+    if not _submission_active(submission_id):
+        return _partial(request, "partials/package_attach_modal.html",
+                        {"submission_id": submission_id, "closed": True},
+                        status_code=409)
+    candidates = package_service.get_attachable_packages(submission_id)
+    owners = package_service.submission_refs_for_packages(
+        [c.id for c in candidates])
+    return _partial(request, "partials/package_attach_modal.html",
+                    {"submission_id": submission_id, "closed": False,
+                     "candidates": candidates, "owners": owners})
+
+
+@router.post("/submissions/{submission_id}/packages/attach")
+def attach_packages(
+    request: Request,
+    submission_id: str,
+    package_ids: list[str] = Form(default=[]),
+    csrf_token: str = Form(...),
+):
+    """Attach the picked packages — inserts ``submission_package`` rows and nothing
+    else (D7: one physical copy shared across deals; no Risk Modeler touch).
+
+    Attaches independently per pick, and reports skips from the response's own
+    re-read: ``attach_to_submission`` refuses (silently, in its INSERT predicate) a
+    package soft-deleted since the modal rendered, so a posted id missing from the
+    re-read list was skipped. 200 with a banner, never 422 — htmx drops non-2xx
+    bodies (the ``add_members`` reasoning)."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if not _submission_active(submission_id):
+        return _partial(request, "partials/package_attach_modal.html",
+                        {"submission_id": submission_id, "closed": True},
+                        status_code=409)
+    ids = list(dict.fromkeys(p.strip() for p in package_ids if p.strip()))
+    if not ids:
+        return _package_list_partial(request, submission_id)
+    for package_id in ids:
+        package_service.attach_to_submission(
+            submission_id=submission_id, package_id=package_id,
+            actor_id=request.state.user.id)
+    cards = sync.get_package_cards(submission_id)
+    listed = {str(card.id).lower() for card in cards}
+    skipped = [p for p in ids if p.lower() not in listed]
+    if skipped:
+        return _package_list_partial(request, submission_id, cards=cards, error=(
+            f"Attached {len(ids) - len(skipped)} package(s). "
+            f"Skipped {len(skipped)} — a package that was just deleted can't be "
+            "attached. Reload to see the current packages."))
+    return _package_list_partial(request, submission_id, cards=cards, notice=(
+        f"Attached {len(ids)} package(s). Attaching is bookkeeping only — "
+        "nothing was submitted to Risk Modeler."))
+
+
+@router.post("/submissions/{submission_id}/packages/{package_id}/detach")
+def detach_package(
+    request: Request,
+    submission_id: str,
+    package_id: str,
+    csrf_token: str = Form(...),
+):
+    """Detach the package from this submission: delete the ``submission_package``
+    pair and nothing else. **Not** the card's Delete (which removes members FROM
+    Risk Modeler) and not member removal. A package detached from its last
+    submission stays live as a library package, offered again by every
+    submission's attach picker. Idempotent — a pair already gone is fine."""
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if not _submission_active(submission_id):
+        return _package_list_partial(request, submission_id, status_code=409)
+    package_service.detach_from_submission(
+        submission_id=submission_id, package_id=package_id)
+    return _package_list_partial(request, submission_id)
 
 
 # ── As-you-type member name check ─────────────────────────────────────────────

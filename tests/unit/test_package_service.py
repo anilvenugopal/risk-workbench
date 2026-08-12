@@ -29,6 +29,7 @@ from app.services.package_service import (
     attach_to_submission,
     create_package,
     detach_from_submission,
+    get_attachable_packages,
     get_packages_for_submission,
     package_member_count,
     remove_member,
@@ -247,6 +248,52 @@ def test_detach_and_soft_delete_hide_from_listing(iteration1_db):
     attach_to_submission(submission_id=s2, package_id=pid, actor_id=a)
     soft_delete_package(package_id=pid, actor_id=a)
     assert get_packages_for_submission(s2) == []  # deleted_at filters it out
+
+
+def test_get_attachable_packages_offers_unattached_and_other_deal_packages(iteration1_db):
+    """The attach picker's candidate rule (D7): a live package not attached to THIS
+    submission is offered — whether it belongs to another deal or to none."""
+    a = iteration1_db.user_a
+    s1, s2 = str(uuid.uuid4()), str(uuid.uuid4())
+    mine = create_package(name="Mine", edm_ids=[_edm()], actor_id=a)
+    attach_to_submission(submission_id=s1, package_id=mine, actor_id=a)
+    other_deal = create_package(name="OtherDeal", edm_ids=[_edm()], actor_id=a)
+    attach_to_submission(submission_id=s2, package_id=other_deal, actor_id=a)
+    library = create_package(name="Library", edm_ids=[_edm()], actor_id=a)
+    deleted = create_package(name="Deleted", edm_ids=[_edm()], actor_id=a)
+    soft_delete_package(package_id=deleted, actor_id=a)
+
+    candidates = get_attachable_packages(s1)
+
+    assert [c.name for c in candidates] == ["OtherDeal", "Library"]  # inserted_at order
+    assert all(c.member_count == 1 for c in candidates)
+
+
+def test_attach_refuses_a_soft_deleted_package(iteration1_db):
+    """Liveness lives in the INSERT predicate: a candidate soft-deleted between the
+    picker's render and its submit is a silent no-op, never a row."""
+    a = iteration1_db.user_a
+    pid = create_package(name="Gone", edm_ids=[_edm()], actor_id=a)
+    soft_delete_package(package_id=pid, actor_id=a)
+    s1 = str(uuid.uuid4())
+    attach_to_submission(submission_id=s1, package_id=pid, actor_id=a)
+    n = execute_scalar("SELECT COUNT(*) FROM submission_package WHERE package_id = :p",
+                       {"p": pid}, connection="WORKBENCH")
+    assert n == 0
+
+
+def test_detach_from_last_submission_leaves_a_library_package(iteration1_db):
+    """No last-submission restriction (product decision, issue #22): a package
+    detached from every deal stays live and is offered again by every attach picker."""
+    a = iteration1_db.user_a
+    pid = create_package(name="P", edm_ids=[_edm()], actor_id=a)
+    s1 = str(uuid.uuid4())
+    attach_to_submission(submission_id=s1, package_id=pid, actor_id=a)
+    detach_from_submission(submission_id=s1, package_id=pid)
+    row = execute_one("SELECT deleted_at FROM package WHERE id = :id",
+                      {"id": pid}, connection="WORKBENCH")
+    assert row["deleted_at"] is None
+    assert [c.id for c in get_attachable_packages(s1)] == [pid]
 
 
 def test_invalid_member_kind_rejected(iteration1_db):

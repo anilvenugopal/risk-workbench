@@ -80,7 +80,7 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | A Submission has one or more Packages. | Implemented |  |
 | A Package can be shared across Submissions. | Implemented | Same exposure and results reused across deals. |
 | A Package points to one physical copy of the EDM/RDM data. | Implemented | **Confirmed 8/4.** Attaching a Package to another Submission does **not** duplicate the data — "same, same underlying data is the idea." This is the mechanism that serves CIC's real case of "one set of data that goes with multiple submissions." |
-| An existing Package can be attached to an additional Submission after creation. | Not implemented | "Add existing package" — demoed as a concept 8/4, not yet built. |
+| An existing Package can be attached to an additional Submission after creation. | Implemented | "Add existing package" on the submission detail (active deals) lists live packages not yet attached — including packages shared with other deals. Attach and the per-package "Detach from this deal" write only `submission_package`; a package detached from every deal stays in the library, re-attachable from any deal's picker. |
 | A Package is unique in its own right, not owned by any single Submission. | Implemented | Its EDM/RDM names are likewise unique. |
 | Work against a shared Package propagates to every Submission that shares it. | Implemented | Analyses are hard-coupled to the EDM in Risk Modeler. Accepted and often preferred. **Confirmed 8/4** (was provisional — design note 03 §5). |
 | No duplicate EDMs are created just for tracking. | Implemented | If isolation is genuinely needed, add a new portfolio within one EDM. |

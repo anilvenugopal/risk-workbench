@@ -8,6 +8,13 @@
    linger beside it — hide it once the list actually holds a card. */
 .package-list:has(.package-card) .package-list__empty { display: none; }
 
+/* Card wrapper: the card plus its detach-from-submission bar (issue #22). The bar
+   lives outside .package-card because the card swaps itself (poll + card POSTs)
+   from contexts that carry no submission id. */
+.package-item { margin-bottom: var(--space-4); }
+.package-item .package-card { margin-bottom: var(--space-1); }
+.package-item__bar { display: flex; justify-content: flex-end; }
+
 /* ── card ─────────────────────────────────────────────────────────────────── */
 .package-card {
   background: var(--c-surface-1);

@@ -249,7 +249,9 @@ def attach_to_submission(
     *, submission_id: Any, package_id: Any, actor_id: Any,
 ) -> None:
     """Insert the submission_package pair (composite PK). Idempotent on the pair.
-    A package may attach to many submissions and vice versa (FR-025/SC-008)."""
+    A package may attach to many submissions and vice versa (FR-025/SC-008).
+    Only a live package inserts — a candidate soft-deleted between the attach
+    picker's render and its submit is a silent no-op, not an error."""
     execute_command(
         """
         INSERT INTO submission_package (submission_id, package_id, inserted_at,
@@ -258,6 +260,9 @@ def attach_to_submission(
         WHERE NOT EXISTS (
             SELECT 1 FROM submission_package
             WHERE submission_id = :sid AND package_id = :pid
+        )
+        AND EXISTS (
+            SELECT 1 FROM package WHERE id = :pid AND deleted_at IS NULL
         )
         """,
         {"sid": str(submission_id), "pid": str(package_id), "now": _utcnow(),
@@ -283,6 +288,36 @@ def soft_delete_package(*, package_id: Any, actor_id: Any) -> None:
         {"now": _utcnow(), "by": str(actor_id), "id": str(package_id)},
         connection="WORKBENCH",
     )
+
+
+def get_attachable_packages(submission_id: Any) -> list[Package]:
+    """Live packages NOT attached to this submission — the attach picker's
+    candidates (FR "add existing package", issue #22). Includes packages attached
+    to other submissions (a package is one physical copy shared across deals, D7)
+    and packages attached to none."""
+    rows = execute(
+        """
+        SELECT p.id, p.name, p.deleted_at, p.inserted_at
+        FROM package p
+        WHERE p.deleted_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM submission_package sp
+              WHERE sp.package_id = p.id AND sp.submission_id = :sid
+          )
+        ORDER BY p.inserted_at
+        """,
+        {"sid": str(submission_id)}, connection="WORKBENCH",
+    )
+    return [
+        Package(
+            id=str(row["id"]),
+            name=row["name"],
+            deleted_at=row["deleted_at"],
+            member_count=package_member_count(row["id"]),
+            inserted_at=row["inserted_at"],
+        )
+        for row in rows
+    ]
 
 
 def get_packages_for_submission(submission_id: Any) -> list[Package]:
