@@ -7,9 +7,11 @@ HX-Refresh), refusals → **409 + re-rendered modal fragment**, toasts via
 ``HX-Trigger: {"rwb:toast": …}``.
 
 The GET renders one snapshot of the STORED summary — zero Risk Modeler or
-DataBridge calls. The POST's only RM call happens inside
-``breakout_service.request_breakout`` (the FR-002a freshness read — the
-Article 2 submit-time pattern); everything else is enqueue-only (Article 11).
+DataBridge calls. Two request-path reads exist, both in services: the confirm's
+FR-002a freshness read (the Article 2 submit-time pattern) and the Add's
+name/emptiness checks (the Article 11 request-path exception, v3.2.0 — one
+cached RM name search and one single-row DataBridge count, both fail-open).
+Everything else is enqueue-only.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import json
 
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
@@ -195,8 +198,8 @@ async def breakout_group_preview(request: Request, edm_id: str,
     """Compose ONE cart row server-side (FR-018/P-23): the posted checkbox
     selections + label, validated against the stored summary and
     name-suffixed/overlap-checked against the already-carted group JSONs
-    posted along. No writes, no Risk Modeler or DataBridge call — the same
-    read path as the modal GET. Returns the cart-row fragment
+    posted along, then refused when the name is taken (P-25) or when no account
+    matches every filter (P-29). No writes. Returns the cart-row fragment
     (``hx-swap beforeend``); a refusal returns 409 retargeted at
     ``#bo-cart-error``."""
     form = await request.form()
@@ -224,6 +227,17 @@ async def breakout_group_preview(request: Request, edm_id: str,
                 edm_id, plan.name).collides:
             raise GateRefused(f"a portfolio named {plan.name!r} already "
                               "exists in this EDM — choose a different name")
+        # The emptiness check (P-29): two values that each have accounts can
+        # still share none, and the stored summary cannot see that. Runs in a
+        # threadpool because it queries DataBridge over the whole portfolio —
+        # unlike the name check above, which answers from a cache or one RM
+        # search, this must not hold the event loop while the page's 3-second
+        # polls wait. Fails open inside the service.
+        if await run_in_threadpool(breakout_service.group_matches_no_accounts,
+                                   gate, plan.filters):
+            raise GateRefused(
+                "no account matches every filter of this breakout — it would "
+                "create nothing. Change the values and add it again")
     except GateRefused as exc:
         response = _partial(request, "partials/breakout_cart_row.html",
                             {"error": exc.reason}, status_code=409)

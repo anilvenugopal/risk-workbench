@@ -95,6 +95,13 @@ class FakeIRP:
         self.selection_errors: dict[str, str] = {}
         self.raise_on_selection_read = False
         self.selection_calls: list[dict] = []
+        # Add-time match count (P-29): derived from selection_by_value when
+        # seeded, so a test that seeds selections gets the count the run would
+        # find; 1 when nothing is seeded. Override the answer, or make the read
+        # raise (the caller fails open), with these knobs.
+        self.match_count_override: int | None = None
+        self.raise_on_match_count = False
+        self.match_count_calls: list[dict] = []
         # composition: names already taken in RM → create raises the DISTINCT
         # duplicate-name type (the adoption signal); per-name generic failures;
         # recorded create/populate calls; seedable adopt hits per number;
@@ -340,6 +347,31 @@ class FakeIRP:
                                for v in values if v not in self.selection_errors},
             errors_by_value={v: self.selection_errors[v]
                              for v in values if v in self.selection_errors})
+
+    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str, filters) -> int:
+        if self.raise_on_match_count:
+            raise RuntimeError("fake IRP: forced match-count failure")
+        self.match_count_calls.append({
+            "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
+            "source_portfolio_irp_id": str(source_portfolio_irp_id),
+            "filters": {d: list(v) for d, v in filters.items()}})
+        if self.match_count_override is not None:
+            return self.match_count_override
+        if not self.selection_by_value:
+            # Nothing seeded is no opinion, not an empty breakout — a fake that
+            # answered zero here would refuse every Add in every test that never
+            # mentions selections.
+            return 1
+        # OR within a dimension, AND across dimensions (P-20) over the seeded
+        # selections — the same set algebra the run performs.
+        matched: set[int] | None = None
+        for values in filters.values():
+            union: set[int] = set()
+            for value in values:
+                union |= set(self.selection_by_value.get(value, []))
+            matched = union if matched is None else matched & union
+        return len(matched or set())
 
     def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                              name: str, number: str, description: str,

@@ -35,7 +35,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, Sequence, runtime_checkable
+from typing import Any, Protocol, Sequence, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,23 @@ _SELECTION_SCRIPTS = {
     "country": "breakout_country_accounts.sql",
     "peril": "breakout_peril_accounts.sql",
 }
+
+# The custom-breakout emptiness check (P-29): one row, one integer, and the
+# only DataBridge read permitted on the request path (Article 11 request-path
+# exception, v3.2.0). Its value expressions mirror the selection scripts above,
+# so a group that counts zero here is the same group the run would find empty.
+_MATCH_COUNT_SCRIPT = "breakout_match_count.sql"
+
+# Its per-dimension parameter names. A dimension missing from this map has no
+# clause in the script, and dropping its filter silently would count accounts the
+# breakout excludes — count_breakout_match raises instead.
+_MATCH_COUNT_PARAMS = {"lob": "lob_values", "state": "state_values",
+                       "country": "country_values", "peril": "peril_values"}
+
+# The delimiter joining a dimension's selected values into one scalar parameter.
+# ASCII unit separator: no EDM descriptor carries it, so no value can split
+# wrong and turn a breakout that has accounts into a refused Add.
+_MATCH_VALUE_SEPARATOR = "\x1f"
 
 # The overlap coverage read per dimension — whole-EDM aggregates run by
 # get_edm_exposure_summary, one row per portfolio: how many of its accounts
@@ -259,6 +276,10 @@ class IRPGateway(Protocol):
                                  source_portfolio_irp_id: str, dimension: str,
                                  values: Sequence[str]) -> BreakoutSelection: ...
 
+    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str,
+                             filters: dict[str, Sequence[str]]) -> int: ...
+
     def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                              name: str, number: str, description: str,
                              account_ids: Sequence[int]) -> SubPortfolioResult: ...
@@ -440,6 +461,41 @@ class _RealGateway:
             accounts_by_value={v: sorted(by_value.get(v, set()))
                                for v in values},
             errors_by_value={})
+
+    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str,
+                             filters: dict[str, Sequence[str]]) -> int:
+        # The Add-time emptiness check (P-29): how many accounts carry at least
+        # one selected value in EVERY filtered dimension. One row, one integer —
+        # the shape Article 11's request-path exception admits. Any failure
+        # raises; the caller fails open, so an unreachable DataBridge never
+        # blocks an Add.
+        unknown = sorted(set(filters) - set(_MATCH_COUNT_PARAMS))
+        if unknown:
+            raise ValueError(
+                f"breakout_match_count.sql carries no clause for dimension(s) "
+                f"{', '.join(unknown)} — their filters would be dropped and the "
+                "count would include accounts the breakout excludes")
+        params: dict[str, Any] = {
+            "portfolio_id": int(source_portfolio_irp_id)}
+        for dimension, param in _MATCH_COUNT_PARAMS.items():
+            selected = filters.get(dimension)
+            params[param] = (_MATCH_VALUE_SEPARATOR.join(selected) if selected
+                             else None)
+        frames = self._client().databridge.execute_query_from_file(
+            str(_DATABRIDGE_SQL_DIR / _MATCH_COUNT_SCRIPT), params=params,
+            database=self._cached_database_name(
+                edm_name=edm_name, exposure_irp_id=exposure_irp_id))
+        rows = frames[0].to_dict("records") if frames else []
+        if not rows:
+            # A COUNT query always returns one row (the _member_count
+            # reasoning): no rows means the read itself failed, and reporting
+            # that as zero would refuse a breakout that has accounts.
+            raise ValueError(
+                f"match count for portfolio {source_portfolio_irp_id} returned "
+                "no rows — the count could not be verified")
+        count = rows[0].get("AccountCount")
+        return int(count) if count is not None else 0
 
     def _member_count(self, *, edm_name: str, exposure_irp_id: str,
                       portfolio_irp_id: str) -> int:
@@ -930,6 +986,14 @@ def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
         dimension=dimension, values=values)
 
 
+def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
+                         source_portfolio_irp_id: str,
+                         filters: dict[str, Sequence[str]]) -> int:
+    return _active().count_breakout_match(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        source_portfolio_irp_id=source_portfolio_irp_id, filters=filters)
+
+
 def create_sub_portfolio(*, edm_name: str, exposure_irp_id: str, name: str,
                          number: str, description: str,
                          account_ids: Sequence[int]) -> SubPortfolioResult:
@@ -968,7 +1032,7 @@ __all__ = [
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
     "search_treaties", "get_analysis_metadata", "fetch_portfolio_stamp",
-    "select_breakout_accounts", "create_sub_portfolio",
+    "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
     "find_portfolio_by_name",
 ]

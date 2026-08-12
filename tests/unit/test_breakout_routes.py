@@ -701,6 +701,53 @@ def test_group_preview_refusal_retargets_the_error_slot(
     assert r3.headers["HX-Refresh"] == "true"
 
 
+def test_group_preview_blocks_a_breakout_no_account_matches(
+        routes_db, client, fake_irp):
+    # Japan + Earthquake (note 12 §1.2): both values have accounts, no account
+    # carries one from each. The stored summary cannot see that, so the Add asks
+    # DataBridge for the intersection count (P-29) and refuses on zero.
+    edm_id, pid = _custom_pair(fake_irp)
+    fake_irp.selection_by_value = {"TX": [1, 2], "1": [3, 4], "2": [1]}
+
+    empty = _add_group(client, edm_id, pid, label="TX quake",
+                       selections={"state": ["TX"], "peril": ["1"]})
+    assert empty.status_code == 409
+    assert empty.headers["HX-Retarget"] == "#bo-cart-error"
+    assert "no account matches every filter" in empty.text
+    assert _group_row_ids() == [] and _breakout_jobs() == []
+
+    # the same two dimensions with a value that does share an account carts fine
+    ok = _add_group(client, edm_id, pid, label="TX wind",
+                    selections={"state": ["TX"], "peril": ["2"]})
+    assert ok.status_code == 200
+    assert "TX wind" in ok.text
+
+
+def test_group_preview_skips_the_match_count_for_one_dimension(
+        routes_db, client, fake_irp):
+    # A one-dimension breakout cannot be empty — its values came from the
+    # summary, which only carries values accounts have. No DataBridge read.
+    edm_id, pid = _custom_pair(fake_irp)
+    fake_irp.match_count_override = 0
+    r = _add_group(client, edm_id, pid, label="Texas",
+                   selections={"state": ["TX"]})
+    assert r.status_code == 200
+    assert fake_irp.match_count_calls == []
+
+
+def test_group_preview_adds_when_the_match_count_cannot_be_read(
+        routes_db, client, fake_irp):
+    # Fail open (Article 11's request-path exception): an unreachable DataBridge
+    # never blocks an Add, and the run's own empty-intersection guard is the
+    # final check.
+    edm_id, pid = _custom_pair(fake_irp)
+    fake_irp.raise_on_match_count = True
+    r = _add_group(client, edm_id, pid, label="Coastal HU",
+                   selections={"state": ["TX"], "peril": ["2"]})
+    assert r.status_code == 200
+    assert "Coastal HU" in r.text
+
+
 def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
     edm_id, pid = _custom_pair(fake_irp)
     r = _confirm_cart(client, edm_id, pid, [

@@ -104,14 +104,17 @@ def test_routers_never_touch_irp_gateway():
     assert offenders == [], f"routers must not touch irp_gateway: {offenders}"
 
 
-def test_breakout_request_path_reads_only_fetch_portfolio_stamp():
-    """breakout_service (the confirm path) calls exactly one gateway function —
-    the FR-002a freshness read — and never a web-layer get_*."""
+def test_breakout_request_path_reads_only_its_two_permitted_gateway_calls():
+    """breakout_service calls exactly two gateway functions — the FR-002a
+    freshness read at confirm and the P-29 emptiness count at Add — and never a
+    web-layer get_*. Both are named exceptions: the Article 2 submit-time
+    pattern and Article 11's request-path exception (v3.2.0, bounded single-row
+    read, fail-open). Value enumeration still comes off the stored summary."""
     text = _strip_line_comments(_BREAKOUT_SERVICE.read_text(encoding="utf-8"))
     calls = set(_IRP_GATEWAY_CALL.findall(text))
-    assert calls <= {"fetch_portfolio_stamp"}, (
-        "breakout_service may only call irp_gateway.fetch_portfolio_stamp "
-        f"on the request path (Article 11): {sorted(calls)}")
+    assert calls <= {"fetch_portfolio_stamp", "count_breakout_match"}, (
+        "breakout_service may only call irp_gateway.fetch_portfolio_stamp and "
+        f"count_breakout_match on the request path (Article 11): {sorted(calls)}")
 
 
 def test_every_seeded_breakout_dimension_has_its_vocabulary():
@@ -139,6 +142,10 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
         assert code in breakout_service._DIMENSION_NOUN, code
         assert code in irp_gateway._SELECTION_SCRIPTS, code
         assert code in irp_gateway._COVERAGE_SCRIPTS, code
+        # A value dimension with no clause in breakout_match_count.sql would
+        # have its filter dropped, and the Add-time count would then include
+        # accounts the breakout excludes (P-29).
+        assert code in irp_gateway._MATCH_COUNT_PARAMS, code
     for code in quick:
         assert code in breakout_service._DIMENSION_LETTER, code
         assert f"run_breakout_{code}" in job_types, code
@@ -156,18 +163,22 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
     assert "run_breakout_custom" in portfolio_jobs._BODIES
     assert "custom" not in irp_gateway._SELECTION_SCRIPTS
     assert "custom" not in irp_gateway._COVERAGE_SCRIPTS
+    assert "custom" not in irp_gateway._MATCH_COUNT_PARAMS
 
     sql_dir = _REPO_ROOT / "sql" / "databridge"
     absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,
-                                     irp_gateway._COVERAGE_SCRIPTS)
+                                     irp_gateway._COVERAGE_SCRIPTS,
+                                     {"match": irp_gateway._MATCH_COUNT_SCRIPT})
               for script in scripts.values()
               if not (sql_dir / script).is_file()]
     assert absent == [], f"registered script missing from sql/databridge: {absent}"
 
 
 def test_no_databridge_on_request_path():
-    """No DataBridge connection or trusted-script execution reaches the web
-    layer — the summary the modal renders is the STORED one (Article 11)."""
+    """The web layer never opens a DataBridge connection itself and never runs a
+    trusted script: the summary the modal renders is the STORED one, and the one
+    permitted request-path read goes through ``irp_gateway`` and a repo-owned SQL
+    file (Article 11, request-path exception v3.2.0)."""
     paths = [*(_APP / "routers").rglob("*.py"), _BREAKOUT_SERVICE]
     offenders = []
     for path in paths:

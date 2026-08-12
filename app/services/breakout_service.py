@@ -164,6 +164,7 @@ class BreakoutGate:
     # built on a gate that says "portfolio not found".
     rows_live: bool = False    # EDM row and source portfolio row both exist, neither soft-deleted
     edm_irp_id: str | None = None      # irp_edm.irp_id (the RM exposureId)
+    edm_name: str | None = None        # irp_edm.name — the DataBridge database lookup key
     source_name: str | None = None     # the source portfolio's name
     source_irp_id: str | None = None   # its RM portfolioId — None until the backfill writes one
     stored_stamp: str | None = None    # exposure_detail.stamp_date — the FR-002a anchor
@@ -359,6 +360,7 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
         rows_live=rows_live,
         edm_irp_id=(str(edm["irp_id"]) if rows_live and edm["irp_id"] is not None
                     else None),
+        edm_name=(str(edm["name"]) if rows_live else None),
         source_name=(str(portfolio["name"]) if rows_live else None),
         source_irp_id=(str(portfolio["irp_id"])
                        if rows_live and portfolio["irp_id"] is not None else None),
@@ -1108,6 +1110,34 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
     return plans
 
 
+def group_matches_no_accounts(gate: BreakoutGate,
+                              filters: dict[str, list[str]]) -> bool:
+    """True only when the Add must be refused: DataBridge answered, and no
+    account of the source portfolio carries a selected value in every filtered
+    dimension (P-29). The stored summary cannot answer this — it counts accounts
+    per value, and two values that each have accounts can still share none.
+
+    Fails open. An unreachable DataBridge, a count that could not be verified,
+    or a portfolio with no Risk Modeler id returns False and the Add proceeds;
+    the run's own empty-intersection guard stays the final check (FR-021).
+
+    A one-dimension breakout skips the read entirely: its values came from the
+    summary, which only carries values accounts actually have, so its selection
+    cannot be empty."""
+    if (len(filters) < 2 or gate.edm_name is None or gate.edm_irp_id is None
+            or gate.source_irp_id is None):
+        return False
+    try:
+        return irp_gateway.count_breakout_match(
+            edm_name=gate.edm_name, exposure_irp_id=gate.edm_irp_id,
+            source_portfolio_irp_id=gate.source_irp_id,
+            filters=filters) == 0
+    except Exception as exc:  # noqa: BLE001 — fail open; the run guard backstops
+        logger.warning("breakout match count failed for portfolio %s: %s",
+                       gate.source_irp_id, exc)
+        return False
+
+
 def check_group_name(edm_id: Any, name: str) -> CollisionCheck:
     """The immediate group-name check (P-25) behind the custom pane's
     as-you-type fragment and the Add-time block: a group's portfolio name must
@@ -1362,6 +1392,6 @@ __all__ = [
     "request_breakout",
     "load_approved_plan", "SubPortfolioOutcome", "summarize_outcomes",
     "compute_group_key", "GroupPlan", "compose_group_cart",
-    "check_group_name",
+    "check_group_name", "group_matches_no_accounts",
     "request_group_breakout", "ApprovedGroup", "load_approved_group",
 ]

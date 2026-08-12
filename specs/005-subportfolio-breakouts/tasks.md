@@ -227,6 +227,12 @@ continue from the tables in spec.md/plan.md.
 
 - [X] T090 [P-28] [FR-004] [FR-005] The CB branch across all six geography scripts — `portfolio_countries.sql`, `portfolio_country_coverage.sql`, `breakout_country_accounts.sql` keep `CountryRMSCode` over the ISO code when it is `CB`; `portfolio_states.sql`, `portfolio_state_coverage.sql`, `breakout_state_accounts.sql` take `CountryCode` in place of `Admin1Code` there, with a NULL label. SQL only — no Python behavior changes, and the summary builder reads the same column names. **Verified against DataBridge only**: the unit tier feeds these scripts' results from fakes and cannot exercise the SQL
 
+### Workstream 9 — Add-time emptiness check (P-29, T-17, FR-021 rev., note 12 D2)
+
+- [X] T091 [P-29] [T-17] [FR-021] Constitution **3.1.0 → 3.2.0**: Article 11's DataBridge clause gains a request-path exception for a bounded, single-row, fail-open point-of-action check. `AGENTS.md` and `DATA_MODEL.md` carry the same wording; `test_no_databridge_on_request_path` keeps its assertion (the web layer still opens no connection and runs no trusted script) and `test_breakout_request_path_reads_only_fetch_portfolio_stamp` becomes the two-call guard
+- [X] T092 [P-29] [T-17] [FR-021] `sql/databridge/breakout_match_count.sql` + `irp_gateway.count_breakout_match` — one `EXISTS` per filtered dimension at account grain, value expressions mirroring the selection scripts (CB branch included), selected values passed as one CHAR(31)-joined scalar per dimension, `NULL` dropping an unfiltered dimension. A dimension missing from `_MATCH_COUNT_PARAMS` raises rather than silently dropping its filter; the guard test pins every value dimension to an entry. **Verified against DataBridge only** — the unit tier answers from the fake and cannot exercise the SQL
+- [X] T093 [P-29] [FR-021] `breakout_service.group_matches_no_accounts` (skips one-dimension groups, fails open) refuses the Add in `breakout_group_preview` before the row reaches the cart, in a threadpool so the query never holds the event loop. Route tests in `test_breakout_routes.py` cover the refusal, the one-dimension skip, and the fail-open path
+
 ---
 
 ## Dependencies & Execution Order

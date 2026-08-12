@@ -2,6 +2,22 @@
   Sync Impact Report
   ==================
 
+  --- 2026-08-12 (spec 005 follow-on, note 12 §1.2) ---
+  Version change: 3.1.0 → 3.2.0  (MINOR — the Article 11 DataBridge clause
+  gains a request-path carve-out; no article redefined or removed; 13-article
+  numbering stable)
+
+  Added: Article 11 DataBridge clause — a bounded, single-row, parameterized
+  DataBridge read is permitted on the request path when it answers a
+  point-of-action validation. Motivated by the custom-breakout empty-selection
+  problem: a group filtering two dimensions can name values that no single
+  account carries (Japan + Earthquake in the 2026-08-11 demo), the stored
+  summary carries per-value counts but no cross-tab, and the intersection is
+  only knowable from DataBridge. The 3.1.0 wording pinned every DataBridge read
+  worker-side, which forced a job-and-poll round trip to answer one integer the
+  analyst is waiting on. The enumeration ban is unchanged: the modal still
+  renders the STORED summary.
+
   --- 2026-07-23 (spec 004 Addendum A) ---
   Version change: 3.0.0 → 3.1.0  (MINOR — new permission clause added to
   Article 11; no article redefined or removed; 13-article numbering stable)
@@ -301,6 +317,13 @@ DDL, migrations, or bootstrap against it. Moody's EDM schema knowledge lives in
 the integration library, not this codebase. A DataBridge read failure is
 enrichment degradation, never a page error (the graceful-empty doctrine applies).
 
+**Request-path exception (added v3.2.0, 2026-08-12):** a **bounded, single-row,
+parameterized** DataBridge read is permitted on the request path when it answers
+a point-of-action validation the analyst is waiting on — still read-only, still
+through `irp_gateway`, still a repo-owned SQL file, and it MUST fail open (an
+unreachable DataBridge never blocks the action). Enumerations, per-EDM
+aggregates, and any read whose result size grows with the book stay worker-side.
+
 ### Article 12 — Test-First, with Three Connected Strategies
 
 Behavior MUST be covered by tests across three tiers:
@@ -366,4 +389,4 @@ research begins.
 
 ---
 
-**Version**: 3.1.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-07-23
+**Version**: 3.2.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-08-12

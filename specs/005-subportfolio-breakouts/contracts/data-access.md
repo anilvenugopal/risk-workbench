@@ -169,6 +169,10 @@ def populate_sub_portfolio(*, exposure_irp_id: str, portfolio_irp_id: str,
                            account_ids: Sequence[int]) -> SubPortfolioResult   # adopt-then-populate (R7)
 def find_portfolio_by_number(exposure_irp_id: str, number: str) -> list[PortfolioHit]  # adopt (R7/W-17)
 def fetch_portfolio_stamp(exposure_irp_id: str, portfolio_irp_id: str) -> str | None   # FR-002a
+
+def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
+                         source_portfolio_irp_id: str,
+                         filters: dict[str, Sequence[str]]) -> int                     # P-29
 ```
 
 - `select_breakout_accounts` runs one parameterized DataBridge query — no filter grammar and no URL chunking, both of which belonged to the REST selection W-20 retired on 2026-08-05. It resolves and caches the EDM's `databaseName`, substitutes `{{ portfolio_id }}`, and maps the `Value`/`AccountId` rows into per-value id lists. A wrong column name returns a plausible empty result rather than an error (W-15) — unit-tested against recorded rows.
@@ -182,6 +186,7 @@ def fetch_portfolio_stamp(exposure_irp_id: str, portfolio_irp_id: str) -> str | 
 - **The comparison decides success: a member count that does not equal the ids sent raises**, in both the create path and the adopt-then-populate heal. FR-008 asks for exactly the selected accounts, so the worker fails that sub-portfolio and writes no lineage row rather than reporting a short or over-populated portfolio as created. Nothing is deleted (P-07); the re-run adopts the portfolio on its number and re-adds, which heals a **short** membership. An **over-populated** one it cannot heal — re-adding never removes a member — so that entry fails on every run until the extra accounts are removed in Risk Modeler, which is what the failure reason says.
 - **A member-count read returning no rows raises rather than counting zero.** The script is a `COUNT`, so it always returns one row; no rows means the read came back empty, and treating that as an empty portfolio would blame the add for a DataBridge failure.
 - `fetch_portfolio_stamp` wraps the **existing** `search_portfolios_paginated` (no library change; `stampDate` passes through in the response — confirmed as Risk Modeler's updated-at equivalent). It takes `exposure_irp_id` as a string like the other four and coerces internally, so no caller has to pick. Deliberately not named `get_*`: the architecture guard greps for web-layer `get_*` IRP calls, and this one is request-path-legal. The spec-004 `backfill_edm_detail` worker gains the matching capture — it stores the portfolio's `stampDate` in `exposure_detail` alongside the summary, read **before** the DataBridge read so the stamp is conservative.
+- `count_breakout_match` is the **only DataBridge read on the request path** (Article 11's request-path exception, v3.2.0 — bounded, single-row, fail-open): `breakout_match_count.sql` runs one `EXISTS` per filtered dimension against `dbo.portacct`, so the count is accounts carrying at least one selected value in **every** filtered dimension — the same whole-account semantics the run reaches by intersecting per-dimension selections (T-14, which this does not replace: the run needs the ids). Each dimension's selected values arrive as one `CHAR(31)`-joined scalar parameter, `NULL` when the breakout does not filter that dimension, which makes its clause `NULL IS NULL` and drops it; every placeholder sits in a bare value position, because the templater substitutes a placeholder found inside quotes raw instead of escaping it. A dimension absent from `_MATCH_COUNT_PARAMS` **raises** — dropping its filter silently would count accounts the breakout excludes. No rows raises too, for the `_member_count` reason.
 - **Confirm the signatures against the active wheel (`make irp-status`) before implementing** (pre-release discipline).
 
 ### Extended summary builder (spec-004 edit, worker-side)
@@ -190,7 +195,7 @@ The gateway's per-portfolio summary builder gains `breakout_values` (per dimensi
 
 ### CI fake
 
-`tests/unit/fakes/fake_irp.py` mirrors: `select_breakout_accounts` (seedable per-value id lists, empty selections, and per-value read errors), `create_sub_portfolio` (duplicate-name raise, seedable failures, read-back counts), `populate_sub_portfolio`, `find_portfolio_by_number` (seedable 0/1/many hits), `fetch_portfolio_stamp` (seedable stamp per portfolio), and the extended summary builder (`set_exposure_summary` seeds `breakout_coverage` per dimension, or omits it for the pre-revision summary).
+`tests/unit/fakes/fake_irp.py` mirrors: `select_breakout_accounts` (seedable per-value id lists, empty selections, and per-value read errors), `create_sub_portfolio` (duplicate-name raise, seedable failures, read-back counts), `populate_sub_portfolio`, `find_portfolio_by_number` (seedable 0/1/many hits), `fetch_portfolio_stamp` (seedable stamp per portfolio), `count_breakout_match` (derived from the seeded selections by default, with an override and a raise knob), and the extended summary builder (`set_exposure_summary` seeds `breakout_coverage` per dimension, or omits it for the pre-revision summary).
 
 ## 4. Unit-test surface (Article 12)
 
