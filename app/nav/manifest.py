@@ -219,6 +219,18 @@ NODES: list[dict[str, Any]] = [
         "bottom": False,
     },
     {
+        "key": "irp.sync_edms",
+        "label": "Sync from Risk Modeler",
+        "parent": "irp",
+        "route": "/edms/sync",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
+    {
         "key": "irp.rdm_library",
         "label": "RDM Library",
         "parent": "irp",

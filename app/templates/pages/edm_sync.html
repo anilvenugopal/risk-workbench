@@ -1,0 +1,46 @@
+{% extends "base/shell.html" %}
+{% block title %}Sync from Risk Modeler{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Sync from Risk Modeler</h1>
+    <div class="detail-meta">
+      <span>EDMs in Risk Modeler that the workbench does not track yet. Syncing one
+        creates it here and pulls its portfolios, exposure figures and treaties.</span>
+    </div>
+  </div>
+
+  {% if synced %}
+  <div class="form-banner form-banner--ok">
+    Syncing {{ synced }} EDM{{ '' if synced == 1 else 's' }}. {{ 'It is' if synced == 1
+    else 'They are' }} in the <a href="/edms">EDM Library</a> now; the portfolios and
+    treaties fill in as the worker fetches them.
+    {% if skipped %}
+    <br>{{ skipped }} EDM{{ ' was' if skipped == 1 else 's were' }} already in the
+    workbench and {{ 'was' if skipped == 1 else 'were' }} skipped.
+    {% endif %}
+  </div>
+  {% elif skipped %}
+  <div class="form-banner">
+    {{ skipped }} EDM{{ ' was' if skipped == 1 else 's were' }} already in the workbench
+    — nothing to do.
+  </div>
+  {% endif %}
+
+  {# Name search only: RM's status is READY on every EDM anyone has observed, so a
+     status filter would narrow nothing. No hx-get — this page is one live Risk
+     Modeler read per render, so filtering as you type would be a call per keystroke.
+     Carries no page input, so re-searching lands on page 1. #}
+  <form class="filters" method="get" action="/edms/sync">
+    <label>Search
+      <input class="wf-field__input" type="text" name="q" placeholder="name…"
+             value="{{ filter_values.q }}" autocomplete="off">
+    </label>
+    <button class="btn-sm" type="submit">Search</button>
+    {% if filter_values.q %}<a class="btn-sm" href="/edms/sync">Clear</a>{% endif %}
+  </form>
+
+  {% include "partials/edm_sync_table.html" %}
+</div>
+{% endblock %}
