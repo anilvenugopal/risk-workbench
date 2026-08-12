@@ -200,7 +200,7 @@ erDiagram
     uniqueidentifier package_id FK "nullable; → package (bundle membership)"
     string source_file_path "nullable; .bak/.mdf/.csv this EDM was created from"
     string name "IRP EDM name"
-    int irp_id "nullable; backfilled by poller on import FINISHED"
+    int irp_id "nullable; unique among live rows; backfilled by poller on import FINISHED"
     string created_by_irp_job_irp_id "nullable; job whose completion created this EDM"
     datetime as_of "nullable"
     string server_name "IRP DataBridge server"

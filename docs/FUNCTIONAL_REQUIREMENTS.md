@@ -159,7 +159,7 @@ Getting a deal's data into the workbench and seeing what's in it.
 | A delete-after-transfer checkbox removes the temporary BAK file once imported. | Not implemented | Otherwise temp files accumulate on the share forever. |
 | Import status is tracked per EDM/RDM. | Implemented |  |
 | Import status is tracked per Package. | Partial | Package-level status tells us when it is ready to work on. |
-| An EDM/RDM already in Risk Modeler can be linked to a Submission without re-importing. | Implemented | "Orphaned" databases not created by the workbench — select them into a Package. |
+| An EDM already in Risk Modeler can be linked to a Submission without re-importing. | Partial | Two steps: **Moody's IRP › Sync from Risk Modeler** lists the EDMs with no `irp_edm` row and creates one for each the analyst ticks (pulling its portfolios, exposure figures, and treaties), then the package modal attaches it. The package modal selects existing `irp_edm` rows, so an EDM the workbench has never seen is not offered there until it is synced. RDMs have no equivalent — `search_analyses` keys on `source_rdm_name`, so adopting one is a separate feature. |
 | All EDMs are browsable in an EDM Library. | Implemented | Includes workbench-created and orphaned. |
 | All RDMs are browsable in an RDM Library. | Implemented | Includes workbench-created and orphaned. |
 

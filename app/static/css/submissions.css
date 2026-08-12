@@ -103,6 +103,10 @@
   color: var(--color-danger); background: var(--color-danger-bg);
   border-color: var(--color-danger-border);
 }
+.form-banner--ok {
+  color: var(--color-positive); background: var(--color-positive-bg);
+  border-color: var(--color-positive-border);
+}
 .form-banner--readonly {
   color: var(--color-warning); background: var(--color-warning-bg);
   border-color: var(--color-warning-border);

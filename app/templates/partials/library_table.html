@@ -51,7 +51,9 @@
           {% endif %}
         </td>
         <td>{% if row.irp_id %}<span class="mono">{{ row.irp_id }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
-        <td class="lib-src"><span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span></td>
+        {# An EDM synced from Risk Modeler has no source file — the import happened
+           there, before the workbench saw it. #}
+        <td class="lib-src">{% if row.source_file_path %}<span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{{ (row.inserted_at | string)[:10] if row.inserted_at else '' }}</td>
       </tr>
       {% else %}

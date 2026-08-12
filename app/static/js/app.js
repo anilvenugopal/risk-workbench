@@ -632,6 +632,36 @@ document.addEventListener('alpine:init', () => {
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
     },
   }));
+
+  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
+  // makes the whole row a hit area. With JS off none of it is needed — the button
+  // stays enabled and an empty irp_ids POST is a no-op redirect.
+  Alpine.data('syncPicks', () => ({
+    count: 0,
+    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+    // zero leaves the button disabled over visibly ticked boxes.
+    init() { this.onChange(); },
+    boxes() {
+      return this.$root.querySelectorAll('input[name="irp_ids"]');
+    },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="irp_ids"]:checked').length;
+    },
+    all(checked) {
+      this.boxes().forEach((b) => { b.checked = checked; });
+      this.onChange();
+    },
+    pick(e) {
+      // A click that ends a drag-selection keeps the selection, so an exposureId
+      // can be copied out of a row without toggling it.
+      if (window.getSelection().toString()) return;
+      const box = e.currentTarget.querySelector('input[name="irp_ids"]');
+      if (!box) return;
+      box.checked = !box.checked;
+      this.onChange();
+    },
+  }));
 });
 
 // ── Row click → open the submission (D17) ─────────────────────────────────────
