@@ -783,7 +783,30 @@ function messageFromResponse(xhr) {
   return null;
 }
 
+// A refused breakout Add answers 409 with the reason as its body, retargeted at
+// #bo-cart-error (portfolios.py breakout_group_preview). htmx discards the body of
+// a 4xx response, so the reason has to be let through explicitly. isError stays
+// set: the Add button clears the ticked values and the name only when
+// afterRequest reports success, and a refusal must leave them alone so the
+// analyst can change one value and add again.
+function isBreakoutCartRefusal(e) {
+  const target = e.detail && e.detail.target;
+  return e.detail.xhr.status === 409 && !!target && target.id === 'bo-cart-error';
+}
+document.addEventListener('htmx:beforeSwap', (e) => {
+  if (isBreakoutCartRefusal(e)) e.detail.shouldSwap = true;
+});
+// A refusal names one set of ticked values and one breakout name. Editing either
+// makes it wrong, so it clears on edit the way ncReset drops a stale name verdict.
+function boClearCartError(el) {
+  const form = el && el.closest('form');
+  const box = form && form.querySelector('#bo-cart-error');
+  if (box) box.innerHTML = '';
+}
+
 document.addEventListener('htmx:responseError', (e) => {
+  // Already on screen in #bo-cart-error — a toast would only repeat it.
+  if (isBreakoutCartRefusal(e)) return;
   const xhr = e.detail.xhr;
   showToast(messageFromResponse(xhr) || `Something went wrong (${xhr.status}).`, 'error');
 });

@@ -111,7 +111,7 @@
                        ({ name: c.name, v: c.value, d: c.closest('.bo-checks').dataset.dimlabel })) },
                      get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
                      get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
-           @change="resel()"
+           @change="resel(); boClearCartError($el)"
            @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
@@ -161,7 +161,8 @@
           <input type="text" name="group_label" maxlength="{{ name_max }}"
                  placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
                  @input="nameVal = $el.value; nameState = 'pending';
-                         ncReset($el.closest('form').querySelector('.name-collision'))"
+                         ncReset($el.closest('form').querySelector('.name-collision'));
+                         boClearCartError($el)"
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"
                  hx-target="next .name-collision" hx-swap="outerHTML">
@@ -173,7 +174,7 @@
                     const f = $el.closest('form');
                     f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
                     f.querySelector('[name=group_label]').value = '';
-                    f.querySelector('#bo-cart-error').innerHTML = '';
+                    boClearCartError($el);
                     ncReset(f.querySelector('.name-collision'));
                     nameVal = ''; nameState = 'pending'; resel();
                   }">Add breakout</button>

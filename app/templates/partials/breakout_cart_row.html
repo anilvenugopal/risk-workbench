@@ -4,7 +4,8 @@
    The hidden `group` input is what the cart confirm posts back; the server
    re-validates it in full (client JSON is never trusted). #}
 {% if error %}
-<div class="bo-note bo-note--notice">{{ error }}</div>
+<div class="bo-note bo-note--error" role="alert"><strong>Not added:</strong>
+  {{ error }}</div>
 {% else %}
 <div id="bo-cart-error" hx-swap-oob="true"></div>
 <div class="bo-cart-row">
