@@ -144,10 +144,8 @@ def import_edm(
 
 @dataclass
 class AdoptableEdm:
-    """One Risk Modeler EDM with no ``irp_edm`` row. ``server_name`` is what the
-    adopt writes to ``irp_edm.server_name``; the rest is display-only, straight from
-    Risk Modeler's exposures list, except ``rm_url`` — the deep link into Risk
-    Modeler's own portfolios screen, which the workbench builds."""
+    """One Risk Modeler EDM with no ``irp_edm`` row. Straight from RM's exposures
+    list except ``rm_url``, which the workbench builds."""
     irp_id: int
     name: str
     status: str | None = None
@@ -160,9 +158,8 @@ class AdoptableEdm:
 
 @dataclass
 class AdoptablePage:
-    """One page of the adoptable list. ``total`` is every EDM the diff and the name
-    filter left, not just this page — it is what the page count is drawn from, and
-    it is free here because the diff already holds the whole list in memory."""
+    """One page of the adoptable list. ``total`` counts every EDM the diff and the
+    name search left, not just this page."""
     rows: list[AdoptableEdm]
     page: int
     has_next: bool
@@ -172,7 +169,8 @@ class AdoptablePage:
 @dataclass
 class AdoptResult:
     """``adopted`` is the new ``irp_edm.id`` per EDM taken in; ``skipped`` holds the
-    exposureIds another analyst claimed first."""
+    exposureIds that were not taken in — the workbench already tracks them, or Risk
+    Modeler no longer lists them."""
     adopted: list[str] = field(default_factory=list)
     skipped: list[int] = field(default_factory=list)
 
@@ -187,16 +185,10 @@ def _claimed_exposure_ids() -> set[str]:
 
 
 def _unresolved_names() -> set[str]:
-    """Names of live rows that hold no exposureId, so the exposureId arm of the
-    diff cannot see them. Two ways a row gets here: it is still importing
-    (``irp_id`` is written only at import FINISHED), or the poller's by-name
-    resolution missed and it reached ``ready`` with ``irp_id`` NULL anyway
-    (``_handle_import_edm_terminal`` passes ``resolved.get('edm_exposure_id')``,
-    which may be None).
-
-    ``error`` and ``deleted`` are excluded: a failed import created nothing in
-    Risk Modeler, so an EDM there under the same name is a different one and
-    stays adoptable."""
+    """Names of live rows that hold no exposureId — still importing, or the poller's
+    by-name resolution missed and the row reached ``ready`` with ``irp_id`` NULL.
+    ``error`` and ``deleted`` are excluded: a failed import created nothing in Risk
+    Modeler, so an EDM there under the same name is a different one."""
     rows = execute(
         "SELECT name FROM irp_edm WHERE deleted_at IS NULL AND irp_id IS NULL "
         "AND status NOT IN (:e, :d)",
@@ -205,24 +197,27 @@ def _unresolved_names() -> set[str]:
 
 
 def list_adoptable_edms(*, page: int = 1,
-                        name: str | None = None) -> AdoptablePage:
-    """Risk Modeler's EDMs minus the ones the workbench already tracks. The one
-    Risk Modeler call on the request path is this *read* (permitted, Article 11 —
-    same latitude ``name_check`` takes); it is not cached, because a stale list
-    would offer an EDM that is already gone.
+                        name: str | None = None) -> AdoptablePage | None:
+    """Risk Modeler's EDMs minus the ones the workbench already tracks, or None when
+    Risk Modeler does not answer — the page then renders its unavailable state
+    rather than a short list, which would read as "everything is already synced".
 
-    A soft-deleted ``irp_edm`` row hides nothing: an EDM deleted in the workbench
-    but still present in Risk Modeler is offered again.
+    This *read* is permitted on the request path (Article 11, same latitude
+    ``name_check`` takes) and is not cached: a stale list would offer an EDM that is
+    already gone. A soft-deleted ``irp_edm`` row hides nothing — an EDM deleted here
+    but still in Risk Modeler is offered again.
 
-    Paging and the ``name`` search are applied here rather than passed to Risk
-    Modeler as ``limit``/``offset``/``filter``. Removing the already-tracked EDMs
-    is what makes a page, and that subtraction can only happen after the whole
-    list is in hand: a 50-row page from Risk Modeler would arrive ragged, and on a
-    tenant whose EDMs are mostly synced the early pages would come back empty
-    while later ones were full. ``page`` is 1-based; anything lower reads page 1,
-    so a hand-typed ``?page=0`` cannot produce a negative offset."""
+    Paging and the ``name`` search are applied here, not passed to Risk Modeler:
+    removing the already-tracked EDMs is what makes a page, and that subtraction
+    needs the whole list. ``page`` is 1-based and clamped to the last page that has
+    rows."""
     claimed = _claimed_exposure_ids()
     unresolved = _unresolved_names()
+    try:
+        catalog = irp_gateway.list_edms()
+    except Exception:
+        logger.exception("adoptable EDM list unavailable — Risk Modeler read failed")
+        return None
     term = (name or "").strip().lower()
     adoptable = [
         AdoptableEdm(
@@ -230,12 +225,13 @@ def list_adoptable_edms(*, page: int = 1,
             server_name=e.server_name, portfolio_count=e.portfolio_count,
             treaty_count=e.treaty_count, updated_at=e.updated_at,
             rm_url=_rm_datasource_url(e.name, "portfolios"))
-        for e in irp_gateway.list_edms()
+        for e in catalog
         if e.irp_id not in claimed and e.name not in unresolved
         and (not term or term in e.name.lower())
     ]
     adoptable.sort(key=lambda a: a.name.lower())
-    page = max(1, int(page or 1))
+    last_page = max(1, (len(adoptable) + ADOPTABLE_PAGE_SIZE - 1) // ADOPTABLE_PAGE_SIZE)
+    page = min(max(1, int(page or 1)), last_page)
     start = (page - 1) * ADOPTABLE_PAGE_SIZE
     return AdoptablePage(rows=adoptable[start:start + ADOPTABLE_PAGE_SIZE],
                          page=page, has_next=len(adoptable) > start + ADOPTABLE_PAGE_SIZE,
@@ -250,14 +246,13 @@ def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
     Not routed through ``import_edm``: that path demands a shared-drive
     ``source_file_path`` and raises ``NameCollisionError`` on exactly the
     already-in-Risk-Modeler name every adoption uses. An adopted row therefore has
-    ``source_file_path`` NULL, no package, and ``status='ready'`` — the import
-    already happened, in Risk Modeler, before the workbench ever saw it.
+    ``source_file_path`` NULL, no package, and ``status='ready'``.
 
-    ``irp_edm.irp_id`` carries no unique constraint, so each insert is guarded by
-    its own ``WHERE NOT EXISTS`` on the exposureId rather than a read followed by
-    an insert — under READ COMMITTED two concurrent adopts of the same EDM would
-    both pass a prior read. Rowcount 0 means another analyst got there first, and
-    the exposureId is reported in ``skipped``."""
+    ``irp_edm`` has no unique constraint on ``irp_id`` or ``name``, so each insert
+    carries its own ``WHERE NOT EXISTS`` rather than a read followed by an insert —
+    under READ COMMITTED two concurrent adopts of the same EDM would both pass a
+    prior read. The guard repeats both arms of the ``list_adoptable_edms`` diff.
+    Anything it or Risk Modeler's list rejects goes to ``skipped``."""
     result = AdoptResult()
     wanted = {int(i) for i in irp_ids}
     if not wanted:
@@ -281,10 +276,14 @@ def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
             SELECT :id, :n, :iid, :srv, :s, :now, :now, :by, :by
             WHERE NOT EXISTS (
                 SELECT 1 FROM irp_edm
-                WHERE irp_id = :iid AND deleted_at IS NULL)
+                WHERE deleted_at IS NULL
+                  AND (irp_id = :iid
+                       OR (irp_id IS NULL AND name = :n
+                           AND status NOT IN (:err, :del))))
             """,
             {"id": edm_id, "n": entry.name, "iid": irp_id,
-             "srv": entry.server_name, "s": READY, "now": now, "by": actor},
+             "srv": entry.server_name, "s": READY, "now": now, "by": actor,
+             "err": ERROR, "del": DELETED},
             connection="WORKBENCH",
         )
         if rows == 0:
@@ -293,11 +292,7 @@ def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
         result.adopted.append(edm_id)
 
     for edm_id in result.adopted:
-        job_id = rwb_job_service.ensure_pending_rwb_job(
-            requestor_type="analyst_request", requestor_id=edm_id,
-            rwb_job_type="backfill_edm_detail",
-            input_data={"edm_id": edm_id}, actor_id=actor)
-        dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")
+        sync_detail(edm_id=edm_id, actor_id=actor)
     logger.info("adopted %d EDM(s) from Risk Modeler by analyst %s (%d skipped)",
                 len(result.adopted), actor, len(result.skipped))
     return result

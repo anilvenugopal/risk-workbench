@@ -16,22 +16,17 @@
     Syncing {{ synced }} EDM{{ '' if synced == 1 else 's' }}. {{ 'It is' if synced == 1
     else 'They are' }} in the <a href="/edms">EDM Library</a> now; the portfolios and
     treaties fill in as the worker fetches them.
-    {% if skipped %}
-    <br>{{ skipped }} EDM{{ ' was' if skipped == 1 else 's were' }} already in the
-    workbench and {{ 'was' if skipped == 1 else 'were' }} skipped.
-    {% endif %}
   </div>
-  {% elif skipped %}
+  {% endif %}
+  {% if skipped %}
   <div class="form-banner">
-    {{ skipped }} EDM{{ ' was' if skipped == 1 else 's were' }} already in the workbench
-    — nothing to do.
+    {{ skipped }} EDM{{ ' was' if skipped == 1 else 's were' }} skipped — already
+    tracked in the workbench, or no longer in Risk Modeler.
   </div>
   {% endif %}
 
-  {# Name search only: RM's status is READY on every EDM anyone has observed, so a
-     status filter would narrow nothing. No hx-get — this page is one live Risk
-     Modeler read per render, so filtering as you type would be a call per keystroke.
-     Carries no page input, so re-searching lands on page 1. #}
+  {# No hx-get: this page is one live Risk Modeler read per render, so filtering as
+     you type would be a call per keystroke. No page input, so a search lands on 1. #}
   <form class="filters" method="get" action="/edms/sync">
     <div class="filters__row">
       <label>Search

@@ -1,11 +1,9 @@
-{# The adoptable list: one POST form wrapping the table, its pager, and Sync.
-   `page` is None when the Risk Modeler read failed — never an error page, just the
+{# `page` is None when the Risk Modeler read failed — never an error page, just the
    unavailable state (ui.md §5). #}
 {% if page is none %}
 <div class="state-box state-box--warn">
   <strong>Risk Modeler is not answering.</strong>
-  The list of EDMs available to sync cannot be read right now. Nothing has changed —
-  reload to try again.
+  The list of EDMs available to sync cannot be read right now — reload to try again.
 </div>
 {% elif page.total == 0 and not filter_values.q %}
 <div class="state-box">
@@ -19,7 +17,10 @@
 </div>
 {% else %}
 {% set first = (page.page - 1) * page_size + 1 %}
-<form method="post" action="/edms/sync" x-data="syncPicks()" @change="onChange()">
+{# The search term is in the action, not a hidden input: the POST reads it from the
+   query string to build the redirect back into the filtered list. #}
+<form method="post" x-data="syncPicks()" @change="onChange()"
+      action="/edms/sync{% if filter_values.q %}?q={{ filter_values.q | urlencode }}{% endif %}">
   <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
 
   <div class="lib-intro">
@@ -51,10 +52,8 @@
     </thead>
     <tbody>
       {% for row in page.rows %}
-      {# Clicking the row toggles its box — unlike the EDM Library there is nothing
-         to open yet, so a row is not a link. The box and the Risk Modeler link stop
-         the toggle so they are not double-handled. The picked highlight is CSS off
-         :checked, so it needs no per-row Alpine state. #}
+      {# Clicking the row toggles its box; the box and the Risk Modeler link stop the
+         event so they are not double-handled. #}
       <tr class="data-row" x-on:click="pick($event)">
         <td class="sync-pick">
           <input type="checkbox" name="irp_ids" value="{{ row.irp_id }}" x-on:click.stop>
@@ -67,10 +66,10 @@
         </td>
         <td><span class="mono">{{ row.irp_id }}</span></td>
         <td class="sync-num">
-          {%- if row.portfolio_count %}{{ row.portfolio_count }}{% else %}<span class="na">—</span>{% endif -%}
+          {%- if row.portfolio_count is not none %}{{ row.portfolio_count }}{% else %}<span class="na">—</span>{% endif -%}
         </td>
         <td class="sync-num">
-          {%- if row.treaty_count %}{{ row.treaty_count }}{% else %}<span class="na">—</span>{% endif -%}
+          {%- if row.treaty_count is not none %}{{ row.treaty_count }}{% else %}<span class="na">—</span>{% endif -%}
         </td>
         <td>{{ row.updated_at[:10] if row.updated_at else '—' }}</td>
         <td class="sync-open">
@@ -84,9 +83,8 @@
     </tbody>
   </table>
 
-  {# Real hrefs, not hx-get swaps: changing pages leaves this form either way, so
-     the pager must be a plain navigation that also works with JS off. The search
-     term rides along so Next stays inside the filtered list. #}
+  {# Real hrefs, not hx-get swaps: changing pages leaves this form either way, so the
+     pager must work with JS off. The search term rides along with it. #}
   {% if page.page > 1 or page.has_next %}
   {% set stem = '/edms/sync?' ~ (('q=' ~ (filter_values.q | urlencode) ~ '&') if filter_values.q else '') ~ 'page=' %}
   <nav class="pager" aria-label="Adoptable EDM pages">

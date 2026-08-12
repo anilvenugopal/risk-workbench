@@ -460,14 +460,9 @@ class _RealGateway:
     # ── unfiltered EDM catalog (the "sync existing EDMs" page) ────────────────────
 
     def list_edms(self) -> list[EdmCatalogEntry]:
-        # Same endpoint as search_edms, no filter: every exposure the tenant can
-        # see, with the fields the name-filtered search throws away.
-        #
-        # An IRPAPIError from the paginated walk (a server clamping an
-        # out-of-range offset) propagates deliberately: the caller degrades the
-        # whole page to "Risk Modeler unavailable". Falling back to one large
-        # unpaginated page instead would silently truncate the list, hiding
-        # adoptable EDMs behind a page that looks complete.
+        # No filter: every exposure the tenant can see. An IRPAPIError from the
+        # paginated walk propagates — the caller degrades the whole page rather
+        # than render a truncated list that reads as complete.
         rows = self._client().edm.search_edms_paginated(filter="")
         entries: list[EdmCatalogEntry] = []
         for r in rows:

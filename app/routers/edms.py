@@ -13,7 +13,6 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
-import logging
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request, Response
@@ -25,8 +24,6 @@ from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
     NameCollisionError)
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -98,20 +95,12 @@ def library_table(request: Request):
 
 def _sync_context(request: Request) -> dict:
     """The adoptable list, or the unavailable state when Risk Modeler does not
-    answer. The gateway read is deliberately not caught any narrower than
-    ``Exception``: any failure to enumerate must degrade the page rather than
-    render a short list, which would read as "everything is already synced" and
-    hide adoptable EDMs behind a page that looks complete."""
+    answer (``page`` is None). The banner counts are read either way, so a Risk
+    Modeler outage on the redirect cannot hide a sync that already happened."""
     q = (request.query_params.get("q") or "").strip() or None
-    try:
-        page = edm_service.list_adoptable_edms(
-            page=_int_param(request, "page", default=1), name=q)
-    except Exception:
-        logger.exception("adoptable EDM list unavailable — Risk Modeler read failed")
-        return {"page": None, "filter_values": {"q": request.query_params.get("q", "")},
-                "synced": 0, "skipped": 0}
     return {
-        "page": page,
+        "page": edm_service.list_adoptable_edms(
+            page=_int_param(request, "page", default=1), name=q),
         "page_size": edm_service.ADOPTABLE_PAGE_SIZE,
         "filter_values": {"q": request.query_params.get("q", "")},
         # Set by the POST's redirect, so the banner survives Post/Redirect/Get.
@@ -121,9 +110,8 @@ def _sync_context(request: Request) -> dict:
 
 
 def _int_param(request: Request, key: str, default: int = 0) -> int:
-    """A mangled query value falls back to ``default`` rather than 422 — these are
-    all navigation params (the pager, the post-sync banner counts), not form input,
-    so a hand-edited URL should still render the list."""
+    """A mangled value falls back to ``default`` rather than 422 — the pager and the
+    banner counts are navigation, not form input."""
     try:
         return max(0, int(request.query_params.get(key, default)))
     except ValueError:
@@ -132,10 +120,9 @@ def _int_param(request: Request, key: str, default: int = 0) -> int:
 
 @router.get("/edms/sync", response_class=HTMLResponse)
 def sync_list(request: Request):
-    """EDMs that exist in Risk Modeler with no ``irp_edm`` row. One live Risk
-    Modeler *read* per render (permitted, Article 11) — not cached, because a stale
-    list would offer an EDM that is already gone. No polling: each render is
-    another RM call, so a self-poll would turn one page view into a call stream."""
+    """EDMs that exist in Risk Modeler with no ``irp_edm`` row. No polling: each
+    render is another Risk Modeler call, so a self-poll would turn one page view
+    into a call stream."""
     return _render(request, "pages/edm_sync.html", _sync_context(request),
                    nav_key="irp.sync_edms")
 
@@ -143,8 +130,7 @@ def sync_list(request: Request):
 @router.post("/edms/sync")
 def sync_adopt(request: Request, irp_ids: list[int] = Form(default=[]),
                csrf_token: str = Form(...)):
-    """Take in the ticked EDMs, then Post/Redirect/Get back to this page — the only
-    page that can report an EDM another analyst claimed first, and the redirect's
+    """Take in the ticked EDMs, then Post/Redirect/Get back to this page, whose
     re-read is what drops the newly synced rows from the list."""
     if not validate_csrf_token(csrf_token):
         if request.headers.get("HX-Request") == "true":
@@ -152,9 +138,9 @@ def sync_adopt(request: Request, irp_ids: list[int] = Form(default=[]),
         return RedirectResponse("/edms/sync", status_code=303)
     result = edm_service.adopt_edms(irp_ids=irp_ids,
                                     actor_id=request.state.user.id)
-    # The search term rides along so the analyst lands back inside the list they
-    # were working through; page is dropped, since the rows just taken in are gone
-    # and the page they were on has re-flowed.
+    # The form action carries the search term, so the analyst lands back inside the
+    # list they were working through. `page` is dropped: the rows just taken in are
+    # gone and the page they were on has re-flowed.
     params = {"synced": len(result.adopted), "skipped": len(result.skipped)}
     q = (request.query_params.get("q") or "").strip()
     if q:

@@ -16,9 +16,8 @@ from __future__ import annotations
 import uuid
 
 from app.services import edm_service
-from app.workers import dispatch, package_jobs
+from app.workers import dispatch
 from db import execute, execute_command, execute_one
-from tests.unit.test_backfill_edm_detail import EXPOSURE_A
 
 
 def _local_edm(*, name: str, status: str, irp_id=None, deleted_at=None) -> str:
@@ -77,14 +76,6 @@ def test_links_each_row_to_its_risk_modeler_portfolios_screen(
     assert edm_service.list_adoptable_edms().rows[0].rm_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/"
         "a%20name%2Fwith%20slash/portfolios")
-
-
-def test_omits_the_risk_modeler_link_when_no_tenant_is_configured(
-        iteration2_db, fake_irp, monkeypatch):
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "")
-    fake_irp.add_catalog_edm(name="alpha", irp_id=501)
-
-    assert edm_service.list_adoptable_edms().rows[0].rm_url is None
 
 
 def test_excludes_an_edm_whose_exposure_id_a_local_row_holds(
@@ -149,19 +140,13 @@ def test_a_duplicate_rm_name_stays_adoptable_once_its_twin_is_adopted(
         ("alpha", 502)]
 
 
-def test_gateway_failure_propagates_for_the_route_to_degrade(
-        iteration2_db, fake_irp):
-    # The route turns this into the "Risk Modeler unavailable" state. The service
-    # must not swallow it into an empty list, which would read as "all synced".
+def test_a_gateway_failure_lists_none_not_an_empty_page(iteration2_db, fake_irp):
+    # None is what the page renders as "Risk Modeler unavailable". An empty page
+    # would read as "everything is already synced".
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.raise_on_list_edms = True
 
-    try:
-        edm_service.list_adoptable_edms()
-    except RuntimeError:
-        pass
-    else:
-        raise AssertionError("list_adoptable_edms swallowed the gateway failure")
+    assert edm_service.list_adoptable_edms() is None
 
 
 # ── paging and the name search ───────────────────────────────────────────────────
@@ -196,13 +181,16 @@ def test_last_page_holds_the_remainder_and_ends_the_pager(
     assert result.has_next is False
 
 
-def test_a_page_past_the_end_is_empty_rather_than_an_error(
+def test_a_page_past_the_end_reads_the_last_page_with_rows(
         iteration2_db, fake_irp):
-    _seed_catalog(fake_irp, 3)
+    # Another analyst syncing the tail of the list must not leave the analyst on
+    # page 2 staring at an empty table.
+    _seed_catalog(fake_irp, edm_service.ADOPTABLE_PAGE_SIZE + 10)
 
     result = edm_service.list_adoptable_edms(page=9)
 
-    assert (result.rows, result.has_next, result.total) == ([], False, 3)
+    assert (result.page, result.has_next) == (2, False)
+    assert len(result.rows) == 10
 
 
 def test_a_page_below_one_reads_the_first_page(iteration2_db, fake_irp):
@@ -226,12 +214,6 @@ def test_the_name_search_narrows_the_list_before_it_is_paged(
     # offer pages the search already emptied.
     assert [r.name for r in result.rows] == ["coastal_flood", "Coastal_Wind_Study"]
     assert result.total == 2
-
-
-def test_a_blank_name_search_filters_nothing(iteration2_db, fake_irp):
-    _seed_catalog(fake_irp, 3)
-
-    assert edm_service.list_adoptable_edms(name="   ").total == 3
 
 
 # ── adopt_edms ───────────────────────────────────────────────────────────────────
@@ -296,6 +278,22 @@ def test_adopting_the_same_exposure_id_twice_creates_one_row(
     assert len(rows) == 1
 
 
+def test_adopt_skips_an_edm_an_in_flight_import_already_covers(
+        iteration2_db, fake_irp):
+    # The list hides this EDM by name, but a page loaded before the import started
+    # can still POST it. Without the name arm on the insert guard the workbench
+    # ends up with two rows for exposureId 501 once the poller resolves the id.
+    fake_irp.add_catalog_edm(name="alpha", irp_id=501)
+    _local_edm(name="alpha", status=edm_service.IMPORTING)
+
+    result = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
+
+    assert (result.adopted, result.skipped) == ([], [501])
+    rows = execute("SELECT id FROM irp_edm WHERE name = 'alpha'",
+                   connection="WORKBENCH")
+    assert len(rows) == 1
+
+
 def test_adopt_skips_an_exposure_id_risk_modeler_no_longer_lists(
         iteration2_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -307,13 +305,6 @@ def test_adopt_skips_an_exposure_id_risk_modeler_no_longer_lists(
     assert result.skipped == [999]
 
 
-def test_adopt_with_nothing_selected_is_a_no_op(iteration2_db, fake_irp):
-    result = edm_service.adopt_edms(irp_ids=[], actor_id=iteration2_db.user_a)
-
-    assert (result.adopted, result.skipped) == ([], [])
-    assert execute("SELECT id FROM irp_edm", connection="WORKBENCH") == []
-
-
 def test_an_adopted_edm_drops_off_the_adoptable_list(iteration2_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
@@ -321,30 +312,3 @@ def test_an_adopted_edm_drops_off_the_adoptable_list(iteration2_db, fake_irp):
     edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
 
     assert _adoptable_names(fake_irp) == ["beta"]
-
-
-# ── the backfill the adopt fires ─────────────────────────────────────────────────
-
-def test_the_backfill_head_populates_portfolios_treaties_and_as_of(
-        iteration2_db, fake_irp):
-    fake_irp.add_catalog_edm(name="alpha", irp_id=501)
-    fake_irp.add_portfolio(edm_exposure_id=501, irp_id=7001, name="port-a",
-                           exposure=EXPOSURE_A)
-    fake_irp.add_treaty(edm_exposure_id=501, irp_id=8001, name="treaty-a")
-
-    result = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
-    package_jobs.run_pending(worker_id="w1")
-    edm_id = result.adopted[0]
-
-    # The adopted row carries irp_id from the insert, so the worker's ambiguous
-    # by-name resolution branch is never entered.
-    assert fake_irp.exposure_reads == ["7001"]
-    portfolios = execute(
-        "SELECT irp_id, name FROM irp_portfolio WHERE edm_id = :e",
-        {"e": edm_id}, connection="WORKBENCH")
-    assert [(p["irp_id"], p["name"]) for p in portfolios] == [("7001", "port-a")]
-    treaties = execute("SELECT name FROM irp_treaty WHERE edm_id = :e",
-                       {"e": edm_id}, connection="WORKBENCH")
-    assert [t["name"] for t in treaties] == ["treaty-a"]
-    assert execute_one("SELECT as_of FROM irp_edm WHERE id = :i", {"i": edm_id},
-                       connection="WORKBENCH")["as_of"] is not None

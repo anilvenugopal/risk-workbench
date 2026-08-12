@@ -633,13 +633,14 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // "Sync from Risk Modeler" picker: counts the ticked EDMs so the button can name
-  // how many it will take in, and lets a whole row be the hit area. Selections are
-  // per page — changing pages leaves the form, which the pager hint says out loud.
-  // With JS off nothing here is needed: the button stays enabled and an empty
-  // irp_ids POST is a no-op redirect.
+  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
+  // makes the whole row a hit area. With JS off none of it is needed — the button
+  // stays enabled and an empty irp_ids POST is a no-op redirect.
   Alpine.data('syncPicks', () => ({
     count: 0,
+    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+    // zero leaves the button disabled over visibly ticked boxes.
+    init() { this.onChange(); },
     boxes() {
       return this.$root.querySelectorAll('input[name="irp_ids"]');
     },

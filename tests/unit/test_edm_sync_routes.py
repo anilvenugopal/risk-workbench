@@ -72,22 +72,15 @@ def test_the_page_lists_the_adoptable_edms(iteration2_db, fake_irp):
     assert "1 EDM in Risk Modeler is not in the workbench" in _flat(body)
 
 
-def test_the_literal_path_is_not_swallowed_by_the_edm_id_route(
+def test_the_literal_path_renders_and_activates_its_own_nav_node(
         iteration2_db, fake_irp):
-    # /edms/{edm_id} would match "sync" as an id and 404 on the lookup.
+    # /edms/{edm_id} would match "sync" as an id and 404 on the lookup, and the
+    # sidebar must read "Moody's IRP › Sync from Risk Modeler", not EDM Library.
     response = _client().get("/edms/sync")
 
     assert response.status_code == 200
     assert "Sync from Risk Modeler" in response.text
-
-
-def test_the_page_activates_its_own_nav_node(iteration2_db, fake_irp):
-    # Its own key, not irp.edm_library: the sidebar item and the breadcrumb must
-    # read "Moody's IRP › Sync from Risk Modeler".
-    body = _client().get("/edms/sync").text
-
-    assert "Sync from Risk Modeler" in body
-    assert 'href="/edms/sync"' in body
+    assert 'href="/edms/sync"' in response.text
 
 
 def test_a_gateway_failure_degrades_the_page_rather_than_500ing(
@@ -136,6 +129,27 @@ def test_the_pager_carries_the_search_term(iteration2_db, fake_irp):
 
     # Next must stay inside the filtered list rather than dropping back to all.
     assert "/edms/sync?q=renewal&amp;page=2" in body
+
+
+def test_the_form_posts_back_into_the_filtered_list(iteration2_db, fake_irp):
+    # The POST reads the search term off its own query string, so the action must
+    # carry it — otherwise syncing from a filtered list lands on the unfiltered one.
+    fake_irp.add_catalog_edm(name="renewal_alpha", irp_id=501)
+
+    body = _client().get("/edms/sync?q=renewal").text
+
+    assert 'action="/edms/sync?q=renewal"' in body
+
+
+def test_a_zero_count_renders_as_zero_not_a_dash(iteration2_db, fake_irp):
+    # An EDM with no portfolios is what an analyst most wants to spot before
+    # syncing, so it must not look like a figure Risk Modeler did not return.
+    fake_irp.add_catalog_edm(name="alpha", irp_id=501, portfolio_count=0,
+                             treaty_count=0)
+
+    body = _client().get("/edms/sync").text
+
+    assert body.count('<td class="sync-num">0</td>') == 2
 
 
 def test_a_mangled_page_param_reads_page_one(iteration2_db, fake_irp):
@@ -197,7 +211,20 @@ def test_the_banner_is_rendered_from_the_redirect_counts(iteration2_db, fake_irp
     body = _client().get("/edms/sync?synced=2&skipped=1").text
 
     assert "Syncing 2 EDMs" in _flat(body)
-    assert "1 EDM was already in the workbench and was skipped" in _flat(body)
+    assert ("1 EDM was skipped — already tracked in the workbench, or no longer in "
+            "Risk Modeler." in _flat(body))
+
+
+def test_the_banner_still_reports_the_sync_when_the_reread_fails(
+        iteration2_db, fake_irp):
+    # The redirect's list read is a second Risk Modeler call and can fail on its
+    # own. The rows were still created, so the page must not claim otherwise.
+    fake_irp.raise_on_list_edms = True
+
+    body = _flat(_client().get("/edms/sync?synced=2&skipped=0").text)
+
+    assert "Syncing 2 EDMs" in body
+    assert "Risk Modeler is not answering" in body
 
 
 def test_posting_nothing_is_a_no_op_redirect_not_a_500(iteration2_db, fake_irp):
