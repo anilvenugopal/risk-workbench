@@ -33,12 +33,14 @@
      Modeler read per render, so filtering as you type would be a call per keystroke.
      Carries no page input, so re-searching lands on page 1. #}
   <form class="filters" method="get" action="/edms/sync">
-    <label>Search
-      <input class="wf-field__input" type="text" name="q" placeholder="name…"
-             value="{{ filter_values.q }}" autocomplete="off">
-    </label>
-    <button class="btn-sm" type="submit">Search</button>
-    {% if filter_values.q %}<a class="btn-sm" href="/edms/sync">Clear</a>{% endif %}
+    <div class="filters__row">
+      <label>Search
+        <input class="wf-field__input" type="text" name="q" placeholder="name…"
+               value="{{ filter_values.q }}" autocomplete="off">
+      </label>
+      <button class="btn-sm" type="submit">Search</button>
+      {% if filter_values.q %}<a class="btn-sm" href="/edms/sync">Clear</a>{% endif %}
+    </div>
   </form>
 
   {% include "partials/edm_sync_table.html" %}
