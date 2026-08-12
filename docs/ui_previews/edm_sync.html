@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync from Risk Modeler · UI Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+
+/* ── VERBATIM from app/static/css/app.css ─────────────────────────────────── */
+.page-pad{padding:18px 22px;overflow:auto;flex:1}
+.muted{color:var(--text-tertiary);font-size:var(--fs-label)}
+.mono{font-family:var(--font-mono);font-size:var(--fs-caption);color:var(--text-secondary)}
+.empty{color:var(--text-tertiary);text-align:center;padding:var(--space-4)}
+.mk-table{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
+.mk-table thead th{text-align:left;padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border-default);font-weight:var(--fw-medium)}
+.mk-table td{padding:9px var(--space-3);border-bottom:1px solid var(--border-faint);color:var(--text-primary)}
+.data-row{cursor:pointer}
+.data-row:hover td{background:var(--surface-hover)}
+.filters{display:flex;flex-wrap:wrap;gap:14px 18px;margin-bottom:14px}
+.filters label{font-size:var(--fs-caption);color:var(--text-tertiary);display:flex;flex-direction:column;gap:4px}
+.na{color:var(--text-disabled)}
+.lib-intro{display:flex;align-items:baseline;gap:var(--space-2);margin-bottom:var(--space-4)}
+.detail-head{margin-bottom:18px}
+.detail-head h1{font-size:20px;margin:0 0 5px;color:var(--text-primary);font-weight:var(--fw-medium)}
+.detail-meta{font-size:var(--fs-label);color:var(--text-secondary);display:flex;gap:var(--space-2);align-items:center;flex-wrap:wrap}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:240px}
+.form-actions{display:flex;gap:var(--space-2);margin-top:var(--space-4);align-items:center}
+.wf-field__hint{color:var(--text-tertiary)}
+/* components.css */
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--border-default);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;text-decoration:none}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+/* packages.css */
+.status-chip{display:inline-block;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:.68rem;font-weight:600;background:var(--c-gray-bg);color:var(--c-gray-text);border:1px solid var(--c-gray-border)}
+.status-chip--ready{background:var(--c-green-050);color:var(--c-green-700);border-color:var(--c-green-200)}
+/* details.css */
+.state-box{border:1px dashed var(--border-strong);border-radius:var(--radius-md);background:var(--surface-recessed);padding:var(--space-4);color:var(--text-tertiary);font-size:var(--fs-label);text-align:center}
+.state-box--warn{border-color:var(--color-warning-border);background:var(--color-warning-bg);color:var(--color-warning)}
+.state-box strong{color:var(--text-secondary);font-weight:var(--fw-semibold)}
+.state-box--warn strong{color:var(--color-warning)}
+/* submissions.css */
+.form-banner{border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-label);margin-bottom:var(--space-4)}
+.form-banner--ok{background:var(--color-positive-bg);border:1px solid var(--color-positive-border);color:var(--color-positive)}
+
+/* ── NEW rules this screen needs (destined for app.css) ───────────────────── */
+/* The pick column is a fixed gutter so the name column starts at the same x as
+   every other library table. */
+.sync-table th.sync-pick,.sync-table td.sync-pick{width:32px;padding-right:0}
+.sync-table td.sync-num{text-align:right;font-variant-numeric:tabular-nums}
+.sync-table th.sync-num{text-align:right}
+/* A row click toggles its checkbox, so the whole row is the hit area — but it
+   must not read as a link like the library table's rows do. */
+.sync-table tr.is-picked td{background:var(--color-brand-faint)}
+.sync-table td.sync-open{text-align:right;white-space:nowrap}
+.sync-table td.sync-open a{color:var(--color-brand);text-decoration:none;font-size:var(--fs-label)}
+.sync-table td.sync-open a:hover{text-decoration:underline}
+.pager{display:flex;align-items:center;gap:var(--space-3);margin-top:var(--space-3)}
+.pager__at{font-size:var(--fs-label);color:var(--text-tertiary)}
+
+/* preview chrome only */
+.frame{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:var(--space-6)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase;margin-bottom:var(--space-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>UI PREVIEW — not wired.</strong> Proposed <code>/edms/sync</code>: the EDMs that exist in
+    Risk Modeler with no <code>irp_edm</code> row. Tick some, Sync, and each becomes a
+    <code>ready</code> EDM whose portfolios, exposure figures and treaties are filled in by the
+    <code>backfill_edm_detail</code> worker. Real tokens inlined from <code>tokens.css</code>;
+    the shell rail/sidebar/breadcrumb are omitted — only the <code>{% block main %}</code> area is shown.
+  </div>
+
+  <div class="hero">Sync from Risk Modeler</div>
+  <div class="sub">Four states. Every one of them is a normal page — none is an error page.</div>
+
+
+  <!-- ══ STATE 1 — rows to sync (the main state) ═══════════════════════════ -->
+  <div class="eyebrow">State 1 — EDMs available to sync, two picked</div>
+  <div class="frame">
+    <div class="page-pad">
+      <div class="detail-head">
+        <h1>Sync from Risk Modeler</h1>
+        <div class="detail-meta">
+          <span>EDMs in Risk Modeler that the workbench does not track yet. Syncing one
+            creates it here and pulls its portfolios, exposure figures and treaties.</span>
+        </div>
+      </div>
+
+      <form class="filters" method="get" action="/edms/sync">
+        <label>Search
+          <input class="wf-field__input" type="text" name="q" placeholder="name…" autocomplete="off">
+        </label>
+      </form>
+
+      <form method="post" action="/edms/sync">
+        <div class="lib-intro">
+          <span class="muted">214 EDMs in Risk Modeler are not in the workbench</span>
+          <span class="muted">·</span>
+          <span class="muted">showing 1–50</span>
+          <span class="muted">·</span>
+          <span class="muted">2 selected</span>
+        </div>
+
+        <table class="mk-table sync-table">
+          <thead>
+            <tr>
+              <th class="sync-pick"><input type="checkbox" title="Select all" checked></th>
+              <th>Name</th><th>Status</th><th>Risk Modeler ID</th>
+              <th class="sync-num">Portfolios</th><th class="sync-num">Treaties</th>
+              <th>Updated</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="data-row is-picked">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5331056" checked></td>
+              <td>NatCat_Renewal_2026_Q1</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5331056</span></td>
+              <td class="sync-num">12</td><td class="sync-num">3</td>
+              <td>2026-08-09</td>
+              <!-- Risk Modeler's own portfolios screen for this EDM. RM addresses
+                   the datasource by name, so a duplicated name lands on whichever
+                   one RM picks — hence the exposureId column stays. -->
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/NatCat_Renewal_2026_Q1/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row is-picked">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5330998" checked></td>
+              <td>Acme_Manufacturing_SOV</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5330998</span></td>
+              <td class="sync-num">1</td><td class="sync-num">0</td>
+              <td>2026-08-07</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Acme_Manufacturing_SOV/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5330742"></td>
+              <td>Coastal_Wind_Study</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5330742</span></td>
+              <td class="sync-num">4</td><td class="sync-num">1</td>
+              <td>2026-07-31</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Coastal_Wind_Study/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5330501"></td>
+              <td>Midwest_Hail_2025</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5330501</span></td>
+              <td class="sync-num">8</td><td class="sync-num">2</td>
+              <td>2026-07-22</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Midwest_Hail_2025/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5329880"></td>
+              <td>Test_Load_Scratch</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5329880</span></td>
+              <!-- An empty EDM is legitimate: zero portfolios, nothing for the
+                   backfill to fetch. Zero renders as a muted dash, not "0". -->
+              <td class="sync-num"><span class="na">—</span></td>
+              <td class="sync-num"><span class="na">—</span></td>
+              <td>2026-06-14</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Test_Load_Scratch/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5329344"></td>
+              <td>Global_Property_Book_v3</td>
+              <!-- RM's own status string, verbatim (see the reviewer notes: READY is
+                   the only value observed in the sandbox). Anything else still
+                   syncs — the backfill just may find nothing yet. -->
+              <td><span class="status-chip">PROCESSING</span></td>
+              <td><span class="mono">5329344</span></td>
+              <td class="sync-num">31</td><td class="sync-num">14</td>
+              <td>2026-06-02</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Global_Property_Book_v3/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5328117"></td>
+              <!-- Names are not unique in Risk Modeler. Two EDMs can share one, so
+                   the exposureId column is what tells them apart. -->
+              <td>NatCat_Renewal_2026_Q1</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5328117</span></td>
+              <td class="sync-num">12</td><td class="sync-num">3</td>
+              <td>2026-05-19</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/NatCat_Renewal_2026_Q1/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Real hrefs, not an hx-get swap: changing pages leaves this form, so it
+             must be a plain navigation the browser can also do with JS off. The
+             links carry the search term, so paging stays inside the filtered list. -->
+        <nav class="pager" aria-label="Adoptable EDM pages">
+          <span class="pager__at">Page 1 of 5</span>
+          <a class="btn-sm" rel="next" href="/edms/sync?page=2">Next ›</a>
+          <span class="wf-field__hint">Sync before you change pages — ticks do not carry
+            across.</span>
+        </nav>
+
+        <div class="form-actions">
+          <button class="btn-sm btn-sm--primary" type="submit">Sync 2 selected</button>
+          <a class="btn-sm" href="/edms">EDM Library</a>
+          <span class="wf-field__hint">Each synced EDM starts standalone — attach it to a
+            submission afterwards from the package modal.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ══ STATE 2 — nothing selected (button off) ═══════════════════════════ -->
+  <div class="eyebrow">State 2 — nothing ticked yet: Sync is disabled</div>
+  <div class="frame">
+    <div class="page-pad">
+      <div class="lib-intro">
+        <span class="muted">7 EDMs in Risk Modeler are not in the workbench</span>
+      </div>
+      <table class="mk-table sync-table">
+        <thead>
+          <tr>
+            <th class="sync-pick"><input type="checkbox" title="Select all"></th>
+            <th>Name</th><th>Status</th><th>Risk Modeler ID</th>
+            <th class="sync-num">Portfolios</th><th class="sync-num">Treaties</th>
+            <th>Updated</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="data-row">
+            <td class="sync-pick"><input type="checkbox"></td>
+            <td>NatCat_Renewal_2026_Q1</td>
+            <td><span class="status-chip status-chip--ready">READY</span></td>
+            <td><span class="mono">5331056</span></td>
+            <td class="sync-num">12</td><td class="sync-num">3</td>
+            <td>2026-08-09</td>
+            <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/NatCat_Renewal_2026_Q1/portfolios"
+                   target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="form-actions">
+        <button class="btn-sm btn-sm--primary" type="submit" disabled>Sync selected</button>
+        <a class="btn-sm" href="/edms">EDM Library</a>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══ STATE 2b — a middle page, search applied ══════════════════════════ -->
+  <div class="eyebrow">State 2b — page 3 of a search, both pager directions live</div>
+  <div class="frame">
+    <div class="page-pad">
+      <form class="filters" method="get" action="/edms/sync">
+        <label>Search
+          <input class="wf-field__input" type="text" name="q" value="renewal" autocomplete="off">
+        </label>
+      </form>
+      <form method="post" action="/edms/sync">
+        <div class="lib-intro">
+          <span class="muted">128 EDMs match “renewal” and are not in the workbench</span>
+          <span class="muted">·</span>
+          <span class="muted">showing 101–128</span>
+        </div>
+        <table class="mk-table sync-table">
+          <thead>
+            <tr>
+              <th class="sync-pick"><input type="checkbox" title="Select all"></th>
+              <th>Name</th><th>Status</th><th>Risk Modeler ID</th>
+              <th class="sync-num">Portfolios</th><th class="sync-num">Treaties</th>
+              <th>Updated</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="data-row">
+              <td class="sync-pick"><input type="checkbox" name="irp_ids" value="5327004"></td>
+              <td>Renewal_Book_EMEA_2025</td>
+              <td><span class="status-chip status-chip--ready">READY</span></td>
+              <td><span class="mono">5327004</span></td>
+              <td class="sync-num">6</td><td class="sync-num">2</td>
+              <td>2026-04-30</td>
+              <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Renewal_Book_EMEA_2025/portfolios"
+                     target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- The search term rides along in every pager link, so Next does not
+             silently drop back to the unfiltered list. -->
+        <nav class="pager" aria-label="Adoptable EDM pages">
+          <a class="btn-sm" rel="prev" href="/edms/sync?q=renewal&amp;page=2">‹ Prev</a>
+          <span class="pager__at">Page 3 of 3</span>
+        </nav>
+        <div class="form-actions">
+          <button class="btn-sm btn-sm--primary" type="submit" disabled>Sync selected</button>
+          <a class="btn-sm" href="/edms">EDM Library</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- ══ STATE 3 — nothing to sync ═════════════════════════════════════════ -->
+  <div class="eyebrow">State 3 — everything in Risk Modeler is already here</div>
+  <div class="frame">
+    <div class="page-pad">
+      <div class="detail-head">
+        <h1>Sync from Risk Modeler</h1>
+        <div class="detail-meta">
+          <span>EDMs in Risk Modeler that the workbench does not track yet.</span>
+        </div>
+      </div>
+      <div class="state-box">
+        <strong>Nothing to sync.</strong><br>
+        Every EDM in Risk Modeler is already in the workbench.
+        <div style="margin-top:12px"><a class="btn-sm" href="/edms">Open the EDM Library</a></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══ STATE 4 — Risk Modeler unreachable ════════════════════════════════ -->
+  <div class="eyebrow">State 4 — Risk Modeler did not answer (never a 500)</div>
+  <div class="frame">
+    <div class="page-pad">
+      <div class="detail-head">
+        <h1>Sync from Risk Modeler</h1>
+        <div class="detail-meta">
+          <span>EDMs in Risk Modeler that the workbench does not track yet.</span>
+        </div>
+      </div>
+      <div class="state-box state-box--warn">
+        <strong>Risk Modeler is not answering.</strong><br>
+        The list of EDMs could not be read, so nothing is shown rather than a partial list.
+        <div style="margin-top:12px"><a class="btn-sm" href="/edms/sync">Try again</a></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ══ STATE 5 — back from a sync ════════════════════════════════════════ -->
+  <div class="eyebrow">State 5 — after Sync, with one EDM another analyst had already taken</div>
+  <div class="frame">
+    <div class="page-pad">
+      <div class="form-banner form-banner--ok">
+        Syncing 2 EDMs. They are in the <a href="/edms">EDM Library</a> now; their portfolios
+        and treaties fill in as the worker fetches them.
+        <br>1 EDM was already in the workbench and was skipped.
+      </div>
+      <div class="lib-intro">
+        <span class="muted">4 EDMs in Risk Modeler are not in the workbench</span>
+      </div>
+      <table class="mk-table sync-table">
+        <thead>
+          <tr>
+            <th class="sync-pick"><input type="checkbox" title="Select all"></th>
+            <th>Name</th><th>Status</th><th>Risk Modeler ID</th>
+            <th class="sync-num">Portfolios</th><th class="sync-num">Treaties</th>
+            <th>Updated</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="data-row">
+            <td class="sync-pick"><input type="checkbox"></td>
+            <td>Coastal_Wind_Study</td>
+            <td><span class="status-chip status-chip--ready">READY</span></td>
+            <td><span class="mono">5330742</span></td>
+            <td class="sync-num">4</td><td class="sync-num">1</td>
+            <td>2026-07-31</td>
+            <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Coastal_Wind_Study/portfolios"
+                   target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+          </tr>
+          <tr class="data-row">
+            <td class="sync-pick"><input type="checkbox"></td>
+            <td>Midwest_Hail_2025</td>
+            <td><span class="status-chip status-chip--ready">READY</span></td>
+            <td><span class="mono">5330501</span></td>
+            <td class="sync-num">8</td><td class="sync-num">2</td>
+            <td>2026-07-22</td>
+            <td class="sync-open"><a href="https://acme.rms-ppe.com/riskmodeler/datasources/Midwest_Hail_2025/portfolios"
+                   target="_blank" rel="noopener">Risk Modeler ↗</a></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="form-actions">
+        <button class="btn-sm btn-sm--primary" type="submit" disabled>Sync selected</button>
+        <a class="btn-sm" href="/edms">EDM Library</a>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="eyebrow">Notes for the reviewer</div>
+  <div class="frame"><div class="page-pad" style="font-size:var(--fs-label)">
+    <ul style="margin:0;padding-left:20px">
+      <li><strong>Row click toggles the checkbox.</strong> Unlike the EDM Library, a row here is
+        not a link — there is nothing to open yet.</li>
+      <li><strong>Counts come from Risk Modeler's own metrics</strong>
+        (<code>metrics.portfolioCount</code> / <code>treatyCount</code> on the exposures response),
+        so the analyst can tell a real book from a scratch database before syncing. Zero renders
+        as <span class="na">—</span>.</li>
+      <li><strong>The Risk Modeler link is a plain navigation link</strong>, never an API call
+        (Article 11), built from <code>RISK_MODELER_TENANT_NAME</code> + the registrable domain of
+        <code>RISK_MODELER_BASE_URL</code> by the same helper the EDM detail page already uses for
+        its treaties link. RM addresses the datasource by <em>name</em>, so for a duplicated name
+        the link lands on whichever one RM picks — which is why the exposureId column stays. The
+        column is empty when no tenant name is configured (api-key deployments).</li>
+      <li><strong>Status is <code>status</code> on Risk Modeler's exposures response, verbatim</strong>
+        — not the workbench's <code>irp_edm.status</code>, which is <code>ready</code> for every
+        synced row. <code>READY</code> is the only value observed in the sandbox (all 6 EDMs in
+        <code>probes/results/a0_edms.json</code>); Moody's documents <code>status</code> as a
+        filterable string but never lists its values, so the chip renders whatever arrives and only
+        <code>READY</code> gets the green treatment. <code>PROCESSING</code> in state 1 is a
+        placeholder for "some other value", not a value anyone has seen.</li>
+      <li><strong>50 rows per page</strong>, matching <code>submission_service.PAGE_SIZE</code>, with
+        the <code>.pager</code> markup the submissions list already uses. Paging happens
+        <em>after</em> the diff, in memory — asking Risk Modeler for 50 rows and then removing the
+        already-synced ones would hand back ragged pages, and on a tenant whose EDMs are mostly
+        synced the early pages would arrive empty while later ones were full. So the Risk Modeler
+        walk is the same length whether or not the page is paged; paging is about the table, not
+        the call.</li>
+      <li><strong>Ticks do not survive a page change</strong>, and the hint next to the pager says
+        so. Sync applies to the page in front of you: submit, land back on the same page with those
+        rows gone, then move on. Unlike the submissions pager these links are plain navigations
+        rather than <code>hx-get</code> swaps, since changing pages abandons the form either way.
+        Carrying selections across pages needs an Alpine store — not built, tell me if bulk-adopting
+        across pages is a real workflow.</li>
+      <li><strong>The search narrows before the paging</strong>, so <code>total</code> and the page
+        count describe the filtered list. Re-searching drops you on page 1 (the filter form carries
+        no <code>page</code> input, as in <code>submissions.html:84</code>).</li>
+      <li><strong>No 3-second polling on this page.</strong> Each render is one live Risk Modeler
+        call; a self-poll would turn one page view into a call stream. The newly synced rows are
+        watched on <code>/edms</code>, which polls the local table only.</li>
+      <li><strong>Deviation from the approved plan:</strong> the plan redirected to <code>/edms</code>
+        after Sync. State 5 instead returns to this page with a banner, because it is the only place
+        the "already taken by another analyst" skip can be reported, and the analyst can carry on
+        syncing. The banner links to the library. Say the word if you prefer the plain redirect.</li>
+    </ul>
+  </div></div>
+
+</div>
+</body>
+</html>
