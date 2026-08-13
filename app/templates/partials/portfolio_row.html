@@ -106,7 +106,8 @@
           <div><dt>Hazard Layers</dt><dd>
             {% if params.get('perils') %}{{ params.get('perils')|map('capitalize')|join(', ') }}{% else %}—{% endif %}
           </dd></div>
-          <div><dt>Missing Locations</dt><dd>{{ (params.get('missing_locations') or '—')|capitalize }}</dd></div>
+          <div><dt>Skip locations with previous hazard lookup</dt><dd>{{ 'Yes' if params.get('skip_prev_hazard') else 'No' }}</dd></div>
+          <div><dt>Overwrite user-defined hazard values</dt><dd>{{ 'Yes' if params.get('override_user_def') else 'No' }}</dd></div>
           <div class="geohaz-details__result"><dt>Result</dt><dd>{{ p.geohaz_latest.completion_summary or 'Unavailable' }}</dd></div>
         </dl>
         {% else %}

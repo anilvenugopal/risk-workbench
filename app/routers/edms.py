@@ -270,7 +270,8 @@ def _geohaz_modal_context(
     values = form or {
         "data_version": settings.geohaz_data_versions[0],
         "perils": ["earthquake", "windstorm"],
-        "missing_locations": "overwrite",
+        "skip_prev_hazard": False,
+        "override_user_def": True,
     }
     return {
         "edm_id": edm_id,
@@ -299,7 +300,8 @@ def geohaz_launch(
     edm_id: str,
     csrf_token: Annotated[str, Form()],
     data_version: Annotated[str, Form()],
-    missing_locations: Annotated[str, Form()],
+    skip_prev_hazard: Annotated[bool, Form()] = False,
+    override_user_def: Annotated[bool, Form()] = False,
     portfolio_ids: Annotated[list[str] | None, Form()] = None,
     perils: Annotated[list[str] | None, Form()] = None,
 ):
@@ -314,7 +316,8 @@ def geohaz_launch(
     form = {
         "data_version": data_version,
         "perils": selected_perils,
-        "missing_locations": missing_locations,
+        "skip_prev_hazard": skip_prev_hazard,
+        "override_user_def": override_user_def,
     }
     try:
         result = geohaz_service.launch(
@@ -322,7 +325,8 @@ def geohaz_launch(
             portfolio_ids=selected,
             data_version=data_version,
             perils=selected_perils,
-            missing_locations=missing_locations,
+            skip_prev_hazard=skip_prev_hazard,
+            override_user_def=override_user_def,
             actor_id=request.state.user.id,
         )
     except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:

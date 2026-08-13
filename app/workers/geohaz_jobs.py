@@ -39,7 +39,8 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
         "portfolio_name": context["portfolio_name"],
         "version": params["data_version"],
         "perils": params["perils"],
-        "skip_prev_hazard": params["missing_locations"] == "skip",
+        "skip_prev_hazard": params["skip_prev_hazard"],
+        "override_user_def": params["override_user_def"],
     }
     try:
         result = irp_gateway.submit_geohaz(**payload)

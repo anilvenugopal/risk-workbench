@@ -17,7 +17,7 @@ def _form(portfolio_ids: list[str], **changes) -> dict:
         "portfolio_ids": portfolio_ids,
         "data_version": "25.0",
         "perils": ["earthquake", "windstorm"],
-        "missing_locations": "overwrite",
+        "override_user_def": "true",
     }
     data.update(changes)
     return data
@@ -56,6 +56,12 @@ def test_launch_modal_renders_defaults_and_selected_names(iteration2_db):
     assert 'value="25.0" selected' in body
     assert 'value="earthquake"' in body and 'value="windstorm"' in body
     assert body.count("checked") == 3
+    assert 'type="checkbox" name="skip_prev_hazard"' in body
+    assert 'type="checkbox" name="override_user_def"' in body
+    override_input = body[body.index('name="override_user_def"'):]
+    assert "checked" in override_input.split(">", 1)[0]
+    assert "Skip locations with previous hazard lookup" in body
+    assert "Overwrite user-defined hazard values" in body
     assert "DLM" in body and "HD unavailable" in body
     assert "geocod" not in body.lower()
 
@@ -132,7 +138,8 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
         data=_form(
             portfolio_ids,
             perils=["windstorm"],
-            missing_locations="skip",
+            skip_prev_hazard="true",
+            override_user_def="true",
         ),
         headers={"HX-Request": "true"},
     )
@@ -148,7 +155,8 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
     for row in heads:
         params = json.loads(row["input_data"])["params"]
         assert params["perils"] == ["windstorm"]
-        assert params["missing_locations"] == "skip"
+        assert params["skip_prev_hazard"] is True
+        assert params["override_user_def"] is True
     toast = json.loads(response.headers["HX-Trigger"])["rwb:toast"]
     assert toast == {
         "message": "Hazard lookup queued for 2 portfolios.",
@@ -182,7 +190,8 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
         irp_portfolio_id=portfolio_id, irp_id="940",
         request_params={
             "data_version": "25.0", "model_family": "DLM",
-            "perils": ["earthquake"], "missing_locations": "overwrite",
+            "perils": ["earthquake"], "skip_prev_hazard": False,
+            "override_user_def": False,
         }, actor_id=iteration2_db.user_a)
     execute_command(
         "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
@@ -232,7 +241,8 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
         request_params={
             "data_version": "25.0", "model_family": "DLM",
             "perils": ["earthquake", "windstorm"],
-            "missing_locations": "overwrite",
+            "skip_prev_hazard": True,
+            "override_user_def": False,
         },
         actor_id=iteration2_db.user_a)
     execute_command(
@@ -251,11 +261,13 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
     assert "Data Version" in body
     assert "Model Family" in body
     assert "Hazard Layers" in body
-    assert "Missing Locations" in body
+    assert "Skip locations with previous hazard lookup" in body
+    assert "Overwrite user-defined hazard values" in body
     assert "Result" in body
     assert "25.0" in body
     assert "DLM" in body
     assert "Earthquake, Windstorm" in body
-    assert "Overwrite" in body
+    assert "Yes" in body
+    assert "No" in body
     assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." not in body
     assert "Unavailable" in body

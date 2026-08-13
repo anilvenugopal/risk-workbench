@@ -40,6 +40,7 @@ def test_geohaz_hazard_only_round_trip_captures_terminal_body():
         version=version,
         perils=["earthquake", "windstorm"],
         skip_prev_hazard=False,
+        override_user_def=False,
     )
     layers = submitted.payload["settings"]["layers"]
     assert layers

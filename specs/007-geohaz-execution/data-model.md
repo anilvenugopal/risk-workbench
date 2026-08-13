@@ -65,14 +65,16 @@ One JSON document per lookup, identical for every portfolio in a launch (FR-003)
   "data_version": "25.0",
   "model_family": "DLM",
   "perils": ["earthquake", "windstorm"],
-  "missing_locations": "overwrite"
+  "skip_prev_hazard": false,
+  "override_user_def": true
 }
 ```
 
 - `data_version` — one of `GEOHAZ_DATA_VERSIONS` (config, research R6); maps to the wheel's `version`.
 - `model_family` — always `"DLM"` this iteration (record-only; no wire representation, research R5).
 - `perils` — non-empty subset of `["earthquake", "windstorm"]`; each becomes one hazard layer (the layer `name`).
-- `missing_locations` — `"overwrite"` (default) or `"skip"`; maps to `layerOptions.skipPrevHazard` False/True on every hazard layer.
+- `skip_prev_hazard` — checkbox boolean; maps to `layerOptions.skipPrevHazard` on every hazard layer.
+- `override_user_def` — checkbox boolean; maps to `layerOptions.overrideUserDef` on every hazard layer.
 
 This is a snapshot record for display (like `irp_portfolio.exposure_detail`) — no
 internal code path dispatches on its values, so no kind tables are minted for them
@@ -106,8 +108,8 @@ race backstop.
 
 `SELECT … FROM irp_job LEFT JOIN app_user ON app_user.id = irp_job.inserted_by
 WHERE irp_portfolio_id = :pid AND irp_job_type = 'geohaz' ORDER BY inserted_at DESC`
-— the first row supplies Data Version, Model Family, Hazard Layers, Missing
-Locations, and Result. Result is `completion_summary` (or "Unavailable",
+— the first row supplies Data Version, Model Family, Hazard Layers, both
+hazard lookup options, and Result. Result is `completion_summary` (or "Unavailable",
 FR-023).
 
 ## 5. Unchanged

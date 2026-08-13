@@ -219,7 +219,8 @@ class FakeIRP:
 
     def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
                       version: str, perils: list[str],
-                      skip_prev_hazard: bool) -> SubmitResult:
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult:
         return self._submit(
             "geohaz",
             edm_name=edm_name,
@@ -227,6 +228,7 @@ class FakeIRP:
             version=version,
             perils=list(perils),
             skip_prev_hazard=skip_prev_hazard,
+            override_user_def=override_user_def,
         )
 
     def delete_analysis(self, *, analysis_id: int) -> None:

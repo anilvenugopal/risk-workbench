@@ -41,7 +41,8 @@ kind row mirrored.
    no geocode/hazard version stamp anywhere on the page (SC-006).
 2. Select two portfolios → **Run hazard lookup**. The modal opens pre-populated:
    data version = first configured value, model family = DLM (HD disabled),
-   earthquake + windstorm checked, missing locations = overwritten. No
+   earthquake + windstorm checked, Skip locations with previous hazard lookup
+   unchecked, and Overwrite user-defined hazard values checked. No
    geocoding option exists (FR-005).
 3. Deselect both perils → submit blocked (FR-002). Re-check one, submit.
 4. Both portfolios' cells show **Queued** immediately, then RM statuses,
@@ -52,7 +53,8 @@ kind row mirrored.
    cannot be selected (P-06).
 6. On completion: cells flip to **Yes**; expand each row — the right-hand
    column shows the most recent run's Data Version, Model Family, Hazard Layers,
-   Missing Locations, and Result from `completion_summary`.
+   Skip locations with previous hazard lookup, Overwrite user-defined hazard
+   values, and Result from `completion_summary`.
 7. Failure paths: stop the worker (or use a bogus data version) and launch —
    the cell shows **Failed**, the latest details show the failed lookup, and the same
    portfolio is immediately launchable again (SC-005). EDM with zero

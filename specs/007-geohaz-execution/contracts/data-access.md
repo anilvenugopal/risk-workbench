@@ -9,7 +9,8 @@ fragments.
 
 ```python
 def launch(*, edm_id, portfolio_ids: list, data_version: str,
-           perils: list[str], missing_locations: str, actor_id) -> LaunchResult
+           perils: list[str], skip_prev_hazard: bool,
+           override_user_def: bool, actor_id) -> LaunchResult
 ```
 - Validates: gate (FR-004), portfolio membership + P-06 eligibility, ≥1 peril,
   `data_version` ∈ `settings.geohaz_data_versions`. Rejects the launch whole on

@@ -167,7 +167,8 @@ class IRPGateway(Protocol):
 
     def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
                       version: str, perils: list[str],
-                      skip_prev_hazard: bool) -> SubmitResult: ...
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult: ...
 
     def delete_analysis(self, *, analysis_id: int) -> None: ...
 
@@ -253,7 +254,8 @@ class _RealGateway:
 
     def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
                       version: str, perils: list[str],
-                      skip_prev_hazard: bool) -> SubmitResult:
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult:
         layers = [
             {
                 "type": "hazard",
@@ -261,7 +263,7 @@ class _RealGateway:
                 "engineType": "RL",
                 "version": version,
                 "layerOptions": {
-                    "overrideUserDef": False,
+                    "overrideUserDef": override_user_def,
                     "skipPrevHazard": skip_prev_hazard,
                 },
             }
@@ -557,13 +559,15 @@ def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
 
 
 def submit_geohaz(*, edm_name: str, portfolio_name: str, version: str,
-                  perils: list[str], skip_prev_hazard: bool) -> SubmitResult:
+                  perils: list[str], skip_prev_hazard: bool,
+                  override_user_def: bool) -> SubmitResult:
     return _active().submit_geohaz(
         edm_name=edm_name,
         portfolio_name=portfolio_name,
         version=version,
         perils=perils,
         skip_prev_hazard=skip_prev_hazard,
+        override_user_def=override_user_def,
     )
 
 

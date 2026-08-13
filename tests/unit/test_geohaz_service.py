@@ -49,7 +49,6 @@ def _job_count() -> int:
         ("no_perils", InvalidGeohazLaunch),
         ("bad_peril", InvalidGeohazLaunch),
         ("bad_version", InvalidGeohazLaunch),
-        ("bad_missing", InvalidGeohazLaunch),
         ("wrong_edm", InvalidGeohazLaunch),
     ],
 )
@@ -60,7 +59,6 @@ def test_launch_validation_rejects_the_whole_selection(
     selected = list(portfolio_ids)
     perils = ["earthquake", "windstorm"]
     version = "25.0"
-    missing = "overwrite"
     monkeypatch.setattr(geohaz_service.settings, "geohaz_data_versions", ["25.0"])
 
     if change == "no_selection":
@@ -71,8 +69,6 @@ def test_launch_validation_rejects_the_whole_selection(
         perils = ["flood"]
     elif change == "bad_version":
         version = "23.0"
-    elif change == "bad_missing":
-        missing = "keep"
     elif change == "wrong_edm":
         _, foreign_ids = _edm_with_portfolios(1)
         selected.append(foreign_ids[0])
@@ -83,7 +79,8 @@ def test_launch_validation_rejects_the_whole_selection(
             portfolio_ids=selected,
             data_version=version,
             perils=perils,
-            missing_locations=missing,
+            skip_prev_hazard=False,
+            override_user_def=False,
             actor_id=iteration2_db.user_a,
         )
 
@@ -94,14 +91,16 @@ def test_gate_rejects_missing_edm_and_edm_without_portfolios(iteration2_db):
     with pytest.raises(InvalidGeohazLaunch, match="no longer exists"):
         geohaz_service.launch(
             edm_id=str(uuid.uuid4()), portfolio_ids=[], data_version="25.0",
-            perils=["earthquake"], missing_locations="overwrite",
+            perils=["earthquake"], skip_prev_hazard=False,
+            override_user_def=False,
             actor_id=iteration2_db.user_a)
 
     edm_id, _ = _edm_with_portfolios(0)
     with pytest.raises(InvalidGeohazLaunch, match="at least one portfolio"):
         geohaz_service.launch(
             edm_id=edm_id, portfolio_ids=[], data_version="25.0",
-            perils=["earthquake"], missing_locations="overwrite",
+            perils=["earthquake"], skip_prev_hazard=False,
+            override_user_def=False,
             actor_id=iteration2_db.user_a)
     assert _job_count() == 0
 
@@ -123,7 +122,8 @@ def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
     with pytest.raises(GeohazLaunchConflict, match="Portfolio 2"):
         geohaz_service.launch(
             edm_id=edm_id, portfolio_ids=portfolio_ids, data_version="25.0",
-            perils=["earthquake"], missing_locations="overwrite",
+            perils=["earthquake"], skip_prev_hazard=False,
+            override_user_def=False,
             actor_id=iteration2_db.user_a)
     assert _job_count() == before
     assert geohaz_service.eligible(blocked) is False
@@ -144,7 +144,8 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
             portfolio_ids=portfolio_ids,
             data_version="25.0",
             perils=["windstorm", "earthquake"],
-            missing_locations="skip",
+            skip_prev_hazard=True,
+            override_user_def=True,
             actor_id=iteration2_db.user_a,
         )
     finally:
@@ -161,7 +162,8 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         "data_version": "25.0",
         "model_family": "DLM",
         "perils": ["windstorm", "earthquake"],
-        "missing_locations": "skip",
+        "skip_prev_hazard": True,
+        "override_user_def": True,
     }
     assert result.request_params == expected_params
     for row in rows:
@@ -192,7 +194,8 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
         portfolio_ids=portfolio_ids,
         data_version="25.0",
         perils=["earthquake"],
-        missing_locations="overwrite",
+        skip_prev_hazard=False,
+        override_user_def=False,
         actor_id=iteration2_db.user_a,
     )
 
@@ -257,14 +260,16 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
         irp_portfolio_id=portfolio_id, irp_id="930",
         request_params={
             "data_version": "24.0", "model_family": "DLM",
-            "perils": ["earthquake"], "missing_locations": "skip",
+            "perils": ["earthquake"], "skip_prev_hazard": True,
+            "override_user_def": False,
         }, actor_id=iteration2_db.user_a)
     second = irp_job_service.record_submission_failure(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id,
         request_params={
             "data_version": "25.0", "model_family": "DLM",
-            "perils": ["windstorm"], "missing_locations": "overwrite",
+            "perils": ["windstorm"], "skip_prev_hazard": False,
+            "override_user_def": True,
         }, actor_id=iteration2_db.user_b)
     execute_command(
         "UPDATE irp_job SET inserted_at = '2026-08-12', "

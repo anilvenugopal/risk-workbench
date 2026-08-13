@@ -22,7 +22,8 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     launched = geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids, data_version="25.0",
-        perils=["earthquake", "windstorm"], missing_locations="overwrite",
+        perils=["earthquake", "windstorm"], skip_prev_hazard=False,
+        override_user_def=True,
         actor_id=iteration2_db.user_a)
 
     assert _run(launched.rwb_job_ids[0]) is True
@@ -50,6 +51,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     assert head["status_code"] == "succeeded"
     assert head["error_detail"] is None
     assert fake_irp.submits[0]["skip_prev_hazard"] is False
+    assert fake_irp.submits[0]["override_user_def"] is True
 
 
 def test_worker_failure_is_terminal_and_does_not_touch_sibling(
@@ -58,7 +60,8 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
     edm_id, portfolio_ids = _edm_with_portfolios(2)
     launched = geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids, data_version="25.0",
-        perils=["windstorm"], missing_locations="skip",
+        perils=["windstorm"], skip_prev_hazard=True,
+        override_user_def=False,
         actor_id=iteration2_db.user_b)
     jobs = {
         str(row["requestor_id"]): str(row["id"])

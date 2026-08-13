@@ -51,12 +51,12 @@
     </fieldset>
 
     <fieldset class="geohaz-field">
-      <legend>Missing locations</legend>
+      <legend>Hazard lookup options</legend>
       <div class="geohaz-options">
-        <label><input type="radio" name="missing_locations" value="overwrite"
-          {% if form.missing_locations == 'overwrite' %}checked{% endif %}> Overwrite</label>
-        <label><input type="radio" name="missing_locations" value="skip"
-          {% if form.missing_locations == 'skip' %}checked{% endif %}> Skip</label>
+        <label><input type="checkbox" name="skip_prev_hazard" value="true"
+          {% if form.skip_prev_hazard %}checked{% endif %}> Skip locations with previous hazard lookup</label>
+        <label><input type="checkbox" name="override_user_def" value="true"
+          {% if form.override_user_def %}checked{% endif %}> Overwrite user-defined hazard values</label>
       </div>
     </fieldset>
     {% endif %}

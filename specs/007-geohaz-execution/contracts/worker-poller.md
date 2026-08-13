@@ -8,13 +8,14 @@ functions, `__all__`, and the unit-tier `FakeIRP`
 
 ```python
 def submit_geohaz(*, edm_name: str, portfolio_name: str, version: str,
-                  perils: list[str], skip_prev_hazard: bool) -> SubmitResult
+                  perils: list[str], skip_prev_hazard: bool,
+                  override_user_def: bool) -> SubmitResult
     # wraps client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers)
     # building one hazard layer per peril (R4/R5) — hazard-only, no geocode
     # layer ever sent (FR-005):
     #   {"type": "hazard", "name": peril,          # "earthquake" / "windstorm"
     #    "engineType": "RL", "version": version,
-    #    "layerOptions": {"overrideUserDef": False,
+    #    "layerOptions": {"overrideUserDef": override_user_def,
     #                     "skipPrevHazard": skip_prev_hazard}}
     # returns SubmitResult(irp_id=str(job_id), resource_uri=body["resourceUri"], payload=body)
     #   — resource_uri comes from the REQUEST body (the completion response omits it)

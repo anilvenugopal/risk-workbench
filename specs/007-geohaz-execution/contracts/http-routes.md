@@ -12,14 +12,16 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
   (the `package_modal.html` pattern; Alpine component registered in `app.js`).
 - Pre-populated defaults (FR-002): data version = first entry of
   `GEOHAZ_DATA_VERSIONS`; model family = DLM (HD disabled, O7-1); perils =
-  earthquake + windstorm checked; missing locations = overwritten.
+  earthquake + windstorm checked; skip locations with previous hazard lookup
+  unchecked; overwrite user-defined hazard values checked.
 - Error variants (rendered in the modal, not error pages): no portfolios
   selected; a selected portfolio is P-06-ineligible (lists which); gate not met.
 
 ## `POST /edms/{edm_id}/geohaz` — launch
 
 - Form fields: `csrf_token`, `portfolio_ids` (repeated), `data_version`,
-  `perils` (repeated; ≥1 required), `missing_locations` (`overwrite`/`skip`).
+  `perils` (repeated; ≥1 required), `skip_prev_hazard` and
+  `override_user_def` (checkbox booleans; omitted means false).
 - Validates: gate (EDM exists, ≥1 portfolio — FR-004), every `portfolio_ids`
   belongs to this EDM and is P-06-eligible, ≥1 peril (FR-002), `data_version`
   is a configured value.

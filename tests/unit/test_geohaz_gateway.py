@@ -32,6 +32,7 @@ def test_geohaz_parameter_mapping_is_hazard_only():
         version="25.0",
         perils=["earthquake", "windstorm"],
         skip_prev_hazard=True,
+        override_user_def=True,
     )
 
     assert portfolio.submit_args == (
@@ -44,7 +45,7 @@ def test_geohaz_parameter_mapping_is_hazard_only():
                 "engineType": "RL",
                 "version": "25.0",
                 "layerOptions": {
-                    "overrideUserDef": False,
+                    "overrideUserDef": True,
                     "skipPrevHazard": True,
                 },
             },
@@ -54,7 +55,7 @@ def test_geohaz_parameter_mapping_is_hazard_only():
                 "engineType": "RL",
                 "version": "25.0",
                 "layerOptions": {
-                    "overrideUserDef": False,
+                    "overrideUserDef": True,
                     "skipPrevHazard": True,
                 },
             },
@@ -86,6 +87,7 @@ def test_fake_irp_implements_geohaz_gateway_methods():
         version="25.0",
         perils=["earthquake"],
         skip_prev_hazard=False,
+        override_user_def=True,
     )
     fake.finish(submitted.irp_id, {"locations": 12})
 
@@ -98,7 +100,8 @@ def test_irp_job_writers_persist_geohaz_portfolio_and_params(iteration2_db):
         "data_version": "25.0",
         "model_family": "DLM",
         "perils": ["earthquake", "windstorm"],
-        "missing_locations": "overwrite",
+        "skip_prev_hazard": False,
+        "override_user_def": True,
     }
 
     submitted_id = irp_job_service.record_submitted_irp_job(

@@ -14,7 +14,6 @@ from app.workers import dispatch
 from db import execute, execute_one
 
 _PERILS = frozenset({"earthquake", "windstorm"})
-_MISSING_LOCATIONS = frozenset({"overwrite", "skip"})
 _TERMINAL_IRP_STATUSES = ("FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED")
 
 
@@ -206,7 +205,8 @@ def launch(
     portfolio_ids: list[Any],
     data_version: str,
     perils: list[str],
-    missing_locations: str,
+    skip_prev_hazard: bool,
+    override_user_def: bool,
     actor_id: Any,
 ) -> LaunchResult:
     """Validate one launch and enqueue one worker job per selected portfolio."""
@@ -247,15 +247,12 @@ def launch(
         raise InvalidGeohazLaunch("Select only earthquake or windstorm.")
     if data_version not in settings.geohaz_data_versions:
         raise InvalidGeohazLaunch("Select a configured hazard data version.")
-    if missing_locations not in _MISSING_LOCATIONS:
-        raise InvalidGeohazLaunch(
-            "Missing locations must be overwritten or skipped.")
-
     request_params = {
         "data_version": data_version,
         "model_family": "DLM",
         "perils": selected_perils,
-        "missing_locations": missing_locations,
+        "skip_prev_hazard": skip_prev_hazard,
+        "override_user_def": override_user_def,
     }
     actor = str(actor_id)
     job_ids: list[str] = []

@@ -114,7 +114,8 @@ The app builds the layer list; the wheel validates shape and passes it through (
 | Form field (P-02) | Wire (wheel 0.5.0) | Notes |
 |---|---|---|
 | Perils: earthquake, windstorm (both default on; ≥1 required) | One hazard layer per peril: `{"type": "hazard", "name": "earthquake"/"windstorm", "engineType": "RL", "version": <data_version>, "layerOptions": {...}}` | The wheel accepts any non-empty layer list — the ≥1-peril rule is enforced app-side, form and server. Layer names match the `request_params.perils` tokens. |
-| Missing locations: overwritten (default) / skipped | `layerOptions={"overrideUserDef": False, "skipPrevHazard": False/True}` on every hazard layer | Both keys required by `validate_geohaz_layers`. Semantics confirmed at the sandbox capture. |
+| Skip locations with previous hazard lookup (default off) | `layerOptions.skipPrevHazard` on every hazard layer | Independent checkbox boolean. |
+| Overwrite user-defined hazard values (default on) | `layerOptions.overrideUserDef` on every hazard layer | Independent checkbox boolean. Both layer option keys are required by `validate_geohaz_layers`. |
 | Data version: latest (default) | `version` on every layer (same string) | Per-layer on the wire; the form offers one value applied to all. See R6. |
 | Model family: DLM (default) | `engineType` on every layer — `"RL"` (the DLM engine, the only value observed) | Rendered DLM-only with HD disabled (O7-1 open — the HD engineType value is unconfirmed); recorded in `request_params` so the P-05 record answers "what ran". Now caller-supplied, so enabling HD later is a form + mapping change, no wheel change. |
 
