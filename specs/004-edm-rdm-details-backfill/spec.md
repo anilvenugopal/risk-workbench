@@ -1,5 +1,8 @@
 # Feature Specification: EDM/RDM Details & Backfill (Iteration 3)
 
+> **Superseded in part:** `specs/006-package-retirement/` replaces Package-scoped
+> EDM context and RDM display with explicit Submission context and lazy RDM analyses.
+
 **Feature Branch**: `004-edm-rdm-details-backfill`
 
 **Created**: 2026-07-23
