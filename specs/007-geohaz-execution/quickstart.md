@@ -50,11 +50,11 @@ kind row mirrored.
    render.
 5. While a job is non-terminal, open the launch form again — that portfolio
    cannot be selected (P-06).
-6. On completion: cells flip to **Yes**; expand each row — the lookup record
-   shows parameters, analyst, submitted/completed timestamps, and the Risk
-   Modeler completion summary (missing summary text renders as unavailable).
+6. On completion: cells flip to **Yes**; expand each row — the right-hand
+   column shows the most recent run's Data Version, Model Family, Hazard Layers,
+   Missing Locations, and Result from `completion_summary`.
 7. Failure paths: stop the worker (or use a bogus data version) and launch —
-   the cell shows **Failed**, the history shows the failed lookup, and the same
+   the cell shows **Failed**, the latest details show the failed lookup, and the same
    portfolio is immediately launchable again (SC-005). EDM with zero
    portfolios → the launch action is disabled (SC-004).
 

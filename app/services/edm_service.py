@@ -545,7 +545,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     for portfolio in portfolios:
         portfolio.geohaz_state = geohaz_states[portfolio.id]
         portfolio.geohaz_eligible = not portfolio.geohaz_state.live
-        portfolio.geohaz_history = geohaz_service.lookup_history(portfolio.id)
+        portfolio.geohaz_latest = geohaz_service.latest_lookup(portfolio.id)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     job_status = _latest_backfill_status(eid)

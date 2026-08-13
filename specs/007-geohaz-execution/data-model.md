@@ -102,12 +102,13 @@ pending/claimed `run_geohaz` rwb_job head. Enforced in the form (checkbox
 disabled) and re-validated in the launch POST; the unique rwb_job head is the
 race backstop.
 
-### Lookup history (FR-022)
+### Most recent lookup details (FR-022)
 
 `SELECT … FROM irp_job LEFT JOIN app_user ON app_user.id = irp_job.inserted_by
 WHERE irp_portfolio_id = :pid AND irp_job_type = 'geohaz' ORDER BY inserted_at DESC`
-— each row renders parameters (`request_params`), analyst, submitted/completed
-timestamps, status, and `completion_summary` (or "unavailable", FR-023).
+— the first row supplies Data Version, Model Family, Hazard Layers, Missing
+Locations, and Result. Result is `completion_summary` (or "Unavailable",
+FR-023).
 
 ## 5. Unchanged
 

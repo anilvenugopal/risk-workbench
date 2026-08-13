@@ -18,9 +18,9 @@
 - Parameter mapping (research R5): the app builds one hazard layer per selected peril — `{"type": "hazard", "name": "earthquake"/"windstorm", "engineType": "RL", "version": <data_version>, "layerOptions": {"overrideUserDef": False, "skipPrevHazard": False/True}}` (missing locations overwrite/skip → `skipPrevHazard`); model family renders DLM fixed with HD disabled pending O7-1 (`"RL"` is the only confirmed `engineType`), and DLM is recorded in the parameter set.
 - Data versions come from a new config setting `GEOHAZ_DATA_VERSIONS` (comma list, first entry is the default) because the wheel has no version-discovery API (research R6).
 - The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
-- On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the history displays the string without parsing layer counts (research R7). Missing summary text renders as unavailable.
+- On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the most recent lookup details display the string as Result without parsing it (research R7). Missing summary text renders as unavailable.
 - The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). No terminal handler: nothing auto-fires on geohaz completion (Article 5 — the lookup is the end of the intent).
-- The portfolios table gains the **"Hazard looked up?"** column (update `--cols`/`min-width` in `edm_detail_body.html`) with the four P-07 states derived from geohaz `irp_job` rows + pending `run_geohaz` `rwb_job` heads; the expanded `<details>` row gains the lookup history list.
+- The portfolios table gains the **"Hazard looked up?"** column (update `--cols`/`min-width` in `edm_detail_body.html`) with the four P-07 states derived from geohaz `irp_job` rows + pending `run_geohaz` `rwb_job` heads; the expanded `<details>` row shows the most recent lookup in a column to the right of the exposure value lists.
 - The column refreshes with a **per-cell** self-terminating poll: `GET .../geohaz-cell` emits `hx-trigger="every 3s"` only while a lookup is non-terminal (research R8) — the whole-body poll is wrong for this (its 204 open-rows guard, and it only runs during sync/import).
 - Repeat launches: `SUBMISSION FAILED`, `FAILED`, `CANCELLED`, `FINISHED` are terminal, so the portfolio is launchable again (FR-007/FR-014); the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` head + `ensure_pending_rwb_job` revive-or-noop is the mechanical double-submit backstop behind the P-06 form exclusion.
 - Schema work is an edit to the single `alembic/versions/0001_initial.py` revision plus the `infra/scripts/seed_db.py` MERGE and the `tests/iteration1_mirror.py` mirror/seeds (one new `rwb_job_type_kind` row `run_geohaz`; the `geohaz` `irp_job_type_kind` row already exists).
@@ -83,7 +83,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 
 **Project Type**: Server-rendered web app with two out-of-process background components (poller, Dramatiq worker). Extends the existing `app/` tree.
 
-**Performance Goals**: the EDM summary page renders the column and history from stored rows only — no Risk Modeler call on any request path (FR-013/FR-020); per-cell polls are single-row reads on the indexed `irp_portfolio_id`. Submission latency is worker-side and invisible to the request (< 1 poll interval + ~4 RM round trips per portfolio).
+**Performance Goals**: the EDM summary page renders the status and most recent lookup from stored rows only — no Risk Modeler call on any request path (FR-013/FR-020); per-cell polls are single-row reads on the indexed `irp_portfolio_id`. Submission latency is worker-side and invisible to the request (< 1 poll interval + ~4 RM round trips per portfolio).
 
 **Constraints**: Article 11 discipline as above; `db.execute` safe path only (no trusted scripts); CSRF on the launch POST; P-06 enforced server-side at launch time with the `rwb_job` unique head as the race backstop; no version stamp read or displayed anywhere (FR-013).
 
@@ -123,11 +123,11 @@ app/config.py                        # EDIT: geohaz_data_versions setting
 app/services/irp_gateway.py          # EDIT: submit_geohaz + get_geohaz_job (Protocol, _RealGateway,
                                      #       free functions, __all__)
 app/services/irp_job_service.py      # EDIT: irp_portfolio_id + request_params on the writers;
-                                     #       history/state queries may live here or in geohaz_service
+                                     #       latest-lookup/state queries may live here or in geohaz_service
 app/services/geohaz_service.py       # NEW: gate + P-06 eligibility, launch (validate, enqueue per portfolio),
-                                     #      column-state + history read models, layer-count parser
-app/services/edm_service.py          # EDIT: get_edm_detail attaches per-portfolio geohaz cell state + lookup
-                                     #       history (both detail routes render from this one read model)
+                                     #      column-state + latest-lookup read models, summary parser
+app/services/edm_service.py          # EDIT: get_edm_detail attaches per-portfolio geohaz cell state + latest
+                                     #       lookup (both detail routes render from this one read model)
 app/workers/geohaz_jobs.py           # NEW: run_geohaz body + actor + _BODIES (auto-discovered by loader)
 app/poller/run.py                    # EDIT: _GETTERS["geohaz"]
 app/routers/edms.py                  # EDIT: GET  /edms/{edm_id}/geohaz/new           (modal fragment)
@@ -135,11 +135,11 @@ app/routers/edms.py                  # EDIT: GET  /edms/{edm_id}/geohaz/new     
                                      #       GET  /edms/{edm_id}/portfolios/{pid}/geohaz-cell
 app/templates/partials/
 ├── edm_detail_body.html             # EDIT: column header + --cols/min-width; selection form + launch button
-├── portfolio_row.html               # EDIT: checkbox cell, geohaz cell include, expanded history list
+├── portfolio_row.html               # EDIT: checkbox cell, geohaz cell include, latest lookup details column
 ├── geohaz_modal.html                # NEW: launch form modal
 └── geohaz_cell.html                 # NEW: the self-terminating status cell fragment
 app/static/js/app.js                 # EDIT: modal component (registered here, not inline)
-app/static/css/                     # EDIT: cell/history styling via tokens if needed
+app/static/css/                     # EDIT: status and latest-details styling via tokens if needed
 
 docs/ui_previews/geohaz_launch.html  # NEW: rendered preview of the modal (approval before build)
 

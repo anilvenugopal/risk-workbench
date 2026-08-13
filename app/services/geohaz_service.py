@@ -34,13 +34,9 @@ class CellState:
 
 
 @dataclass(frozen=True)
-class LookupRecord:
+class LatestLookup:
     id: str
     request_params: dict[str, Any]
-    analyst_name: str | None
-    submitted_at: Any
-    completed_at: Any
-    status: str
     completion_summary: str | None
 
 
@@ -145,32 +141,35 @@ def completion_summary(result: dict[str, Any] | None) -> str | None:
     return None
 
 
-def lookup_history(portfolio_id: Any) -> list[LookupRecord]:
-    """Return the portfolio's workbench GeoHaz submissions, newest first."""
+def latest_lookup(portfolio_id: Any) -> LatestLookup | None:
+    """Return the portfolio's most recent workbench GeoHaz submission."""
     rows = execute(
         """
-        SELECT j.id, j.request_params, j.completion_summary,
-               u.display_name AS analyst_name, j.submitted_at,
-               j.completed_at, j.status
-        FROM irp_job j
-        LEFT JOIN app_user u ON u.id = j.inserted_by
-        WHERE j.irp_portfolio_id = :portfolio_id
-          AND j.irp_job_type = 'geohaz'
-        ORDER BY j.inserted_at DESC, j.id DESC
+        WITH ranked AS (
+            SELECT j.id, j.request_params, j.completion_summary,
+                   ROW_NUMBER() OVER (
+                       ORDER BY j.inserted_at DESC, j.id DESC
+                   ) AS recency
+            FROM irp_job j
+            WHERE j.irp_portfolio_id = :portfolio_id
+              AND j.irp_job_type = 'geohaz'
+        )
+        SELECT r.id, r.request_params, r.completion_summary
+        FROM ranked r
+        WHERE r.recency = 1
         """,
         {"portfolio_id": str(portfolio_id)},
         connection="WORKBENCH",
     )
-    return [LookupRecord(
+    if not rows:
+        return None
+    row = rows[0]
+    return LatestLookup(
         id=_uid(row["id"]),
         request_params=(
             _parse_json_dict(row["request_params"], "request_params") or {}),
-        analyst_name=row["analyst_name"],
-        submitted_at=row["submitted_at"],
-        completed_at=row["completed_at"],
-        status=row["status"],
         completion_summary=row["completion_summary"],
-    ) for row in rows]
+    )
 
 
 def eligible(portfolio_id: Any) -> bool:
@@ -286,6 +285,6 @@ def launch(
 
 
 __all__ = [
-    "CellState", "LaunchResult", "LookupRecord", "cell_state", "eligible",
-    "completion_summary", "launch", "lookup_history", "lookup_states",
+    "CellState", "LaunchResult", "LatestLookup", "cell_state", "eligible",
+    "completion_summary", "latest_lookup", "launch", "lookup_states",
 ]

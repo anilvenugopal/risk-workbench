@@ -192,7 +192,6 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     cell_url = f"/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell"
     assert "Hazard looked up?" in page
     assert f'hx-get="{cell_url}"' in page
-    assert "Analyst A" in page
     assert "Earthquake" in page
 
     live = _client().get(cell_url)
@@ -220,7 +219,7 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
     assert "hx-trigger" not in response.text
 
 
-def test_history_renders_completion_summary_and_unavailable(iteration2_db):
+def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     with_summary = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -230,7 +229,11 @@ def test_history_renders_completion_summary_and_unavailable(iteration2_db):
     without_summary = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="951",
-        request_params={"perils": ["earthquake"]},
+        request_params={
+            "data_version": "25.0", "model_family": "DLM",
+            "perils": ["earthquake", "windstorm"],
+            "missing_locations": "overwrite",
+        },
         actor_id=iteration2_db.user_a)
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED', "
@@ -244,6 +247,15 @@ def test_history_renders_completion_summary_and_unavailable(iteration2_db):
 
     body = _client().get(f"/edms/{edm_id}").text
 
-    assert "Completion summary" in body
-    assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." in body
-    assert "Summary unavailable" in body
+    assert "Most recent hazard lookup" in body
+    assert "Data Version" in body
+    assert "Model Family" in body
+    assert "Hazard Layers" in body
+    assert "Missing Locations" in body
+    assert "Result" in body
+    assert "25.0" in body
+    assert "DLM" in body
+    assert "Earthquake, Windstorm" in body
+    assert "Overwrite" in body
+    assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." not in body
+    assert "Unavailable" in body

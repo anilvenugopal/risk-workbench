@@ -47,6 +47,6 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 - `GET /edms/{edm_id}` / `GET /edms/{edm_id}/body` — the portfolios table gains
   the selection checkboxes, the launch button (disabled until ≥1 eligible
   portfolio is checked; absent when the gate fails — FR-004), the new column
-  (update `--cols`/`min-width` together), and the expanded-row history list.
+  (update `--cols`/`min-width` together), and the expanded-row latest-details column.
   The whole-body poll contract (204 mid-sync guard) is unchanged — geohaz
   status rides the per-cell fragment, not the body poll.

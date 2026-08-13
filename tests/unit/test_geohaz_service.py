@@ -250,7 +250,7 @@ def test_lookup_state_stays_yes_after_a_later_failure(iteration2_db):
     assert state.live is False
 
 
-def test_lookup_history_is_newest_first_with_params_and_analyst(iteration2_db):
+def test_latest_lookup_returns_only_newest_run(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     first = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -276,10 +276,8 @@ def test_lookup_history_is_newest_first_with_params_and_analyst(iteration2_db):
         "WHERE id = :id",
         {"id": second}, connection="WORKBENCH")
 
-    history = geohaz_service.lookup_history(portfolio_id)
+    latest = geohaz_service.latest_lookup(portfolio_id)
 
-    assert [entry.id for entry in history] == [second, first]
-    assert history[0].analyst_name == "Analyst B"
-    assert history[0].request_params["perils"] == ["windstorm"]
-    assert history[0].status == "SUBMISSION FAILED"
-    assert history[1].analyst_name == "Analyst A"
+    assert latest is not None
+    assert latest.id == second
+    assert latest.request_params["perils"] == ["windstorm"]
