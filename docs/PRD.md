@@ -701,9 +701,13 @@ Data-element modification (construction/currency normalization); peril-specific 
 
 An **optional** pre-analysis operation that runs Moody's hazard lookup on a portfolio. In this workbench it is **hazard lookup only** — **geocoding is not re-run** (broker geocoding is preserved; Cheryl has never re-geocoded in this role). Re-geocoding, if ever needed, is done intentionally *inside the model*, not as a workbench action (FR §5).
 
+The action lives on the **EDM/portfolio summary page**: the analyst selects **one or more portfolios** and launches hazard lookup once; the workbench submits **one geohaz job per selected portfolio** (design session 2026-08-07 — "ability to execute hazard lookup from the screen — yes").
+
 Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set against the installed `irp-integration` wheel before implementing — §14.3.)*
 
 ### 10B.2 Parameters (defaults in **bold**)
+
+The launch form is **pre-populated with these defaults**; the analyst can change any of them before submitting. One parameter set applies to every portfolio selected in the launch.
 
 - **Data version** — defaults to the **latest** (v25 as of now).
 - **Model family** — defaults to **DLM (non-HD)**.
@@ -712,9 +716,17 @@ Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `
 
 ### 10B.3 Result
 
-The hazard job returns a **summary of locations looked up per layer**, surfaced to the analyst when it completes.
+The hazard job returns a **summary of locations looked up per layer**, shown to the analyst when it completes. Exactly which fields of the completion response the workbench records is decided at Iteration 5 spec time (O8-3).
 
-### 10B.4 Prerequisite gate & relationship to analysis
+### 10B.4 On-screen display: app-side lineage, not version stamps
+
+Settled in the 2026-08-07 design session — "Geocode and hazard information on the screen — no. Ability to execute hazard lookup from the screen — yes."
+
+- The workbench **assumes exposure arrives geocoded and hazard-retrieved**. It shows **no geocode/hazard version stamp** on the summary page and **never reads RM's stamp to gate anything** — a live analysis on parcel-geocoded data with no stamp succeeded, so the stamp is not evidence of geocode state (O8-1 tracks confirming its origin with Moody's).
+- What the summary page shows instead is the **workbench's own execution history**: per portfolio, whether hazard lookup has been run **through the workbench** (from `irp_job` rows with `irp_job_type = geohaz`), and the **in-line status of any non-terminal geohaz job** on that portfolio. Status refreshes by polling the workbench (§14.7 SSE lands with Iteration 6 and can replace the polling).
+- Which execution details are recorded and displayed per lookup (data version, perils, per-layer counts, …) is **O8-3**, decided at Iteration 5 spec time.
+
+### 10B.5 Prerequisite gate & relationship to analysis
 
 Enabled once an **EDM + portfolio** exist (§13.1). Hazard lookup is **optional** and is **not a hard prerequisite for analysis** — broker exposure is usually already geocoded/hazarded, so analysis is not gated on a geohaz job having run. (This is why the Analysis gate row, §13.1, does not list geohaz.)
 
@@ -836,7 +848,7 @@ A **treaty belongs to an EDM** and is referenced by analyses **by name** (not by
 | Grouping | member analyses/groups exist (`FINISHED`) |
 | Export → Loss Repo | analysis/group exists (`FINISHED`) |
 
-This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones. **GeoHaz (hazard lookup) is optional and deliberately *not* an Analysis prerequisite** — broker exposure is usually already geocoded/hazarded, so the Analysis row above does not require a geohaz job to have run (§10B.4, FR §5). *(Open: whether HD models need hazard run ahead — O7-1.)* **Subportfolio** creation needs `≥1 portfolio` because portfolios arrive with the EDM (§10A.2), and a sub-portfolio filters an existing one.
+This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones. **GeoHaz (hazard lookup) is optional and deliberately *not* an Analysis prerequisite** — broker exposure is usually already geocoded/hazarded, so the Analysis row above does not require a geohaz job to have run (§10B.5, FR §5). *(Open: whether HD models need hazard run ahead — O7-1.)* **Subportfolio** creation needs `≥1 portfolio` because portfolios arrive with the EDM (§10A.2), and a sub-portfolio filters an existing one.
 
 **Auto-fires vs click-gated.** Mechanical follow-up **auto-fires** (a broker package is one intent, so EDM→RDM chains automatically); anything requiring judgment (picking analysis settings) **waits for a click**. This auto/click distinction is made explicit per op in the flow specs.
 
@@ -1283,13 +1295,13 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 5 — GeoHaz (hazard lookup)
 
-> **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved).
+> **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved). **Updated 2026-08-12** from the Aug 7 design session: multi-portfolio launch from the summary page, app-side lineage/status display, no version-stamp display or gating (§10B.4, §24 change log).
 
-**In:** the hazard-lookup op against Risk Modeler on a portfolio — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the configurable parameters with their defaults (data version = latest, family = DLM, perils = EQ + windstorm, missing locations overwritten — §10B.2); the per-layer **"locations looked up" summary** surfaced on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.4).
+**In:** the hazard-lookup op against Risk Modeler, launched from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the launch form **pre-populated with the defaults** (data version = latest, family = DLM, perils = EQ + windstorm, missing locations overwritten — §10B.2), all changeable before submit; **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
 
-**Out:** analysis execution, grouping, results; geocoding (never a workbench action).
+**Out:** analysis execution, grouping, results; geocoding (never a workbench action); SSE live job status (§14.7, Iteration 6 — polling refresh suffices here).
 
-**Exit:** run hazard lookup on a portfolio with the default parameters; the job is tracked via the poller; on completion the per-layer locations-looked-up summary is shown; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1.)*
+**Exit:** select two portfolios on the EDM summary page and run hazard lookup with the default parameters; both jobs are tracked via the poller with in-line per-portfolio status; on completion the per-layer locations-looked-up summary is shown and each portfolio shows it has been hazard-looked-up through the workbench; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1; what execution detail to record per lookup — O8-3.)*
 
 ### Iteration 6 — Analysis execution
 
@@ -1454,8 +1466,10 @@ This prompt applies independently to each of the three app-managed databases (`W
 - Idle-timeout durations (sliding + absolute)
 - Export format beyond Parquet (CSV? Excel?)
 - **O6-1/O6-2 — commercial-policy geographic split (blocks the geography & complement portfolio breakouts, §10A.5).** Does RM keep all locations or only matching ones on a geographic split, and is there a toggle? Ben investigating RM behavior; Cheryl polling the team for the preferred default.
-- **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
-- **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
+- **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.5). Cheryl investigating.
+- **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.5). Cheryl investigating.
+- **O8-1 — geocode/hazard version-stamp origin.** Confirm with Moody's where RM's geocode/hazard stamp comes from and what it gates; the workbench neither displays nor reads it (§10B.4). Cheryl / team.
+- **O8-3 — hazard-execution lineage detail.** What execution detail the workbench records and displays per hazard lookup, given a naive stamp read is insufficient (§10B.4). Ben; settled at Iteration 5 spec time.
 - **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
 - **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
@@ -1478,6 +1492,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-08-12 — GeoHaz reconciled to the Aug 7 design session (Iteration 5 prep)
+
+Scope: §10B, §13.1 reference, §21 Iteration 5, §23 open decisions, this log — folds the 2026-08-07 design-session GeoHaz decisions (`docs/design_session_notes/10_edm_summary_submissions_geohaz_currency.md` §2) into the PRD ahead of the Iteration 5 spec. No CR (feature scope unchanged; the session settled how the op is launched and displayed).
+
+- **Multi-portfolio launch from the summary page (§10B.1).** Hazard lookup is launched from the EDM/portfolio summary page against one or more selected portfolios; one geohaz job per portfolio, one parameter set per launch. §10B previously said "a portfolio", singular.
+- **Launch form pre-populated with the §10B.2 defaults**, all changeable before submit.
+- **App-side lineage, not version stamps (new §10B.4).** The workbench displays no geocode/hazard version stamp and never reads RM's stamp to gate anything — a live analysis on stamp-less, parcel-geocoded data succeeded. Instead the summary page shows, per portfolio, whether hazard lookup has been run through the workbench and the in-line status of any non-terminal geohaz job (polling refresh; §14.7 SSE stays in Iteration 6). What execution detail is recorded and displayed per lookup is O8-3, settled at Iteration 5 spec time. The gate section moved from §10B.4 to §10B.5.
+- **§23** — added O8-1 (version-stamp origin, confirm with Moody's) and O8-3 (hazard-execution lineage detail).
 
 ### 2026-07-27 — Spec 003 amendment (issues #17 + #11): name collision blocks the save
 
