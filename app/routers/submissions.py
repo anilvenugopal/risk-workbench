@@ -194,18 +194,34 @@ def _active_analysts() -> list[dict]:
     )
 
 
+def _entity_backfill_running(kind: str, entities: list) -> bool:
+    latest_status = (
+        edm_service.latest_backfill_status
+        if kind == "edm"
+        else rdm_service.latest_backfill_status
+    )
+    return any(
+        latest_status(entity.id) in ("pending", "running")
+        for entity in entities
+    )
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
     analysts = _active_analysts()
+    submission_edms = submission_service.list_submission_edms(submission_id)
+    submission_rdms = submission_service.list_submission_rdms(submission_id)
     return {
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
-        "submission_edms": submission_service.list_submission_edms(submission_id),
-        "submission_rdms": submission_service.list_submission_rdms(submission_id),
+        "submission_edms": submission_edms,
+        "submission_rdms": submission_rdms,
+        "edm_backfill_running": _entity_backfill_running("edm", submission_edms),
+        "rdm_backfill_running": _entity_backfill_running("rdm", submission_rdms),
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
         "analysts": analysts,
@@ -236,10 +252,18 @@ def _entity_table_response(
         return _not_found(request)
     if kind == "edm":
         template = "partials/submission_edm_table.html"
-        rows = {"submission_edms": submission_service.list_submission_edms(submission_id)}
+        entities = submission_service.list_submission_edms(submission_id)
+        rows = {
+            "submission_edms": entities,
+            "edm_backfill_running": _entity_backfill_running("edm", entities),
+        }
     else:
         template = "partials/submission_rdm_table.html"
-        rows = {"submission_rdms": submission_service.list_submission_rdms(submission_id)}
+        entities = submission_service.list_submission_rdms(submission_id)
+        rows = {
+            "submission_rdms": entities,
+            "rdm_backfill_running": _entity_backfill_running("rdm", entities),
+        }
     return _partial(request, template, {
         "submission": submission,
         "is_active": submission.status_code == submission_service.ACTIVE,

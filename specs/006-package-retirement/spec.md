@@ -29,7 +29,7 @@ picker, and submission-scoped RDM section.
 |---|---|---|
 | P-01 | Approved | Remove Package as a user concept and database entity. |
 | P-02 | Approved | Relate each EDM and RDM directly to zero or more submissions without copying the Risk Modeler resource. |
-| P-03 | Approved | Show separate, always-visible EDM and RDM tables on submission detail. Both tables show Status and a Risk Modeler link. The EDM table shows Portfolio count, and the RDM table shows Analysis count. The tables do not expand or collapse. Each table refreshes while any listed import is non-terminal. |
+| P-03 | Approved | Show separate, always-visible EDM and RDM tables on submission detail. Both tables show Status and a Risk Modeler link. The EDM table shows Portfolio count, and the RDM table shows Analysis count. The tables do not expand or collapse. Each table refreshes while any listed import or subsequent backfill is non-terminal. |
 | P-04 | Approved | In submission context, an EDM page shows every RDM related to the same submission; no EDM-to-RDM relationship is inferred. |
 | P-05 | Approved | The EDM context link names only the submission used to open the EDM. Other submission associations appear outside the navigation trail. |
 | P-06 | Approved | A submission add action supports both importing a new EDM/RDM and relating an existing EDM/RDM. |
@@ -75,6 +75,7 @@ under the second submission and in the EDM library.
 2. **Given** a live EDM/RDM not already related to the target submission, **When** the analyst opens the add-existing action and selects it, **Then** only the association is inserted and no Risk Modeler call occurs.
 3. **Given** a resource related to several submissions, **When** it is removed from one submission, **Then** only that association is deleted.
 4. **Given** a completed or cancelled submission, **When** an analyst attempts an add or remove action, **Then** the server rejects the change.
+5. **Given** no EDMs/RDMs are available to add, **When** the analyst opens the add-existing tab without searching, **Then** the empty state says none are available to add; after a search, the empty state says no available EDMs/RDMs match the search.
 
 ### User Story 3 - Review an EDM in one submission context (Priority: P1)
 
@@ -111,9 +112,9 @@ only the selected submission.
 - **FR-003**: The system MUST relate RDMs to submissions through a many-to-many association.
 - **FR-004**: Relating an existing EDM/RDM to another submission MUST NOT copy or re-import it.
 - **FR-005**: Submission detail MUST render separate EDM and RDM tables.
-- **FR-006**: The EDM and RDM tables MUST remain visible, MUST NOT expand or collapse, and MUST include empty states. Both tables MUST show Name, Status, and a Risk Modeler link. The EDM table MUST show Portfolio count, and the RDM table MUST show Analysis count. Each table MUST refresh at an interval while any listed import is non-terminal and stop refreshing when every listed import is terminal.
+- **FR-006**: The EDM and RDM tables MUST remain visible, MUST NOT expand or collapse, and MUST include empty states. Both tables MUST show Name, Status, and a Risk Modeler link. The EDM table MUST show Portfolio count, and the RDM table MUST show Analysis count. Each table MUST refresh at an interval while any listed import or subsequent backfill is non-terminal and stop refreshing when every listed import and backfill is terminal.
 - **FR-007**: An active submission MUST support importing a new EDM or RDM directly.
-- **FR-008**: An active submission MUST support relating every live EDM or RDM not already related to that submission.
+- **FR-008**: An active submission MUST support relating every live EDM or RDM not already related to that submission. The add-existing empty state MUST distinguish no available EDMs/RDMs before a search from no search matches.
 - **FR-009**: Removing an EDM/RDM from a submission MUST delete only the association and MUST NOT delete the EDM/RDM from the workbench or Risk Modeler.
 - **FR-010**: Completed and cancelled submissions MUST reject association changes.
 - **FR-011**: A contextual EDM page MUST validate the EDM association to the URL's submission.

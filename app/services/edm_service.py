@@ -458,7 +458,7 @@ class EdmDetail:
     import_error: str | None = None
 
 
-def _latest_backfill_status(edm_id: str) -> str | None:
+def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
     enqueue sources: the poller's heads key on the finished ``import_edm``
     irp_job (hence the join), the manual Sync's key on ``(analyst_request,
@@ -533,7 +533,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
-    job_status = _latest_backfill_status(eid)
+    job_status = latest_backfill_status(eid)
     submissions: list[SubmissionRef] = []
     for submission in execute(
         "SELECT s.id, s.name FROM submission_edm se "
@@ -579,7 +579,7 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     current = _current(eid)
     if current is None or current["status"] in (PENDING, IMPORTING):
         return None
-    if _latest_backfill_status(eid) in ("pending", "running"):
+    if latest_backfill_status(eid) in ("pending", "running"):
         return None
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
@@ -717,7 +717,7 @@ __all__ = [
     "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "list_adoptable_edms", "adopt_edms",
-    "latest_import_error", "get_edm_detail", "sync_detail",
+    "latest_import_error", "latest_backfill_status", "get_edm_detail", "sync_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal",
 ]

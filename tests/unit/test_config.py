@@ -19,6 +19,14 @@ def _make_settings(**kwargs):
     return Settings(_env_file=None, **defaults)
 
 
+def test_empty_optional_integer_env_uses_default(monkeypatch):
+    monkeypatch.setenv("IRP_SUBMISSION_MAX_RETRIES", "")
+
+    settings = _make_settings()
+
+    assert settings.irp_submission_max_retries is None
+
+
 class TestIsProduction:
     def test_false_when_development(self):
         s = _make_settings(app_env="development")

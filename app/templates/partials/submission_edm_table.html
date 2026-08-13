@@ -1,4 +1,4 @@
-{% set live = submission_edms | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
+{% set live = edm_backfill_running or submission_edms | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
 <section id="submission-edm-section"
   {%- if live %}
   hx-get="/submissions/{{ submission.id }}/edms/table" hx-trigger="every 3s"

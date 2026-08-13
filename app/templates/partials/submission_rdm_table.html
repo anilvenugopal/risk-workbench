@@ -1,4 +1,4 @@
-{% set live = submission_rdms | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
+{% set live = rdm_backfill_running or submission_rdms | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
 <section id="submission-rdm-section"
   {%- if live %}
   hx-get="/submissions/{{ submission.id }}/rdms/table" hx-trigger="every 3s"

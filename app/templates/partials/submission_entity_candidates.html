@@ -10,7 +10,9 @@
     {% endfor %}
   </div>
   {% else %}
-  <div class="entity-candidate-empty">No available {{ entity_kind }}s match this search.</div>
+  <div class="entity-candidate-empty">
+    {% if query | trim %}No available {{ entity_kind }}s match this search.{% else %}No available {{ entity_kind }}s to add.{% endif %}
+  </div>
   {% endif %}
   {% if candidate_page.page > 1 or candidate_page.has_next %}
   <nav class="entity-candidate-pager" aria-label="{{ entity_kind }} candidate pages">

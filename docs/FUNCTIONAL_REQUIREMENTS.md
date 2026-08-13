@@ -136,9 +136,9 @@ Getting a deal's data into the workbench and seeing what's in it.
 |---|---|---|
 | The user can create a Submission. | Implemented | A Submission can exist without EDMs or RDMs. |
 | An Active Submission can import a new EDM or RDM. | Not implemented | The new entity and its Submission association are saved before background import begins. |
-| An Active Submission can add an existing EDM or RDM. | Not implemented | Every live resource not already related to the Submission is eligible. |
+| An Active Submission can add an existing EDM or RDM. | Not implemented | Every live resource not already related to the Submission is eligible. The empty state distinguishes no available resources before a search from no search matches. |
 | Adding an existing EDM or RDM creates no Risk Modeler job. | Not implemented | The action inserts only `submission_edm` or `submission_rdm`. |
-| A Submission shows separate, always-visible EDM and RDM tables. | Not implemented | Each table has its own empty state and add action. |
+| A Submission shows separate, always-visible EDM and RDM tables. | Not implemented | Each table has its own empty state and add action. A table refreshes while a listed import or subsequent detail backfill is pending or running. |
 | The analyst browses network shares and selects file(s). | Implemented |  |
 | File browsing is restricted to network drives — never the local machine. | Implemented | Both the analysts' machines and the app are connected to the shares. |
 | Two network locations are supported: a working drive and an archive drive. | Partial | e.g. M = client/working drive, L = archive/BAK drive; the archive is not organized the same way and may split into in-force / projected subfolders. |

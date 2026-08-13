@@ -4,7 +4,7 @@ FR-003 as amended 2026-07-23: automatic backfill stays forward-only, but the EDM
 detail page's Sync button re-runs ``backfill_edm_detail`` on demand.
 ``edm_service.sync_detail`` keys the head ``(analyst_request, edm_id)`` via
 ``ensure_pending_rwb_job`` (revives a terminal row) + ``dispatch``;
-``_latest_backfill_status`` reads BOTH that key and the poller's
+``latest_backfill_status`` reads BOTH that key and the poller's
 ``irp_job``-keyed rows (newest ``updated_at`` wins) so ``detail_state`` and
 ``EdmDetail.sync_running`` stay truthful whichever path ran last. The worker
 name-resolves a missing exposureId (pre-capability EDMs) — stricter than the

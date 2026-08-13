@@ -31,7 +31,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.services import submission_service
+from app.services import rwb_job_service, submission_service
 from db import execute, execute_command, execute_scalar
 
 
@@ -184,6 +184,56 @@ def test_submission_entity_table_polls_until_import_is_terminal(
 
 
 @pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "backfill_type"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "backfill_edm_detail"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "backfill_rdm_analyses"),
+    ],
+)
+def test_submission_entity_table_polls_until_backfill_is_terminal(
+    client, kind, table, association_table, entity_column, backfill_type,
+):
+    created = client.post("/submissions", data=_payload(name=f"Backfill {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": entity_id, "name": f"Backfill{kind.upper()}"},
+        connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+    job_id = rwb_job_service.enqueue_rwb_job(
+        requestor_type="analyst_request",
+        requestor_id=entity_id,
+        rwb_job_type=backfill_type,
+        input_data={entity_column: entity_id},
+    )
+
+    detail = client.get(f"/submissions/{submission_id}")
+    live = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert detail.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in detail.text
+    assert live.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in live.text
+    assert 'hx-trigger="every 3s"' in live.text
+
+    execute_command(
+        "UPDATE rwb_job SET status_code = 'succeeded', updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH",
+    )
+    terminal = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert terminal.status_code == 200
+    assert "every 3s" not in terminal.text
+
+
+@pytest.mark.parametrize(
     ("kind", "table", "association_table", "entity_column", "available_name", "related_name"),
     [
         ("edms", "irp_edm", "submission_edm", "edm_id", "AvailableEDM", "RelatedEDM"),
@@ -213,6 +263,21 @@ def test_add_modal_lists_unrelated_existing_entities(
     assert f"Import new {label}" in response.text and f"Add existing {label}" in response.text
     assert available_name in response.text and related_name not in response.text
     assert "$event.detail.elt === $el && $event.detail.successful" in response.text
+
+
+@pytest.mark.parametrize("kind,label", [("edms", "EDMs"), ("rdms", "RDMs")])
+def test_add_modal_distinguishes_no_candidates_from_no_search_matches(
+    client, kind, label,
+):
+    created = client.post("/submissions", data=_payload(name=f"Empty {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    initial = client.get(f"/submissions/{submission_id}/{kind}/add")
+    searched = client.get(
+        f"/submissions/{submission_id}/{kind}/candidates?q=missing")
+
+    assert f"No available {label} to add." in initial.text
+    assert f"No available {label} match this search." in searched.text
 
 
 @pytest.mark.parametrize("kind", ["edms", "rdms"])
