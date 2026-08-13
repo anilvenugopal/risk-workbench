@@ -23,7 +23,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 **Purpose**: The one new configuration value everything else reads.
 
-- [ ] T001 Add `geohaz_data_versions: list[str]` to `app/config.py` (parsed from `GEOHAZ_DATA_VERSIONS`, comma-separated, first entry is the form default — research R6) and document `GEOHAZ_DATA_VERSIONS` in `infra/.env.example` (e.g. `25.0,24.0`)
+- [X] T001 Add `geohaz_data_versions: list[str]` to `app/config.py` (parsed from `GEOHAZ_DATA_VERSIONS`, comma-separated, first entry is the form default — research R6) and document `GEOHAZ_DATA_VERSIONS` in `infra/.env.example` (e.g. `25.0,24.0`)
 
 ---
 
@@ -33,13 +33,13 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T002 Edit `alembic/versions/0001_initial.py`: add `irp_job.irp_portfolio_id` (Uuid, nullable) with index `ix_irp_job_irp_portfolio_id` and FK → `irp_portfolio.id` via `op.create_foreign_key` after `irp_portfolio` is created (it is created after `irp_job` — research R3 migration note); add `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable); add `rwb_job_type_kind` seed row `('run_geohaz', 'Run GeoHaz', 28)` (data-model §1–2)
-- [ ] T003 [P] Add the `run_geohaz` row to the `rwb_job_type_kind` MERGE in `infra/scripts/seed_db.py`
-- [ ] T004 [P] Mirror the two new `irp_job` columns and the `run_geohaz` seed row in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` drift guard + `RWB_JOB_TYPE_SEED`)
-- [ ] T005 Add `submit_geohaz(*, edm_name, portfolio_name, version, perils, skip_prev_hazard) -> SubmitResult` and `get_geohaz_job(irp_id) -> JobStatus` to `app/services/irp_gateway.py` (Protocol, `_RealGateway`, module free functions, `__all__`): build one hazard layer per peril — `{"type": "hazard", "name": <peril>, "engineType": "RL", "version": <version>, "layerOptions": {"overrideUserDef": False, "skipPrevHazard": <bool>}}` — hazard-only, no geocode layer ever built (FR-005, research R4/R5); wrap `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers)`; `resource_uri` comes from the returned request body, not the completion response (contracts/worker-poller.md)
-- [ ] T006 [P] Add optional `irp_portfolio_id` and `request_params` arguments to `record_submitted_irp_job` and `record_submission_failure` in `app/services/irp_job_service.py`, threaded into `_insert_irp_job`; `update_tracking`, `list_non_terminal`, and `TERMINAL` unchanged
-- [ ] T007 Extend `tests/unit/fakes/fake_irp.py` `FakeIRP` with `submit_geohaz`/`get_geohaz_job` so it keeps implementing the whole gateway protocol (depends on T005)
-- [ ] T008 Unit tests for the foundation in `tests/unit/test_geohaz_gateway.py` (new): parameter mapping builds one hazard layer per selected peril with the given version and `skipPrevHazard`, never a geocode layer; `resource_uri` taken from the request body; `record_submitted_irp_job`/`record_submission_failure` persist `irp_portfolio_id` and `request_params`
+- [X] T002 Edit `alembic/versions/0001_initial.py`: add `irp_job.irp_portfolio_id` (Uuid, nullable) with index `ix_irp_job_irp_portfolio_id` and FK → `irp_portfolio.id` via `op.create_foreign_key` after `irp_portfolio` is created (it is created after `irp_job` — research R3 migration note); add `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable); add `rwb_job_type_kind` seed row `('run_geohaz', 'Run GeoHaz', 28)` (data-model §1–2)
+- [X] T003 [P] Add the `run_geohaz` row to the `rwb_job_type_kind` MERGE in `infra/scripts/seed_db.py`
+- [X] T004 [P] Mirror the two new `irp_job` columns and the `run_geohaz` seed row in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` drift guard + `RWB_JOB_TYPE_SEED`)
+- [X] T005 Add `submit_geohaz(*, edm_name, portfolio_name, version, perils, skip_prev_hazard) -> SubmitResult` and `get_geohaz_job(irp_id) -> JobStatus` to `app/services/irp_gateway.py` (Protocol, `_RealGateway`, module free functions, `__all__`): build one hazard layer per peril — `{"type": "hazard", "name": <peril>, "engineType": "RL", "version": <version>, "layerOptions": {"overrideUserDef": False, "skipPrevHazard": <bool>}}` — hazard-only, no geocode layer ever built (FR-005, research R4/R5); wrap `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers)`; `resource_uri` comes from the returned request body, not the completion response (contracts/worker-poller.md)
+- [X] T006 [P] Add optional `irp_portfolio_id` and `request_params` arguments to `record_submitted_irp_job` and `record_submission_failure` in `app/services/irp_job_service.py`, threaded into `_insert_irp_job`; `update_tracking`, `list_non_terminal`, and `TERMINAL` unchanged
+- [X] T007 Extend `tests/unit/fakes/fake_irp.py` `FakeIRP` with `submit_geohaz`/`get_geohaz_job` so it keeps implementing the whole gateway protocol (depends on T005)
+- [X] T008 Unit tests for the foundation in `tests/unit/test_geohaz_gateway.py` (new): parameter mapping builds one hazard layer per selected peril with the given version and `skipPrevHazard`, never a geocode layer; `resource_uri` taken from the request body; `record_submitted_irp_job`/`record_submission_failure` persist `irp_portfolio_id` and `request_params`
 
 **Checkpoint**: Foundation ready. The developer runs `make db-rebuild` (destructive — developer's call, never an agent's) before any end-to-end check.
 

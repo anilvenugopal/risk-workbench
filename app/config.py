@@ -6,10 +6,10 @@ No secrets are stored in code or VCS. See infra/.env.example.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, computed_field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, computed_field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -99,6 +99,11 @@ class Settings(BaseSettings):
     # default matches irp-integration's own default.
     irp_edm_import_server: str = "databridge-1"
 
+    geohaz_data_versions: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["25.0", "24.0"],
+        min_length=1,
+    )
+
     # BASE_URL and TENANT_NAME are ALSO mirrored here (read-only): the web layer
     # builds deep links into Risk Modeler's own UI from them (the UI lives on
     # https://<tenant>.<domain-of-BASE_URL>, e.g. the EDM treaties screen) —
@@ -116,6 +121,13 @@ class Settings(BaseSettings):
     smtp_port: int = 25
     smtp_from: str = ""
     notify_email_to: str = ""
+
+    @field_validator("geohaz_data_versions", mode="before")
+    @classmethod
+    def _parse_geohaz_data_versions(cls, value):
+        if isinstance(value, str):
+            return [version.strip() for version in value.split(",") if version.strip()]
+        return value
 
     @computed_field
     @property

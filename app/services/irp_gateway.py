@@ -165,6 +165,10 @@ class IRPGateway(Protocol):
 
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult: ...
 
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool) -> SubmitResult: ...
+
     def delete_analysis(self, *, analysis_id: int) -> None: ...
 
     def search_analyses(self, *, source_rdm_name: str,
@@ -173,6 +177,8 @@ class IRPGateway(Protocol):
     def get_import_job(self, irp_id: str) -> JobStatus: ...
 
     def get_delete_edm_job(self, irp_id: str) -> JobStatus: ...
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus: ...
 
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
@@ -244,6 +250,30 @@ class _RealGateway:
         # import job id. Returns only a job id (no request body / resource_uri).
         job_id = self._client().edm.submit_delete_edm_job(exposure_id=edm_irp_id)
         return SubmitResult(irp_id=str(job_id), payload={"exposure_id": edm_irp_id})
+
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool) -> SubmitResult:
+        layers = [
+            {
+                "type": "hazard",
+                "name": peril,
+                "engineType": "RL",
+                "version": version,
+                "layerOptions": {
+                    "overrideUserDef": False,
+                    "skipPrevHazard": skip_prev_hazard,
+                },
+            }
+            for peril in perils
+        ]
+        job_id, body = self._client().portfolio.submit_geohaz_job(
+            portfolio_name, edm_name, layers)
+        return SubmitResult(
+            irp_id=str(job_id),
+            resource_uri=body["resourceUri"],
+            payload=body,
+        )
 
     # ── synchronous analysis delete + search (no irp_job — R6 / D2) ───────────────
 
@@ -439,6 +469,10 @@ class _RealGateway:
         data = self._client().risk_data_job.get_risk_data_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
+        data = self._client().portfolio.get_geohaz_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
@@ -522,6 +556,17 @@ def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
     return _active().submit_delete_edm(edm_irp_id=edm_irp_id)
 
 
+def submit_geohaz(*, edm_name: str, portfolio_name: str, version: str,
+                  perils: list[str], skip_prev_hazard: bool) -> SubmitResult:
+    return _active().submit_geohaz(
+        edm_name=edm_name,
+        portfolio_name=portfolio_name,
+        version=version,
+        perils=perils,
+        skip_prev_hazard=skip_prev_hazard,
+    )
+
+
 def delete_analysis(*, analysis_id: int) -> None:
     return _active().delete_analysis(analysis_id=analysis_id)
 
@@ -538,6 +583,10 @@ def get_import_job(irp_id: str) -> JobStatus:
 
 def get_delete_edm_job(irp_id: str) -> JobStatus:
     return _active().get_delete_edm_job(irp_id)
+
+
+def get_geohaz_job(irp_id: str) -> JobStatus:
+    return _active().get_geohaz_job(irp_id)
 
 
 def search_edms(name: str) -> list[EntityHit]:
@@ -580,8 +629,9 @@ __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
     "IRPGateway", "configure", "reset",
-    "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
+    "submit_edm_import", "submit_rdm_import", "submit_delete_edm", "submit_geohaz",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
+    "get_geohaz_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
     "search_treaties", "get_analysis_metadata",

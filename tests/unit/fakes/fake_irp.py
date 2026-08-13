@@ -217,6 +217,18 @@ class FakeIRP:
     def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
         return self._submit("delete_edm", edm_irp_id=edm_irp_id)
 
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool) -> SubmitResult:
+        return self._submit(
+            "geohaz",
+            edm_name=edm_name,
+            portfolio_name=portfolio_name,
+            version=version,
+            perils=list(perils),
+            skip_prev_hazard=skip_prev_hazard,
+        )
+
     def delete_analysis(self, *, analysis_id: int) -> None:
         # Synchronous single-analysis delete — no irp_job (R6). Record the call.
         self.deleted_analysis_ids.append(int(analysis_id))
@@ -288,6 +300,10 @@ class FakeIRP:
                          result=self.results.get(irp_id))
 
     def get_delete_edm_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
+                         result=self.results.get(irp_id))
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 

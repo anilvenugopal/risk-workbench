@@ -24,23 +24,29 @@ from app.services._common import _json, _txn, _utcnow
 from db import execute
 
 
-def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
+def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id,
+                    irp_portfolio_id, irp_rdm_id,
                     irp_job_type: str, irp_id: str | None, status: str,
                     payload: dict | None, response: dict | None,
-                    attempt_count: int, actor_id, now: datetime) -> None:
+                    request_params: dict | None, attempt_count: int,
+                    actor_id, now: datetime) -> None:
     conn.execute(text(
         """
-        INSERT INTO irp_job (id, package_id, irp_edm_id, irp_rdm_id, irp_job_type,
-            irp_id, status, correlation_id, last_submission_payload,
+        INSERT INTO irp_job (id, package_id, irp_edm_id, irp_portfolio_id,
+            irp_rdm_id, irp_job_type, irp_id, status, correlation_id, request_params,
+            last_submission_payload,
             last_submission_response, submission_attempt_count, submitted_at,
             inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :pkg, :edm, :rdm, :jt, :irp_id, :status, :cid, :payload,
-            :response, :attempts, :now, :now, :now, :by, :by)
+        VALUES (:id, :pkg, :edm, :portfolio, :rdm, :jt, :irp_id, :status, :cid,
+            :request_params, :payload, :response, :attempts, :now, :now, :now,
+            :by, :by)
         """
     ), {
         "id": job_id,
         "pkg": (str(package_id) if package_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
+        "portfolio": (str(irp_portfolio_id)
+                      if irp_portfolio_id is not None else None),
         "rdm": (str(irp_rdm_id) if irp_rdm_id is not None else None),
         "jt": irp_job_type,
         "irp_id": irp_id,
@@ -48,6 +54,7 @@ def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
         # Inherited from the worker's bound per-job context (issue #28) — both
         # writers (submit + submission-failure) run inside run_job's bind.
         "cid": log_context.correlation_id(),
+        "request_params": _json(request_params),
         "payload": _json(payload),
         "response": _json(response),
         "attempts": attempt_count,
@@ -58,9 +65,11 @@ def _insert_irp_job(conn, *, job_id: str, package_id, irp_edm_id, irp_rdm_id,
 
 def record_submitted_irp_job(
     *, package_id: Any | None, irp_job_type: str,
-    irp_edm_id: Any | None = None, irp_rdm_id: Any | None = None,
+    irp_edm_id: Any | None = None, irp_portfolio_id: Any | None = None,
+    irp_rdm_id: Any | None = None,
     irp_id: str, resource_uri: str | None = None,
     payload: dict | None = None, response: dict | None = None,
+    request_params: dict | None = None,
     actor_id: Any | None = None, conn=None,
 ) -> str:
     """Worker-side: write the ``irp_job`` (status ``QUEUED``, ``irp_id`` set) plus
@@ -71,9 +80,11 @@ def record_submitted_irp_job(
     with _txn(conn) as c:
         _insert_irp_job(
             c, job_id=job_id, package_id=package_id, irp_edm_id=irp_edm_id,
-            irp_rdm_id=irp_rdm_id, irp_job_type=irp_job_type, irp_id=irp_id,
+            irp_portfolio_id=irp_portfolio_id, irp_rdm_id=irp_rdm_id,
+            irp_job_type=irp_job_type, irp_id=irp_id,
             status="QUEUED", payload=payload, response=response,
-            attempt_count=0, actor_id=actor_id, now=now)
+            request_params=request_params, attempt_count=0,
+            actor_id=actor_id, now=now)
         if resource_uri is not None:
             c.execute(text(
                 "INSERT INTO irp_job_resource (id, irp_job_id, resource_type, "
@@ -130,8 +141,9 @@ def update_tracking(conn, *, irp_job_id: Any, status: str,
 
 def record_submission_failure(
     *, package_id: Any | None, irp_job_type: str,
-    irp_edm_id: Any | None = None, irp_rdm_id: Any | None = None,
-    payload: dict | None = None, actor_id: Any | None = None, conn=None,
+    irp_edm_id: Any | None = None, irp_portfolio_id: Any | None = None,
+    irp_rdm_id: Any | None = None, payload: dict | None = None,
+    request_params: dict | None = None, actor_id: Any | None = None, conn=None,
 ) -> str:
     """Worker-side: the submit never reached Risk Modeler — write the ``irp_job``
     as terminal ``SUBMISSION FAILED`` with ``irp_id=NULL`` (distinct from an RM-side
@@ -148,9 +160,11 @@ def record_submission_failure(
     with _txn(conn) as c:
         _insert_irp_job(
             c, job_id=job_id, package_id=package_id, irp_edm_id=irp_edm_id,
-            irp_rdm_id=irp_rdm_id, irp_job_type=irp_job_type, irp_id=None,
+            irp_portfolio_id=irp_portfolio_id, irp_rdm_id=irp_rdm_id,
+            irp_job_type=irp_job_type, irp_id=None,
             status="SUBMISSION FAILED", payload=payload, response=None,
-            attempt_count=1, actor_id=actor_id, now=now)
+            request_params=request_params, attempt_count=1,
+            actor_id=actor_id, now=now)
     return job_id
 
 
