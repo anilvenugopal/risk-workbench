@@ -42,6 +42,7 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
+    geohaz_eligible: bool = False
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GeoHaz launch preview · Risk Workbench</title>
+  <link rel="stylesheet" href="../../app/static/css/app.css">
+  <style>
+    body { padding: var(--space-7); background: var(--surface-page); }
+    .preview { max-width: 1180px; margin: 0 auto; }
+    .preview h1 { font-size: var(--fs-title); margin-bottom: var(--space-1); }
+    .preview__intro { color: var(--text-secondary); margin-bottom: var(--space-6); }
+    .preview__board { display: grid; grid-template-columns: repeat(auto-fit, minmax(470px, 1fr)); gap: var(--space-6); }
+    .preview__state { min-width: 0; }
+    .preview__label { color: var(--text-tertiary); font-size: var(--fs-caption); font-weight: var(--fw-semibold); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; margin-bottom: var(--space-2); }
+    .preview .modal { position: relative; inset: auto; padding: var(--space-5); min-height: 490px; border: 1px solid var(--border-default); border-radius: var(--radius-lg); }
+    .preview .modal__panel { margin: 0; align-self: flex-start; }
+    .geohaz-selection { color: var(--text-secondary); font-size: var(--fs-label); margin: calc(-1 * var(--space-2)) 0 var(--space-5); }
+    .geohaz-field { margin-bottom: var(--space-4); }
+    .geohaz-field > label, .geohaz-field > legend { display: block; color: var(--text-tertiary); font-size: var(--fs-caption); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; margin-bottom: var(--space-2); }
+    .geohaz-field select { width: 100%; padding: 7px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-primary); font: inherit; }
+    .geohaz-field fieldset { border: 0; padding: 0; margin: 0; }
+    .geohaz-options { display: flex; gap: var(--space-5); flex-wrap: wrap; }
+    .geohaz-options label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
+    .geohaz-help { color: var(--text-tertiary); font-size: var(--fs-caption); margin-top: var(--space-2); }
+    .geohaz-fixed { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-recessed); color: var(--text-secondary); }
+    @media (max-width: 560px) { body { padding: var(--space-3); } .preview__board { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main class="preview">
+  <h1>Run hazard lookup</h1>
+  <p class="preview__intro">Proposed modal using the package modal convention. GeoHaz submits one lookup per selected portfolio with one parameter set.</p>
+
+  <div class="preview__board">
+    <section class="preview__state">
+      <div class="preview__label">Default · two portfolios selected</div>
+      <div class="modal">
+        <form class="modal__panel">
+          <h2 class="modal__title">Run hazard lookup</h2>
+          <p class="geohaz-selection">2 portfolios selected: US Property, Canada Property</p>
+
+          <div class="geohaz-field">
+            <label for="version">Data version</label>
+            <select id="version"><option selected>25.0 (latest)</option><option>24.0</option></select>
+          </div>
+
+          <div class="geohaz-field">
+            <label>Model family</label>
+            <div class="geohaz-fixed"><span>DLM</span><span class="badge badge--neutral">HD unavailable</span></div>
+          </div>
+
+          <div class="geohaz-field">
+            <fieldset>
+              <legend>Perils</legend>
+              <div class="geohaz-options">
+                <label><input type="checkbox" checked> Earthquake</label>
+                <label><input type="checkbox" checked> Windstorm</label>
+              </div>
+            </fieldset>
+            <div class="geohaz-help">Select at least one peril.</div>
+          </div>
+
+          <div class="geohaz-field">
+            <fieldset>
+              <legend>Missing locations</legend>
+              <div class="geohaz-options">
+                <label><input type="radio" name="missing" checked> Overwrite</label>
+                <label><input type="radio" name="missing"> Skip</label>
+              </div>
+            </fieldset>
+          </div>
+
+          <div class="modal__actions">
+            <button class="btn-sm" type="button">Cancel</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="submit">Run on 2 portfolios</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="preview__state">
+      <div class="preview__label">Error · no selection</div>
+      <div class="modal">
+        <div class="modal__panel">
+          <h2 class="modal__title">Run hazard lookup</h2>
+          <div class="form-banner form-banner--error">Select at least one portfolio.</div>
+          <div class="modal__actions">
+            <button class="btn-sm" type="button">Close</button>
+            <span class="spacer"></span>
+            <button class="btn-sm btn-sm--primary" type="button" disabled>Run hazard lookup</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="preview__state">
+      <div class="preview__label">Conflict · lookup already running</div>
+      <div class="modal">
+        <div class="modal__panel">
+          <h2 class="modal__title">Run hazard lookup</h2>
+          <div class="form-banner form-banner--error">Hazard lookup is already in progress for Canada Property and Mexico Property. Clear those selections and try again.</div>
+          <div class="modal__actions">
+            <button class="btn-sm" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="preview__state">
+      <div class="preview__label">Gate not met · EDM has no portfolios</div>
+      <div class="modal">
+        <div class="modal__panel">
+          <h2 class="modal__title">Run hazard lookup</h2>
+          <div class="form-banner form-banner--readonly">Hazard lookup becomes available after the EDM has at least one portfolio.</div>
+          <div class="modal__actions">
+            <button class="btn-sm" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -87,6 +87,14 @@ class EdmCatalogUnavailable(ServiceError):
     """Raised when Risk Modeler's EDM catalog cannot be read during a sync."""
 
 
+class InvalidGeohazLaunch(ServiceError):
+    """Raised when a GeoHaz launch fails form, gate, or membership validation."""
+
+
+class GeohazLaunchConflict(ServiceError):
+    """Raised when a selected portfolio already has a lookup in progress."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -99,4 +107,6 @@ __all__ = [
     "JobSubmitError",
     "NameCollisionError",
     "EdmCatalogUnavailable",
+    "InvalidGeohazLaunch",
+    "GeohazLaunchConflict",
 ]

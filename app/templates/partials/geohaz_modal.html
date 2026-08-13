@@ -1,0 +1,75 @@
+<div class="modal" id="geohaz-modal" x-data="geohazModal"
+     @keydown.escape.window="$root.remove()" @click.self="$root.remove()">
+  <form class="modal__panel" method="post" action="/edms/{{ edm_id }}/geohaz"
+        hx-post="/edms/{{ edm_id }}/geohaz"
+        hx-target="#edm-detail" hx-swap="outerHTML"
+        @htmx:response-error="replaceFromError($event)"
+        @htmx:after-request="if ($event.detail.successful) $root.remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    {% for portfolio_id in portfolio_ids %}
+    <input type="hidden" name="portfolio_ids" value="{{ portfolio_id }}">
+    {% endfor %}
+
+    <h2 class="modal__title">Run hazard lookup</h2>
+    {% if selected_portfolios %}
+    <p class="geohaz-selection">
+      {{ selected_portfolios|length }} portfolio{{ '' if selected_portfolios|length == 1 else 's' }} selected:
+      {{ selected_portfolios|map(attribute='name')|join(', ') }}
+    </p>
+    {% endif %}
+
+    {% if error %}
+    <div class="form-banner form-banner--error">{{ error }}</div>
+    {% endif %}
+
+    {% if can_submit %}
+    <div class="geohaz-field">
+      <label for="geohaz-data-version">Data version</label>
+      <select id="geohaz-data-version" name="data_version">
+        {% for version in data_versions %}
+        <option value="{{ version }}"{% if version == form.data_version %} selected{% endif %}>{{ version }}{% if loop.first %} (latest){% endif %}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="geohaz-field">
+      <label>Model family</label>
+      <div class="geohaz-fixed">
+        <span>DLM</span><span class="badge badge--neutral">HD unavailable</span>
+      </div>
+    </div>
+
+    <fieldset class="geohaz-field">
+      <legend>Perils</legend>
+      <div class="geohaz-options">
+        <label><input type="checkbox" name="perils" value="earthquake"
+          {% if 'earthquake' in form.perils %}checked{% endif %} @change="refresh()"> Earthquake</label>
+        <label><input type="checkbox" name="perils" value="windstorm"
+          {% if 'windstorm' in form.perils %}checked{% endif %} @change="refresh()"> Windstorm</label>
+      </div>
+      <p class="geohaz-help" x-show="perilCount === 0">Select at least one peril.</p>
+    </fieldset>
+
+    <fieldset class="geohaz-field">
+      <legend>Missing locations</legend>
+      <div class="geohaz-options">
+        <label><input type="radio" name="missing_locations" value="overwrite"
+          {% if form.missing_locations == 'overwrite' %}checked{% endif %}> Overwrite</label>
+        <label><input type="radio" name="missing_locations" value="skip"
+          {% if form.missing_locations == 'skip' %}checked{% endif %}> Skip</label>
+      </div>
+    </fieldset>
+    {% endif %}
+
+    <div class="modal__actions">
+      <button class="btn-sm" type="button" @click="$root.remove()">Close</button>
+      <span class="spacer"></span>
+      {% if can_submit %}
+      <button class="btn-sm btn-sm--primary" type="submit"
+              :disabled="perilCount === 0">
+        Run on {{ selected_portfolios|length }} portfolio{{ '' if selected_portfolios|length == 1 else 's' }}
+      </button>
+      {% endif %}
+    </div>
+  </form>
+</div>

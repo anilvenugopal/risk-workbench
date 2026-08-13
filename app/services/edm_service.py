@@ -32,6 +32,7 @@ from urllib.parse import quote, urlsplit
 from app.config import settings
 from app.services import (
     analysis_service,
+    geohaz_service,
     irp_gateway,
     name_check,
     package_service,
@@ -540,6 +541,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     if row is None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    for portfolio in portfolios:
+        portfolio.geohaz_eligible = geohaz_service.eligible(portfolio.id)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     job_status = _latest_backfill_status(eid)

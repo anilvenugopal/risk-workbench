@@ -27,6 +27,13 @@
 {%- set curr = s.get('currencies') or [] -%}
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
+  <span class="geohaz-pick">
+    <input type="checkbox" name="portfolio_ids" value="{{ p.id }}"
+           aria-label="Select {{ p.name }} for hazard lookup"
+           {% if not p.geohaz_eligible %}disabled
+           title="A hazard lookup is already in progress for this portfolio"{% endif %}
+           @click.stop onclick="event.stopPropagation()">
+  </span>
   <span class="l">
     <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">

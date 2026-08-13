@@ -7,5 +7,8 @@
 
 {% block main %}
 {% include "partials/nc_unchecked_notice.html" %}
+{% if geohaz_queued %}
+<div class="form-banner form-banner--ok">Hazard lookup queued.</div>
+{% endif %}
 {% include "partials/edm_detail_body.html" %}
 {% endblock %}
