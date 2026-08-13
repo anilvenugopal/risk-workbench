@@ -144,6 +144,9 @@ second submission without another import, then detach them from the first submis
 - [ ] T031 [US2] [FR-004] [FR-018] Run the US2-focused unit tests and observe one
   standalone RDM import through the running worker/poller when the developer's stack
   is available; stop for the approver to click the running feature before US3.
+- [x] T031a [US2] [FR-006] Add Status to both submission entity tables and refresh
+  each table while any listed import is non-terminal; cover polling start and stop in
+  the unit tier before the US2 click review.
 
 ## Phase 5: User Story 3 - Contextual EDM detail
 

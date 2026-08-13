@@ -248,6 +248,16 @@ def _entity_table_response(
     }, status_code=status_code)
 
 
+@router.get("/submissions/{submission_id}/edms/table", response_class=HTMLResponse)
+def submission_edm_table(request: Request, submission_id: str):
+    return _entity_table_response(request, submission_id, "edm")
+
+
+@router.get("/submissions/{submission_id}/rdms/table", response_class=HTMLResponse)
+def submission_rdm_table(request: Request, submission_id: str):
+    return _entity_table_response(request, submission_id, "rdm")
+
+
 def _entity_modal_response(
     request: Request, submission_id: str, kind: str, *,
     errors: list[str] | None = None, form: dict | None = None,

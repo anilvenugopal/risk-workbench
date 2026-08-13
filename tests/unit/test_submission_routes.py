@@ -140,6 +140,50 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
 
 
 @pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "PollingEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "PollingRDM"),
+    ],
+)
+def test_submission_entity_table_polls_until_import_is_terminal(
+    client, kind, table, association_table, entity_column, name,
+):
+    created = client.post("/submissions", data=_payload(name=f"Polling {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) "
+        "VALUES (:id, :name, 'importing')",
+        {"id": entity_id, "name": name}, connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+
+    live = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert live.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in live.text
+    assert 'hx-trigger="every 3s"' in live.text
+    assert "Status" in live.text
+    assert "importing" in live.text
+
+    execute_command(
+        f"UPDATE {table} SET status = 'ready' WHERE id = :id",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    terminal = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert terminal.status_code == 200
+    assert "Status" in terminal.text
+    assert "ready" in terminal.text
+    assert "every 3s" not in terminal.text
+
+
+@pytest.mark.parametrize(
     ("kind", "table", "association_table", "entity_column", "available_name", "related_name"),
     [
         ("edms", "irp_edm", "submission_edm", "edm_id", "AvailableEDM", "RelatedEDM"),

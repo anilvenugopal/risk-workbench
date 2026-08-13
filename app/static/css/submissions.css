@@ -240,6 +240,7 @@
   border-radius: var(--radius-md); overflow: hidden; background: var(--surface-panel); }
 .entity-table .count-col { text-align: right; width: 170px;
   font-variant-numeric: tabular-nums; }
+.entity-table .status-col { width: 150px; }
 .entity-table .rm-col { width: 150px; }
 .entity-table .entity-action-col { width: 190px; text-align: right; }
 .entity-table .entity-name { color: var(--color-brand); font-weight: var(--fw-medium); }
