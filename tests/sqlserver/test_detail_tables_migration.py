@@ -112,6 +112,19 @@ class TestDetailTablesMigration:
         assert row[0]["label"] == "Backfill EDM Detail"
         assert row[0]["sort_order"] == 27
 
+    def test_live_edm_irp_id_is_unique(self):
+        row = execute(
+            "SELECT is_unique, has_filter, filter_definition FROM sys.indexes "
+            "WHERE name = 'uq_irp_edm_live_irp_id' "
+            "AND object_id = OBJECT_ID('dbo.irp_edm')",
+            connection="WORKBENCH")
+
+        assert len(row) == 1
+        assert row[0]["is_unique"] is True
+        assert row[0]["has_filter"] is True
+        assert "[irp_id] IS NOT NULL" in row[0]["filter_definition"]
+        assert "[deleted_at] IS NULL" in row[0]["filter_definition"]
+
     # ── spec 005 (T009): breakout lineage schema ────────────────────────────────
 
     def test_irp_portfolio_lineage_columns_present(self):

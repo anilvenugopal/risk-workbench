@@ -131,6 +131,38 @@ def test_unparseable_inception_date_is_reported_as_invalid_not_missing(client):
     assert _count() == 0
 
 
+# ── Directory path: picked from the drive browser, checked on save ───────────
+
+def test_a_picked_directory_is_stored(client, drive):
+    staged = str(drive / "deals" / "zephyr")
+    res = client.post("/submissions", data=_payload(directory_path=staged))
+    assert res.status_code == 303
+    sid = res.headers["location"].rsplit("/", 1)[-1]
+    assert submission_service.get_submission(sid).directory_path == staged
+
+
+def test_a_directory_that_has_moved_is_rejected(client, drive):
+    res = client.post("/submissions", data=_payload(
+        directory_path=str(drive / "deals" / "moved-away")))
+    assert res.status_code == 422
+    assert "no longer on the shared drive" in res.text
+    assert _count() == 0
+
+
+def test_a_file_is_not_a_directory(client, drive):
+    res = client.post("/submissions", data=_payload(
+        directory_path=str(drive / "edm1.bak")))
+    assert res.status_code == 422
+    assert "no longer on the shared drive" in res.text
+
+
+def test_the_form_opens_the_browser_in_directory_mode(client):
+    body = client.get("/submissions/new").text
+    assert "directoryPicker" in body
+    assert "/browse?dirs_only=1" in body
+    assert 'type="text" name="directory_path"' not in body
+
+
 # ── CR5: treaty year ─────────────────────────────────────────────────────────
 
 def test_blank_treaty_year_is_filled_from_the_inception_date(client):

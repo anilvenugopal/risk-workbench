@@ -117,6 +117,28 @@ function whenHtmxReady(fn) {
 }
 
 document.addEventListener('alpine:init', () => {
+  // Submission form directory field. The "Use this folder" button arrives with an
+  // htmx swap, so the click is delegated from the field wrapper.
+  Alpine.data('directoryPicker', () => ({
+    open: false,
+    selected: '',
+    init() {
+      // $nextTick: the hidden input's x-ref is registered after this init runs.
+      this.$nextTick(() => { this.selected = this.$refs.value.value; });
+    },
+    onPick(e) {
+      const btn = e.target.closest('[data-select-dir]');
+      if (!btn) return;
+      this.selected = btn.dataset.selectDir;
+      this.$refs.value.value = this.selected;
+      this.open = false;
+    },
+    clear() {
+      this.selected = '';
+      this.$refs.value.value = '';
+    },
+  }));
+
   Alpine.data('packageModal', () => ({
     members: [],
     browseOpen: true,
@@ -630,6 +652,36 @@ document.addEventListener('alpine:init', () => {
       if (this.edited) return;
       const year = (e.target.value || '').slice(0, 4);
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
+    },
+  }));
+
+  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
+  // makes the whole row a hit area. With JS off none of it is needed — the button
+  // stays enabled and an empty irp_ids POST is a no-op redirect.
+  Alpine.data('syncPicks', () => ({
+    count: 0,
+    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+    // zero leaves the button disabled over visibly ticked boxes.
+    init() { this.onChange(); },
+    boxes() {
+      return this.$root.querySelectorAll('input[name="irp_ids"]');
+    },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="irp_ids"]:checked').length;
+    },
+    all(checked) {
+      this.boxes().forEach((b) => { b.checked = checked; });
+      this.onChange();
+    },
+    pick(e) {
+      // A click that ends a drag-selection keeps the selection, so an exposureId
+      // can be copied out of a row without toggling it.
+      if (window.getSelection().toString()) return;
+      const box = e.currentTarget.querySelector('input[name="irp_ids"]');
+      if (!box) return;
+      box.checked = !box.checked;
+      this.onChange();
     },
   }));
 });

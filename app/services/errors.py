@@ -83,6 +83,10 @@ class NameCollisionError(ServiceError):
     check reached Risk Modeler; an unreachable gateway fails open instead."""
 
 
+class EdmCatalogUnavailable(ServiceError):
+    """Raised when Risk Modeler's EDM catalog cannot be read during a sync."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -94,4 +98,5 @@ __all__ = [
     "InvalidMemberName",
     "JobSubmitError",
     "NameCollisionError",
+    "EdmCatalogUnavailable",
 ]

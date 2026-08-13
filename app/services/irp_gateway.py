@@ -139,6 +139,21 @@ RdmHit = EntityHit
 
 
 @dataclass(frozen=True)
+class EdmCatalogEntry:
+    """One EDM as Risk Modeler lists it, for the "sync existing EDMs" page.
+    ``irp_id`` is the exposureId and ``server_name`` is the DataBridge server the
+    adopt writes to ``irp_edm``; the rest is display-only and read defensively
+    (they are RM's own names)."""
+    irp_id: str
+    name: str
+    status: str | None = None
+    server_name: str | None = None
+    portfolio_count: int | None = None
+    treaty_count: int | None = None
+    updated_at: str | None = None
+
+
+@dataclass(frozen=True)
 class AnalysisHit:
     """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
     Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
@@ -250,6 +265,8 @@ class IRPGateway(Protocol):
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
     def search_rdms(self, name: str) -> list[EntityHit]: ...
+
+    def list_edms(self) -> list[EdmCatalogEntry]: ...
 
     # ── spec-004 detail reads (worker-only; single-item, loop app-side) ──────────
 
@@ -880,6 +897,30 @@ class _RealGateway:
             name=(r.get("rdmName") or r.get("name") or r.get("sourceRdmName")
                   or name)) for r in rows]
 
+    # ── unfiltered EDM catalog (the "sync existing EDMs" page) ────────────────────
+
+    def list_edms(self) -> list[EdmCatalogEntry]:
+        # No filter: every exposure the tenant can see. An IRPAPIError from the
+        # paginated walk propagates — the caller degrades the whole page rather
+        # than render a truncated list that reads as complete.
+        rows = self._client().edm.search_edms_paginated(filter="")
+        entries: list[EdmCatalogEntry] = []
+        for r in rows:
+            exposure_id = r.get("exposureId")
+            name = r.get("exposureName")
+            if exposure_id is None or not name:
+                continue
+            metrics = r.get("metrics") or {}
+            entries.append(EdmCatalogEntry(
+                irp_id=str(exposure_id),
+                name=str(name),
+                status=r.get("status"),
+                server_name=r.get("serverName"),
+                portfolio_count=metrics.get("portfolioCount"),
+                treaty_count=metrics.get("treatyCount"),
+                updated_at=r.get("updatedAt")))
+        return entries
+
 
 # ── Active-implementation registry (the injection seam) ──────────────────────────
 
@@ -945,6 +986,10 @@ def search_edms(name: str) -> list[EntityHit]:
 
 def search_rdms(name: str) -> list[EntityHit]:
     return _active().search_rdms(name)
+
+
+def list_edms() -> list[EdmCatalogEntry]:
+    return _active().list_edms()
 
 
 def list_portfolios(*, edm_irp_id: int) -> list[PortfolioHit]:

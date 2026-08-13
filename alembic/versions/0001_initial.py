@@ -11,9 +11,10 @@ accumulating incremental migrations.
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.mssql import DATETIME2
+
+from alembic import op
 
 revision: str = "0001"
 down_revision = None
@@ -268,6 +269,15 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
     op.create_index("ix_irp_edm_package_id", "irp_edm", ["package_id"])
+    live_irp_edm = sa.text("irp_id IS NOT NULL AND deleted_at IS NULL")
+    op.create_index(
+        "uq_irp_edm_live_irp_id",
+        "irp_edm",
+        ["irp_id"],
+        unique=True,
+        mssql_where=live_irp_edm,
+        sqlite_where=live_irp_edm,
+    )
 
     # ── irp_rdm (member table — full shape, schema only; data-model §7) ──────────
     op.create_table(
@@ -764,6 +774,7 @@ def downgrade() -> None:
     # Iteration-1 tables — reverse FK order.
     op.drop_index("ix_irp_rdm_package_id", table_name="irp_rdm")
     op.drop_table("irp_rdm")
+    op.drop_index("uq_irp_edm_live_irp_id", table_name="irp_edm")
     op.drop_index("ix_irp_edm_package_id", table_name="irp_edm")
     op.drop_table("irp_edm")
     op.drop_table("submission_package")

@@ -22,6 +22,7 @@ from app.services.irp_gateway import (
     AnalysisMetadata,
     BreakoutSelection,
     DuplicatePortfolioNameError,
+    EdmCatalogEntry,
     EntityHit,
     ExposureDetail,
     JobStatus,
@@ -114,6 +115,11 @@ class FakeIRP:
         self.hits_by_number: dict[str, list[PortfolioHit]] = {}
         self.readback_counts: dict[str, int] = {}
         self._next_sub_portfolio_id = 430
+        # ── unfiltered EDM catalog (the "sync existing EDMs" page) ───────────
+        # explicitly seeded catalog entries (a list, not a name-keyed dict —
+        # EDM names are not unique in RM and the diff must cope with that)
+        self._catalog: list[dict] = []
+        self.raise_on_list_edms = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -122,6 +128,19 @@ class FakeIRP:
 
     def add_rdm_name(self, name: str) -> None:
         self._rdm_names.add(name)
+
+    def add_catalog_edm(self, *, name: str, irp_id: str | int | None = None,
+                        **display) -> str:
+        """Seed an EDM that ``list_edms`` returns — one that exists in Risk Modeler
+        whether or not the workbench created it. ``irp_id`` defaults to the same
+        exposureId ``search_edms`` would resolve for the name; pass it explicitly to
+        seed two EDMs sharing a name (RM allows that). ``display`` sets any other
+        ``EdmCatalogEntry`` field. Returns the exposureId."""
+        exposure_id = (str(irp_id) if irp_id is not None
+                       else self._exposure_id_for(name))
+        self._edm_names.add(name)
+        self._catalog.append({"irp_id": exposure_id, "name": name, **display})
+        return exposure_id
 
     def _exposure_id_for(self, name: str) -> str:
         """Stable fake RM exposureId for an EDM name — deliberately in a different
@@ -451,6 +470,21 @@ class FakeIRP:
         # the durable entity id the poller stores as irp_edm.irp_id.
         return ([EntityHit(irp_id=self._exposure_id_for(name), name=name)]
                 if name in self._edm_names else [])
+
+    def list_edms(self) -> list[EdmCatalogEntry]:
+        if self.raise_on_list_edms:
+            raise RuntimeError("fake IRP: forced list_edms failure")
+        entries = [EdmCatalogEntry(**c) for c in self._catalog]
+        # Every other known EDM — collision-seeded or imported through the fake —
+        # is in RM too, so it belongs in the catalog even without add_catalog_edm.
+        # A name add_catalog_edm already described is left to those entries (it may
+        # legitimately have several, since RM names are not unique).
+        described = {e.name for e in entries}
+        for name in sorted(self._edm_names - described):
+            entries.append(EdmCatalogEntry(
+                irp_id=self._exposure_id_for(name), name=name,
+                status="READY", server_name="databridge-1"))
+        return entries
 
     def search_rdms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("rdm", name))

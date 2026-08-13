@@ -103,6 +103,10 @@
   color: var(--color-danger); background: var(--color-danger-bg);
   border-color: var(--color-danger-border);
 }
+.form-banner--ok {
+  color: var(--color-positive); background: var(--color-positive-bg);
+  border-color: var(--color-positive-border);
+}
 .form-banner--readonly {
   color: var(--color-warning); background: var(--color-warning-bg);
   border-color: var(--color-warning-border);
@@ -122,6 +126,17 @@
 .wf-field__hint { color: var(--text-tertiary); }
 .wf-field__input--error { border-color: var(--color-danger);
   background: var(--color-danger-bg); }
+
+/* ── Directory picker (shared-drive folder chooser) ──────────────────────── */
+/* The trigger, the chosen path, and Clear share one row; the browse panel and any
+   field error wrap onto their own. `.drive-browse` styling comes from packages.css. */
+.dir-picker { grid-column: 2; display: flex; flex-wrap: wrap;
+  align-items: center; gap: var(--space-2); }
+.dir-picker__chosen {
+  flex: 1; min-width: 0; font-size: var(--fs-caption); color: var(--text-tertiary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dir-picker__panel, .dir-picker .wf-field__msg { flex-basis: 100%; }
 
 /* ── Typeahead (cedant names + the "links to" picker) ────────────────────── */
 .ta { position: relative; grid-column: 2; }
