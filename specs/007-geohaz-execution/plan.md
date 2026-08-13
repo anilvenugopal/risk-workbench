@@ -17,8 +17,8 @@
 - FR-005 (never re-run geocoding): wheel 0.5.0 takes the layer list from the caller and inserts nothing — the app submits a **hazard-only layer list**, so no geocode layer ever reaches Risk Modeler (research R4; the 0.3.1 `skipPrevGeocoded` workaround is obsolete).
 - Parameter mapping (research R5): the app builds one hazard layer per selected peril — `{"type": "hazard", "name": "earthquake"/"windstorm", "engineType": "RL", "version": <data_version>, "layerOptions": {"overrideUserDef": False, "skipPrevHazard": False/True}}` (missing locations overwrite/skip → `skipPrevHazard`); model family renders DLM fixed with HD disabled pending O7-1 (`"RL"` is the only confirmed `engineType`), and DLM is recorded in the parameter set.
 - Data versions come from a new config setting `GEOHAZ_DATA_VERSIONS` (comma list, first entry is the default) because the wheel has no version-discovery API (research R6).
-- The P-05 record lives **on the `irp_job` row** (T-03, research R3): two new columns — `irp_job.irp_portfolio_id` (Uuid FK) and `irp_job.request_params` (NVARCHAR(MAX) JSON, the analyst-level parameter set) — plus the existing `inserted_by` (launching analyst, passed as `actor_id` from the rwb_job), `submitted_at`/`completed_at`, `status`, and `last_completion_result` (the poller's `update_tracking` already stores the terminal body).
-- Per-layer locations-looked-up counts are parsed at read time from the stored `last_completion_result` with a graceful "unavailable" fallback (FR-023); no new recording step and no new `rwb_job` type (research R7 — the response shape is unverified, so the parser is finished against a sandbox capture during implementation; a `fetch_geohaz_summary` worker is the contingency if the counts need a second fetch).
+- The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
+- On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the history displays the string without parsing layer counts (research R7). Missing summary text renders as unavailable.
 - The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). No terminal handler: nothing auto-fires on geohaz completion (Article 5 — the lookup is the end of the intent).
 - The portfolios table gains the **"Hazard looked up?"** column (update `--cols`/`min-width` in `edm_detail_body.html`) with the four P-07 states derived from geohaz `irp_job` rows + pending `run_geohaz` `rwb_job` heads; the expanded `<details>` row gains the lookup history list.
 - The column refreshes with a **per-cell** self-terminating poll: `GET .../geohaz-cell` emits `hx-trigger="every 3s"` only while a lookup is non-terminal (research R8) — the whole-body poll is wrong for this (its 204 open-rows guard, and it only runs during sync/import).
@@ -31,10 +31,10 @@
 | ID | Decision | Status | Source |
 |---|---|---|---|
 | T-02 | Submission is worker-side: one `run_geohaz` `rwb_job` per selected portfolio; the launch POST enqueues and confirms, the Dramatiq worker performs the Risk Modeler submit | Approved (plan) | R2 — the wheel's submit makes 3 RM reads before the POST (not sub-second), and every existing submit is worker-side; supersedes the spec's Key Entities "synchronously on the request path" wording (spec.md amended in this pass; user-visible behavior unchanged) |
-| T-03 | The P-05 record is the geohaz `irp_job` row: new `irp_portfolio_id` + `request_params` columns; analyst = `inserted_by`; counts parsed from `last_completion_result` | Approved (plan) | R3 — a dedicated lookup table would duplicate status, timestamps, and actor the job row already owns |
+| T-03 | The P-05 record is the geohaz `irp_job` row: `irp_portfolio_id`, `request_params`, and `completion_summary`; analyst = `inserted_by` | Approved (plan) | R3 — a dedicated lookup table would duplicate status, timestamps, and actor the job row already owns |
 | T-04 | FR-005 is satisfied directly: the app submits a hazard-only layer list — no geocode layer is ever sent | Approved (plan) | R4 — wheel 0.5.0 takes the caller's layer list verbatim; the 0.3.1 forced-geocode workaround and its upstream follow-up are obsolete |
 | T-05 | Data versions are config-owned (`GEOHAZ_DATA_VERSIONS`, first = default); model family renders DLM-only (HD disabled pending O7-1) — `engineType` is caller-supplied but only `"RL"` is confirmed | Approved (plan) | R5/R6 — no discovery API; the HD engineType value is unconfirmed |
-| T-06 | Per-layer counts: store the terminal body verbatim (existing `update_tracking`), parse on read with graceful fallback; sandbox capture finalizes the parser keys | Approved (plan) | R7 — response shape undocumented in wheel and Moody's reference; FR-023 makes the design shape-independent |
+| T-06 | Store the terminal body verbatim and copy `tasks[].output.summary` into `irp_job.completion_summary`; display the string without parsing it | Approved (plan) | R7 — captured Risk Modeler response supplied 2026-08-13 |
 | T-07 | FR-006 recovery is relaunch: `SUBMISSION FAILED` is terminal so the portfolio is immediately launchable again; the auto-retry batch stays the existing no-op stub, and geohaz failure rows join it when it is implemented (per-entity dedup now possible via `irp_portfolio_id`) | Approved (plan) | R9 — the `_submission_retry` batch was never implemented (poller stub); building it is not this feature |
 
 ### Constitution check
@@ -52,11 +52,11 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 
 ### DB lifecycle (WORKBENCH)
 
-**Rebuild** — two new `irp_job` columns + one kind row edited into `0001_initial.py`; `EXPOSURE`/`LOSS` untouched; DATABRIDGE never in schema scope.
+**Rebuild** — three new `irp_job` columns + one kind row edited into `0001_initial.py`; `EXPOSURE`/`LOSS` untouched; DATABRIDGE never in schema scope.
 
 ### Risks
 
-1. **The completion response shape is unverified** (T-06). Mitigated by design: the record stores the body verbatim and the page renders "unavailable" for anything the parser can't find; the sandbox capture (quickstart step 5) finalizes the parser before the feature is called done.
+1. **The terminal response field may change in a later wheel version** (T-06). The page renders "Summary unavailable" when `tasks[].output.summary` is absent; the opt-in sandbox test checks the active wheel.
 2. **Whether Risk Modeler accepts a hazard-only job on a never-geocoded portfolio is unobserved** (T-04): the wheel submits any layer combination, but RM may fail a hazard lookup that has no geocode data to read. If so it surfaces as a per-portfolio `FAILED` — visible and relaunchable, and consistent with FR-005 (the app must not run geocoding for the analyst). The sandbox capture confirms the hazard-only submit end to end.
 3. The wheel hard-fails a submit when the portfolio has zero accounts or zero locations (its own pre-validation) — that surfaces as a per-portfolio `SUBMISSION FAILED`, which is the intended FR-006/FR-014 path, not a special case.
 
@@ -72,11 +72,11 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 - `sqlalchemy>=2.0` (Core) + `pyodbc`, `alembic` — WORKBENCH schema via `db/`; single `0001_initial.py` revision.
 - **`irp-integration[databridge]` — active source TestPyPI `0.5.0`** (`pyproject.toml` `default-groups = ["dev", "irp-testpypi"]`; `uv.lock`). Geohaz surface confirmed against 0.5.0: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers) -> (job_id, request_body)` — the caller builds the full layer list, any geocode/hazard combination — and `client.portfolio.get_geohaz_job(job_id) -> dict` (research R1). Reached only through `app/services/irp_gateway.py`.
 
-**Storage**: SQL Server 2022, **WORKBENCH connection only**. Delta: `irp_job.irp_portfolio_id` (Uuid FK → `irp_portfolio.id`, nullable, indexed), `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable), one `rwb_job_type_kind` seed row (`run_geohaz`). No EXPOSURE/LOSS access; DATABRIDGE untouched.
+**Storage**: SQL Server 2022, **WORKBENCH connection only**. Delta: `irp_job.irp_portfolio_id` (Uuid FK → `irp_portfolio.id`, nullable, indexed), `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable), `irp_job.completion_summary` (NVARCHAR(MAX), nullable), and one `rwb_job_type_kind` seed row (`run_geohaz`). No EXPOSURE/LOSS access; DATABRIDGE untouched.
 
 **Testing** (Article 12, three tiers):
 - `uv run pytest tests/unit` — SQLite via `register_engine` + `FakeIRP` extended with the gateway methods `submit_geohaz`/`get_geohaz_job`: peril/eligibility/gate validators, per-portfolio enqueue, worker submit success + failure isolation, param mapping (one hazard layer per peril; no geocode layer ever built), four-state column derivation (including failure-after-success stays Yes), count parser (counts / zero / missing → unavailable), poller `_GETTERS` routing, cell-fragment trigger emission.
-- `make test-sql` — migration drift: the two new columns + kind row mirrored in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` enforces column-for-column).
+- `make test-sql` — migration drift: the three new columns + kind row mirrored in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` enforces column-for-column).
 - `make shell` + `uv run pytest tests/irp --run-irp` — opt-in sandbox: one real geohaz round trip; **captures the terminal `get_geohaz_job` body** (finalizes the R7 parser) and confirms Risk Modeler accepts the hazard-only layer list (plan risk 2); the existing `poll_*_to_completion` guard scans cover the new files.
 
 **Target Platform**: Linux server (WSL2/Docker dev: uvicorn + poller + Dramatiq worker + Redis + SQL Server).

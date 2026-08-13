@@ -115,15 +115,11 @@
             <div><dt>Completed</dt><dd>{{ lookup.completed_at or '—' }}</dd></div>
           </dl>
           <div class="geohaz-history__counts">
-            <h4>Locations looked up</h4>
-            {% if lookup.layer_counts is not none %}
-            <dl class="attr-grid">
-              {% for layer, count in lookup.layer_counts.items() %}
-              <div><dt>{{ layer|capitalize }}</dt><dd>{{ count }}</dd></div>
-              {% endfor %}
-            </dl>
+            <h4>Completion summary</h4>
+            {% if lookup.completion_summary %}
+            <p>{{ lookup.completion_summary }}</p>
             {% else %}
-            <span class="tag-empty">Count unavailable</span>
+            <span class="tag-empty">Summary unavailable</span>
             {% endif %}
           </div>
         </li>

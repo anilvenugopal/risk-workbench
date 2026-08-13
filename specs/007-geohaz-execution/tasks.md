@@ -33,9 +33,9 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [X] T002 Edit `alembic/versions/0001_initial.py`: add `irp_job.irp_portfolio_id` (Uuid, nullable) with index `ix_irp_job_irp_portfolio_id` and FK → `irp_portfolio.id` via `op.create_foreign_key` after `irp_portfolio` is created (it is created after `irp_job` — research R3 migration note); add `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable); add `rwb_job_type_kind` seed row `('run_geohaz', 'Run GeoHaz', 28)` (data-model §1–2)
+- [X] T002 Edit `alembic/versions/0001_initial.py`: add `irp_job.irp_portfolio_id` (Uuid, nullable) with index and FK → `irp_portfolio.id`; add nullable `request_params` JSON and `completion_summary` string columns; add `rwb_job_type_kind` seed row `('run_geohaz', 'Run GeoHaz', 28)` (data-model §1–2)
 - [X] T003 [P] Add the `run_geohaz` row to the `rwb_job_type_kind` MERGE in `infra/scripts/seed_db.py`
-- [X] T004 [P] Mirror the two new `irp_job` columns and the `run_geohaz` seed row in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` drift guard + `RWB_JOB_TYPE_SEED`)
+- [X] T004 [P] Mirror the three new `irp_job` columns and the `run_geohaz` seed row in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` drift guard + `RWB_JOB_TYPE_SEED`)
 - [X] T005 Add `submit_geohaz(*, edm_name, portfolio_name, version, perils, skip_prev_hazard) -> SubmitResult` and `get_geohaz_job(irp_id) -> JobStatus` to `app/services/irp_gateway.py` (Protocol, `_RealGateway`, module free functions, `__all__`): build one hazard layer per peril — `{"type": "hazard", "name": <peril>, "engineType": "RL", "version": <version>, "layerOptions": {"overrideUserDef": False, "skipPrevHazard": <bool>}}` — hazard-only, no geocode layer ever built (FR-005, research R4/R5); wrap `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers)`; `resource_uri` comes from the returned request body, not the completion response (contracts/worker-poller.md)
 - [X] T006 [P] Add optional `irp_portfolio_id` and `request_params` arguments to `record_submitted_irp_job` and `record_submission_failure` in `app/services/irp_job_service.py`, threaded into `_insert_irp_job`; `update_tracking`, `list_non_terminal`, and `TERMINAL` unchanged
 - [X] T007 Extend `tests/unit/fakes/fake_irp.py` `FakeIRP` with `submit_geohaz`/`get_geohaz_job` so it keeps implementing the whole gateway protocol (depends on T005)
@@ -91,18 +91,18 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 ---
 
-## Phase 5: User Story 3 — Read the per-layer completion summary (Priority: P3)
+## Phase 5: User Story 3 — Read the completion summary (Priority: P3)
 
-**Goal**: A completed lookup's record shows per-layer locations-looked-up counts parsed from the stored terminal body — zero as a value, missing detail as an unavailable state — finalized against a real sandbox capture.
+**Goal**: A completed lookup's record shows the `tasks[].output.summary` string copied from the terminal response; missing summary text displays as unavailable.
 
-**Independent Test**: Let a lookup complete; expand the portfolio row and confirm its per-layer locations-looked-up counts display in the lookup's record, that a zero layer renders as zero, and that the record shows the parameter set, launching analyst, and timestamps.
+**Independent Test**: Let a lookup complete; expand the portfolio row and confirm the Risk Modeler summary string displays with the parameter set, launching analyst, and timestamps.
 
 ### Implementation for User Story 3
 
-- [X] T026 [US3] Add `parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None` to `app/services/geohaz_service.py` — pure function; `None` → "unavailable" (FR-023); zero is a value, never a failure; include the parsed counts on `lookup_history` records (research R7)
-- [X] T027 [US3] Render the per-layer counts in the history record in `app/templates/partials/portfolio_row.html`: count per layer, zero rendered as 0, missing/partial detail as a graceful unavailable state — never an error (FR-023, US3 scenario 3)
-- [X] T028 [P] [US3] Unit tests in `tests/unit/test_geohaz_parser.py`: counts parsed, zero layer → 0, missing/partial/None body → unavailable (`None`), malformed JSON → unavailable
-- [ ] T029 [US3] Create the opt-in sandbox test in `tests/irp/` (run via `make shell` + `uv run pytest tests/irp --run-irp -k geohaz`): submit one real lookup on a small sandbox portfolio with the hazard-only layer list, poll within the test, save the terminal `get_geohaz_job` body, and confirm Risk Modeler accepts the geocode-free submit (plan risk 2); then finalize the `parse_layer_counts` keys in T026 against the captured body (quickstart step 5 — the feature is unverified until this runs)
+- [X] T026 [US3] Add `completion_summary(result) -> str | None` to `app/services/geohaz_service.py`; the poller copies `tasks[].output.summary` into `irp_job.completion_summary`, and `lookup_history` reads the stored string (research R7)
+- [X] T027 [US3] Render the completion summary string in the history record; missing summary text displays as unavailable (FR-023)
+- [X] T028 [P] [US3] Unit tests in `tests/unit/test_geohaz_parser.py`: actual response shape returns the task output summary; missing summary returns `None`
+- [ ] T029 [US3] Create the opt-in sandbox test in `tests/irp/` (run via `make shell` + `uv run pytest tests/irp --run-irp -k geohaz`): submit one real lookup on a small sandbox portfolio with the hazard-only layer list, poll within the test, save the terminal `get_geohaz_job` body, and confirm Risk Modeler accepts the geocode-free submit and still returns `tasks[].output.summary`
 
 **Checkpoint**: All three stories functional. **STOP** for the approver.
 

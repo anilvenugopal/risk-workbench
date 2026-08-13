@@ -100,7 +100,7 @@ ITERATION2_SCHEMA = [
         id TEXT PRIMARY KEY, package_id TEXT, irp_edm_id TEXT,
         irp_portfolio_id TEXT, irp_rdm_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
-        request_params TEXT,
+        request_params TEXT, completion_summary TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
         last_completion_result TEXT, submission_attempt_count INTEGER,
         submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,

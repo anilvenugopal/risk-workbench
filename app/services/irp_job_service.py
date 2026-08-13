@@ -120,7 +120,8 @@ def list_non_terminal() -> list[dict]:
 
 
 def update_tracking(conn, *, irp_job_id: Any, status: str,
-                    result: dict | None = None) -> None:
+                    result: dict | None = None,
+                    completion_summary: str | None = None) -> None:
     """Poller-side: mirror the Risk Modeler status in place (Article 4) and stamp
     ``last_tracked_at``; on a terminal status also stamp ``completed_at`` and store
     the completion body. Runs inside the poller's transaction (accepts ``conn``)."""
@@ -131,11 +132,14 @@ def update_tracking(conn, *, irp_job_id: Any, status: str,
         UPDATE irp_job
         SET status = :s, last_tracked_at = :now, updated_at = :now,
             completed_at = CASE WHEN :terminal = 1 THEN :now ELSE completed_at END,
+            completion_summary = CASE WHEN :terminal = 1 THEN :summary
+                                      ELSE completion_summary END,
             last_completion_result = CASE WHEN :terminal = 1 THEN :result
                                           ELSE last_completion_result END
         WHERE id = :id
         """
     ), {"s": status, "now": now, "terminal": (1 if terminal else 0),
+        "summary": completion_summary,
         "result": _json(result), "id": str(irp_job_id)})
 
 

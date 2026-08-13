@@ -5,12 +5,13 @@ WORKBENCH only. All changes are edits to the single revision
 `infra/scripts/seed_db.py` and `tests/iteration1_mirror.py` (the
 `EXACT_MATCH_TABLES` drift guard enforces column-for-column parity).
 
-## 1. `irp_job` — two new columns
+## 1. `irp_job` — three new columns
 
 | Column | Type | Nullable | Notes |
 |---|---|---|---|
 | `irp_portfolio_id` | Uuid, FK → `irp_portfolio.id` | yes | Set on every geohaz row (submitted and `SUBMISSION FAILED`); NULL for every other job type. Index `ix_irp_job_irp_portfolio_id`. `irp_portfolio` is created after `irp_job` in the revision — add the FK with `op.create_foreign_key` after both tables exist. Fulfils `docs/DATA_MODEL.md:470`. |
 | `request_params` | NVARCHAR(MAX) JSON | yes | The analyst-level parameter set (§3). Written by both `record_submitted_irp_job` and `record_submission_failure` (new optional arguments, alongside the existing `actor_id`). Distinct from `last_submission_payload` (the raw Risk Modeler request body). |
+| `completion_summary` | NVARCHAR(MAX) | yes | The `tasks[].output.summary` string copied from the terminal Risk Modeler response. NULL when Risk Modeler supplies no task summary. |
 
 Existing columns carrying the rest of the P-05 record — no change:
 
@@ -20,7 +21,7 @@ Existing columns carrying the rest of the P-05 record — no change:
 | Submitted timestamp | `submitted_at` |
 | Completed timestamp | `completed_at` (stamped by `update_tracking` on terminal) |
 | Terminal status | `status` (external-mirror VARCHAR, Article 3 carve-out; `SUBMISSION FAILED` for a submit that never reached Risk Modeler) |
-| Per-layer counts | parsed at read time from `last_completion_result` (stored verbatim by `update_tracking`; research R7) |
+| Completion summary | `completion_summary` |
 | Parameter set | `request_params` (§3) |
 
 The submit also writes the existing `irp_job_resource` row
@@ -106,7 +107,7 @@ race backstop.
 `SELECT … FROM irp_job LEFT JOIN app_user ON app_user.id = irp_job.inserted_by
 WHERE irp_portfolio_id = :pid AND irp_job_type = 'geohaz' ORDER BY inserted_at DESC`
 — each row renders parameters (`request_params`), analyst, submitted/completed
-timestamps, status, and the parsed per-layer counts (or "unavailable", FR-023).
+timestamps, status, and `completion_summary` (or "unavailable", FR-023).
 
 ## 5. Unchanged
 
@@ -115,5 +116,5 @@ timestamps, status, and the parsed per-layer counts (or "unavailable", FR-023).
 `irp_job_type_kind` already seeds `('geohaz', 'Geohazard', 40)`.
 EXPOSURE/LOSS untouched; DATABRIDGE never in schema scope.
 
-**DB lifecycle choice: Rebuild** (`make db-rebuild`) — required by the two new
+**DB lifecycle choice: Rebuild** (`make db-rebuild`) — required by the three new
 columns and the kind row.

@@ -9,11 +9,12 @@ from an RM-side ``FAILED`` and is never tracked. Driven by the fake IRP.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
 from app.poller import run as poller
-from app.services import edm_service
+from app.services import edm_service, irp_job_service
 from app.services import package_sync_service as sync
 from app.workers import package_jobs
 from db import execute, execute_one
@@ -25,6 +26,27 @@ def test_geohaz_uses_single_status_getter_without_terminal_follow_up():
     assert poller._GETTERS["geohaz"] is poller.irp_gateway.get_geohaz_job
     assert "geohaz" not in poller._TERMINAL_HANDLERS
     assert "geohaz" not in poller._TERMINAL_RESOLVERS
+
+
+def test_geohaz_terminal_stores_task_output_summary(iteration2_db, fake_irp):
+    job_id = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_id="25234199")
+    result = {
+        "status": "FINISHED",
+        "details": {"summary": "GEOHAZ is successful"},
+        "tasks": [{"name": "HAZARD", "output": {
+            "summary": "For the Layer : EARTHQUAKE processed 142 Locations out of 142."
+        }}],
+    }
+    fake_irp.finish("25234199", result)
+
+    poller.poll_once()
+
+    job = execute_one(
+        "SELECT completion_summary, last_completion_result FROM irp_job WHERE id=:id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert job["completion_summary"] == result["tasks"][0]["output"]["summary"]
+    assert json.loads(job["last_completion_result"]) == result
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:

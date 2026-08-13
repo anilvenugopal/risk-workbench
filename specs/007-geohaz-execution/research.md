@@ -135,22 +135,17 @@ input (typo → submission failure discovered a poll cycle later).
 **Risk**: config can drift from what Risk Modeler actually accepts; a wrong version surfaces as a
 per-portfolio `SUBMISSION FAILED`/`FAILED`, visible and relaunchable — degradation, not breakage.
 
-## R7 — Per-layer counts: shape unverified; store verbatim, parse on read (plan T-06)
+## R7 — Completion summary: store the Risk Modeler string (plan T-06)
 
-**Finding**: nothing in wheel 0.5.0 nor Moody's public reference documents the geohaz
-completion body beyond `status`/`progress`. The team knowledge base asserts the job response carries
-a `summary` (design claim, not a verified schema). The historical per-layer counts came from a
-DataBridge SQL geocode histogram, not the job API.
+**Finding**: a captured Risk Modeler response contains the display text at
+`tasks[].output.summary`. The value is one sentence describing every requested layer, its version,
+the number of locations processed, and the total location count. `details.summary` only reports
+`GEOHAZ is successful`.
 
-**Decision**: the poller's existing `update_tracking` already stores the terminal body verbatim in
-`last_completion_result`; the display parses per-layer counts from it at read time, rendering
-FR-023's "unavailable" state for anything absent. The parser's keys are finalized against a captured
-sandbox body during implementation (quickstart step 5). This keeps the design correct under any
-response shape — no open decision blocks tasks.
-
-**Contingency**: if the capture shows the counts require a fetch beyond the status body, add a
-`fetch_geohaz_summary` rwb_job enqueued by a geohaz terminal handler — worker-side, per the spec's
-dependency note ("never in the poller loop body or on a request path"). Not built unless needed.
+**Decision**: when the poller receives a terminal geohaz response, it copies
+`tasks[].output.summary` into `irp_job.completion_summary`. The display renders the stored string
+without parsing counts or sentences. The poller continues storing the full terminal response in
+`last_completion_result` for operational diagnosis.
 
 ## R8 — Column refresh: per-cell self-terminating poll (plan T-08 in prose; UI contract)
 

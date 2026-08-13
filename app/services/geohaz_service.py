@@ -41,7 +41,7 @@ class LookupRecord:
     submitted_at: Any
     completed_at: Any
     status: str
-    layer_counts: dict[str, int] | None
+    completion_summary: str | None
 
 
 def _read_states(*, edm_id: Any | None = None,
@@ -128,48 +128,28 @@ def cell_state(portfolio_id: Any, *, edm_id: Any | None = None) -> CellState | N
         edm_id=edm_id, portfolio_id=portfolio_id).get(_uid(portfolio_id))
 
 
-def parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None:
-    """Parse a complete GeoHaz ``summary.layers`` count set."""
-    if not last_completion_result:
-        return None
-    try:
-        result = json.loads(last_completion_result)
-    except (TypeError, ValueError):
-        return None
+def completion_summary(result: dict[str, Any] | None) -> str | None:
+    """Return the GeoHaz task's summary text."""
     if not isinstance(result, dict):
         return None
-    details = result.get("details")
-    summary = details.get("summary") if isinstance(details, dict) else None
-    if summary is None:
-        summary = result.get("summary")
-    if not isinstance(summary, dict):
+    tasks = result.get("tasks")
+    if not isinstance(tasks, list):
         return None
-    layers = summary.get("layers")
-    if not isinstance(layers, list) or not layers:
-        return None
-
-    counts: dict[str, int] = {}
-    for layer in layers:
-        if not isinstance(layer, dict):
-            return None
-        name = layer.get("name")
-        count = layer.get("locationsLookedUp")
-        if (not isinstance(name, str) or not name.strip()
-                or not isinstance(count, int) or isinstance(count, bool)
-                or count < 0):
-            return None
-        name = name.strip().lower()
-        if name in counts:
-            return None
-        counts[name] = count
-    return counts
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        output = task.get("output")
+        summary = output.get("summary") if isinstance(output, dict) else None
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    return None
 
 
 def lookup_history(portfolio_id: Any) -> list[LookupRecord]:
     """Return the portfolio's workbench GeoHaz submissions, newest first."""
     rows = execute(
         """
-        SELECT j.id, j.request_params, j.last_completion_result,
+        SELECT j.id, j.request_params, j.completion_summary,
                u.display_name AS analyst_name, j.submitted_at,
                j.completed_at, j.status
         FROM irp_job j
@@ -189,7 +169,7 @@ def lookup_history(portfolio_id: Any) -> list[LookupRecord]:
         submitted_at=row["submitted_at"],
         completed_at=row["completed_at"],
         status=row["status"],
-        layer_counts=parse_layer_counts(row["last_completion_result"]),
+        completion_summary=row["completion_summary"],
     ) for row in rows]
 
 
@@ -307,5 +287,5 @@ def launch(
 
 __all__ = [
     "CellState", "LaunchResult", "LookupRecord", "cell_state", "eligible",
-    "launch", "lookup_history", "lookup_states", "parse_layer_counts",
+    "completion_summary", "launch", "lookup_history", "lookup_states",
 ]

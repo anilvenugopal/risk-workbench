@@ -38,6 +38,7 @@ from app.config import settings
 from app.logging_setup import setup_logging
 from app.services import (
     edm_service,
+    geohaz_service,
     irp_gateway,
     irp_job_service,
     package_sync_service,
@@ -248,7 +249,11 @@ def _track_irp_jobs() -> None:
                     with conn.begin():
                         irp_job_service.update_tracking(
                             conn, irp_job_id=job["id"], status=result.status,
-                            result=result.result)
+                            result=result.result,
+                            completion_summary=(
+                                geohaz_service.completion_summary(result.result)
+                                if job["irp_job_type"] == "geohaz" else None),
+                        )
                         if result.status in irp_job_service.TERMINAL:
                             handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
                             if handler is not None:

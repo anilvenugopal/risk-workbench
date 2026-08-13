@@ -55,9 +55,8 @@ The worker changes no portfolio, EDM, or submission state (FR-014). No
 
 `record_submitted_irp_job` and `record_submission_failure` gain optional
 `irp_portfolio_id` and `request_params` arguments threaded into
-`_insert_irp_job`. `update_tracking`, `list_non_terminal`, `TERMINAL` are
-unchanged (`SUBMISSION FAILED` already terminal; `list_non_terminal` already
-skips `irp_id IS NULL` rows, so failed submissions are never polled).
+`_insert_irp_job`. `update_tracking` accepts the extracted completion summary;
+`list_non_terminal` and `TERMINAL` are unchanged.
 
 ## Poller (`app/poller/run.py`)
 
@@ -68,14 +67,12 @@ _GETTERS = {..., "geohaz": irp_gateway.get_geohaz_job}
 ```
 
 - The existing `_track_irp_jobs` loop handles the rest: single-status check,
-  `update_tracking` (stores the terminal body in `last_completion_result` —
-  the FR-020 background recording, research R7).
+  extraction of `tasks[].output.summary`, and `update_tracking`, which stores
+  the summary in `completion_summary` and the full response in
+  `last_completion_result`.
 - **No `_TERMINAL_HANDLERS` entry, no `_TERMINAL_RESOLVERS` entry**: nothing
   auto-fires on geohaz completion (Article 5), and no extra fetch is needed
   under the R7 primary design.
-- Contingency only (if the sandbox capture shows the counts need a second
-  fetch): a `geohaz` terminal handler enqueues a `fetch_geohaz_summary`
-  rwb_job — the fetch runs worker-side, never in the poller loop body.
 
 ## `_submission_retry`
 

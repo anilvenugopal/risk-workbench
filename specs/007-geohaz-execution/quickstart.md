@@ -23,7 +23,7 @@ uv run pytest tests/unit
 Covers: peril/eligibility/gate validation, per-portfolio enqueue, worker
 submit success/failure isolation, param mapping (one hazard layer per peril;
 no geocode layer ever built), four-state derivation (incl. failure-after-success = Yes),
-`parse_layer_counts` (counts / zero / missing → unavailable), poller routing.
+completion-summary extraction and unavailable handling, poller routing.
 
 ## 2. SQL Server tier
 
@@ -31,7 +31,7 @@ no geocode layer ever built), four-state derivation (incl. failure-after-success
 make test-sql        # or make wsl-test-sql
 ```
 
-Schema drift guard passes with the two new `irp_job` columns + `run_geohaz`
+Schema drift guard passes with the three new `irp_job` columns + `run_geohaz`
 kind row mirrored.
 
 ## 3. Manual walkthrough (spec §Exit / SC-001…SC-006)
@@ -51,9 +51,8 @@ kind row mirrored.
 5. While a job is non-terminal, open the launch form again — that portfolio
    cannot be selected (P-06).
 6. On completion: cells flip to **Yes**; expand each row — the lookup record
-   shows parameters, analyst, submitted/completed timestamps, and per-layer
-   locations-looked-up counts (zero renders as zero; missing counts render as
-   unavailable, not an error — SC-003, FR-023).
+   shows parameters, analyst, submitted/completed timestamps, and the Risk
+   Modeler completion summary (missing summary text renders as unavailable).
 7. Failure paths: stop the worker (or use a bogus data version) and launch —
    the cell shows **Failed**, the history shows the failed lookup, and the same
    portfolio is immediately launchable again (SC-005). EDM with zero
@@ -80,8 +79,8 @@ uv run pytest tests/irp --run-irp -k geohaz
 ```
 
 - Submits one real lookup on a small sandbox portfolio, polls via the test
-  (not the app), and **saves the terminal `get_geohaz_job` body** — finalize
-  `parse_layer_counts` keys against it.
+  (not the app), and **saves the terminal `get_geohaz_job` body** — confirm
+  `tasks[].output.summary` remains the completion-summary field.
 - Confirms Risk Modeler accepts the hazard-only layer list (no geocode layer —
   plan risk 2).
 

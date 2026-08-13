@@ -346,6 +346,7 @@ def upgrade() -> None:
         # submitted this op (issue #28). Provenance only — never a predicate.
         sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
+        sa.Column("completion_summary", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),

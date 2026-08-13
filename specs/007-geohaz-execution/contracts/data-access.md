@@ -36,12 +36,10 @@ def eligible(portfolio_id) -> bool          # P-06 (used by launch + form render
 def lookup_history(portfolio_id) -> list[LookupRecord]
     # irp_job LEFT JOIN app_user, newest first; each record: parsed
     # request_params, analyst display name, submitted_at, completed_at, status,
-    # layer_counts (below)
+    # completion_summary
 
-def parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None
-    # pure function; returns per-layer counts or None → "unavailable" (FR-023);
-    # zero is a value, never a failure; keys finalized against the sandbox
-    # capture (research R7)
+def completion_summary(result: dict | None) -> str | None
+    # returns tasks[].output.summary for terminal poller storage
 ```
 
 Batch shape note: `lookup_states` runs once per table render (one query, not

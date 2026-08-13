@@ -220,36 +220,30 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
     assert "hx-trigger" not in response.text
 
 
-def test_history_renders_layer_counts_zero_and_unavailable(iteration2_db):
+def test_history_renders_completion_summary_and_unavailable(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
-    with_counts = irp_job_service.record_submitted_irp_job(
+    with_summary = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="950",
         request_params={"perils": ["earthquake", "windstorm"]},
         actor_id=iteration2_db.user_a)
-    without_counts = irp_job_service.record_submitted_irp_job(
+    without_summary = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="951",
         request_params={"perils": ["earthquake"]},
         actor_id=iteration2_db.user_a)
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED', "
-        "last_completion_result = :result WHERE id = :id",
-        {"id": with_counts, "result": json.dumps({
-            "status": "FINISHED",
-            "details": {"summary": {"layers": [
-                {"name": "earthquake", "locationsLookedUp": 14},
-                {"name": "windstorm", "locationsLookedUp": 0},
-            ]}},
-        })},
+        "completion_summary = :summary WHERE id = :id",
+        {"id": with_summary, "summary": (
+            "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations.")},
         connection="WORKBENCH")
     execute_command(
         "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
-        {"id": without_counts}, connection="WORKBENCH")
+        {"id": without_summary}, connection="WORKBENCH")
 
     body = _client().get(f"/edms/{edm_id}").text
 
-    assert "Locations looked up" in body
-    assert "Earthquake" in body and ">14<" in body
-    assert "Windstorm" in body and ">0<" in body
-    assert "Count unavailable" in body
+    assert "Completion summary" in body
+    assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." in body
+    assert "Summary unavailable" in body
