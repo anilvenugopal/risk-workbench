@@ -50,7 +50,6 @@ class FakeIRP:
         self.results: dict[str, dict] = {}
         # recorded calls for assertions
         self.submits: list[dict] = []
-        self.deleted_analysis_ids: list[int] = []
         # seeded name-collision universe
         self._edm_names: set[str] = set()
         self._rdm_names: set[str] = set()
@@ -209,27 +208,22 @@ class FakeIRP:
         self._exposure_id_for(name)
         return result
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult:
+    def submit_rdm_import(self, *, name: str,
+                          source_file_path: str) -> SubmitResult:
         return self._submit("import_rdm", name=name,
-                            source_file_path=source_file_path, edm_name=edm_name)
-
-    def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
-        return self._submit("delete_edm", edm_irp_id=edm_irp_id)
-
-    def delete_analysis(self, *, analysis_id: int) -> None:
-        # Synchronous single-analysis delete — no irp_job (R6). Record the call.
-        self.deleted_analysis_ids.append(int(analysis_id))
+                            source_file_path=source_file_path,
+                            exposure_set_name=name)
 
     def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]:
+                        exposure_name: str | None = None) -> list[AnalysisHit]:
         # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
         # builds the filter string internally (safe json.dumps quoting), so the fake
         # matches on the pair args directly rather than parsing a filter string.
         hits: list[AnalysisHit] = []
         for a in self._analyses:
             if (a["source_rdm_name"] == source_rdm_name
-                    and a["exposure_name"] == exposure_name):
+                    and (exposure_name is None
+                         or a["exposure_name"] == exposure_name)):
                 hits.append(AnalysisHit(
                     analysis_id=a["analysis_id"], name=a["name"],
                     source_rdm_name=a["source_rdm_name"],
@@ -284,10 +278,6 @@ class FakeIRP:
         return AnalysisMetadata()
 
     def get_import_job(self, irp_id: str) -> JobStatus:
-        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
-                         result=self.results.get(irp_id))
-
-    def get_delete_edm_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 

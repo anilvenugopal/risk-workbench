@@ -73,6 +73,7 @@ class TestDetailTablesMigration:
         # (data-model §4/§6); it must not be silently added.
         assert "group_parent_id" not in cols
         assert "customer_id" not in cols  # Article 6
+        assert "package_id" not in cols
 
     @pytest.mark.parametrize("table,constraint", [
         ("irp_portfolio", "uq_irp_portfolio_edm_irp"),

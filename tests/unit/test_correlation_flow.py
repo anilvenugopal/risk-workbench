@@ -14,30 +14,26 @@ import logging
 
 from app import log_context
 from app.logging_setup import ContextFilter
-from app.services import package_sync_service as sync
-from app.workers import package_jobs
+from app.services import edm_service
+from app.workers import entity_jobs
 from db import execute
-
-MS = sync.MemberSpec
 
 
 def _build_and_sync(drive, actor, correlation_id: str) -> str:
-    """save_package + save_and_sync one single-EDM package under a bound context —
-    the same shape the request middleware gives a real save-and-sync request."""
-    members = [MS(kind="edm", name="E1", source_file_path=str(drive / "edm1.bak"))]
     token = log_context.bind(correlation_id=correlation_id)
     try:
-        res = sync.save_package(package_id=None, name="Pkg", members=members,
-                                actor_id=actor)
-        sync.save_and_sync(package_id=res.package_id, actor_id=actor)
+        result = edm_service.import_edm(
+            name="E1", source_file_path=str(drive / "edm1.bak"),
+            actor_id=actor,
+        )
     finally:
         log_context.clear(token)
-    return res.package_id
+    return result.entity_id
 
 
 def test_irp_job_inherits_rwb_job_correlation(iteration2_db, fake_irp, drive):
     _build_and_sync(drive, iteration2_db.user_a, "req-123")
-    package_jobs.run_pending()  # worker claims, binds from the row, submits
+    entity_jobs.run_pending()  # worker claims, binds from the row, submits
     rwb = execute("SELECT correlation_id FROM rwb_job WHERE rwb_job_type='upload_edm'",
                   {}, connection="WORKBENCH")
     irp = execute("SELECT correlation_id FROM irp_job WHERE irp_job_type='import_edm'",
@@ -49,7 +45,7 @@ def test_irp_job_inherits_rwb_job_correlation(iteration2_db, fake_irp, drive):
 def test_submission_failure_row_is_stamped(iteration2_db, fake_irp, drive):
     _build_and_sync(drive, iteration2_db.user_a, "req-456")
     fake_irp.raise_on_submit = True  # submit never reaches Risk Modeler
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
     rows = execute("SELECT status, correlation_id FROM irp_job", {},
                    connection="WORKBENCH")
     assert rows[0]["status"] == "SUBMISSION FAILED"
@@ -76,7 +72,7 @@ def test_run_job_lifecycle_records_carry_context(iteration2_db, fake_irp, drive)
     runtime_logger.addHandler(cap)
     runtime_logger.setLevel(logging.INFO)
     try:
-        package_jobs.run_pending()
+        entity_jobs.run_pending()
     finally:
         runtime_logger.removeHandler(cap)
         runtime_logger.setLevel(saved_level)

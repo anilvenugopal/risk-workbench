@@ -1,22 +1,4 @@
-"""Unit tests for the manual RDM sync (analysis-details backfill re-run).
-
-The automatic ``backfill_rdm_analyses`` runs only when an ``import_rdm`` apply
-reaches FINISHED, so RDMs imported before spec-004 shipped hold name-only
-``irp_analysis`` rows forever (no settings, no portfolio pointer). The Sync
-action closes that gap:
-
-  • ``rdm_service.sync_detail`` keys the head ``(analyst_request, rdm_id)`` via
-    ``ensure_pending_rwb_job`` + ``dispatch``; the worker input carries NO
-    ``edm_id``, which tells the body to derive every applied (RDM, EDM) pair
-    from the ``import_rdm`` irp_job rows and re-capture each.
-  • The EDM page's Sync refreshes BOTH: ``POST /edms/{id}/sync`` chains
-    ``rdm_service.sync_analyses_for_edm`` (one per-RDM head per paired RDM) and
-    ``EdmDetail.sync_running`` reflects in-flight analysis backfills so the live
-    body keeps polling until the analyses land too.
-  • Routes mirror the EDM Sync UX: ``POST /rdms/{rdm_id}/sync`` (CSRF; HTMX swap
-    of the live ``#rdm-detail`` body, PRG fallback) + ``GET /rdms/{rdm_id}/body``
-    (the self-terminating poll target, package-card pattern).
-"""
+"""Manual RDM-wide analysis refresh tests."""
 
 from __future__ import annotations
 
@@ -29,14 +11,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.poller import run as poller
-from app.services import analysis_service, edm_service, rdm_service
-from app.workers import dispatch, package_jobs
+from app.services import analysis_service, rdm_service
+from app.workers import dispatch, entity_jobs
 from db import execute, execute_command, execute_scalar
-
-
-def _edm(drive, actor, name, fname):
-    return edm_service.import_edm(name=name, source_file_path=str(drive / fname),
-                                  actor_id=actor).entity_id
 
 
 def _finish_all(fake, job_type):
@@ -53,17 +30,15 @@ def _analyst_heads(rdm_id: str) -> list[dict]:
         {"r": rdm_id}, connection="WORKBENCH")
 
 
-def _rdm_ready(iteration2_db, fake_irp, drive, *, name="R", src="rdm1.mdf",
-               edm_ids=()) -> str:
-    """Import an RDM applied to ``edm_ids`` and drive it to ``ready`` (submit →
-    FINISHED → poll → drain the pair backfills)."""
+def _rdm_ready(iteration2_db, fake_irp, drive, *, name="R", src="rdm1.mdf") -> str:
+    """Import an RDM and run its import and analysis capture."""
     res = rdm_service.import_rdm(
         name=name, source_file_path=str(drive / src),
-        applied_edm_ids=list(edm_ids), actor_id=iteration2_db.user_a)
-    package_jobs.run_pending()
+        actor_id=iteration2_db.user_a)
+    entity_jobs.run_pending()
     _finish_all(fake_irp, "import_rdm")
     poller.poll_once()
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
     assert rdm_service.get_rdm(res.entity_id).status == rdm_service.READY
     return res.entity_id
 
@@ -72,8 +47,7 @@ def _rdm_ready(iteration2_db, fake_irp, drive, *, name="R", src="rdm1.mdf",
 
 def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive, edm_ids=[e1])
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
 
     sent: list[tuple[str, str]] = []
     dispatch.configure(lambda *, rwb_job_id, rwb_job_type: sent.append(
@@ -88,7 +62,7 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
     assert len(heads) == 1
     assert heads[0]["status_code"] == "pending"
     assert sent == [(str(job_id), "backfill_rdm_analyses")]
-    # the analyst head carries NO edm_id — the worker derives every applied pair
+    # The worker input is RDM-scoped.
     row = execute("SELECT input_data FROM rwb_job WHERE id=:i",
                   {"i": str(job_id)}, connection="WORKBENCH")[0]
     assert "edm_id" not in json.loads(row["input_data"])
@@ -97,10 +71,9 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
 def test_sync_revives_terminal_head_with_attempt_and_actor(
         iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive, edm_ids=[e1])
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
     first = rdm_service.sync_detail(rdm_id=rdm_id, actor_id=a)
-    package_jobs.run_pending()  # analyst head → succeeded
+    entity_jobs.run_pending()  # analyst head → succeeded
 
     again = rdm_service.sync_detail(rdm_id=rdm_id, actor_id=iteration2_db.user_b)
     assert again == first  # the SAME row revived, not a duplicate
@@ -114,17 +87,16 @@ def test_sync_revives_terminal_head_with_attempt_and_actor(
 def test_sync_skips_while_backfill_in_flight_either_key(
         iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
     res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
-                                 applied_edm_ids=[e1], actor_id=a)
-    package_jobs.run_pending()
+                                 actor_id=a)
+    entity_jobs.run_pending()
     _finish_all(fake_irp, "import_rdm")
     poller.poll_once()  # the poller pair head is PENDING (undrained)
     # Sync must not stack a second concurrent run on the poller-keyed head.
     assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is None
     assert _analyst_heads(res.entity_id) == []
 
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
     assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is not None
     # ... and an in-flight analyst head blocks a re-click the same way.
     assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is None
@@ -133,23 +105,17 @@ def test_sync_skips_while_backfill_in_flight_either_key(
 
 def test_sync_noop_when_rdm_importing_or_missing(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
     res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
-                                 applied_edm_ids=[e1], actor_id=a)  # pending_import
+                                 actor_id=a)  # pending_import
     assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is None
     assert _analyst_heads(res.entity_id) == []
     assert rdm_service.sync_detail(rdm_id=str(uuid.uuid4()), actor_id=a) is None
 
 
-# ── worker: the analyst head re-captures EVERY applied pair ───────────────────────
+# ── worker: the analyst head re-captures the RDM ───────────────────────────
 
-def test_sync_recaptures_settings_across_all_pairs(iteration2_db, fake_irp, drive):
-    """The user-facing gap this exists for: rows captured before spec-004 hold
-    NULL settings_metadata / exposure_resource_id. A manual sync (no edm_id in
-    the input) derives both applied pairs and overwrites the detail in place."""
+def test_sync_recaptures_rdm_wide_settings(iteration2_db, fake_irp, drive):
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    e2 = _edm(drive, a, "E2", "edm2.bak")
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
                           analysis_id="900", name="AEP",
                           metadata={"engineType": "DLM"},
@@ -158,7 +124,7 @@ def test_sync_recaptures_settings_across_all_pairs(iteration2_db, fake_irp, driv
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E2",
                           analysis_id="901", name="NT",
                           metadata={"engineType": "HD"})
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive, edm_ids=[e1, e2])
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
 
     # Simulate the pre-capability vintage: what spec-003 captured (names only).
     execute_command(
@@ -168,13 +134,14 @@ def test_sync_recaptures_settings_across_all_pairs(iteration2_db, fake_irp, driv
                     {"r": rdm_id}, connection="WORKBENCH")
 
     assert rdm_service.sync_detail(rdm_id=rdm_id, actor_id=a) is not None
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
 
     rows = {str(r["irp_id"]): r for r in execute(
         "SELECT irp_id, edm_id, settings_metadata, exposure_resource_id "
         "FROM irp_analysis WHERE rdm_id=:r", {"r": rdm_id},
         connection="WORKBENCH")}
-    assert set(rows) == {"900", "901"}  # BOTH pairs re-captured, no dupes
+    assert set(rows) == {"900", "901"}
+    assert all(row["edm_id"] is None for row in rows.values())
     assert json.loads(rows["900"]["settings_metadata"])["engineType"] == "DLM"
     assert rows["900"]["exposure_resource_id"] == "501"   # pointer re-promoted
     assert json.loads(rows["901"]["settings_metadata"])["engineType"] == "HD"
@@ -186,15 +153,14 @@ def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, driv
     # An analysis that appeared in RM after the import (or was missed) is
     # captured by the sync — the insert-if-absent path, not just the overwrite.
     a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive, edm_ids=[e1])
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
     assert execute_scalar("SELECT COUNT(*) FROM irp_analysis WHERE rdm_id=:r",
                           {"r": rdm_id}, connection="WORKBENCH") == 0
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
                           analysis_id="910", name="Late",
                           metadata={"engineType": "DLM"})
     rdm_service.sync_detail(rdm_id=rdm_id, actor_id=a)
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
     rows = execute("SELECT irp_id, settings_metadata FROM irp_analysis "
                    "WHERE rdm_id=:r", {"r": rdm_id}, connection="WORKBENCH")
     assert [str(r["irp_id"]) for r in rows] == ["910"]
@@ -202,48 +168,6 @@ def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, driv
 
 
 # ── the EDM page syncs both: per-RDM fan-out + sync_running visibility ────────────
-
-def test_sync_for_edm_enqueues_one_head_per_paired_rdm(
-        iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    r1 = _rdm_ready(iteration2_db, fake_irp, drive, name="R1", src="rdm1.mdf",
-                    edm_ids=[e1])
-    r2 = _rdm_ready(iteration2_db, fake_irp, drive, name="R2", src="rdm2.mdf",
-                    edm_ids=[e1])
-
-    jobs = rdm_service.sync_analyses_for_edm(edm_id=e1, actor_id=a)
-    assert len(jobs) == 2
-    heads = execute(
-        "SELECT requestor_id, status_code FROM rwb_job "
-        "WHERE requestor_type='analyst_request' "
-        "AND rwb_job_type='backfill_rdm_analyses'", {}, connection="WORKBENCH")
-    assert {str(h["requestor_id"]) for h in heads} == {r1, r2}
-    assert all(h["status_code"] == "pending" for h in heads)
-    # per-RDM in-flight guard: a re-click stacks nothing on top
-    assert rdm_service.sync_analyses_for_edm(edm_id=e1, actor_id=a) == []
-
-
-def test_edm_detail_sync_running_covers_analysis_backfill(
-        iteration2_db, fake_irp, drive):
-    # The EDM page's live body must keep polling while the analyses backfill is
-    # in flight — under EITHER key — even when the EDM's own detail head is idle.
-    a = iteration2_db.user_a
-    e1 = _edm(drive, a, "E1", "edm1.bak")
-    res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
-                                 applied_edm_ids=[e1], actor_id=a)
-    package_jobs.run_pending()
-    _finish_all(fake_irp, "import_rdm")
-    poller.poll_once()  # poller-keyed pair head now PENDING
-    assert edm_service.get_edm_detail(e1).sync_running is True
-    package_jobs.run_pending()
-    assert edm_service.get_edm_detail(e1).sync_running is False
-
-    assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is not None
-    assert edm_service.get_edm_detail(e1).sync_running is True  # analyst-keyed
-    package_jobs.run_pending()
-    assert edm_service.get_edm_detail(e1).sync_running is False
-
 
 # ── routes: POST /rdms/{rdm_id}/sync + GET /rdms/{rdm_id}/body (live UX) ──────────
 #
@@ -281,7 +205,7 @@ def _client() -> TestClient:
 def _rdm_obj(**over) -> rdm_service.RdmRow:
     base = dict(
         id="rdm-1", name="legacy_rdm", status="ready",
-        source_file_path="/share/legacy.mdf", irp_id=88001, package_id=None,
+        source_file_path="/share/legacy.mdf", irp_id=88001,
         inserted_at="2026-01-01", updated_at="2026-01-01")
     base.update(over)
     return rdm_service.RdmRow(**base)

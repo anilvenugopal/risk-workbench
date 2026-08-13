@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,6 +20,12 @@ from sqlalchemy import text
 from db import get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SubmissionRef:
+    id: str
+    name: str
 
 
 def _utcnow() -> datetime:
@@ -143,5 +150,5 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-__all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
+__all__ = ["SubmissionRef", "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict"]

@@ -91,6 +91,46 @@ def test_get_submission_has_no_access_restriction(iteration1_db):
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
 
 
+def test_submission_entities_use_direct_associations_and_stored_counts(iteration2_db):
+    first = _mk(iteration2_db, name="First").submission_id
+    second = _mk(iteration2_db, name="Second", cedant="Second Re").submission_id
+    edm_id = str(uuid.uuid4())
+    rdm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedEDM', 'ready', 101)",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_rdm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedRDM', 'ready', 202)",
+        {"id": rdm_id}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '301')",
+        {"id": str(uuid.uuid4()), "edm": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_analysis (id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'SharedRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_id}, connection="WORKBENCH")
+
+    first_edms = svc.list_submission_edms(first)
+    second_edms = svc.list_submission_edms(second)
+    first_rdms = svc.list_submission_rdms(first)
+    second_rdms = svc.list_submission_rdms(second)
+
+    assert [(row.id, row.portfolio_count) for row in first_edms] == [(edm_id, 1)]
+    assert [(row.id, row.portfolio_count) for row in second_edms] == [(edm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in first_rdms] == [(rdm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in second_rdms] == [(rdm_id, 1)]
+
+
 def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
     _mk(iteration1_db, name="A", cedant="Acme Mutual", tt="cat_xol",
         inc=date(2026, 1, 1))

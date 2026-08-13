@@ -1,0 +1,25 @@
+<div class="section-head submission-entity-head">
+  <h2>RDMs</h2>
+  {% if is_active %}
+  <button class="btn-sm btn-sm--primary" type="button"
+          hx-get="/submissions/{{ submission.id }}/rdms/add"
+          hx-target="#submission-entity-modal" hx-swap="innerHTML">Add RDM</button>
+  {% endif %}
+</div>
+<div class="entity-table-wrap">
+  <table class="mk-table entity-table">
+    <thead><tr><th>Name</th><th class="count-col">Analysis count</th><th class="rm-col">Risk Modeler</th></tr></thead>
+    <tbody>
+    {% for rdm in submission_rdms %}
+      <tr>
+        <td><a class="entity-name" href="/rdms/{{ rdm.id }}">{{ rdm.name }}</a></td>
+        <td class="count-col">{% if rdm.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ rdm.analysis_count }}{% endif %}</td>
+        <td>{% if rdm.rm_url %}<a class="rm-link" href="{{ rdm.rm_url }}" target="_blank" rel="noopener">Open</a>{% else %}<span class="na">Unavailable</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    {% if not submission_rdms %}
+      <tr><td colspan="3" class="entity-table-state"><strong>No RDMs added</strong>Add a new RDM or select one already in the workbench.</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>

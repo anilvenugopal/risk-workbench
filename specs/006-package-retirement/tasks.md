@@ -11,15 +11,15 @@ approver to click the running feature before starting the next user story.
 - [x] T001 [P-09] Approve `docs/ui_previews/package_retirement_submission.html`
   and `docs/ui_previews/package_retirement_contextual_edm.html`; preserve the current
   shell, submission controls, EDM tables, disclosure markup, and caret behavior.
-- [ ] T002 [P] [FR-001] Replace current Package requirements with direct submission
+- [x] T002 [P] [FR-001] Replace current Package requirements with direct submission
   associations in `docs/PRD.md` and `docs/FUNCTIONAL_REQUIREMENTS.md`; do not edit
   historical design notes.
-- [ ] T003 [P] [FR-002] [FR-003] Update `docs/DATA_MODEL.md` with
+- [x] T003 [P] [FR-002] [FR-003] Update `docs/DATA_MODEL.md` with
   `submission_edm`, `submission_rdm`, entity-scoped jobs, and RDM-wide broker analyses.
-- [ ] T004 [P] [FR-020] Add concise supersession pointers to
+- [x] T004 [P] [FR-020] Add concise supersession pointers to
   `specs/002-submission-package-domain/`, `specs/003-edm-rdm-entity-management/`,
   and `specs/004-edm-rdm-details-backfill/` files that own Package behavior.
-- [ ] T005 [P] [T-06] Record TestPyPI `irp-integration` 0.4.0 and the confirmed
+- [x] T005 [P] [T-06] Record TestPyPI `irp-integration` 0.4.0 and the confirmed
   `exposure_set_name` signature in `docs/IRP_INTEGRATION_FOLLOWUPS.md`.
 
 ## Phase 2: Package removal foundation
@@ -29,17 +29,17 @@ story route reads the new associations.
 
 ### Tests first
 
-- [ ] T006 [P] [FR-001] [FR-002] [FR-003] Update
+- [x] T006 [P] [FR-001] [FR-002] [FR-003] Update
   `tests/sqlserver/test_submission_migration.py`,
   `tests/sqlserver/test_detail_tables_migration.py`,
   `tests/sqlserver/test_job_tables_migration.py`, and
   `tests/sqlserver/test_schema_drift.py` for the removed Package tables/columns,
   new association keys/indexes, `requested_from_submission_id`, and broker-analysis
   identity; confirm the focused tests fail before editing the migration.
-- [ ] T007 [P] [FR-002] [FR-003] Update `tests/iteration1_mirror.py` fixtures and
+- [x] T007 [P] [FR-002] [FR-003] Update `tests/iteration1_mirror.py` fixtures and
   add unit assertions for association foreign keys, duplicate rejection, and detach
   isolation; confirm the focused tests fail before editing the mirror.
-- [ ] T008 [P] [FR-018] [FR-019] Update `tests/unit/test_irp_gateway.py`,
+- [x] T008 [P] [FR-018] [FR-019] Update `tests/unit/test_irp_gateway.py`,
   `tests/unit/test_rdm_service.py`, `tests/unit/test_rdm_sync.py`,
   `tests/unit/test_poller.py`, and `tests/unit/fakes/fake_irp.py` for one standalone
   RDM import using `exposure_set_name` and RDM-wide analysis capture; confirm the
@@ -47,28 +47,28 @@ story route reads the new associations.
 
 ### Schema and execution
 
-- [ ] T009 [FR-001] [FR-002] [FR-003] [FR-019] Edit
+- [x] T009 [FR-001] [FR-002] [FR-003] [FR-019] Edit
   `alembic/versions/0001_initial.py` per `data-model.md`: remove Package schema and
   `package_id`, add both association tables, add job provenance, change broker-analysis
   identity, and update downgrade order.
-- [ ] T010 [FR-002] [FR-003] Mirror T009 in `tests/iteration1_mirror.py` and update
+- [x] T010 [FR-002] [FR-003] Mirror T009 in `tests/iteration1_mirror.py` and update
   shared unit fixtures that insert EDMs, RDMs, jobs, or analyses.
-- [ ] T011 [FR-018] Change `app/services/irp_gateway.py` to submit RDM imports once
+- [x] T011 [FR-018] Change `app/services/irp_gateway.py` to submit RDM imports once
   with `exposure_set_name=rdm_name`; confirm the call against TestPyPI 0.4.0.
-- [ ] T012 [FR-018] [FR-019] Replace pair-based RDM inputs and capture in
+- [x] T012 [FR-018] [FR-019] Replace pair-based RDM inputs and capture in
   `app/services/rdm_service.py` and `app/workers/package_jobs.py`; rename the worker
   module to `app/workers/entity_jobs.py`, target one RDM, and write broker analyses
   with `edm_id` null.
-- [ ] T013 [FR-018] Remove EDM-completion-to-RDM-upload chaining and Package
+- [x] T013 [FR-018] Remove EDM-completion-to-RDM-upload chaining and Package
   finalization from `app/poller/run.py`; retain EDM detail backfill and one RDM
   analysis backfill after an RDM import finishes.
-- [ ] T014 [FR-001] Remove Package router registration from `app/main.py` and delete
+- [x] T014 [FR-001] Remove Package router registration from `app/main.py` and delete
   `app/routers/packages.py`, `app/services/package_service.py`, and Package-only
   operations in `app/services/package_sync_service.py` and `app/services/job_query.py`.
-- [ ] T015 [FR-001] Delete Package-only templates, JavaScript, and CSS; remove the
+- [x] T015 [FR-001] Delete Package-only templates, JavaScript, and CSS; remove the
   `packages.css` import from `app/static/css/app.css` while retaining styles still
   used by status chips or moving those exact rules to their owning stylesheet.
-- [ ] T016 [FR-020] Delete or replace Package-only unit tests and update imports for
+- [x] T016 [FR-020] Delete or replace Package-only unit tests and update imports for
   `entity_jobs.py`; run the focused foundation unit tests.
 
 **Database gate**: Ask the developer to choose Rebuild / Refresh / Skip. Do not run
@@ -84,27 +84,27 @@ the fixed tables, counts, Risk Modeler links, empty states, and absence of Packa
 
 ### Tests first
 
-- [ ] T017 [P] [US1] [FR-002] [FR-003] Add association read tests to
+- [x] T017 [P] [US1] [FR-002] [FR-003] Add association read tests to
   `tests/unit/test_submission_service.py`, including one EDM/RDM related to two
   submissions and no duplicated entity row; confirm they fail first.
-- [ ] T018 [P] [US1] [FR-005] [FR-006] Replace Package-card expectations in
+- [x] T018 [P] [US1] [FR-005] [FR-006] Replace Package-card expectations in
   `tests/unit/test_submission_routes.py` with EDM/RDM table, count, Risk Modeler
   link, long-list, and independent empty-state assertions; confirm they fail first.
 
 ### Implementation
 
-- [ ] T019 [US1] [FR-002] [FR-003] Add association reads and submission table
+- [x] T019 [US1] [FR-002] [FR-003] Add association reads and submission table
   payloads to `app/services/submission_service.py`; derive portfolio and analysis
   counts without Risk Modeler calls.
-- [ ] T020 [US1] [FR-005] Pass EDM/RDM table payloads from
+- [x] T020 [US1] [FR-005] Pass EDM/RDM table payloads from
   `app/routers/submissions.py` and remove Package-card reads.
-- [ ] T021 [P] [US1] [FR-005] [FR-006] Create fixed EDM and RDM table partials in
+- [x] T021 [P] [US1] [FR-005] [FR-006] Create fixed EDM and RDM table partials in
   `app/templates/partials/` and add only their required token-based rules to
   `app/static/css/submissions.css`.
-- [ ] T022 [US1] [FR-001] [FR-005] Replace the Package section in
+- [x] T022 [US1] [FR-001] [FR-005] Replace the Package section in
   `app/templates/pages/submission_detail.html` with the approved tables while
   preserving the existing header, owner, CRM, status controls, and history markup.
-- [ ] T023 [US1] [FR-004] Run the US1-focused unit tests, then stop for the approver
+- [x] T023 [US1] [FR-004] Run the US1-focused unit tests, then stop for the approver
   to click the running submission page before starting US2.
 
 ## Phase 4: User Story 2 - Add and remove submission data

@@ -5,14 +5,14 @@
    counts double-count). Read-only — no create/edit/split/filter control, no map
    (FR-014/FR-016); every unavailable state renders gracefully (ui.md §5),
    never an error. #}
-{# Live body (package-card pattern): while the backfill head is in flight — or
+{# Live body (entity detail pattern): while the backfill head is in flight — or
    the import itself still is — the wrapper polls its own read-only render every
    3s and swaps itself, so the page updates on its own when the rwb job lands.
    The server stops emitting the trigger once the work is terminal, so polling
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
 {% set live = edm.sync_running
-     or edm.status in ('pending_import', 'importing', 'delete_pending') %}
+     or edm.status in ('pending_import', 'importing') %}
 <div class="page-pad" id="edm-detail"
   {%- if live %}
   hx-get="/edms/{{ edm.id }}/body" hx-trigger="every 3s"
@@ -21,27 +21,6 @@
 
   {# ── minimal header (FR-011) — name, status, source, identifiers, count, as_of ── #}
   <div class="detail-head">
-    {# 8/4 D13/CR14 — upward navigation: every owning submission (a package can
-       be attached to several, 8/4 D7), then the package. No standalone package
-       page exists, so the package link anchors its card on the oldest owning
-       submission's page. Standalone EDMs (no package) render no crumbs. #}
-    {% if edm.package_id %}
-    <nav class="detail-crumbs" aria-label="Parent submission and package">
-      {% for sub in edm.submissions %}
-      <a class="crumb" href="/submissions/{{ sub.id }}">{{ sub.name or 'Untitled submission' }}</a>
-      {%- if not loop.last %}<span class="crumb__sep">+</span>{% endif %}
-      {% endfor %}
-      {% if edm.submissions %}
-      <span class="crumb__sep">›</span>
-      <a class="crumb" href="/submissions/{{ edm.submissions[0].id }}#package-card-{{ edm.package_id }}"
-         title="Open this package's card on {{ edm.submissions[0].name or 'the submission page' }}">{{ edm.package_name or 'Untitled package' }}</a>
-      {% else %}
-      <span class="crumb">{{ edm.package_name or 'Untitled package' }}</span>
-      {% endif %}
-      <span class="crumb__sep">›</span>
-      <span class="crumb crumb--current">{{ edm.name }}</span>
-    </nav>
-    {% endif %}
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>
@@ -207,62 +186,6 @@
     {% else %}
     <div class="state-box"><strong>Detail not available.</strong><br>
       Imported before exposure backfill shipped.</div>
-    {% endif %}
-  </details>
-
-  {# ── Broker analyses (US3, rescoped 8/5 D15) — EVERY RDM in the package, one
-     nested expander per RDM (8/5 D16), each with its analyses. Listing asserts
-     no EDM↔RDM link — the RDMs merely share the package. #}
-  {% set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum %}
-  <details class="sec" open id="edm-broker-analyses">
-    <summary>
-      <span class="sec__caret">▸</span>
-      <span class="sec__title">Broker analyses</span>
-      {% if edm.analyses %}
-      <span class="badge badge--neutral">{{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ analysis_total }} analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
-      {% endif %}
-      <span class="sec__spacer"></span>
-      <span class="sec__note">Every RDM in the package · settings &amp; metadata only · no loss numbers</span>
-    </summary>
-
-    {% if edm.analyses %}
-    <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px minmax(110px,1fr) minmax(120px,1fr) minmax(110px,1fr) 80px minmax(120px,1fr) 80px 70px 130px;min-width:1050px">
-        <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">Type</span><span class="l">Peril</span>
-          <span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span><span class="l">Term</span>
-          <span class="l">PLA</span><span class="l">Rate</span>
-        </div>
-        {% for group in edm.analyses %}
-        <details class="dtable__rdm" open>
-          <summary>
-            <div class="dtable__group">
-              <span class="grp-caret">▸</span>
-              <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
-              {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
-              <span class="ref">{{ group.analyses|length }} analys{{ 'is' if group.analyses|length == 1 else 'es' }}</span>
-              <a class="link" href="/rdms/{{ group.rdm_id }}"
-                 onclick="event.stopPropagation()">Open RDM →</a>
-            </div>
-          </summary>
-          {% for a in group.analyses %}
-          {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
-          {% endfor %}
-          {% if not group.analyses %}
-          <div class="dtable__groupempty">No analyses in this RDM.</div>
-          {% endif %}
-        </details>
-        {% endfor %}
-      </div>
-    </div>
-    <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
-      Every RDM in this EDM's package is listed. Listing asserts no link between
-      an RDM's analyses and this EDM — they share a package, nothing more.</p>
-    {% elif edm.detail_state == 'importing' %}
-    <div class="state-box">Broker analyses appear after the package's RDM imports
-      finish.</div>
-    {% else %}
-    <div class="state-box">No broker analyses to show.</div>
     {% endif %}
   </details>
 

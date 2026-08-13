@@ -4,7 +4,7 @@
    No portfolio is shown (8/4 D8 — see broker_analysis_row). NO loss numbers, no
    own-vs-broker comparison (FR-033/FR-034); every missing field renders blank,
    never an error. #}
-{# Live body (package-card pattern, mirrors edm_detail_body): while the manual
+{# Live body (mirrors edm_detail_body): while the manual
    analyses backfill is in flight — or the import itself still is — the wrapper
    polls its own read-only render every 3s and swaps itself, so the page updates
    on its own when the rwb job lands. The server stops emitting the trigger once

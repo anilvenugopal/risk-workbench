@@ -27,7 +27,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import package_sync_service, shared_drive, submission_service
+from app.services import shared_drive, submission_service
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidSourceFile,
@@ -201,7 +201,8 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
-        "package_cards": package_sync_service.get_package_cards(submission_id),
+        "submission_edms": submission_service.list_submission_edms(submission_id),
+        "submission_rdms": submission_service.list_submission_rdms(submission_id),
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
         "analysts": analysts,

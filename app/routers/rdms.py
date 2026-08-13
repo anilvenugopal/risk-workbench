@@ -1,4 +1,4 @@
-"""RDM routes — import (applied to ≥1 EDM), detail, recovery, name check (US2).
+"""RDM routes — standalone import, detail, recovery, and name check.
 
 Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
 every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
@@ -14,10 +14,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service
+from app.services import rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
-    EmptyPackageError,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
@@ -110,33 +109,25 @@ def create_import(
     request: Request,
     name: str = Form(...),
     source_paths: list[str] = Form(default=[]),
-    applied_edm_ids: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse("/rdms/import", status_code=303)
 
     source = source_paths[0] if source_paths else ""
-    edm_ids = [e for e in applied_edm_ids if e]
     form = {"name": name}
     if not name.strip() or not source:
         return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
+            "form": form,
             "errors": ["A name and a source file selection are required."],
-            "check": None}, status_code=422)
-    if not edm_ids:
-        return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
-            "errors": ["Select at least one EDM to apply the RDM to."],
             "check": None}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
-            applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName,
-            NameCollisionError) as exc:
+            actor_id=request.state.user.id)
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _render(request, "pages/rdm_import.html",
-                       {"form": form, "edms": edm_service.list_edms(),
+                       {"form": form,
                         "errors": [str(exc)], "check": None}, status_code=422)
     # Fail-open marker (issue #17): the collision check couldn't reach Risk
     # Modeler — the detail page shows a warning banner once, via the query flag.
@@ -164,7 +155,7 @@ def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
     ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
         # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (package-card precedent).
+        # End the every-3s poll instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'

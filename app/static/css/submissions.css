@@ -76,10 +76,7 @@
   border: 1px solid var(--border-default); color: var(--text-secondary);
   background: var(--surface-recessed);
 }
-/* Deal-status variants are doubled (`.status-chip.status-chip--x`) on purpose:
-   packages.css loads AFTER this file and redefines the base `.status-chip`, whose
-   equal specificity would otherwise clobber these colours and render deal chips
-   grey. The doubled selector (0,2,0) outranks that base rule (0,1,0). */
+/* Deal-status variants retain the doubled selector used by the shared chip rules. */
 .status-chip.status-chip--active {
   color: var(--color-info); background: var(--color-info-bg);
   border-color: var(--color-info-border);
@@ -128,8 +125,7 @@
   background: var(--color-danger-bg); }
 
 /* ── Directory picker (shared-drive folder chooser) ──────────────────────── */
-/* The trigger, the chosen path, and Clear share one row; the browse panel and any
-   field error wrap onto their own. `.drive-browse` styling comes from packages.css. */
+/* The trigger, chosen path, and Clear share one row. */
 .dir-picker { grid-column: 2; display: flex; flex-wrap: wrap;
   align-items: center; gap: var(--space-2); }
 .dir-picker__chosen {
@@ -235,13 +231,64 @@
   background: var(--surface-panel);
 }
 
-/* ── Reassign + packages ─────────────────────────────────────────────────── */
+/* ── Reassign ────────────────────────────────────────────────────────────── */
 .reassign-form { display: flex; gap: var(--space-2); align-items: center; }
-.pkg-list { display: flex; flex-direction: column; gap: 6px; }
-.pkg-item {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px var(--space-3); border: 1px solid var(--border-faint);
-  border-radius: var(--radius-sm); font-size: var(--fs-label);
-}
-.pkg-item__name { color: var(--text-primary); }
-.pkg-item__count { color: var(--text-tertiary); font-size: var(--fs-caption); }
+
+/* ── Submission EDM and RDM tables ───────────────────────────────────────── */
+.submission-entity-head { margin-top: var(--space-6); }
+.entity-table-wrap { border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); overflow: hidden; background: var(--surface-panel); }
+.entity-table .count-col { text-align: right; width: 170px;
+  font-variant-numeric: tabular-nums; }
+.entity-table .rm-col { width: 150px; }
+.entity-table .entity-name { color: var(--color-brand); font-weight: var(--fw-medium); }
+.entity-table .rm-link { color: var(--color-brand); }
+.entity-table .rm-link::after { content: " ↗"; }
+.entity-table-state { padding: var(--space-6); text-align: center;
+  color: var(--text-tertiary); font-size: var(--fs-label); }
+.entity-table-state strong { display: block; color: var(--text-secondary);
+  margin-bottom: var(--space-1); }
+
+.status-chip--pending_import,
+.status-chip--importing { background: var(--c-navy-050); color: var(--c-navy-600);
+  border-color: var(--c-navy-200); }
+.status-chip--ready { background: var(--c-green-050); color: var(--c-green-700);
+  border-color: var(--c-green-200); }
+.status-chip--error,
+.status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700);
+  border-color: var(--c-red-200); }
+
+.browse-trigger { display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-4); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md); background: var(--surface-panel);
+  color: var(--text-secondary); font-size: var(--fs-label);
+  font-weight: var(--fw-medium); cursor: pointer; }
+.browse-trigger:hover { background: var(--surface-hover); }
+.browse-trigger__icon { font-size: 15px; }
+.browse-hint { color: var(--text-tertiary); font-size: var(--fs-caption);
+  margin-left: var(--space-3); }
+.drive-browse { border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); background: var(--surface-panel);
+  overflow: hidden; margin-top: var(--space-2); }
+.drive-browse__bar { display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); background: var(--surface-recessed);
+  border-bottom: 1px solid var(--border-default); }
+.drive-browse__path { font-family: var(--font-mono); font-size: var(--fs-mono);
+  color: var(--text-secondary); flex: 1; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.drive-browse__list { list-style: none; margin: 0; padding: var(--space-1);
+  max-height: 260px; overflow-y: auto; }
+.drive-browse__row { border-radius: var(--radius-sm); }
+.drive-browse__row:hover { background: var(--surface-hover); }
+.drive-browse__row label,
+.drive-browse__row a { display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); cursor: pointer;
+  text-decoration: none; color: var(--text-primary); font-size: var(--fs-label); }
+.drive-browse__row--dir a { color: var(--text-secondary); font-weight: var(--fw-medium); }
+.drive-browse__name { flex: 1; }
+.drive-browse__size { font-size: var(--fs-caption); color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums; }
+.drive-browse__empty,
+.drive-browse__error { padding: var(--space-3); font-size: var(--fs-label);
+  color: var(--text-tertiary); }
+.drive-browse__error { color: var(--color-danger); }

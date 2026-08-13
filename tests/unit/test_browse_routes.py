@@ -1,12 +1,11 @@
 """Route tests for ``GET /browse`` — the live shared-drive listing fragment.
 
-  • file mode (the EDM/RDM import pages and the package modal) lists files with
+  • file mode lists files with
     ``source_paths`` checkboxes;
   • ``dirs_only=1`` (the submission form's directory picker) lists folders only,
     offers "Use this folder", and keeps the mode across navigation;
   • a seed path that no longer resolves falls back to the root instead of the
     error state, which renders no navigation;
-  • the package modal seeds the browser with the submission's ``directory_path``.
 
 Harness: TestClient over the real router (``test_name_check_routes.py`` pattern)
 plus the ``drive`` fixture's on-disk shared drive.
@@ -32,7 +31,7 @@ class _InjectUser(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def _client(include_packages: bool = False) -> TestClient:
+def _client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import shared_drive
@@ -46,9 +45,6 @@ def _client(include_packages: bool = False) -> TestClient:
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(shared_drive.router)
-    if include_packages:
-        from app.routers import packages
-        app.include_router(packages.router)
     return TestClient(app, follow_redirects=False)
 
 
@@ -116,19 +112,3 @@ def _submission(directory_path: str | None, iteration1_db) -> str:
         treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
         directory_path=directory_path, actor_id=iteration1_db.user_a,
         confirmed=True).submission_id
-
-
-def test_package_modal_opens_at_the_submissions_directory(drive, iteration1_db):
-    staged = str(drive / "deals" / "zephyr")
-    sid = _submission(staged, iteration1_db)
-    body = _client(include_packages=True).get(
-        f"/submissions/{sid}/packages/new").text
-    assert "/browse?path=" in body
-    assert "zephyr" in body
-
-
-def test_package_modal_without_a_directory_opens_at_the_root(drive, iteration1_db):
-    sid = _submission(None, iteration1_db)
-    body = _client(include_packages=True).get(
-        f"/submissions/{sid}/packages/new").text
-    assert 'hx-get="/browse"' in body

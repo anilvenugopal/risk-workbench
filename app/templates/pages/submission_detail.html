@@ -131,24 +131,8 @@
     {% endfor %}
   </ul>
 
-  {# Packages — one full-width card per package (FR-022). #}
-  <div class="section-head" style="margin-top: 24px;">
-    <h2>Packages</h2>
-    {% if is_active %}
-    <button class="btn-sm btn-sm--primary" type="button"
-            hx-get="/submissions/{{ submission.id }}/packages/new"
-            hx-target="#package-modal-mount" hx-swap="innerHTML">New package</button>
-    {% endif %}
-  </div>
-
-  <div id="package-list" class="package-list">
-    {% for card in package_cards %}
-      {% include "partials/package_card.html" %}
-    {% else %}
-    <span class="tag-empty package-list__empty">No packages yet.</span>
-    {% endfor %}
-  </div>
-
-  <div id="package-modal-mount"></div>
+  {% include "partials/submission_edm_table.html" %}
+  {% include "partials/submission_rdm_table.html" %}
+  <div id="submission-entity-modal"></div>
 </div>
 {% endblock %}

@@ -51,10 +51,7 @@ function appShell() {
 }
 
 // ── Alpine components ─────────────────────────────────────────────────────────
-// Registered at page load (before Alpine starts) so they exist BEFORE any HTMX
-// swap. The package modal is injected via HTMX after load; defining its component
-// inline inside that fragment races Alpine's initializer and silently fails, so it
-// must live here and be referenced as x-data="packageModal" (no parens).
+// Registered at page load (before Alpine starts) so they exist before HTMX swaps.
 // Default an EDM/RDM name from a source filename: drop the trailing extension
 // (PORTFOLIO.BAK → PORTFOLIO) and cap at the 50-char server limit. The name field
 // still enforces the [A-Za-z0-9_-] charset via its pattern; this only sets the guess.
@@ -139,100 +136,8 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  Alpine.data('packageModal', () => ({
-    members: [],
-    browseOpen: true,
-    namesCleared: false,
-    get canSubmit() {
-      return this.members.length > 0 && this.namesCleared;
-    },
-    onDriveChange(e) {
-      const cb = e.target;
-      if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
-      const path = cb.value;
-      if (cb.checked) {
-        if (!this.members.some((m) => m.path === path)) {
-          const base = path.split(/[\\/]/).pop();
-          this.members.push({
-            path, kind: /rdm/i.test(base) ? 'rdm' : 'edm',
-            name: defaultMemberName(base),
-          });
-        }
-      } else {
-        this.members = this.members.filter((m) => m.path !== path);
-      }
-      // A just-added row is unchecked, so the buttons must go dark now rather
-      // than when its check lands.
-      this.$nextTick(() => this.refreshNames());
-    },
-    remove(i) {
-      // Untick the matching browse checkbox so the picker and member list stay in sync.
-      const removed = this.members[i];
-      if (removed) {
-        const cb = this.$root.querySelector(
-          `input[name="source_paths"][value="${CSS.escape(removed.path)}"]`);
-        if (cb) cb.checked = false;
-      }
-      this.members.splice(i, 1);
-      // The removed row may have carried the only unresolved check — re-derive
-      // after Alpine has flushed the DOM update.
-      this.$nextTick(() => this.refreshNames());
-    },
-    onSwap() {
-      // Any HTMX swap inside the modal (a row's collision fragment, browse
-      // navigation) re-derives from what is actually rendered.
-      this.refreshNames();
-    },
-    onCheckError(e) {
-      if (ncFailOpen(e)) this.refreshNames();
-    },
-    refreshNames() {
-      // Save / Save & Sync light up only once EVERY row's check has come back
-      // usable, and each row shows its own "checking…" hint meanwhile so the
-      // disabled buttons are never unexplained (issue #17, parity with
-      // importForm).
-      const rows = Array.from(this.$root.querySelectorAll('.mrow'));
-      let cleared = rows.length > 0 && rows.length === this.members.length;
-      rows.forEach((row) => {
-        const state = ncState(row.querySelector('.name-collision'));
-        if (!ncCleared(state)) cleared = false;
-        const hint = row.querySelector('.nc-checking');
-        const input = row.querySelector('.mrow__name');
-        if (hint) hint.hidden = !(input && input.value.trim() && state === 'pending');
-      });
-      this.namesCleared = cleared;
-    },
-    markPending(input) {
-      if (!input) return;
-      ncReset(input.closest('.mrow').querySelector('.name-collision'));
-      this.refreshNames();
-    },
-    initRow(row) {
-      // Alpine-cloned x-for rows are invisible to htmx (it only processes
-      // server-rendered DOM): wire the row's name-check attributes up, then kick
-      // an immediate check for the auto-populated name (issue #17).
-      if (!window.htmx) return;
-      window.htmx.process(row);
-      this.$nextTick(() => {
-        const input = row.querySelector('.mrow__name');
-        if (input) input.dispatchEvent(new Event('recheck'));
-        this.refreshNames();
-      });
-    },
-    recheck(el) {
-      // Kind flip: wait a tick so the hidden member_kind :value is flushed
-      // before htmx gathers the row's params for the check request. The old
-      // verdict was for the other kind, so it is dropped first.
-      const input = el.closest('.mrow').querySelector('.mrow__name');
-      this.markPending(input);
-      this.$nextTick(() => {
-        if (input) input.dispatchEvent(new Event('recheck'));
-      });
-    },
-  }));
-
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
-  // auto-populates the name (packageModal parity); Import stays disabled until a
+  // auto-populates the name; Import stays disabled until a
   // file is picked, a name is present, and the collision check has come back
   // clear. Server-side validation still backs all of this — with JS off the
   // button is simply never disabled.

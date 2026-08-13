@@ -35,7 +35,7 @@ from db import execute, execute_command, execute_scalar
 
 
 @pytest.fixture()
-def client(iteration1_db) -> TestClient:
+def client(iteration2_db) -> TestClient:
     """Router under test, with the fixture's Analyst A as the logged-in user."""
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
@@ -43,7 +43,7 @@ def client(iteration1_db) -> TestClient:
     from app.services.auth_service import CurrentUser
 
     user = CurrentUser(
-        id=iteration1_db.user_a, email="analyst.a@example.com",
+        id=iteration2_db.user_a, email="analyst.a@example.com",
         display_name="Analyst A", session_id="s", role_codes=["analyst"],
         is_admin=False, must_change_password=False, entra_oid=None,
         is_active=True)
@@ -63,7 +63,7 @@ def client(iteration1_db) -> TestClient:
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
     test_client = TestClient(app, follow_redirects=False)
-    test_client.db = iteration1_db
+    test_client.db = iteration2_db
     return test_client
 
 
@@ -90,6 +90,52 @@ def _payload(**overrides) -> dict:
 def _count() -> int:
     return execute_scalar("SELECT COUNT(*) FROM submission", {},
                           connection="WORKBENCH")
+
+
+def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
+    client, monkeypatch,
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
+    created = client.post("/submissions", data=_payload(name="Data tables"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, irp_id) "
+        "VALUES (:id, 'DirectEDM', 'ready', 101)",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    for index in range(20):
+        extra_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status, irp_id) "
+            "VALUES (:id, :name, 'ready', :irp)",
+            {"id": extra_id, "name": f"LongEDM{index:02d}", "irp": 200 + index},
+            connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": extra_id}, connection="WORKBENCH",
+        )
+
+    body = client.get(f"/submissions/{submission_id}").text
+
+    assert '<h2>EDMs</h2>' in body
+    assert '<h2>RDMs</h2>' in body
+    assert "Portfolio count" in body and "Analysis count" in body
+    assert "DirectEDM" in body
+    assert "LongEDM19" in body
+    assert (
+        "https://tenant.moodys.com/riskmodeler/datasources/DirectEDM/portfolios"
+        in body
+    )
+    assert "No RDMs added" in body
+    assert "No EDMs added" not in body
+    assert "Packages" not in body
 
 
 # ── CR4: required marking + per-field errors ─────────────────────────────────

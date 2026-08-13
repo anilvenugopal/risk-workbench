@@ -72,7 +72,7 @@ app.state.templates = templates
 
 # ── Routers ────────────────────────────────────────────────────────────────
 from app.routers import (  # noqa: E402
-    auth, shell, health, admin, submissions, shared_drive, edms, rdms, packages,
+    auth, shell, health, admin, submissions, shared_drive, edms, rdms,
     treaties,
 )
 
@@ -84,7 +84,6 @@ app.include_router(shared_drive.router)
 app.include_router(edms.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
-app.include_router(packages.router)
 app.include_router(shell.router)
 
 

@@ -19,7 +19,7 @@ from app.services import edm_service, rwb_job_service
 from app.services.errors import (
     ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
     NameCollisionError)
-from app.workers import package_jobs
+from app.workers import entity_jobs
 from db import execute_command, execute_one, execute_scalar
 
 
@@ -54,7 +54,7 @@ def test_import_rejects_source_outside_root(iteration2_db, fake_irp, drive):
 
 @pytest.mark.parametrize("bad_name", ['Alpha EDM', 'a"; DROP--', "x" * 51, "  "])
 def test_import_rejects_disallowed_name(iteration2_db, fake_irp, drive, bad_name):
-    # Standalone import must enforce the same rule as package members ([A-Za-z0-9_-]+,
+    # Standalone import enforces the entity-name rule ([A-Za-z0-9_-]+,
     # ≤50) so a name with a quote/space can't reach Risk Modeler or a search filter.
     with pytest.raises(InvalidMemberName):
         edm_service.import_edm(name=bad_name, source_file_path=str(drive / "edm1.bak"),
@@ -114,7 +114,7 @@ def test_latest_import_error_surfaces_submit_failure(iteration2_db, fake_irp, dr
     a real duplicate."""
     res = _import(drive, iteration2_db.user_a)
     fake_irp.raise_on_submit = True
-    package_jobs.run_pending()
+    entity_jobs.run_pending()
     assert edm_service.get_edm(res.entity_id).status == edm_service.ERROR
     assert (edm_service.latest_import_error(res.entity_id)
             == "fake IRP: forced submit failure")

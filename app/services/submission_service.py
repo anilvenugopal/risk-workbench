@@ -28,11 +28,13 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import quote, urlsplit
 
 from sqlalchemy import text
 
 from db import (execute, execute_one, execute_scalar, execute_command,
                 get_connection, row_limit)
+from app.config import settings
 from app.services._common import _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
@@ -129,6 +131,24 @@ class CreateResult:
 class UpdateResult:
     updated: bool
     warnings: list[SubmissionRow] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SubmissionEdm:
+    id: str
+    name: str
+    status: str | None
+    portfolio_count: int
+    rm_url: str | None
+
+
+@dataclass(frozen=True)
+class SubmissionRdm:
+    id: str
+    name: str
+    status: str | None
+    analysis_count: int
+    rm_url: str | None
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
@@ -301,9 +321,7 @@ def _in_clause(
 
 def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
     """Set each row's ``crm_ids``, oldest tag first, for the master list's CRM column
-    (CR3). One query for the whole page (the dynamic ``IN`` param set mirrors
-    ``package_service.submission_refs_for_packages``); a deal with no tags keeps the
-    default ``[]``.
+    (CR3). One query covers the page; a deal with no tags keeps the default ``[]``.
 
     One bound parameter per row, so the caller has to hand this a page rather than a
     whole table — SQL Server rejects a statement carrying more than 2,100."""
@@ -443,6 +461,58 @@ def get_submission(submission_id: Any) -> Submission | None:
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
     )
+
+
+def _risk_modeler_url(name: str, *, kind: str) -> str | None:
+    tenant = settings.risk_modeler_tenant_name.strip()
+    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
+    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
+    if not tenant or not domain:
+        return None
+    root = f"https://{tenant}.{domain}/riskmodeler"
+    if kind == "edm":
+        return f"{root}/datasources/{quote(name, safe='')}/portfolios"
+    return f"{root}/analyses?sourceRdmName={quote(name, safe='')}"
+
+
+def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
+    rows = execute(
+        "SELECT e.id, e.name, e.status, COUNT(p.id) AS portfolio_count "
+        "FROM submission_edm se JOIN irp_edm e ON e.id = se.edm_id "
+        "LEFT JOIN irp_portfolio p ON p.edm_id = e.id AND p.deleted_at IS NULL "
+        "WHERE se.submission_id = :id AND e.deleted_at IS NULL "
+        "GROUP BY e.id, e.name, e.status, e.inserted_at "
+        "ORDER BY e.inserted_at, e.name",
+        {"id": str(submission_id)}, connection="WORKBENCH",
+    )
+    return [
+        SubmissionEdm(
+            id=_uid(row["id"]), name=row["name"], status=row["status"],
+            portfolio_count=int(row["portfolio_count"] or 0),
+            rm_url=_risk_modeler_url(row["name"], kind="edm"),
+        )
+        for row in rows
+    ]
+
+
+def list_submission_rdms(submission_id: Any) -> list[SubmissionRdm]:
+    rows = execute(
+        "SELECT r.id, r.name, r.status, COUNT(a.id) AS analysis_count "
+        "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
+        "WHERE sr.submission_id = :id AND r.deleted_at IS NULL "
+        "GROUP BY r.id, r.name, r.status, r.inserted_at "
+        "ORDER BY r.inserted_at, r.name",
+        {"id": str(submission_id)}, connection="WORKBENCH",
+    )
+    return [
+        SubmissionRdm(
+            id=_uid(row["id"]), name=row["name"], status=row["status"],
+            analysis_count=int(row["analysis_count"] or 0),
+            rm_url=_risk_modeler_url(row["name"], kind="rdm"),
+        )
+        for row in rows
+    ]
 
 
 # The columns the list header can sort on (D15). The request carries the key; the

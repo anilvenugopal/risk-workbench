@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service
+from app.services import edm_service
 from app.services.errors import (
     ConcurrencyConflict,
     EdmCatalogUnavailable,
@@ -237,7 +237,7 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (package-card precedent).
+        # End the every-3s poll instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
@@ -274,10 +274,6 @@ def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
 def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
     # Manual detail re-sync (FR-003 as amended): enqueues the backfill_edm_detail
     # worker — the fetch itself never runs on this request path (Article 11).
-    # The page shows RDM-sourced analyses too, so the same click also re-runs
-    # backfill_rdm_analyses for every RDM applied to this EDM (one per-RDM head,
-    # each with its own in-flight guard); EdmDetail.sync_running covers those, so
-    # the live body keeps polling until the analyses land as well.
     # HTMX path: swap the #edm-detail wrapper in place (it then self-polls until
     # the head lands). No-JS fallback: Post/Redirect/Get, so a refresh never
     # re-prompts a form re-submission.
@@ -289,8 +285,6 @@ def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     edm_service.sync_detail(edm_id=edm_id, actor_id=request.state.user.id)
-    rdm_service.sync_analyses_for_edm(edm_id=edm_id,
-                                      actor_id=request.state.user.id)
     if is_htmx:
         return _body_partial(request, edm_id)
     return RedirectResponse(f"/edms/{edm_id}", status_code=303)

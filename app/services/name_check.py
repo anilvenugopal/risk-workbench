@@ -21,16 +21,20 @@ rate per analyst is already bounded for a trusted-intranet deployment.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
 
 from app.config import settings
 from app.services import irp_gateway
+from app.services.errors import InvalidMemberName
 
 logger = logging.getLogger(__name__)
 
 _MAX_ENTRIES = 512
+_NAME_MAX = 50
+_NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 # (kind, trimmed name) -> (monotonic expiry, colliding names)
 _cache: dict[tuple[str, str], tuple[float, tuple[str, ...]]] = {}
@@ -57,9 +61,13 @@ def check_rdm_name(name: str) -> CollisionCheck:
     return _check("rdm", name)
 
 
-def check_member_name(kind: str, name: str) -> CollisionCheck:
-    """Kind-dispatched check for package members (``'edm'`` | ``'rdm'``)."""
-    return _check("rdm" if kind == "rdm" else "edm", name)
+def clean_entity_name(name: str) -> str:
+    cleaned = (name or "").strip()
+    if not cleaned or len(cleaned) > _NAME_MAX or not _NAME_RE.fullmatch(cleaned):
+        raise InvalidMemberName(
+            "EDM/RDM names may use only letters, numbers, underscores, and "
+            f"hyphens, with a maximum of {_NAME_MAX} characters.")
+    return cleaned
 
 
 def clear_cache() -> None:
@@ -104,5 +112,5 @@ def _evict(now: float) -> None:
         del _cache[min(_cache, key=lambda k: _cache[k][0])]
 
 
-__all__ = ["CollisionCheck", "check_edm_name", "check_rdm_name",
-           "check_member_name", "clear_cache"]
+__all__ = ["CollisionCheck", "clean_entity_name", "check_edm_name", "check_rdm_name",
+           "clear_cache"]

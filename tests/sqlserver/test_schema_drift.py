@@ -9,7 +9,7 @@ the drifted column, so the mirror can never silently rot.
 Two contracts (see tests/iteration1_mirror.py):
   * EXACT_MATCH_TABLES — mirror columns must equal the real columns exactly.
   * SUBSET_TABLES (irp_edm/irp_rdm) — the mirror is intentionally trimmed to the
-    structure-only columns the package service uses; the real tables carry extra
+    columns the unit services use; the real tables carry extra
     Iteration-2 IRP columns. Here the invariant is mirror ⊆ real.
 
 Run with:  pytest tests/sqlserver --run-sqlserver   (requires live SQL Server)
@@ -58,5 +58,5 @@ def test_mirror_is_subset_of_real_schema(table):
         f"{table}: the mirror declares columns absent from the migration: "
         f"{sorted(missing)}.\n"
         f"(Extra real columns are expected — irp_* mirrors are trimmed to the "
-        f"structure-only columns the package service uses. A *missing* column "
+        f"columns used by unit services. A *missing* column "
         f"means a rename/removal the mirror must follow.)")

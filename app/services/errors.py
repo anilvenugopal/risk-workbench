@@ -1,4 +1,4 @@
-"""Typed service-layer errors for the submission & package domain.
+"""Typed service-layer errors for submission and entity operations.
 
 These are raised by `app/services/*_service.py` and mapped to HTTP responses by
 the routers (contracts/data-access.md):
@@ -10,7 +10,6 @@ the routers (contracts/data-access.md):
 - ``SelfLinkError``        — links_to_submission_id == id (R9/FR-007) → 422.
 - ``UnknownLinkError``     — links_to_submission_id names no submission (FR-007)
                              → 422.
-- ``EmptyPackageError``    — a package would have zero members (R5/FR-024).
 - ``InvalidSourceFile``    — a browse selection is outside SHARED_DRIVE_ROOT,
                              missing, or not a file (FR-008/FR-009) → 422.
 - ``InvalidMemberName``    — an EDM/RDM name has disallowed characters or is too
@@ -58,10 +57,6 @@ class UnknownLinkError(ServiceError):
     only render as a 500."""
 
 
-class EmptyPackageError(ServiceError):
-    """Raised when a package would be persisted with zero members."""
-
-
 class InvalidSourceFile(ServiceError):
     """Raised when a shared-drive selection is outside SHARED_DRIVE_ROOT, missing,
     or is not a file. Mapped to HTTP 422 (FR-008/FR-009)."""
@@ -93,7 +88,6 @@ __all__ = [
     "ConcurrencyConflict",
     "SelfLinkError",
     "UnknownLinkError",
-    "EmptyPackageError",
     "InvalidSourceFile",
     "InvalidMemberName",
     "JobSubmitError",
