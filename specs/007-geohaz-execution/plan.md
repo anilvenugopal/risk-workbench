@@ -75,7 +75,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 **Storage**: SQL Server 2022, **WORKBENCH connection only**. Delta: `irp_job.irp_portfolio_id` (Uuid FK → `irp_portfolio.id`, nullable, indexed), `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable), one `rwb_job_type_kind` seed row (`run_geohaz`). No EXPOSURE/LOSS access; DATABRIDGE untouched.
 
 **Testing** (Article 12, three tiers):
-- `uv run pytest tests/unit` — SQLite via `register_engine` + `FakeIRP` extended with `submit_geohaz_job`/`get_geohaz_job`: peril/eligibility/gate validators, per-portfolio enqueue, worker submit success + failure isolation, param mapping (one hazard layer per peril; no geocode layer ever built), four-state column derivation (including failure-after-success stays Yes), count parser (counts / zero / missing → unavailable), poller `_GETTERS` routing, cell-fragment trigger emission.
+- `uv run pytest tests/unit` — SQLite via `register_engine` + `FakeIRP` extended with the gateway methods `submit_geohaz`/`get_geohaz_job`: peril/eligibility/gate validators, per-portfolio enqueue, worker submit success + failure isolation, param mapping (one hazard layer per peril; no geocode layer ever built), four-state column derivation (including failure-after-success stays Yes), count parser (counts / zero / missing → unavailable), poller `_GETTERS` routing, cell-fragment trigger emission.
 - `make test-sql` — migration drift: the two new columns + kind row mirrored in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` enforces column-for-column).
 - `make shell` + `uv run pytest tests/irp --run-irp` — opt-in sandbox: one real geohaz round trip; **captures the terminal `get_geohaz_job` body** (finalizes the R7 parser) and confirms Risk Modeler accepts the hazard-only layer list (plan risk 2); the existing `poll_*_to_completion` guard scans cover the new files.
 
@@ -126,6 +126,8 @@ app/services/irp_job_service.py      # EDIT: irp_portfolio_id + request_params o
                                      #       history/state queries may live here or in geohaz_service
 app/services/geohaz_service.py       # NEW: gate + P-06 eligibility, launch (validate, enqueue per portfolio),
                                      #      column-state + history read models, layer-count parser
+app/services/edm_service.py          # EDIT: get_edm_detail attaches per-portfolio geohaz cell state + lookup
+                                     #       history (both detail routes render from this one read model)
 app/workers/geohaz_jobs.py           # NEW: run_geohaz body + actor + _BODIES (auto-discovered by loader)
 app/poller/run.py                    # EDIT: _GETTERS["geohaz"]
 app/routers/edms.py                  # EDIT: GET  /edms/{edm_id}/geohaz/new           (modal fragment)
