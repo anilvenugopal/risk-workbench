@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import date
+from urllib.parse import quote
 
 import pytest
 from fastapi import FastAPI, Request
@@ -168,6 +169,20 @@ def test_add_modal_lists_unrelated_existing_entities(
     assert f"Import new {label}" in response.text and f"Add existing {label}" in response.text
     assert available_name in response.text and related_name not in response.text
     assert "$event.detail.elt === $el && $event.detail.successful" in response.text
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+def test_add_modal_starts_browse_in_the_submission_directory(client, drive, kind):
+    directory_path = str(drive / "deals" / "zephyr")
+    created = client.post("/submissions", data=_payload(
+        name=f"Browse {kind}", directory_path=directory_path))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    body = client.get(f"/submissions/{submission_id}/{kind}/add").text
+
+    assert f'hx-get="/browse?path={quote(directory_path)}"' in body
+    assert ">×</button>" in body
+    assert "Checking name availability…" in body
 
 
 @pytest.mark.parametrize("kind,source", [("edms", "edm1.bak"), ("rdms", "rdm1.mdf")])

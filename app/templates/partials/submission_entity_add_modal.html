@@ -2,7 +2,7 @@
   <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="submission-entity-modal-title">
     <div class="modal-header">
       <h2 id="submission-entity-modal-title" class="modal-title">Add {{ entity_kind }}</h2>
-      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('submission-entity-modal').replaceChildren()">Ã—</button>
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('submission-entity-modal').replaceChildren()">×</button>
     </div>
     {% if errors %}<div class="modal-error">{% for error in errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
     <div class="modal-body">
@@ -21,7 +21,7 @@
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
         <div class="wf-field">
           <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
-          <div hx-get="/browse" hx-trigger="load" hx-target="this" hx-swap="innerHTML">Loading the shared driveâ€¦</div>
+          <div hx-get="/browse{% if submission.directory_path %}?path={{ submission.directory_path | urlencode }}{% endif %}" hx-trigger="load" hx-target="this" hx-swap="innerHTML">Loading the shared drive…</div>
         </div>
         <div class="wf-field">
           <label for="submission-{{ kind }}-name">NAME</label>
@@ -31,7 +31,7 @@
                  hx-target="next .name-collision" hx-swap="outerHTML">
         </div>
         {% with name = form.name, kind = entity_kind %}{% include "partials/name_collision.html" %}{% endwith %}
-        <div class="nc-checking" x-show="checking" x-cloak>Checking name availabilityâ€¦</div>
+        <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
         <div class="modal-footer entity-modal-footer">
           <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
           <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
