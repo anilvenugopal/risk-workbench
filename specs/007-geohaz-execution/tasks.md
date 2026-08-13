@@ -99,9 +99,9 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 ### Implementation for User Story 3
 
-- [ ] T026 [US3] Add `parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None` to `app/services/geohaz_service.py` — pure function; `None` → "unavailable" (FR-023); zero is a value, never a failure; include the parsed counts on `lookup_history` records (research R7)
-- [ ] T027 [US3] Render the per-layer counts in the history record in `app/templates/partials/portfolio_row.html`: count per layer, zero rendered as 0, missing/partial detail as a graceful unavailable state — never an error (FR-023, US3 scenario 3)
-- [ ] T028 [P] [US3] Unit tests in `tests/unit/test_geohaz_parser.py`: counts parsed, zero layer → 0, missing/partial/None body → unavailable (`None`), malformed JSON → unavailable
+- [X] T026 [US3] Add `parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None` to `app/services/geohaz_service.py` — pure function; `None` → "unavailable" (FR-023); zero is a value, never a failure; include the parsed counts on `lookup_history` records (research R7)
+- [X] T027 [US3] Render the per-layer counts in the history record in `app/templates/partials/portfolio_row.html`: count per layer, zero rendered as 0, missing/partial detail as a graceful unavailable state — never an error (FR-023, US3 scenario 3)
+- [X] T028 [P] [US3] Unit tests in `tests/unit/test_geohaz_parser.py`: counts parsed, zero layer → 0, missing/partial/None body → unavailable (`None`), malformed JSON → unavailable
 - [ ] T029 [US3] Create the opt-in sandbox test in `tests/irp/` (run via `make shell` + `uv run pytest tests/irp --run-irp -k geohaz`): submit one real lookup on a small sandbox portfolio with the hazard-only layer list, poll within the test, save the terminal `get_geohaz_job` body, and confirm Risk Modeler accepts the geocode-free submit (plan risk 2); then finalize the `parse_layer_counts` keys in T026 against the captured body (quickstart step 5 — the feature is unverified until this runs)
 
 **Checkpoint**: All three stories functional. **STOP** for the approver.

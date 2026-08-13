@@ -68,6 +68,12 @@ terminal and store `last_completion_result`.
 
 ## 5. IRP sandbox capture (required before the feature is called done — R7/T-04)
 
+Set `IRP_TEST_GEOHAZ_EDM_NAME` and `IRP_TEST_GEOHAZ_PORTFOLIO_NAME` in
+`infra/.env` to a small sandbox portfolio that may be modified. Optional:
+`IRP_TEST_GEOHAZ_VERSION` overrides the configured default,
+`IRP_TEST_GEOHAZ_TIMEOUT_SECS` overrides 900 seconds, and
+`IRP_TEST_GEOHAZ_CAPTURE_PATH` overrides `/tmp/rwb-geohaz-terminal.json`.
+
 ```bash
 make shell
 uv run pytest tests/irp --run-irp -k geohaz

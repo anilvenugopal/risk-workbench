@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +41,7 @@ class LookupRecord:
     submitted_at: Any
     completed_at: Any
     status: str
+    layer_counts: dict[str, int] | None
 
 
 def _read_states(*, edm_id: Any | None = None,
@@ -126,12 +128,50 @@ def cell_state(portfolio_id: Any, *, edm_id: Any | None = None) -> CellState | N
         edm_id=edm_id, portfolio_id=portfolio_id).get(_uid(portfolio_id))
 
 
+def parse_layer_counts(last_completion_result: str | None) -> dict[str, int] | None:
+    """Parse a complete GeoHaz ``summary.layers`` count set."""
+    if not last_completion_result:
+        return None
+    try:
+        result = json.loads(last_completion_result)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(result, dict):
+        return None
+    details = result.get("details")
+    summary = details.get("summary") if isinstance(details, dict) else None
+    if summary is None:
+        summary = result.get("summary")
+    if not isinstance(summary, dict):
+        return None
+    layers = summary.get("layers")
+    if not isinstance(layers, list) or not layers:
+        return None
+
+    counts: dict[str, int] = {}
+    for layer in layers:
+        if not isinstance(layer, dict):
+            return None
+        name = layer.get("name")
+        count = layer.get("locationsLookedUp")
+        if (not isinstance(name, str) or not name.strip()
+                or not isinstance(count, int) or isinstance(count, bool)
+                or count < 0):
+            return None
+        name = name.strip().lower()
+        if name in counts:
+            return None
+        counts[name] = count
+    return counts
+
+
 def lookup_history(portfolio_id: Any) -> list[LookupRecord]:
     """Return the portfolio's workbench GeoHaz submissions, newest first."""
     rows = execute(
         """
-        SELECT j.id, j.request_params, u.display_name AS analyst_name,
-               j.submitted_at, j.completed_at, j.status
+        SELECT j.id, j.request_params, j.last_completion_result,
+               u.display_name AS analyst_name, j.submitted_at,
+               j.completed_at, j.status
         FROM irp_job j
         LEFT JOIN app_user u ON u.id = j.inserted_by
         WHERE j.irp_portfolio_id = :portfolio_id
@@ -149,6 +189,7 @@ def lookup_history(portfolio_id: Any) -> list[LookupRecord]:
         submitted_at=row["submitted_at"],
         completed_at=row["completed_at"],
         status=row["status"],
+        layer_counts=parse_layer_counts(row["last_completion_result"]),
     ) for row in rows]
 
 
@@ -266,5 +307,5 @@ def launch(
 
 __all__ = [
     "CellState", "LaunchResult", "LookupRecord", "cell_state", "eligible",
-    "launch", "lookup_history", "lookup_states",
+    "launch", "lookup_history", "lookup_states", "parse_layer_counts",
 ]
