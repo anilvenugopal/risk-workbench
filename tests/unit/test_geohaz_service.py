@@ -197,3 +197,89 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
     )
 
     assert result.portfolio_ids == portfolio_ids
+
+
+def test_lookup_states_cover_queued_live_success_failed_and_no(iteration2_db):
+    edm_id, portfolio_ids = _edm_with_portfolios(5)
+    queued, live, succeeded, failed, never = portfolio_ids
+    rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=queued,
+        rwb_job_type="run_geohaz", input_data={})
+    live_job = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=live, irp_id="910")
+    execute_command(
+        "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
+        {"id": live_job}, connection="WORKBENCH")
+    finished_job = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=succeeded, irp_id="911")
+    execute_command(
+        "UPDATE irp_job SET status = 'FINISHED' WHERE id = :id",
+        {"id": finished_job}, connection="WORKBENCH")
+    failed_job = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=failed, irp_id="912")
+    execute_command(
+        "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
+        {"id": failed_job}, connection="WORKBENCH")
+
+    states = geohaz_service.lookup_states(edm_id)
+
+    assert states[queued].label == "Queued" and states[queued].live is True
+    assert states[live].label == "RUNNING" and states[live].live is True
+    assert states[succeeded].label == "Yes" and states[succeeded].live is False
+    assert states[failed].label == "Failed" and states[failed].live is False
+    assert states[never].label == "No" and states[never].live is False
+
+
+def test_lookup_state_stays_yes_after_a_later_failure(iteration2_db):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    for irp_id, status in (("920", "FINISHED"), ("921", "FAILED")):
+        job_id = irp_job_service.record_submitted_irp_job(
+            package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+            irp_portfolio_id=portfolio_id, irp_id=irp_id)
+        execute_command(
+            "UPDATE irp_job SET status = :status WHERE id = :id",
+            {"status": status, "id": job_id}, connection="WORKBENCH")
+
+    state = geohaz_service.cell_state(portfolio_id)
+
+    assert state is not None
+    assert state.label == "Yes"
+    assert state.live is False
+
+
+def test_lookup_history_is_newest_first_with_params_and_analyst(iteration2_db):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    first = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=portfolio_id, irp_id="930",
+        request_params={
+            "data_version": "24.0", "model_family": "DLM",
+            "perils": ["earthquake"], "missing_locations": "skip",
+        }, actor_id=iteration2_db.user_a)
+    second = irp_job_service.record_submission_failure(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=portfolio_id,
+        request_params={
+            "data_version": "25.0", "model_family": "DLM",
+            "perils": ["windstorm"], "missing_locations": "overwrite",
+        }, actor_id=iteration2_db.user_b)
+    execute_command(
+        "UPDATE irp_job SET inserted_at = '2026-08-12', "
+        "submitted_at = '2026-08-12' WHERE id = :id",
+        {"id": first}, connection="WORKBENCH")
+    execute_command(
+        "UPDATE irp_job SET inserted_at = '2026-08-13', "
+        "submitted_at = '2026-08-13', completed_at = '2026-08-13' "
+        "WHERE id = :id",
+        {"id": second}, connection="WORKBENCH")
+
+    history = geohaz_service.lookup_history(portfolio_id)
+
+    assert [entry.id for entry in history] == [second, first]
+    assert history[0].analyst_name == "Analyst B"
+    assert history[0].request_params["perils"] == ["windstorm"]
+    assert history[0].status == "SUBMISSION FAILED"
+    assert history[1].analyst_name == "Analyst A"

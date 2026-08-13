@@ -21,6 +21,12 @@ from db import execute, execute_one
 MS = sync.MemberSpec
 
 
+def test_geohaz_uses_single_status_getter_without_terminal_follow_up():
+    assert poller._GETTERS["geohaz"] is poller.irp_gateway.get_geohaz_job
+    assert "geohaz" not in poller._TERMINAL_HANDLERS
+    assert "geohaz" not in poller._TERMINAL_RESOLVERS
+
+
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:
     """Import an EDM then run its upload_edm worker body → returns (edm_id, irp_id)."""
     res = edm_service.import_edm(name=name, source_file_path=str(drive / fname),

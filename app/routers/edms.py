@@ -348,6 +348,20 @@ def geohaz_launch(
     return response
 
 
+@router.get(
+    "/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell",
+    response_class=HTMLResponse,
+)
+def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
+    state = geohaz_service.cell_state(portfolio_id, edm_id=edm_id)
+    return _partial(
+        request,
+        "partials/geohaz_cell.html",
+        {"edm_id": edm_id, "state": state},
+        status_code=200 if state is not None else 404,
+    )
+
+
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
     edm = edm_service.get_edm_detail(edm_id)

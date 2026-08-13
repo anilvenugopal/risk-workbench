@@ -54,6 +54,7 @@ _GETTERS = {
     "import_edm": irp_gateway.get_import_job,
     "import_rdm": irp_gateway.get_import_job,
     "delete_edm": irp_gateway.get_delete_edm_job,
+    "geohaz": irp_gateway.get_geohaz_job,
 }
 
 

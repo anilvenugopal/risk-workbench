@@ -1,0 +1,7 @@
+<span class="l geohaz-cell geohaz-cell--{{ state.kind if state else 'missing' }}"
+  {%- if state and state.live %}
+  hx-get="/edms/{{ edm_id }}/portfolios/{{ state.portfolio_id }}/geohaz-cell"
+  hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  {% if state %}{{ state.label }}{% else %}<span class="na">&mdash;</span>{% endif %}
+</span>

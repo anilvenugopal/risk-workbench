@@ -17,8 +17,8 @@ UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from app.services._common import (
     _json,
@@ -30,6 +30,9 @@ from app.services._common import (
     _utcnow,
 )
 from db import execute
+
+if TYPE_CHECKING:
+    from app.services.geohaz_service import CellState, LookupRecord
 
 
 @dataclass
@@ -43,6 +46,8 @@ class PortfolioRow:
     exposure_detail: dict | None
     as_of: Any
     geohaz_eligible: bool = False
+    geohaz_state: CellState | None = None
+    geohaz_history: list[LookupRecord] = field(default_factory=list)
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is

@@ -42,6 +42,9 @@
       </span>
     </span>
   </span>
+  {% with state=p.geohaz_state, edm_id=p.edm_id %}
+  {% include "partials/geohaz_cell.html" %}
+  {% endwith %}
   <span>{{ num(m.get('totalLocations')) }}</span>
   <span>{{ num(m.get('totalAccounts')) }}</span>
   <span>{{ num(m.get('totalPolicies')) }}</span>
@@ -90,5 +93,33 @@
     <p class="tag-empty" style="margin:0">No value lists available — the
       DataBridge summary hasn't been stored for this portfolio.</p>
     {% endif %}
+    <section class="geohaz-history" aria-label="Hazard lookup history">
+      <h3>Hazard lookup history</h3>
+      {% if p.geohaz_history %}
+      <ol>
+        {% for lookup in p.geohaz_history %}
+        {% set params = lookup.request_params %}
+        <li>
+          <div class="geohaz-history__head">
+            <span class="status-chip status-chip--{{ lookup.status|lower|replace(' ', '-') }}">{{ lookup.status }}</span>
+            <span>{{ lookup.analyst_name or 'Unknown analyst' }}</span>
+          </div>
+          <dl class="attr-grid">
+            <div><dt>Data version</dt><dd>{{ params.get('data_version') or '—' }}</dd></div>
+            <div><dt>Model family</dt><dd>{{ params.get('model_family') or '—' }}</dd></div>
+            <div><dt>Perils</dt><dd>
+              {% if params.get('perils') %}{{ params.get('perils')|map('capitalize')|join(', ') }}{% else %}—{% endif %}
+            </dd></div>
+            <div><dt>Missing locations</dt><dd>{{ (params.get('missing_locations') or '—')|capitalize }}</dd></div>
+            <div><dt>Submitted</dt><dd>{{ lookup.submitted_at or '—' }}</dd></div>
+            <div><dt>Completed</dt><dd>{{ lookup.completed_at or '—' }}</dd></div>
+          </dl>
+        </li>
+        {% endfor %}
+      </ol>
+      {% else %}
+      <p class="tag-empty">No hazard lookups have been run through the workbench.</p>
+      {% endif %}
+    </section>
   </div>
 </details>

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from app.services import irp_job_service
-from db import execute
+from db import execute, execute_command
 from tests.unit.test_edm_sync import _client
 from tests.unit.test_geohaz_service import _edm_with_portfolios
 
@@ -38,7 +38,7 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     assert 'hx-get="/edms/' + edm_id + '/geohaz/new"' in body
     assert 'id="geohaz-modal-mount"' in body
     assert "--cols:42px 230px" in body
-    assert "min-width:1227px" in body
+    assert "min-width:1357px" in body
 
 
 def test_launch_modal_renders_defaults_and_selected_names(iteration2_db):
@@ -173,3 +173,48 @@ def test_geohaz_alpine_components_are_registered_in_app_js():
     assert "Alpine.data('geohazSelection'" in source
     assert "Alpine.data('geohazModal'" in source
     assert "replaceFromError" in source
+
+
+def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    job_id = irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=portfolio_id, irp_id="940",
+        request_params={
+            "data_version": "25.0", "model_family": "DLM",
+            "perils": ["earthquake"], "missing_locations": "overwrite",
+        }, actor_id=iteration2_db.user_a)
+    execute_command(
+        "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+
+    page = _client().get(f"/edms/{edm_id}").text
+    cell_url = f"/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell"
+    assert "Hazard looked up?" in page
+    assert f'hx-get="{cell_url}"' in page
+    assert "Analyst A" in page
+    assert "Earthquake" in page
+
+    live = _client().get(cell_url)
+    assert live.status_code == 200
+    assert "RUNNING" in live.text
+    assert 'hx-trigger="every 3s"' in live.text
+
+    execute_command(
+        "UPDATE irp_job SET status = 'FINISHED' WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    terminal = _client().get(cell_url)
+    assert terminal.status_code == 200
+    assert "Yes" in terminal.text
+    assert "hx-trigger" not in terminal.text
+
+
+def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
+    edm_id, _ = _edm_with_portfolios(1)
+
+    response = _client().get(
+        f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
+
+    assert response.status_code == 404
+    assert "geohaz-cell" in response.text
+    assert "hx-trigger" not in response.text
