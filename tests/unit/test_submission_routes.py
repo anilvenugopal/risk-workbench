@@ -129,6 +129,7 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
     assert '<h2>RDMs</h2>' in body
     assert "Portfolio count" in body and "Analysis count" in body
     assert "DirectEDM" in body
+    assert f'href="/submissions/{submission_id}/edms/{edm_id}"' in body
     assert "LongEDM19" in body
     assert (
         "https://tenant.moodys.com/riskmodeler/datasources/DirectEDM/portfolios"

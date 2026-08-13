@@ -10,6 +10,16 @@
 .synced__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-green-500); }
 .synced__dot--warn { background: var(--c-amber-500); }
 
+.detail-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5); }
+.edm-picker { display: flex; flex-direction: column; gap: var(--space-1); min-width: 260px; }
+.edm-picker label { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.edm-picker .wf-field__input { min-width: 260px; }
+
+@media (max-width: 900px) {
+  .detail-head-row { display: block; }
+  .edm-picker { margin-top: var(--space-3); }
+}
+
 /* ── collapsible section (native <details>, default OPEN — ui.md §1.2) ───── */
 details.sec { margin-bottom: var(--space-6); }
 details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-2); margin-bottom: 10px; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-faint); }

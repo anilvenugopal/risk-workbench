@@ -159,32 +159,32 @@ behavior for each URL.
 
 ### Tests first
 
-- [ ] T032 [P] [US3] [FR-011] [FR-012] [FR-013] Add contextual EDM service and
+- [x] T032 [P] [US3] [FR-011] [FR-012] [FR-013] Add contextual EDM service and
   404 tests to `tests/unit/test_edm_service.py`; confirm they fail first.
-- [ ] T033 [P] [US3] [FR-014] [FR-015] [FR-016] Add submission-scoped RDM list,
+- [x] T033 [P] [US3] [FR-014] [FR-015] [FR-016] Add submission-scoped RDM list,
   per-RDM analysis query, and no-Risk-Modeler-read tests to
   `tests/unit/test_edm_analyses.py`; confirm they fail first.
-- [ ] T034 [P] [US3] [FR-011] [FR-017] Add contextual and direct-library route
+- [x] T034 [P] [US3] [FR-011] [FR-017] Add contextual and direct-library route
   assertions to `tests/unit/test_edm_detail_header.py` and
   `tests/unit/test_edm_sync_routes.py`; confirm they fail first.
 
 ### Implementation
 
-- [ ] T035 [US3] [FR-011] [FR-012] [FR-013] Add contextual association validation,
+- [x] T035 [US3] [FR-011] [FR-012] [FR-013] Add contextual association validation,
   submission EDM choices, and contextual sync inputs to `app/services/edm_service.py`.
-- [ ] T036 [US3] [FR-014] [FR-015] [FR-016] Replace Package-based broker analysis
+- [x] T036 [US3] [FR-014] [FR-015] [FR-016] Replace Package-based broker analysis
   reads in `app/services/analysis_service.py` with submission RDM reads and a stored
   per-RDM analysis query.
-- [ ] T037 [US3] [FR-011] [FR-016] [FR-017] Add contextual EDM, body, sync, and lazy
+- [x] T037 [US3] [FR-011] [FR-016] [FR-017] Add contextual EDM, body, sync, and lazy
   analysis routes to `app/routers/edms.py`; keep `/edms/{edm_id}` context-free.
-- [ ] T038 [US3] [FR-012] [FR-013] Update the navigation manifest only as needed
+- [x] T038 [US3] [FR-012] [FR-013] Update the navigation manifest only as needed
   for the contextual route, then add the source-submission breadcrumb and EDM picker
   to `app/templates/partials/edm_detail_body.html`.
-- [ ] T039 [US3] [FR-014] [FR-016] Replace the Package-scoped broker analyses
+- [x] T039 [US3] [FR-014] [FR-016] Replace the Package-scoped broker analyses
   section with submission-scoped collapsed RDM rows and a lazy analysis partial.
   Reuse the existing `.sec`, `.dtable__rdm`, `.grp-caret`, and related markup and CSS
   exactly; do not redesign portfolios, treaties, or row disclosures.
-- [ ] T040 [US3] [FR-011] [FR-017] Run the US3-focused unit tests, then stop for the
+- [x] T040 [US3] [FR-011] [FR-017] Run the US3-focused unit tests, then stop for the
   approver to click contextual and direct-library EDM URLs.
 
 ## Phase 6: Current documentation and final verification

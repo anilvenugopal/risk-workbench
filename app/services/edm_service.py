@@ -458,6 +458,14 @@ class EdmDetail:
     import_error: str | None = None
 
 
+@dataclass
+class ContextualEdmDetail:
+    edm: EdmDetail
+    submission: SubmissionRef
+    edm_choices: list[SubmissionRef]
+    rdms: list[BrokerAnalysisGroup]
+
+
 def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
     enqueue sources: the poller's heads key on the finished ``import_edm``
@@ -567,6 +575,39 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     )
 
 
+def get_contextual_edm_detail(
+    *, submission_id: Any, edm_id: Any,
+) -> ContextualEdmDetail | None:
+    """Return an EDM only when it belongs to the named submission."""
+    sid = str(submission_id)
+    eid = str(edm_id)
+    source = execute_one(
+        "SELECT s.id, s.name FROM submission s "
+        "JOIN submission_edm se ON se.submission_id = s.id "
+        "JOIN irp_edm e ON e.id = se.edm_id "
+        "WHERE s.id = :submission_id AND e.id = :edm_id "
+        "AND e.deleted_at IS NULL",
+        {"submission_id": sid, "edm_id": eid}, connection="WORKBENCH")
+    if source is None:
+        return None
+    edm = get_edm_detail(eid)
+    if edm is None:
+        return None
+    choices = execute(
+        "SELECT e.id, e.name FROM submission_edm se "
+        "JOIN irp_edm e ON e.id = se.edm_id "
+        "WHERE se.submission_id = :submission_id AND e.deleted_at IS NULL "
+        "ORDER BY CASE WHEN e.id = :edm_id THEN 0 ELSE 1 END, e.name",
+        {"submission_id": sid, "edm_id": eid}, connection="WORKBENCH")
+    return ContextualEdmDetail(
+        edm=edm,
+        submission=SubmissionRef(id=_uid(source["id"]), name=source["name"]),
+        edm_choices=[SubmissionRef(id=_uid(row["id"]), name=row["name"])
+                     for row in choices],
+        rdms=analysis_service.list_submission_rdms(submission_id=sid),
+    )
+
+
 def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     """Analyst-triggered re-run of ``backfill_edm_detail`` for one EDM (FR-003 as
     amended 2026-07-23) — the recovery path for pre-capability EDMs and failed
@@ -589,6 +630,22 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")
     return job_id
+
+
+def sync_contextual_detail(
+    *, submission_id: Any, edm_id: Any, actor_id: Any,
+) -> bool:
+    """Queue stored EDM and submission-RDM refreshes for a valid context."""
+    context = get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return False
+    sync_detail(edm_id=edm_id, actor_id=actor_id)
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
+    from app.services import rdm_service
+    for rdm in context.rdms:
+        rdm_service.sync_detail(rdm_id=rdm.rdm_id, actor_id=actor_id)
+    return True
 
 
 def _current(edm_id: str) -> dict | None:
@@ -711,13 +768,15 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
 
 
 __all__ = [
-    "ImportResult", "EdmRow", "EdmDetail", "AdoptableEdm", "AdoptablePage",
+    "ImportResult", "EdmRow", "EdmDetail", "ContextualEdmDetail",
+    "AdoptableEdm", "AdoptablePage",
     "AdoptResult",
     "PENDING", "IMPORTING", "READY", "ERROR",
     "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "list_adoptable_edms", "adopt_edms",
-    "latest_import_error", "latest_backfill_status", "get_edm_detail", "sync_detail",
+    "latest_import_error", "latest_backfill_status", "get_edm_detail",
+    "get_contextual_edm_detail", "sync_detail", "sync_contextual_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal",
 ]

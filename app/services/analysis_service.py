@@ -83,6 +83,8 @@ class BrokerAnalysisGroup:
     rdm_id: str
     rdm_name: str | None
     rdm_irp_id: Any
+    status: str | None = None
+    analysis_count: int = 0
     analyses: list[BrokerAnalysis] = field(default_factory=list)
 
     @property
@@ -224,7 +226,51 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     return []
 
 
+def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
+    """List one submission's RDMs and stored counts without loading analyses."""
+    rows = execute(
+        "SELECT r.id, r.name, r.irp_id, r.status, COUNT(a.id) AS analysis_count "
+        "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
+        "WHERE sr.submission_id = :submission_id AND r.deleted_at IS NULL "
+        "GROUP BY r.id, r.name, r.irp_id, r.status, r.inserted_at "
+        "ORDER BY r.inserted_at, r.name",
+        {"submission_id": str(submission_id)}, connection="WORKBENCH")
+    return [
+        BrokerAnalysisGroup(
+            rdm_id=_uid(row["id"]), rdm_name=row["name"],
+            rdm_irp_id=row["irp_id"], status=row["status"],
+            analysis_count=int(row["analysis_count"] or 0))
+        for row in rows
+    ]
+
+
+def list_submission_rdm_analyses(
+    *, submission_id: Any, rdm_id: Any,
+) -> list[BrokerAnalysis] | None:
+    """Return stored analyses when the RDM belongs to the named submission.
+
+    ``None`` distinguishes an invalid association from an associated RDM with no
+    captured analyses. The query never calls Risk Modeler.
+    """
+    associated = execute(
+        "SELECT r.id FROM submission_rdm sr "
+        "JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "WHERE sr.submission_id = :submission_id AND sr.rdm_id = :rdm_id "
+        "AND r.deleted_at IS NULL",
+        {"submission_id": str(submission_id), "rdm_id": str(rdm_id)},
+        connection="WORKBENCH")
+    if not associated:
+        return None
+    rows = execute(
+        f"{_HANDLE_SELECT} AND a.rdm_id = :rdm_id "
+        "ORDER BY a.name, a.irp_id, a.id",
+        {"rdm_id": str(rdm_id)}, connection="WORKBENCH")
+    return _dedup_handles([dict(row) for row in rows])
+
+
 __all__ = [
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
-    "list_broker_analyses", "list_edm_analyses",
+    "list_broker_analyses", "list_edm_analyses", "list_submission_rdms",
+    "list_submission_rdm_analyses",
 ]

@@ -13,14 +13,26 @@
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
 {% set live = edm.sync_running
      or edm.status in ('pending_import', 'importing') %}
+{% set body_url = detail_body_url|default('/edms/' ~ edm.id ~ '/body') %}
+{% set sync_url = detail_sync_url|default('/edms/' ~ edm.id ~ '/sync') %}
+{% set base_url = detail_base_url|default('/edms/' ~ edm.id) %}
 <div class="page-pad" id="edm-detail"
   {%- if live %}
-  hx-get="/edms/{{ edm.id }}/body" hx-trigger="every 3s"
+  hx-get="{{ body_url }}" hx-trigger="every 3s"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
   {# ── minimal header (FR-011) — name, status, source, identifiers, count, as_of ── #}
   <div class="detail-head">
+    {% if source_submission %}
+    <nav class="detail-crumbs" aria-label="Submission context">
+      <a class="crumb" href="/submissions/{{ source_submission.id }}">{{ source_submission.name }}</a>
+      <span class="crumb__sep">&rsaquo;</span>
+      <span class="crumb crumb--current">{{ edm.name }}</span>
+    </nav>
+    {% endif %}
+    <div class="detail-head-row">
+    <div>
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>
@@ -54,19 +66,33 @@
       {% if edm.sync_running %}
       <button class="btn-sm" type="button" disabled>Syncing…</button>
       {% else %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
       {% endif %}
       {% endif %}
     </div>
+    </div>
+    {% if source_submission %}
+    <div class="edm-picker">
+      <label for="edm-picker">EDM in {{ source_submission.name }}</label>
+      <select id="edm-picker" class="wf-field__input"
+              x-on:change="window.location.href = $event.target.value">
+        {% for choice in edm_choices %}
+        <option value="/submissions/{{ source_submission.id }}/edms/{{ choice.id }}"
+                {% if choice.id == edm.id %}selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    </div>
   </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if edm.status == 'error' %}
   {% with rec_lead='This import failed in Risk Modeler',
-          rec_error=edm.import_error, rec_base='/edms/' ~ edm.id,
+          rec_error=edm.import_error, rec_base=base_url,
           rec_updated_at=edm.updated_at %}
   {% include "partials/entity_recovery.html" %}
   {% endwith %}
@@ -110,7 +136,7 @@
     <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
       The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
       {% if edm.status == 'ready' %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -123,7 +149,7 @@
       Imported before exposure backfill shipped.
       {% if edm.status == 'ready' %}
       Sync now to fetch its per-portfolio detail from Risk Modeler.
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -188,5 +214,49 @@
       Imported before exposure backfill shipped.</div>
     {% endif %}
   </details>
+
+  {% if source_submission %}
+  {% set analysis_total = submission_rdms | map(attribute='analysis_count') | sum %}
+  <details class="sec" open id="edm-broker-analyses">
+    <summary>
+      <span class="sec__caret">&#9657;</span>
+      <span class="sec__title">Broker analyses</span>
+      <span class="badge badge--neutral">{{ submission_rdms|length }} RDMs &middot; {{ analysis_total }} analyses</span>
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Every RDM in {{ source_submission.name }} &middot; settings &amp; metadata only &middot; no loss numbers</span>
+    </summary>
+    {% if submission_rdms %}
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:230px minmax(110px,1fr) minmax(120px,1fr) minmax(110px,1fr) 80px minmax(120px,1fr) 80px 70px 130px;min-width:1050px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">Type</span>
+          <span class="l">Peril</span><span class="l">Region</span>
+          <span class="l">Currency</span><span class="l">Engine</span>
+          <span class="l">Term</span><span class="l">PLA</span>
+          <span class="l">Rate</span>
+        </div>
+        {% for rdm in submission_rdms %}
+        <details class="dtable__rdm"
+          hx-get="/submissions/{{ source_submission.id }}/edms/{{ edm.id }}/rdms/{{ rdm.rdm_id }}/analyses"
+          hx-trigger="toggle[event.target.open] once"
+          hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
+          <summary><div class="dtable__group">
+            <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+            <span class="name">{{ rdm.rdm_name }}</span>
+            {% if rdm.rdm_irp_id %}<span class="ref">#{{ rdm.rdm_irp_id }}</span>{% endif %}
+            <span class="ref">{{ rdm.analysis_count }} analyses</span>
+            <a class="link" href="/rdms/{{ rdm.rdm_id }}"
+               onclick="event.stopPropagation()">Open RDM &rarr;</a>
+          </div></summary>
+          <div id="rdm-analyses-{{ rdm.rdm_id }}" class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+        </details>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="state-box">No RDMs are related to {{ source_submission.name }}.</div>
+    {% endif %}
+  </details>
+  {% endif %}
 
 </div>

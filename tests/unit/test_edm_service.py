@@ -13,12 +13,24 @@ Runs on the SQLite unit mirror (``iteration2_db``) with the fake IRP.
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
-from app.services import edm_service, rwb_job_service
+from app.services import (
+    edm_service,
+    rdm_service,
+    rwb_job_service,
+    submission_service,
+)
+from app.services._common import SubmissionRef
+from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
-    NameCollisionError)
+    ConcurrencyConflict,
+    InvalidMemberName,
+    InvalidSourceFile,
+    NameCollisionError,
+)
 from app.workers import entity_jobs
 from db import execute_command, execute_one, execute_scalar
 
@@ -135,6 +147,73 @@ def test_list_edms_applies_no_scoping(iteration2_db, fake_irp, drive):
     _import(drive, iteration2_db.user_b, name="B", fname="edm2.bak")
     names = {e.name for e in edm_service.list_edms()}
     assert {"A", "B"} <= names  # every EDM visible regardless of actor (SC-009)
+
+
+def test_contextual_detail_validates_association_and_lists_submission_edms(
+        iteration2_db):
+    first = submission_service.create_submission(
+        name="First submission", cedant_name="First", treaty_type_code="cat_xol",
+        inception_date="2026-01-01", treaty_year=2026,
+        actor_id=iteration2_db.user_a, confirmed=True).submission_id
+    second = submission_service.create_submission(
+        name="Second submission", cedant_name="Second", treaty_type_code="cat_xol",
+        inception_date="2026-01-01", treaty_year=2026,
+        actor_id=iteration2_db.user_a, confirmed=True).submission_id
+    shared = str(uuid.uuid4())
+    other = str(uuid.uuid4())
+    for edm_id, name in ((shared, "Shared EDM"), (other, "Other EDM")):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": edm_id, "name": name}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": shared}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": first, "e": other}, connection="WORKBENCH")
+
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=first, edm_id=shared)
+
+    assert context is not None
+    assert context.submission.id == first
+    assert context.submission.name == "First submission"
+    assert context.edm.id == shared
+    assert [(choice.id, choice.name) for choice in context.edm_choices] == [
+        (shared, "Shared EDM"), (other, "Other EDM")]
+    assert edm_service.get_contextual_edm_detail(
+        submission_id=second, edm_id=other) is None
+
+
+def test_contextual_sync_queues_edm_and_each_submission_rdm(monkeypatch):
+    context = edm_service.ContextualEdmDetail(
+        edm=edm_service.EdmDetail(
+            id="edm-1", name="EDM", status="ready", as_of=None,
+            source_file_path=None, irp_id=1, created_by_irp_job_irp_id=None,
+            inserted_at=None, updated_at=None, portfolio_count=0,
+            portfolios=[], detail_state="empty"),
+        submission=SubmissionRef(id="submission-1", name="Submission"),
+        edm_choices=[],
+        rdms=[
+            BrokerAnalysisGroup(rdm_id="rdm-1", rdm_name="RDM 1", rdm_irp_id=1),
+            BrokerAnalysisGroup(rdm_id="rdm-2", rdm_name="RDM 2", rdm_irp_id=2),
+        ])
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        edm_service, "get_contextual_edm_detail", lambda **kwargs: context)
+    monkeypatch.setattr(
+        edm_service, "sync_detail",
+        lambda **kwargs: calls.append(("edm", kwargs["edm_id"])))
+    monkeypatch.setattr(
+        rdm_service, "sync_detail",
+        lambda **kwargs: calls.append(("rdm", kwargs["rdm_id"])))
+
+    exists = edm_service.sync_contextual_detail(
+        submission_id="submission-1", edm_id="edm-1", actor_id="analyst-1")
+
+    assert exists is True
+    assert calls == [("edm", "edm-1"), ("rdm", "rdm-1"), ("rdm", "rdm-2")]
 
 
 # ── recovery: retry + replace-file ───────────────────────────────────────────────
