@@ -1,6 +1,7 @@
 <!-- SPECKIT START -->
-When present, read `specs/005-subportfolio-breakouts/plan.md` for the current
-technology, project structure, and shell-command decisions.
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/007-geohaz-execution/plan.md
 <!-- SPECKIT END -->
 
 # Risk Analysis Workbench — Agent Context
