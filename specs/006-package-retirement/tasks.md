@@ -189,19 +189,19 @@ behavior for each URL.
 
 ## Phase 6: Current documentation and final verification
 
-- [ ] T041 [P] [FR-020] Replace current Package execution diagrams under
+- [x] T041 [P] [FR-020] Replace current Package execution diagrams under
   `docs/sequence_diagrams/` with direct association, standalone import, contextual
   detail, and detach behavior; remove the `packages/` diagrams.
-- [ ] T042 [P] [FR-020] Update `specs/006-package-retirement/quickstart.md` with any
+- [x] T042 [P] [FR-020] Update `specs/006-package-retirement/quickstart.md` with any
   route or label corrections found during implementation; do not duplicate design
   rationale.
-- [ ] T043 [FR-020] Search live schema, application code, tests, and current
+- [x] T043 [FR-020] Search live schema, application code, tests, and current
   execution documents for `package`, `packages`, `package_id`, and
   `submission_package`; retain only historical evidence, supersession notes, and
   Python packaging references.
-- [ ] T044 Review the full diff for unnecessary helpers, compatibility branches,
+- [x] T044 Review the full diff for unnecessary helpers, compatibility branches,
   repeated comments, and documentation outside the file that owns each changed fact.
-- [ ] T045 Run `uv run pytest tests/unit` and report the unit count. Run
+- [x] T045 Run `uv run pytest tests/unit` and report the unit count. Run
   `make test-sql` only if `linux-box` is already running and report its count; do not
   start or rebuild containers.
 - [ ] T046 [T-06] Run the opt-in IRP tier against TestPyPI `irp-integration` 0.4.0

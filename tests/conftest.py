@@ -138,8 +138,8 @@ def sqlite_conn(sqlite_engine):
         conn.rollback()
 
 
-# ── Iteration-1 submission/package schema (unit tier) ────────────────────────
-# The portable SQLite mirror of the WORKBENCH tables the submission/package
+# ── Iteration-1 submission data schema (unit tier) ───────────────────────────
+# The portable SQLite mirror of the WORKBENCH tables the submission and entity
 # services touch lives in tests/iteration1_mirror.py (single source, so the SQL
 # Server drift guard validates the exact same shape). This fixture builds it,
 # seeds the kind tables + two analysts, and registers it as WORKBENCH.

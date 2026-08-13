@@ -126,7 +126,7 @@ def test_blank_filters_are_noops(iteration2_db, mod, table):
     assert len(_list(mod, name="", status="")) == 2
 
 
-# ── Owning-submission attach over submission_package (M:N) ───────────────────────
+# ── Submission association reads (M:N) ──────────────────────────────────────
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
 def test_standalone_entity_has_no_submissions(iteration2_db, mod, table):

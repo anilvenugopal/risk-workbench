@@ -9,10 +9,10 @@ regression trips the unit tier rather than production:
    module wrapping ``irp-integration`` (T007) — never wraps a poll-to-completion.
 2. **Article 6 / FR-041 — no row-level security on the async entities.** No
    ``customer_id`` column, no ``apply_scope`` / ``scoped_execute`` helper, no
-   ``user_customer_access`` gate anywhere the EDM/RDM/package/job families live
+   ``user_customer_access`` gate anywhere the EDM/RDM/job modules live
    (services, routers, worker, poller, and the single Alembic revision). Every
    authenticated analyst sees every entity; ownership reaches a submission only
-   transitively through the package. (Complements ``test_no_scope.py``, which
+   through submission association tables. (Complements ``test_no_scope.py``, which
    guards the wider ``app/`` + ``db/`` trees; this adds the Alembic schema.)
 """
 
@@ -72,7 +72,7 @@ def test_workers_never_poll_to_completion():
 
 
 def test_no_scope_construct_on_async_entities():
-    """Article 6 / FR-041: no customer/scope construct on EDM/RDM/package/job sources."""
+    """Article 6 / FR-041: no customer/scope construct on EDM/RDM/job sources."""
     paths = list(_APP.rglob("*.py"))
     if _MIGRATION.exists():
         paths.append(_MIGRATION)

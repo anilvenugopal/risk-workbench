@@ -103,7 +103,7 @@ def test_no_shared_drive_configured_still_reports_the_error(monkeypatch):
     assert "No shared drive is configured" in body
 
 
-# ── Package modal seed ───────────────────────────────────────────────────────
+# ── Submission modal seed ───────────────────────────────────────────────────
 
 def _submission(directory_path: str | None, iteration1_db) -> str:
     from app.services import submission_service
