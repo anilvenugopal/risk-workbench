@@ -262,6 +262,7 @@ def test_add_modal_lists_unrelated_existing_entities(
     label = kind[:-1].upper()
     assert f"Import new {label}" in response.text and f"Add existing {label}" in response.text
     assert available_name in response.text and related_name not in response.text
+    assert 'hx-trigger="input delay:300ms, submit"' in response.text
     assert "$event.detail.elt === $el && $event.detail.successful" in response.text
 
 

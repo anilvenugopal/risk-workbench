@@ -39,7 +39,7 @@
       </form>
 
       <div x-show="tab === 'existing'">
-        <form class="entity-candidate-search" method="get" action="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-target="#submission-entity-candidates" hx-swap="outerHTML">
+        <form class="entity-candidate-search" method="get" action="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-trigger="input delay:300ms, submit" hx-target="#submission-entity-candidates" hx-swap="outerHTML">
           <div class="wf-field">
             <label for="{{ kind }}-candidate-query">SEARCH</label>
             <input class="wf-field__input" id="{{ kind }}-candidate-query" name="q" value="{{ query }}" placeholder="Search by name">
