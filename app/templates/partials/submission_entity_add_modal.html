@@ -15,7 +15,7 @@
             hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/import"
             hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
             hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-            @htmx:after-request="if ($event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
             x-data="importForm()" @change="onChange($event)" @htmx:after-swap="onSwap()"
             @htmx:response-error="onCheckError($event)" @htmx:send-error="onCheckError($event)">
         <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
