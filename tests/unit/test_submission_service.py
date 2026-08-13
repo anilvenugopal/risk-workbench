@@ -164,7 +164,10 @@ def test_submission_import_creates_entity_association_and_provenance(
         "WHERE requested_from_submission_id=:s ORDER BY irp_job_type",
         {"s": submission_id}, connection="WORKBENCH")
     assert len(jobs) == 2
-    assert all(str(row["requested_from_submission_id"]) == submission_id for row in jobs)
+    assert all(
+        str(row["requested_from_submission_id"]).lower() == submission_id
+        for row in jobs
+    )
     assert sum(row["irp_edm_id"] is not None for row in jobs) == 1
     assert sum(row["irp_rdm_id"] is not None for row in jobs) == 1
 
