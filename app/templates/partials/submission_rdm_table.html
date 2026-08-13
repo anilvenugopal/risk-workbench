@@ -1,3 +1,5 @@
+<section id="submission-rdm-section">
+{% if entity_message %}<div class="form-banner">{{ entity_message }}</div>{% endif %}
 <div class="section-head submission-entity-head">
   <h2>RDMs</h2>
   {% if is_active %}
@@ -8,18 +10,20 @@
 </div>
 <div class="entity-table-wrap">
   <table class="mk-table entity-table">
-    <thead><tr><th>Name</th><th class="count-col">Analysis count</th><th class="rm-col">Risk Modeler</th></tr></thead>
+    <thead><tr><th>Name</th><th class="count-col">Analysis count</th><th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
     <tbody>
     {% for rdm in submission_rdms %}
       <tr>
         <td><a class="entity-name" href="/rdms/{{ rdm.id }}">{{ rdm.name }}</a></td>
         <td class="count-col">{% if rdm.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ rdm.analysis_count }}{% endif %}</td>
         <td>{% if rdm.rm_url %}<a class="rm-link" href="{{ rdm.rm_url }}" target="_blank" rel="noopener">Open</a>{% else %}<span class="na">Unavailable</span>{% endif %}</td>
+        {% if is_active %}<td class="entity-action-col"><form method="post" action="/submissions/{{ submission.id }}/rdms/{{ rdm.id }}/detach" hx-post="/submissions/{{ submission.id }}/rdms/{{ rdm.id }}/detach" hx-target="#submission-rdm-section" hx-swap="outerHTML" hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"><input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}"><button class="btn-sm btn-sm--danger" type="submit">Remove from submission</button></form></td>{% endif %}
       </tr>
     {% endfor %}
     {% if not submission_rdms %}
-      <tr><td colspan="3" class="entity-table-state"><strong>No RDMs added</strong>Add a new RDM or select one already in the workbench.</td></tr>
+      <tr><td colspan="{{ 4 if is_active else 3 }}" class="entity-table-state"><strong>No RDMs added</strong>Add a new RDM or select one already in the workbench.</td></tr>
     {% endif %}
     </tbody>
   </table>
 </div>
+</section>

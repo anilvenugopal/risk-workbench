@@ -138,6 +138,189 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
     assert "Packages" not in body
 
 
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "available_name", "related_name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "AvailableEDM", "RelatedEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "AvailableRDM", "RelatedRDM"),
+    ],
+)
+def test_add_modal_lists_unrelated_existing_entities(
+    client, kind, table, association_table, entity_column, available_name, related_name,
+):
+    created = client.post("/submissions", data=_payload(name="Add modal"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    available = str(uuid.uuid4())
+    related = str(uuid.uuid4())
+    for entity_id, name in ((available, available_name), (related, related_name)):
+        execute_command(
+            f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": related}, connection="WORKBENCH")
+
+    response = client.get(f"/submissions/{submission_id}/{kind}/add")
+
+    assert response.status_code == 200
+    label = kind[:-1].upper()
+    assert f"Import new {label}" in response.text and f"Add existing {label}" in response.text
+    assert available_name in response.text and related_name not in response.text
+
+
+@pytest.mark.parametrize("kind,source", [("edms", "edm1.bak"), ("rdms", "rdm1.mdf")])
+def test_submission_import_route_creates_association(
+    client, fake_irp, drive, kind, source,
+):
+    created = client.post("/submissions", data=_payload(name=f"Import {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    response = client.post(
+        f"/submissions/{submission_id}/{kind}/import",
+        data={"name": f"New_{kind}", "source_paths": str(drive / source),
+              "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    table = "submission_edm" if kind == "edms" else "submission_rdm"
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 1
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "RouteEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "RouteRDM"),
+    ],
+)
+def test_attach_and_detach_routes_change_only_the_association(
+    client, kind, table, association_table, entity_column, name,
+):
+    first = client.post("/submissions", data=_payload(name="Route first"))
+    first_id = first.headers["location"].rsplit("/", 1)[-1]
+    second = client.post(
+        "/submissions", data=_payload(name="Route second", cedant_name="Second Re"))
+    second_id = second.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": second_id, "e": edm_id}, connection="WORKBENCH")
+
+    attached = client.post(
+        f"/submissions/{first_id}/{kind}/attach",
+        data={"entity_ids": edm_id, "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+    detached = client.post(
+        f"/submissions/{first_id}/{kind}/{edm_id}/detach",
+        data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
+
+    assert attached.status_code == 200 and detached.status_code == 200
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE {entity_column}=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {table} WHERE id=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+@pytest.mark.parametrize("status", ["COMPLETED", "CANCELLED"])
+def test_closed_submission_rejects_attach_and_detach_routes(client, status, kind):
+    created = client.post("/submissions", data=_payload(name=f"Closed {status}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": f"ClosedRoute{kind}"}, connection="WORKBENCH")
+    marker = submission_service.get_submission(submission_id).updated_at
+    client.post(
+        f"/submissions/{submission_id}/status",
+        data={"to_status": status, "reason": "", "updated_at": marker,
+              "csrf_token": _csrf()})
+
+    attach = client.post(
+        f"/submissions/{submission_id}/{kind}/attach",
+        data={"entity_ids": edm_id, "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+    detach = client.post(
+        f"/submissions/{submission_id}/{kind}/{edm_id}/detach",
+        data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
+
+    assert attach.status_code == 409 and detach.status_code == 409
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 0
+
+
+@pytest.mark.parametrize("kind,source", [("edms", "edm1.bak"), ("rdms", "rdm1.mdf")])
+@pytest.mark.parametrize("status", ["COMPLETED", "CANCELLED"])
+def test_closed_submission_rejects_import_routes(
+    client, fake_irp, drive, status, kind, source,
+):
+    created = client.post(
+        "/submissions", data=_payload(name=f"Closed import {status} {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    marker = submission_service.get_submission(submission_id).updated_at
+    client.post(
+        f"/submissions/{submission_id}/status",
+        data={"to_status": status, "reason": "", "updated_at": marker,
+              "csrf_token": _csrf()})
+
+    response = client.post(
+        f"/submissions/{submission_id}/{kind}/import",
+        data={"name": f"Closed_{status}_{kind}",
+              "source_paths": str(drive / source), "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+
+    entity_table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    assert response.status_code == 409
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {entity_table}", {}, connection="WORKBENCH") == 0
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table}", {}, connection="WORKBENCH") == 0
+    assert fake_irp.submits == []
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+@pytest.mark.parametrize("action", ["import", "attach", "detach"])
+def test_submission_entity_routes_validate_csrf(client, kind, action):
+    created = client.post("/submissions", data=_payload(name="CSRF entity"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edms" else "rdm_id"
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": f"CSRF{kind}"}, connection="WORKBENCH")
+    if action == "detach":
+        execute_command(
+            f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+            "VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    endpoint = f"/submissions/{submission_id}/{kind}/{action}"
+    if action == "detach":
+        endpoint = f"/submissions/{submission_id}/{kind}/{edm_id}/detach"
+
+    response = client.post(
+        endpoint, data={"entity_ids": edm_id, "name": "ForgedImport",
+                        "source_paths": "ignored.bak", "csrf_token": "forged"})
+
+    assert response.status_code == 303
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == (1 if action == "detach" else 0)
+
+
 # ── CR4: required marking + per-field errors ─────────────────────────────────
 
 def test_new_form_marks_the_required_fields(client):

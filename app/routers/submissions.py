@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from datetime import date
 from functools import partial
+from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request
@@ -27,10 +28,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import shared_drive, submission_service
+from app.services import edm_service, rdm_service, shared_drive, submission_service
 from app.services.errors import (
     ConcurrencyConflict,
+    InvalidMemberName,
     InvalidSourceFile,
+    NameCollisionError,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
@@ -222,6 +225,62 @@ def _detail_response(request: Request, submission_id: str, status_code: int = 20
         {"current_user": request.state.user, "nav": nav, **ctx},
         status_code=status_code,
     )
+
+
+def _entity_table_response(
+    request: Request, submission_id: str, kind: str, *,
+    message: str | None = None, status_code: int = 200,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    if kind == "edm":
+        template = "partials/submission_edm_table.html"
+        rows = {"submission_edms": submission_service.list_submission_edms(submission_id)}
+    else:
+        template = "partials/submission_rdm_table.html"
+        rows = {"submission_rdms": submission_service.list_submission_rdms(submission_id)}
+    return _partial(request, template, {
+        "submission": submission,
+        "is_active": submission.status_code == submission_service.ACTIVE,
+        "entity_message": message,
+        **rows,
+    }, status_code=status_code)
+
+
+def _entity_modal_response(
+    request: Request, submission_id: str, kind: str, *,
+    errors: list[str] | None = None, form: dict | None = None,
+    active_tab: str = "import", status_code: int = 200,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    if submission.status_code != submission_service.ACTIVE:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before changing its data associations.",
+            status_code=409)
+    candidates = (
+        submission_service.list_edm_candidates(submission_id)
+        if kind == "edm"
+        else submission_service.list_rdm_candidates(submission_id)
+    )
+    response = _partial(request, "partials/submission_entity_add_modal.html", {
+        "submission": submission,
+        "entity_kind": kind.upper(),
+        "entity_plural": f"{kind}s",
+        "kind": kind,
+        "candidate_page": candidates,
+        "query": "",
+        "errors": errors or [],
+        "form": form or {"name": ""},
+        "active_tab": active_tab,
+    }, status_code=status_code)
+    if status_code >= 400 and _is_htmx(request):
+        response.headers["HX-Retarget"] = "#submission-entity-modal"
+        response.headers["HX-Reswap"] = "innerHTML"
+    return response
 
 
 def _not_found(request: Request):
@@ -536,6 +595,218 @@ def create(
 @router.get("/submissions/{submission_id}", response_class=HTMLResponse)
 def detail(request: Request, submission_id: str):
     return _detail_response(request, submission_id)
+
+
+# â”€â”€ Submission EDM/RDM associations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+@router.get("/submissions/{submission_id}/edms/add", response_class=HTMLResponse)
+def add_edm_modal(request: Request, submission_id: str):
+    return _entity_modal_response(request, submission_id, "edm")
+
+
+@router.get("/submissions/{submission_id}/rdms/add", response_class=HTMLResponse)
+def add_rdm_modal(request: Request, submission_id: str):
+    return _entity_modal_response(request, submission_id, "rdm")
+
+
+def _candidate_response(
+    request: Request, submission_id: str, kind: str, query: str, page: int,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    candidates = (
+        submission_service.list_edm_candidates(
+            submission_id, query=query, page=page)
+        if kind == "edm"
+        else submission_service.list_rdm_candidates(
+            submission_id, query=query, page=page)
+    )
+    return _partial(request, "partials/submission_entity_candidates.html", {
+        "submission": submission,
+        "entity_kind": kind.upper(),
+        "entity_plural": f"{kind}s",
+        "candidate_page": candidates,
+        "query": query,
+    })
+
+
+@router.get("/submissions/{submission_id}/edms/candidates", response_class=HTMLResponse)
+def edm_candidates(
+    request: Request, submission_id: str, q: str = "", page: int = 1,
+):
+    return _candidate_response(request, submission_id, "edm", q, page)
+
+
+@router.get("/submissions/{submission_id}/rdms/candidates", response_class=HTMLResponse)
+def rdm_candidates(
+    request: Request, submission_id: str, q: str = "", page: int = 1,
+):
+    return _candidate_response(request, submission_id, "rdm", q, page)
+
+
+def _import_submission_entity(
+    request: Request, submission_id: str, kind: str, name: str,
+    source_paths: list[str], csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    if submission.status_code != submission_service.ACTIVE:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before importing data.", status_code=409)
+    source = source_paths[0] if source_paths else ""
+    if not name.strip() or not source:
+        return _entity_modal_response(
+            request, submission_id, kind,
+            errors=["A name and a source file selection are required."],
+            form={"name": name}, status_code=422)
+    try:
+        importer = edm_service.import_edm if kind == "edm" else rdm_service.import_rdm
+        result = importer(
+            name=name.strip(), source_file_path=source,
+            actor_id=request.state.user.id, submission_id=submission_id)
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
+        return _entity_modal_response(
+            request, submission_id, kind, errors=[str(exc)],
+            form={"name": name}, status_code=422)
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before importing data.", status_code=409)
+    message = f"{kind.upper()} import started."
+    if result.collision_unchecked:
+        message += " Risk Modeler name availability could not be checked."
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind, message=message)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/import")
+def import_submission_edm(
+    request: Request, submission_id: str, name: str = Form(""),
+    source_paths: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _import_submission_entity(
+        request, submission_id, "edm", name, source_paths or [], csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/import")
+def import_submission_rdm(
+    request: Request, submission_id: str, name: str = Form(""),
+    source_paths: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _import_submission_entity(
+        request, submission_id, "rdm", name, source_paths or [], csrf_token)
+
+
+def _attach_submission_entities(
+    request: Request, submission_id: str, kind: str,
+    entity_ids: list[str], csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    if not entity_ids:
+        return _entity_modal_response(
+            request, submission_id, kind,
+            errors=[f"Select at least one {kind.upper()} to add."],
+            active_tab="existing", status_code=422)
+    try:
+        result = (
+            submission_service.attach_edms(
+                submission_id=submission_id, edm_ids=entity_ids,
+                actor_id=request.state.user.id)
+            if kind == "edm"
+            else submission_service.attach_rdms(
+                submission_id=submission_id, rdm_ids=entity_ids,
+                actor_id=request.state.user.id)
+        )
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before adding existing data.",
+            status_code=409)
+    message = None
+    if result.stale_ids:
+        count = len(result.stale_ids)
+        message = (
+            f"{count} selected {kind.upper()}{'' if count == 1 else 's'} could not "
+            "be added because the selection was no longer available."
+        )
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind, message=message)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/attach")
+def attach_submission_edms(
+    request: Request, submission_id: str,
+    entity_ids: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _attach_submission_entities(
+        request, submission_id, "edm", entity_ids or [], csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/attach")
+def attach_submission_rdms(
+    request: Request, submission_id: str,
+    entity_ids: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _attach_submission_entities(
+        request, submission_id, "rdm", entity_ids or [], csrf_token)
+
+
+def _detach_submission_entity(
+    request: Request, submission_id: str, kind: str,
+    entity_id: str, csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    try:
+        if kind == "edm":
+            submission_service.detach_edm(
+                submission_id=submission_id, edm_id=entity_id,
+                actor_id=request.state.user.id)
+        else:
+            submission_service.detach_rdm(
+                submission_id=submission_id, rdm_id=entity_id,
+                actor_id=request.state.user.id)
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before removing data.", status_code=409)
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/detach")
+def detach_submission_edm(
+    request: Request, submission_id: str, edm_id: str,
+    csrf_token: str = Form(...),
+):
+    return _detach_submission_entity(
+        request, submission_id, "edm", edm_id, csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/detach")
+def detach_submission_rdm(
+    request: Request, submission_id: str, rdm_id: str,
+    csrf_token: str = Form(...),
+):
+    return _detach_submission_entity(
+        request, submission_id, "rdm", rdm_id, csrf_token)
 
 
 # ── Edit / update ──────────────────────────────────────────────────────────────

@@ -117,29 +117,29 @@ second submission without another import, then detach them from the first submis
 
 ### Tests first
 
-- [ ] T024 [P] [US2] [FR-007] [FR-008] [FR-009] Add service tests for import with
+- [x] T024 [P] [US2] [FR-007] [FR-008] [FR-009] Add service tests for import with
   association, all-live add-existing candidates, duplicate/stale selection, and
   detach-only behavior in `tests/unit/test_submission_service.py`; confirm they fail.
-- [ ] T025 [P] [US2] [FR-007] [FR-008] [FR-010] [FR-021] Add route tests for EDM
+- [x] T025 [P] [US2] [FR-007] [FR-008] [FR-010] [FR-021] Add route tests for EDM
   and RDM add/import/attach/detach paths, CSRF, and closed-submission rejection in
   `tests/unit/test_submission_routes.py`; confirm they fail.
 
 ### Implementation
 
-- [ ] T026 [US2] [FR-007] [FR-008] [FR-009] Implement association writes,
+- [x] T026 [US2] [FR-007] [FR-008] [FR-009] Implement association writes,
   candidate search/pagination, stale predicates, and detach in
   `app/services/submission_service.py`, using explicit WORKBENCH transactions where
   the entity and association must be inserted together.
-- [ ] T027 [US2] [FR-007] Update `app/services/edm_service.py` and
+- [x] T027 [US2] [FR-007] Update `app/services/edm_service.py` and
   `app/services/rdm_service.py` to accept optional submission provenance and create
   the association before dispatching the entity-scoped upload head.
-- [ ] T028 [US2] [FR-007] [FR-008] [FR-009] [FR-010] [FR-021] Implement the EDM
+- [x] T028 [US2] [FR-007] [FR-008] [FR-009] [FR-010] [FR-021] Implement the EDM
   and RDM add/import/attach/detach routes in `app/routers/submissions.py` per
   `contracts/http-routes.md`.
-- [ ] T029 [P] [US2] [FR-007] [FR-008] Build the add-new/add-existing modal and
+- [x] T029 [P] [US2] [FR-007] [FR-008] Build the add-new/add-existing modal and
   candidate partials in `app/templates/partials/`, reusing the shared `.modal-*`
   convention and existing shared-drive/name-collision components.
-- [ ] T030 [US2] [FR-009] Add remove controls to the submission table partials;
+- [x] T030 [US2] [FR-009] Add remove controls to the submission table partials;
   label the action as removal from the submission and never as Risk Modeler deletion.
 - [ ] T031 [US2] [FR-004] [FR-018] Run the US2-focused unit tests and observe one
   standalone RDM import through the running worker/poller when the developer's stack

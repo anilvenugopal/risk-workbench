@@ -12,11 +12,11 @@ from sqlalchemy import text
 from app.services import analysis_service, name_check, rwb_job_service
 from app.services._common import SubmissionRef, _uid, _utcnow
 from app.services.edm_service import ImportResult  # shared DTO
-from app.services.errors import ConcurrencyConflict, NameCollisionError
+from app.services.errors import ConcurrencyConflict, NameCollisionError, SubmissionClosed
 from app.services.name_check import CollisionCheck
 from app.services.shared_drive import validate_selection
 from app.workers import dispatch
-from db import execute, execute_command, execute_one
+from db import execute, execute_command, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,7 @@ def check_name_collision(name: str) -> CollisionCheck:
 
 def import_rdm(
     *, name: str, source_file_path: str, actor_id: Any,
+    submission_id: Any | None = None,
 ) -> ImportResult:
     """Create a pending RDM and enqueue one standalone RDM import.
 
@@ -75,20 +76,37 @@ def import_rdm(
     rdm_id = str(uuid.uuid4())
     now = _utcnow()
     actor = str(actor_id)
-    execute_command(
-        """
-        INSERT INTO irp_rdm (id, source_file_path, name, status,
-            inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :src, :name, :status, :now, :now, :by, :by)
-        """,
-        {"id": rdm_id, "src": canonical, "name": name, "status": PENDING,
-         "now": now, "by": actor},
-        connection="WORKBENCH",
-    )
+    sid = str(submission_id) if submission_id is not None else None
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        if sid is not None:
+            status = conn.execute(text(
+                "SELECT status_code FROM submission WHERE id = :id"
+            ), {"id": sid}).scalar()
+            if status != "ACTIVE":
+                raise SubmissionClosed(
+                    f"Submission is {status or 'missing'}; only ACTIVE deals are editable.")
+        conn.execute(text(
+            """
+            INSERT INTO irp_rdm (id, source_file_path, name, status,
+                inserted_at, updated_at, inserted_by, updated_by)
+            VALUES (:id, :src, :name, :status, :now, :now, :by, :by)
+            """
+        ), {"id": rdm_id, "src": canonical, "name": name, "status": PENDING,
+            "now": now, "by": actor})
+        if sid is not None:
+            conn.execute(text(
+                "INSERT INTO submission_rdm "
+                "(submission_id, rdm_id, inserted_at, inserted_by) "
+                "VALUES (:submission_id, :entity_id, :now, :actor)"
+            ), {"submission_id": sid, "entity_id": rdm_id,
+                "now": now, "actor": actor})
+    input_data = {"rdm_id": rdm_id}
+    if sid is not None:
+        input_data["requested_from_submission_id"] = sid
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=rdm_id,
         rwb_job_type="upload_rdm",
-        input_data={"rdm_id": rdm_id},
+        input_data=input_data,
         actor_id=actor,
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")

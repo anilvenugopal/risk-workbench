@@ -32,8 +32,6 @@ from urllib.parse import quote, urlsplit
 
 from sqlalchemy import text
 
-from db import (execute, execute_one, execute_scalar, execute_command,
-                get_connection, row_limit)
 from app.config import settings
 from app.services._common import _uid, _utcnow
 from app.services.errors import (
@@ -41,6 +39,14 @@ from app.services.errors import (
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
+)
+from db import (
+    execute,
+    execute_command,
+    execute_one,
+    execute_scalar,
+    get_connection,
+    row_limit,
 )
 
 ACTIVE = "ACTIVE"
@@ -149,6 +155,26 @@ class SubmissionRdm:
     status: str | None
     analysis_count: int
     rm_url: str | None
+
+
+@dataclass(frozen=True)
+class EntityCandidate:
+    id: str
+    name: str
+    status: str | None
+
+
+@dataclass(frozen=True)
+class CandidatePage:
+    rows: list[EntityCandidate]
+    page: int
+    has_next: bool
+
+
+@dataclass(frozen=True)
+class AttachResult:
+    attached_ids: list[str]
+    stale_ids: list[str]
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
@@ -393,8 +419,7 @@ def create_submission(
         "now": now,
         "actor": actor,
     }
-    with get_connection("WORKBENCH") as conn:
-        with conn.begin():
+    with get_connection("WORKBENCH") as conn, conn.begin():
             conn.execute(text(
                 """
                 INSERT INTO submission
@@ -513,6 +538,151 @@ def list_submission_rdms(submission_id: Any) -> list[SubmissionRdm]:
         )
         for row in rows
     ]
+
+
+def _list_entity_candidates(
+    *, submission_id: Any, query: str, page: int, kind: str,
+) -> CandidatePage:
+    page = max(1, page)
+    entity_table = "irp_edm" if kind == "edm" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    params: dict[str, Any] = {"submission_id": str(submission_id)}
+    where = (
+        "e.deleted_at IS NULL AND NOT EXISTS ("
+        f"SELECT 1 FROM {association_table} a "
+        f"WHERE a.submission_id = :submission_id AND a.{entity_column} = e.id)"
+    )
+    cleaned_query = query.strip()
+    if cleaned_query:
+        where += " AND LOWER(e.name) LIKE :query ESCAPE '\\'"
+        params["query"] = f"%{_escape_like(cleaned_query.lower())}%"
+    sql = (
+        f"SELECT e.id, e.name, e.status FROM {entity_table} e "
+        f"WHERE {where} ORDER BY e.name, e.id "
+        + row_limit(PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE)
+    )
+    rows = execute(sql, params, connection="WORKBENCH")
+    has_next = len(rows) > PAGE_SIZE
+    return CandidatePage(
+        rows=[EntityCandidate(id=_uid(row["id"]), name=row["name"],
+                              status=row["status"])
+              for row in rows[:PAGE_SIZE]],
+        page=page,
+        has_next=has_next,
+    )
+
+
+def list_edm_candidates(
+    submission_id: Any, *, query: str = "", page: int = 1,
+) -> CandidatePage:
+    return _list_entity_candidates(
+        submission_id=submission_id, query=query, page=page, kind="edm")
+
+
+def list_rdm_candidates(
+    submission_id: Any, *, query: str = "", page: int = 1,
+) -> CandidatePage:
+    return _list_entity_candidates(
+        submission_id=submission_id, query=query, page=page, kind="rdm")
+
+
+def _attach_entities(
+    *, submission_id: Any, entity_ids: list[Any], actor_id: Any, kind: str,
+) -> AttachResult:
+    sid = str(submission_id)
+    entity_table = "irp_edm" if kind == "edm" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    normalized: list[str] = []
+    stale: list[str] = []
+    seen: set[str] = set()
+    for value in entity_ids:
+        raw_value = str(value).strip()
+        if raw_value in seen:
+            continue
+        seen.add(raw_value)
+        entity_id = _as_uuid(value)
+        if entity_id is None:
+            stale.append(raw_value)
+        elif entity_id not in normalized:
+            normalized.append(entity_id)
+
+    attached: list[str] = []
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        status = conn.execute(
+            text("SELECT status_code FROM submission WHERE id = :id"),
+            {"id": sid},
+        ).scalar()
+        _require_active(status)
+        for entity_id in normalized:
+            eligible = conn.execute(text(
+                f"SELECT e.id FROM {entity_table} e "
+                "WHERE e.id = :entity_id AND e.deleted_at IS NULL "
+                "AND NOT EXISTS ("
+                f"SELECT 1 FROM {association_table} a "
+                "WHERE a.submission_id = :submission_id "
+                f"AND a.{entity_column} = e.id)"
+            ), {"entity_id": entity_id, "submission_id": sid}).first()
+            if eligible is None:
+                stale.append(entity_id)
+                continue
+            conn.execute(text(
+                f"INSERT INTO {association_table} "
+                f"(submission_id, {entity_column}, inserted_at, inserted_by) "
+                "VALUES (:submission_id, :entity_id, :now, :actor)"
+            ), {"submission_id": sid, "entity_id": entity_id,
+                "now": _utcnow(), "actor": str(actor_id)})
+            attached.append(entity_id)
+    return AttachResult(attached_ids=attached, stale_ids=stale)
+
+
+def attach_edms(
+    *, submission_id: Any, edm_ids: list[Any], actor_id: Any,
+) -> AttachResult:
+    return _attach_entities(
+        submission_id=submission_id, entity_ids=edm_ids,
+        actor_id=actor_id, kind="edm")
+
+
+def attach_rdms(
+    *, submission_id: Any, rdm_ids: list[Any], actor_id: Any,
+) -> AttachResult:
+    return _attach_entities(
+        submission_id=submission_id, entity_ids=rdm_ids,
+        actor_id=actor_id, kind="rdm")
+
+
+def _detach_entity(
+    *, submission_id: Any, entity_id: Any, kind: str,
+) -> bool:
+    sid = str(submission_id)
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    normalized_entity_id = _as_uuid(entity_id)
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        status = conn.execute(
+            text("SELECT status_code FROM submission WHERE id = :id"),
+            {"id": sid},
+        ).scalar()
+        _require_active(status)
+        if normalized_entity_id is None:
+            return False
+        result = conn.execute(text(
+            f"DELETE FROM {association_table} "
+            f"WHERE submission_id = :submission_id AND {entity_column} = :entity_id"
+        ), {"submission_id": sid, "entity_id": normalized_entity_id})
+    return result.rowcount > 0
+
+
+def detach_edm(*, submission_id: Any, edm_id: Any, actor_id: Any) -> bool:
+    return _detach_entity(
+        submission_id=submission_id, entity_id=edm_id, kind="edm")
+
+
+def detach_rdm(*, submission_id: Any, rdm_id: Any, actor_id: Any) -> bool:
+    return _detach_entity(
+        submission_id=submission_id, entity_id=rdm_id, kind="rdm")
 
 
 # The columns the list header can sort on (D15). The request carries the key; the
