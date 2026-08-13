@@ -174,3 +174,26 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         assert row["status_code"] == "pending"
     assert set(sent) == {(job_id, "run_geohaz") for job_id in result.rwb_job_ids}
 
+
+def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
+    edm_id, portfolio_ids = _edm_with_portfolios(1)
+    original_execute = geohaz_service.execute
+
+    def execute_with_uppercase_ids(*args, **kwargs):
+        rows = original_execute(*args, **kwargs)
+        for row in rows:
+            row["id"] = str(row["id"]).upper()
+        return rows
+
+    monkeypatch.setattr(geohaz_service, "execute", execute_with_uppercase_ids)
+
+    result = geohaz_service.launch(
+        edm_id=edm_id,
+        portfolio_ids=portfolio_ids,
+        data_version="25.0",
+        perils=["earthquake"],
+        missing_locations="overwrite",
+        actor_id=iteration2_db.user_a,
+    )
+
+    assert result.portfolio_ids == portfolio_ids

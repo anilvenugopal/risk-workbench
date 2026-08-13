@@ -7,6 +7,7 @@ from typing import Any
 
 from app.config import settings
 from app.services import rwb_job_service
+from app.services._common import _uid
 from app.services.errors import GeohazLaunchConflict, InvalidGeohazLaunch
 from app.workers import dispatch
 from db import execute, execute_one
@@ -76,11 +77,11 @@ def launch(
         raise InvalidGeohazLaunch(
             "Hazard lookup requires at least one portfolio in the EDM.")
 
-    selected_ids = list(dict.fromkeys(str(pid) for pid in portfolio_ids if pid))
+    selected_ids = list(dict.fromkeys(_uid(pid) for pid in portfolio_ids if pid))
     if not selected_ids:
         raise InvalidGeohazLaunch("Select at least one portfolio.")
 
-    by_id = {str(row["id"]): row for row in all_portfolios}
+    by_id = {_uid(row["id"]): row for row in all_portfolios}
     if any(pid not in by_id for pid in selected_ids):
         raise InvalidGeohazLaunch(
             "Every selected portfolio must belong to this EDM.")
