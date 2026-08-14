@@ -32,6 +32,9 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     body = _client().get(f"/edms/{edm_id}").text
 
     assert 'x-data="geohazSelection"' in body
+    assert 'x-ref="selectAll"' in body
+    assert 'aria-label="Select all available portfolios"' in body
+    assert '@click.stop="all($event.target.checked)"' in body
     assert f'value="{portfolio_ids[0]}"' in body
     blocked = body[body.index(f'value="{portfolio_ids[1]}"'):]
     assert "disabled" in blocked.split(">", 1)[0]

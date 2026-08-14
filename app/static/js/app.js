@@ -233,10 +233,22 @@ document.addEventListener('alpine:init', () => {
 
   Alpine.data('geohazSelection', () => ({
     count: 0,
+    total: 0,
     init() { this.refresh(); },
+    boxes() {
+      return this.$root.querySelectorAll(
+        'input[name="portfolio_ids"]:not(:disabled)');
+    },
     refresh() {
-      this.count = this.$root.querySelectorAll(
-        'input[name="portfolio_ids"]:checked:not(:disabled)').length;
+      const boxes = this.boxes();
+      this.total = boxes.length;
+      this.count = Array.from(boxes).filter((box) => box.checked).length;
+      this.$refs.selectAll.checked = this.total > 0 && this.count === this.total;
+      this.$refs.selectAll.indeterminate = this.count > 0 && this.count < this.total;
+    },
+    all(checked) {
+      this.boxes().forEach((box) => { box.checked = checked; });
+      this.refresh();
     },
   }));
 
