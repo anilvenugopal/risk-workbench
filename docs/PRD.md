@@ -557,6 +557,7 @@ An **EDM record** (`irp_edm` table) is distinct from the source file that produc
 - `created_by_irp_job_irp_id`, `as_of` — creation lineage + last-confirmed-against-IRP trust signal
 - `server_name` — the DataBridge server the EDM lives on
 - Submission associations are stored in `submission_edm`; there is no `submission_id` or grouping FK on `irp_edm`.
+- `notes` stores an optional 250-character note shared across every submission related to the EDM.
 
 The EDM is a **DataBridge SQL database** (persistent, storage-limited — never duplicated). There is no `submission_id` or `customer_id` on the EDM. `submission_edm` supplies the many-to-many organization and never restricts row visibility.
 - Soft-delete via `deleted_at`
@@ -575,11 +576,18 @@ An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in
 - `status` — `pending_import`, `importing`, `ready`, `error`, `delete_pending`, `deleted` (plain string)
 - `source_file_path` — nullable string; the shared-drive path of the `.bak`/`.mdf`/`.csv` this RDM was created from (CR-003 M5; replaces `file_artifact_id`)
 - `created_by_irp_job_irp_id`, `as_of`
+- `notes` stores an optional 250-character note shared across every submission related to the RDM.
 - Soft-delete via `deleted_at`
 
 No `submission_id`/`customer_id` — same as the EDM. `submission_rdm` supplies the many-to-many organization and never restricts row visibility.
 
+Every authenticated analyst can edit the shared EDM or RDM note from its detail
+page. Submission tables show the complete wrapped note. Library tables do not show
+notes. Blank input clears the note. Concurrent edits require confirmation before
+one analyst replaces another analyst's saved note.
+
 **RDM operations:**
+
 - **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=rdm_name)` → `irp_job_type = import_rdm` (uploads to S3 first). The import runs once per RDM and does not accept an EDM.
 - **Retrieve broker results (REST)** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; their result data is retrieved via the **same REST result endpoints as own results** (§15.3), deduped once per `rdm_id` into `analysis_result_meta` (§16.1, §17.2). **Not** a DataBridge query.
 - ~~Export to Loss Repository~~ — pushing broker results to the Loss Repository is **out of MVP** (FR §7; §17.4).

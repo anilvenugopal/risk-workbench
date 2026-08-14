@@ -41,6 +41,7 @@ class RdmRow:
     irp_id: int | None
     inserted_at: Any
     updated_at: Any
+    notes: str | None = None
     # Owning submissions (M:N), oldest-first — populated only by ``list_rdms``;
     # defaulted so ``get_rdm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
@@ -115,7 +116,7 @@ def import_rdm(
 
 _ROW_SELECT = (
     "SELECT id, source_file_path, name, irp_id, status, as_of, "
-    "inserted_at, updated_at FROM irp_rdm"
+    "inserted_at, updated_at, notes FROM irp_rdm"
 )
 
 
@@ -125,6 +126,7 @@ def _to_row(row: dict) -> RdmRow:
         source_file_path=row["source_file_path"], irp_id=row["irp_id"],
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"], as_of=row["as_of"],
+        notes=row["notes"],
     )
 
 

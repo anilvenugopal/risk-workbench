@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._entity_notes import save_notes
 from app.services import rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
@@ -233,6 +234,18 @@ def replace_file(
     except ConcurrencyConflict:
         return _detail(request, rdm_id, status_code=409)
     return _detail(request, rdm_id)
+
+
+@router.post("/rdms/{rdm_id}/notes")
+def notes(
+    request: Request, rdm_id: str, notes: str = Form(default=""),
+    original_notes: str = Form(default=""), csrf_token: str = Form(...),
+):
+    return save_notes(
+        request, kind="rdm", entity_id=rdm_id,
+        action=f"/rdms/{rdm_id}/notes", return_url=f"/rdms/{rdm_id}",
+        notes=notes, original_notes=original_notes, csrf_token=csrf_token,
+        get_entity=rdm_service.get_rdm)
 
 
 __all__ = ["router"]

@@ -46,6 +46,10 @@ Risk Modeler EDM and a standalone import.
 Submission lists are derived through `submission_edm` or `submission_rdm`; no cached
 submission ID or count is stored on the entity.
 
+Each table has nullable `notes NVARCHAR(250)`. The note describes the EDM or RDM
+row and is shared by every related submission. Blank input is stored as null.
+Note updates stamp `updated_at` and `updated_by`.
+
 ## 5. `irp_job`
 
 - Remove `package_id` and `ix_irp_job_package_id`.

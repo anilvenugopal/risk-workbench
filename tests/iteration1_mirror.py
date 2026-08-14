@@ -48,13 +48,13 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE irp_edm (
         id TEXT PRIMARY KEY, source_file_path TEXT, name TEXT,
         irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
-        server_name TEXT, status TEXT, deleted_at TEXT,
+        server_name TEXT, notes NVARCHAR(250), status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE irp_rdm (
         id TEXT PRIMARY KEY, source_file_path TEXT, name TEXT,
         irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
-        status TEXT, deleted_at TEXT,
+        notes NVARCHAR(250), status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE submission_edm (

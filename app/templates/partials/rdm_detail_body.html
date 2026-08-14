@@ -17,7 +17,7 @@
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
 <div class="page-pad" id="rdm-detail"
   {%- if live %}
-  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s"
+  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
@@ -59,6 +59,16 @@
       {% endif %}
     </div>
   </div>
+
+  {% set entity_notes = rdm.notes %}
+  {% set note_action = '/rdms/' ~ rdm.id ~ '/notes' %}
+  {% set note_value = note_value|default(rdm.notes or '') %}
+  {% set note_original = note_original|default(rdm.notes or '') %}
+  {% set note_editing = note_editing|default(false) %}
+  {% set note_error = note_error|default(none) %}
+  {% set note_conflict = note_conflict|default(none) %}
+  {% set note_conflict_active = note_conflict_active|default(false) %}
+  {% include "partials/entity_note.html" %}
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if rdm.status == 'error' %}

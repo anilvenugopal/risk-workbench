@@ -46,6 +46,18 @@ def _columns(table: str) -> set[str]:
 
 
 class TestDetailTablesMigration:
+    @pytest.mark.parametrize("table", ["irp_edm", "irp_rdm"])
+    def test_entity_notes_are_nullable_nvarchar_250(self, table):
+        rows = execute(
+            "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "
+            "FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = :table "
+            "AND COLUMN_NAME = 'notes'",
+            {"table": table}, connection="WORKBENCH")
+        assert rows == [{"DATA_TYPE": "nvarchar",
+                         "CHARACTER_MAXIMUM_LENGTH": 250,
+                         "IS_NULLABLE": "YES"}]
+
     @pytest.mark.parametrize("name", DETAIL_TABLES)
     def test_detail_table_exists(self, name):
         assert _table_exists(name) == 1

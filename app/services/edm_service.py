@@ -92,6 +92,7 @@ class EdmRow:
     irp_id: int | None
     inserted_at: Any
     updated_at: Any
+    notes: str | None = None
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
@@ -336,12 +337,13 @@ def _to_row(row: dict) -> EdmRow:
         irp_id=row["irp_id"],
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
+        notes=row["notes"],
     )
 
 
 _ROW_SELECT = (
     "SELECT id, source_file_path, name, irp_id, status, "
-    "inserted_at, updated_at FROM irp_edm"
+    "inserted_at, updated_at, notes FROM irp_edm"
 )
 
 
@@ -437,6 +439,7 @@ class EdmDetail:
     portfolios: list[PortfolioRow]
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
+    notes: str | None = None
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
@@ -533,7 +536,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     eid = str(edm_id)
     row = execute_one(
         "SELECT id, source_file_path, name, irp_id, "
-        "created_by_irp_job_irp_id, as_of, status, inserted_at, updated_at "
+        "created_by_irp_job_irp_id, as_of, status, inserted_at, updated_at, notes "
         "FROM irp_edm WHERE id = :id",
         {"id": eid}, connection="WORKBENCH")
     if row is None:
@@ -565,6 +568,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         portfolios=portfolios,
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
+        notes=row["notes"],
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,

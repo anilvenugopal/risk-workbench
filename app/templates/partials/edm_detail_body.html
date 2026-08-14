@@ -18,7 +18,7 @@
 {% set base_url = detail_base_url|default('/edms/' ~ edm.id) %}
 <div class="page-pad" id="edm-detail"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every 3s"
+  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
@@ -88,6 +88,16 @@
     {% endif %}
     </div>
   </div>
+
+  {% set entity_notes = edm.notes %}
+  {% set note_action = detail_notes_url|default('/edms/' ~ edm.id ~ '/notes') %}
+  {% set note_value = note_value|default(edm.notes or '') %}
+  {% set note_original = note_original|default(edm.notes or '') %}
+  {% set note_editing = note_editing|default(false) %}
+  {% set note_error = note_error|default(none) %}
+  {% set note_conflict = note_conflict|default(none) %}
+  {% set note_conflict_active = note_conflict_active|default(false) %}
+  {% include "partials/entity_note.html" %}
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if edm.status == 'error' %}

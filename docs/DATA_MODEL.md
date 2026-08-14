@@ -194,6 +194,7 @@ erDiagram
     string created_by_irp_job_irp_id "nullable; job whose completion created this EDM"
     datetime as_of "nullable"
     string server_name "IRP DataBridge server"
+    string notes "nullable; NVARCHAR(250); shared across submissions"
     string status "plain string; mirrors IRP lifecycle"
     datetime deleted_at "nullable; soft delete"
     datetime inserted_at
@@ -208,6 +209,7 @@ erDiagram
     int irp_id "nullable; backfilled by poller on import FINISHED"
     string created_by_irp_job_irp_id "nullable"
     datetime as_of "nullable"
+    string notes "nullable; NVARCHAR(250); shared across submissions"
     string status "plain string; mirrors the standalone import lifecycle"
     datetime deleted_at "nullable"
     datetime inserted_at

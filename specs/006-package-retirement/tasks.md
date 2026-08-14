@@ -208,6 +208,15 @@ behavior for each URL.
   only when credentials and the developer's stack are available; report standalone
   RDM import as unverified otherwise.
 
+## Phase 7: EDM and RDM notes
+
+- [x] T047 [FR-023] Add nullable `notes NVARCHAR(250)` to `irp_edm`, `irp_rdm`, and the SQLite mirror.
+- [x] T048 [FR-023] [FR-028] Add EDM/RDM note reads, normalization, updates, and note-only concurrency checks.
+- [x] T049 [FR-024] [FR-026] Add CSRF-protected direct and contextual note routes with 422 and 409 responses.
+- [x] T050 [FR-024] [FR-027] Add the inline note editor and suspend detail polling while it is open.
+- [x] T051 [FR-025] Add wrapped read-only Notes columns to submission EDM and RDM tables.
+- [x] T052 [FR-023] [FR-026] [FR-028] Add unit and SQL Server schema tests for notes.
+
 ## Dependencies
 
 - Phase 1 finishes before implementation so the source documents describe the target.

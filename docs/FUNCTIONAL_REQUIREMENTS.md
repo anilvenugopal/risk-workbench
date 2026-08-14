@@ -211,6 +211,7 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 | An EDM opened from a Submission shows that Submission as its only context link. | Not implemented | See §1 Navigation & drill-down. Other Submission associations do not appear in the navigation trail. |
 | The EDM header shows the as-of / last-synced timestamp. | Implemented |  |
 | A manual Sync action re-reads the EDM from Risk Modeler. | Implemented |  |
+| An EDM and RDM each have one optional shared note, editable from the detail page by any authenticated analyst. | Implemented | The note is limited to 250 characters. Blank input clears it. Submission tables show the complete wrapped note; library tables do not show notes. A stale editor identifies the newer note and requires a second save to replace it. Detail polling pauses while the editor is open. |
 
 **Per-portfolio figures**
 

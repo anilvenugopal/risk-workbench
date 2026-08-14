@@ -45,6 +45,7 @@ undoing valid selections in the same request.
 | GET | `/submissions/{submission_id}/edms/{edm_id}` | EDM detail with source-submission context, EDM selector, and submission RDM rows. |
 | GET | `/submissions/{submission_id}/edms/{edm_id}/body` | Pollable stored EDM-detail partial preserving submission context. |
 | POST | `/submissions/{submission_id}/edms/{edm_id}/sync` | Enqueue EDM detail and submission-RDM backfills; return body partial or redirect. |
+| POST | `/submissions/{submission_id}/edms/{edm_id}/notes` | Validate the association and update the shared EDM note. |
 | GET | `/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses` | Stored analysis rows for one RDM, loaded on disclosure expand. |
 
 Every route validates the named association. A missing submission, missing entity, or
@@ -59,6 +60,12 @@ EDMs related to the named submission and links to the contextual route.
 `GET /edms/{edm_id}` remains the EDM Library detail route. It renders no source
 submission context, no submission EDM selector, and no submission-scoped RDM list.
 Existing RDM library/detail routes remain direct.
+
+`POST /edms/{edm_id}/notes` and `POST /rdms/{rdm_id}/notes` update the shared
+resource note. Each request submits `notes`, `original_notes`, and `csrf_token`.
+Notes longer than 250 characters return 422. A changed `original_notes` value
+returns 409 with the submitted text and newer saved note. The conflict response
+uses the newer note as the next original value, so a second save replaces it.
 
 ## Removed routes
 

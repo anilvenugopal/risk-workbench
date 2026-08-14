@@ -97,6 +97,20 @@ def test_direct_library_page_has_no_submission_context(monkeypatch):
     assert "/submissions/submission-a/edms/" not in response.text
 
 
+def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch):
+    edm = _edm()
+    edm.notes = "Review the treaty mapping."
+    edm.sync_running = True
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: edm)
+
+    response = _client().get("/edms/edm-1")
+
+    assert "Review the treaty mapping." in response.text
+    assert "maxlength=\"250\"" in response.text
+    assert "entity-note--editing" in response.text
+    assert "!document.querySelector('#edm-detail .entity-note--editing')" in response.text
+
+
 def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
     analysis = analysis_service.BrokerAnalysis(
         id="analysis-1", irp_id="301", name="Stored analysis", rdm_id="rdm-1",

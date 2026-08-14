@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._entity_notes import save_notes
 from app.services import analysis_service, edm_service
 from app.services.errors import (
     ConcurrencyConflict,
@@ -248,6 +249,7 @@ def _contextual_template_context(
         "detail_base_url": base_url,
         "detail_body_url": f"{base_url}/body",
         "detail_sync_url": f"{base_url}/sync",
+        "detail_notes_url": f"{base_url}/notes",
     }
 
 
@@ -311,6 +313,22 @@ def contextual_sync(
     if is_htmx:
         return _contextual_body_partial(request, submission_id, edm_id)
     return RedirectResponse(url, status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/notes")
+def contextual_notes(
+    request: Request, submission_id: str, edm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/edms/{edm_id}"
+    if edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
+        return _contextual_not_found(request)
+    return save_notes(
+        request, kind="edm", entity_id=edm_id, action=f"{url}/notes",
+        return_url=url, notes=notes, original_notes=original_notes,
+        csrf_token=csrf_token, get_entity=edm_service.get_edm_detail)
 
 
 @router.get(
@@ -422,6 +440,19 @@ def replace_file(
     except ConcurrencyConflict:
         return _detail(request, edm_id, status_code=409)
     return _detail(request, edm_id)
+
+
+@router.post("/edms/{edm_id}/notes")
+def notes(
+    request: Request, edm_id: str, notes: str = Form(default=""),
+    original_notes: str = Form(default=""), csrf_token: str = Form(...),
+):
+    return save_notes(
+        request, kind="edm", entity_id=edm_id,
+        action=f"/edms/{edm_id}/notes",
+        return_url=f"/edms/{edm_id}", notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+        get_entity=edm_service.get_edm_detail)
 
 
 __all__ = ["router"]

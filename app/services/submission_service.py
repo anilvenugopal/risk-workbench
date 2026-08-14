@@ -146,6 +146,7 @@ class SubmissionEdm:
     status: str | None
     portfolio_count: int
     rm_url: str | None
+    notes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +156,7 @@ class SubmissionRdm:
     status: str | None
     analysis_count: int
     rm_url: str | None
+    notes: str | None = None
 
 
 @dataclass(frozen=True)
@@ -502,11 +504,11 @@ def _risk_modeler_url(name: str, *, kind: str) -> str | None:
 
 def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
     rows = execute(
-        "SELECT e.id, e.name, e.status, COUNT(p.id) AS portfolio_count "
+        "SELECT e.id, e.name, e.status, e.notes, COUNT(p.id) AS portfolio_count "
         "FROM submission_edm se JOIN irp_edm e ON e.id = se.edm_id "
         "LEFT JOIN irp_portfolio p ON p.edm_id = e.id AND p.deleted_at IS NULL "
         "WHERE se.submission_id = :id AND e.deleted_at IS NULL "
-        "GROUP BY e.id, e.name, e.status, e.inserted_at "
+        "GROUP BY e.id, e.name, e.status, e.notes, e.inserted_at "
         "ORDER BY e.inserted_at, e.name",
         {"id": str(submission_id)}, connection="WORKBENCH",
     )
@@ -515,6 +517,7 @@ def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
             id=_uid(row["id"]), name=row["name"], status=row["status"],
             portfolio_count=int(row["portfolio_count"] or 0),
             rm_url=_risk_modeler_url(row["name"], kind="edm"),
+            notes=row["notes"],
         )
         for row in rows
     ]
@@ -522,11 +525,11 @@ def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
 
 def list_submission_rdms(submission_id: Any) -> list[SubmissionRdm]:
     rows = execute(
-        "SELECT r.id, r.name, r.status, COUNT(a.id) AS analysis_count "
+        "SELECT r.id, r.name, r.status, r.notes, COUNT(a.id) AS analysis_count "
         "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
         "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
         "WHERE sr.submission_id = :id AND r.deleted_at IS NULL "
-        "GROUP BY r.id, r.name, r.status, r.inserted_at "
+        "GROUP BY r.id, r.name, r.status, r.notes, r.inserted_at "
         "ORDER BY r.inserted_at, r.name",
         {"id": str(submission_id)}, connection="WORKBENCH",
     )
@@ -535,6 +538,7 @@ def list_submission_rdms(submission_id: Any) -> list[SubmissionRdm]:
             id=_uid(row["id"]), name=row["name"], status=row["status"],
             analysis_count=int(row["analysis_count"] or 0),
             rm_url=_risk_modeler_url(row["name"], kind="rdm"),
+            notes=row["notes"],
         )
         for row in rows
     ]

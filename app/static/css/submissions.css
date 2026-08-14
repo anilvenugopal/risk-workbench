@@ -244,6 +244,8 @@
 .entity-table .rm-col { width: 150px; }
 .entity-table .entity-action-col { width: 190px; text-align: right; }
 .entity-table .entity-name { color: var(--color-brand); font-weight: var(--fw-medium); }
+.entity-table .entity-notes-cell { min-width: 220px; max-width: 420px;
+  white-space: normal; overflow-wrap: anywhere; }
 .entity-table .rm-link { color: var(--color-brand); }
 .entity-table .rm-link::after { content: " ↗"; }
 .entity-table-state { padding: var(--space-6); text-align: center;

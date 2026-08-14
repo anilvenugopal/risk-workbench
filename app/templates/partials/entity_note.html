@@ -1,0 +1,32 @@
+<section class="entity-note{% if note_editing %} entity-note--editing{% endif %}"
+         id="entity-note" x-data="{ editing: {{ 'true' if note_editing else 'false' }} }">
+  <div class="entity-note__head">
+    <h2>Notes</h2>
+    <button class="btn-sm" type="button" x-show="!editing"
+            x-on:click="editing = true; $root.classList.add('entity-note--editing'); $nextTick(() => $refs.note.focus())">Edit</button>
+  </div>
+  <p class="entity-note__text" x-show="!editing">{{ entity_notes or 'No notes.' }}</p>
+  <form method="post" action="{{ note_action }}" x-show="editing"
+        hx-post="{{ note_action }}" hx-target="#entity-note" hx-swap="outerHTML"
+        hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="original_notes" value="{{ note_original or '' }}" x-ref="original">
+    {% if note_error %}<div class="form-banner form-banner--error">{{ note_error }}</div>{% endif %}
+    {% if note_conflict_active %}
+    <div class="form-banner form-banner--error">
+      The note changed while you were editing. The newer saved note is:
+      <span class="entity-note__newer">{{ note_conflict or 'No notes.' }}</span>
+      Save again to replace it.
+    </div>
+    {% endif %}
+    <textarea class="wf-field__input{% if note_error %} wf-field__input--error{% endif %} entity-note__input"
+              name="notes" maxlength="250" rows="3" x-ref="note"
+              x-on:input="$refs.count.textContent = $event.target.value.length">{{ note_value }}</textarea>
+    <div class="entity-note__footer">
+      <span class="entity-note__count"><span x-ref="count">{{ note_value|length }}</span>/250</span>
+      <button class="btn-sm btn-sm--primary" type="submit">Save</button>
+      <button class="btn-sm" type="button"
+              x-on:click="$refs.note.value = $refs.original.value; $refs.count.textContent = $refs.note.value.length; editing = false; $root.classList.remove('entity-note--editing')">Cancel</button>
+    </div>
+  </form>
+</section>

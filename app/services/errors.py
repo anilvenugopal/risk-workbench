@@ -45,6 +45,14 @@ class ConcurrencyConflict(ServiceError):
     someone else wrote the row first. The write is refused, never applied."""
 
 
+class NoteConflict(ConcurrencyConflict):
+    """Raised when a note changed after the analyst opened the editor."""
+
+    def __init__(self, current_note: str | None):
+        super().__init__("The note changed while you were editing it.")
+        self.current_note = current_note
+
+
 class SelfLinkError(ServiceError):
     """Raised when a submission would name itself as its own linked submission."""
 
@@ -86,6 +94,7 @@ __all__ = [
     "ServiceError",
     "SubmissionClosed",
     "ConcurrencyConflict",
+    "NoteConflict",
     "SelfLinkError",
     "UnknownLinkError",
     "InvalidSourceFile",

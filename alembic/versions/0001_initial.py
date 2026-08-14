@@ -223,6 +223,7 @@ def upgrade() -> None:
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),
         sa.Column("server_name", sa.NVARCHAR(255), nullable=True),
+        sa.Column("notes", sa.NVARCHAR(250), nullable=True),
         # plain VARCHAR — external-status mirror (Article 3 carve-out); inert here.
         sa.Column("status", sa.NVARCHAR(50), nullable=True),
         sa.Column("deleted_at", DATETIME2, nullable=True),
@@ -254,6 +255,7 @@ def upgrade() -> None:
         sa.Column("irp_id", sa.Integer, nullable=True),
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),
+        sa.Column("notes", sa.NVARCHAR(250), nullable=True),
         # plain VARCHAR — external-status mirror (Article 3 carve-out); inert here.
         sa.Column("status", sa.NVARCHAR(50), nullable=True),  # no edm_id (data-model §5)
         sa.Column("deleted_at", DATETIME2, nullable=True),
