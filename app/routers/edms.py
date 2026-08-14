@@ -361,7 +361,14 @@ def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
     return _partial(
         request,
         "partials/geohaz_cell.html",
-        {"edm_id": edm_id, "state": state},
+        {
+            "edm_id": edm_id,
+            "state": state,
+            "latest": (
+                geohaz_service.latest_lookup(portfolio_id) if state else None
+            ),
+            "refresh_details": True,
+        },
         status_code=200 if state is not None else 404,
     )
 

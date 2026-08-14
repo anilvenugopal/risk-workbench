@@ -207,14 +207,20 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     assert live.status_code == 200
     assert "RUNNING" in live.text
     assert 'hx-trigger="every 3s"' in live.text
+    assert f'id="geohaz-details-{portfolio_id}"' in live.text
+    assert 'hx-swap-oob="outerHTML"' in live.text
 
     execute_command(
-        "UPDATE irp_job SET status = 'FINISHED' WHERE id = :id",
-        {"id": job_id}, connection="WORKBENCH")
+        "UPDATE irp_job SET status = 'FINISHED', "
+        "completion_summary = :summary WHERE id = :id",
+        {"id": job_id, "summary": "EARTHQUAKE processed 14 Locations."},
+        connection="WORKBENCH")
     terminal = _client().get(cell_url)
     assert terminal.status_code == 200
     assert "Yes" in terminal.text
     assert "hx-trigger" not in terminal.text
+    assert 'hx-swap-oob="outerHTML"' in terminal.text
+    assert "EARTHQUAKE processed 14 Locations." in terminal.text
 
 
 def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):

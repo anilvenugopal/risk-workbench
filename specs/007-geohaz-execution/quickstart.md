@@ -62,6 +62,9 @@ kind row mirrored.
 
 ## 4. Verify the poller/worker hop
 
+Restart the worker after deploying worker code. Dramatiq does not reload an
+already imported job body when the source file changes.
+
 `docker compose logs -f` (or the native poller/worker terminals): the launch
 enqueues `run_geohaz` rwb_jobs; the worker submits and writes `irp_job`
 (status `QUEUED`); the poller's geohaz single-status checks track it to

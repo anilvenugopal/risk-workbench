@@ -5,3 +5,8 @@
   {%- endif %}>
   {% if state %}{{ state.label }}{% else %}<span class="na">&mdash;</span>{% endif %}
 </span>
+{% if refresh_details and state %}
+  {% with portfolio_id=state.portfolio_id, latest=latest, oob=true %}
+    {% include "partials/geohaz_details.html" %}
+  {% endwith %}
+{% endif %}
