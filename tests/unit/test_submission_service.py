@@ -133,6 +133,65 @@ def test_submission_entities_use_direct_associations_and_stored_counts(iteration
     assert [(row.id, row.analysis_count) for row in second_rdms] == [(rdm_id, 1)]
 
 
+def test_submission_entity_tables_sort_by_name_status_and_count(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Sorted entities").submission_id
+    edm_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for edm_id, name, status in zip(
+        edm_ids, ("BravoEDM", "AlphaEDM", "CharlieEDM"),
+        ("ready", "importing", "error"), strict=True,
+    ):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, :status)",
+            {"id": edm_id, "name": name, "status": status},
+            connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH",
+        )
+    for index in range(2):
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+            "VALUES (:id, :edm, :name, :irp)",
+            {"id": str(uuid.uuid4()), "edm": edm_ids[0],
+             "name": f"Portfolio{index}", "irp": str(index)},
+            connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '3')",
+        {"id": str(uuid.uuid4()), "edm": edm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.name for row in svc.list_submission_edms(
+        submission_id, sort="name", descending=True)] == [
+            "CharlieEDM", "BravoEDM", "AlphaEDM"]
+    assert [row.status for row in svc.list_submission_edms(
+        submission_id, sort="status")] == ["error", "importing", "ready"]
+    assert [row.portfolio_count for row in svc.list_submission_edms(
+        submission_id, sort="count", descending=True)] == [2, 1, 0]
+
+    rdm_ids = [str(uuid.uuid4()) for _ in range(2)]
+    for rdm_id, name in zip(rdm_ids, ("SmallRDM", "LargeRDM"), strict=True):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": rdm_id, "name": name}, connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_analysis "
+        "(id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'LargeRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.analysis_count for row in svc.list_submission_rdms(
+        submission_id, sort="count", descending=True)] == [1, 0]
+
+
 def test_submission_import_creates_entity_association_and_provenance(
     iteration2_db, fake_irp, drive,
 ):

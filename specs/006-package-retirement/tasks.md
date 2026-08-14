@@ -217,6 +217,12 @@ behavior for each URL.
 - [x] T051 [FR-025] Add wrapped read-only Notes columns to submission EDM and RDM tables.
 - [x] T052 [FR-023] [FR-026] [FR-028] Add unit and SQL Server schema tests for notes.
 
+## Phase 8: Submission table sorting and Risk Modeler links
+
+- [x] T053 [FR-006] Add independent Name, Status, and count sorting to the submission EDM and RDM tables and retain both orders during polling.
+- [x] T054 [FR-006] Show Risk Modeler links only for EDMs/RDMs whose status is `ready`.
+- [x] T055 [FR-006] Add service and route tests for table ordering, URL state, and ready-only Risk Modeler links.
+
 ## Dependencies
 
 - Phase 1 finishes before implementation so the source documents describe the target.

@@ -206,14 +206,67 @@ def _entity_backfill_running(kind: str, entities: list) -> bool:
     )
 
 
+def _entity_sort_state(request: Request) -> dict[str, tuple[str, bool]]:
+    state = {}
+    for kind in ("edm", "rdm"):
+        sort = request.query_params.get(
+            f"{kind}_sort", submission_service.ENTITY_TABLE_DEFAULT_SORT)
+        if sort not in submission_service.ENTITY_TABLE_SORTS:
+            sort = submission_service.ENTITY_TABLE_DEFAULT_SORT
+        direction = request.query_params.get(f"{kind}_dir", "asc")
+        state[kind] = (sort, direction == "desc")
+    return state
+
+
+def _entity_sort_query(state: dict[str, tuple[str, bool]]) -> str:
+    return urlencode([
+        ("edm_sort", state["edm"][0]),
+        ("edm_dir", "desc" if state["edm"][1] else "asc"),
+        ("rdm_sort", state["rdm"][0]),
+        ("rdm_dir", "desc" if state["rdm"][1] else "asc"),
+    ])
+
+
+def _entity_sort_links(
+    submission_id: str, kind: str, state: dict[str, tuple[str, bool]],
+) -> dict[str, dict]:
+    current_sort, current_descending = state[kind]
+    links = {}
+    for sort in submission_service.ENTITY_TABLE_SORTS:
+        active = sort == current_sort
+        next_descending = (
+            not current_descending if active
+            else submission_service.ENTITY_TABLE_SORT_STARTS_DESCENDING[sort]
+        )
+        next_state = dict(state)
+        next_state[kind] = (sort, next_descending)
+        query = _entity_sort_query(next_state)
+        links[sort] = {
+            "href": f"/submissions/{submission_id}?{query}",
+            "partial_href": f"/submissions/{submission_id}/{kind}s/table?{query}",
+            "active": active,
+            "aria": (
+                "descending" if current_descending else "ascending"
+            ) if active else "none",
+            "caret": ("▼" if current_descending else "▲") if active else "",
+        }
+    return links
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
     analysts = _active_analysts()
-    submission_edms = submission_service.list_submission_edms(submission_id)
-    submission_rdms = submission_service.list_submission_rdms(submission_id)
+    sort_state = _entity_sort_state(request)
+    edm_sort, edm_descending = sort_state["edm"]
+    rdm_sort, rdm_descending = sort_state["rdm"]
+    submission_edms = submission_service.list_submission_edms(
+        submission_id, sort=edm_sort, descending=edm_descending)
+    submission_rdms = submission_service.list_submission_rdms(
+        submission_id, sort=rdm_sort, descending=rdm_descending)
+    sort_query = _entity_sort_query(sort_state)
     return {
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
@@ -222,6 +275,10 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "submission_rdms": submission_rdms,
         "edm_backfill_running": _entity_backfill_running("edm", submission_edms),
         "rdm_backfill_running": _entity_backfill_running("rdm", submission_rdms),
+        "edm_sort_links": _entity_sort_links(submission_id, "edm", sort_state),
+        "rdm_sort_links": _entity_sort_links(submission_id, "rdm", sort_state),
+        "edm_table_url": f"/submissions/{submission_id}/edms/table?{sort_query}",
+        "rdm_table_url": f"/submissions/{submission_id}/rdms/table?{sort_query}",
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
         "analysts": analysts,
@@ -250,19 +307,32 @@ def _entity_table_response(
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
+    sort_state = _entity_sort_state(request)
+    entity_sort, entity_descending = sort_state[kind]
+    sort_query = _entity_sort_query(sort_state)
     if kind == "edm":
         template = "partials/submission_edm_table.html"
-        entities = submission_service.list_submission_edms(submission_id)
+        entities = submission_service.list_submission_edms(
+            submission_id, sort=entity_sort, descending=entity_descending)
         rows = {
             "submission_edms": entities,
             "edm_backfill_running": _entity_backfill_running("edm", entities),
+            "edm_sort_links": _entity_sort_links(
+                submission_id, "edm", sort_state),
+            "edm_table_url": (
+                f"/submissions/{submission_id}/edms/table?{sort_query}"),
         }
     else:
         template = "partials/submission_rdm_table.html"
-        entities = submission_service.list_submission_rdms(submission_id)
+        entities = submission_service.list_submission_rdms(
+            submission_id, sort=entity_sort, descending=entity_descending)
         rows = {
             "submission_rdms": entities,
             "rdm_backfill_running": _entity_backfill_running("rdm", entities),
+            "rdm_sort_links": _entity_sort_links(
+                submission_id, "rdm", sort_state),
+            "rdm_table_url": (
+                f"/submissions/{submission_id}/rdms/table?{sort_query}"),
         }
     return _partial(request, template, {
         "submission": submission,

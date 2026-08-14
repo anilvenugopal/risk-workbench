@@ -1,7 +1,15 @@
+{% macro sort_th(link, title, class_name='') %}
+<th{% if class_name %} class="{{ class_name }}"{% endif %} aria-sort="{{ link.aria }}">
+  <a class="sort-th{{ ' is-sorted' if link.active }}" href="{{ link.href }}"
+     hx-get="{{ link.partial_href }}" hx-target="#submission-rdm-section"
+     hx-swap="outerHTML" hx-push-url="{{ link.href }}">{{ title
+    }}<span class="sort-th__caret" aria-hidden="true">{{ link.caret }}</span></a>
+</th>
+{% endmacro %}
 {% set live = rdm_backfill_running or submission_rdms | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
 <section id="submission-rdm-section"
   {%- if live %}
-  hx-get="/submissions/{{ submission.id }}/rdms/table" hx-trigger="every 3s"
+  hx-get="{{ rdm_table_url }}" hx-trigger="every 3s"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 {% if entity_message %}<div class="form-banner">{{ entity_message }}</div>{% endif %}
@@ -15,7 +23,7 @@
 </div>
 <div class="entity-table-wrap">
   <table class="mk-table entity-table">
-    <thead><tr><th>Name</th><th class="status-col">Status</th><th>Notes</th><th class="count-col">Analysis count</th><th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
+    <thead><tr>{{ sort_th(rdm_sort_links.name, 'Name') }}{{ sort_th(rdm_sort_links.status, 'Status', 'status-col') }}<th>Notes</th>{{ sort_th(rdm_sort_links.count, 'Analysis count', 'count-col') }}<th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
     <tbody>
     {% for rdm in submission_rdms %}
       <tr>
@@ -23,7 +31,7 @@
         <td class="status-col"><span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">{{ (rdm.status or 'unknown')|replace('_', ' ') }}</span></td>
         <td class="entity-notes-cell">{{ rdm.notes or '—' }}</td>
         <td class="count-col">{% if rdm.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ rdm.analysis_count }}{% endif %}</td>
-        <td>{% if rdm.rm_url %}<a class="rm-link" href="{{ rdm.rm_url }}" target="_blank" rel="noopener">Open</a>{% else %}<span class="na">Unavailable</span>{% endif %}</td>
+        <td>{% if rdm.status == 'ready' and rdm.rm_url %}<a class="rm-link" href="{{ rdm.rm_url }}" target="_blank" rel="noopener">Open</a>{% elif rdm.status != 'ready' %}<span class="na">Available when ready</span>{% else %}<span class="na">Unavailable</span>{% endif %}</td>
         {% if is_active %}<td class="entity-action-col"><form method="post" action="/submissions/{{ submission.id }}/rdms/{{ rdm.id }}/detach" hx-post="/submissions/{{ submission.id }}/rdms/{{ rdm.id }}/detach" hx-target="#submission-rdm-section" hx-swap="outerHTML" hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"><input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}"><button class="btn-sm btn-sm--danger" type="submit">Remove from submission</button></form></td>{% endif %}
       </tr>
     {% endfor %}

@@ -140,6 +140,72 @@ def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
     assert "Packages" not in body
 
 
+def test_submission_entity_table_sort_updates_order_and_submission_url(client):
+    created = client.post("/submissions", data=_payload(name="Sortable entities"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    for name in ("AlphaEDM", "ZuluEDM"):
+        entity_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+        )
+
+    response = client.get(
+        f"/submissions/{submission_id}/edms/table"
+        "?edm_sort=name&edm_dir=desc&rdm_sort=status&rdm_dir=asc")
+
+    assert response.text.index("ZuluEDM") < response.text.index("AlphaEDM")
+    assert 'aria-sort="descending"' in response.text
+    assert "edm_sort=name&amp;edm_dir=asc" in response.text
+    assert "rdm_sort=status&amp;rdm_dir=asc" in response.text
+    assert f'hx-push-url="/submissions/{submission_id}?' in response.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id"),
+    ],
+)
+def test_submission_entity_table_hides_risk_modeler_link_until_ready(
+    client, monkeypatch, kind, table, association_table, entity_column,
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
+    created = client.post("/submissions", data=_payload(name=f"Hidden link {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) "
+        "VALUES (:id, 'PendingResource', 'importing')",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+
+    pending = client.get(f"/submissions/{submission_id}/{kind}/table")
+    assert "Open" not in pending.text
+    assert "Available when ready" in pending.text
+
+    execute_command(
+        f"UPDATE {table} SET status = 'ready' WHERE id = :id",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    ready = client.get(f"/submissions/{submission_id}/{kind}/table")
+    assert "Open" in ready.text
+    assert "Available when ready" not in ready.text
+
+
 @pytest.mark.parametrize(
     ("kind", "table", "association_table", "entity_column", "name"),
     [
@@ -167,7 +233,7 @@ def test_submission_entity_table_polls_until_import_is_terminal(
     live = client.get(f"/submissions/{submission_id}/{kind}/table")
 
     assert live.status_code == 200
-    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in live.text
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
     assert 'hx-trigger="every 3s"' in live.text
     assert "Status" in live.text
     assert "importing" in live.text
@@ -218,9 +284,9 @@ def test_submission_entity_table_polls_until_backfill_is_terminal(
     live = client.get(f"/submissions/{submission_id}/{kind}/table")
 
     assert detail.status_code == 200
-    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in detail.text
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in detail.text
     assert live.status_code == 200
-    assert f'hx-get="/submissions/{submission_id}/{kind}/table"' in live.text
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
     assert 'hx-trigger="every 3s"' in live.text
 
     execute_command(

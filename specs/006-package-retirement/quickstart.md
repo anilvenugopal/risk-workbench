@@ -35,10 +35,11 @@ until the IRP tier runs with the intended production-version integration package
 
 1. Navigate to a submission with no data; confirm specific EDM and RDM empty states.
 2. Navigate to a submission with several EDMs/RDMs; confirm both tables remain visible.
-3. Confirm the EDM table shows Name, Portfolio count, and Risk Modeler links. Confirm
-   the RDM table shows Name, Analysis count, and Risk Modeler links. Navigate to an
-   EDM and an RDM.
-4. Confirm no Package label, card, modal, action, or URL remains.
+3. Sort each table by Name, Status, and count. Confirm sorting one table does not
+   change the other table and that polling retains both selected orders.
+4. Confirm only ready EDMs/RDMs show Risk Modeler links. Navigate to a ready EDM
+   and RDM, and confirm an importing row says the link will be available when ready.
+5. Confirm no Package label, card, modal, action, or URL remains.
 
 Stop for approver click-through before user story 2.
 

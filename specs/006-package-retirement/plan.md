@@ -8,6 +8,7 @@
   current requirements, and execution diagrams.
 - Add `submission_edm` and `submission_rdm`; one physical EDM/RDM can serve several submissions.
 - Replace package cards with always-visible EDM and RDM tables on submission detail.
+- Sort each submission EDM/RDM table by Name, Status, or count and show Risk Modeler links only for ready resources.
 - Add direct-import and add-existing actions at the submission level.
 - Add contextual EDM URLs so the source submission, EDM selector, and RDM list are deterministic.
 - Load one RDM's stored analyses only when its row expands.

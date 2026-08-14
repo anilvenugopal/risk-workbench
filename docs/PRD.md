@@ -509,10 +509,12 @@ Master-detail pattern: filterable list (Owner defaulting to the signed-in analys
 ### 7.4 Submission detail — EDM and RDM tables
 
 Submission detail shows separate, always-visible EDM and RDM tables. The EDM table
-shows Name, Portfolio count, and a Risk Modeler link. The RDM table shows Name,
-Analysis count, and a Risk Modeler link. Each table has its own empty state and add
-action. The tables do not expand or collapse. Each table refreshes while an import
-or subsequent detail backfill for a listed EDM or RDM is pending or running.
+shows Name and Portfolio count. The RDM table shows Name and Analysis count. Ready
+resources show a Risk Modeler link; importing resources do not. Name, Status, and
+count are independently sortable in each table, and the selected orders remain
+during polling. The tables do not have search. Each table has its own empty state
+and add action. The tables do not expand or collapse. Each table refreshes while an
+import or subsequent detail backfill for a listed EDM or RDM is pending or running.
 
 An EDM link from this page uses `/submissions/{submission_id}/edms/{edm_id}` so
 the source submission is explicit. The direct `/edms/{edm_id}` library route stays

@@ -56,6 +56,14 @@ ACTIVE = "ACTIVE"
 # `_attach_crm_ids` binds, which SQL Server limits to 2,100 per statement.
 PAGE_SIZE = 50
 
+ENTITY_TABLE_SORTS = ("name", "status", "count")
+ENTITY_TABLE_DEFAULT_SORT = "name"
+ENTITY_TABLE_SORT_STARTS_DESCENDING = {
+    "name": False,
+    "status": False,
+    "count": True,
+}
+
 
 # ── Result / row DTOs (contracts/data-access.md) ─────────────────────────────
 
@@ -502,14 +510,32 @@ def _risk_modeler_url(name: str, *, kind: str) -> str | None:
     return f"{root}/analyses?sourceRdmName={quote(name, safe='')}"
 
 
-def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
+def _entity_table_order(
+    sort: str, descending: bool, *, entity_alias: str, count_alias: str,
+) -> str:
+    columns = {
+        "name": f"{entity_alias}.name",
+        "status": f"{entity_alias}.status",
+        "count": count_alias,
+    }
+    column = columns.get(sort, columns[ENTITY_TABLE_DEFAULT_SORT])
+    direction = "DESC" if descending else "ASC"
+    return f"{column} {direction}, {entity_alias}.name ASC, {entity_alias}.id ASC"
+
+
+def list_submission_edms(
+    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
+    descending: bool = False,
+) -> list[SubmissionEdm]:
+    order_by = _entity_table_order(
+        sort, descending, entity_alias="e", count_alias="portfolio_count")
     rows = execute(
         "SELECT e.id, e.name, e.status, e.notes, COUNT(p.id) AS portfolio_count "
         "FROM submission_edm se JOIN irp_edm e ON e.id = se.edm_id "
         "LEFT JOIN irp_portfolio p ON p.edm_id = e.id AND p.deleted_at IS NULL "
         "WHERE se.submission_id = :id AND e.deleted_at IS NULL "
         "GROUP BY e.id, e.name, e.status, e.notes, e.inserted_at "
-        "ORDER BY e.inserted_at, e.name",
+        f"ORDER BY {order_by}",
         {"id": str(submission_id)}, connection="WORKBENCH",
     )
     return [
@@ -523,14 +549,19 @@ def list_submission_edms(submission_id: Any) -> list[SubmissionEdm]:
     ]
 
 
-def list_submission_rdms(submission_id: Any) -> list[SubmissionRdm]:
+def list_submission_rdms(
+    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
+    descending: bool = False,
+) -> list[SubmissionRdm]:
+    order_by = _entity_table_order(
+        sort, descending, entity_alias="r", count_alias="analysis_count")
     rows = execute(
         "SELECT r.id, r.name, r.status, r.notes, COUNT(a.id) AS analysis_count "
         "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
         "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
         "WHERE sr.submission_id = :id AND r.deleted_at IS NULL "
         "GROUP BY r.id, r.name, r.status, r.notes, r.inserted_at "
-        "ORDER BY r.inserted_at, r.name",
+        f"ORDER BY {order_by}",
         {"id": str(submission_id)}, connection="WORKBENCH",
     )
     return [
