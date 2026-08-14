@@ -184,6 +184,7 @@ def test_geohaz_alpine_components_are_registered_in_app_js():
     assert "Alpine.data('geohazSelection'" in source
     assert "Alpine.data('geohazModal'" in source
     assert "replaceFromError" in source
+    assert "new MutationObserver(() => this.refresh())" in source
 
 
 def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
@@ -212,6 +213,7 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     assert 'hx-trigger="every 3s"' in live.text
     assert f'id="geohaz-details-{portfolio_id}"' in live.text
     assert 'hx-swap-oob="outerHTML"' in live.text
+    assert f'id="geohaz-pick-{portfolio_id}"' not in live.text
 
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED', "
@@ -224,6 +226,9 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     assert "hx-trigger" not in terminal.text
     assert 'hx-swap-oob="outerHTML"' in terminal.text
     assert "EARTHQUAKE processed 14 Locations." in terminal.text
+    terminal_checkbox = terminal.text[
+        terminal.text.index(f'id="geohaz-pick-{portfolio_id}"'):]
+    assert "disabled" not in terminal_checkbox.split("</span>", 1)[0]
 
 
 def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):

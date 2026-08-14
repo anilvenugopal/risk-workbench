@@ -27,6 +27,7 @@ class LaunchResult:
 @dataclass(frozen=True)
 class CellState:
     portfolio_id: str
+    portfolio_name: str
     label: str
     kind: str
     live: bool
@@ -81,7 +82,7 @@ def _read_states(*, edm_id: Any | None = None,
               AND rwb_job_type = 'run_geohaz'
             GROUP BY requestor_id
         )
-        SELECT p.id,
+        SELECT p.id, p.name,
                COALESCE(j.job_count, 0) AS job_count,
                COALESCE(j.has_finished, 0) AS has_finished,
                COALESCE(j.has_live_job, 0) AS has_live_job,
@@ -99,15 +100,16 @@ def _read_states(*, edm_id: Any | None = None,
     for row in rows:
         pid = _uid(row["id"])
         if row["has_live_head"] and not row["has_live_job"]:
-            state = CellState(pid, "Queued", "live", True)
+            state = CellState(pid, row["name"], "Queued", "live", True)
         elif row["has_live_job"]:
-            state = CellState(pid, row["live_status"] or "Queued", "live", True)
+            state = CellState(
+                pid, row["name"], row["live_status"] or "Queued", "live", True)
         elif row["has_finished"]:
-            state = CellState(pid, "Yes", "yes", False)
+            state = CellState(pid, row["name"], "Yes", "yes", False)
         elif row["job_count"]:
-            state = CellState(pid, "Failed", "failed", False)
+            state = CellState(pid, row["name"], "Failed", "failed", False)
         else:
-            state = CellState(pid, "No", "no", False)
+            state = CellState(pid, row["name"], "No", "no", False)
         states[pid] = state
     return states
 

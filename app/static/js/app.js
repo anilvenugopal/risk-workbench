@@ -234,7 +234,13 @@ document.addEventListener('alpine:init', () => {
   Alpine.data('geohazSelection', () => ({
     count: 0,
     total: 0,
-    init() { this.refresh(); },
+    observer: null,
+    init() {
+      this.refresh();
+      this.observer = new MutationObserver(() => this.refresh());
+      this.observer.observe(this.$root, { childList: true, subtree: true });
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
       return this.$root.querySelectorAll(
         'input[name="portfolio_ids"]:not(:disabled)');
