@@ -520,6 +520,8 @@ def _entity_table_order(
     }
     column = columns.get(sort, columns[ENTITY_TABLE_DEFAULT_SORT])
     direction = "DESC" if descending else "ASC"
+    if column == f"{entity_alias}.name":
+        return f"{column} {direction}, {entity_alias}.id ASC"
     return f"{column} {direction}, {entity_alias}.name ASC, {entity_alias}.id ASC"
 
 

@@ -192,6 +192,23 @@ def test_submission_entity_tables_sort_by_name_status_and_count(iteration2_db):
         submission_id, sort="count", descending=True)] == [1, 0]
 
 
+@pytest.mark.parametrize(
+    ("sort", "descending", "expected"),
+    [
+        ("name", False, "e.name ASC, e.id ASC"),
+        ("name", True, "e.name DESC, e.id ASC"),
+        ("status", False, "e.status ASC, e.name ASC, e.id ASC"),
+        ("count", True, "portfolio_count DESC, e.name ASC, e.id ASC"),
+    ],
+)
+def test_submission_entity_table_order_uses_unique_columns(
+    sort, descending, expected,
+):
+    assert svc._entity_table_order(
+        sort, descending, entity_alias="e", count_alias="portfolio_count",
+    ) == expected
+
+
 def test_submission_import_creates_entity_association_and_provenance(
     iteration2_db, fake_irp, drive,
 ):
