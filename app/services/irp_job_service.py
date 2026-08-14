@@ -70,9 +70,9 @@ def record_submitted_irp_job(
     irp_id: str, resource_uri: str | None = None,
     payload: dict | None = None, response: dict | None = None,
     request_params: dict | None = None,
-    actor_id: Any | None = None, conn=None,
+    actor_id: Any | None = None, status: str = "QUEUED", conn=None,
 ) -> str:
-    """Worker-side: write the ``irp_job`` (status ``QUEUED``, ``irp_id`` set) plus
+    """Worker-side: write the submitted ``irp_job`` (``irp_id`` set) plus
     any ``irp_job_resource`` (the ``resource_uri`` captured at submit — the
     completion response omits it, R1). Returns the new ``irp_job`` id."""
     job_id = str(uuid.uuid4())
@@ -82,7 +82,7 @@ def record_submitted_irp_job(
             c, job_id=job_id, package_id=package_id, irp_edm_id=irp_edm_id,
             irp_portfolio_id=irp_portfolio_id, irp_rdm_id=irp_rdm_id,
             irp_job_type=irp_job_type, irp_id=irp_id,
-            status="QUEUED", payload=payload, response=response,
+            status=status, payload=payload, response=response,
             request_params=request_params, attempt_count=0,
             actor_id=actor_id, now=now)
         if resource_uri is not None:

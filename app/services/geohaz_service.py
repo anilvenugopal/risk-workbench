@@ -100,10 +100,10 @@ def _read_states(*, edm_id: Any | None = None,
     for row in rows:
         pid = _uid(row["id"])
         if row["has_live_head"] and not row["has_live_job"]:
-            state = CellState(pid, row["name"], "Queued", "live", True)
+            state = CellState(pid, row["name"], "SUBMITTING", "live", True)
         elif row["has_live_job"]:
             state = CellState(
-                pid, row["name"], row["live_status"] or "Queued", "live", True)
+                pid, row["name"], row["live_status"] or "SUBMITTED", "live", True)
         elif row["has_finished"]:
             state = CellState(pid, row["name"], "Yes", "yes", False)
         elif row["job_count"]:

@@ -45,7 +45,8 @@ kind row mirrored.
    unchecked, and Overwrite user-defined hazard values checked. No
    geocoding option exists (FR-005).
 3. Deselect both perils → submit blocked (FR-002). Re-check one, submit.
-4. Both portfolios' cells show **Queued** immediately, then RM statuses,
+4. Both portfolios' cells show **SUBMITTING** immediately, **SUBMITTED** after
+   Risk Modeler accepts each job, then Risk Modeler statuses,
    refreshing without a reload (watch the network tab: per-cell 3s polls that
    stop at terminal — SC-002). No request to Risk Modeler appears on any page
    render.
@@ -67,7 +68,8 @@ already imported job body when the source file changes.
 
 `docker compose logs -f` (or the native poller/worker terminals): the launch
 enqueues `run_geohaz` rwb_jobs; the worker submits and writes `irp_job`
-(status `QUEUED`); the poller's geohaz single-status checks track it to
+(app-local status `SUBMITTED`); the poller's first geohaz status check replaces
+that value with Risk Modeler's status and tracks the job to
 terminal and store `last_completion_result`.
 
 ## 5. IRP sandbox capture (required before the feature is called done — R7/T-04)

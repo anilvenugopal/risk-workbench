@@ -202,12 +202,17 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
     assert result.portfolio_ids == portfolio_ids
 
 
-def test_lookup_states_cover_queued_live_success_failed_and_no(iteration2_db):
-    edm_id, portfolio_ids = _edm_with_portfolios(5)
-    queued, live, succeeded, failed, never = portfolio_ids
+def test_lookup_states_cover_submitting_submitted_live_success_failed_and_no(
+    iteration2_db,
+):
+    edm_id, portfolio_ids = _edm_with_portfolios(6)
+    submitting, submitted, live, succeeded, failed, never = portfolio_ids
     rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=queued,
+        requestor_type="analyst_request", requestor_id=submitting,
         rwb_job_type="run_geohaz", input_data={})
+    irp_job_service.record_submitted_irp_job(
+        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=submitted, irp_id="909", status="SUBMITTED")
     live_job = irp_job_service.record_submitted_irp_job(
         package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=live, irp_id="910")
@@ -229,7 +234,10 @@ def test_lookup_states_cover_queued_live_success_failed_and_no(iteration2_db):
 
     states = geohaz_service.lookup_states(edm_id)
 
-    assert states[queued].label == "Queued" and states[queued].live is True
+    assert states[submitting].label == "SUBMITTING"
+    assert states[submitting].live is True
+    assert states[submitted].label == "SUBMITTED"
+    assert states[submitted].live is True
     assert states[live].label == "RUNNING" and states[live].live is True
     assert states[succeeded].label == "Yes" and states[succeeded].live is False
     assert states[failed].label == "Failed" and states[failed].live is False

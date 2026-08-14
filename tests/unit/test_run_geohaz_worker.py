@@ -31,7 +31,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     job = execute_one(
         "SELECT * FROM irp_job WHERE irp_job_type = 'geohaz'",
         {}, connection="WORKBENCH")
-    assert job["status"] == "QUEUED"
+    assert job["status"] == "SUBMITTED"
     assert str(job["irp_edm_id"]) == edm_id
     assert str(job["irp_portfolio_id"]) == portfolio_ids[0]
     assert str(job["inserted_by"]) == iteration2_db.user_a
@@ -97,7 +97,7 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
     assert json.loads(failed["request_params"]) == launched.request_params
     assert str(failed["inserted_by"]) == iteration2_db.user_b
     succeeded = by_portfolio[portfolio_ids[1]]
-    assert succeeded["status"] == "QUEUED"
+    assert succeeded["status"] == "SUBMITTED"
     assert succeeded["irp_id"] is not None
 
     heads = {

@@ -26,7 +26,7 @@ def launch(*, edm_id, portfolio_ids: list, data_version: str,
 ```python
 def lookup_states(edm_id) -> dict[portfolio_id, CellState]
     # one grouped query over geohaz irp_job rows + pending/claimed run_geohaz
-    # heads for the whole table render (data-model §4: Queued/status/Yes/Failed/No)
+    # heads for the whole table render (data-model §4: SUBMITTING/status/Yes/Failed/No)
 
 def cell_state(portfolio_id) -> CellState
     # single-portfolio variant for the poll fragment; CellState carries

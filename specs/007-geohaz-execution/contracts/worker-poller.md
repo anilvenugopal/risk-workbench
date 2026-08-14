@@ -40,7 +40,7 @@ synchronous drain.
 2. Map params to the gateway call (research R5).
 3. On success:
    `irp_job_service.record_submitted_irp_job(irp_job_type='geohaz', irp_edm_id=…, irp_portfolio_id=…, irp_id=…, resource_uri=…, payload=res.payload, request_params=params, actor_id=requested_by_user_id)`
-   → status `QUEUED`; the poller takes over.
+   → app-local status `SUBMITTED`; the first poll replaces it with Risk Modeler's status.
 4. On exception (includes the wheel's own pre-validation failures — ambiguous
    name, zero accounts, zero locations):
    `irp_job_service.record_submission_failure(irp_job_type='geohaz', irp_edm_id=…, irp_portfolio_id=…, payload=…, request_params=params, actor_id=…)`

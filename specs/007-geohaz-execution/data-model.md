@@ -88,8 +88,8 @@ Computed per portfolio from geohaz `irp_job` rows (`irp_portfolio_id = :pid AND
 irp_job_type = 'geohaz'`) plus the pending/running `run_geohaz` rwb_job head,
 first match wins:
 
-1. A pending/claimed `run_geohaz` rwb_job with no `irp_job` yet → in-line state **Queued**.
-2. A non-terminal `irp_job` exists → its **status** in-line (QUEUED/PENDING/RUNNING/…).
+1. A pending/claimed `run_geohaz` rwb_job with no `irp_job` yet → in-line state **SUBMITTING**.
+2. A non-terminal `irp_job` exists → its **status** in-line. A newly accepted geohaz job starts as app-local **SUBMITTED** until the first Risk Modeler update replaces it (QUEUED/PENDING/RUNNING/…).
 3. Any `irp_job` with `status = 'FINISHED'` → **Yes** (a later failure leaves this at Yes).
 4. Any geohaz `irp_job` rows at all → **Failed**.
 5. Otherwise → **No** (normal state, never a warning).

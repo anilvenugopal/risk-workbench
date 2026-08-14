@@ -75,6 +75,7 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
         response=result.response,
         request_params=params,
         actor_id=context["requested_by_user_id"],
+        status="SUBMITTED",
     )
     logger.info(
         "geohaz submitted for portfolio=%s (irp_id=%s)",

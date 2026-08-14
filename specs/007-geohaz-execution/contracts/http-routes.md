@@ -28,7 +28,7 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 - On success: enqueues one `run_geohaz` rwb_job per portfolio (one shared
   `request_params` document — FR-003) + dispatch, then re-renders the
   portfolios section fragment (HTMX) / PRG (no-JS). Each launched portfolio's
-  cell immediately shows **Queued**.
+  cell immediately shows **SUBMITTING**.
 - On validation failure: 422/409 re-render of the modal with the error; nothing
   is enqueued (the launch is validated as a whole — a P-06-ineligible selection
   is rejected, not silently skipped).
