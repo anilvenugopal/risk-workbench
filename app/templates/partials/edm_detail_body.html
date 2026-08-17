@@ -264,7 +264,7 @@
             <span class="name">{{ rdm.rdm_name }}</span>
             {% if rdm.rdm_irp_id %}<span class="ref">#{{ rdm.rdm_irp_id }}</span>{% endif %}
             <span class="ref">{{ rdm.analysis_count }} analyses</span>
-            <a class="link" href="/rdms/{{ rdm.rdm_id }}"
+            <a class="link" href="/submissions/{{ source_submission.id }}/rdms/{{ rdm.rdm_id }}"
                onclick="event.stopPropagation()">Open RDM &rarr;</a>
           </div></summary>
           <div id="rdm-analyses-{{ rdm.rdm_id }}" class="dtable__groupempty">Analysis rows load when this RDM opens.</div>

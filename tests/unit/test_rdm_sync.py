@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 
 from app.poller import run as poller
 from app.services import analysis_service, rdm_service
+from app.services._common import SubmissionRef
 from app.workers import dispatch, entity_jobs
 from db import execute, execute_command, execute_scalar
 
@@ -219,6 +220,46 @@ def _stub_reads(monkeypatch, *, rdm=..., sync_status=None, analyses=None):
                         lambda rdm_id: sync_status)
     monkeypatch.setattr(analysis_service, "list_broker_analyses",
                         lambda *, rdm_id: analyses or [])
+
+
+def _contextual_detail() -> dict:
+    return {
+        "rdm": _rdm_obj(),
+        "analyses": [],
+        "sync_status": None,
+        "sync_running": False,
+        "import_error": None,
+        "source_submission": SubmissionRef(
+            id="submission-a", name="Submission A"),
+        "rdm_choices": [
+            SubmissionRef(id="rdm-1", name="legacy_rdm"),
+            SubmissionRef(id="rdm-2", name="Other RDM"),
+        ],
+    }
+
+
+def test_contextual_page_names_submission_and_preserves_it_in_picker(monkeypatch):
+    monkeypatch.setattr(
+        rdm_service, "get_contextual_rdm_detail",
+        lambda **kwargs: _contextual_detail())
+
+    response = _client().get("/submissions/submission-a/rdms/rdm-1")
+
+    assert response.status_code == 200
+    assert 'href="/submissions/submission-a"' in response.text
+    assert "Submission A" in response.text
+    assert 'value="/submissions/submission-a/rdms/rdm-2"' in response.text
+    assert 'action="/submissions/submission-a/rdms/rdm-1/notes"' in response.text
+    assert 'hx-post="/submissions/submission-a/rdms/rdm-1/sync"' in response.text
+
+
+def test_contextual_page_rejects_an_unrelated_rdm(monkeypatch):
+    monkeypatch.setattr(
+        rdm_service, "get_contextual_rdm_detail", lambda **kwargs: None)
+
+    response = _client().get("/submissions/submission-a/rdms/rdm-1")
+
+    assert response.status_code == 404
 
 
 def test_sync_route_bad_csrf_redirects_without_service_call(monkeypatch):

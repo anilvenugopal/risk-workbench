@@ -38,7 +38,7 @@ undoing valid selections in the same request.
 | POST | `/submissions/{submission_id}/rdms/attach` | Insert selected associations only; return refreshed RDM table. |
 | POST | `/submissions/{submission_id}/rdms/{rdm_id}/detach` | Delete one association only; return refreshed RDM table. |
 
-## Contextual EDM detail
+## Contextual EDM and RDM detail
 
 | Method | Path | Response |
 |---|---|---|
@@ -47,19 +47,24 @@ undoing valid selections in the same request.
 | POST | `/submissions/{submission_id}/edms/{edm_id}/sync` | Enqueue EDM detail and submission-RDM backfills; return body partial or redirect. |
 | POST | `/submissions/{submission_id}/edms/{edm_id}/notes` | Validate the association and update the shared EDM note. |
 | GET | `/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses` | Stored analysis rows for one RDM, loaded on disclosure expand. |
+| GET | `/submissions/{submission_id}/rdms/{rdm_id}` | RDM detail with source-submission context and an RDM selector. |
+| GET | `/submissions/{submission_id}/rdms/{rdm_id}/body` | Pollable stored RDM-detail partial preserving submission context. |
+| POST | `/submissions/{submission_id}/rdms/{rdm_id}/sync` | Enqueue the RDM analysis backfill; return the body partial or redirect. |
+| POST | `/submissions/{submission_id}/rdms/{rdm_id}/notes` | Validate the association and update the shared RDM note. |
 
 Every route validates the named association. A missing submission, missing entity, or
 entity not related to the submission returns 404. The analyses route also validates
 the RDM association to the same submission.
 
-The context link contains only the named submission. The EDM selector contains only
-EDMs related to the named submission and links to the contextual route.
+The context link contains only the named submission. Each selector contains only
+entities of its type related to the named submission and links to its contextual route.
 
 ## Direct library detail
 
 `GET /edms/{edm_id}` remains the EDM Library detail route. It renders no source
 submission context, no submission EDM selector, and no submission-scoped RDM list.
-Existing RDM library/detail routes remain direct.
+`GET /rdms/{rdm_id}` remains the RDM Library detail route and renders no source
+submission context or submission RDM selector.
 
 `POST /edms/{edm_id}/notes` and `POST /rdms/{rdm_id}/notes` update the shared
 resource note. Each request submits `notes`, `original_notes`, and `csrf_token`.

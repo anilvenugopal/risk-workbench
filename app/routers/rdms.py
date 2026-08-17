@@ -32,9 +32,10 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _render(request: Request, template: str, extra: dict, status_code: int = 200):
+def _render(request: Request, template: str, extra: dict, status_code: int = 200,
+            nav_key: str = _NAV_KEY):
     current_user = request.state.user
-    nav = get_nav_context(current_user, _NAV_KEY)
+    nav = get_nav_context(current_user, nav_key)
     return _templates(request).TemplateResponse(
         request, template,
         {"current_user": current_user, "nav": nav, **extra},
@@ -149,6 +150,104 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
     # name-collision check couldn't reach Risk Modeler.
     ctx["nc_unchecked"] = request.query_params.get("nc") == "unchecked"
     return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
+
+
+def _contextual_not_found(request: Request):
+    return _render(
+        request, "base/error.html",
+        {"status_code": 404, "title": "Not found",
+         "detail": "That RDM is not related to the named submission."},
+        status_code=404, nav_key="submissions.detail")
+
+
+def _contextual_template_context(context: dict) -> dict:
+    submission = context["source_submission"]
+    rdm = context["rdm"]
+    base_url = f"/submissions/{submission.id}/rdms/{rdm.id}"
+    return {
+        **context,
+        "detail_base_url": base_url,
+        "detail_body_url": f"{base_url}/body",
+        "detail_sync_url": f"{base_url}/sync",
+        "detail_notes_url": f"{base_url}/notes",
+    }
+
+
+def _contextual_body_partial(
+    request: Request, submission_id: str, rdm_id: str, *, poll: bool = False,
+):
+    context = rdm_service.get_contextual_rdm_detail(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if context is None:
+        return HTMLResponse(
+            '<div class="page-pad" id="rdm-detail">'
+            '<div class="state-box state-box--warn">'
+            'This RDM is no longer related to the submission.</div></div>')
+    if (poll and context["sync_running"]
+            and any(group.analyses for group in context["analyses"])):
+        return Response(status_code=204)
+    return _partial(
+        request, "partials/rdm_detail_body.html",
+        _contextual_template_context(context))
+
+
+@router.get(
+    "/submissions/{submission_id}/rdms/{rdm_id}",
+    response_class=HTMLResponse,
+)
+def contextual_detail(request: Request, submission_id: str, rdm_id: str):
+    context = rdm_service.get_contextual_rdm_detail(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    return _render(
+        request, "pages/rdm_detail.html",
+        {**_contextual_template_context(context), "nc_unchecked": False},
+        nav_key="submissions.detail")
+
+
+@router.get(
+    "/submissions/{submission_id}/rdms/{rdm_id}/body",
+    response_class=HTMLResponse,
+)
+def contextual_detail_body(request: Request, submission_id: str, rdm_id: str):
+    return _contextual_body_partial(request, submission_id, rdm_id, poll=True)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/sync")
+def contextual_sync(
+    request: Request, submission_id: str, rdm_id: str,
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(url, status_code=303)
+    if rdm_service.get_contextual_rdm_detail(
+            submission_id=submission_id, rdm_id=rdm_id) is None:
+        return _contextual_not_found(request)
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
+    if is_htmx:
+        return _contextual_body_partial(request, submission_id, rdm_id)
+    return RedirectResponse(url, status_code=303)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/notes")
+def contextual_notes(
+    request: Request, submission_id: str, rdm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    if rdm_service.get_contextual_rdm_detail(
+            submission_id=submission_id, rdm_id=rdm_id) is None:
+        return _contextual_not_found(request)
+    return save_notes(
+        request, kind="rdm", entity_id=rdm_id, action=f"{url}/notes",
+        return_url=url, notes=notes, original_notes=original_notes,
+        csrf_token=csrf_token, get_entity=rdm_service.get_rdm)
 
 
 def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):

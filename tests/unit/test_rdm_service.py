@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 
 from app.poller import run as poller
-from app.services import analysis_service, rdm_service
+from app.services import analysis_service, rdm_service, submission_service
 from app.services.errors import InvalidMemberName, NameCollisionError
 from app.workers import entity_jobs
 from db import execute, execute_command, execute_scalar
@@ -126,6 +127,47 @@ def test_list_rdms_has_no_row_scope(iteration2_db, fake_irp, drive):
         actor_id=iteration2_db.user_b,
     )
     assert {row.name for row in rdm_service.list_rdms()} >= {"RA", "RB"}
+
+
+def test_contextual_detail_validates_association_and_lists_submission_rdms(
+        iteration2_db):
+    first = submission_service.create_submission(
+        name="First submission", cedant_name="First",
+        treaty_type_code="cat_xol", inception_date="2026-01-01",
+        treaty_year=2026, actor_id=iteration2_db.user_a,
+        confirmed=True).submission_id
+    second = submission_service.create_submission(
+        name="Second submission", cedant_name="Second",
+        treaty_type_code="cat_xol", inception_date="2026-01-01",
+        treaty_year=2026, actor_id=iteration2_db.user_a,
+        confirmed=True).submission_id
+    shared = str(uuid.uuid4())
+    other = str(uuid.uuid4())
+    for rdm_id, name in ((shared, "Shared RDM"), (other, "Other RDM")):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) "
+            "VALUES (:id, :name, 'ready')",
+            {"id": rdm_id, "name": name}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) "
+            "VALUES (:s, :r)",
+            {"s": submission_id, "r": shared}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": first, "r": other}, connection="WORKBENCH")
+
+    context = rdm_service.get_contextual_rdm_detail(
+        submission_id=first, rdm_id=shared)
+
+    assert context is not None
+    assert context["source_submission"].id == first
+    assert context["source_submission"].name == "First submission"
+    assert context["rdm"].id == shared
+    assert [(choice.id, choice.name) for choice in context["rdm_choices"]] == [
+        (shared, "Shared RDM"), (other, "Other RDM")]
+    assert rdm_service.get_contextual_rdm_detail(
+        submission_id=second, rdm_id=other) is None
 
 
 def test_finished_import_captures_rdm_wide_analyses(

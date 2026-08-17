@@ -38,7 +38,7 @@ picker, and submission-scoped RDM section.
 | P-09 | Approved | Use the rendered submission-detail and contextual EDM-detail previews. Implementation reuses the current application shell and existing EDM detail disclosure markup and caret behavior exactly; the previews approve the changed concepts, not a broader redesign. |
 | P-10 | Approved | Store one optional note on each EDM and RDM. The note describes the resource, is shared across submissions, and is editable from the detail page and submission tables by every authenticated analyst. |
 | T-01 | Proposed | Replace `package`, `submission_package`, and member `package_id` columns with `submission_edm` and `submission_rdm`. |
-| T-02 | Proposed | Use `/submissions/{submission_id}/edms/{edm_id}` as the contextual EDM URL; retain `/edms/{edm_id}` for library entry with no submission context. |
+| T-02 | Proposed | Use `/submissions/{submission_id}/edms/{edm_id}` and `/submissions/{submission_id}/rdms/{rdm_id}` as contextual URLs; retain `/edms/{edm_id}` and `/rdms/{rdm_id}` for library entry with no submission context. |
 | T-03 | Proposed | Port only PR #57's standalone-RDM gateway, worker, poller, analysis-capture, fake, and test changes; reimplement association reads and UI against submission joins. |
 | T-04 | Proposed | Remove `package_id` from jobs and analyses. Keep EDM/RDM as execution targets and add nullable `requested_from_submission_id` to `irp_job` as provenance only. |
 | T-05 | Proposed | Rebuild the pre-go-live WORKBENCH database from the edited single Alembic revision; do not write a package-to-association data converter. |
@@ -99,6 +99,8 @@ only the selected submission.
 4. **Given** an EDM library link with no submission context, **When** the analyst opens it, **Then** the page does not invent a source submission or show submission-scoped RDMs.
 5. **Given** an EDM or RDM detail page or submission table, **When** an analyst saves, replaces, or clears its note, **Then** every submission table shows the same complete wrapped note.
 6. **Given** two analysts editing the same note, **When** the second analyst saves from a stale editor, **Then** the editor preserves the second analyst's input, identifies the newer saved note, and requires another save to replace it.
+7. **Given** an RDM opened from a submission, **When** the detail page renders, **Then** the context link names that submission and the RDM selector contains only RDMs related to that submission.
+8. **Given** an RDM related to several submissions, **When** the analyst opens a contextual RDM URL, **Then** the page uses the submission named in the URL and does not choose another association.
 
 ### Edge Cases
 
@@ -142,6 +144,9 @@ only the selected submission.
 - **FR-027**: Detail polling MUST not replace the detail body while its note editor is open and MUST resume after Save or Cancel.
 - **FR-028**: A note update MUST compare the submitted original note with the stored note. A conflict MUST return HTTP 409 with the analyst's input and the newer stored note; saving again MUST confirm replacement.
 - **FR-029**: Status, import, and backfill writes MUST NOT create a note conflict unless the stored note changed.
+- **FR-030**: A contextual RDM page MUST validate the RDM association to the URL's submission and show only that submission in its context link.
+- **FR-031**: A contextual RDM page MUST offer the other RDMs related to the selected submission by name.
+- **FR-032**: The direct library RDM route MUST remain usable without submission context.
 
 ### Key Entities
 

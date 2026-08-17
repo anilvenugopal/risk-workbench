@@ -27,7 +27,7 @@
     <tbody>
     {% for rdm in submission_rdms %}
       <tr>
-        <td><a class="entity-name" href="/rdms/{{ rdm.id }}">{{ rdm.name }}</a></td>
+        <td><a class="entity-name" href="/submissions/{{ submission.id }}/rdms/{{ rdm.id }}">{{ rdm.name }}</a></td>
         <td class="status-col"><span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">{{ (rdm.status or 'unknown')|replace('_', ' ') }}</span></td>
         {% set entity = rdm %}{% set entity_kind = 'rdm' %}{% include "partials/submission_entity_note_cell.html" %}
         <td class="count-col">{% if rdm.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ rdm.analysis_count }}{% endif %}</td>

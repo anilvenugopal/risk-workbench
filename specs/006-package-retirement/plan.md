@@ -10,7 +10,7 @@
 - Replace package cards with always-visible EDM and RDM tables on submission detail.
 - Sort each submission EDM/RDM table by Name, Status, or count and show Risk Modeler links only for ready resources.
 - Add direct-import and add-existing actions at the submission level.
-- Add contextual EDM URLs so the source submission, EDM selector, and RDM list are deterministic.
+- Add contextual EDM and RDM URLs so the source submission and entity selectors are deterministic.
 - Load one RDM's stored analyses only when its row expands.
 - Port the standalone-RDM subset of PR #57; do not merge or base the work on its Package expansion.
 - Remove the EDM-completion to RDM-upload chain and the EDM x RDM import grid.

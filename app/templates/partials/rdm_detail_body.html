@@ -15,8 +15,11 @@
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set edm_total = analyses | map(attribute='edm_count') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
+{% set body_url = detail_body_url|default('/rdms/' ~ rdm.id ~ '/body') %}
+{% set sync_url = detail_sync_url|default('/rdms/' ~ rdm.id ~ '/sync') %}
+{% set base_url = detail_base_url|default('/rdms/' ~ rdm.id) %}
 {% set entity_notes = rdm.notes %}
-{% set note_action = '/rdms/' ~ rdm.id ~ '/notes' %}
+{% set note_action = detail_notes_url|default('/rdms/' ~ rdm.id ~ '/notes') %}
 {% set note_value = note_value|default(rdm.notes or '') %}
 {% set note_original = note_original|default(rdm.notes or '') %}
 {% set note_editing = note_editing|default(false) %}
@@ -27,10 +30,19 @@
   x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
   x-bind:class="{ 'rdm-notes-open': notesOpen }"
   {%- if live %}
-  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
+  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
+    {% if source_submission %}
+    <nav class="detail-crumbs" aria-label="Submission context">
+      <a class="crumb" href="/submissions/{{ source_submission.id }}">{{ source_submission.name }}</a>
+      <span class="crumb__sep">&rsaquo;</span>
+      <span class="crumb crumb--current">{{ rdm.name }}</span>
+    </nav>
+    {% endif %}
+    <div class="detail-head-row">
+    <div>
     <h1>{{ rdm.name }}
       <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ rdm.status or 'unknown' }}</span>
@@ -66,12 +78,26 @@
       {% if sync_running %}
       <button class="btn-sm" type="button" disabled>Syncing…</button>
       {% else %}
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_title="Re-fetch this RDM's broker-analysis settings from Risk Modeler" %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
       {% endif %}
       {% endif %}
+    </div>
+    </div>
+    {% if source_submission %}
+    <div class="rdm-picker">
+      <label for="rdm-picker">RDM in {{ source_submission.name }}</label>
+      <select id="rdm-picker" class="wf-field__input"
+              x-on:change="window.location.href = $event.target.value">
+        {% for choice in rdm_choices %}
+        <option value="/submissions/{{ source_submission.id }}/rdms/{{ choice.id }}"
+                {% if choice.id == rdm.id %}selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
     </div>
   </div>
 
@@ -82,7 +108,7 @@
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if rdm.status == 'error' %}
   {% with rec_lead='One or more applies failed in Risk Modeler',
-          rec_error=import_error, rec_base='/rdms/' ~ rdm.id,
+          rec_error=import_error, rec_base=base_url,
           rec_updated_at=rdm.updated_at %}
   {% include "partials/entity_recovery.html" %}
   {% endwith %}
@@ -131,7 +157,7 @@
     <div class="state-box state-box--warn"><strong>Settings not available.</strong><br>
       The last sync from Risk Modeler failed. The RDM is still <em>ready</em>.
       {% if rdm.status == 'ready' %}
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -142,7 +168,7 @@
       This RDM was imported before backfill shipped.
       {% if rdm.status == 'ready' %}
       Sync now to fetch its broker-analysis settings from Risk Modeler.
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}

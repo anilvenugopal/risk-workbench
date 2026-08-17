@@ -224,6 +224,12 @@ behavior for each URL.
 - [x] T054 [FR-006] Show Risk Modeler links only for EDMs/RDMs whose status is `ready`.
 - [x] T055 [FR-006] Add service and route tests for table ordering, URL state, and ready-only Risk Modeler links.
 
+## Phase 9: Contextual RDM navigation
+
+- [x] T057 [FR-030] [FR-031] Add the contextual RDM association read and submission RDM choices.
+- [x] T058 [FR-030] [FR-031] Add contextual RDM detail, body, sync, and note routes; preserve the submission in RDM links and the selector.
+- [x] T059 [FR-030] [FR-031] [FR-032] Add service and route tests for contextual association validation, breadcrumbs, selector URLs, and direct-library compatibility.
+
 ## Dependencies
 
 - Phase 1 finishes before implementation so the source documents describe the target.

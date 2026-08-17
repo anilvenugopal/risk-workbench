@@ -11,13 +11,13 @@
 .synced__dot--warn { background: var(--c-amber-500); }
 
 .detail-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5); }
-.edm-picker { display: flex; flex-direction: column; gap: var(--space-1); min-width: 260px; }
-.edm-picker label { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
-.edm-picker .wf-field__input { min-width: 260px; }
+.edm-picker, .rdm-picker { display: flex; flex-direction: column; gap: var(--space-1); min-width: 260px; }
+.edm-picker label, .rdm-picker label { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.edm-picker .wf-field__input, .rdm-picker .wf-field__input { min-width: 260px; }
 
 @media (max-width: 900px) {
   .detail-head-row { display: block; }
-  .edm-picker { margin-top: var(--space-3); }
+  .edm-picker, .rdm-picker { margin-top: var(--space-3); }
 }
 
 /* ── collapsible section (native <details>, default OPEN — ui.md §1.2) ───── */

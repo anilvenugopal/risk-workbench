@@ -323,6 +323,41 @@ def get_rdm_detail(rdm_id: Any) -> dict | None:
                              if rdm.status == ERROR else None)}
 
 
+def get_contextual_rdm_detail(
+    *, submission_id: Any, rdm_id: Any,
+) -> dict | None:
+    """Return RDM detail only when the RDM belongs to the named submission."""
+    sid = str(submission_id)
+    rid = str(rdm_id)
+    source = execute_one(
+        "SELECT s.id, s.name FROM submission s "
+        "JOIN submission_rdm sr ON sr.submission_id = s.id "
+        "JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "WHERE s.id = :submission_id AND r.id = :rdm_id "
+        "AND r.deleted_at IS NULL",
+        {"submission_id": sid, "rdm_id": rid}, connection="WORKBENCH")
+    if source is None:
+        return None
+    detail = get_rdm_detail(rid)
+    if detail is None:
+        return None
+    choices = execute(
+        "SELECT r.id, r.name FROM submission_rdm sr "
+        "JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "WHERE sr.submission_id = :submission_id AND r.deleted_at IS NULL "
+        "ORDER BY CASE WHEN r.id = :rdm_id THEN 0 ELSE 1 END, r.name",
+        {"submission_id": sid, "rdm_id": rid}, connection="WORKBENCH")
+    return {
+        **detail,
+        "source_submission": SubmissionRef(
+            id=_uid(source["id"]), name=source["name"]),
+        "rdm_choices": [
+            SubmissionRef(id=_uid(row["id"]), name=row["name"])
+            for row in choices
+        ],
+    }
+
+
 # ── worker / poller status writers ───────────────────────────────────────────────
 
 def mark_importing(*, rdm_id: Any, actor_id: Any | None = None) -> None:
@@ -392,7 +427,7 @@ __all__ = [
     "RdmRow", "PENDING", "IMPORTING", "READY", "ERROR", "STATUSES",
     "TRANSIENT_STATUSES",
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
-    "get_rdm_detail", "latest_import_error",
+    "get_rdm_detail", "get_contextual_rdm_detail", "latest_import_error",
     "retry_import", "replace_source_file", "latest_backfill_status",
     "sync_detail", "mark_importing", "mark_error",
     "rollup_on_terminal",
