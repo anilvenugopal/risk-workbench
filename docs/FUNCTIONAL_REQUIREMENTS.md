@@ -344,6 +344,15 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst pain point (50–150+ combinations).
 
+**Reference data — profiles & schemes**
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| Model profiles, output profiles, event-rate schemes, and currency schemes are viewable in the workbench. | Not implemented | **Added 8/14.** One Reference Data page under the Moody's IRP rail, one section per type. |
+| Editing a profile or scheme is a pass-through to Risk Modeler. | Not implemented | **Added 8/14.** Each row links out to Risk Modeler; the workbench does not own profile or scheme management. |
+| Profile and scheme metadata can be synced from Risk Modeler. | Not implemented | **Added 8/14.** Same pattern as the EDM sync; each section shows its last-synced timestamp. |
+| All reference data syncs in one click. | Not implemented | **Added 8/14.** A single Sync All action refreshes every type on the page. |
+
 **Profiles & settings**
 
 | Requirement | Implementation | Notes |
@@ -364,6 +373,8 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | The latest currency scheme is used by default when rerunning. | Not implemented | Currency scheme = the exchange rate at a point in time. |
 | A custom currency scheme can be selected when one exists. | Not implemented | The workbench does not build or import schemes — those are built in Risk Modeler. |
 | Treaties are selected by name or pattern. | Not implemented |  |
+| Treaties can be added to an analysis from the EDM's treaties. | Not implemented | **Added 8/14.** The pick-list is the EDM's treaty set, not free text. |
+| Analysis details are configured in a modal opened after selecting portfolios. | Not implemented | **Added 8/14.** One or more portfolios are selected on the EDM page; the modal configures every pending analysis before submit. |
 | DLM requires an event-rate scheme. | Not implemented | Determined by the model profile, not the file. |
 | HD makes the event-rate scheme optional. | Not implemented | Determined by the model profile, not the file. |
 
@@ -378,9 +389,10 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | Applying a suite generates all its analyses at once. | Not implemented | Ready to review and adjust before submitting. |
 | DLM and accumulation analyses are kept in separate suites. | Not implemented | Don't combine them (§5, §7). |
 | Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. |
+| An auto-generated analysis name can be edited before submission. | Not implemented | **Added 8/14.** The modal pre-populates the name from the naming convention; the analyst can overwrite it. |
 | An analysis can be renamed, including after it has run. | Not implemented |  |
 
-> **Open question — auto-naming convention.** The draft convention draws on portfolio name + near-term/long-term + event-rate scheme, but is not finalized. (Design note 07 §2.3, O7-3.)
+> **Resolved 8/14 (spec 008, closes O7-3).** The convention is portfolio name + model profile + event-rate scheme, space-separated; the scheme token is omitted for an HD analysis without one. Including the model profile keeps two analyses on the same portfolio from colliding.
 
 **Out of scope for MVP:** profile management (created and managed in Risk Modeler); schedule and stagger analyses (add only if RM makes it easy).
 
@@ -420,6 +432,7 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 |---|---|---|
 | A single analysis can be submitted against a portfolio. | Not implemented |  |
 | Multiple portfolios can be selected and run in one action. | Not implemented | Cheryl recently had to rerun the same data across 6 portfolios one at a time. |
+| Submitted analyses appear on the EDM page in a User Analyses section. | Not implemented | **Added 8/14.** Analyst-run analyses, listed separately from broker-provided analyses, with live status. |
 | All analyses in a suite (50–150+) can be batch-submitted in one action. | Not implemented |  |
 | Accumulation analyses can be run. | Not implemented | In scope, with accumulation-specific settings; output detail in §7. |
 | Job status is tracked live and auto-refreshed, per deal and overall. | Not implemented | Only progress useful to the modeler is shown. |

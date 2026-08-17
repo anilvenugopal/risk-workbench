@@ -162,7 +162,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. The draft analysis-naming convention draws on **portfolio name + near-term/long-term + event-rate scheme** (FR §4, O7-3) but is **not yet finalized**; the exact token set is locked when Iteration 7 (analysis templates) is planned.
+Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. The analysis-naming convention is **portfolio name + model profile + event-rate scheme**, space-separated, with the scheme token omitted for an HD analysis without one (locked 2026-08-14, spec 008 P-04 — closes O7-3; including the model profile keeps two analyses on the same portfolio from colliding). The configuration modal (§10C.2) pre-populates names from it, and the analyst can edit them before submission.
 
 ---
 
@@ -236,7 +236,7 @@ IDE-style, three zones:
 | Submissions | List |
 | Jobs | IRP Jobs, RWB Jobs, Exceptions |
 | Results | Results, Loss Repository |
-| Moody's IRP | Sync Metadata, EDM Library, RDM Library |
+| Moody's IRP | EDM Library, Sync from Risk Modeler, RDM Library, Reference Data |
 | Administration | Users, Settings |
 
 ### 4.6 Icons
@@ -722,6 +722,36 @@ Enabled once an **EDM + portfolio** exist (§13.1). Hazard lookup is **optional*
 
 ---
 
+## 10C. Feature: Analysis launch (manual) — **IN MVP**
+
+> **Added 2026-08-14 (Iteration 6 planning).** The manual path for configuring and submitting analyses. Template suites (§11, Iteration 7) batch-generate the same configuration rows; the launch flow and modal below are shared by both.
+
+### 10C.1 The launch flow
+
+On the EDM detail page the analyst selects **one or more portfolios** and clicks **Run Analysis**. A **configuration modal** opens with one pending analysis per selected portfolio (a portfolio can also yield several analyses once suites land — Iteration 7). Nothing is submitted until the analyst confirms the modal.
+
+### 10C.2 The configuration modal
+
+Each pending analysis row exposes (per §11.1a):
+
+- **Analysis name** — auto-populated as **portfolio name + model profile + event-rate scheme** (§2.6; spec 008 P-04 — closes O7-3), editable before submission; a manual edit stops regeneration for that row.
+- **Model profile** and **output profile** — selected from the synced reference cache (§15.2); lists are filterable (UD profiles).
+- **Event-rate scheme** — required for DLM, optional for HD (detected from the selected model profile, §11.4).
+- **Currency** — defaults per the §11.1a rule (native currency when the exposure is one-to-one, USD otherwise).
+- **Currency scheme** — defaults to the **latest vintage** (`get_latest_currency_scheme_vintage()`); another synced vintage can be selected.
+- **Treaties** — zero or more, picked from the **EDM's treaties** (`irp_treaty` cache; name-based coupling §13.2).
+- **Toggles** — franchise deductible and unrecognized construction/occupancy (the two exposed per-analysis toggles, §11.1a).
+
+### 10C.3 Submission & tracking
+
+Confirming the modal loops `submit_portfolio_analysis_job` app-side — one call and one `irp_job` (`irp_job_type = analysis`) per pending analysis (§14.3), capturing each `request_body["resourceUri"]` at submission time. The poller tracks status (§14.4); results are retrieved by the `retrieve_analysis_results` worker (§15.3).
+
+### 10C.4 User Analyses on the EDM page
+
+Submitted analyses appear immediately in a **User Analyses** section on the EDM detail page — own `irp_analysis` rows (`rdm_id` null), listed **separately from broker-provided analyses**, with live status while they run. This is where the analyst watches a launch land without leaving the EDM page.
+
+---
+
 ## 11. Feature: Analysis templates & template suites — **IN MVP**
 
 > **In scope for the MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral). The batch problem below is the #1 analyst pain point, so saved templates and suites ship rather than being built only on demand. Until the template UI lands in its iteration, batch analysis runs as an app-side loop over `submit_portfolio_analysis_job` (§14.3); the templates layer replaces the manual per-job configuration, not the loop itself.
@@ -954,17 +984,22 @@ SSE (`sse-starlette`) streams job status updates to the UI as the poller updates
 
 Always required: `RISK_MODELER_BASE_URL`, `RISK_MODELER_RESOURCE_GROUP_ID`
 
-### 15.2 IRP metadata sync
+### 15.2 IRP reference data — viewing, editing pass-through & sync
 
-"Sync IRP Metadata" rail action fetches and caches IRP reference data into the local `irp_*` cache tables in the Metamodel DB. Feeds op-configuration dropdowns and the point-of-action reference-data checks (§13.3).
+> **Reshaped 2026-08-14 (Iteration 6 planning).** The old "Sync IRP Metadata" rail action becomes a **Reference Data page** under the Moody's IRP rail: the reference cache is *viewable*, not just a hidden pick-list feed.
 
-What is synced:
+The **Reference Data page** shows one section per type — **model profiles, output profiles, event-rate schemes, currency schemes** — each listing the locally cached rows with their last-synced timestamp. Editing follows the pass-through pattern (§12.4): each row **links out to Risk Modeler**, where profiles and schemes are created and managed; the workbench never edits them. A single **Sync All** action refreshes every type in one click.
+
+The sync fetches IRP reference data into the local `irp_*` cache tables in the Metamodel DB. Feeds the analysis-configuration modal (§10C.2), other op-configuration dropdowns, and the point-of-action reference-data checks (§13.3).
+
+What is synced (the first five land in Iteration 6 — spec 008 P-02; simulation sets, tags, and database servers sync when their consuming feature lands; the EDM list keeps its own sync page):
 - `client.reference_data.get_model_profiles()` → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
 - `client.reference_data.get_output_profiles()` → `irp_output_profile`
 - `client.reference_data.get_event_rate_schemes()` → `irp_event_rate_scheme`
+- `client.reference_data.search_currency_scheme_vintages()` → `irp_currency_scheme` (scheme code + vintage + effective date; the latest vintage is the analysis default — §10C.2)
+- `client.reference_data.search_currencies()` → `irp_currency`
 - `client.reference_data.get_all_simulation_sets()` → `irp_simulation_set`
 - `client.reference_data.get_tags()` → `irp_tag`
-- `client.reference_data.search_currencies()` → `irp_currency`
 - `client.edm.search_database_servers()` → `irp_database_server`
 - `client.edm.search_edms()` → `irp_edm_cache` (EDMs already in IRP)
 
@@ -1295,21 +1330,21 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **Split (2026-07-21).** Carved out of the old monolithic Iteration 6 ("Analysis execution, grouping & results"). Execution comes *before* template authoring — build the ability to run a single analysis, then the batch/template layer on top (Iteration 7). Most of the job infrastructure already exists from Iteration 2; the remainder lands here.
 
-**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the per-analysis config surface (§11.1a — model/output profiles, event-rate scheme, franchise/construction toggles, currency defaulting, treaties by name); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); §14.7 SSE monitoring of running jobs; §15.3 analysis-results retrieval for **own** (executed) analyses, **extending the Iteration-3 detail views** to show newly-executed results; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
+**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the `retrieve_analysis_results` worker (a failed analysis submission is fixed and resubmitted from the modal — spec 008 P-06; the automatic retry batch stays future work); **the Reference Data page + Sync All** (§15.2, sync scope = the five types the modal consumes — spec 008 P-02 — moved up from Iteration 7 because the configuration modal's pick-lists need the `irp_*` cache; includes the new `irp_currency_scheme` table and RM edit pass-through links); **the analysis launch flow** (§10C — portfolio multi-select on the EDM page → configuration modal → auto-populated editable names → app-side submit loop); the per-analysis config surface (§11.1a — model/output profiles, event-rate scheme, franchise/construction toggles, currency + currency-scheme defaulting, treaties from the EDM); **treaty create/edit as an RM pass-through** (§12.4); **the User Analyses section on the EDM detail page** (§10C.4); §14.7 SSE monitoring of running jobs; §15.3 analysis-results retrieval for **own** (executed) analyses, **extending the Iteration-3 detail views** to show newly-executed results; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
 
 **Out:** template suites & batch application (Iteration 7); grouping (Iteration 8); Loss Repository export (Iteration 10).
 
-**Exit:** configure and execute a single analysis against Risk Modeler driven by the prerequisite gate; run the same config across multiple selected portfolios in one action; a treaty edit hands off to the RM editor and the refreshed view reflects it; the job is tracked and a wedged job is recovered by the heartbeat/reconciler; SSE shows live status; results are retrieved and appear on the analysis detail view.
+**Exit:** Sync All populates the reference cache and the Reference Data page shows model profiles, output profiles, event-rate schemes, and currency schemes with RM edit links; select multiple portfolios, configure the batch in the modal (names auto-populated and editable, profiles/scheme/currency/treaties per analysis), and submit in one action; the submitted analyses appear in the EDM page's User Analyses section with live status; a treaty edit hands off to the RM editor and the refreshed view reflects it; a wedged job is recovered by the heartbeat/reconciler; results are retrieved and appear on the analysis detail view.
 
 ### Iteration 7 — Analysis templates & template suites — **IN MVP**
 
 > **Reordered (2026-07-21).** Was the standalone old Iteration 4 (IN MVP); now follows execution so templates batch-apply a capability that already runs.
 
-**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming from submission context), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
+**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming from submission context). The reference cache and its sync land in Iteration 6 (§15.2); this iteration builds on them.
 
 **Out:** grouping, results, export.
 
-**Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated and executed via the loop; IRP metadata sync populates profile/server dropdowns.
+**Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated and executed via the loop.
 
 ### Iteration 8 — Grouping
 
@@ -1433,6 +1468,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **No file inventory (CR-003 M5).** No `file_artifact` model, scanner, or discrepancy detection; a single `source_file_path` per EDM/RDM is chosen at package creation (§8).
 - **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, used only by the grouping homogeneity check (§13.3). (There are no handle types at all under CR-002.)
 - **Analysis results hybrid storage** — Parquet files on disk for row-level data (ELT, EP, PLT); SQL metadata row for summaries and file paths (§16.1).
+- **2026-08-14 — Iteration 6 spec (008) decisions.** **Analysis auto-name = portfolio name + model profile + event-rate scheme** (space-separated; scheme token omitted for an HD analysis without one) — closes O7-3 (§2.6, §10C.2). **A failed analysis submission is fixed and resubmitted from the configuration modal**; the automatic submission-retry batch (§14.3) stays future work, consistent with spec 007's geohaz decision. **Sync All covers what Iteration 6 consumes** — model profiles, output profiles, event-rate schemes, currency schemes, currencies; simulation sets, tags, and database servers sync when their consuming feature lands (§15.2).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
 - **Styling extends the ITCSS design system via tokens** — never hardcoded hex (§2.4).
 - **2026-07-21 — FR reconciliation pass (feature specs updated to `FUNCTIONAL_REQUIREMENTS.md`).** Five feature-shaping decisions locked from the reconciled functional requirements:
@@ -1456,7 +1492,6 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **O6-1/O6-2 — commercial-policy geographic split (blocks the geography & complement portfolio breakouts, §10A.5).** Does RM keep all locations or only matching ones on a geographic split, and is there a toggle? Ben investigating RM behavior; Cheryl polling the team for the preferred default.
 - **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
 - **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
-- **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
 - **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
 - **O7-5 — accumulation ground-up.** Whether ground-up can be dropped from accumulation output via the API (§16.4a).
@@ -1478,6 +1513,21 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-08-14 — Iteration 6 planning: reference-data page + analysis launch flow
+
+- **Reference Data page (§15.2 reshaped):** model profiles, output profiles, event-rate schemes, and **currency schemes** are viewable on one page under the Moody's IRP rail; each row links out to Risk Modeler for editing (pass-through); a single **Sync All** action refreshes every type. The sync moves from Iteration 7 into Iteration 6 — the configuration modal's pick-lists need the `irp_*` cache.
+- **Currency schemes cached:** `search_currency_scheme_vintages()` → new `irp_currency_scheme` table (DATA_MODEL §10). Per-analysis currency scheme defaults to the latest vintage (`get_latest_currency_scheme_vintage()`), per design note 07 §4.2.
+- **Analysis launch (new §10C):** select one or more portfolios on the EDM detail page → configuration modal → one pending analysis per portfolio with an auto-populated editable name, model/output profile, event-rate scheme, currency + scheme, treaties from the EDM, and the two exposed toggles; confirming loops `submit_portfolio_analysis_job`.
+- **User Analyses (§10C.4):** submitted analyses appear in a new User Analyses section on the EDM detail page, separate from broker-provided analyses, with live status.
+- The auto-naming token set stays open (O7-3); it is now locked when Iteration 6 is specced (was: Iteration 7), since the modal pre-populates names.
+
+### 2026-08-14 — Iteration 6 specced (spec 008): O7-3 closed, retry and sync scope narrowed
+
+- **O7-3 closed:** the analysis auto-name is **portfolio name + model profile + event-rate scheme** (space-separated; scheme token omitted for an HD analysis without one). Including the model profile keeps two analyses on the same portfolio from colliding. §2.6 and §10C.2 updated; moved from Open to Locked decisions (§23).
+- **Submission-failure recovery is manual:** a failed analysis submission stays in the configuration modal for rename/resubmit; the automatic single-threaded retry batch (§14.3) stays future work, consistent with spec 007's geohaz decision. Iteration 6 build-plan In updated.
+- **Sync All scope narrowed to consumers:** Iteration 6 syncs model profiles, output profiles, event-rate schemes, currency schemes, and currencies; simulation sets, tags, and database servers sync when their consuming feature lands (§15.2 annotated).
+- Full decision set: `specs/008-analysis-execution/spec.md` (Review section).
 
 ### 2026-07-27 — Spec 003 amendment (issues #17 + #11): name collision blocks the save
 
