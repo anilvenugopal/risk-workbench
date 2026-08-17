@@ -49,19 +49,19 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 **Goal**: Select portfolios on the EDM summary page, submit one pre-populated parameter set, and get one `run_geohaz` rwb_job per portfolio submitted worker-side to Risk Modeler — with per-portfolio failure isolation and P-06 exclusion.
 
-**Independent Test**: On an EDM with two or more portfolios, select two, open the launch form, confirm the four defaults are pre-populated and editable, submit, and confirm two geohaz jobs were created — one per portfolio, same parameter set — with immediate confirmation and no Risk Modeler interaction on the request path.
+**Independent Test**: On an EDM with two or more portfolios, select two, click Run hazard lookup once, and confirm two geohaz jobs were created — one per portfolio, same standard parameter set — with immediate confirmation and no Risk Modeler interaction on the request path.
 
-### UI Preview for User Story 1 🎨
+### UI Review for User Story 1
 
-- [X] T009 [US1] Rendered HTML preview of the launch modal in `docs/ui_previews/geohaz_launch.html` (from `_scaffold.html`, reusing the `package_modal.html` classes): defaults pre-populated (data version = first configured, model family = DLM with HD disabled, earthquake + windstorm checked, skip previous hazard unchecked, overwrite user-defined hazard values checked), no geocoding option, error variants (no selection; P-06-ineligible selection listing which; gate not met) — **approved before T012**
+- [X] T009 [US1] Skip a rendered preview because one-click launch is a derivative change to the existing portfolio-selection form (FR-002)
 
 ### Implementation for User Story 1
 
 - [X] T010 [US1] Create `app/services/geohaz_service.py`: `eligible(portfolio_id)` (P-06 — no non-terminal geohaz `irp_job`, no pending/claimed `run_geohaz` rwb_job head) and `launch(*, edm_id, portfolio_ids, data_version, perils, skip_prev_hazard, override_user_def, actor_id) -> LaunchResult` — validate the gate (FR-004), portfolio membership + eligibility, ≥1 peril (FR-002), `data_version` ∈ `settings.geohaz_data_versions`; reject the launch whole on any failure; build the single `request_params` document (data-model §3, FR-003); per portfolio `ensure_pending_rwb_job(requestor_type='analyst_request', requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` + dispatch (contracts/data-access.md); `input_data` carries ids, names, analyst, and params (data-model §2)
 - [X] T011 [P] [US1] Create `app/workers/geohaz_jobs.py`: `_run_geohaz_body(rwb_job_id)` reads `input_data`, calls `irp_gateway.submit_geohaz(...)`, on success `record_submitted_irp_job(irp_job_type='geohaz', irp_edm_id=…, irp_portfolio_id=…, irp_id=…, resource_uri=…, payload=…, request_params=…, actor_id=…)`, on exception `record_submission_failure(...)` then `JobResult.fail(...)`; module-level `_BODIES = {"run_geohaz": _run_geohaz_body}` for loader auto-discovery and the unit-tier drain; no portfolio/EDM/submission state change (contracts/worker-poller.md, FR-006/FR-014)
-- [X] T012 [US1] Create `app/templates/partials/geohaz_modal.html` per the approved T009 preview: pre-populated defaults, every parameter editable, ≥1 peril required to submit, no geocoding option, error variants rendered in the modal (contracts/http-routes.md)
-- [X] T013 [P] [US1] Register the geohaz modal Alpine component in `app/static/js/app.js` (the `package_modal.html` pattern — registered there, not inline)
-- [X] T014 [US1] Add routes to `app/routers/edms.py`: `GET /edms/{edm_id}/geohaz/new` (modal fragment from the checked `portfolio_ids`, rendered into `#geohaz-modal-mount`) and `POST /edms/{edm_id}/geohaz` (CSRF-validated; calls `geohaz_service.launch`; on success re-render the portfolios section fragment / PRG for no-JS; on validation failure 422/409 re-render of the modal, nothing enqueued) — depends on T010, T012
+- [X] T012 [US1] Make the portfolio-selection form post directly to the launch route and remove `geohaz_modal.html` (FR-002)
+- [X] T013 [P] [US1] Remove the unused geohaz modal Alpine component from `app/static/js/app.js`
+- [X] T014 [US1] Keep only `POST /edms/{edm_id}/geohaz`: accept CSRF and portfolio IDs, supply the fixed DLM parameters, re-render the EDM body for HTMX, and use PRG without JavaScript (contracts/http-routes.md)
 - [X] T015 [US1] Add the selection form and launch button to `app/templates/partials/edm_detail_body.html`: button disabled until ≥1 eligible portfolio is checked, absent when the gate fails (no portfolios — FR-004)
 - [X] T016 [US1] Add the selection checkbox cell to `app/templates/partials/portfolio_row.html`, disabled when the portfolio is P-06-ineligible
 - [X] T017 [P] [US1] Unit tests in `tests/unit/test_geohaz_service.py`: gate/membership/peril/data-version validation each reject the launch whole with nothing enqueued; P-06-ineligible selection rejected; a valid launch enqueues one `run_geohaz` rwb_job per portfolio, all carrying the same `request_params` document
@@ -138,7 +138,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 ```bash
 # After T010 lands, these touch different files and can run together:
 Task: "T011 Create app/workers/geohaz_jobs.py"
-Task: "T013 Register the geohaz modal Alpine component in app/static/js/app.js"
+Task: "T013 Remove the geohaz modal Alpine component from app/static/js/app.js"
 Task: "T017 Unit tests in tests/unit/test_geohaz_service.py"
 Task: "T018 Unit tests in tests/unit/test_run_geohaz_worker.py"
 ```

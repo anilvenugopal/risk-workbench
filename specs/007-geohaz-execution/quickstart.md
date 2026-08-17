@@ -39,24 +39,21 @@ kind row mirrored.
 1. Open an EDM summary page with ≥2 portfolios. The portfolios table shows the
    **"Hazard looked up?"** column — every row **No** (normal state, no warning);
    no geocode/hazard version stamp anywhere on the page (SC-006).
-2. Select two portfolios → **Run hazard lookup**. The modal opens pre-populated:
-   data version = first configured value, model family = DLM (HD disabled),
-   earthquake + windstorm checked, Skip locations with previous hazard lookup
-   unchecked, and Overwrite user-defined hazard values checked. No
-   geocoding option exists (FR-005).
-3. Deselect both perils → submit blocked (FR-002). Re-check one, submit.
-4. Both portfolios' cells show **SUBMITTING** immediately, **SUBMITTED** after
+2. Select two portfolios → **Run hazard lookup**. No modal opens. Both jobs use
+   the first configured data version, DLM, earthquake + windstorm, Skip locations
+   with previous hazard lookup off, and Overwrite user-defined hazard values on.
+3. Both portfolios' cells show **SUBMITTING** immediately, **SUBMITTED** after
    Risk Modeler accepts each job, then Risk Modeler statuses,
    refreshing without a reload (watch the network tab: per-cell 3s polls that
    stop at terminal — SC-002). No request to Risk Modeler appears on any page
    render.
-5. While a job is non-terminal, open the launch form again — that portfolio
-   cannot be selected (P-06).
-6. On completion: cells flip to **Yes**; expand each row — the right-hand
+4. While a job is non-terminal, its portfolio cannot be selected for another
+   launch (P-06).
+5. On completion: cells flip to **Yes**; expand each row — the right-hand
    column shows the most recent run's Data Version, Model Family, Hazard Layers,
    Skip locations with previous hazard lookup, Overwrite user-defined hazard
    values, and Result from `completion_summary`.
-7. Failure paths: stop the worker (or use a bogus data version) and launch —
+6. Failure path: stop the worker and launch —
    the cell shows **Failed**, the latest details show the failed lookup, and the same
    portfolio is immediately launchable again (SC-005). EDM with zero
    portfolios → the launch action is disabled (SC-004).

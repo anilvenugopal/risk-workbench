@@ -701,18 +701,18 @@ Data-element modification (construction/currency normalization); peril-specific 
 
 An **optional** pre-analysis operation that runs Moody's hazard lookup on a portfolio. In this workbench it is **hazard lookup only** — **geocoding is not re-run** (broker geocoding is preserved; Cheryl has never re-geocoded in this role). Re-geocoding, if ever needed, is done intentionally *inside the model*, not as a workbench action (FR §5).
 
-The action lives on the **EDM/portfolio summary page**: the analyst selects **one or more portfolios** and launches hazard lookup once; the workbench submits **one geohaz job per selected portfolio** (design session 2026-08-07 — "ability to execute hazard lookup from the screen — yes").
+The action lives on the **EDM/portfolio summary page**: the analyst selects **one or more portfolios** and clicks Run hazard lookup once; no parameter modal opens. The workbench submits **one geohaz job per selected portfolio** (design sessions 2026-08-07 and 2026-08-14).
 
 Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set against the installed `irp-integration` wheel before implementing — §14.3.)*
 
-### 10B.2 Parameters (defaults in **bold**)
+### 10B.2 Fixed DLM parameters
 
-The launch form is **pre-populated with these defaults**; the analyst can change any of them before submitting. One parameter set applies to every portfolio selected in the launch.
+Every launch uses the same parameter set. The analyst does not review or change the parameters in the workbench.
 
-- **Data version** — defaults to the **latest** (v25 as of now).
-- **Model family** — defaults to **DLM (non-HD)**.
-- **Perils** — **earthquake and windstorm** selected by default; toggleable. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
-- **Missing locations** — not skipped; **overwritten** ("the more comprehensive the data, the better").
+- **Data version** — first configured version (v25 as of now).
+- **Model family** — DLM (non-HD).
+- **Perils** — earthquake and windstorm. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
+- **Previous hazard results** — do not skip previously looked-up locations; overwrite user-defined hazard values ("the more comprehensive the data, the better").
 
 ### 10B.3 Result
 
@@ -1297,11 +1297,11 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved). **Updated 2026-08-12** from the Aug 7 design session: multi-portfolio launch from the summary page, app-side lineage/status display, no version-stamp display or gating (§10B.4, §24 change log).
 
-**In:** the hazard-lookup op against Risk Modeler, launched from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the launch form **pre-populated with the defaults** (data version = latest, family = DLM, perils = EQ + windstorm, missing locations overwritten — §10B.2), all changeable before submit; **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
+**In:** the hazard-lookup op against Risk Modeler, launched with one click from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one fixed parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the fixed DLM parameters (first configured data version, EQ + windstorm, previous locations not skipped, user-defined values overwritten — §10B.2); **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
 
 **Out:** analysis execution, grouping, results; geocoding (never a workbench action); SSE live job status (§14.7, Iteration 6 — polling refresh suffices here).
 
-**Exit:** select two portfolios on the EDM summary page and run hazard lookup with the default parameters; both jobs are tracked via the poller with in-line per-portfolio status; on completion the per-layer locations-looked-up summary is shown and each portfolio shows it has been hazard-looked-up through the workbench; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1; what execution detail to record per lookup — O8-3.)*
+**Exit:** select two portfolios on the EDM summary page and run hazard lookup with one click and no modal; both jobs use the fixed DLM parameters and are tracked via the poller with in-line per-portfolio status; on completion the per-layer locations-looked-up summary is shown and each portfolio shows it has been hazard-looked-up through the workbench; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1; what execution detail to record per lookup — O8-3.)*
 
 ### Iteration 6 — Analysis execution
 
@@ -1493,12 +1493,18 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-08-14 — DLM hazard lookup changed to one click
+
+Scope: §10B.1, §10B.2, §21 Iteration 5, and this log — applies design session D4 from `docs/design_session_notes/14_analysis_suites_first_geohaz_dlm_hazard_edm_notes.md`.
+
+- The analyst selects portfolios and clicks Run hazard lookup. No parameter modal opens.
+- Every workbench launch uses the first configured data version, DLM, earthquake + windstorm, previous locations not skipped, and user-defined hazard values overwritten.
+
 ### 2026-08-12 — GeoHaz reconciled to the Aug 7 design session (Iteration 5 prep)
 
 Scope: §10B, §13.1 reference, §21 Iteration 5, §23 open decisions, this log — folds the 2026-08-07 design-session GeoHaz decisions (`docs/design_session_notes/10_edm_summary_submissions_geohaz_currency.md` §2) into the PRD ahead of the Iteration 5 spec. No CR (feature scope unchanged; the session settled how the op is launched and displayed).
 
 - **Multi-portfolio launch from the summary page (§10B.1).** Hazard lookup is launched from the EDM/portfolio summary page against one or more selected portfolios; one geohaz job per portfolio, one parameter set per launch. §10B previously said "a portfolio", singular.
-- **Launch form pre-populated with the §10B.2 defaults**, all changeable before submit.
 - **App-side lineage, not version stamps (new §10B.4).** The workbench displays no geocode/hazard version stamp and never reads RM's stamp to gate anything — a live analysis on stamp-less, parcel-geocoded data succeeded. Instead the summary page shows, per portfolio, whether hazard lookup has been run through the workbench and the in-line status of any non-terminal geohaz job (polling refresh; §14.7 SSE stays in Iteration 6). What execution detail is recorded and displayed per lookup is O8-3, settled at Iteration 5 spec time. The gate section moved from §10B.4 to §10B.5.
 - **§23** — added O8-1 (version-stamp origin, confirm with Moody's) and O8-3 (hazard-execution lineage detail).
 

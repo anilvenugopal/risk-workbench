@@ -106,14 +106,14 @@
     </summary>
 
     {% if edm.detail_state == 'populated' %}
-    <form method="get" action="/edms/{{ edm.id }}/geohaz/new"
+    <form method="post" action="/edms/{{ edm.id }}/geohaz"
+          hx-post="/edms/{{ edm.id }}/geohaz"
+          hx-target="#edm-detail" hx-swap="outerHTML"
           x-data="geohazSelection" @change="refresh()">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
       <div class="section-head">
         <span class="tag-empty">Select one or more available portfolios.</span>
         <button class="btn-sm btn-sm--primary" type="submit"
-                hx-get="/edms/{{ edm.id }}/geohaz/new"
-                hx-include="closest form"
-                hx-target="#geohaz-modal-mount" hx-swap="innerHTML"
                 :disabled="count === 0">Run hazard lookup</button>
       </div>
     <div class="dtable-shell">
@@ -173,8 +173,6 @@
     </div>
     {% endif %}
   </details>
-
-  <div id="geohaz-modal-mount"></div>
 
   {# ── Treaties (US2) — EDM-level, expand/collapse, Excel export (FR-020–FR-025) ── #}
   <details class="sec" open>

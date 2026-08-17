@@ -395,13 +395,13 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | Requirement | Implementation | Notes |
 |---|---|---|
 | Hazard lookup can be launched from the EDM/portfolio summary page against one or more selected portfolios. | Not implemented | One geohaz job per portfolio, one parameter set per launch. (Design note 10 §2.) |
-| The launch form is pre-populated with the default parameters; all can be changed before submit. | Not implemented |  |
+| Hazard lookup starts with one click and no parameter modal. | Not implemented | Every launch uses the standard DLM parameters. (Design note 14 §2.1.) |
 | Geocoding is not re-run by default. | Not implemented | Broker geocoding is preserved — Cheryl has never re-geocoded in this role. |
 | Re-geocoding, if ever needed, is done intentionally inside the model. | Not implemented | Not a workbench action. |
-| Hazard lookup defaults to the latest data version. | Not implemented | v25 as of now. |
-| Hazard lookup defaults to DLM (non-HD). | Not implemented |  |
-| Missing locations are not skipped; they are overwritten. | Not implemented | "The more comprehensive the data, the better." |
-| Earthquake and windstorm perils are selected by default. | Not implemented | Toggleable. |
+| Hazard lookup uses the latest configured data version. | Not implemented | v25 as of now. |
+| Hazard lookup uses DLM (non-HD). | Not implemented |  |
+| Previously looked-up locations are not skipped. User-defined hazard values are overwritten. | Not implemented | "The more comprehensive the data, the better." |
+| Hazard lookup runs earthquake and windstorm. | Not implemented | Fixed for the one-click DLM launch. |
 | Running an inapplicable peril returns zero for that layer, not a failure. | Not implemented | e.g. earthquake on a windstorm book. |
 | The hazard job returns a summary of locations looked up per layer. | Not implemented |  |
 | The summary page shows, per portfolio, whether hazard lookup has been run through the workbench, with in-line status of any running geohaz job. | Not implemented | App-side execution history from `irp_job`; what detail is recorded per lookup is O8-3. (Design note 10 §2.) |

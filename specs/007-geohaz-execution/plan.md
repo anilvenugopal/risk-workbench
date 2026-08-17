@@ -10,12 +10,12 @@
 
 ### Design summary
 
-- The launch is a form-post from the EDM summary page: the analyst checks portfolios (the `edm_sync_table.html` checkbox pattern), opens a modal launch form (the `package_modal.html` pattern) pre-populated with the P-02 defaults, and submits once with CSRF.
-- The launch POST validates the gate (EDM + ≥1 portfolio), P-06 eligibility, and ≥1 peril, then enqueues **one `run_geohaz` `rwb_job` per selected portfolio** (`requestor_type='analyst_request'`, `requestor_id=irp_portfolio.id`) and dispatches. The response confirms immediately; each portfolio's column shows the in-line state from that moment (T-02, research R2).
+- The launch is a one-click CSRF-protected form post from the EDM summary page after the analyst checks portfolios. No modal opens. The route supplies the fixed P-02 parameters.
+- The launch POST validates the gate (EDM + ≥1 portfolio) and P-06 eligibility, then enqueues **one `run_geohaz` `rwb_job` per selected portfolio** (`requestor_type='analyst_request'`, `requestor_id=irp_portfolio.id`) and dispatches. The response confirms immediately; each portfolio's column shows the in-line state from that moment (T-02, research R2).
 - The Dramatiq worker (`app/workers/geohaz_jobs.py`) calls `irp_gateway.submit_geohaz(...)` — a new gateway method wrapping the wheel's `submit_geohaz_job` — then `irp_job_service.record_submitted_irp_job(...)` with the new `irp_portfolio_id` and `request_params` arguments. A submit exception writes a terminal `SUBMISSION FAILED` `irp_job` via `record_submission_failure`, isolated per portfolio (FR-006).
 - The wheel resolves EDM and portfolio **by name** at submit time (`search_edms` → `search_portfolios`) — exactly Article 2's name-based coupling; the worker passes the stored `irp_edm.name` and `irp_portfolio.name`.
 - FR-005 (never re-run geocoding): wheel 0.5.0 takes the layer list from the caller and inserts nothing — the app submits a **hazard-only layer list**, so no geocode layer ever reaches Risk Modeler (research R4; the 0.3.1 `skipPrevGeocoded` workaround is obsolete).
-- Parameter mapping (research R5): the app builds one hazard layer per selected peril — `{"type": "hazard", "name": "earthquake"/"windstorm", "engineType": "RL", "version": <data_version>, "layerOptions": {"overrideUserDef": <bool>, "skipPrevHazard": <bool>}}`; the two layer options are independent checkboxes; model family renders DLM fixed with HD disabled pending O7-1 (`"RL"` is the only confirmed `engineType`), and DLM is recorded in the parameter set.
+- Parameter mapping (research R5): the app always builds earthquake and windstorm hazard layers with `engineType="RL"`, the first configured data version, `overrideUserDef=true`, and `skipPrevHazard=false`. DLM is recorded in the parameter set.
 - Data versions come from a new config setting `GEOHAZ_DATA_VERSIONS` (comma list, first entry is the default) because the wheel has no version-discovery API (research R6).
 - The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
 - On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the most recent lookup details display the string as Result without parsing it (research R7). Missing summary text renders as unavailable.
@@ -24,7 +24,7 @@
 - The column refreshes with a **per-cell** self-terminating poll: `GET .../geohaz-cell` emits `hx-trigger="every 3s"` only while a lookup is non-terminal (research R8) — the whole-body poll is wrong for this (its 204 open-rows guard, and it only runs during sync/import).
 - Repeat launches: `SUBMISSION FAILED`, `FAILED`, `CANCELLED`, `FINISHED` are terminal, so the portfolio is launchable again (FR-007/FR-014); the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` head + `ensure_pending_rwb_job` revive-or-noop is the mechanical double-submit backstop behind the P-06 form exclusion.
 - Schema work is an edit to the single `alembic/versions/0001_initial.py` revision plus the `infra/scripts/seed_db.py` MERGE and the `tests/iteration1_mirror.py` mirror/seeds (one new `rwb_job_type_kind` row `run_geohaz`; the `geohaz` `irp_job_type_kind` row already exists).
-- UI workflow: the modal launch form is new layout → **rendered preview before build** (`docs/ui_previews/geohaz_launch.html` from `_scaffold.html`); the column and cell are derivative of the existing `.dtable` and skip the preview.
+- UI workflow: the one-click submit button is a derivative change to the existing selection form, so no rendered preview is needed.
 
 ### Decisions
 
@@ -46,7 +46,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 - **Article 5** — hazard lookup is judgment: launched only by an explicit analyst click, never auto-fired; nothing auto-fires on its completion.
 - **Article 3** — no new categorical columns: `geohaz` already exists in `irp_job_type_kind`; the one new kind row is `rwb_job_type_kind('run_geohaz')`; `request_params` is a JSON snapshot record (same rationale as `irp_portfolio.exposure_detail`), not a dispatch value.
 - **Article 4** — no new status columns; `irp_job.status` stays an in-place update.
-- **Articles 8/9** — Jinja2 + HTMX fragments, native `<details>`, Alpine only for the modal/selection slivers, tokens via the existing `.dtable`/modal kit.
+- **Articles 8/9** — Jinja2 + HTMX fragments, native `<details>`, Alpine for portfolio selection, and the existing `.dtable` tokens.
 - **Article 12** — unit tier covers the peril validator, gate/eligibility, param mapping, column-state derivation, count parser, worker success/failure, and poller routing; SQL Server tier covers the migration via the schema-drift mirror; the opt-in IRP tier captures a real completion body.
 - **Article 13** — the launch POST is CSRF-validated; no new secrets (`GEOHAZ_DATA_VERSIONS` is configuration, not a credential).
 
@@ -67,7 +67,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 **Language/Version**: Python 3.12 (inherited; `requires-python = ">=3.12"`).
 
 **Primary Dependencies** (existing, reused — no new dependency):
-- `fastapi` + `jinja2` + HTMX (Alpine.js for the selection/modal slivers) — server-rendered (Article 8).
+- `fastapi` + `jinja2` + HTMX (Alpine.js for portfolio selection) — server-rendered (Article 8).
 - `dramatiq[redis]` + `redis` — the worker tier that performs the Risk Modeler submit; `rwb_job` stays the queue of record (Article 10).
 - `sqlalchemy>=2.0` (Core) + `pyodbc`, `alembic` — WORKBENCH schema via `db/`; single `0001_initial.py` revision.
 - **`irp-integration[databridge]` — active source TestPyPI `0.5.0`** (`pyproject.toml` `default-groups = ["dev", "irp-testpypi"]`; `uv.lock`). Geohaz surface confirmed against 0.5.0: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, layers) -> (job_id, request_body)` — the caller builds the full layer list, any geocode/hazard combination — and `client.portfolio.get_geohaz_job(job_id) -> dict` (research R1). Reached only through `app/services/irp_gateway.py`.
@@ -102,7 +102,7 @@ specs/007-geohaz-execution/
 ├── data-model.md        ← Phase 1 (irp_job delta; request_params shape; state derivation)
 ├── quickstart.md        ← Phase 1 (rebuild + tests + walkthrough + sandbox capture)
 ├── contracts/           ← Phase 1
-│   ├── http-routes.md    ← modal GET, launch POST, cell GET
+│   ├── http-routes.md    ← launch POST, cell GET
 │   ├── worker-poller.md  ← run_geohaz worker, poller getter, failure paths
 │   └── data-access.md    ← geohaz_service read/write contract
 ├── checklists/
@@ -130,18 +130,14 @@ app/services/edm_service.py          # EDIT: get_edm_detail attaches per-portfol
                                      #       lookup (both detail routes render from this one read model)
 app/workers/geohaz_jobs.py           # NEW: run_geohaz body + actor + _BODIES (auto-discovered by loader)
 app/poller/run.py                    # EDIT: _GETTERS["geohaz"]
-app/routers/edms.py                  # EDIT: GET  /edms/{edm_id}/geohaz/new           (modal fragment)
-                                     #       POST /edms/{edm_id}/geohaz               (launch)
+app/routers/edms.py                  # EDIT: POST /edms/{edm_id}/geohaz               (one-click launch)
                                      #       GET  /edms/{edm_id}/portfolios/{pid}/geohaz-cell
 app/templates/partials/
 ├── edm_detail_body.html             # EDIT: column header + --cols/min-width; selection form + launch button
 ├── portfolio_row.html               # EDIT: checkbox cell, geohaz cell include, latest lookup details column
-├── geohaz_modal.html                # NEW: launch form modal
 └── geohaz_cell.html                 # NEW: the self-terminating status cell fragment
-app/static/js/app.js                 # EDIT: modal component (registered here, not inline)
+app/static/js/app.js                 # EDIT: portfolio-selection component
 app/static/css/                     # EDIT: status and latest-details styling via tokens if needed
-
-docs/ui_previews/geohaz_launch.html  # NEW: rendered preview of the modal (approval before build)
 
 tests/unit/…                         # NEW: test_geohaz_service, test_run_geohaz_worker, test_geohaz_parser,
                                      #      poller routing + fake extensions

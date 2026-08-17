@@ -258,20 +258,6 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  Alpine.data('geohazModal', () => ({
-    perilCount: 0,
-    init() { this.refresh(); },
-    refresh() {
-      this.perilCount = this.$root.querySelectorAll(
-        'input[name="perils"]:checked').length;
-    },
-    replaceFromError(event) {
-      const xhr = event.detail && event.detail.xhr;
-      if (!xhr || !xhr.responseText || !window.htmx) return;
-      window.htmx.swap(this.$root, xhr.responseText, { swapStyle: 'outerHTML' });
-    },
-  }));
-
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
   // auto-populates the name (packageModal parity); Import stays disabled until a
   // file is picked, a name is present, and the collision check has come back

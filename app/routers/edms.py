@@ -228,7 +228,8 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
     return _render(request, "pages/edm_detail.html",
                    {"edm": edm,
                     "nc_unchecked": request.query_params.get("nc") == "unchecked",
-                    "geohaz_queued": request.query_params.get("geohaz") == "queued"},
+                    "geohaz_queued": request.query_params.get("geohaz") == "queued",
+                    "geohaz_error": request.query_params.get("geohaz_error")},
                    status_code=status_code)
 
 
@@ -237,73 +238,12 @@ def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
 
 
-def _geohaz_modal_context(
-    edm_id: str,
-    portfolio_ids: list[str],
-    *,
-    form: dict | None = None,
-    error: str | None = None,
-) -> dict:
-    edm = edm_service.get_edm_detail(edm_id)
-    selected_ids = list(dict.fromkeys(pid for pid in portfolio_ids if pid))
-    selected = []
-    selection_error = None
-    if edm is None:
-        selection_error = "The EDM no longer exists."
-    else:
-        by_id = {portfolio.id: portfolio for portfolio in edm.portfolios}
-        selected = [by_id[pid] for pid in selected_ids if pid in by_id]
-        if not edm.portfolios:
-            selection_error = (
-                "Hazard lookup requires at least one portfolio in the EDM.")
-        elif not selected_ids:
-            selection_error = "Select at least one portfolio."
-        elif len(selected) != len(selected_ids):
-            selection_error = "Every selected portfolio must belong to this EDM."
-        else:
-            ineligible = [portfolio.name for portfolio in selected
-                          if not portfolio.geohaz_eligible]
-            if ineligible:
-                selection_error = ("Hazard lookup is already in progress for: "
-                                   f"{', '.join(ineligible)}.")
-    error = error or selection_error
-    values = form or {
-        "data_version": settings.geohaz_data_versions[0],
-        "perils": ["earthquake", "windstorm"],
-        "skip_prev_hazard": False,
-        "override_user_def": True,
-    }
-    return {
-        "edm_id": edm_id,
-        "selected_portfolios": selected,
-        "portfolio_ids": selected_ids,
-        "data_versions": settings.geohaz_data_versions,
-        "form": values,
-        "error": error,
-        "can_submit": selection_error is None,
-    }
-
-
-@router.get("/edms/{edm_id}/geohaz/new", response_class=HTMLResponse)
-def geohaz_new(request: Request, edm_id: str):
-    return _partial(
-        request,
-        "partials/geohaz_modal.html",
-        _geohaz_modal_context(
-            edm_id, request.query_params.getlist("portfolio_ids")),
-    )
-
-
 @router.post("/edms/{edm_id}/geohaz")
 def geohaz_launch(
     request: Request,
     edm_id: str,
     csrf_token: Annotated[str, Form()],
-    data_version: Annotated[str, Form()],
-    skip_prev_hazard: Annotated[bool, Form()] = False,
-    override_user_def: Annotated[bool, Form()] = False,
     portfolio_ids: Annotated[list[str] | None, Form()] = None,
-    perils: Annotated[list[str] | None, Form()] = None,
 ):
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
@@ -312,32 +252,26 @@ def geohaz_launch(
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
     selected = portfolio_ids or []
-    selected_perils = perils or []
-    form = {
-        "data_version": data_version,
-        "perils": selected_perils,
-        "skip_prev_hazard": skip_prev_hazard,
-        "override_user_def": override_user_def,
-    }
     try:
         result = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=selected,
-            data_version=data_version,
-            perils=selected_perils,
-            skip_prev_hazard=skip_prev_hazard,
-            override_user_def=override_user_def,
+            data_version=settings.geohaz_data_versions[0],
+            perils=["earthquake", "windstorm"],
+            skip_prev_hazard=False,
+            override_user_def=True,
             actor_id=request.state.user.id,
         )
     except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:
-        status_code = 409 if isinstance(exc, GeohazLaunchConflict) else 422
-        return _partial(
-            request,
-            "partials/geohaz_modal.html",
-            _geohaz_modal_context(
-                edm_id, selected, form=form, error=str(exc)),
-            status_code=status_code,
-        )
+        if not is_htmx:
+            query = urlencode({"geohaz_error": str(exc)})
+            return RedirectResponse(f"/edms/{edm_id}?{query}", status_code=303)
+        response = _body_partial(request, edm_id)
+        response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
+            "message": str(exc),
+            "type": "error",
+        }})
+        return response
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}?geohaz=queued", status_code=303)
