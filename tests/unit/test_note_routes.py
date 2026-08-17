@@ -72,6 +72,8 @@ def test_edm_note_route_preserves_over_limit_input(monkeypatch):
     assert response.status_code == 422
     assert "x" * 251 in response.text
     assert "250 characters or fewer" in response.text
+    assert '<details class="entity-note entity-note--compact entity-note--editing"' in response.text
+    assert " open" in response.text[:response.text.index(">")]
 
 
 def test_edm_note_route_returns_conflict_with_both_notes(monkeypatch):

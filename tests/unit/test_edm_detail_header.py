@@ -77,6 +77,22 @@ def test_contextual_page_names_source_submission_and_preserves_it_in_picker(
     assert "Analysis rows load when this RDM opens." in response.text
 
 
+def test_contextual_page_places_collapsed_notes_before_edm_picker(monkeypatch):
+    context = _context()
+    context.edm.notes = "Review the treaty mapping."
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: context)
+
+    response = _client().get("/submissions/submission-a/edms/edm-1")
+
+    metadata_start = response.text.index('<div class="detail-meta">')
+    note_start = response.text.index('<details class="entity-note entity-note--compact"')
+    picker_start = response.text.index('<div class="edm-picker">')
+    assert metadata_start < note_start < picker_start
+    assert " open" not in response.text[note_start:response.text.index(">", note_start)]
+    assert '<span class="entity-note__preview">Review the treaty mapping.</span>' in response.text
+
+
 def test_contextual_page_rejects_an_unrelated_edm(monkeypatch):
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: None)

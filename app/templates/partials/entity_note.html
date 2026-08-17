@@ -1,7 +1,18 @@
+{% if note_collapsible %}
+<details class="entity-note entity-note--compact{% if note_editing %} entity-note--editing{% endif %}"
+         id="entity-note" x-data="{ editing: {{ 'true' if note_editing else 'false' }} }"
+         {% if note_editing %}open{% endif %}>
+  <summary>
+    <span class="sec__caret">&#9657;</span>
+    <span class="entity-note__title">Notes</span>
+    <span class="entity-note__preview">{{ entity_notes or 'No notes.' }}</span>
+  </summary>
+{% else %}
 <section class="entity-note{% if note_editing %} entity-note--editing{% endif %}"
          id="entity-note" x-data="{ editing: {{ 'true' if note_editing else 'false' }} }">
+{% endif %}
   <div class="entity-note__head">
-    <h2>Notes</h2>
+    {% if not note_collapsible %}<h2>Notes</h2>{% endif %}
     <button class="btn-sm" type="button" x-show="!editing"
             x-on:click="editing = true; $root.classList.add('entity-note--editing'); $nextTick(() => $refs.note.focus())">Edit</button>
   </div>
@@ -29,4 +40,8 @@
               x-on:click="$refs.note.value = $refs.original.value; $refs.count.textContent = $refs.note.value.length; editing = false; $root.classList.remove('entity-note--editing')">Cancel</button>
     </div>
   </form>
+{% if note_collapsible %}
+</details>
+{% else %}
 </section>
+{% endif %}
