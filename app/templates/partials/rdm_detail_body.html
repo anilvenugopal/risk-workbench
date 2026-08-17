@@ -15,9 +15,19 @@
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set edm_total = analyses | map(attribute='edm_count') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
+{% set entity_notes = rdm.notes %}
+{% set note_action = '/rdms/' ~ rdm.id ~ '/notes' %}
+{% set note_value = note_value|default(rdm.notes or '') %}
+{% set note_original = note_original|default(rdm.notes or '') %}
+{% set note_editing = note_editing|default(false) %}
+{% set note_error = note_error|default(none) %}
+{% set note_conflict = note_conflict|default(none) %}
+{% set note_conflict_active = note_conflict_active|default(false) %}
 <div class="page-pad" id="rdm-detail"
+  x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
+  x-bind:class="{ 'rdm-notes-open': notesOpen }"
   {%- if live %}
-  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing')]"
+  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
@@ -27,6 +37,11 @@
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>
+      <span class="crumb__sep">&middot;</span>
+      <button class="detail-note-toggle" type="button" aria-controls="entity-note"
+              x-bind:aria-expanded="notesOpen"
+              x-on:click="notesOpen = !notesOpen"
+              x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
       {% if rdm.irp_id %}
       <span class="crumb__sep">·</span>
       <span>RM RDM #{{ rdm.irp_id }}</span>
@@ -60,15 +75,9 @@
     </div>
   </div>
 
-  {% set entity_notes = rdm.notes %}
-  {% set note_action = '/rdms/' ~ rdm.id ~ '/notes' %}
-  {% set note_value = note_value|default(rdm.notes or '') %}
-  {% set note_original = note_original|default(rdm.notes or '') %}
-  {% set note_editing = note_editing|default(false) %}
-  {% set note_error = note_error|default(none) %}
-  {% set note_conflict = note_conflict|default(none) %}
-  {% set note_conflict_active = note_conflict_active|default(false) %}
-  {% include "partials/entity_note.html" %}
+  <div x-show="notesOpen" x-cloak>
+    {% include "partials/entity_note.html" %}
+  </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if rdm.status == 'error' %}

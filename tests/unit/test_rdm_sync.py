@@ -275,6 +275,7 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     _stub_reads(monkeypatch, sync_status="running")
     html = _client().get("/rdms/rdm-1/body").text
     assert 'hx-get="/rdms/rdm-1/body"' in html and "every 3s" in html
+    assert "!document.querySelector('#rdm-detail.rdm-notes-open')" in html
 
     _stub_reads(monkeypatch, rdm=_rdm_obj(as_of="2026-07-24 10:00:00"),
                 sync_status="succeeded")
@@ -283,6 +284,23 @@ def test_body_poll_partial_polls_while_running_then_stops(monkeypatch):
     assert "synced" in html
     assert '<time data-utc="2026-07-24 10:00:00"' in html
     assert ">Sync</button>" in html  # the button is offered again, enabled
+
+
+def test_detail_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
+    _stub_reads(monkeypatch, rdm=_rdm_obj(notes="Check the broker results."))
+
+    html = _client().get("/rdms/rdm-1").text
+
+    source_start = html.index("/share/legacy.mdf")
+    link_start = html.index(">View Notes</button>")
+    rm_id_start = html.index("RM RDM #88001")
+    notes_start = html.index('<section class="entity-note"')
+    analyses_start = html.index(
+        '<span class="sec__title">Broker analyses</span>')
+    assert source_start < link_start < rm_id_start
+    assert notes_start < analyses_start
+    assert 'x-show="notesOpen" x-cloak' in html
+    assert "Check the broker results." in html
 
 
 def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
