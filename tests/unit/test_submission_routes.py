@@ -172,6 +172,94 @@ def test_submission_entity_table_sort_updates_order_and_submission_url(client):
         ("rdms", "irp_rdm", "submission_rdm", "rdm_id"),
     ],
 )
+def test_submission_entity_note_edits_in_place(
+    client, kind, table, association_table, entity_column,
+):
+    created = client.post("/submissions", data=_payload(name=f"Note {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status, notes) "
+        "VALUES (:id, :name, 'ready', 'Original note')",
+        {"id": entity_id, "name": f"Note{kind.upper()}"},
+        connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:submission_id, :entity_id)",
+        {"submission_id": submission_id, "entity_id": entity_id},
+        connection="WORKBENCH",
+    )
+    submission = submission_service.get_submission(submission_id)
+    submission_service.set_status(
+        submission_id=submission_id, to_status="COMPLETED", reason=None,
+        expected_updated_at=submission.updated_at, actor_id=client.db.user_a,
+    )
+
+    table_response = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert "x-on:dblclick" in table_response.text
+    assert "$el.form.requestSubmit()" in table_response.text
+    assert "Edit " + kind[:-1].upper() + " notes" in table_response.text
+
+    saved = client.post(
+        f"/submissions/{submission_id}/{kind}/{entity_id}/table-notes",
+        headers={"HX-Request": "true"},
+        data={"csrf_token": _csrf(), "notes": "Saved in the table",
+              "original_notes": "Original note"},
+    )
+
+    assert saved.status_code == 200
+    assert "Saved in the table" in saved.text
+    assert execute_scalar(
+        f"SELECT notes FROM {table} WHERE id = :id", {"id": entity_id},
+        connection="WORKBENCH",
+    ) == "Saved in the table"
+
+
+def test_submission_entity_note_preserves_conflicting_input(client):
+    created = client.post("/submissions", data=_payload(name="Note conflict"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, notes) "
+        "VALUES (:id, 'ConflictEDM', 'ready', 'Newer note')",
+        {"id": edm_id}, connection="WORKBENCH",
+    )
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH",
+    )
+
+    response = client.post(
+        f"/submissions/{submission_id}/edms/{edm_id}/table-notes",
+        headers={"HX-Request": "true"},
+        data={"csrf_token": _csrf(), "notes": "My note",
+              "original_notes": "Older note"},
+    )
+
+    assert response.status_code == 409
+    assert "My note" in response.text
+    assert "Newer note" in response.text
+    assert 'name="original_notes" value="Newer note"' in response.text
+
+
+def test_submission_entity_note_rejects_invalid_csrf(client):
+    response = client.post(
+        "/submissions/unknown/edms/unknown/table-notes",
+        data={"csrf_token": "bad", "notes": "Text", "original_notes": ""},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id"),
+    ],
+)
 def test_submission_entity_table_hides_risk_modeler_link_until_ready(
     client, monkeypatch, kind, table, association_table, entity_column,
 ):
@@ -234,7 +322,7 @@ def test_submission_entity_table_polls_until_import_is_terminal(
 
     assert live.status_code == 200
     assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
-    assert 'hx-trigger="every 3s"' in live.text
+    assert 'hx-trigger="every 3s ' in live.text
     assert "Status" in live.text
     assert "importing" in live.text
 
@@ -287,7 +375,7 @@ def test_submission_entity_table_polls_until_backfill_is_terminal(
     assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in detail.text
     assert live.status_code == 200
     assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
-    assert 'hx-trigger="every 3s"' in live.text
+    assert 'hx-trigger="every 3s ' in live.text
 
     execute_command(
         "UPDATE rwb_job SET status_code = 'succeeded', updated_at = CURRENT_TIMESTAMP "

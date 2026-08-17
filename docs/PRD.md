@@ -584,9 +584,11 @@ An **RDM record** (`irp_rdm` table) tracks a broker-supplied results database in
 No `submission_id`/`customer_id` — same as the EDM. `submission_rdm` supplies the many-to-many organization and never restricts row visibility.
 
 Every authenticated analyst can edit the shared EDM or RDM note from its detail
-page. Submission tables show the complete wrapped note. Library tables do not show
-notes. Blank input clears the note. Concurrent edits require confirmation before
-one analyst replaces another analyst's saved note.
+page or in the submission table cell. Double-clicking the table note or selecting
+Edit opens the plain-text editor; Enter saves. Submission tables show the complete
+wrapped note. Library tables do not show notes. Blank input clears the note.
+Concurrent edits require confirmation before one analyst replaces another analyst's
+saved note.
 
 **RDM operations:**
 

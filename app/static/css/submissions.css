@@ -246,6 +246,20 @@
 .entity-table .entity-name { color: var(--color-brand); font-weight: var(--fw-medium); }
 .entity-table .entity-notes-cell { min-width: 220px; max-width: 420px;
   white-space: normal; overflow-wrap: anywhere; }
+.entity-notes-cell__read { display: flex; align-items: flex-start; gap: var(--space-2);
+  white-space: pre-wrap; }
+.entity-notes-cell__read span { flex: 1; }
+.entity-notes-cell__edit { border: 0; padding: 0; background: transparent;
+  color: var(--color-brand); font: inherit; font-size: var(--fs-caption); cursor: pointer; }
+.entity-notes-cell__input { box-sizing: border-box; width: 100%; resize: vertical;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  padding: var(--space-2); color: var(--text-primary); background: var(--surface-panel);
+  font: inherit; }
+.entity-notes-cell__input:focus { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+.entity-notes-cell__hint { display: block; margin-top: var(--space-1);
+  color: var(--text-tertiary); font-size: var(--fs-caption); }
+.entity-notes-cell__error { margin-bottom: var(--space-1); color: var(--c-red-700);
+  font-size: var(--fs-caption); white-space: pre-wrap; }
 .entity-table .rm-link { color: var(--color-brand); }
 .entity-table .rm-link::after { content: " ↗"; }
 .entity-table-state { padding: var(--space-6); text-align: center;

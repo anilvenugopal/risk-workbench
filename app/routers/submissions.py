@@ -18,6 +18,7 @@ is wrong.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from functools import partial
 from typing import Annotated
@@ -28,12 +29,19 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service, shared_drive, submission_service
+from app.services import (
+    edm_service,
+    entity_note_service,
+    rdm_service,
+    shared_drive,
+    submission_service,
+)
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
+    NoteConflict,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
@@ -350,6 +358,83 @@ def submission_edm_table(request: Request, submission_id: str):
 @router.get("/submissions/{submission_id}/rdms/table", response_class=HTMLResponse)
 def submission_rdm_table(request: Request, submission_id: str):
     return _entity_table_response(request, submission_id, "rdm")
+
+
+def _submission_entity_note_response(
+    request: Request, submission_id: str, kind: str, entity_id: str, *,
+    notes: str, original_notes: str, csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return HTMLResponse("Invalid CSRF token", status_code=403)
+    entities = (
+        submission_service.list_submission_edms(submission_id)
+        if kind == "edm"
+        else submission_service.list_submission_rdms(submission_id)
+    )
+    entity = next((row for row in entities if str(row.id) == entity_id), None)
+    if entity is None:
+        return HTMLResponse(
+            f"That {kind.upper()} is not related to this submission.",
+            status_code=404,
+        )
+    error = None
+    conflict = None
+    conflict_active = False
+    status_code = 200
+    try:
+        saved_notes = entity_note_service.update_notes(
+            kind=kind, entity_id=entity_id, notes=notes,
+            original_notes=original_notes, actor_id=request.state.user.id,
+        )
+    except ValueError as exc:
+        error = str(exc)
+        status_code = 422
+    except NoteConflict as exc:
+        conflict = exc.current_note
+        conflict_active = True
+        original_notes = exc.current_note or ""
+        status_code = 409
+    if request.headers.get("HX-Request") != "true":
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if status_code == 200:
+        entity = replace(entity, notes=saved_notes)
+    return _partial(request, "partials/submission_entity_note_cell.html", {
+        "submission": submission_service.get_submission(submission_id),
+        "entity": entity,
+        "entity_kind": kind,
+        "note_value": notes if status_code != 200 else (entity.notes or ""),
+        "note_original": (
+            original_notes if status_code != 200 else (entity.notes or "")
+        ),
+        "note_error": error,
+        "note_conflict": conflict,
+        "note_conflict_active": conflict_active,
+        "note_editing": status_code != 200,
+    }, status_code=status_code)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/table-notes")
+def update_submission_edm_note(
+    request: Request, submission_id: str, edm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    return _submission_entity_note_response(
+        request, submission_id, "edm", edm_id, notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+    )
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/table-notes")
+def update_submission_rdm_note(
+    request: Request, submission_id: str, rdm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    return _submission_entity_note_response(
+        request, submission_id, "rdm", rdm_id, notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+    )
 
 
 def _entity_modal_response(

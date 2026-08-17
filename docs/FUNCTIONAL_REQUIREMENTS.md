@@ -100,6 +100,8 @@ intermediate grouping concept. Design note 12 records the decision.
 | The name is auto-populated from the chosen import file name. | Implemented |  |
 | The name is editable in place before import. | Implemented | On collision, the user adds a suffix. |
 | An EDM/RDM has a status: Pending, Uploading, Ready, Upload Failed. | Implemented |  |
+| An EDM/RDM has one optional plain-text note of at most 250 characters. | Implemented | The note is shared wherever the EDM/RDM appears. |
+| EDM/RDM notes can be edited in place in the Submission EDM and RDM tables. | Implemented | Double-click the note or select Edit; Enter saves, Shift+Enter inserts a line break, and Escape cancels. |
 | Rename-on-reattach is supported (~15% of the time). | Not implemented | e.g. mid-deal M&A — reattach/rename exposure for the acquiring company; also keeping test versions (v1 vs v2) separate. |
 | On duplicate-and-rename, the workbench offers to auto-delete the old copy. | Not implemented |  |
 
