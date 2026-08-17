@@ -39,9 +39,6 @@
       </span>
     </span>
   </span>
-  {% with state=p.geohaz_state, edm_id=p.edm_id %}
-  {% include "partials/geohaz_cell.html" %}
-  {% endwith %}
   <span>{{ num(m.get('totalLocations')) }}</span>
   <span>{{ num(m.get('totalAccounts')) }}</span>
   <span>{{ num(m.get('totalPolicies')) }}</span>
@@ -74,6 +71,9 @@
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
+  {% with state=p.geohaz_state, edm_id=p.edm_id %}
+  {% include "partials/geohaz_cell.html" %}
+  {% endwith %}
   </summary>
   <div class="drow__body drow__body--recessed">
     <div class="portfolio-detail-columns">

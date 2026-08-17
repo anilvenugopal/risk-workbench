@@ -37,7 +37,7 @@ kind row mirrored.
 ## 3. Manual walkthrough (spec §Exit / SC-001…SC-006)
 
 1. Open an EDM summary page with ≥2 synced portfolios. The portfolios table
-   shows each portfolio's raw `hazardVersion` in the **"Hazard looked up?"**
+   shows each portfolio's raw `hazardVersion` in the final **"Hazard Version"**
    column. An absent or empty value displays empty (SC-006).
 2. Select two portfolios → **Run hazard lookup**. No modal opens. Both jobs use
    the first configured data version, DLM, earthquake + windstorm, Skip locations

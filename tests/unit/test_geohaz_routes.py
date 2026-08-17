@@ -39,8 +39,11 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     assert 'id="geohaz-modal-mount"' not in body
     assert 'name="data_version"' not in body
     assert 'name="perils"' not in body
-    assert "--cols:42px 230px" in body
+    assert "--cols:42px 230px 92px" in body
     assert "min-width:1357px" in body
+    portfolio_head = body[body.index('class="dtable__head"'):]
+    portfolio_head = portfolio_head[:portfolio_head.index("</div>")]
+    assert portfolio_head.index("Currency") < portfolio_head.index("Hazard Version")
 
 
 def test_launch_post_rejects_bad_csrf_without_enqueuing(iteration2_db):
@@ -160,7 +163,7 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
 
     page = _client().get(f"/edms/{edm_id}").text
     cell_url = f"/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell"
-    assert "Hazard looked up?" in page
+    assert "Hazard Version" in page
     assert f'hx-get="{cell_url}"' in page
     assert "Earthquake" in page
 

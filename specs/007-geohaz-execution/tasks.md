@@ -73,9 +73,9 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 ## Phase 4: User Story 2 — See lookup status and latest details per portfolio (Priority: P2)
 
-**Goal**: The portfolios table carries the "Hazard looked up?" column with live job status and the stored `hazardVersion`, refreshed by a self-terminating per-cell poll, with the most recent lookup details in the expanded portfolio row. The poller tracks geohaz jobs to terminal.
+**Goal**: The portfolios table carries "Hazard Version" as its final column with live job status and the stored `hazardVersion`, refreshed by a self-terminating per-cell poll, with the most recent lookup details in the expanded portfolio row. The poller tracks geohaz jobs to terminal.
 
-**Independent Test**: Sync an EDM and confirm each "Hazard looked up?" cell displays the raw `hazardVersion`; launch a lookup and confirm the cell shows job status, updates without a manual reload, and displays the refreshed value on completion.
+**Independent Test**: Sync an EDM and confirm each final "Hazard Version" cell displays the raw `hazardVersion`; launch a lookup and confirm the cell shows job status, updates without a manual reload, and displays the refreshed value on completion.
 
 ### Implementation for User Story 2
 
@@ -83,7 +83,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 - [X] T020 [US2] Add the read models to `app/services/geohaz_service.py`: `lookup_states(edm_id)` (one grouped query over geohaz `irp_job` rows + pending/claimed `run_geohaz` heads → SUBMITTING / in-line status / stored `hazardVersion`), `cell_state(portfolio_id)` (single-portfolio variant carrying `live: bool`), and `latest_lookup(portfolio_id)` (the newest geohaz `irp_job` with parsed `request_params` and `completion_summary`)
 - [X] T021 [US2] Add `GET /edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell` to `app/routers/edms.py` (missing portfolio → terminal empty cell, never an error page), and attach the per-portfolio geohaz cell state (`lookup_states`) and `latest_lookup` to the `get_edm_detail` read model in `app/services/edm_service.py` — both detail routes render from it (contracts/data-access.md) — depends on T020
 - [X] T022 [US2] Create `app/templates/partials/geohaz_cell.html`; emit `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only while** `live` — attributes omitted on terminal render so polling stops (research R8, FR-012)
-- [X] T023 [US2] Add the "Hazard looked up?" column header to `app/templates/partials/edm_detail_body.html`, updating `--cols` and the table `min-width` together
+- [X] T023 [US2] Add "Hazard Version" as the final column in `app/templates/partials/edm_detail_body.html`, updating `--cols` and the table `min-width` together
 - [X] T024 [US2] Edit `app/templates/partials/portfolio_row.html`: include `geohaz_cell.html` in the row and add a right-hand column to the expanded `<details>` for the most recent lookup's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result; no lookup renders as a normal state (FR-022, US2 scenario 3); style via existing tokens
 - [X] T025 [P] [US2] Unit tests: stored-version display, SUBMITTING from a pending head, in-line status while non-terminal, terminal metadata refresh, poller routing, and cell-fragment trigger emission (poll attributes present only while live)
 

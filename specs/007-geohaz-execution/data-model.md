@@ -82,7 +82,7 @@ internal code path dispatches on its values, so no kind tables are minted for th
 
 ## 4. Derived state — never stored
 
-### "Hazard looked up?" column (FR-011, P-07)
+### "Hazard Version" column (FR-011, P-07)
 
 Computed per portfolio from geohaz `irp_job` rows (`irp_portfolio_id = :pid AND
 irp_job_type = 'geohaz'`) plus the pending/running `run_geohaz` rwb_job head,

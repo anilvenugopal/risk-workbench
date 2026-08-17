@@ -24,11 +24,11 @@ The page shows Risk Modeler's stored `hazardVersion` for each portfolio and neve
 | P-04 | Hazard lookup is optional and never an analysis prerequisite; the launch gate is EDM + ≥1 portfolio | Approved | PRD §10B.5, §13.1 |
 | P-05 | Settles PRD O8-3 — what the workbench saves per lookup and shows for the most recent run. Saved at submit: the parameter set, launching analyst, and submit timestamp. Saved at completion: terminal status, completion timestamp, and the `tasks[].output.summary` string. The portfolio details display the saved summary string without parsing it | Approved | Updated from captured response and approver direction 2026-08-13 |
 | P-06 | A portfolio with a non-terminal geohaz job cannot be included in a new launch; its row shows the running job's status | Approved | This spec (prevents accidental double submission); approved 2026-08-12 |
-| P-07 | Display: the portfolios table gains one **"Hazard looked up?"** column — the job's in-line status while a lookup is non-terminal, then the portfolio's raw stored `hazardVersion`. An absent or empty value displays empty. The expanded portfolio row shows a right-hand column for the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result (`completion_summary`) | Approved | Approver direction, 2026-08-17; supersedes the 2026-08-13 terminal states |
+| P-07 | Display: the portfolios table's final column is **"Hazard Version"** — the job's in-line status while a lookup is non-terminal, then the portfolio's raw stored `hazardVersion`. An absent or empty value displays empty. The expanded portfolio row shows a right-hand column for the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result (`completion_summary`) | Approved | Approver direction, 2026-08-17; supersedes the 2026-08-13 terminal states |
 | T-01 | Per-portfolio status refreshes by polling the workbench; SSE live push is Iteration 6 | Approved | PRD §10B.4, §14.7 |
 | O7-1 | Whether HD models need hazard retrieval run ahead of time | Deferred | PRD-owned (Cheryl); defaults are DLM and lookup is optional, so it does not gate this feature |
 
-**In**: one-click multi-portfolio launch with the standard DLM parameters; one geohaz job per portfolio tracked by the poller; a "Hazard looked up?" column in the portfolios table (in-line job status / stored `hazardVersion`) with the per-lookup detail in the expanded portfolio row; Risk Modeler's completion summary string; the EDM + portfolio prerequisite gate.
+**In**: one-click multi-portfolio launch with the standard DLM parameters; one geohaz job per portfolio tracked by the poller; a final "Hazard Version" column in the portfolios table (in-line job status / stored `hazardVersion`) with the per-lookup detail in the expanded portfolio row; Risk Modeler's completion summary string; the EDM + portfolio prerequisite gate.
 
 **Out**: analysis execution, grouping, results (Iteration 6+); geocoding (never a workbench action); SSE live job status (Iteration 6 — polling refresh suffices); enhanced risk data (PRD O7-2, not used today); portfolio deletion.
 
@@ -58,7 +58,7 @@ An analyst working an EDM opens its summary page, selects one or more portfolios
 
 **Acceptance Scenarios**:
 
-1. **Given** an EDM with two or more portfolios, **When** the analyst selects two and launches hazard lookup with the defaults, **Then** two geohaz jobs are submitted — one per selected portfolio, both carrying the same parameter set — and each portfolio's "Hazard looked up?" column shows its job's in-line status.
+1. **Given** an EDM with two or more portfolios, **When** the analyst selects two and launches hazard lookup with the defaults, **Then** two geohaz jobs are submitted — one per selected portfolio, both carrying the same parameter set — and each portfolio's "Hazard Version" column shows its job's in-line status.
 2. **Given** one or more selected portfolios, **When** the analyst clicks Run hazard lookup, **Then** the lookup starts without opening a modal and uses the first configured data version, DLM, earthquake + windstorm, Skip locations with previous hazard lookup off, and Overwrite user-defined hazard values on.
 4. **Given** an EDM with no portfolios, **When** the analyst views the summary page, **Then** the hazard-lookup action is disabled (the prerequisite gate requires EDM + ≥1 portfolio).
 5. **Given** a launch across five portfolios where submission fails for the third, **When** the launch completes, **Then** the jobs already submitted stand, the remaining portfolios are still attempted, the failed submission is visible as failed for that portfolio, and that portfolio is immediately launchable again.
@@ -68,18 +68,18 @@ An analyst working an EDM opens its summary page, selects one or more portfolios
 
 ### User Story 2 - See lookup status and latest details per portfolio (Priority: P2)
 
-After launching, the analyst stays on the EDM summary page. The portfolios table carries one new **"Hazard looked up?"** column. The column displays the job's in-line status while a lookup runs and otherwise displays the raw `hazardVersion` stored in the portfolio's metadata snapshot. An absent or empty `hazardVersion` displays empty. The column refreshes without a manual reload. When the analyst expands a portfolio row, a column to the right of the exposure value lists shows the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result. The `hazardVersion` does not gate an action.
+After launching, the analyst stays on the EDM summary page. The portfolios table's final column is **"Hazard Version"**. The column displays the job's in-line status while a lookup runs and otherwise displays the raw `hazardVersion` stored in the portfolio's metadata snapshot. An absent or empty `hazardVersion` displays empty. The column refreshes without a manual reload. When the analyst expands a portfolio row, a column to the right of the exposure value lists shows the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result. The `hazardVersion` does not gate an action.
 
 **Why this priority**: The status and metadata display lets the analyst see which hazard versions Moody's stores for each portfolio.
 
-**Independent Test**: Sync an EDM and confirm each "Hazard looked up?" cell displays the raw `hazardVersion`. Launch a lookup on one portfolio; confirm the cell shows the job's status, updates without a manual reload, and displays the refreshed `hazardVersion` on completion.
+**Independent Test**: Sync an EDM and confirm each final "Hazard Version" cell displays the raw `hazardVersion`. Launch a lookup on one portfolio; confirm the cell shows the job's status, updates without a manual reload, and displays the refreshed `hazardVersion` on completion.
 
 **Acceptance Scenarios**:
 
-1. **Given** submitted geohaz jobs, **When** the analyst remains on the EDM summary page, **Then** each launched portfolio's "Hazard looked up?" column shows the job's in-line status, updated by polling the workbench, without a manual page reload and without any fetch to Risk Modeler on the page-render path.
-2. **Given** a portfolio whose lookup completed through the workbench, **When** the analyst views the portfolios table, **Then** its "Hazard looked up?" column displays the refreshed raw `hazardVersion`, and expanding the portfolio row shows the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result.
+1. **Given** submitted geohaz jobs, **When** the analyst remains on the EDM summary page, **Then** each launched portfolio's "Hazard Version" column shows the job's in-line status, updated by polling the workbench, without a manual page reload and without any fetch to Risk Modeler on the page-render path.
+2. **Given** a portfolio whose lookup completed through the workbench, **When** the analyst views the portfolios table, **Then** its "Hazard Version" column displays the refreshed raw `hazardVersion`, and expanding the portfolio row shows the most recent run's Data Version, Model Family, Hazard Layers, both hazard lookup options, and Result.
 3. **Given** a portfolio hazard-looked-up directly in Risk Modeler, **When** the analyst syncs and views the EDM, **Then** its column displays Risk Modeler's stored `hazardVersion` and its expanded row shows no workbench lookup details.
-4. **Given** an absent or empty `hazardVersion`, **When** the analyst views the portfolio, **Then** the "Hazard looked up?" cell is empty.
+4. **Given** an absent or empty `hazardVersion`, **When** the analyst views the portfolio, **Then** the "Hazard Version" cell is empty.
 5. **Given** a portfolio whose geohaz job Risk Modeler reports as failed, **When** the analyst views it, **Then** its column displays the last stored `hazardVersion`, the expanded row shows the failed lookup when it is the most recent run, the portfolio's own state is unchanged, and a new lookup can be launched on it.
 
 ---
@@ -130,7 +130,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 **Status & latest details on the summary page (US2)**
 
 - **FR-010**: Non-terminal geohaz jobs MUST be tracked by the existing poller through single-status checks — never polled to completion, and never checked or fetched on a web request path.
-- **FR-011**: The portfolios table on the EDM summary page MUST carry a **"Hazard looked up?"** column (P-07). The column MUST display **SUBMITTING** while the worker sends a job, the Risk Modeler job status while the job is non-terminal, and the raw stored `hazardVersion` otherwise. An absent or empty `hazardVersion` MUST display empty.
+- **FR-011**: The portfolios table on the EDM summary page MUST carry **"Hazard Version"** as its final column (P-07). The column MUST display **SUBMITTING** while the worker sends a job, the Risk Modeler job status while the job is non-terminal, and the raw stored `hazardVersion` otherwise. An absent or empty `hazardVersion` MUST display empty.
 - **FR-012**: While a geohaz job is non-terminal, its status in the column MUST refresh by polling the workbench without a manual page reload (no live push — SSE is Iteration 6).
 - **FR-013**: EDM sync MUST store the Get Portfolio Metadata response, including `hazardVersion`, in `irp_portfolio.exposure_detail`. The workbench MUST NOT use `hazardVersion` to gate an action (P-03).
 - **FR-014**: A geohaz job that fails — in submission or in Risk Modeler — MUST be visible in the portfolio's expanded details when it is the most recent run, MUST NOT replace the column's stored `hazardVersion`, MUST NOT change the portfolio's or EDM's own state, and MUST NOT block a later launch on that portfolio.
@@ -158,7 +158,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 - **SC-003**: Every portfolio with a workbench lookup displays the most recent run's stored Risk Modeler summary and parameters.
 - **SC-004**: On an EDM with no portfolios the hazard-lookup action cannot be invoked; on an EDM with one portfolio it can.
 - **SC-005**: A failed lookup is visible as failed on its portfolio and blocks nothing — the same portfolio can be looked up again, and no analysis gate is affected.
-- **SC-006**: Every terminal "Hazard looked up?" cell matches the portfolio's stored raw `hazardVersion`, including an empty value, and no workbench action is gated by the value.
+- **SC-006**: Every terminal "Hazard Version" cell matches the portfolio's stored raw `hazardVersion`, including an empty value, and no workbench action is gated by the value.
 
 ## Assumptions
 
@@ -171,7 +171,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 
 ## Dependencies
 
-- **Spec 004's EDM summary page** — the portfolios table gains the selection and the "Hazard looked up?" column; the most recent lookup details reuse the table's existing per-row expand.
+- **Spec 004's EDM summary page** — the portfolios table gains the selection and final "Hazard Version" column; the most recent lookup details reuse the table's existing per-row expand.
 - **Iteration 2's job machinery** — `irp_job` tracking, the `rwb_job` queue and workers, and the poller; the poller's routing gains the geohaz single-status check. (Submission mechanics are plan T-02; failed-submission recovery is relaunch per the 2026-08-13 clarification.)
 - **`irp-integration` active wheel** — confirm the geohaz submit parameter set and that terminal responses continue returning `tasks[].output.summary` against the active wheel (`make irp-status`).
 - **WORKBENCH schema** — storage for the P-05 per-lookup record, including `completion_summary`. The §21.0 DB-lifecycle prompt applies at planning: choose Rebuild / Refresh / Skip for `WORKBENCH`; `EXPOSURE`/`LOSS` are untouched and DATABRIDGE is never in schema scope.

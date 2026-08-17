@@ -150,7 +150,7 @@ without parsing counts or sentences. The poller continues storing the full termi
 
 ## R8 — Column refresh: per-cell self-terminating poll (plan T-08 in prose; UI contract)
 
-**Decision**: each portfolio's "Hazard looked up?" cell is a fragment
+**Decision**: each portfolio's "Hazard Version" cell is a fragment
 (`GET /edms/{edm_id}/portfolios/{pid}/geohaz-cell`) that emits `hx-trigger="every 3s"` only while
 that portfolio has a non-terminal lookup — the established self-terminating pattern
 (`edm_detail_body.html:14-20`, `library_table.html:17-21`).
