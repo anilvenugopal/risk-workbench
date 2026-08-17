@@ -177,9 +177,14 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
         "completion_summary = :summary WHERE id = :id",
         {"id": job_id, "summary": "EARTHQUAKE processed 14 Locations."},
         connection="WORKBENCH")
+    execute_command(
+        "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
+        {"id": portfolio_id,
+         "detail": '{"metrics":{"hazardVersion":"23.0,25.0"}}'},
+        connection="WORKBENCH")
     terminal = _client().get(cell_url)
     assert terminal.status_code == 200
-    assert "Yes" in terminal.text
+    assert "23.0,25.0" in terminal.text
     assert "hx-trigger" not in terminal.text
     assert 'hx-swap-oob="outerHTML"' in terminal.text
     assert "EARTHQUAKE processed 14 Locations." in terminal.text

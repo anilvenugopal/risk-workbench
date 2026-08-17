@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,9 +60,6 @@ def _read_states(*, edm_id: Any | None = None,
         f"""
         WITH job_state AS (
             SELECT irp_portfolio_id,
-                   COUNT(id) AS job_count,
-                   MAX(CASE WHEN status = :finished THEN 1 ELSE 0 END)
-                       AS has_finished,
                    MAX(CASE WHEN status NOT IN (
                        :finished, :failed, :cancelled, :submit_failed
                    ) THEN 1 ELSE 0 END) AS has_live_job,
@@ -82,9 +78,7 @@ def _read_states(*, edm_id: Any | None = None,
               AND rwb_job_type = 'run_geohaz'
             GROUP BY requestor_id
         )
-        SELECT p.id, p.name,
-               COALESCE(j.job_count, 0) AS job_count,
-               COALESCE(j.has_finished, 0) AS has_finished,
+        SELECT p.id, p.name, p.exposure_detail,
                COALESCE(j.has_live_job, 0) AS has_live_job,
                j.live_status,
                COALESCE(h.has_live_head, 0) AS has_live_head
@@ -99,17 +93,17 @@ def _read_states(*, edm_id: Any | None = None,
     states: dict[str, CellState] = {}
     for row in rows:
         pid = _uid(row["id"])
+        detail = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
+        metrics = detail.get("metrics") or detail
+        hazard_version = metrics.get("hazardVersion")
+        label = hazard_version if isinstance(hazard_version, str) else ""
         if row["has_live_head"] and not row["has_live_job"]:
             state = CellState(pid, row["name"], "SUBMITTING", "live", True)
         elif row["has_live_job"]:
             state = CellState(
                 pid, row["name"], row["live_status"] or "SUBMITTED", "live", True)
-        elif row["has_finished"]:
-            state = CellState(pid, row["name"], "Yes", "yes", False)
-        elif row["job_count"]:
-            state = CellState(pid, row["name"], "Failed", "failed", False)
         else:
-            state = CellState(pid, row["name"], "No", "no", False)
+            state = CellState(pid, row["name"], label, "version", False)
         states[pid] = state
     return states
 

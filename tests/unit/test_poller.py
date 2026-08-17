@@ -17,20 +17,37 @@ from app.poller import run as poller
 from app.services import edm_service, irp_job_service
 from app.services import package_sync_service as sync
 from app.workers import package_jobs
-from db import execute, execute_one
+from db import execute, execute_command, execute_one
+from tests.unit.test_geohaz_service import _edm_with_portfolios
 
 MS = sync.MemberSpec
 
 
-def test_geohaz_uses_single_status_getter_without_terminal_follow_up():
+def test_geohaz_uses_single_status_getter_and_metadata_refresh():
     assert poller._GETTERS["geohaz"] is poller.irp_gateway.get_geohaz_job
-    assert "geohaz" not in poller._TERMINAL_HANDLERS
-    assert "geohaz" not in poller._TERMINAL_RESOLVERS
+    assert poller._TERMINAL_HANDLERS["geohaz"] is poller._handle_geohaz_terminal
+    assert poller._TERMINAL_RESOLVERS["geohaz"] is poller._resolve_geohaz_metadata
 
 
-def test_geohaz_terminal_stores_task_output_summary(iteration2_db, fake_irp):
+def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
+    iteration2_db, fake_irp,
+):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    execute_command(
+        "UPDATE irp_edm SET irp_id = 90001 WHERE id = :id",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
+        {"id": portfolio_id,
+         "detail": json.dumps({"metrics": {"hazardVersion": "23.0"},
+                               "summary": {"countries": ["US"]}})},
+        connection="WORKBENCH")
+    fake_irp.add_portfolio(
+        edm_exposure_id="90001", irp_id="101", name="Portfolio 1",
+        exposure={"hazardVersion": "23.0,25.0", "totalLocations": 142})
     job_id = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_id="25234199")
+        package_id=None, irp_job_type="geohaz", irp_id="25234199",
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
     result = {
         "status": "FINISHED",
         "details": {"summary": "GEOHAZ is successful"},
@@ -47,6 +64,12 @@ def test_geohaz_terminal_stores_task_output_summary(iteration2_db, fake_irp):
         {"id": job_id}, connection="WORKBENCH")
     assert job["completion_summary"] == result["tasks"][0]["output"]["summary"]
     assert json.loads(job["last_completion_result"]) == result
+    portfolio = execute_one(
+        "SELECT exposure_detail FROM irp_portfolio WHERE id = :id",
+        {"id": portfolio_id}, connection="WORKBENCH")
+    detail = json.loads(portfolio["exposure_detail"])
+    assert detail["metrics"]["hazardVersion"] == "23.0,25.0"
+    assert detail["summary"] == {"countries": ["US"]}
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:

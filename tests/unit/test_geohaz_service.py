@@ -202,7 +202,7 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
     assert result.portfolio_ids == portfolio_ids
 
 
-def test_lookup_states_cover_submitting_submitted_live_success_failed_and_no(
+def test_lookup_states_show_live_status_then_stored_hazard_version(
     iteration2_db,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(6)
@@ -231,6 +231,14 @@ def test_lookup_states_cover_submitting_submitted_live_success_failed_and_no(
     execute_command(
         "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
         {"id": failed_job}, connection="WORKBENCH")
+    for portfolio_id, version in (
+        (succeeded, "23.0,25.0"), (failed, "23.0"), (never, ""),
+    ):
+        execute_command(
+            "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
+            {"id": portfolio_id, "detail": json.dumps({
+                "metrics": {"hazardVersion": version}, "summary": None})},
+            connection="WORKBENCH")
 
     states = geohaz_service.lookup_states(edm_id)
 
@@ -239,12 +247,13 @@ def test_lookup_states_cover_submitting_submitted_live_success_failed_and_no(
     assert states[submitted].label == "SUBMITTED"
     assert states[submitted].live is True
     assert states[live].label == "RUNNING" and states[live].live is True
-    assert states[succeeded].label == "Yes" and states[succeeded].live is False
-    assert states[failed].label == "Failed" and states[failed].live is False
-    assert states[never].label == "No" and states[never].live is False
+    assert states[succeeded].label == "23.0,25.0"
+    assert states[succeeded].live is False
+    assert states[failed].label == "23.0" and states[failed].live is False
+    assert states[never].label == "" and states[never].live is False
 
 
-def test_lookup_state_stays_yes_after_a_later_failure(iteration2_db):
+def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     for irp_id, status in (("920", "FINISHED"), ("921", "FAILED")):
         job_id = irp_job_service.record_submitted_irp_job(
@@ -253,11 +262,16 @@ def test_lookup_state_stays_yes_after_a_later_failure(iteration2_db):
         execute_command(
             "UPDATE irp_job SET status = :status WHERE id = :id",
             {"status": status, "id": job_id}, connection="WORKBENCH")
+    execute_command(
+        "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
+        {"id": portfolio_id,
+         "detail": json.dumps({"metrics": {"hazardVersion": "25.0"}})},
+        connection="WORKBENCH")
 
     state = geohaz_service.cell_state(portfolio_id)
 
     assert state is not None
-    assert state.label == "Yes"
+    assert state.label == "25.0"
     assert state.live is False
 
 

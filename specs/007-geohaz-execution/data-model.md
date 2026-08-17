@@ -90,9 +90,8 @@ first match wins:
 
 1. A pending/claimed `run_geohaz` rwb_job with no `irp_job` yet → in-line state **SUBMITTING**.
 2. A non-terminal `irp_job` exists → its **status** in-line. A newly accepted geohaz job starts as app-local **SUBMITTED** until the first Risk Modeler update replaces it (QUEUED/PENDING/RUNNING/…).
-3. Any `irp_job` with `status = 'FINISHED'` → **Yes** (a later failure leaves this at Yes).
-4. Any geohaz `irp_job` rows at all → **Failed**.
-5. Otherwise → **No** (normal state, never a warning).
+3. Otherwise → the raw `exposure_detail.metrics.hazardVersion` string.
+4. A missing or empty `hazardVersion` → an empty cell.
 
 The table render computes states for all portfolios in one grouped query; the
 per-cell poll fragment computes one.

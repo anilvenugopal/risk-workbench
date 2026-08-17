@@ -22,8 +22,8 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 
 ## `GET /edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell` — status cell fragment
 
-- Renders `partials/geohaz_cell.html`: the four-state column value
-  (No / in-line status / Yes / Failed — data-model §4).
+- Renders `partials/geohaz_cell.html`: the in-line status for a non-terminal
+  job or the stored raw `hazardVersion` otherwise (data-model §4).
 - Self-terminating poll: the fragment carries
   `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only
   while** the portfolio has a non-terminal lookup; on terminal render the

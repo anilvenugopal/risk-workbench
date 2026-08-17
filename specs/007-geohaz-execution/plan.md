@@ -19,8 +19,8 @@
 - Data versions come from a new config setting `GEOHAZ_DATA_VERSIONS` (comma list, first entry is the default) because the wheel has no version-discovery API (research R6).
 - The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
 - On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the most recent lookup details display the string as Result without parsing it (research R7). Missing summary text renders as unavailable.
-- The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). No terminal handler: nothing auto-fires on geohaz completion (Article 5 — the lookup is the end of the intent).
-- The portfolios table gains the **"Hazard looked up?"** column (update `--cols`/`min-width` in `edm_detail_body.html`) with the four P-07 states derived from geohaz `irp_job` rows + pending `run_geohaz` `rwb_job` heads; the expanded `<details>` row shows the most recent lookup in a column to the right of the exposure value lists.
+- The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). On successful completion, a terminal resolver reads Get Portfolio Metadata outside the database transaction and the terminal handler replaces the `metrics` portion of `irp_portfolio.exposure_detail` while retaining its DataBridge summary.
+- The portfolios table gains the **"Hazard looked up?"** column (update `--cols`/`min-width` in `edm_detail_body.html`) with the in-line status for a non-terminal job and the stored raw `hazardVersion` otherwise; the expanded `<details>` row shows the most recent lookup in a column to the right of the exposure value lists.
 - The column refreshes with a **per-cell** self-terminating poll: `GET .../geohaz-cell` emits `hx-trigger="every 3s"` only while a lookup is non-terminal (research R8) — the whole-body poll is wrong for this (its 204 open-rows guard, and it only runs during sync/import).
 - Repeat launches: `SUBMISSION FAILED`, `FAILED`, `CANCELLED`, `FINISHED` are terminal, so the portfolio is launchable again (FR-007/FR-014); the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` head + `ensure_pending_rwb_job` revive-or-noop is the mechanical double-submit backstop behind the P-06 form exclusion.
 - Schema work is an edit to the single `alembic/versions/0001_initial.py` revision plus the `infra/scripts/seed_db.py` MERGE and the `tests/iteration1_mirror.py` mirror/seeds (one new `rwb_job_type_kind` row `run_geohaz`; the `geohaz` `irp_job_type_kind` row already exists).
@@ -42,7 +42,7 @@
 No violations. No Complexity Tracking entries. Articles that shaped the design:
 
 - **Article 11** — the deciding article. Request-path submission is *permitted* but declined (T-02): the geohaz submit is not the sub-second call the permission is predicated on. Submission, and any future summary fetch, run worker-side; the poller stays single-status (`get_geohaz_job`); `poll_*_to_completion` stays forbidden (the existing architecture-guard tests cover the new worker file).
-- **Article 2** — coupling is name-based and live: the wheel resolves EDM/portfolio names at submit time; no stored handle, no stored sequence. The four-state column is derived in the query layer, never stored.
+- **Article 2** — coupling is name-based and live: the wheel resolves EDM/portfolio names at submit time; no stored handle, no stored sequence. The in-line state is derived in the query layer; the terminal value comes from the stored portfolio metadata snapshot.
 - **Article 5** — hazard lookup is judgment: launched only by an explicit analyst click, never auto-fired; nothing auto-fires on its completion.
 - **Article 3** — no new categorical columns: `geohaz` already exists in `irp_job_type_kind`; the one new kind row is `rwb_job_type_kind('run_geohaz')`; `request_params` is a JSON snapshot record (same rationale as `irp_portfolio.exposure_detail`), not a dispatch value.
 - **Article 4** — no new status columns; `irp_job.status` stays an in-place update.
@@ -75,7 +75,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 **Storage**: SQL Server 2022, **WORKBENCH connection only**. Delta: `irp_job.irp_portfolio_id` (Uuid FK → `irp_portfolio.id`, nullable, indexed), `irp_job.request_params` (NVARCHAR(MAX) JSON, nullable), `irp_job.completion_summary` (NVARCHAR(MAX), nullable), and one `rwb_job_type_kind` seed row (`run_geohaz`). No EXPOSURE/LOSS access; DATABRIDGE untouched.
 
 **Testing** (Article 12, three tiers):
-- `uv run pytest tests/unit` — SQLite via `register_engine` + `FakeIRP` extended with the gateway methods `submit_geohaz`/`get_geohaz_job`: peril/eligibility/gate validators, per-portfolio enqueue, worker submit success + failure isolation, param mapping (one hazard layer per peril; no geocode layer ever built), four-state column derivation (including failure-after-success stays Yes), count parser (counts / zero / missing → unavailable), poller `_GETTERS` routing, cell-fragment trigger emission.
+- `uv run pytest tests/unit` — SQLite via `register_engine` + `FakeIRP` extended with the gateway methods `submit_geohaz`/`get_geohaz_job`: peril/eligibility/gate validators, per-portfolio enqueue, worker submit success + failure isolation, param mapping (one hazard layer per peril; no geocode layer ever built), live-status and stored-version display, terminal metadata refresh, count parser (counts / zero / missing → unavailable), poller `_GETTERS` routing, cell-fragment trigger emission.
 - `make test-sql` — migration drift: the three new columns + kind row mirrored in `tests/iteration1_mirror.py` (`EXACT_MATCH_TABLES` enforces column-for-column).
 - `make shell` + `uv run pytest tests/irp --run-irp` — opt-in sandbox: one real geohaz round trip; **captures the terminal `get_geohaz_job` body** (finalizes the R7 parser) and confirms Risk Modeler accepts the hazard-only layer list (plan risk 2); the existing `poll_*_to_completion` guard scans cover the new files.
 
@@ -85,7 +85,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 
 **Performance Goals**: the EDM summary page renders the status and most recent lookup from stored rows only — no Risk Modeler call on any request path (FR-013/FR-020); per-cell polls are single-row reads on the indexed `irp_portfolio_id`. Submission latency is worker-side and invisible to the request (< 1 poll interval + ~4 RM round trips per portfolio).
 
-**Constraints**: Article 11 discipline as above; `db.execute` safe path only (no trusted scripts); CSRF on the launch POST; P-06 enforced server-side at launch time with the `rwb_job` unique head as the race backstop; no version stamp read or displayed anywhere (FR-013).
+**Constraints**: Article 11 discipline as above; `db.execute` safe path only (no trusted scripts); CSRF on the launch POST; P-06 enforced server-side at launch time with the `rwb_job` unique head as the race backstop; `hazardVersion` is display-only and never gates an action (FR-013).
 
 **Scale/Scope**: 1–25 portfolios per EDM; a launch enqueues ≤ 25 rwb_jobs; concurrent non-terminal geohaz jobs per EDM ≤ portfolio count, so per-cell polling stays a handful of 3s single-row GETs.
 

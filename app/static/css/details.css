@@ -133,9 +133,7 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* GeoHaz status column and most recent lookup details. */
 .geohaz-cell { font-weight: var(--fw-semibold); }
 .geohaz-cell--live { color: var(--color-info); }
-.geohaz-cell--yes { color: var(--color-positive); }
-.geohaz-cell--failed { color: var(--color-negative); }
-.geohaz-cell--no, .geohaz-cell--missing { color: var(--text-tertiary); font-weight: var(--fw-regular); }
+.geohaz-cell--version, .geohaz-cell--missing { font-weight: var(--fw-regular); }
 .portfolio-detail-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr); gap: var(--space-5); align-items: start; }
 .geohaz-details { padding-left: var(--space-5); border-left: 1px solid var(--border-faint); }
 .geohaz-details h3 { margin: 0 0 var(--space-2); font-size: var(--fs-label); }

@@ -71,9 +71,11 @@ _GETTERS = {..., "geohaz": irp_gateway.get_geohaz_job}
   extraction of `tasks[].output.summary`, and `update_tracking`, which stores
   the summary in `completion_summary` and the full response in
   `last_completion_result`.
-- **No `_TERMINAL_HANDLERS` entry, no `_TERMINAL_RESOLVERS` entry**: nothing
-  auto-fires on geohaz completion (Article 5), and no extra fetch is needed
-  under the R7 primary design.
+- On `FINISHED`, `_resolve_geohaz_metadata` calls Get Portfolio Metadata outside
+  the database transaction. `_handle_geohaz_terminal` replaces
+  `irp_portfolio.exposure_detail.metrics` inside the tracking transaction and
+  retains `exposure_detail.summary`. A metadata read failure is logged and does
+  not prevent the job status update.
 
 ## `_submission_retry`
 

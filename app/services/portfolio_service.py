@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import text
+
 from app.services._common import (
     _json,
     _parse_json_dict,
@@ -101,6 +103,21 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
                                seen=seen, now=now)
 
 
+def update_exposure_metrics(conn, *, portfolio_id: Any, metrics: dict) -> None:
+    """Replace Risk Modeler's portfolio metadata while retaining its summary."""
+    row = conn.execute(text(
+        "SELECT exposure_detail FROM irp_portfolio WHERE id = :id"
+    ), {"id": str(portfolio_id)}).mappings().first()
+    if row is None:
+        return
+    current = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
+    snapshot = {"metrics": metrics, "summary": current.get("summary")}
+    conn.execute(text(
+        "UPDATE irp_portfolio SET exposure_detail = :detail, updated_at = :now "
+        "WHERE id = :id"
+    ), {"detail": _json(snapshot), "now": _utcnow(), "id": str(portfolio_id)})
+
+
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty). No row scoping (Article 6);
@@ -117,5 +134,5 @@ def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
         as_of=r["as_of"]) for r in rows]
 
 
-__all__ = ["PortfolioRow", "upsert_portfolio_detail",
+__all__ = ["PortfolioRow", "upsert_portfolio_detail", "update_exposure_metrics",
            "prune_missing", "list_portfolios"]

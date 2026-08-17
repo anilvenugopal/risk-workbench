@@ -42,11 +42,12 @@ from app.services import (
     irp_gateway,
     irp_job_service,
     package_sync_service,
+    portfolio_service,
     rdm_service,
     rwb_job_service,
 )
 from app.workers import dispatch
-from db import execute, get_connection
+from db import execute, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -139,11 +140,19 @@ def _handle_delete_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
         edm_service.mark_delete_error(conn, edm_id=job["irp_edm_id"])
 
 
+def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    metadata = resolved.get("portfolio_metadata")
+    if status == "FINISHED" and metadata is not None:
+        portfolio_service.update_exposure_metrics(
+            conn, portfolio_id=job["irp_portfolio_id"], metrics=metadata)
+
+
 # terminal irp_job.status → handler (extended per user story).
 _TERMINAL_HANDLERS = {
     "import_edm": _handle_import_edm_terminal,
     "import_rdm": _handle_import_rdm_terminal,
     "delete_edm": _handle_delete_edm_terminal,
+    "geohaz": _handle_geohaz_terminal,
 }
 
 
@@ -172,6 +181,23 @@ def _resolve_edm_exposure_id(edm_id) -> str | None:
         return ids[-1]
 
 
+def _resolve_geohaz_metadata(job: dict, result) -> dict:
+    if result.status != "FINISHED" or not job.get("irp_portfolio_id"):
+        return {}
+    ids = execute_one(
+        "SELECT e.irp_id AS edm_irp_id, p.irp_id AS portfolio_irp_id "
+        "FROM irp_portfolio p JOIN irp_edm e ON e.id = p.edm_id "
+        "WHERE p.id = :id AND p.deleted_at IS NULL",
+        {"id": str(job["irp_portfolio_id"])}, connection="WORKBENCH")
+    if not ids or ids["edm_irp_id"] is None or ids["portfolio_irp_id"] is None:
+        logger.warning("portfolio metadata ids unavailable for irp_job=%s", job["id"])
+        return {}
+    exposure = irp_gateway.get_portfolio_exposure(
+        edm_irp_id=int(ids["edm_irp_id"]),
+        portfolio_irp_id=int(ids["portfolio_irp_id"]))
+    return {"portfolio_metadata": exposure.payload}
+
+
 # Terminal-time entity-id lookups that need a Risk Modeler call — run OUTSIDE the DB
 # transaction (Article 11: never hold a txn across a network round-trip). Each returns
 # a dict merged into the handler's ``resolved`` argument.
@@ -179,6 +205,7 @@ _TERMINAL_RESOLVERS = {
     "import_edm": lambda job, result: (
         {"edm_exposure_id": _resolve_edm_exposure_id(job["irp_edm_id"])}
         if result.status == "FINISHED" else {}),
+    "geohaz": _resolve_geohaz_metadata,
 }
 
 
