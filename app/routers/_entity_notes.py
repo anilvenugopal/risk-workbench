@@ -16,7 +16,7 @@ from app.services.errors import NoteConflict
 def save_notes(
     request: Request, *, kind: str, entity_id: str, notes: str,
     original_notes: str, csrf_token: str, action: str, return_url: str,
-    get_entity: Callable[[str], Any | None], collapsible: bool = False,
+    get_entity: Callable[[str], Any | None],
 ):
     if not validate_csrf_token(csrf_token):
         return Response("Invalid CSRF token", status_code=403)
@@ -33,12 +33,9 @@ def save_notes(
         return _partial(
             request, entity=entity, action=action, value=notes,
             original=current or "", error=None if conflict else str(exc),
-            conflict=conflict, status_code=409 if conflict else 422,
-            collapsible=collapsible)
+            conflict=conflict, status_code=409 if conflict else 422)
     if request.headers.get("HX-Request") == "true":
-        return _partial(
-            request, entity=get_entity(entity_id), action=action,
-            collapsible=collapsible)
+        return _partial(request, entity=get_entity(entity_id), action=action)
     return RedirectResponse(return_url, status_code=303)
 
 
@@ -46,7 +43,6 @@ def _partial(
     request: Request, *, entity: Any, action: str, value: str | None = None,
     original: str | None = None, error: str | None = None,
     conflict: bool = False, status_code: int = 200,
-    collapsible: bool = False,
 ):
     return request.app.state.templates.TemplateResponse(
         request, "partials/entity_note.html", {
@@ -59,5 +55,4 @@ def _partial(
             "note_conflict": original if conflict else None,
             "note_conflict_active": conflict,
             "note_editing": error is not None or conflict,
-            "note_collapsible": collapsible,
         }, status_code=status_code)

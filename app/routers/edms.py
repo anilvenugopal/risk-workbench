@@ -328,8 +328,7 @@ def contextual_notes(
     return save_notes(
         request, kind="edm", entity_id=edm_id, action=f"{url}/notes",
         return_url=url, notes=notes, original_notes=original_notes,
-        csrf_token=csrf_token, get_entity=edm_service.get_edm_detail,
-        collapsible=True)
+        csrf_token=csrf_token, get_entity=edm_service.get_edm_detail)
 
 
 @router.get(
@@ -453,7 +452,7 @@ def notes(
         action=f"/edms/{edm_id}/notes",
         return_url=f"/edms/{edm_id}", notes=notes,
         original_notes=original_notes, csrf_token=csrf_token,
-        get_entity=edm_service.get_edm_detail, collapsible=True)
+        get_entity=edm_service.get_edm_detail)
 
 
 __all__ = ["router"]

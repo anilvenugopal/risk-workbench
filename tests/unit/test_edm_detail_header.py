@@ -77,7 +77,7 @@ def test_contextual_page_names_source_submission_and_preserves_it_in_picker(
     assert "Analysis rows load when this RDM opens." in response.text
 
 
-def test_contextual_page_places_collapsed_notes_before_edm_picker(monkeypatch):
+def test_contextual_page_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
     context = _context()
     context.edm.notes = "Review the treaty mapping."
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
@@ -85,12 +85,16 @@ def test_contextual_page_places_collapsed_notes_before_edm_picker(monkeypatch):
 
     response = _client().get("/submissions/submission-a/edms/edm-1")
 
-    metadata_start = response.text.index('<div class="detail-meta">')
-    note_start = response.text.index('<details class="entity-note entity-note--compact"')
-    picker_start = response.text.index('<div class="edm-picker">')
-    assert metadata_start < note_start < picker_start
-    assert " open" not in response.text[note_start:response.text.index(">", note_start)]
-    assert '<span class="entity-note__preview">Review the treaty mapping.</span>' in response.text
+    source_start = response.text.index("/share/shared.bak")
+    link_start = response.text.index(">View Notes</button>")
+    rm_id_start = response.text.index("RM EDM #101")
+    notes_start = response.text.index('<section class="entity-note"')
+    portfolio_start = response.text.index(
+        '<span class="sec__title">Portfolios</span>')
+    assert source_start < link_start < rm_id_start
+    assert notes_start < portfolio_start
+    assert 'x-show="notesOpen" x-cloak' in response.text
+    assert "Review the treaty mapping." in response.text
 
 
 def test_contextual_page_rejects_an_unrelated_edm(monkeypatch):
@@ -125,6 +129,7 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
     assert "maxlength=\"250\"" in response.text
     assert "entity-note--editing" in response.text
     assert "!document.querySelector('#edm-detail .entity-note--editing')" in response.text
+    assert "!document.querySelector('#edm-detail.edm-notes-open')" in response.text
 
 
 def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):

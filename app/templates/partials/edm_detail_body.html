@@ -24,10 +24,11 @@
 {% set note_error = note_error|default(none) %}
 {% set note_conflict = note_conflict|default(none) %}
 {% set note_conflict_active = note_conflict_active|default(false) %}
-{% set note_collapsible = true %}
 <div class="page-pad" id="edm-detail"
+  x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
+  x-bind:class="{ 'edm-notes-open': notesOpen }"
   {%- if live %}
-  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing')]"
+  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing') && !document.querySelector('#edm-detail.edm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
@@ -48,6 +49,11 @@
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
+      <span class="crumb__sep">&middot;</span>
+      <button class="detail-note-toggle" type="button" aria-controls="entity-note"
+              x-bind:aria-expanded="notesOpen"
+              x-on:click="notesOpen = !notesOpen"
+              x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
       {% if edm.irp_id %}
       <span class="crumb__sep">·</span>
       <span>RM EDM #{{ edm.irp_id }}</span>
@@ -83,7 +89,6 @@
       {% endif %}
     </div>
     </div>
-    {% include "partials/entity_note.html" %}
     {% if source_submission %}
     <div class="edm-picker">
       <label for="edm-picker">EDM in {{ source_submission.name }}</label>
@@ -97,6 +102,10 @@
     </div>
     {% endif %}
     </div>
+  </div>
+
+  <div x-show="notesOpen" x-cloak>
+    {% include "partials/entity_note.html" %}
   </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
