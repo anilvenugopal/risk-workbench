@@ -89,10 +89,10 @@ def test_analysis_template_defaults():
         "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'analysis_template'",
         connection="WORKBENCH",
     )}
-    assert "1.00" in defaults["min_loss_threshold"]
-    assert defaults["num_max_loss_event"] == "((1))"
-    assert defaults["franchise_deductible"] == "((0))"
-    assert defaults["treat_construction_occupancy_as_unknown"] == "((1))"
+    assert defaults["min_loss_threshold"].strip("()'") == "1.00"
+    assert defaults["num_max_loss_event"].strip("()'") == "1"
+    assert defaults["franchise_deductible"].strip("()'") == "0"
+    assert defaults["treat_construction_occupancy_as_unknown"].strip("()'") == "1"
 
 
 def test_sync_irp_metadata_kind_is_seeded():
