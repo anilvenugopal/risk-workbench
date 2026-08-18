@@ -707,7 +707,7 @@ databridge = [
 
 [[package]]
 name = "irp-integration"
-version = "0.3.1"
+version = "0.6.0rc1"
 source = { registry = "https://test.pypi.org/simple/" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -721,9 +721,9 @@ dependencies = [
     { name = "boto3" },
     { name = "requests" },
 ]
-sdist = { url = "https://test-files.pythonhosted.org/packages/2a/13/7a14a2507e88204999dbd5f33c61125705fa5cfbe58c8b90a286f65cca2c/irp_integration-0.3.1.tar.gz", hash = "sha256:b880fffb09e9895ecbf3e0ace797a45c323c25a8b67362bc7809a3e94e3b7c40", size = 113932, upload-time = "2026-08-07T03:17:17.487Z" }
+sdist = { url = "https://test-files.pythonhosted.org/packages/fe/81/4e9be1be8115ca7a3f867371937c95398969ad684f203ad97bece1fb6c56/irp_integration-0.6.0rc1.tar.gz", hash = "sha256:67ed1b7eb3e3305cacfefaca0736f18cc05ea7f112569602adbc12ffb422cb1f", size = 121503, upload-time = "2026-08-18T13:43:23.539Z" }
 wheels = [
-    { url = "https://test-files.pythonhosted.org/packages/b1/ea/00c9c2817215e9f8ba8938702378353f53e648464287090c2074bdb5cd8c/irp_integration-0.3.1-py3-none-any.whl", hash = "sha256:3eb61271653b5fa3a81e2b1af3708072c3981f699ba5c7a1ae62073ade0e540c", size = 83350, upload-time = "2026-08-07T03:17:15.967Z" },
+    { url = "https://test-files.pythonhosted.org/packages/4c/06/4803d7929508cc4a87caf725fc5fb368f1ff8e9281e560c153ebdeab74f8/irp_integration-0.6.0rc1-py3-none-any.whl", hash = "sha256:bbbc1119a2e78f21b04550f1a36d6327a2c83be5fa3e1e6a29228ebb82c71955", size = 85663, upload-time = "2026-08-18T13:43:22.087Z" },
 ]
 
 [package.optional-dependencies]
@@ -1403,7 +1403,7 @@ irp-pypi = [
     { name = "irp-integration", version = "0.2.0", source = { registry = "https://pypi.org/simple" }, extra = ["databridge"], marker = "extra == 'group-14-risk-workbench-irp-pypi' or (extra == 'group-14-risk-workbench-irp-local' and extra == 'group-14-risk-workbench-irp-testpypi')" },
 ]
 irp-testpypi = [
-    { name = "irp-integration", version = "0.3.1", source = { registry = "https://test.pypi.org/simple/" }, extra = ["databridge"], marker = "(extra == 'group-14-risk-workbench-irp-local' and extra == 'group-14-risk-workbench-irp-pypi') or (extra != 'group-14-risk-workbench-irp-pypi' and extra == 'group-14-risk-workbench-irp-testpypi') or (extra != 'group-14-risk-workbench-irp-local' and extra == 'group-14-risk-workbench-irp-testpypi')" },
+    { name = "irp-integration", version = "0.6.0rc1", source = { registry = "https://test.pypi.org/simple/" }, extra = ["databridge"], marker = "(extra == 'group-14-risk-workbench-irp-local' and extra == 'group-14-risk-workbench-irp-pypi') or (extra != 'group-14-risk-workbench-irp-pypi' and extra == 'group-14-risk-workbench-irp-testpypi') or (extra != 'group-14-risk-workbench-irp-local' and extra == 'group-14-risk-workbench-irp-testpypi')" },
 ]
 
 [package.metadata]
@@ -1438,7 +1438,7 @@ dev = [
 ]
 irp-local = [{ name = "irp-integration", extras = ["databridge"] }]
 irp-pypi = [{ name = "irp-integration", extras = ["databridge"], specifier = ">=0.2,<1" }]
-irp-testpypi = [{ name = "irp-integration", extras = ["databridge"], specifier = ">=0.2.1.dev0", index = "https://test.pypi.org/simple/", conflict = { package = "risk-workbench", group = "irp-testpypi" } }]
+irp-testpypi = [{ name = "irp-integration", extras = ["databridge"], specifier = "==0.6.0rc1", index = "https://test.pypi.org/simple/", conflict = { package = "risk-workbench", group = "irp-testpypi" } }]
 
 [[package]]
 name = "ruff"
