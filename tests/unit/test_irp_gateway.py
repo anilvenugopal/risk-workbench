@@ -124,6 +124,46 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
     assert hits[0].attributes == rows[0]   # the whole row IS the attribute map
 
 
+def test_reference_data_reads_map_the_sandbox_fields():
+    reference_data = SimpleNamespace(
+        get_model_profiles=lambda: {"items": [{
+            "id": 1, "name": "RL25 profile", "softwareVersionCode": "RL25",
+            "perilCode": "WS", "modelRegionCode": "NAWS", "peril": "Wind",
+            "region": "North America", "analysisType": "EP", "rmsDefault": True,
+        }]},
+        get_output_profiles=lambda: [{
+            "id": 2, "name": "Output", "rmsDefault": False,
+            "metricRequests": ["not cached"],
+        }],
+        get_event_rate_schemes=lambda: {"items": [{
+            "eventRateSchemeId": 3, "eventRateSchemeName": "Scheme",
+            "perilCode": "WS", "modelRegionCode": "NAWS",
+            "modelVersionCode": "25.0", "isHD": False,
+        }]},
+        search_currencies=lambda: {"items": [{
+            "currencyCode": "USD", "currencyName": "US Dollar",
+            "countryName": "United States", "currencySymbol": "$",
+        }]},
+    )
+    gw = _gw(reference_data=reference_data)
+
+    assert gw.list_model_profiles() == [irp_gateway.ModelProfileEntry(
+        1, "RL25 profile", "RL25", "WS", "NAWS", "Wind",
+        "North America", "EP", True)]
+    assert gw.list_output_profiles() == [
+        irp_gateway.OutputProfileEntry(2, "Output", False)]
+    assert gw.list_event_rate_schemes() == [irp_gateway.EventRateSchemeEntry(
+        3, "Scheme", "WS", "NAWS", "25.0", False)]
+    assert gw.list_currencies() == [
+        irp_gateway.CurrencyEntry("USD", "US Dollar", "United States", "$")]
+
+
+def test_reference_data_read_rejects_an_unexpected_container():
+    gw = _gw(reference_data=SimpleNamespace(get_model_profiles=lambda: None))
+    with pytest.raises(ValueError, match="model profiles"):
+        gw.list_model_profiles()
+
+
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the

@@ -120,6 +120,21 @@
 /* trailing "clear filters" affordance on any filtered-empty row */
 .clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
 
+/* ── Analysis metadata ───────────────────────────────────────────────────── */
+.metadata-panel { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: var(--space-5); }
+.metadata-meta { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-caption); }
+.metadata-filter { max-width: 360px; margin-bottom: var(--space-4); }
+.metadata-filter label { display: block; margin-bottom: var(--space-1); color: var(--text-tertiary); font-size: var(--fs-caption); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; }
+.metadata-filter input { width: 100%; }
+.metadata-table tbody tr:hover td { background: var(--surface-hover); }
+.metadata-table-wrap { overflow-x: auto; }
+
+@media (max-width: 760px) {
+  .metadata-panel { padding: var(--space-3); }
+  .metadata-panel .tabs { overflow-x: auto; }
+  .metadata-panel .tab { white-space: nowrap; }
+}
+
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }
 .detail-crumbs { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-label); margin-bottom: var(--space-2); }

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis Metadata · UI Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../app/static/css/app.css">
+<style>
+body{background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);margin:0}
+.preview{max-width:1120px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.preview-note{padding:var(--space-3) var(--space-4);margin-bottom:var(--space-6);border:1px solid var(--color-warning-border);border-radius:var(--radius-md);background:var(--color-warning-wash);color:var(--color-warning);font-size:var(--fs-caption)}
+.preview-head{display:flex;align-items:flex-start;gap:var(--space-4);margin-bottom:var(--space-6)}
+.preview-head__copy{flex:1}
+.preview-head h1{font-size:var(--fs-hero);margin:0 0 var(--space-1)}
+.preview-head p{color:var(--text-secondary);margin:0}
+.metadata-panel{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-5)}
+.metadata-meta{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-4);color:var(--text-tertiary);font-size:var(--fs-caption)}
+.metadata-filter{max-width:360px;margin-bottom:var(--space-4)}
+.metadata-filter label{display:block;margin-bottom:var(--space-1);font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.04em;text-transform:uppercase;color:var(--text-tertiary)}
+.metadata-filter input{width:100%;padding:var(--space-2) var(--space-3);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-recessed);font:inherit}
+.metadata-table{width:100%;border-collapse:collapse}
+.metadata-table th,.metadata-table td{padding:10px var(--space-3);border-bottom:1px solid var(--border-faint);text-align:left;vertical-align:middle}
+.metadata-table th{color:var(--text-tertiary);font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.04em;text-transform:uppercase}
+.metadata-table tbody tr:hover{background:var(--surface-hover)}
+.metadata-table .mono{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.states{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5);margin-top:var(--space-7)}
+.state-label{margin-bottom:var(--space-2);color:var(--text-tertiary);font-size:var(--fs-caption);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.state-box{min-height:90px}
+.banner{padding:var(--space-3) var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);margin-bottom:var(--space-3)}
+.banner--positive{color:var(--color-positive);background:var(--color-positive-bg);border:1px solid var(--color-positive-border)}
+.banner--warning{color:var(--color-warning);background:var(--color-warning-bg);border:1px solid var(--color-warning-border)}
+.banner--negative{color:var(--color-negative);background:var(--color-negative-bg);border:1px solid var(--color-negative-border)}
+@media(max-width:760px){.preview-head{display:block}.preview-head form{margin-top:var(--space-4)}.states{grid-template-columns:1fr}.metadata-panel{overflow-x:auto}}
+</style>
+</head>
+<body>
+<main class="preview">
+  <div class="preview-note"><strong>UI preview.</strong> Analysis Metadata uses the existing tab, button, badge, filter, table, and state-box components.</div>
+
+  <header class="preview-head">
+    <div class="preview-head__copy">
+      <h1>Analysis Metadata</h1>
+      <p>Reference data synced from Risk Modeler. Profiles, schemes, and currencies are read-only here.</p>
+    </div>
+    <form><button class="btn-sm btn-sm--primary" type="button">Sync IRP Metadata</button></form>
+  </header>
+
+  <section class="metadata-panel" aria-label="Populated model profiles">
+    <nav class="tabs" aria-label="Analysis metadata">
+      <a class="tab tab--active" href="#">Model Profiles <span class="badge badge--neutral">3,474</span></a>
+      <a class="tab" href="#">Output Profiles <span class="badge badge--neutral">875</span></a>
+      <a class="tab" href="#">Event Rate Schemes <span class="badge badge--neutral">151</span></a>
+      <a class="tab" href="#">Currencies <span class="badge badge--neutral">266</span></a>
+    </nav>
+
+    <div class="metadata-meta"><span class="status-chip status-chip--ready">Synced</span><span>Last synced Aug 18, 2026 at 2:41 PM</span></div>
+    <div class="metadata-filter">
+      <label for="profile-filter">Filter model profiles</label>
+      <input id="profile-filter" value="UDCT" aria-label="Filter model profiles">
+    </div>
+
+    <table class="metadata-table">
+      <thead><tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th><th>Default</th></tr></thead>
+      <tbody>
+        <tr><td>UDCT NA Wind RL25</td><td><span class="badge badge--brand">DLM</span></td><td class="mono">RL25</td><td>Windstorm</td><td>North America</td><td>Exceedance Probability</td><td>—</td></tr>
+        <tr><td>UDCT US Wildfire HD</td><td><span class="badge badge--info">HD</span></td><td class="mono">HDv3.0</td><td>Wildfire</td><td>United States</td><td>Exceedance Probability</td><td>—</td></tr>
+        <tr><td>UDCT Global Accumulation</td><td><span class="badge badge--warning">Accumulation</span></td><td class="mono">—</td><td>All perils</td><td>Global</td><td>Accumulation</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="states" aria-label="Metadata page states">
+    <div>
+      <div class="state-label">Empty cache</div>
+      <div class="metadata-panel">
+        <div class="banner banner--positive">Metadata sync queued. Refresh after the worker finishes.</div>
+        <div class="state-box"><strong>No model profiles synced.</strong><br>Run Sync IRP Metadata to load the Risk Modeler reference list.</div>
+      </div>
+    </div>
+    <div>
+      <div class="state-label">Sync already running</div>
+      <div class="metadata-panel">
+        <div class="banner banner--warning">Sync already in progress.</div>
+        <div class="metadata-meta"><span class="status-chip status-chip--importing">Running</span><span>The cached lists remain available while the job runs.</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="state-label">Last sync failed</div>
+      <div class="metadata-panel">
+        <div class="banner banner--negative"><strong>Metadata sync failed.</strong> Risk Modeler authentication failed.</div>
+        <div class="metadata-meta"><span class="status-chip status-chip--error">Failed</span><span>Showing the last successful snapshot from Aug 17, 2026 at 4:08 PM.</span></div>
+      </div>
+    </div>
+    <div>
+      <div class="state-label">Other tab shape</div>
+      <div class="metadata-panel">
+        <nav class="tabs"><a class="tab" href="#">Model Profiles</a><a class="tab" href="#">Output Profiles</a><a class="tab tab--active" href="#">Event Rate Schemes</a><a class="tab" href="#">Currencies</a></nav>
+        <table class="metadata-table"><thead><tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th></tr></thead><tbody><tr><td>RMS WS 2026</td><td class="mono">WS</td><td class="mono">NAWS</td><td class="mono">25.0</td><td>No</td></tr></tbody></table>
+      </div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

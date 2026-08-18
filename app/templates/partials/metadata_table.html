@@ -1,0 +1,76 @@
+<div id="metadata-content">
+  <nav class="tabs" aria-label="Analysis metadata">
+    {% for tab in tabs %}
+    <a class="tab{% if tab.key == active_tab %} tab--active{% endif %}"
+       href="/templates/metadata?tab={{ tab.key }}"
+       hx-get="/templates/metadata/table?tab={{ tab.key }}"
+       hx-target="#metadata-content" hx-swap="outerHTML"
+       hx-push-url="/templates/metadata?tab={{ tab.key }}">
+      {{ tab.label }} <span class="badge badge--neutral">{{ counts[tab.count_key] }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  <div class="metadata-meta">
+    {% if latest_job %}
+      {% if latest_job.status_code in ("pending", "running") %}
+      <span class="status-chip status-chip--importing">{{ latest_job.status_code | title }}</span>
+      <span>The cached lists remain available while the job runs.</span>
+      {% elif latest_job.status_code == "failed" %}
+      <span class="status-chip status-chip--error">Failed</span>
+      {% elif latest_job.status_code == "succeeded" %}
+      <span class="status-chip status-chip--ready">Synced</span>
+      {% endif %}
+    {% endif %}
+    {% if last_synced_at %}<span>Last synced {{ last_synced_at }}</span>{% endif %}
+  </div>
+
+  <form class="metadata-filter" method="get" action="/templates/metadata"
+        hx-get="/templates/metadata/table" hx-trigger="input delay:300ms"
+        hx-target="#metadata-content" hx-swap="outerHTML">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    <label for="metadata-filter">Filter {{ active_tab_label | lower }}</label>
+    <input id="metadata-filter" class="wf-field__input" type="text" name="q"
+           value="{{ q }}" autocomplete="off">
+  </form>
+
+  <div class="metadata-table-wrap">
+    <table class="mk-table metadata-table">
+      <thead>
+        {% if active_tab == "model-profiles" %}
+        <tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th><th>Default</th></tr>
+        {% elif active_tab == "output-profiles" %}
+        <tr><th>Name</th><th>Risk Modeler ID</th><th>Default</th></tr>
+        {% elif active_tab == "event-rate-schemes" %}
+        <tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th></tr>
+        {% else %}
+        <tr><th>Code</th><th>Name</th><th>Country</th><th>Symbol</th></tr>
+        {% endif %}
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% if active_tab == "model-profiles" %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td><span class="badge badge--{{ 'warning' if row.family == 'Accumulation' else ('info' if row.family == 'HD' else 'brand') }}">{{ row.family }}</span></td>
+            <td class="mono">{{ row.software_version_code or '—' }}</td>
+            <td>{{ row.peril or '—' }}</td><td>{{ row.region or '—' }}</td>
+            <td>{{ row.analysis_type or '—' }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td>
+          </tr>
+          {% elif active_tab == "output-profiles" %}
+          <tr><td>{{ row.name }}</td><td class="mono">{{ row.irp_id }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td></tr>
+          {% elif active_tab == "event-rate-schemes" %}
+          <tr><td>{{ row.name }}</td><td class="mono">{{ row.peril_code or '—' }}</td><td class="mono">{{ row.model_region_code or '—' }}</td><td class="mono">{{ row.model_version_code or '—' }}</td><td>{{ 'Yes' if row.is_hd else 'No' }}</td></tr>
+          {% else %}
+          <tr><td class="mono">{{ row.code }}</td><td>{{ row.name }}</td><td>{{ row.country_name or '—' }}</td><td>{{ row.symbol or '—' }}</td></tr>
+          {% endif %}
+        {% else %}
+        <tr><td class="empty" colspan="7">
+          {% if q %}No matches. Clear the filter to see all cached values.
+          {% else %}No {{ active_tab_label | lower }} synced. Run Sync IRP Metadata to load the Risk Modeler reference list.{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

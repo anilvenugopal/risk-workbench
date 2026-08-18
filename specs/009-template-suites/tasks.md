@@ -17,9 +17,9 @@
 
 ## Phase 1: Cross-repo prerequisite (irp-integration — built externally)
 
-**Purpose**: Track the irp-integration work this feature consumes. The T-06 classification/validation utility is being built **independently in a separate session** (handoff brief 2026-08-18); the accumulation-profile read is **tabled** (old T001/T002 — moved to *Deferred: accumulation* below). Nothing in this phase blocks Phase 2 — foundational work starts immediately.
+**Purpose**: Track the irp-integration work this feature consumes. The T-06 classification/validation utility **landed 2026-08-18** in the `0.6.0rc1` TestPyPI pre-release; the accumulation-profile read is **tabled** (old T001/T002 — moved to *Deferred: accumulation* below).
 
-- [ ] T003 When the T-06 utility lands in `../../IRP/irp-integration`, switch this repo to the sibling checkout via `make irp-local`; verify with `make irp-status`. Gates only the tasks that call the utility (T017, T021, T032) — nothing else waits on it
+- [x] T003 The T-06 utility landed in `irp-integration==0.6.0rc1`; consumed via the pinned TestPyPI build (`make irp-testpypi`, pin in the `irp-testpypi` dependency group) rather than `make irp-local`. Validated 2026-08-18 (research.md R2): `irp_integration.analysis_validation` exposes `classify_model_profile` + `validate_analysis_settings`, pure (no `IRPClient`), and the wheel's submit path is refactored onto it. T017, T021, T032 are unblocked
 
 **Checkpoint**: the T-06 validation utility is importable locally. (Accumulation reads deferred; `irp_model_profile.is_accumulation` stays in the schema, defaulting 0, so resuming accumulation is additive — no migration churn.)
 
@@ -51,15 +51,15 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Add 4 frozen dataclasses (`ModelProfileEntry`, `OutputProfileEntry`, `EventRateSchemeEntry`, `CurrencyEntry`) and the 4 `list_*` Protocol methods + real implementation via `client.reference_data` in `app/services/irp_gateway.py`, field lists per contracts/routes.md (`list_accumulation_profiles` deferred with the tabled accumulation read — see *Deferred: accumulation*)
-- [ ] T012 [P] [US1] Mirror the 4 list methods in `tests/unit/fakes/fake_irp.py` with configurable sample data covering DLM (`RL25`), HD (`HDv3.0`), and `Open` rows
-- [ ] T013 [US1] Implement the `sync_irp_metadata` Dramatiq actor in `app/workers/metadata_jobs.py` (name-based dispatch, body via `runtime.run_job`): fetch all four sets, then one WORKBENCH transaction — snapshot upsert keyed on `irp_id` (currencies: `code`), hard delete of rows the fetch no longer returned; return `JobResult.ok(synced counts)` / `.fail(reason)`; a gateway failure aborts before any write (FR-002); depends on T011 (accumulation ingestion deferred — `is_accumulation` defaults 0 on all synced rows)
-- [ ] T014 [P] [US1] Unit tests for the worker in `tests/unit/test_metadata_sync_worker.py` (fake IRP): initial populate, re-sync removes vanished rows and updates changed names, fetch failure leaves prior cache rows intact and fails the job
-- [ ] T015 [US1] UI preview `docs/ui_previews/templates_metadata.html` (from `docs/ui_previews/_scaffold.html`, reuse the existing `.tabs` CSS component): four tabs, per-tab filter input, DLM/HD/Accumulation marker + raw software version column, last-synced line, sync button, empty state — approved before wiring
-- [ ] T016 [US1] `GET /templates/metadata` page route in `app/routers/templates.py` + `app/templates/pages/templates_metadata.html`: four tabs (`?tab=model-profiles` default, `output-profiles`, `event-rate-schemes`, `currencies`), tab links `hx-get` the fragment with `hx-push-url`, last-synced time and status/failure reason from the latest `sync_irp_metadata` rwb_job, `?sync=` banner messages; context built by a builder shared with the fragment route
-- [ ] T017 [US1] `GET /templates/metadata/table` HTMX fragment + `app/templates/partials/metadata_table.html`: one tab's read-only table with filter input (`hx-trigger="input delay:300ms"`, edm_library pattern); model-profile tab derives the marker (is_accumulation → Accumulation, else the T-06 irp-integration classification utility — never a re-implemented rule) and shows the raw version; depends on T016 (shared context builder) and T003 (utility available via `make irp-local`)
-- [ ] T018 [US1] `POST /templates/metadata/sync` in `app/routers/templates.py`: CSRF-validated, open to every analyst; `ensure_pending_rwb_job` with the fixed sentinel requestor + dispatch, PRG to `?sync=queued`; when a sync job is already pending/running nothing is enqueued and PRG lands on `?sync=already-running` rendered as "sync already in progress" (FR-002)
-- [ ] T019 [P] [US1] Unit tests for the metadata routes in `tests/unit/test_templates_metadata_routes.py`: page renders four tabs, fragment filters, marker derivation shown, sync enqueues once, second request refused with the message, failed-job reason displayed, no create/edit control in any tab's markup
+- [x] T011 [US1] Add 4 frozen dataclasses (`ModelProfileEntry`, `OutputProfileEntry`, `EventRateSchemeEntry`, `CurrencyEntry`) and the 4 `list_*` Protocol methods + real implementation via `client.reference_data` in `app/services/irp_gateway.py`, field lists per contracts/routes.md (`list_accumulation_profiles` deferred with the tabled accumulation read — see *Deferred: accumulation*)
+- [x] T012 [P] [US1] Mirror the 4 list methods in `tests/unit/fakes/fake_irp.py` with configurable sample data covering DLM (`RL25`), HD (`HDv3.0`), and `Open` rows
+- [x] T013 [US1] Implement the `sync_irp_metadata` Dramatiq actor in `app/workers/metadata_jobs.py` (name-based dispatch, body via `runtime.run_job`): fetch all four sets, then one WORKBENCH transaction — snapshot upsert keyed on `irp_id` (currencies: `code`), hard delete of rows the fetch no longer returned; return `JobResult.ok(synced counts)` / `.fail(reason)`; a gateway failure aborts before any write (FR-002); depends on T011 (accumulation ingestion deferred — `is_accumulation` defaults 0 on all synced rows)
+- [x] T014 [P] [US1] Unit tests for the worker in `tests/unit/test_metadata_sync_worker.py` (fake IRP): initial populate, re-sync removes vanished rows and updates changed names, fetch failure leaves prior cache rows intact and fails the job
+- [x] T015 [US1] UI preview `docs/ui_previews/templates_metadata.html` (from `docs/ui_previews/_scaffold.html`, reuse the existing `.tabs` CSS component): four tabs, per-tab filter input, DLM/HD/Accumulation marker + raw software version column, last-synced line, sync button, empty state — approved before wiring
+- [x] T016 [US1] `GET /templates/metadata` page route in `app/routers/templates.py` + `app/templates/pages/templates_metadata.html`: four tabs (`?tab=model-profiles` default, `output-profiles`, `event-rate-schemes`, `currencies`), tab links `hx-get` the fragment with `hx-push-url`, last-synced time and status/failure reason from the latest `sync_irp_metadata` rwb_job, `?sync=` banner messages; context built by a builder shared with the fragment route
+- [x] T017 [US1] `GET /templates/metadata/table` HTMX fragment + `app/templates/partials/metadata_table.html`: one tab's read-only table with filter input (`hx-trigger="input delay:300ms"`, edm_library pattern); model-profile tab derives the marker (is_accumulation → Accumulation, else the T-06 irp-integration classification utility — never a re-implemented rule) and shows the raw version; depends on T016 (shared context builder) and T003 (utility available — `irp-integration==0.6.0rc1`, done)
+- [x] T018 [US1] `POST /templates/metadata/sync` in `app/routers/templates.py`: CSRF-validated, open to every analyst; `ensure_pending_rwb_job` with the fixed sentinel requestor + dispatch, PRG to `?sync=queued`; when a sync job is already pending/running nothing is enqueued and PRG lands on `?sync=already-running` rendered as "sync already in progress" (FR-002)
+- [x] T019 [P] [US1] Unit tests for the metadata routes in `tests/unit/test_templates_metadata_routes.py`: page renders four tabs, fragment filters, marker derivation shown, sync enqueues once, second request refused with the message, failed-job reason displayed, no create/edit control in any tab's markup
 - [ ] T020 [P] [US1] IRP-tier shape test `tests/irp/test_reference_data_shapes.py` (opt-in `--run-irp`): all four gateway reads return the R1-documented fields against the sandbox
 
 **Checkpoint**: quickstart US1 passes end-to-end against the sandbox. **STOP** — approver clicks the running slice before US2 begins.
@@ -138,7 +138,7 @@ FR-001/FR-004's three-way promise. Deferred work, in order:
 
 ### Phase Dependencies
 
-- **Phase 1 (external)**: the T-06 utility is built independently in irp-integration; T003 fires when it lands and gates only T017/T021/T032. T001/T002 are deferred with accumulation.
+- **Phase 1 (external)**: **complete 2026-08-18** — the T-06 utility shipped in `irp-integration==0.6.0rc1` (T003 done); T017/T021/T032 are no longer gated. T001/T002 are deferred with accumulation.
 - **Foundational (Phase 2)**: independent of Phase 1 — **start here now**; T004 → T005 → T006 share `0001_initial.py`; T007/T008 after T005; T010 after T009. BLOCKS all user stories.
 - **US1 (Phase 3)**: needs Phase 2 only (accumulation deferred); T017 additionally needs T003 (T-06 utility)
 - **US2 (Phase 4)**: needs Phase 2; T021/T032 additionally need T003; consumes US1's cache for pick lists and classification (buildable against fake/synced data, but the story is verified after US1)
@@ -153,7 +153,6 @@ FR-001/FR-004's three-way promise. Deferred work, in order:
 
 ### Parallel Opportunities
 
-- The external irp-integration T-06 work proceeds in parallel with all of Phase 2 and most of US1/US2 (only T017/T021/T032 wait on it via T003)
 - T007 and T008 (different test files) in parallel after the migration tasks
 - US1: T012 (fake) alongside T013 (worker); T014, T019, T020 in parallel once their subjects exist
 - US2: T024, T031, T035 (separate test files) in parallel with later implementation tasks; T033 (workbook authoring) in parallel with route work once T032 exists
@@ -179,7 +178,7 @@ Task: "Route unit tests in tests/unit/test_templates_metadata_routes.py"   # T01
 
 ### MVP First (User Story 1 Only)
 
-1. Phase 2 (schema/nav/router) — starts immediately; the external T-06 utility lands in parallel (T003)
+1. Phase 2 (schema/nav/router) — starts immediately; the T-06 utility is already available (T003 done, `0.6.0rc1`)
 2. Phase 3: US1 — sync worker + metadata page (four reads; accumulation deferred)
 3. **STOP and VALIDATE**: quickstart US1 against the sandbox; approver clicks the slice
 4. This alone has standalone value: analysts stop opening Risk Modeler to check what profiles exist (SC-001)

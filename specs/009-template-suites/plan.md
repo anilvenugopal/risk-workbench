@@ -22,9 +22,11 @@
   additive. Separately, irp-integration gains a pure classification/pairing validation utility
   (T-06) — DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing rules,
   extracted from the wheel's submit path (`analysis.py:246-296`) so template save, import, and
-  analysis submit all enforce one implementation, never re-implemented app-side. The T-06 work is
-  being built independently in the `../../IRP/irp-integration` checkout (session handoff
-  2026-08-18), consumed here via `make irp-local` until published.
+  analysis submit all enforce one implementation, never re-implemented app-side. The T-06 utility
+  **landed and was validated 2026-08-18**: `irp_integration.analysis_validation` ships
+  `classify_model_profile` and `validate_analysis_settings` in the `0.6.0rc1` pre-release, the
+  wheel's submit path is refactored onto it, and this repo consumes it via the pinned TestPyPI
+  build (`make irp-testpypi`, `irp-integration[databridge]==0.6.0rc1`).
 - New worker `app/workers/metadata_jobs.py`: `sync_irp_metadata` actor refreshes all four cache
   tables in one transaction (snapshot upsert + hard delete of rows the fetch no longer returned —
   cache rows have no soft delete); enqueued from the metadata page via `ensure_pending_rwb_job`
@@ -58,9 +60,10 @@
   tests for worker, routes, validation, workbook round-trip, admin gating; sqlserver migration
   assertions; an `--run-irp` test pinning the R1 response shapes.
 
-**Risks**: (1) the T-06 utility is built in a separate irp-integration effort and gates the three
-tasks that call it (marker fragment, save validation, import validation) — everything else
-proceeds without it; the tabled T-02 accumulation read means no Accumulation rows sync this pass
+**Risks**: (1) ~~the T-06 utility is built in a separate irp-integration effort and gates the
+three tasks that call it~~ — **resolved 2026-08-18**: the utility shipped in `0.6.0rc1` and is
+validated against this plan's expectations, so the marker fragment, save validation, and import
+validation are unblocked; the tabled T-02 accumulation read means no Accumulation rows sync this pass
 (FR-004's three-way marker has data for two of three classes until it resumes — revisit the spec
 if it slips past the iteration), and the accumulation columns in data-model.md stay provisional
 until its spike runs; (2) starter-suite contents
@@ -76,7 +79,7 @@ workbook edit, not code (T-05).
 | T-03 | Event-rate pre-fill: filter schemes to the profile's `(peril_code, model_region_code)`; pre-fill only on exactly one active match; `isDefault` rejected as ambiguous (R4). | Approved via research |
 | T-04 | Transfer file is one `.xlsx` workbook, two sheets, openpyxl (R6); export-all includes templates in no suite, and import replaces a matched suite's items wholesale (spec Clarifications 2026-08-18). | Approved via research |
 | T-05 | Starter suites seed from `infra/scripts/starter_suites.xlsx` through the import service; the seed skips when any live suite exists (R10). If every suite has been deleted, a later seed run re-creates the starter four — resurrection accepted. | Approved 2026-08-18 |
-| T-06 | DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing validation ship as a pure (no-I/O) utility in irp-integration, extracted from the submit path; the workbench calls it at template save and import, and the wheel's submit refactors onto it — one implementation, three enforcement points, nothing replicated app-side. Supersedes R2's "derive with the wheel's exact rule" replication. Built independently in the irp-integration checkout (session handoff 2026-08-18); this repo consumes it via `make irp-local` (tasks T003). | Approved 2026-08-18 |
+| T-06 | DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing validation ship as a pure (no-I/O) utility in irp-integration, extracted from the submit path; the workbench calls it at template save and import, and the wheel's submit refactors onto it — one implementation, three enforcement points, nothing replicated app-side. Supersedes R2's "derive with the wheel's exact rule" replication. | **Landed & validated 2026-08-18** — `irp_integration.analysis_validation` (`classify_model_profile`, `validate_analysis_settings`) in `0.6.0rc1`; submit path refactored onto it; consumed via pinned TestPyPI build, `make irp-testpypi` (tasks T003) |
 
 **Constitution check** (v3.1.0) — no violations; the articles that shaped the design:
 
@@ -109,8 +112,8 @@ one user story implemented end-to-end at a time.
 **Language/Version**: Python 3.13 (uv-managed)
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX (Article 8), SQLAlchemy Core via `/db`,
 Dramatiq + Redis (existing worker runtime), openpyxl, irp-integration (source-switchable; the
-T-06 validation utility is being added to it in an independent effort — accumulation read tabled —
-so development runs on `make irp-local` once the utility lands)
+T-06 validation utility shipped in the `0.6.0rc1` pre-release — accumulation read still tabled —
+so development runs on the pinned TestPyPI build, `make irp-testpypi`)
 **Storage**: SQL Server — WORKBENCH database only (Article 6); SQLite injected via
 `register_engine` in the unit tier
 **Testing**: pytest, three tiers (`tests/unit`, `tests/sqlserver`, `tests/irp`)
@@ -155,8 +158,8 @@ app/templates/pages/                  # templates.html (rework), templates_metad
 app/templates/partials/               # metadata table fragment, scheme options, suite item rows
 infra/scripts/seed_db.py              # +sync_irp_metadata kind row, +starter-suite import (T-05)
 infra/scripts/starter_suites.xlsx     # NEW — seed workbook, transfer-workbook format (T-05)
-../../IRP/irp-integration             # sibling repo (independent effort): +pure classification/
-                                      #   pairing validation utility (T-06); accumulation read
+../../IRP/irp-integration             # sibling repo: pure classification/pairing validation
+                                      #   utility (T-06) shipped in 0.6.0rc1; accumulation read
                                       #   (T-02) tabled
 docs/ui_previews/                     # metadata + builder previews (UI-first)
 docs/DATA_MODEL.md                    # reconcile §7 deltas (tag_name, occupancy column, created_by,

@@ -6,9 +6,10 @@
 - Rebuilt database: `make db-rebuild` (destructive) — migrates the 8 new tables and seeds the
   four starter suites.
 - IRP sandbox credentials in the environment (for the sync; everything else works without them).
-- irp-integration source with the accumulation-profile read (`make irp-local` until it is
-  published; `make irp-status` shows the active source) — without it the sync cannot fetch
-  accumulation profiles (T-02).
+- irp-integration `>= 0.6.0rc1` — the pinned TestPyPI pre-release (`make irp-testpypi`;
+  `make irp-status` shows the active source) carrying the T-06 validation utility. The
+  accumulation-profile read is tabled (T-02), so the sync ships four sets and no Accumulation
+  rows appear until it resumes.
 - Sign in as the seeded admin (`admin@example.com`) for mutating steps; any analyst for viewing.
 
 ## US1 — Metadata sync & four-tab screen

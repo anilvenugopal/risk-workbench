@@ -31,6 +31,19 @@ gains a pure classification/validation utility (extracted from the submit path, 
 inlines classification, DLM-requires-scheme, and the peril/region pairing at `analysis.py:246-296`
 interleaved with live API calls); the workbench imports it at template save and import, and the
 submit path refactors onto it.
+**Landed & validated 2026-08-18**: `irp-integration==0.6.0rc1` (TestPyPI pre-release, pinned via
+`make irp-testpypi`) ships `irp_integration.analysis_validation` with
+`classify_model_profile(software_version_code) -> "DLM" | "HD"` and
+`validate_analysis_settings(software_version_code, scheme_provided, profile_peril_code,
+profile_model_region_code, scheme_peril_code=None, scheme_model_region_code=None) -> list[str]`
+(empty list = valid). Probe-confirmed: `RL25`→DLM, `HDv3.0`/`HD`→HD; DLM without a scheme returns
+the "Event rate scheme is required for DLM analyses" error; peril/region pairing is enforced only
+when both scheme codes are supplied (either `None` skips the pair check — matching the plan's
+"skipped when a side is absent from the cache"); the wheel's own submit path
+(`analysis.py:263,276`) now calls the same functions. Module is pure — imports only `typing`,
+needs no `IRPClient`. Caller note: `classify_model_profile` requires a non-null
+`software_version_code`; the workbench must guard rows whose cached code is NULL before
+classifying.
 **Rejected**: a stored classification column (derivable; would go stale on re-sync) and a
 `startswith("RL")` rule (diverges from the wheel for `Open`, inventing a third enforcement path).
 

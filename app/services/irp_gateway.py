@@ -154,6 +154,44 @@ class AnalysisMetadata:
     is_group: bool = False
 
 
+@dataclass(frozen=True)
+class ModelProfileEntry:
+    irp_id: int
+    name: str
+    software_version_code: str | None = None
+    peril_code: str | None = None
+    model_region_code: str | None = None
+    peril: str | None = None
+    region: str | None = None
+    analysis_type: str | None = None
+    rms_default: bool = False
+
+
+@dataclass(frozen=True)
+class OutputProfileEntry:
+    irp_id: int
+    name: str
+    rms_default: bool = False
+
+
+@dataclass(frozen=True)
+class EventRateSchemeEntry:
+    irp_id: int
+    name: str
+    peril_code: str | None = None
+    model_region_code: str | None = None
+    model_version_code: str | None = None
+    is_hd: bool = False
+
+
+@dataclass(frozen=True)
+class CurrencyEntry:
+    code: str
+    name: str
+    country_name: str | None = None
+    symbol: str | None = None
+
+
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
 
 @runtime_checkable
@@ -193,6 +231,14 @@ class IRPGateway(Protocol):
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]: ...
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]: ...
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]: ...
+
+    def list_currencies(self) -> list[CurrencyEntry]: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -481,6 +527,67 @@ class _RealGateway:
                 updated_at=r.get("updatedAt")))
         return entries
 
+    # ── analysis reference data (worker-only snapshot reads) ──────────────────
+
+    @staticmethod
+    def _reference_rows(payload, label: str) -> list[dict]:
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict) and isinstance(payload.get("items"), list):
+            rows = payload["items"]
+        else:
+            raise ValueError(f"unexpected {label} response shape")
+        if not all(isinstance(row, dict) for row in rows):
+            raise ValueError(f"unexpected {label} row shape")
+        return rows
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_model_profiles(), "model profiles")
+        return [ModelProfileEntry(
+            irp_id=int(row["id"]),
+            name=str(row["name"]),
+            software_version_code=row.get("softwareVersionCode"),
+            peril_code=row.get("perilCode"),
+            model_region_code=row.get("modelRegionCode"),
+            peril=row.get("peril"),
+            region=row.get("region"),
+            analysis_type=row.get("analysisType"),
+            rms_default=bool(row.get("rmsDefault")),
+        ) for row in rows]
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_output_profiles(), "output profiles")
+        return [OutputProfileEntry(
+            irp_id=int(row["id"]),
+            name=str(row["name"]),
+            rms_default=bool(row.get("rmsDefault")),
+        ) for row in rows]
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_event_rate_schemes(),
+            "event rate schemes")
+        return [EventRateSchemeEntry(
+            irp_id=int(row["eventRateSchemeId"]),
+            name=str(row["eventRateSchemeName"]),
+            peril_code=row.get("perilCode"),
+            model_region_code=row.get("modelRegionCode"),
+            model_version_code=row.get("modelVersionCode"),
+            is_hd=bool(row.get("isHD")),
+        ) for row in rows]
+
+    def list_currencies(self) -> list[CurrencyEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.search_currencies(), "currencies")
+        return [CurrencyEntry(
+            code=str(row["currencyCode"]),
+            name=str(row["currencyName"]),
+            country_name=row.get("countryName"),
+            symbol=row.get("currencySymbol"),
+        ) for row in rows]
+
 
 # ── Active-implementation registry (the injection seam) ──────────────────────────
 
@@ -576,13 +683,32 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
+def list_model_profiles() -> list[ModelProfileEntry]:
+    return _active().list_model_profiles()
+
+
+def list_output_profiles() -> list[OutputProfileEntry]:
+    return _active().list_output_profiles()
+
+
+def list_event_rate_schemes() -> list[EventRateSchemeEntry]:
+    return _active().list_event_rate_schemes()
+
+
+def list_currencies() -> list[CurrencyEntry]:
+    return _active().list_currencies()
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
+    "ModelProfileEntry", "OutputProfileEntry", "EventRateSchemeEntry",
+    "CurrencyEntry",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
     "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
-    "search_treaties", "get_analysis_metadata",
+    "search_treaties", "get_analysis_metadata", "list_model_profiles",
+    "list_output_profiles", "list_event_rate_schemes", "list_currencies",
 ]

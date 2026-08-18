@@ -20,10 +20,14 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
+    CurrencyEntry,
     EdmCatalogEntry,
     EntityHit,
+    EventRateSchemeEntry,
     ExposureDetail,
     JobStatus,
+    ModelProfileEntry,
+    OutputProfileEntry,
     PortfolioHit,
     SubmitResult,
     TreatyDetail,
@@ -87,6 +91,19 @@ class FakeIRP:
         # EDM names are not unique in RM and the diff must cope with that)
         self._catalog: list[dict] = []
         self.raise_on_list_edms = False
+        self.model_profiles = [
+            ModelProfileEntry(1, "RMS Default RL25", "RL25", "WS", "NAWS",
+                              "Windstorm", "North America", "Exceedance Probability", True),
+            ModelProfileEntry(2, "RMS Default HD", "HDv3.0", "WS", "NAWS",
+                              "Windstorm", "North America", "Exceedance Probability", True),
+            ModelProfileEntry(3, "Open profile", "Open", "EQ", "NAEQ",
+                              "Earthquake", "North America", "User Defined", False),
+        ]
+        self.output_profiles = [OutputProfileEntry(10, "RMS Default Output", True)]
+        self.event_rate_schemes = [
+            EventRateSchemeEntry(20, "RMS WS", "WS", "NAWS", "25.0", False)]
+        self.currencies = [CurrencyEntry("USD", "US Dollar", "United States", "$")]
+        self.raise_on_reference_data = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -321,3 +338,20 @@ class FakeIRP:
             raise RuntimeError("fake IRP: forced search failure")
         return ([EntityHit(irp_id=f"rdm-{name}", name=name)]
                 if name in self._rdm_names else [])
+
+    def _reference_data(self, rows):
+        if self.raise_on_reference_data:
+            raise RuntimeError("fake IRP: forced reference-data failure")
+        return list(rows)
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]:
+        return self._reference_data(self.model_profiles)
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]:
+        return self._reference_data(self.output_profiles)
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]:
+        return self._reference_data(self.event_rate_schemes)
+
+    def list_currencies(self) -> list[CurrencyEntry]:
+        return self._reference_data(self.currencies)
