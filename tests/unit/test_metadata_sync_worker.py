@@ -46,6 +46,19 @@ def test_resync_updates_names_and_removes_vanished_rows(iteration2_db, fake_irp)
     assert [row["code"] for row in _rows("irp_currency", "code")] == ["CAD"]
 
 
+def test_sync_truncates_legacy_currency_names_to_risk_modeler_limit(
+    iteration2_db, fake_irp,
+):
+    fake_irp.currencies = [
+        CurrencyEntry("LEG", "12345678901234567", "United States", "$")
+    ]
+
+    result = metadata_jobs._sync_irp_metadata_body()
+
+    assert result.status == "succeeded"
+    assert _rows("irp_currency", "code")[0]["name"] == "1234567890123456"
+
+
 def test_fetch_failure_leaves_every_cached_table_unchanged(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     before = {

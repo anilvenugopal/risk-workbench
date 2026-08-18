@@ -16,6 +16,8 @@ from db import get_connection
 
 _ = broker.redis_broker
 
+_CURRENCY_NAME_MAX_LENGTH = 16
+
 
 def _worker_id() -> str:
     return f"{socket.gethostname()}:{__name__}"
@@ -76,7 +78,10 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
                   for row in model_profiles]
     output_rows = [asdict(row) for row in output_profiles]
     scheme_rows = [asdict(row) for row in event_rate_schemes]
-    currency_rows = [asdict(row) for row in currencies]
+    currency_rows = [
+        {**asdict(row), "name": row.name[:_CURRENCY_NAME_MAX_LENGTH]}
+        for row in currencies
+    ]
     now = _utcnow()
 
     with get_connection("WORKBENCH") as conn:

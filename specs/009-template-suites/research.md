@@ -151,3 +151,14 @@ removing auto-naming removes their only purpose, and P-03 already establishes th
 region. Tags stay: PRD §11.1a lists tags as a per-analysis setting (`tag_names` on submit), and
 O14-8 designates `analysis_template_tag` as the mechanism for the LOB axis in suites. DATA_MODEL
 §7 reconciliation at implementation covers these deletions.
+
+## R12 — Legacy currency names use the Risk Modeler creation limit
+
+Risk Modeler's create-currency screen requires a one-to-three-character code and limits the
+currency name to 16 characters. Existing Risk Modeler data can exceed the name limit; one such
+row caused SQL Server error 2628 while refreshing `irp_currency`.
+
+**Decision (P-06)**: metadata sync stores the first 16 characters of every currency name. The
+gateway still returns the Risk Modeler response unchanged. **Rejected**: failing the entire sync
+or omitting the legacy currency, because either choice prevents the cache from supplying the
+currency code to analysis templates.

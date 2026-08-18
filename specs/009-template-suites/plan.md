@@ -29,9 +29,10 @@
   build (`make irp-testpypi`, `irp-integration[databridge]==0.6.0rc1`).
 - New worker `app/workers/metadata_jobs.py`: `sync_irp_metadata` actor refreshes all four cache
   tables in one transaction (snapshot upsert + hard delete of rows the fetch no longer returned —
-  cache rows have no soft delete); enqueued from the metadata page via `ensure_pending_rwb_job`
-  with a fixed sentinel requestor — a sync requested while one is pending or running is refused
-  with a "sync already in progress" message, never interleaved (T-01, FR-002).
+  cache rows have no soft delete); currency names are truncated to Risk Modeler's 16-character
+  create-currency limit (P-06); enqueued from the metadata page via `ensure_pending_rwb_job` with
+  a fixed sentinel requestor — a sync requested while one is pending or running is refused with
+  a "sync already in progress" message, never interleaved (T-01, FR-002).
 - New router `app/routers/templates.py` + templates under `app/templates/pages/`: the four-tab
   metadata page (first use of the existing `.tabs` CSS component; filter fragments follow the
   `edm_library` HTMX pattern) and the suite-administration pages (server-rendered forms,

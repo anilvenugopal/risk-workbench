@@ -30,6 +30,7 @@
 | P-03 | Region is **not** a stored attribute anywhere — the suite's or template's name identifies its region (and output level). Resolves O14-3: no suite-level region field, and no `region_label`/`peril_code` on templates (dropped 2026-08-18 with auto-naming). | Approved |
 | P-04 | An import file applies **all-or-nothing**: every error in the file is reported in one pass; nothing is applied on any error. | Approved |
 | P-05 | Import matches existing templates and suites **by name** and updates them; unmatched names are created. | Approved |
+| P-06 | Metadata sync stores at most the first 16 characters of each currency name, matching Risk Modeler's create-currency limit even when legacy currency names exceed it. | Approved |
 
 **How to verify.** Sync metadata against the IRP sandbox and see profiles/schemes/currencies on the metadata screen; create a DLM template (event-rate scheme enforced) and an HD template (optional); compose a mixed suite; confirm the four starter suites exist after `make db-rebuild`; export all suites, import into a rebuilt database, and diff — identical.
 
@@ -103,6 +104,7 @@ An administrator exports suites — with every template they contain — to a sp
 ### Edge Cases
 
 - Sync runs while another sync is in progress → second request is refused with a "sync already in progress" message; runs never interleave.
+- Risk Modeler returns a legacy currency name longer than its 16-character creation limit → sync stores the first 16 characters.
 - A template's cached profile/scheme/currency disappears or is renamed on re-sync → template flagged unresolved (US2 scenario 8), pick lists show only current values, saved values are never silently rewritten.
 - Suite with zero templates → allowed while composing, visibly marked empty (it cannot do anything until Iteration 7 anyway).
 - Duplicate template or suite name at save time → rejected with a message (names are the import matching key, P-05).
