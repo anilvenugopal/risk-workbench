@@ -92,7 +92,7 @@ An administrator exports suites — with every template they contain — to a sp
 
 **Acceptance Scenarios**:
 
-1. **Given** existing suites, **When** the admin exports, **Then** the produced Excel workbook contains every selected suite, its ordered items, and the full field set of every template referenced — one sheet per entity kind (templates; suite items).
+1. **Given** existing suites, **When** the admin exports, **Then** the produced Excel workbook contains every suite, its ordered items, and the full field set of every template — one sheet per entity kind (templates; suite items).
 2. **Given** an export file, **When** it is imported into an environment where none of the names exist, **Then** all templates and suites are created exactly as exported (order, overrides, and every template field preserved).
 3. **Given** an export file naming templates/suites that already exist, **When** it is imported, **Then** matching names are updated in place and no duplicates are created; an updated suite's items become exactly the file's items — locally present items absent from the file are removed.
 4. **Given** a file with any invalid row (missing required field, duplicate name within the file, DLM template without an event-rate scheme), **When** it is imported, **Then** nothing is applied and every error in the file is reported with its row.
@@ -109,6 +109,7 @@ An administrator exports suites — with every template they contain — to a sp
 - An HD template *with* an event-rate scheme → allowed (optional, not forbidden).
 - Import file with columns from a newer/older export layout → unknown columns reported as errors (all-or-nothing, P-04).
 - Two admins edit the same suite concurrently → last save wins; no locking in this iteration.
+- Every suite is deleted and the seed later runs again (environment rebuild) → the four starter suites are re-created; resurrecting deleted starter suites is acceptable (the seed skips only when a live suite exists — decided 2026-08-18).
 
 ## Requirements *(mandatory)*
 
@@ -124,7 +125,7 @@ An administrator exports suites — with every template they contain — to a sp
 **Analysis templates**
 
 - **FR-005**: An admin MUST be able to create an analysis template with:
-  - **Required**: name; model profile; output profile; currency; event-rate scheme (required when the profile is DLM, optional otherwise).
+  - **Required**: name; model profile; output profile; currency; event-rate scheme (required when the profile is DLM, optional otherwise; when both the chosen profile and scheme are present in the cache, the scheme's peril/region must match the profile's — the same rule Risk Modeler enforces at submit).
   - **Analysis settings**, surfaced in the builder with defaults: min loss threshold (numeric, two decimal places); number of max-loss events (integer); enable franchise deductible (yes/no); unrecognized occupancy types (one of "Skip location during analysis" or "Treat as unknown").
   - **Optional**: treaty-name pattern, tags.
 - **FR-006**: Model profile, output profile, event-rate scheme, and currency MUST be chosen from cached values via filterable pick lists — no free text for these fields. Tags are entered as names (with autocomplete over names already used on templates): Risk Modeler resolves tag names at analysis submit time and creates missing tags, so there is no tag pick list to cache.
@@ -143,9 +144,9 @@ An administrator exports suites — with every template they contain — to a sp
 
 **Export & import**
 
-- **FR-016**: An admin or analyst MUST be able to export suites (selected or all) with their ordered items and the full field set of every referenced template, as a single Excel workbook (.xlsx) with one sheet per entity kind: a templates sheet (full field set) and a suite-items sheet (suite name, order, template name, portfolio-name override). "Export all" additionally writes every template that belongs to no suite to the templates sheet, so a standalone template moves between environments too.
+- **FR-016**: An admin or analyst MUST be able to export — always everything, no per-suite selection: every suite with its ordered items and the full field set of every template (including templates that belong to no suite, so a standalone template moves between environments too), as a single Excel workbook (.xlsx) with one sheet per entity kind: a templates sheet (full field set) and a suite-items sheet (suite name, order, template name, portfolio-name override).
 - **FR-017**: An admin MUST be able to import such a file: names matching existing templates/suites update them, new names create them (P-05). An updated suite's item list is replaced wholesale — after import it contains exactly the file's items in the file's order with the file's overrides; locally present items absent from the file are removed.
-- **FR-018**: Import MUST validate the whole file and apply it all-or-nothing; on any error (missing required field, value of the wrong type, duplicate name within the file, DLM template without an event-rate scheme, unknown column or missing sheet) it MUST apply nothing and report every error with its sheet and row (P-04).
+- **FR-018**: Import MUST validate the whole file and apply it all-or-nothing; on any error (missing required field, value of the wrong type, duplicate name within the file, DLM template without an event-rate scheme, a scheme whose peril/region does not match its template's profile when both are in the cache, unknown column or missing sheet) it MUST apply nothing and report every error with its sheet and row (P-04).
 - **FR-019**: An imported value absent from the local cache (e.g. a profile not yet synced) MUST NOT reject the import; the template is created and flagged unresolved per FR-011.
 - **FR-020**: An export followed by an import into an empty environment MUST reproduce every suite and template field-for-field, including item order and overrides.
 

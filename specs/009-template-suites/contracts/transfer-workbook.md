@@ -10,8 +10,8 @@ canonical example of the layout.
 
 ## Sheet `Templates` — one row per template
 
-Export-all writes every live template — including templates no suite references (FR-016). A
-suite-selected export writes only the templates the selected suites reference.
+Export always writes everything — every live template, including templates no suite references
+(FR-016; there is no per-suite selection).
 
 | Header | Type | Required | Maps to |
 |---|---|---|---|
@@ -45,8 +45,8 @@ back as an empty suite).
    required value, wrong type, duplicate `Name`/`(Suite Name, Position)`/`(Suite Name, Template
    Name)` within the file, DLM template without a scheme (classification from the live cache;
    unresolved profile skips the rule per FR-019), scheme whose peril/region does not match the
-   profile's when both resolve in the cache (the T-03 pairing rule — the builder cannot produce
-   this pairing, only a hand-edited workbook can), unknown header or sheet.
+   profile's when both resolve in the cache — both checks via the T-06 irp-integration validation
+   utility, the same rules template save and analysis submit enforce — unknown header or sheet.
 2. Any error → apply **nothing**, return the full list (P-04).
 3. Clean file → one transaction: templates matched by live name are updated (tags replaced),
    unmatched created; suites matched by name have their item list replaced wholesale — items

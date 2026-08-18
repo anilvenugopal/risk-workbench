@@ -26,6 +26,11 @@ which the wheel's rule classifies DLM).
 
 **Decision**: derive the marker with the wheel's exact rule so template validation always agrees
 with what submit will enforce; display the raw `software_version_code` next to the marker.
+**Revised 2026-08-18 (T-06)**: the rule is not re-implemented app-side after all — irp-integration
+gains a pure classification/validation utility (extracted from the submit path, which today
+inlines classification, DLM-requires-scheme, and the peril/region pairing at `analysis.py:246-296`
+interleaved with live API calls); the workbench imports it at template save and import, and the
+submit path refactors onto it.
 **Rejected**: a stored classification column (derivable; would go stale on re-sync) and a
 `startswith("RL")` rule (diverges from the wheel for `Open`, inventing a third enforcement path).
 

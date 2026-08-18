@@ -103,18 +103,20 @@ rows, no independent lifecycle); positions are renumbered 1..n on save.
 
 ## Validation rules (service layer, unit-tested)
 
-- **DLM scheme rule**: on save/import, classify the template's `analysis_profile_name` via the
-  cache: `is_accumulation` → Accumulation, else `"HD" in software_version_code` → HD, else DLM.
-  Only DLM requires `event_rate_scheme_name`; missing → reject naming the rule. Profile absent
-  from the cache → rule is skipped and the template is *unresolved* (R9); never a save-blocker
-  (FR-011/FR-019).
+- **DLM scheme + pairing rules (T-06 utility)**: on save/import, classify the template's
+  `analysis_profile_name` via the cache: `is_accumulation` → Accumulation, else the T-06
+  irp-integration classification utility (DLM/HD). Only DLM requires `event_rate_scheme_name`;
+  missing → reject naming the rule. When both the profile and the scheme resolve in the cache,
+  the scheme's `(peril_code, model_region_code)` must match the profile's → mismatch rejected
+  (same rule submit enforces). A side absent from the cache → that check is skipped and the
+  template is *unresolved* (R9); never a save-blocker (FR-011/FR-019).
 - **Name uniqueness**: duplicate live template/suite name → reject (DB filtered-unique is the
   guarantee; `is_unique_violation` absorbed into the form error).
 - **Delete guard**: deleting a template referenced by live suites → blocked, referencing suite
   names returned (FR-010).
 - **Import**: whole-file validation first (missing required field, wrong type, duplicate name
-  within file, DLM without scheme, unknown column/sheet), then apply in one transaction —
-  match-by-name update or create (P-04/P-05).
+  within file, DLM without scheme, scheme/profile peril-region mismatch, unknown column/sheet),
+  then apply in one transaction — match-by-name update or create (P-04/P-05).
 
 ## Seed data
 

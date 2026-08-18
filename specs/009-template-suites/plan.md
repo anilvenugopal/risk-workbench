@@ -9,17 +9,22 @@
 **What changes in the system** (details in [data-model.md](data-model.md),
 [contracts/routes.md](contracts/routes.md),
 [contracts/transfer-workbook.md](contracts/transfer-workbook.md), evidence in
-[research.md](research.md)):
+[research.md](research.md) — decisions R1–R11):
 
 - 8 new WORKBENCH tables in `alembic/versions/0001_initial.py`: 4 reference-cache tables
   (`irp_model_profile`, `irp_output_profile`, `irp_event_rate_scheme`, `irp_currency`) and 4
   template tables (`analysis_template`, `analysis_template_tag`, `template_suite`,
   `template_suite_item`), plus a `sync_irp_metadata` row in `rwb_job_type_kind`.
-- `app/services/irp_gateway.py` gains 5 reference-data list methods (dataclasses + Protocol +
-  real impl + `FakeIRP`) — the first use of the wheel's `reference_data` manager. One of them,
-  `list_accumulation_profiles`, needs a new read added to irp-integration itself (T-02) — that
-  work happens in the `../../IRP/irp-integration` checkout, consumed via `make irp-local` until
-  published.
+- `app/services/irp_gateway.py` gains 4 reference-data list methods (dataclasses + Protocol +
+  real impl + `FakeIRP`) — the first use of the wheel's `reference_data` manager. A fifth,
+  `list_accumulation_profiles`, is **deferred**: the accumulation read it needs in irp-integration
+  is tabled (T-02, 2026-08-18); the schema keeps `is_accumulation` (default 0) so resuming is
+  additive. Separately, irp-integration gains a pure classification/pairing validation utility
+  (T-06) — DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing rules,
+  extracted from the wheel's submit path (`analysis.py:246-296`) so template save, import, and
+  analysis submit all enforce one implementation, never re-implemented app-side. The T-06 work is
+  being built independently in the `../../IRP/irp-integration` checkout (session handoff
+  2026-08-18), consumed here via `make irp-local` until published.
 - New worker `app/workers/metadata_jobs.py`: `sync_irp_metadata` actor refreshes all four cache
   tables in one transaction (snapshot upsert + hard delete of rows the fetch no longer returned —
   cache rows have no soft delete); enqueued from the metadata page via `ensure_pending_rwb_job`
@@ -31,12 +36,17 @@
   `form-banner` errors). The `/templates` stub handler in `app/routers/shell.py` is removed; the
   existing `templates` nav root gains `templates.suites` and `templates.metadata` children.
 - New service `app/services/template_service.py`: template/suite CRUD + validation (DLM-requires-
-  scheme via the wheel's exact classification rule, live-name uniqueness, delete guard naming
-  referencing suites, read-time unresolved flags) and the scheme filter/pre-fill query (T-03).
+  scheme and scheme-peril/region pairing via the T-06 irp-integration utility — applied at save
+  and import alike, skipped when a side is absent from the cache — live-name uniqueness, delete
+  guard naming referencing suites, read-time unresolved flags) and the scheme filter/pre-fill
+  query (T-03).
 - Export/import service (workbook build/parse per the transfer-workbook contract) using openpyxl
   (already a dependency; treaty-export precedent) — one workbook, `Templates` + `Suites` sheets,
-  all-or-nothing import matched by name (T-04). Export-all also writes every template in no suite
-  (FR-016); import replaces a matched suite's item list wholesale (FR-017).
+  all-or-nothing import matched by name (T-04). Export always writes everything — every suite and
+  every template, including templates in no suite (FR-016, no per-suite selection); import
+  replaces a matched suite's item list wholesale (FR-017) and runs on the request path (no
+  rwb_job: no IRP calls, tens of rows, one WORKBENCH transaction, and the error list renders in
+  the same response — Article 11 only forces polling/result work off the request path).
 - Starter suites (US, Canada, US+Canada, Global, ~10 indicative templates each) live in a seed
   workbook, `infra/scripts/starter_suites.xlsx`, in the transfer-workbook format;
   `infra/scripts/seed_db.py` imports it through the same import service as `POST
@@ -48,9 +58,12 @@
   tests for worker, routes, validation, workbook round-trip, admin gating; sqlserver migration
   assertions; an `--run-irp` test pinning the R1 response shapes.
 
-**Risks**: (1) the T-02 accumulation-profile read is cross-repo work in irp-integration against an
-endpoint whose response shape is unpinned — a sandbox spike is the first T-02 task, and the
-accumulation columns in data-model.md are provisional until it runs; (2) starter-suite contents
+**Risks**: (1) the T-06 utility is built in a separate irp-integration effort and gates the three
+tasks that call it (marker fragment, save validation, import validation) — everything else
+proceeds without it; the tabled T-02 accumulation read means no Accumulation rows sync this pass
+(FR-004's three-way marker has data for two of three classes until it resumes — revisit the spec
+if it slips past the iteration), and the accumulation columns in data-model.md stay provisional
+until its spike runs; (2) starter-suite contents
 are indicative until Cheryl's US/Canada default-settings list lands (O14-4, P-02) — now a
 workbook edit, not code (T-05).
 
@@ -59,17 +72,19 @@ workbook edit, not code (T-05).
 | ID | Decision | Status |
 |---|---|---|
 | T-01 | Metadata sync is a `sync_irp_metadata` rwb_job worker, not a request-path read; a sync requested while one is pending or running is refused with a "sync already in progress" message, and the pending-dedup index makes the refusal race-safe (R5). | Approved via research |
-| T-02 | Marker is three-way: irp-integration gains an accumulation-profile read (new endpoint, built in the sibling checkout); accumulation rows land in `irp_model_profile` with `is_accumulation=1`; non-accumulation rows classify DLM/HD by the wheel's `"HD" in software_version_code` rule with the raw version shown (R3, R2). Endpoint shape pinned by a sandbox spike first. | Approved 2026-08-18 |
+| T-02 | Marker is three-way: irp-integration gains an accumulation-profile read (new endpoint, built in the sibling checkout); accumulation rows land in `irp_model_profile` with `is_accumulation=1`; non-accumulation rows classify DLM/HD by the wheel's rule via the T-06 utility, raw version shown (R3, R2). Endpoint shape pinned by a sandbox spike first. | **Deferred 2026-08-18** — accumulation tabled; schema keeps `is_accumulation` (default 0), sync ships four sets until the read lands (tasks: *Deferred: accumulation*) |
 | T-03 | Event-rate pre-fill: filter schemes to the profile's `(peril_code, model_region_code)`; pre-fill only on exactly one active match; `isDefault` rejected as ambiguous (R4). | Approved via research |
 | T-04 | Transfer file is one `.xlsx` workbook, two sheets, openpyxl (R6); export-all includes templates in no suite, and import replaces a matched suite's items wholesale (spec Clarifications 2026-08-18). | Approved via research |
-| T-05 | Starter suites seed from `infra/scripts/starter_suites.xlsx` through the import service; the seed skips when any live suite exists (R10). | Approved 2026-08-18 |
+| T-05 | Starter suites seed from `infra/scripts/starter_suites.xlsx` through the import service; the seed skips when any live suite exists (R10). If every suite has been deleted, a later seed run re-creates the starter four — resurrection accepted. | Approved 2026-08-18 |
+| T-06 | DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing validation ship as a pure (no-I/O) utility in irp-integration, extracted from the submit path; the workbench calls it at template save and import, and the wheel's submit refactors onto it — one implementation, three enforcement points, nothing replicated app-side. Supersedes R2's "derive with the wheel's exact rule" replication. Built independently in the irp-integration checkout (session handoff 2026-08-18); this repo consumes it via `make irp-local` (tasks T003). | Approved 2026-08-18 |
 
 **Constitution check** (v3.1.0) — no violations; the articles that shaped the design:
 
 - **Article 11**: `reference_data.get_*` calls are reads, not job polling, but they run
-  worker-side anyway (T-01) — the web layer never touches the wheel; sync enqueue + dispatch is
-  the only request-path action. (The EDM-sync precedent's inline-read latitude was considered and
-  not needed — R5.)
+  worker-side anyway (T-01) — the web layer never calls the wheel's network methods; sync enqueue
+  + dispatch is the only request-path action. (The EDM-sync precedent's inline-read latitude was
+  considered and not needed — R5.) The T-06 validation utility is pure (no I/O), so importing it
+  from `template_service` on the request path touches no IRP interface Article 11 governs.
 - **Article 2**: templates store profile/scheme/currency **names**, resolved live by Risk Modeler
   at submit time (Iteration 7); the cache exists for pick lists and validation, never as a typed
   handle registry.
@@ -93,8 +108,9 @@ one user story implemented end-to-end at a time.
 
 **Language/Version**: Python 3.13 (uv-managed)
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX (Article 8), SQLAlchemy Core via `/db`,
-Dramatiq + Redis (existing worker runtime), openpyxl, irp-integration (source-switchable; this
-iteration adds an accumulation-profile read to it, so development runs on `make irp-local`)
+Dramatiq + Redis (existing worker runtime), openpyxl, irp-integration (source-switchable; the
+T-06 validation utility is being added to it in an independent effort — accumulation read tabled —
+so development runs on `make irp-local` once the utility lands)
 **Storage**: SQL Server — WORKBENCH database only (Article 6); SQLite injected via
 `register_engine` in the unit tier
 **Testing**: pytest, three tiers (`tests/unit`, `tests/sqlserver`, `tests/irp`)
@@ -139,7 +155,9 @@ app/templates/pages/                  # templates.html (rework), templates_metad
 app/templates/partials/               # metadata table fragment, scheme options, suite item rows
 infra/scripts/seed_db.py              # +sync_irp_metadata kind row, +starter-suite import (T-05)
 infra/scripts/starter_suites.xlsx     # NEW — seed workbook, transfer-workbook format (T-05)
-../../IRP/irp-integration             # sibling repo: +accumulation-profile read (T-02)
+../../IRP/irp-integration             # sibling repo (independent effort): +pure classification/
+                                      #   pairing validation utility (T-06); accumulation read
+                                      #   (T-02) tabled
 docs/ui_previews/                     # metadata + builder previews (UI-first)
 docs/DATA_MODEL.md                    # reconcile §7 deltas (tag_name, occupancy column, created_by,
                                       #   dropped auto_name_pattern/region_label/peril_code) + §10 columns
