@@ -366,17 +366,22 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | Treaties are selected by name or pattern. | Not implemented |  |
 | DLM requires an event-rate scheme. | Not implemented | Determined by the model profile, not the file. |
 | HD makes the event-rate scheme optional. | Not implemented | Determined by the model profile, not the file. |
+| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Not implemented | **Added 8/14.** A dedicated analysis-metadata screen; same pattern as EDM data — selected, not owned. |
+| Event-rate schemes are selected, never authored. | Not implemented | **Added 8/14.** CIC does not create custom event rates. |
 
 **Templates & suites**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Model profile, output profile, and event-rate scheme are the "big three" configured settings. | Not implemented | These define an Analysis Suite. |
-| Analysis templates can be saved. | Not implemented |  |
-| Templates are collected into suites. | Not implemented | e.g. "Global 2026 Q1." |
-| An Analysis Suite is a pre-configured set of (model profile, output profile, event-rate scheme) combinations. | Not implemented | Solves the "global book" pain of setting up every model one at a time. |
+| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme + currency, plus optional additional settings. | Not implemented | **Changed 8/14.** "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD. Supersedes the "big three" phrasing. |
+| A suite is an ordered set of templates. | Not implemented | **Changed 8/14.** e.g. "Global 2026 Q1." |
+| A suite is defined primarily by region and output level. | Not implemented | **Added 8/14.** The other settings are standardized within the suite. |
+| Suites are predefined, not freeform user-built. | Not implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Exceptions drop to the long list or Risk Modeler. |
+| Suites and templates are maintained on an administration page. | Not implemented | **Added 8/14.** Models and countries change. Starter set: US, Canada, US+Canada, global — ~10 templates each; the heavy country-by-country setup is CIC's. |
+| Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Added 8/14.** Moves suites built in one environment into another instead of rebuilding by hand. |
+| A suite may mix DLM, HD, and accumulation templates. | Not implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
+| Line of business is a further suite axis carrying different settings. | Not implemented | **Added 8/14.** Property / auto / workers comp; handled via tags or naming convention (O14-8). |
 | Applying a suite generates all its analyses at once. | Not implemented | Ready to review and adjust before submitting. |
-| DLM and accumulation analyses are kept in separate suites. | Not implemented | Don't combine them (§5, §7). |
 | Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. |
 | An analysis can be renamed, including after it has run. | Not implemented |  |
 
@@ -421,6 +426,10 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | A single analysis can be submitted against a portfolio. | Not implemented |  |
 | Multiple portfolios can be selected and run in one action. | Not implemented | Cheryl recently had to rerun the same data across 6 portfolios one at a time. |
 | All analyses in a suite (50–150+) can be batch-submitted in one action. | Not implemented |  |
+| Running a suite is: select portfolios and treaties, pick the suite, go. | Not implemented | **Added 8/14.** The default path needs no inspection of the constituent rows — "I'm trying to go fast." |
+| A suite can be expanded to deselect individual templates before submitting. | Not implemented | **Added 8/14.** e.g. flood not covered by the treaty; the rest still auto-queues. |
+| A suite analysis that fails because the data lacks its peril is expected, not an error. | Not implemented | **Added 8/14.** No loss = no charge; run it all, deal with failures at the end. |
+| Every suite-analysis failure is surfaced with its reason. | Not implemented | **Added 8/14.** The job summary says the peril wasn't present — never silently ignored. |
 | Accumulation analyses can be run. | Not implemented | In scope, with accumulation-specific settings; output detail in §7. |
 | Job status is tracked live and auto-refreshed, per deal and overall. | Not implemented | Only progress useful to the modeler is shown. |
 | Two job classes are tracked: IRP jobs and workbench jobs. | Not implemented | **Added 8/4.** IRP jobs are submitted to Moody's and polled for state; workbench jobs cover uploads and other wrapping/independent work. |
