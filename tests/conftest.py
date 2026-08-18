@@ -33,6 +33,7 @@ from tests.iteration1_mirror import (
     ITERATION1_SCHEMA,
     ITERATION2_SCHEMA,
     ITERATION3_SCHEMA,
+    ITERATION4_SCHEMA,
     RWB_JOB_REQUESTOR_TYPE_SEED,
     RWB_JOB_STATUS_SEED,
     RWB_JOB_TYPE_SEED,
@@ -173,7 +174,8 @@ def iteration2_db() -> SimpleNamespace:
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
     with engine.begin() as conn:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA,
+                    *ITERATION4_SCHEMA):
             conn.execute(text(ddl))
         conn.execute(text(
             "INSERT INTO app_user (id, email, display_name) VALUES "

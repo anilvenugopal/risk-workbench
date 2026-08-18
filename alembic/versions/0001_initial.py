@@ -549,6 +549,164 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_treaty_edm_id", "irp_treaty", ["edm_id"])
 
+    # Iteration 4: Risk Modeler analysis metadata cache.
+    op.create_table(
+        "irp_model_profile",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("irp_id", sa.Integer, nullable=False),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("is_accumulation", sa.Boolean, nullable=False, server_default="0"),
+        sa.Column("software_version_code", sa.NVARCHAR(50), nullable=True),
+        sa.Column("peril_code", sa.NVARCHAR(20), nullable=True),
+        sa.Column("model_region_code", sa.NVARCHAR(20), nullable=True),
+        sa.Column("peril", sa.NVARCHAR(100), nullable=True),
+        sa.Column("region", sa.NVARCHAR(100), nullable=True),
+        sa.Column("analysis_type", sa.NVARCHAR(50), nullable=True),
+        sa.Column("rms_default", sa.Boolean, nullable=False, server_default="0"),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+    op.create_index("uq_irp_model_profile_irp_id", "irp_model_profile", ["irp_id"],
+                    unique=True)
+
+    op.create_table(
+        "irp_output_profile",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("irp_id", sa.Integer, nullable=False),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("rms_default", sa.Boolean, nullable=False, server_default="0"),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+    op.create_index("uq_irp_output_profile_irp_id", "irp_output_profile", ["irp_id"],
+                    unique=True)
+
+    op.create_table(
+        "irp_event_rate_scheme",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("irp_id", sa.Integer, nullable=False),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("peril_code", sa.NVARCHAR(20), nullable=True),
+        sa.Column("model_region_code", sa.NVARCHAR(20), nullable=True),
+        sa.Column("model_version_code", sa.NVARCHAR(50), nullable=True),
+        sa.Column("is_hd", sa.Boolean, nullable=False, server_default="0"),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+    op.create_index("uq_irp_event_rate_scheme_irp_id", "irp_event_rate_scheme",
+                    ["irp_id"], unique=True)
+
+    op.create_table(
+        "irp_currency",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("code", sa.NVARCHAR(10), nullable=False),
+        sa.Column("name", sa.NVARCHAR(100), nullable=False),
+        sa.Column("country_name", sa.NVARCHAR(100), nullable=True),
+        sa.Column("symbol", sa.NVARCHAR(10), nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+    op.create_index("uq_irp_currency_code", "irp_currency", ["code"], unique=True)
+
+    # Iteration 4: saved analysis templates and ordered template suites.
+    op.create_table(
+        "analysis_template",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("analysis_profile_name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("output_profile_name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("event_rate_scheme_name", sa.NVARCHAR(200), nullable=True),
+        sa.Column("currency_code", sa.NVARCHAR(10), nullable=False),
+        sa.Column("min_loss_threshold", sa.DECIMAL(18, 2), nullable=False,
+                  server_default=sa.text("1.00")),
+        sa.Column("num_max_loss_event", sa.Integer, nullable=False,
+                  server_default="1"),
+        sa.Column("franchise_deductible", sa.Boolean, nullable=False,
+                  server_default="0"),
+        sa.Column("treat_construction_occupancy_as_unknown", sa.Boolean,
+                  nullable=False, server_default="1"),
+        sa.Column("treaty_name_pattern", sa.NVARCHAR(200), nullable=True),
+        sa.Column("deleted_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+    )
+    live_analysis_template = sa.text("deleted_at IS NULL")
+    op.create_index(
+        "uq_analysis_template_live_name",
+        "analysis_template",
+        ["name"],
+        unique=True,
+        mssql_where=live_analysis_template,
+        sqlite_where=live_analysis_template,
+    )
+
+    op.create_table(
+        "analysis_template_tag",
+        sa.Column("template_id", sa.Uuid, nullable=False),
+        sa.Column("tag_name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.PrimaryKeyConstraint("template_id", "tag_name"),
+        sa.ForeignKeyConstraint(["template_id"], ["analysis_template.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+    )
+
+    op.create_table(
+        "template_suite",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("deleted_at", DATETIME2, nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+    )
+    live_template_suite = sa.text("deleted_at IS NULL")
+    op.create_index(
+        "uq_template_suite_live_name",
+        "template_suite",
+        ["name"],
+        unique=True,
+        mssql_where=live_template_suite,
+        sqlite_where=live_template_suite,
+    )
+
+    op.create_table(
+        "template_suite_item",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("suite_id", sa.Uuid, nullable=False),
+        sa.Column("template_id", sa.Uuid, nullable=False),
+        sa.Column("position", sa.Integer, nullable=False),
+        sa.Column("portfolio_name_override", sa.NVARCHAR(200), nullable=True),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["suite_id"], ["template_suite.id"]),
+        sa.ForeignKeyConstraint(["template_id"], ["analysis_template.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.UniqueConstraint("suite_id", "template_id",
+                            name="uq_template_suite_item_template"),
+    )
+
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
     # irp_job_type_kind — NOTE: there is NO delete_rdm type (RDM delete is
     # synchronous and creates no irp_job — A21 / research R6).
@@ -577,7 +735,8 @@ def upgrade() -> None:
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
         "('delete_rdm', 'Delete RDM', 70), "
-        "('delete_edm', 'Delete EDM', 80)"
+        "('delete_edm', 'Delete EDM', 80), "
+        "('sync_irp_metadata', 'Sync IRP metadata', 90)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
@@ -627,6 +786,22 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("template_suite_item")
+    op.drop_index("uq_template_suite_live_name", table_name="template_suite")
+    op.drop_table("template_suite")
+    op.drop_table("analysis_template_tag")
+    op.drop_index("uq_analysis_template_live_name", table_name="analysis_template")
+    op.drop_table("analysis_template")
+    op.drop_index("uq_irp_currency_code", table_name="irp_currency")
+    op.drop_table("irp_currency")
+    op.drop_index("uq_irp_event_rate_scheme_irp_id",
+                  table_name="irp_event_rate_scheme")
+    op.drop_table("irp_event_rate_scheme")
+    op.drop_index("uq_irp_output_profile_irp_id", table_name="irp_output_profile")
+    op.drop_table("irp_output_profile")
+    op.drop_index("uq_irp_model_profile_irp_id", table_name="irp_model_profile")
+    op.drop_table("irp_model_profile")
+
     # Iteration-3 tables — reverse FK order (irp_treaty → irp_portfolio), ahead of
     # the Iteration-2 drops. The irp_analysis detail columns are inherent to its
     # create (no separate drop).

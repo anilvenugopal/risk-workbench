@@ -138,7 +138,8 @@ def main() -> int:
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
                     ('delete_rdm',                'Delete RDM',                70),
-                    ('delete_edm',                'Delete EDM',                80)
+                    ('delete_edm',                'Delete EDM',                80),
+                    ('sync_irp_metadata',         'Sync IRP metadata',         90)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
