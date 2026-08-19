@@ -243,7 +243,10 @@
 .entity-table .status-col { width: 150px; }
 .entity-table .rm-col { width: 150px; }
 .entity-table .entity-action-col { width: 190px; text-align: right; }
-.entity-table .entity-name { color: var(--color-brand); font-weight: var(--fw-medium); }
+.entity-table .name-col { max-width: 220px; }
+.entity-table .entity-name { display: inline-block; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  color: var(--color-brand); font-weight: var(--fw-medium); }
 .entity-table .entity-notes-cell { min-width: 220px; max-width: 420px;
   white-space: normal; overflow-wrap: anywhere; }
 .entity-notes-cell__read { display: flex; align-items: flex-start; gap: var(--space-2);

@@ -230,6 +230,12 @@ behavior for each URL.
 - [x] T058 [FR-030] [FR-031] Add contextual RDM detail, body, sync, and note routes; preserve the submission in RDM links and the selector.
 - [x] T059 [FR-030] [FR-031] [FR-032] Add service and route tests for contextual association validation, breadcrumbs, selector URLs, and direct-library compatibility.
 
+## Phase 10: Submission table column alignment
+
+- [x] T060 [FR-006] Cap the Name column width in `submission_edm_table.html` and
+  `submission_rdm_table.html` so the EDM and RDM tables render identical column
+  widths regardless of name length; Notes remains the only variable-width column.
+
 ## Dependencies
 
 - Phase 1 finishes before implementation so the source documents describe the target.
