@@ -55,8 +55,3 @@ class TestOidcAuthEnabled:
     def test_false_for_password_mode(self):
         s = _make_settings(auth_mode="password")
         assert s.oidc_auth_enabled is False
-
-
-def test_geohaz_data_versions_parse_comma_separated_values():
-    settings = _make_settings(geohaz_data_versions="25.0, 24.0")
-    assert settings.geohaz_data_versions == ["25.0", "24.0"]

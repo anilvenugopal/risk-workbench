@@ -12,9 +12,10 @@ def launch(*, edm_id, portfolio_ids: list, data_version: str,
            perils: list[str], skip_prev_hazard: bool,
            override_user_def: bool, actor_id) -> LaunchResult
 ```
-- Validates: gate (FR-004), portfolio membership + P-06 eligibility, ≥1 peril,
-  `data_version` ∈ `settings.geohaz_data_versions`. Rejects the launch whole on
-  any failure — nothing partially enqueued.
+- Validates: gate (FR-004), portfolio membership + P-06 eligibility, ≥1 peril.
+  Rejects the launch whole on any failure — nothing partially enqueued.
+  `data_version` is always the caller-supplied literal `"latest"` (research
+  R6); Risk Modeler resolves it, so the workbench does not validate it.
 - Builds the single `request_params` document (FR-003, data-model §3).
 - Per portfolio: `rwb_job_service.ensure_pending_rwb_job(requestor_type='analyst_request',
   requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` then
@@ -47,5 +48,4 @@ read on `ix_irp_job_irp_portfolio_id`).
 
 ## Config
 
-`app/config.py`: `geohaz_data_versions: list[str]` from `GEOHAZ_DATA_VERSIONS`
-(comma-separated, first = form default). Documented in `infra/.env.example`.
+None. Data version is the literal `"latest"` — no config setting.

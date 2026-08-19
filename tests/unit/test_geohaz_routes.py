@@ -116,7 +116,7 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
     assert {str(row["requestor_id"]) for row in heads} == set(portfolio_ids)
     for row in heads:
         params = json.loads(row["input_data"])["params"]
-        assert params["data_version"] == "25.0"
+        assert params["data_version"] == "latest"
         assert params["model_family"] == "DLM"
         assert params["perils"] == ["earthquake", "windstorm"]
         assert params["skip_prev_hazard"] is False

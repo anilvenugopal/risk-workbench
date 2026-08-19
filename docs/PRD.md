@@ -709,7 +709,7 @@ Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `
 
 Every launch uses the same parameter set. The analyst does not review or change the parameters in the workbench.
 
-- **Data version** — first configured version (v25 as of now).
+- **Data version** — the literal `"latest"`, resolved by Risk Modeler (v25 as of now).
 - **Model family** — DLM (non-HD).
 - **Perils** — earthquake and windstorm. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
 - **Previous hazard results** — do not skip previously looked-up locations; overwrite user-defined hazard values ("the more comprehensive the data, the better").
@@ -1297,7 +1297,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved). **Updated 2026-08-12** from the Aug 7 design session: multi-portfolio launch from the summary page, app-side lineage/status display, no version-stamp display or gating (§10B.4, §24 change log).
 
-**In:** the hazard-lookup op against Risk Modeler, launched with one click from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one fixed parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the fixed DLM parameters (first configured data version, EQ + windstorm, previous locations not skipped, user-defined values overwritten — §10B.2); **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
+**In:** the hazard-lookup op against Risk Modeler, launched with one click from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one fixed parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the fixed DLM parameters (data version `latest`, EQ + windstorm, previous locations not skipped, user-defined values overwritten — §10B.2); **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
 
 **Out:** analysis execution, grouping, results; geocoding (never a workbench action); SSE live job status (§14.7, Iteration 6 — polling refresh suffices here).
 
@@ -1492,6 +1492,13 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-08-19 — Data version sends the literal "latest"
+
+Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — Risk Modeler documentation confirms
+`version` accepts the literal string `"latest"`, resolved server-side. Replaces the
+`GEOHAZ_DATA_VERSIONS` config setting from 2026-08-13: no per-environment value to keep current as
+Moody's ships new data versions.
 
 ### 2026-08-14 — DLM hazard lookup changed to one click
 

@@ -48,18 +48,16 @@ def _job_count() -> int:
         ("no_selection", InvalidGeohazLaunch),
         ("no_perils", InvalidGeohazLaunch),
         ("bad_peril", InvalidGeohazLaunch),
-        ("bad_version", InvalidGeohazLaunch),
         ("wrong_edm", InvalidGeohazLaunch),
     ],
 )
 def test_launch_validation_rejects_the_whole_selection(
-    iteration2_db, monkeypatch, change, error,
+    iteration2_db, change, error,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios()
     selected = list(portfolio_ids)
     perils = ["earthquake", "windstorm"]
-    version = "25.0"
-    monkeypatch.setattr(geohaz_service.settings, "geohaz_data_versions", ["25.0"])
+    version = "latest"
 
     if change == "no_selection":
         selected = []
@@ -67,8 +65,6 @@ def test_launch_validation_rejects_the_whole_selection(
         perils = []
     elif change == "bad_peril":
         perils = ["flood"]
-    elif change == "bad_version":
-        version = "23.0"
     elif change == "wrong_edm":
         _, foreign_ids = _edm_with_portfolios(1)
         selected.append(foreign_ids[0])
@@ -131,10 +127,9 @@ def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
 
 
 def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
-    iteration2_db, monkeypatch,
+    iteration2_db,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios()
-    monkeypatch.setattr(geohaz_service.settings, "geohaz_data_versions", ["25.0"])
     sent: list[tuple[str, str]] = []
     dispatch.configure(lambda *, rwb_job_id, rwb_job_type: sent.append(
         (rwb_job_id, rwb_job_type)))

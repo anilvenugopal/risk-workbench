@@ -62,7 +62,7 @@ One JSON document per lookup, identical for every portfolio in a launch (FR-003)
 
 ```json
 {
-  "data_version": "25.0",
+  "data_version": "latest",
   "model_family": "DLM",
   "perils": ["earthquake", "windstorm"],
   "skip_prev_hazard": false,
@@ -70,7 +70,7 @@ One JSON document per lookup, identical for every portfolio in a launch (FR-003)
 }
 ```
 
-- `data_version` — one of `GEOHAZ_DATA_VERSIONS` (config, research R6); maps to the wheel's `version`.
+- `data_version` — always the literal `"latest"` (research R6); maps to the wheel's `version`, which Risk Modeler resolves server-side.
 - `model_family` — always `"DLM"` this iteration (record-only; no wire representation, research R5).
 - `perils` — non-empty subset of `["earthquake", "windstorm"]`; each becomes one hazard layer (the layer `name`).
 - `skip_prev_hazard` — checkbox boolean; maps to `layerOptions.skipPrevHazard` on every hazard layer.
