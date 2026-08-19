@@ -23,7 +23,7 @@
 </div>
 <div class="entity-table-wrap">
   <table class="mk-table entity-table">
-    <thead><tr>{{ sort_th(rdm_sort_links.name, 'Name', 'name-col') }}{{ sort_th(rdm_sort_links.status, 'Status', 'status-col') }}<th>Notes</th>{{ sort_th(rdm_sort_links.count, 'Analysis count', 'count-col') }}<th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
+    <thead><tr>{{ sort_th(rdm_sort_links.name, 'Name', 'name-col') }}{{ sort_th(rdm_sort_links.status, 'Status', 'status-col') }}<th class="entity-notes-cell">Notes</th>{{ sort_th(rdm_sort_links.count, 'Analysis count', 'count-col') }}<th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
     <tbody>
     {% for rdm in submission_rdms %}
       <tr>
