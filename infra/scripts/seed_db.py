@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 import bcrypt
 from sqlalchemy import create_engine, text
@@ -45,28 +44,6 @@ def _workbench_engine() -> Engine:
 
 def _hash(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt(rounds=12)).decode()
-
-
-def _seed_starter_suites(conn, *, actor_id=None, workbook_path: Path | None = None) -> bool:
-    has_live_suite = conn.execute(text("""
-        SELECT CASE WHEN EXISTS (
-            SELECT 1 FROM template_suite WHERE deleted_at IS NULL
-        ) THEN 1 ELSE 0 END
-    """)).scalar()
-    if has_live_suite:
-        return False
-
-    from app.services.template_service import import_template_workbook
-
-    source = workbook_path or Path(__file__).with_name("starter_suites.xlsx")
-    result = import_template_workbook(source, actor_id=actor_id, conn=conn)
-    if result.errors:
-        details = "; ".join(
-            f"{error.sheet} row {error.row or '-'}: {error.message}"
-            for error in result.errors
-        )
-        raise RuntimeError(f"Starter suite workbook is invalid: {details}")
-    return True
 
 
 def main() -> int:
@@ -234,14 +211,6 @@ def main() -> int:
                     print("  [app_user] dev fixture admin@example.com created")
                 else:
                     print("  [app_user] dev fixture already exists — skipped")
-
-            seed_actor_id = conn.execute(text(
-                "SELECT id FROM app_user WHERE email = 'admin@example.com'"
-            )).scalar()
-            if _seed_starter_suites(conn, actor_id=seed_actor_id):
-                print("  [template_suite] starter suites imported")
-            else:
-                print("  [template_suite] live suites exist — starter import skipped")
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1

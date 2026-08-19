@@ -182,14 +182,26 @@ ITERATION4_SCHEMA = [
         inserted_at TEXT, updated_at TEXT,
         UNIQUE (code)
     )""",
+    """CREATE TABLE irp_currency_scheme (
+        id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT, code TEXT,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (irp_id)
+    )""",
+    # No irp_id/unique key — raw snapshot, delete-all + insert per sync (R13).
+    """CREATE TABLE irp_currency_scheme_vintage (
+        id TEXT PRIMARY KEY, vintage TEXT, currency_scheme_code TEXT,
+        effective_date TEXT,
+        inserted_at TEXT, updated_at TEXT
+    )""",
     """CREATE TABLE analysis_template (
         id TEXT PRIMARY KEY, name TEXT, analysis_profile_name TEXT,
         output_profile_name TEXT, event_rate_scheme_name TEXT, currency_code TEXT,
+        currency_scheme_code TEXT NOT NULL, currency_vintage TEXT NOT NULL,
         min_loss_threshold NUMERIC NOT NULL DEFAULT 1.00,
         num_max_loss_event INTEGER NOT NULL DEFAULT 1,
         franchise_deductible INTEGER NOT NULL DEFAULT 0,
         treat_construction_occupancy_as_unknown INTEGER NOT NULL DEFAULT 1,
-        treaty_name_pattern TEXT, deleted_at TEXT,
+        deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE UNIQUE INDEX uq_analysis_template_live_name
@@ -205,8 +217,8 @@ ITERATION4_SCHEMA = [
     """CREATE UNIQUE INDEX uq_template_suite_live_name
         ON template_suite (name) WHERE deleted_at IS NULL""",
     """CREATE TABLE template_suite_item (
-        id TEXT PRIMARY KEY, suite_id TEXT, template_id TEXT, position INTEGER,
-        portfolio_name_override TEXT, inserted_at TEXT, inserted_by TEXT,
+        id TEXT PRIMARY KEY, suite_id TEXT, template_id TEXT,
+        inserted_at TEXT, inserted_by TEXT,
         UNIQUE (suite_id, template_id)
     )""",
 ]
@@ -246,7 +258,8 @@ EXACT_MATCH_TABLES = (
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",
     "irp_model_profile", "irp_output_profile", "irp_event_rate_scheme",
-    "irp_currency", "analysis_template", "analysis_template_tag",
+    "irp_currency", "irp_currency_scheme", "irp_currency_scheme_vintage",
+    "analysis_template", "analysis_template_tag",
     "template_suite", "template_suite_item",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the

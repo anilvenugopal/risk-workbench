@@ -13,6 +13,8 @@ TABLES = (
     "irp_output_profile",
     "irp_event_rate_scheme",
     "irp_currency",
+    "irp_currency_scheme",
+    "irp_currency_scheme_vintage",
     "analysis_template",
     "analysis_template_tag",
     "template_suite",
@@ -34,6 +36,7 @@ def test_template_suite_table_exists(table):
     ("irp_output_profile", "uq_irp_output_profile_irp_id"),
     ("irp_event_rate_scheme", "uq_irp_event_rate_scheme_irp_id"),
     ("irp_currency", "uq_irp_currency_code"),
+    ("irp_currency_scheme", "uq_irp_currency_scheme_irp_id"),
 ])
 def test_reference_cache_natural_key_index_is_unique(table, index):
     rows = execute(
@@ -93,6 +96,29 @@ def test_analysis_template_defaults():
     assert defaults["num_max_loss_event"].strip("()'") == "1"
     assert defaults["franchise_deductible"].strip("()'") == "0"
     assert defaults["treat_construction_occupancy_as_unknown"].strip("()'") == "1"
+
+
+def test_analysis_template_currency_scheme_and_vintage_are_not_null():
+    nullable = {row["COLUMN_NAME"]: row["IS_NULLABLE"] for row in execute(
+        "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'analysis_template'",
+        connection="WORKBENCH",
+    )}
+    assert nullable["currency_scheme_code"] == "NO"
+    assert nullable["currency_vintage"] == "NO"
+
+
+@pytest.mark.parametrize("table,column", [
+    ("analysis_template", "treaty_name_pattern"),
+    ("template_suite_item", "position"),
+    ("template_suite_item", "portfolio_name_override"),
+])
+def test_dropped_columns_are_absent(table, column):
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = :table AND COLUMN_NAME = :column",
+        {"table": table, "column": column}, connection="WORKBENCH",
+    ) == 0
 
 
 def test_sync_irp_metadata_kind_is_seeded():

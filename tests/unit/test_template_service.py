@@ -23,18 +23,38 @@ def _values(**changes) -> TemplateValues:
         "output_profile_name": "RMS Default Output",
         "event_rate_scheme_name": "RMS WS",
         "currency_code": "USD",
+        "currency_scheme_code": "RMS",
+        "currency_vintage": "RL25",
         "min_loss_threshold": Decimal("1.00"),
         "num_max_loss_event": 1,
         "franchise_deductible": False,
         "treat_construction_occupancy_as_unknown": True,
-        "treaty_name_pattern": None,
     }
     values.update(changes)
     return TemplateValues(**values)
 
 
+def _seed_currency_scheme(conn, *, code="RMS", vintage="RL25", irp_id=1) -> None:
+    """Currency-scheme/vintage cache rows the currency-scheme extension of US1
+    (T011-T014) will populate from the sync worker; seeded directly here since
+    that gateway/worker read isn't wired up yet (independent track, tasks.md)."""
+    conn.exec_driver_sql(
+        "INSERT INTO irp_currency_scheme "
+        "(id, irp_id, name, code, inserted_at, updated_at) VALUES "
+        f"('scheme-{code}', {irp_id}, '{code}', '{code}', '2026-08-19', '2026-08-19')"
+    )
+    conn.exec_driver_sql(
+        "INSERT INTO irp_currency_scheme_vintage "
+        "(id, vintage, currency_scheme_code, effective_date, inserted_at, updated_at) "
+        f"VALUES ('vintage-{code}-{vintage}', '{vintage}', '{code}', "
+        "'2025-01-01', '2026-08-19', '2026-08-19')"
+    )
+
+
 def _sync(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
+    with iteration2_db.engine.begin() as conn:
+        _seed_currency_scheme(conn)
 
 
 def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
@@ -197,11 +217,13 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
     assert not any(row["selected"] for row in multiple)
 
 
-def test_suite_rewrite_renumbers_items_and_keeps_override(iteration2_db, fake_irp):
+def test_suite_items_are_unordered_and_display_sorts_by_template_name(
+    iteration2_db, fake_irp,
+):
     _sync(iteration2_db, fake_irp)
-    first = template_service.create_template(_values())
+    first = template_service.create_template(_values(name="Zebra Template"))
     second = template_service.create_template(_values(
-        name="US Wind HD",
+        name="Alpha Template",
         analysis_profile_name="RMS Default HD",
         event_rate_scheme_name=None,
     ))
@@ -209,16 +231,16 @@ def test_suite_rewrite_renumbers_items_and_keeps_override(iteration2_db, fake_ir
         "US", [SuiteItemValues(first), SuiteItemValues(second)]
     )
 
+    # Rewriting the suite in a different order has no effect on display order —
+    # suites are an unordered set (P-08); no position/portfolio_name_override.
     template_service.update_suite(
-        suite_id,
-        "US",
-        [SuiteItemValues(second, "Portfolio HD"), SuiteItemValues(first)],
+        suite_id, "US", [SuiteItemValues(second), SuiteItemValues(first)],
     )
     suite = template_service.get_suite(suite_id)
 
-    assert [item["position"] for item in suite["items"]] == [1, 2]
     assert [item["template_id"] for item in suite["items"]] == [second, first]
-    assert suite["items"][0]["portfolio_name_override"] == "Portfolio HD"
+    assert all("position" not in item for item in suite["items"])
+    assert all("portfolio_name_override" not in item for item in suite["items"])
 
 
 def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
@@ -229,3 +251,96 @@ def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
         template_service.create_suite(
             "US", [SuiteItemValues(template_id), SuiteItemValues(template_id)]
         )
+
+
+def test_currency_scheme_is_required(iteration2_db, fake_irp):
+    _sync(iteration2_db, fake_irp)
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.create_template(_values(currency_scheme_code=""))
+
+    assert "Currency scheme is required" in exc.value.errors
+
+
+def test_currency_vintage_is_required(iteration2_db, fake_irp):
+    _sync(iteration2_db, fake_irp)
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.create_template(_values(currency_vintage=""))
+
+    assert "Currency vintage is required" in exc.value.errors
+
+
+def test_currency_scheme_with_no_cached_vintages_blocks_save(iteration2_db, fake_irp):
+    _sync(iteration2_db, fake_irp)
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("""
+            INSERT INTO irp_currency_scheme
+                (id, irp_id, name, code, inserted_at, updated_at)
+            VALUES
+                ('scheme-empty', 2, 'Empty Scheme', 'EMPTY', '2026-08-19', '2026-08-19')
+        """)
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.create_template(_values(
+            currency_scheme_code="EMPTY", currency_vintage="RL25",
+        ))
+
+    assert any('scheme "EMPTY" has no cached vintages' in error
+               for error in exc.value.errors)
+
+
+def test_currency_vintage_not_in_scheme_is_rejected_when_both_resolve(
+    iteration2_db, fake_irp,
+):
+    _sync(iteration2_db, fake_irp)
+    with iteration2_db.engine.begin() as conn:
+        # A second scheme with its own vintage — "RL24" resolves (exists in the
+        # cache) but not under the "RMS" scheme the template names.
+        conn.exec_driver_sql("""
+            INSERT INTO irp_currency_scheme
+                (id, irp_id, name, code, inserted_at, updated_at)
+            VALUES
+                ('scheme-dt', 3, 'DT', 'DT', '2026-08-19', '2026-08-19')
+        """)
+        conn.exec_driver_sql("""
+            INSERT INTO irp_currency_scheme_vintage
+                (id, vintage, currency_scheme_code, effective_date,
+                 inserted_at, updated_at)
+            VALUES
+                ('vintage-dt-rl24', 'RL24', 'DT', '2024-01-01',
+                 '2026-08-19', '2026-08-19')
+        """)
+
+    with pytest.raises(TemplateValidationError) as exc:
+        template_service.create_template(_values(
+            currency_scheme_code="RMS", currency_vintage="RL24",
+        ))
+
+    assert any(
+        'does not belong to currency scheme "RMS"' in error
+        for error in exc.value.errors
+    )
+
+
+def test_currency_unresolved_when_scheme_or_vintage_absent_from_cache(
+    iteration2_db, fake_irp,
+):
+    _sync(iteration2_db, fake_irp)
+
+    unresolved_scheme_id = template_service.create_template(_values(
+        name="Unresolved Currency Scheme",
+        currency_scheme_code="MISSING", currency_vintage="RL25",
+    ))
+    unresolved_vintage_id = template_service.create_template(_values(
+        name="Unresolved Currency Vintage",
+        currency_vintage="MISSING",
+    ))
+
+    scheme_template = template_service.get_template(unresolved_scheme_id)
+    assert scheme_template["currency_scheme_unresolved"] is True
+    assert scheme_template["unresolved"] is True
+
+    vintage_template = template_service.get_template(unresolved_vintage_id)
+    assert vintage_template["currency_vintage_unresolved"] is True
+    assert vintage_template["unresolved"] is True

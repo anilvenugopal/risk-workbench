@@ -616,7 +616,36 @@ def upgrade() -> None:
     )
     op.create_index("uq_irp_currency_code", "irp_currency", ["code"], unique=True)
 
-    # Iteration 4: saved analysis templates and ordered template suites.
+    op.create_table(
+        "irp_currency_scheme",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("irp_id", sa.Integer, nullable=False),
+        sa.Column("name", sa.NVARCHAR(200), nullable=False),
+        sa.Column("code", sa.NVARCHAR(50), nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+    op.create_index("uq_irp_currency_scheme_irp_id", "irp_currency_scheme",
+                    ["irp_id"], unique=True)
+
+    # No irp_id/unique index: the upstream vintage item has no id and
+    # (currency_scheme_code, vintage) is not unique upstream — raw snapshot,
+    # delete-all + insert per sync (R13, data-model.md).
+    op.create_table(
+        "irp_currency_scheme_vintage",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("vintage", sa.NVARCHAR(400), nullable=False),
+        sa.Column("currency_scheme_code", sa.NVARCHAR(50), nullable=False),
+        sa.Column("effective_date", DATETIME2, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+
+    # Iteration 4: saved analysis templates and unordered template suites.
     op.create_table(
         "analysis_template",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
@@ -625,6 +654,8 @@ def upgrade() -> None:
         sa.Column("output_profile_name", sa.NVARCHAR(200), nullable=False),
         sa.Column("event_rate_scheme_name", sa.NVARCHAR(200), nullable=True),
         sa.Column("currency_code", sa.NVARCHAR(10), nullable=False),
+        sa.Column("currency_scheme_code", sa.NVARCHAR(50), nullable=False),
+        sa.Column("currency_vintage", sa.NVARCHAR(400), nullable=False),
         sa.Column("min_loss_threshold", sa.DECIMAL(18, 2), nullable=False,
                   server_default=sa.text("1.00")),
         sa.Column("num_max_loss_event", sa.Integer, nullable=False,
@@ -633,7 +664,6 @@ def upgrade() -> None:
                   server_default="0"),
         sa.Column("treat_construction_occupancy_as_unknown", sa.Boolean,
                   nullable=False, server_default="1"),
-        sa.Column("treaty_name_pattern", sa.NVARCHAR(200), nullable=True),
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
@@ -695,8 +725,6 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("suite_id", sa.Uuid, nullable=False),
         sa.Column("template_id", sa.Uuid, nullable=False),
-        sa.Column("position", sa.Integer, nullable=False),
-        sa.Column("portfolio_name_override", sa.NVARCHAR(200), nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("inserted_by", sa.Uuid, nullable=True),
@@ -792,6 +820,9 @@ def downgrade() -> None:
     op.drop_table("analysis_template_tag")
     op.drop_index("uq_analysis_template_live_name", table_name="analysis_template")
     op.drop_table("analysis_template")
+    op.drop_table("irp_currency_scheme_vintage")
+    op.drop_index("uq_irp_currency_scheme_irp_id", table_name="irp_currency_scheme")
+    op.drop_table("irp_currency_scheme")
     op.drop_index("uq_irp_currency_code", table_name="irp_currency")
     op.drop_table("irp_currency")
     op.drop_index("uq_irp_event_rate_scheme_irp_id",
