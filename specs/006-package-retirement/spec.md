@@ -37,11 +37,11 @@ picker, and submission-scoped RDM section.
 | P-08 | Approved | Removing an EDM/RDM from a submission deletes only the association. Physical deletion from Risk Modeler is deferred and is not part of this feature. |
 | P-09 | Approved | Use the rendered submission-detail and contextual EDM-detail previews. Implementation reuses the current application shell and existing EDM detail disclosure markup and caret behavior exactly; the previews approve the changed concepts, not a broader redesign. |
 | P-10 | Approved | Store one optional note on each EDM and RDM. The note describes the resource, is shared across submissions, and is editable from the detail page and submission tables by every authenticated analyst. |
-| T-01 | Proposed | Replace `package`, `submission_package`, and member `package_id` columns with `submission_edm` and `submission_rdm`. |
-| T-02 | Proposed | Use `/submissions/{submission_id}/edms/{edm_id}` and `/submissions/{submission_id}/rdms/{rdm_id}` as contextual URLs; retain `/edms/{edm_id}` and `/rdms/{rdm_id}` for library entry with no submission context. |
-| T-03 | Proposed | Port only PR #57's standalone-RDM gateway, worker, poller, analysis-capture, fake, and test changes; reimplement association reads and UI against submission joins. |
-| T-04 | Proposed | Remove `package_id` from jobs and analyses. Keep EDM/RDM as execution targets and add nullable `requested_from_submission_id` to `irp_job` as provenance only. |
-| T-05 | Proposed | Rebuild the pre-go-live WORKBENCH database from the edited single Alembic revision; do not write a package-to-association data converter. |
+| T-01 | Approved | Replace `package`, `submission_package`, and member `package_id` columns with `submission_edm` and `submission_rdm`. |
+| T-02 | Approved | Use `/submissions/{submission_id}/edms/{edm_id}` and `/submissions/{submission_id}/rdms/{rdm_id}` as contextual URLs; retain `/edms/{edm_id}` and `/rdms/{rdm_id}` for library entry with no submission context. |
+| T-03 | Approved | Port only PR #57's standalone-RDM gateway, worker, poller, analysis-capture, fake, and test changes; reimplement association reads and UI against submission joins. |
+| T-04 | Approved | Remove `package_id` from jobs and analyses. Keep EDM/RDM as execution targets and add nullable `requested_from_submission_id` to `irp_job` as provenance only. |
+| T-05 | Approved | Rebuild the pre-go-live WORKBENCH database from the edited single Alembic revision; do not write a package-to-association data converter. |
 | T-06 | Approved | Build and verify this feature against `irp-integration` 0.4.0 from TestPyPI. Its `submit_rdm_import_job` method accepts `exposure_set_name`. |
 
 ## User Scenarios & Testing
