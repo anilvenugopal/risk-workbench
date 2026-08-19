@@ -57,22 +57,29 @@ UNIQUE (natural key, `uq_irp_currency_code`), `name` (16-char truncation, P-06),
 
 New (spec P-07 / plan T-07, 2026-08-18): CIC selects currency **schemes** first — the same
 currency appears in multiple schemes with different FX rates, and only ~2–5 schemes will ever
-exist. **Columns are provisional** until the irp-integration `search_currency_schemes` read ships
-in a release (it exists in the sibling working copy); expected: `id` PK, `irp_id` INT NOT NULL
-UNIQUE, `name` NVARCHAR(200) NOT NULL, `code` NVARCHAR(50) NULL (scheme code, e.g. "RMS", "DT"),
-`is_default` BIT NOT NULL DEFAULT 0 (provisional — RM's `isDefault`; display on the metadata tab;
-submit-time default resolution in Iteration 7 may query Risk Modeler live instead, P-10), audit.
+exist. **Columns pinned 2026-08-19** by the released `0.6.0rc2` read plus a sandbox probe (45
+schemes; item fields `currencySchemeId` / `currencySchemeName` / `currencySchemeCode` — codes
+non-null and unique, observed ≤26 chars, names ≤29): `id` PK, `irp_id` INT NOT NULL UNIQUE
+(= `currencySchemeId`), `name` NVARCHAR(200) NOT NULL, `code` NVARCHAR(50) NOT NULL (scheme
+code, e.g. "RMS", "DT"), audit. Only active schemes are cached (`isActive` filter, like
+event-rate schemes). No `is_default` column (dropped 2026-08-19: upstream `isDefault` is
+true/false/**null** in the sandbox and nothing consumes it after the P-10 reversal — re-add only
+if the metadata tab ever wants a "Default" marker).
 
 ### `irp_currency_scheme_vintage`
 
 New (spec P-07 as amended): the vintage supplies submission's `vintage` code and the effective
-date that `asOfDate` derives from. **Columns are provisional** until the irp-integration
-`search_currency_scheme_vintages` read ships; observed item shape (working copy
-`_build_analysis_currency_dict`): `vintage` (e.g. "RL25"), `currencySchemeCode` (e.g. "RMS"),
-`effectiveDate` (ISO timestamp). Expected: `id` PK, `irp_id` INT NOT NULL UNIQUE,
-`vintage` NVARCHAR(50) NOT NULL, `currency_scheme_code` NVARCHAR(50) NOT NULL (name-based link to
-the scheme, Article 2 — no FK), `effective_date` DATETIME2 NOT NULL, audit. The builder defaults
-a template's vintage to the chosen scheme's latest by `effective_date`.
+date that `asOfDate` derives from. **Columns pinned 2026-08-19** by the released `0.6.0rc2` read
+plus a sandbox probe (51 vintages; item fields `vintage`, `currencySchemeCode`, `effectiveDate`,
+`vintageDescription` + audit). The item carries **no id field**, and `(currencySchemeCode,
+vintage)` is **not unique** upstream (duplicate pairs observed in the sandbox), so this cache is
+a **raw snapshot** (user-decided 2026-08-19): no `irp_id`, no unique index, and the sync replaces
+it wholesale — delete-all + insert, never a keyed upsert — storing exactly what the API returned,
+duplicates included. Columns: `id` PK, `vintage` NVARCHAR(400) NOT NULL (e.g. "RL25"; sandbox
+values up to 371 chars observed, and the value must round-trip verbatim into submission, so no
+truncation), `currency_scheme_code` NVARCHAR(50) NOT NULL (name-based link to the scheme,
+Article 2 — no FK), `effective_date` DATETIME2 NOT NULL, audit. The builder defaults a template's
+vintage to the chosen scheme's latest by `effective_date`.
 
 ## Templates & suites (DATA_MODEL §7 with deltas)
 
@@ -82,10 +89,10 @@ Deltas from DATA_MODEL §7, to be reconciled there at implementation: (a)
 `treat_construction_occupancy_as_unknown` column (spec FR-005, wheel parameter); (d) no separate
 `created_by` — `inserted_by` is the authorship record (one fact, one column); (e)
 `treaty_name_pattern` is dropped (spec P-09 / O15-6 — treaties selected at run time in
-Iteration 7); (f) `currency_scheme_code` and `currency_vintage` join `currency_code` — as a **nullable pair**
-(both set or both NULL, spec P-10): set, a template pins all three currency values submission
-needs; NULL, the template means "Risk Modeler default", displayed "Default" and resolved at
-submit time in Iteration 7 (spec P-07 as amended / plan T-07/T-09); (g)
+Iteration 7); (f) `currency_scheme_code` and `currency_vintage` join `currency_code` — all three **required
+NOT NULL** (spec P-10 as reversed 2026-08-19 / plan T-07/T-09): every template pins the full set
+of currency values submission needs; NULL is never stored and no default is resolved at submit
+time — Iteration 7 submits the stored values as-is; (g)
 `template_suite_item` loses `position` and `portfolio_name_override` — suites are unordered
 (spec P-08).
 
@@ -94,13 +101,13 @@ submit time in Iteration 7 (spec P-07 as amended / plan T-07/T-09); (g)
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `name` | NVARCHAR(200) NOT NULL | filtered-unique on live rows (import matching key, P-05) |
+| `name` | NVARCHAR(200) NOT NULL | filtered-unique on live rows |
 | `analysis_profile_name` | NVARCHAR(200) NOT NULL | RM model-profile name (name-based coupling, Art. 2) |
 | `output_profile_name` | NVARCHAR(200) NOT NULL | |
-| `event_rate_scheme_name` | NVARCHAR(200) NULL | required when the cached profile is DLM (validated at save/import) |
+| `event_rate_scheme_name` | NVARCHAR(200) NULL | required when the cached profile is DLM (validated at save) |
 | `currency_code` | NVARCHAR(20) NOT NULL | submission `code` (e.g. "USD") — kept from the US1 build; always required |
-| `currency_scheme_code` | NVARCHAR(50) NULL | submission `scheme` (e.g. "RMS") — P-07/P-10; name-based coupling, Art. 2; NULL = Risk Modeler default (displayed "Default", resolved at submit time in Iteration 7: the default active scheme, then its latest vintage — the submission API never defaults, so the workbench always sends a full block) |
-| `currency_vintage` | NVARCHAR(50) NULL | submission `vintage` (e.g. "RL25") — NULL exactly when `currency_scheme_code` is NULL (pair CHECK below); when a scheme is set the builder pre-selects its latest by effective date; `asOfDate` derives from the vintage's effective date at submit time, never stored |
+| `currency_scheme_code` | NVARCHAR(50) NOT NULL | submission `scheme` (e.g. "RMS") — P-07/P-10; name-based coupling, Art. 2; required — never NULL, no "Default" state, no default resolution at submit time (the submission API never defaults; Iteration 7 sends the stored value) |
+| `currency_vintage` | NVARCHAR(400) NOT NULL | submission `vintage` (e.g. "RL25") — required; width matches `irp_currency_scheme_vintage.vintage` (probe: values up to 371 chars exist upstream); the builder pre-selects the chosen scheme's latest by effective date; `asOfDate` derives from the vintage's effective date at submit time, never stored |
 | `min_loss_threshold` | DECIMAL(18,2) NOT NULL DEFAULT 1.00 | FR-005: numeric, 2 dp |
 | `num_max_loss_event` | INT NOT NULL DEFAULT 1 | |
 | `franchise_deductible` | BIT NOT NULL DEFAULT 0 | |
@@ -108,9 +115,9 @@ submit time in Iteration 7 (spec P-07 as amended / plan T-07/T-09); (g)
 | `deleted_at` | DATETIME2 NULL | soft delete |
 | audit | | `inserted_at/updated_at`, `inserted_by/updated_by` (authorship = `inserted_by`) |
 
-Table CHECK `ck_analysis_template_currency_pair`:
-`(currency_scheme_code IS NULL AND currency_vintage IS NULL) OR (currency_scheme_code IS NOT NULL
-AND currency_vintage IS NOT NULL)` — the scheme/vintage pair is set or empty together (P-10).
+No currency-pair CHECK: P-10 as reversed makes both columns NOT NULL, which supersedes the
+briefly-specced `ck_analysis_template_currency_pair` (both-or-neither) — the column constraints
+are the whole rule.
 
 Not a boolean pair of kind tables: `franchise_deductible` and
 `treat_construction_occupancy_as_unknown` are boolean API parameters mirrored onto submit calls,
@@ -138,39 +145,34 @@ lifecycle).
 
 ## Validation rules (service layer, unit-tested)
 
-- **DLM scheme + pairing rules (T-06 utility)**: on save/import, classify the template's
+- **DLM scheme + pairing rules (T-06 utility)**: on save, classify the template's
   `analysis_profile_name` via the cache: `is_accumulation` → Accumulation, else the T-06
   irp-integration classification utility (DLM/HD). Only DLM requires `event_rate_scheme_name`;
   missing → reject naming the rule. When both the profile and the scheme resolve in the cache,
   the scheme's `(peril_code, model_region_code)` must match the profile's → mismatch rejected
   (same rule submit enforces). A side absent from the cache → that check is skipped and the
-  template is *unresolved* (R9); never a save-blocker (FR-011/FR-019).
-- **Currency pair rules (P-10)**: `currency_code` always required. Scheme + vintage set or empty
-  together — vintage without scheme rejected (belt to the CHECK's suspenders); scheme chosen in
-  the builder requires a vintage (pre-selected latest by `effective_date`; a scheme with zero
-  cached vintages blocks the save, naming the scheme). When both the scheme and vintage resolve
+  template is *unresolved* (R9); never a save-blocker (FR-011).
+- **Currency rules (P-10)**: `currency_code`, `currency_scheme_code`, and `currency_vintage` are
+  all required — a missing value rejects the save naming the field (belt to the NOT NULL columns'
+  suspenders; NULL is never stored). The builder pre-selects the chosen scheme's latest vintage
+  by `effective_date`; a scheme with zero cached vintages blocks the save, naming the scheme.
+  When both the scheme and vintage resolve
   in the cache, the vintage must belong to the scheme (`currency_scheme_code` match); either side
   absent from the cache → check skipped, template unresolved (R9), same posture as the DLM rules.
-  Currency-in-scheme membership is deliberately **not** validated (deferred — trusted admin;
-  fails at submit in Iteration 7).
+  Vintage lookups (validation and the R9 read-time unresolved flag) use EXISTS-style semantics,
+  never a bare LEFT JOIN — the raw-snapshot vintage cache has no unique key, and a duplicate row
+  must not fan out template reads. Currency-in-scheme membership is deliberately **not**
+  validated (deferred — trusted admin; fails at submit in Iteration 7).
 - **Name uniqueness**: duplicate live template/suite name → reject (DB filtered-unique is the
   guarantee; `is_unique_violation` absorbed into the form error).
 - **Delete guard**: deleting a template referenced by live suites → blocked, referencing suite
   names returned (FR-010).
-- **Import**: whole-file validation first (missing required field, wrong type, duplicate name
-  within file, DLM without scheme, scheme/profile peril-region mismatch, currency vintage without
-  a scheme, vintage not belonging to its scheme when both resolve in the cache, unknown
-  column/sheet), then apply in one transaction — match-by-name update or create (P-04/P-05).
-  A scheme with a blank vintage fills with the scheme's latest cached vintage (builder-pre-fill
-  mirror); scheme unresolved or vintage-less in the cache → the blank is an error (P-10).
 
 ## Seed data
 
 - `rwb_job_type_kind` += `('sync_irp_metadata', 'Sync IRP metadata', …)` (0001 inline seed +
   `infra/scripts/seed_db.py`, both).
-- Starter suites: US, Canada, US+Canada, Global (~10 templates each, indicative settings, P-02)
-  live in the seed workbook `infra/scripts/starter_suites.xlsx` (transfer-workbook format);
-  `seed_db.py` imports it through the import service, skipping when any live suite exists (R10).
+- No suite or template content is seeded — setup is manual (spec P-02; Excel import deferred).
   No kind-table rows for templates/suites themselves (DATA_MODEL §13 unchanged).
 
 ## Test schema mirror

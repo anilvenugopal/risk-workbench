@@ -35,7 +35,7 @@ with what submit will enforce; display the raw `software_version_code` next to t
 **Revised 2026-08-18 (T-06)**: the rule is not re-implemented app-side after all — irp-integration
 gains a pure classification/validation utility (extracted from the submit path, which today
 inlines classification, DLM-requires-scheme, and the peril/region pairing at `analysis.py:246-296`
-interleaved with live API calls); the workbench imports it at template save and import, and the
+interleaved with live API calls); the workbench calls it at template save, and the
 submit path refactors onto it.
 **Landed & validated 2026-08-18**: `irp-integration==0.6.0rc1` (TestPyPI pre-release, pinned via
 `make irp-testpypi`) ships `irp_integration.analysis_validation` with
@@ -103,14 +103,11 @@ page's last-synced time comes from the latest succeeded `sync_irp_metadata` rwb_
 gone"); metadata has no such constraint, inline gives no concurrency guard, and a ~4.8k-row
 refresh doesn't belong in an HTTP handler.
 
-## R6 — Export/import format is one .xlsx workbook, two sheets (T-04)
+## R6 — Export/import format (T-04) — deferred out of MVP
 
-**Decision (T-04)**: openpyxl (already a dependency — treaty export, spec 004 R5) writes one
-workbook: a `Templates` sheet (one row per template, full field set, tags semicolon-joined) and a
-`Suites` sheet (one row per suite item: suite name, template name — `Position` and
-`Portfolio Name Override` dropped 2026-08-18, R14). Import parses the same layout with `UploadFile` (python-multipart already present).
-**Rejected**: CSV — two related record sets don't fit one flat file, and the spec's requirement is
-"opens in Excel"; two separate CSVs would make the all-or-nothing import contract awkward.
+**Out of MVP scope (spec P-02, 2026-08-19)**: Excel export/import is a nice-to-have enhancement;
+the worked design (one openpyxl workbook — `Templates` + `Suites` data sheets plus an advisory
+`Reference Data` dropdown sheet) is retained in `contracts/transfer-workbook.md`.
 
 ## R7 — Tags are stored as names
 
@@ -129,24 +126,15 @@ DATA_MODEL §7's `irp_tag_id`; no `irp_tag` cache table in this iteration.
 
 ## R9 — Unresolved references are derived, never stored
 
-FR-011/FR-019's "flagged unresolved" is a read-time LEFT JOIN from the template's saved names to
+FR-011's "flagged unresolved" is a read-time LEFT JOIN from the template's saved names to
 the live cache rows — no flag column. A re-sync that removes a profile makes the flag appear; a
 later sync that restores it makes the flag disappear, with no write to the template.
 
-## R10 — Starter suites seed through the import flow (T-05, revised 2026-08-18)
+## R10 — Starter suites (T-05) — deferred out of MVP
 
-The four starter suites (US, Canada, US+Canada, Global, ~10 templates each, indicative settings
-per P-02 built from `RMS Default *` profile names observed in the sandbox) live in a seed
-workbook, `infra/scripts/starter_suites.xlsx`, in the transfer-workbook format (R6).
-`infra/scripts/seed_db.py` imports it through the same service the `POST /templates/import` route
-uses — one data file instead of hardcoded rows, and Cheryl's default-settings list (O14-4) lands
-as a workbook edit, not a code change. The seed skips the import entirely when any live template
-suite exists (one EXISTS check), because import's match-by-name update semantics (P-05) would
-otherwise overwrite CIC's edits on the idempotent re-seed. At seed time the metadata cache is
-empty, so every profile is unresolved and the DLM-scheme rule is skipped (FR-019) — the import
-succeeds without a prior sync. **Rejected**: hardcoded rows in `seed_db.py` (a second
-representation of the same data, superseded by 2026-08-18 review) and MERGE-style upsert (correct
-for reference vocabularies, wrong for admin-editable data).
+**Out of MVP scope (spec P-02, 2026-08-19)**: nothing is seeded — suites and templates are
+created manually via the admin page. If starter content returns, it arrives with the deferred
+Excel import enhancement (R6).
 
 ## R11 — Template field trim (2026-08-18 review)
 
@@ -178,7 +166,7 @@ CIC works in currency **schemes**: an analysis is tied to a scheme, the currency
 within it, and the same currency (e.g. EUR) appears in multiple schemes with different FX rates —
 the scheme is the selection unit, and only ~2–5 will ever exist. Cheryl: "I don't think we need to
 see currencies." But analysis submission requires a specific value from **all three** objects —
-the wheel's currency block (`_build_analysis_currency_dict`, irp-integration working copy) is
+the wheel's currency block (`reference_data._build_analysis_currency_dict`, shipped in `0.6.0rc2`) is
 `{code, scheme, vintage, asOfDate}`, with `asOfDate` derived from the chosen vintage's
 `effectiveDate`.
 
@@ -189,39 +177,51 @@ profiles, event-rate schemes, currency schemes); individual currencies stay cach
 builder's pick list but get no tab (D3). `analysis_template` keeps `currency_code` and gains
 `currency_scheme_code` + `currency_vintage`; the builder defaults the vintage to the scheme's
 latest by effective date. The scheme/vintage reads (`search_currency_schemes`,
-`search_currency_scheme_vintages`, `get_latest_currency_scheme_vintage`) exist in the sibling
-irp-integration working copy but not in the released `0.6.0rc1` (same cross-repo pattern as
-T-06); the new cache columns and `CurrencySchemeEntry`/`CurrencySchemeVintageEntry` fields are
-provisional until a release pins them. This **resolves O15-2**: the template stores the member
+`search_currency_scheme_vintages`, `get_latest_currency_scheme_vintage`) shipped in
+`irp-integration==0.6.0rc2` (released & pinned 2026-08-19, same cross-repo pattern as T-06); the
+cache columns and `CurrencySchemeEntry`/`CurrencySchemeVintageEntry` fields are pinned by that
+release plus the same-day sandbox probe below. This **resolves O15-2**: the template stores the member
 currency *and* the scheme (and the vintage). **Rejected**: replacing currencies with schemes
 outright (the first 2026-08-18 reading of D3) — it would have left submission unable to fill
 `code`; also rejected: storing `asOfDate` on the template (derivable from the cached vintage;
 storing it invites drift).
 
-**Amended 2026-08-19 (spec P-10 / plan T-09)**: the scheme + vintage become a **nullable pair**
-on the template (both set or both NULL; currency stays required). A NULL pair means "Risk Modeler
-default", displayed as **"Default"** and resolved at **submit time** in Iteration 7 — the default
-scheme (`isDefault=True AND isActive=True`), then that scheme's latest vintage by
-`effectiveDate` — because the submission API **never defaults these values** (Ben-confirmed:
-a full `{code, scheme, vintage, asOfDate}` block must always be sent). When a scheme is chosen a
-vintage is required: the builder pre-selects the scheme's latest, and a scheme with no vintages
-blocks the save. Pick lists filter the **local cache** with substring/LIKE semantics.
-**Rejected**: resolving the default at *save* time (snapshots the current vintage, which goes
-stale when a new one lands — templates are touched ~yearly, so "default" must stay evergreen);
-live per-keystroke `where_clause` type-ahead against Risk Modeler (`currencyCode="<input>"` is an
-exact-match lookup, not a search, and the cache already holds all three small sets — the
-where-clause filters belong to the sync and to submit-time default resolution); validating
+**Amended 2026-08-19 (spec P-10 / plan T-09; reversed later the same day)**: scheme + vintage
+were briefly ruled an optional pair (NULL pair = "Risk Modeler default", displayed "Default" and
+resolved workbench-side at submit time), then **reversed the same day**: both are **required** on
+every template. NULL is never stored for either and **no default logic runs at submit time** —
+every template pins a concrete currency, scheme, and vintage, and Iteration 7 submits them as
+stored (the submission API **never defaults these values** — Ben-confirmed: a full
+`{code, scheme, vintage, asOfDate}` block must always be sent). The builder pre-selects the
+chosen scheme's latest vintage by `effectiveDate` (changeable); a scheme with no vintages blocks
+the save. Pick lists filter the **local cache** with substring/LIKE semantics.
+**Rejected**: the optional-pair/"Default" design itself (its evergreen submit-time defaults are
+traded for explicitness — the admin must consciously pin the scheme and vintage; nothing resolves
+behind their back at submit time); live per-keystroke `where_clause` type-ahead against Risk
+Modeler (`currencyCode="<input>"` is an exact-match lookup, not a search, and the cache already
+holds all three small sets — the where-clause filters belong to the sync); validating
 currency-in-scheme membership (the scheme must carry a rate for the chosen currency — real, but
 deliberately deferred: currency is a minor slice of the feature and the admin is trusted; a
 mispairing fails at submit).
+
+**Probe 2026-08-19 (post-release, CIC sandbox — both reads called raw)**: 45 schemes, 51
+vintages. Scheme items carry `currencySchemeId` / `currencySchemeName` / `currencySchemeCode`
+(codes non-null, unique, ≤26 chars; names ≤29) plus `anchorCurrencyCode`, `isActive` (2 inactive
+rows — the sync filters them out), and `isDefault`, which is true/false/**null** (1/28/16) — not
+cached, nothing consumes it after the P-10 reversal (user-decided). Vintage items carry
+`vintage`, `currencySchemeCode`, `effectiveDate`, `vintageDescription` + audit and **no id
+field**; `(currencySchemeCode, vintage)` is **not unique** (two duplicate pairs of sandbox test
+junk observed), and `vintage` values run up to **371 chars** — so the vintage cache is a raw
+snapshot (no `irp_id`, no unique index, delete-all + insert per sync — user-decided) and
+`vintage` columns are NVARCHAR(400), never truncated (the value must round-trip verbatim into
+submission).
 
 ## R14 — Design-session-16 trims (2026-08-18, note 16 D11/§2.1)
 
 **Decisions**: (a) `analysis_template.treaty_name_pattern` is **dropped** (D11/O15-6) — treaties
 are selected explicitly at run time in Iteration 7, never stored as a glob on the template; (b)
 suites are **unordered** ("it's just a group… that we can run all together") —
-`template_suite_item` loses `position` and `portfolio_name_override`, and the workbook `Suites`
-sheet loses the `Position` and `Portfolio Name Override` columns (both flagged low-value at the
-8/18 review and confirmed dropped). Display and export order is normalized by name.
-**Rejected**: keeping `position` for stable round-trip display (the design note floated it;
+`template_suite_item` loses `position` and `portfolio_name_override` (both flagged low-value at
+the 8/18 review and confirmed dropped). Display order is normalized by name.
+**Rejected**: keeping `position` for stable display (the design note floated it;
 the approver decided 2026-08-18 to drop it outright — name-normalized ordering suffices).
