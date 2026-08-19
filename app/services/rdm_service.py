@@ -3,20 +3,28 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import text
 
 from app.services import analysis_service, name_check, rwb_job_service
-from app.services._common import SubmissionRef, _uid, _utcnow
+from app.services._common import (
+    SubmissionRef,
+    _attach_submissions,
+    _import_entity,
+    _mark_error,
+    _mark_importing,
+    _replace_source_file,
+    _retry_import,
+    _submission_entity_context,
+    _uid,
+    _utcnow,
+)
 from app.services.edm_service import ImportResult  # shared DTO
-from app.services.errors import ConcurrencyConflict, NameCollisionError, SubmissionClosed
 from app.services.name_check import CollisionCheck
-from app.services.shared_drive import validate_selection
 from app.workers import dispatch
-from db import execute, execute_command, execute_one, get_connection
+from db import execute, execute_one
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +32,6 @@ PENDING = "pending_import"
 IMPORTING = "importing"
 READY = "ready"
 ERROR = "error"
-_LOCKED = (IMPORTING, READY)
 # Ordered status vocabulary offered as the library status filter (US7 / T058).
 STATUSES = (PENDING, IMPORTING, READY, ERROR)
 # Statuses a worker still moves on its own — the library list polls while any row
@@ -66,52 +73,10 @@ def import_rdm(
     The only Risk Modeler call here is the cached name-collision read. Raises
     ``NameCollisionError`` — before persisting anything — when the name already
     exists there (issue #17). Validates the source (else ``InvalidSourceFile``)."""
-    name = name_check.clean_entity_name(name)
-    canonical = validate_selection(source_file_path)
-    check = check_name_collision(name)
-    if check.collides:
-        raise NameCollisionError(
-            f"An RDM named '{name}' already exists in Risk Modeler. "
-            "Choose a different name.")
-
-    rdm_id = str(uuid.uuid4())
-    now = _utcnow()
-    actor = str(actor_id)
-    sid = str(submission_id) if submission_id is not None else None
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        if sid is not None:
-            status = conn.execute(text(
-                "SELECT status_code FROM submission WHERE id = :id"
-            ), {"id": sid}).scalar()
-            if status != "ACTIVE":
-                raise SubmissionClosed(
-                    f"Submission is {status or 'missing'}; only ACTIVE deals are editable.")
-        conn.execute(text(
-            """
-            INSERT INTO irp_rdm (id, source_file_path, name, status,
-                inserted_at, updated_at, inserted_by, updated_by)
-            VALUES (:id, :src, :name, :status, :now, :now, :by, :by)
-            """
-        ), {"id": rdm_id, "src": canonical, "name": name, "status": PENDING,
-            "now": now, "by": actor})
-        if sid is not None:
-            conn.execute(text(
-                "INSERT INTO submission_rdm "
-                "(submission_id, rdm_id, inserted_at, inserted_by) "
-                "VALUES (:submission_id, :entity_id, :now, :actor)"
-            ), {"submission_id": sid, "entity_id": rdm_id,
-                "now": now, "actor": actor})
-    input_data = {"rdm_id": rdm_id}
-    if sid is not None:
-        input_data["requested_from_submission_id"] = sid
-    job_id = rwb_job_service.enqueue_rwb_job(
-        requestor_type="analyst_request", requestor_id=rdm_id,
-        rwb_job_type="upload_rdm",
-        input_data=input_data,
-        actor_id=actor,
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    return ImportResult(entity_id=rdm_id, collision_unchecked=not check.checked)
+    entity_id, collision_unchecked = _import_entity(
+        "rdm", name=name, source_file_path=source_file_path, actor_id=actor_id,
+        submission_id=submission_id)
+    return ImportResult(entity_id=entity_id, collision_unchecked=collision_unchecked)
 
 
 _ROW_SELECT = (
@@ -148,29 +113,8 @@ def list_rdms(*, name: str | None = None,
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
-    _attach_submissions(result)
+    _attach_submissions("rdm", result)
     return result
-
-
-def _attach_submissions(rows: list[RdmRow]) -> None:
-    """Set each row's ``.submissions`` from the M:N ``submission_rdm`` join
-    (oldest-first). One query for the whole page; standalone rows keep the default []."""
-    entity_ids = [r.id for r in rows]
-    if not entity_ids:
-        return
-    params = {f"r{i}": value for i, value in enumerate(entity_ids)}
-    placeholders = ", ".join(f":r{i}" for i in range(len(entity_ids)))
-    refs: dict[str, list[SubmissionRef]] = {}
-    for association in execute(
-        "SELECT sr.rdm_id, s.id, s.name FROM submission_rdm sr "
-        "JOIN submission s ON s.id = sr.submission_id "
-        f"WHERE sr.rdm_id IN ({placeholders}) ORDER BY s.inserted_at",
-        params, connection="WORKBENCH",
-    ):
-        refs.setdefault(_uid(association["rdm_id"]), []).append(
-            SubmissionRef(id=_uid(association["id"]), name=association["name"]))
-    for row in rows:
-        row.submissions = refs.get(row.id, [])
 
 
 def get_rdm(rdm_id: Any) -> RdmRow | None:
@@ -206,24 +150,7 @@ def retry_import(*, rdm_id: Any, actor_id: Any) -> None:
     flight; otherwise resets an ``error`` entity back to ``pending_import`` **and** the
     head to ``pending`` so the worker re-runs the import (the body only advances a
     ``pending_import`` row)."""
-    rid = str(rdm_id)
-    current = _current(rid)
-    if current is None or current["status"] in _LOCKED:
-        return
-    execute_command(
-        "UPDATE irp_rdm SET status = :p, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :err",
-        {"p": PENDING, "err": ERROR, "now": _utcnow(), "by": str(actor_id), "id": rid},
-        connection="WORKBENCH",
-    )
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=rid,
-        rwb_job_type="upload_rdm",
-        input_data={"rdm_id": rid},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    logger.info("rdm %s import retry requested by analyst %s", rid, actor_id)
+    _retry_import("rdm", entity_id=rdm_id, actor_id=actor_id)
 
 
 def replace_source_file(
@@ -231,31 +158,9 @@ def replace_source_file(
 ) -> None:
     """Replace the source file of a failed/errored RDM and re-import (FR-046).
     Optimistic-concurrency checked on ``updated_at`` (FR-039)."""
-    rid = str(rdm_id)
-    canonical = validate_selection(new_source_file_path)
-    rows = execute_command(
-        """
-        UPDATE irp_rdm
-        SET source_file_path = :src, status = :status, updated_at = :now,
-            updated_by = :by
-        WHERE id = :id AND updated_at = :expected AND deleted_at IS NULL
-        """,
-        {"src": canonical, "status": PENDING, "now": _utcnow(),
-         "by": str(actor_id), "id": rid, "expected": expected_updated_at},
-        connection="WORKBENCH",
-    )
-    if rows == 0:
-        raise ConcurrencyConflict(
-            "This RDM changed since you opened it — reload and re-apply.")
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=rid,
-        rwb_job_type="upload_rdm",
-        input_data={"rdm_id": rid},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_rdm")
-    logger.info("rdm %s source file replaced by analyst %s — re-import enqueued",
-                rid, actor_id)
+    _replace_source_file(
+        "rdm", entity_id=rdm_id, new_source_file_path=new_source_file_path,
+        expected_updated_at=expected_updated_at, actor_id=actor_id)
 
 
 # ── manual analysis-details sync (spec 004 follow-up, 2026-07-24) ─────────────────
@@ -329,59 +234,26 @@ def get_contextual_rdm_detail(
     """Return RDM detail only when the RDM belongs to the named submission."""
     sid = str(submission_id)
     rid = str(rdm_id)
-    source = execute_one(
-        "SELECT s.id, s.name FROM submission s "
-        "JOIN submission_rdm sr ON sr.submission_id = s.id "
-        "JOIN irp_rdm r ON r.id = sr.rdm_id "
-        "WHERE s.id = :submission_id AND r.id = :rdm_id "
-        "AND r.deleted_at IS NULL",
-        {"submission_id": sid, "rdm_id": rid}, connection="WORKBENCH")
-    if source is None:
+    ctx = _submission_entity_context("rdm", submission_id=sid, entity_id=rid)
+    if ctx is None:
         return None
+    source, choices = ctx
     detail = get_rdm_detail(rid)
     if detail is None:
         return None
-    choices = execute(
-        "SELECT r.id, r.name FROM submission_rdm sr "
-        "JOIN irp_rdm r ON r.id = sr.rdm_id "
-        "WHERE sr.submission_id = :submission_id AND r.deleted_at IS NULL "
-        "ORDER BY CASE WHEN r.id = :rdm_id THEN 0 ELSE 1 END, r.name",
-        {"submission_id": sid, "rdm_id": rid}, connection="WORKBENCH")
-    return {
-        **detail,
-        "source_submission": SubmissionRef(
-            id=_uid(source["id"]), name=source["name"]),
-        "rdm_choices": [
-            SubmissionRef(id=_uid(row["id"]), name=row["name"])
-            for row in choices
-        ],
-    }
+    return {**detail, "source_submission": source, "rdm_choices": choices}
 
 
 # ── worker / poller status writers ───────────────────────────────────────────────
 
 def mark_importing(*, rdm_id: Any, actor_id: Any | None = None) -> None:
     """Worker-side: an import submit succeeded."""
-    execute_command(
-        "UPDATE irp_rdm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :from_status",
-        {"s": IMPORTING, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(rdm_id), "from_status": PENDING},
-        connection="WORKBENCH",
-    )
+    _mark_importing("rdm", entity_id=rdm_id, actor_id=actor_id)
 
 
 def mark_error(*, rdm_id: Any, actor_id: Any | None = None) -> None:
     """Worker-side: mark an RDM whose import submit failed."""
-    execute_command(
-        "UPDATE irp_rdm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status IN (:p, :i)",
-        {"s": ERROR, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(rdm_id), "p": PENDING, "i": IMPORTING},
-        connection="WORKBENCH",
-    )
+    _mark_error("rdm", entity_id=rdm_id, actor_id=actor_id)
 
 
 def rollup_on_terminal(conn, *, rdm_id: Any, rm_status: str,

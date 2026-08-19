@@ -29,8 +29,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote, urlsplit
 
-from sqlalchemy import text
-
 from app.config import settings
 from app.services import (
     analysis_service,
@@ -40,20 +38,25 @@ from app.services import (
     rwb_job_service,
     treaty_service,
 )
-from app.services._common import SubmissionRef, _uid, _utcnow
-from app.services.analysis_service import BrokerAnalysisGroup
-from app.services.errors import (
-    ConcurrencyConflict,
-    EdmCatalogUnavailable,
-    NameCollisionError,
-    SubmissionClosed,
+from app.services._common import (
+    SubmissionRef,
+    _attach_submissions,
+    _import_entity,
+    _mark_error,
+    _mark_importing,
+    _replace_source_file,
+    _retry_import,
+    _submission_entity_context,
+    _uid,
+    _utcnow,
 )
+from app.services.analysis_service import BrokerAnalysisGroup
+from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
 from app.services.portfolio_service import PortfolioRow
-from app.services.shared_drive import validate_selection
 from app.services.treaty_service import TreatyRow
 from app.workers import dispatch
-from db import execute, execute_command, execute_one, get_connection, is_unique_violation
+from db import execute, execute_command, execute_one, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +65,6 @@ PENDING = "pending_import"
 IMPORTING = "importing"
 READY = "ready"
 ERROR = "error"
-# statuses from which a (re)import must NOT be launched (in flight or already done).
-_LOCKED = (IMPORTING, READY)
 # Ordered status vocabulary offered as the library status filter (US7 / T058).
 STATUSES = (PENDING, IMPORTING, READY, ERROR)
 # Statuses a worker still moves on its own — the library list polls while any row
@@ -116,52 +117,10 @@ def import_edm(
     ``SHARED_DRIVE_ROOT`` and is a file (else ``InvalidSourceFile``). Raises
     ``NameCollisionError`` — before persisting anything — when the name already
     exists in Risk Modeler (issue #17)."""
-    name = name_check.clean_entity_name(name)
-    canonical = validate_selection(source_file_path)   # raises InvalidSourceFile
-    check = check_name_collision(name)
-    if check.collides:
-        raise NameCollisionError(
-            f"An EDM named '{name}' already exists in Risk Modeler. "
-            "Choose a different name.")
-
-    edm_id = str(uuid.uuid4())
-    now = _utcnow()
-    actor = str(actor_id)
-    sid = str(submission_id) if submission_id is not None else None
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        if sid is not None:
-            status = conn.execute(text(
-                "SELECT status_code FROM submission WHERE id = :id"
-            ), {"id": sid}).scalar()
-            if status != "ACTIVE":
-                raise SubmissionClosed(
-                    f"Submission is {status or 'missing'}; only ACTIVE deals are editable.")
-        conn.execute(text(
-            """
-            INSERT INTO irp_edm (id, source_file_path, name, status,
-                inserted_at, updated_at, inserted_by, updated_by)
-            VALUES (:id, :src, :name, :status, :now, :now, :by, :by)
-            """
-        ), {"id": edm_id, "src": canonical, "name": name, "status": PENDING,
-            "now": now, "by": actor})
-        if sid is not None:
-            conn.execute(text(
-                "INSERT INTO submission_edm "
-                "(submission_id, edm_id, inserted_at, inserted_by) "
-                "VALUES (:submission_id, :entity_id, :now, :actor)"
-            ), {"submission_id": sid, "entity_id": edm_id,
-                "now": now, "actor": actor})
-    input_data = {"edm_id": edm_id}
-    if sid is not None:
-        input_data["requested_from_submission_id"] = sid
-    job_id = rwb_job_service.enqueue_rwb_job(
-        requestor_type="analyst_request", requestor_id=edm_id,
-        rwb_job_type="upload_edm",
-        input_data=input_data,
-        actor_id=actor,
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    return ImportResult(entity_id=edm_id, collision_unchecked=not check.checked)
+    entity_id, collision_unchecked = _import_entity(
+        "edm", name=name, source_file_path=source_file_path, actor_id=actor_id,
+        submission_id=submission_id)
+    return ImportResult(entity_id=entity_id, collision_unchecked=collision_unchecked)
 
 
 # ── adopting EDMs that already live in Risk Modeler ──────────────────────────────
@@ -367,29 +326,8 @@ def list_edms(*, name: str | None = None,
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
-    _attach_submissions(result)
+    _attach_submissions("edm", result)
     return result
-
-
-def _attach_submissions(rows: list[EdmRow]) -> None:
-    """Set each row's ``.submissions`` from the ``submission_edm`` join
-    (oldest-first). One query for the whole page; standalone rows keep the default []."""
-    entity_ids = [r.id for r in rows]
-    if not entity_ids:
-        return
-    params = {f"e{i}": value for i, value in enumerate(entity_ids)}
-    placeholders = ", ".join(f":e{i}" for i in range(len(entity_ids)))
-    refs: dict[str, list[SubmissionRef]] = {}
-    for association in execute(
-        "SELECT se.edm_id, s.id, s.name FROM submission_edm se "
-        "JOIN submission s ON s.id = se.submission_id "
-        f"WHERE se.edm_id IN ({placeholders}) ORDER BY s.inserted_at",
-        params, connection="WORKBENCH",
-    ):
-        refs.setdefault(_uid(association["edm_id"]), []).append(
-            SubmissionRef(id=_uid(association["id"]), name=association["name"]))
-    for row in rows:
-        row.submissions = refs.get(row.id, [])
 
 
 def get_edm(edm_id: Any) -> EdmRow | None:
@@ -585,30 +523,22 @@ def get_contextual_edm_detail(
     """Return an EDM only when it belongs to the named submission."""
     sid = str(submission_id)
     eid = str(edm_id)
-    source = execute_one(
-        "SELECT s.id, s.name FROM submission s "
-        "JOIN submission_edm se ON se.submission_id = s.id "
-        "JOIN irp_edm e ON e.id = se.edm_id "
-        "WHERE s.id = :submission_id AND e.id = :edm_id "
-        "AND e.deleted_at IS NULL",
-        {"submission_id": sid, "edm_id": eid}, connection="WORKBENCH")
-    if source is None:
+    ctx = _submission_entity_context("edm", submission_id=sid, entity_id=eid)
+    if ctx is None:
         return None
+    source, choices = ctx
     edm = get_edm_detail(eid)
     if edm is None:
         return None
-    choices = execute(
-        "SELECT e.id, e.name FROM submission_edm se "
-        "JOIN irp_edm e ON e.id = se.edm_id "
-        "WHERE se.submission_id = :submission_id AND e.deleted_at IS NULL "
-        "ORDER BY CASE WHEN e.id = :edm_id THEN 0 ELSE 1 END, e.name",
-        {"submission_id": sid, "edm_id": eid}, connection="WORKBENCH")
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle
+    # (same reason sync_contextual_detail below imports it locally).
+    from app.services import rdm_service
+    rdms = analysis_service.list_submission_rdms(submission_id=sid)
+    for rdm in rdms:
+        rdm.sync_running = (
+            rdm_service.latest_backfill_status(rdm.rdm_id) in ("pending", "running"))
     return ContextualEdmDetail(
-        edm=edm,
-        submission=SubmissionRef(id=_uid(source["id"]), name=source["name"]),
-        edm_choices=[SubmissionRef(id=_uid(row["id"]), name=row["name"])
-                     for row in choices],
-        rdms=analysis_service.list_submission_rdms(submission_id=sid),
+        edm=edm, submission=source, edm_choices=choices, rdms=rdms,
     )
 
 
@@ -664,24 +594,7 @@ def retry_import(*, edm_id: Any, actor_id: Any) -> None:
     ``error`` entity back to ``pending_import`` **and** the head back to ``pending`` so
     the worker re-submits (the body only advances a ``pending_import`` row, so the
     entity reset is required for the resubmit to actually fire)."""
-    eid = str(edm_id)
-    current = _current(eid)
-    if current is None or current["status"] in _LOCKED:
-        return
-    execute_command(
-        "UPDATE irp_edm SET status = :p, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :err",
-        {"p": PENDING, "err": ERROR, "now": _utcnow(), "by": str(actor_id), "id": eid},
-        connection="WORKBENCH",
-    )
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm",
-        input_data={"edm_id": eid},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    logger.info("edm %s import retry requested by analyst %s", eid, actor_id)
+    _retry_import("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def replace_source_file(
@@ -690,31 +603,9 @@ def replace_source_file(
 ) -> None:
     """Replace the source file of a failed/errored EDM and re-import (FR-046).
     Optimistic-concurrency checked on ``updated_at`` (FR-039). Validates the new path."""
-    eid = str(edm_id)
-    canonical = validate_selection(new_source_file_path)  # raises InvalidSourceFile
-    rows = execute_command(
-        """
-        UPDATE irp_edm
-        SET source_file_path = :src, status = :status, updated_at = :now,
-            updated_by = :by
-        WHERE id = :id AND updated_at = :expected AND deleted_at IS NULL
-        """,
-        {"src": canonical, "status": PENDING, "now": _utcnow(),
-         "by": str(actor_id), "id": eid, "expected": expected_updated_at},
-        connection="WORKBENCH",
-    )
-    if rows == 0:
-        raise ConcurrencyConflict(
-            "This EDM changed since you opened it — reload and re-apply.")
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm",
-        input_data={"edm_id": eid},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    logger.info("edm %s source file replaced by analyst %s — re-import enqueued",
-                eid, actor_id)
+    _replace_source_file(
+        "edm", entity_id=edm_id, new_source_file_path=new_source_file_path,
+        expected_updated_at=expected_updated_at, actor_id=actor_id)
 
 
 # ── worker / poller status writers (Article 11 boundary) ─────────────────────────
@@ -722,14 +613,7 @@ def replace_source_file(
 def mark_importing(*, edm_id: Any, actor_id: Any | None = None) -> None:
     """Worker-side: the import submit succeeded — flip ``pending_import`` → ``importing``
     (FR-004). Left alone if the row was already advanced (idempotent re-run)."""
-    execute_command(
-        "UPDATE irp_edm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :from_status",
-        {"s": IMPORTING, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(edm_id), "from_status": PENDING},
-        connection="WORKBENCH",
-    )
+    _mark_importing("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def mark_error(*, edm_id: Any, actor_id: Any | None = None) -> None:
@@ -737,14 +621,7 @@ def mark_error(*, edm_id: Any, actor_id: Any | None = None) -> None:
     import-in-progress EDM to the visible, analyst-recoverable ``error`` state, the same
     state the poller uses for an RM-side terminal failure (worker-poller.md §3).
     Only touches ``pending_import``/``importing``; idempotent on re-run."""
-    execute_command(
-        "UPDATE irp_edm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status IN (:p, :i)",
-        {"s": ERROR, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(edm_id), "p": PENDING, "i": IMPORTING},
-        connection="WORKBENCH",
-    )
+    _mark_error("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def backfill_on_terminal(conn, *, edm_id: Any, status: str,

@@ -86,6 +86,11 @@ class BrokerAnalysisGroup:
     status: str | None = None
     analysis_count: int = 0
     analyses: list[BrokerAnalysis] = field(default_factory=list)
+    # A backfill_rdm_analyses head is pending/running for this RDM — the EDM
+    # detail page's contextual broker-analyses section polls while any group
+    # carries this, so an RDM's own capture finishing after the EDM's own
+    # backfill still lands without a manual refresh.
+    sync_running: bool = False
 
     @property
     def edm_count(self) -> int:

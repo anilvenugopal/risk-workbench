@@ -12,7 +12,8 @@
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
 {% set live = edm.sync_running
-     or edm.status in ('pending_import', 'importing') %}
+     or edm.status in ('pending_import', 'importing')
+     or submission_rdms|default([])|selectattr('sync_running')|list|length > 0 %}
 {% set body_url = detail_body_url|default('/edms/' ~ edm.id ~ '/body') %}
 {% set sync_url = detail_sync_url|default('/edms/' ~ edm.id ~ '/sync') %}
 {% set base_url = detail_base_url|default('/edms/' ~ edm.id) %}
