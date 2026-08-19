@@ -36,13 +36,13 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
             irp_id, status, correlation_id, last_submission_payload,
             last_submission_response, submission_attempt_count, submitted_at,
             inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :pkg, :edm, :rdm, :jt, :irp_id, :status, :cid, :payload,
+        VALUES (:id, :submission, :edm, :rdm, :jt, :irp_id, :status, :cid, :payload,
             :response, :attempts, :now, :now, :now, :by, :by)
         """
     ), {
         "id": job_id,
-        "pkg": (str(requested_from_submission_id)
-                if requested_from_submission_id is not None else None),
+        "submission": (str(requested_from_submission_id)
+                       if requested_from_submission_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
         "rdm": (str(irp_rdm_id) if irp_rdm_id is not None else None),
         "jt": irp_job_type,

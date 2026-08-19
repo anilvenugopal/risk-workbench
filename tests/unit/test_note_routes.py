@@ -87,6 +87,15 @@ def test_edm_note_route_returns_conflict_with_both_notes(monkeypatch):
     assert 'name="original_notes" value="Newer note"' in response.text
 
 
+def test_edm_note_route_returns_404_for_missing_entity(monkeypatch):
+    monkeypatch.setattr(entity_note_service, "update_notes", lambda **kwargs: (_ for _ in ()).throw(
+        LookupError("EDM not found")))
+    response = _client().post("/edms/edm-1/notes", headers={"HX-Request": "true"}, data={
+        "csrf_token": generate_csrf_token(), "notes": "Text", "original_notes": ""})
+    assert response.status_code == 404
+    assert "does not exist" in response.text
+
+
 def test_contextual_edm_note_route_validates_association(monkeypatch):
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail", lambda **kwargs: None)
     response = _client().post(
