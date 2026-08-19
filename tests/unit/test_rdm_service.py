@@ -262,6 +262,25 @@ def test_backfill_prunes_and_restores_analyses(iteration2_db, fake_irp, drive):
     assert rows[0]["deleted_at"] is None
 
 
+def test_backfill_fails_without_pruning_on_enumeration_error(
+    iteration2_db, fake_irp, drive,
+):
+    fake_irp.add_analysis(
+        source_rdm_name="R", exposure_name="E1", analysis_id="900", name="A",
+    )
+    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    head = execute(
+        "SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
+        {}, connection="WORKBENCH",
+    )[0]["id"]
+
+    fake_irp.raise_on_search_analyses = True
+    result = entity_jobs._backfill_rdm_analyses_body(head)
+
+    assert result.status == "failed"
+    assert len(analysis_service.list_broker_analyses(rdm_id=rdm_id)) == 1
+
+
 def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="A",

@@ -59,6 +59,8 @@ class FakeIRP:
         self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
         self.raise_on_submit = False
+        # force search_analyses to fail (prune-safety tests)
+        self.raise_on_search_analyses = False
         # force name-collision searches to fail (fail-open tests, issue #17)
         self.raise_on_search = False
         # recorded (kind, name) collision searches — cache assertions (issue #11)
@@ -219,6 +221,8 @@ class FakeIRP:
         # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
         # builds the filter string internally (safe json.dumps quoting), so the fake
         # matches on the pair args directly rather than parsing a filter string.
+        if self.raise_on_search_analyses:
+            raise RuntimeError("fake IRP: forced search_analyses failure")
         hits: list[AnalysisHit] = []
         for a in self._analyses:
             if (a["source_rdm_name"] == source_rdm_name

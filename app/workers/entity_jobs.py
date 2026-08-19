@@ -247,7 +247,12 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     # transaction (no txn across a gateway round-trip, Article 11); per-analysis
     # isolation. The gateway builds the filter with safe json.dumps quoting —
     # never interpolate names into a filter here.
-    hits = irp_gateway.search_analyses(source_rdm_name=rdm.name)
+    try:
+        hits = irp_gateway.search_analyses(source_rdm_name=rdm.name)
+    except Exception as exc:  # noqa: BLE001 — enumeration failed → recoverable job failure
+        logger.warning("backfill_rdm_analyses: analysis enumeration failed for %s: %s",
+                       rdm_id, exc)
+        return runtime.JobResult.fail(f"analysis enumeration failed: {exc}")
     meta_by_id: dict[str, Any] = {}
     metadata_failures = 0
     for hit in hits:
