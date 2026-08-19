@@ -347,7 +347,7 @@ def contextual_rdm_analyses(
     if analyses is None:
         return _contextual_not_found(request)
     rdm = next(
-        (group for group in context.rdms if group.rdm_id == rdm_id), None)
+        (group for group in context.rdms if group.rdm_id == rdm_id.lower()), None)
     if rdm is None:
         return _contextual_not_found(request)
     return _partial(

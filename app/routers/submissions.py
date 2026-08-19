@@ -375,6 +375,8 @@ def _submission_entity_note_response(
             kind=kind, entity_id=entity_id, notes=notes,
             original_notes=original_notes, actor_id=request.state.user.id,
         )
+    except LookupError:
+        return HTMLResponse(f"That {kind.upper()} does not exist.", status_code=404)
     except ValueError as exc:
         error = str(exc)
         status_code = 422
@@ -775,7 +777,7 @@ def detail(request: Request, submission_id: str):
     return _detail_response(request, submission_id)
 
 
-# â”€â”€ Submission EDM/RDM associations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Submission EDM/RDM associations ────────────────────────────────────────────
 
 @router.get("/submissions/{submission_id}/edms/add", response_class=HTMLResponse)
 def add_edm_modal(request: Request, submission_id: str):
