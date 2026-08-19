@@ -16,6 +16,12 @@ get_event_rate_schemes / search_currencies` against the CIC sandbox tenant).
 ~4.8k rows total per sync — small enough to refresh in one worker transaction. 3,474 model
 profiles confirms the spec's "filterable, just get to UDCT" requirement is not optional.
 
+**Amended 2026-08-18 (design session, note 16 D3; re-amended same day)**: the
+`search_currencies()` row **stands** — currencies stay cached because analysis submission needs a
+currency code — and two further reads join it when the irp-integration release ships them:
+`search_currency_schemes()` and `search_currency_scheme_vintages()` (R13). All four listed reads
+stand.
+
 ## R2 — DLM/HD classification (closes part of the spec's classification assumption)
 
 The wheel's own submit path (`analysis.py:261`) classifies with `"HD" in
@@ -101,8 +107,8 @@ refresh doesn't belong in an HTTP handler.
 
 **Decision (T-04)**: openpyxl (already a dependency — treaty export, spec 004 R5) writes one
 workbook: a `Templates` sheet (one row per template, full field set, tags semicolon-joined) and a
-`Suites` sheet (one row per suite item: suite name, position, template name, portfolio-name
-override). Import parses the same layout with `UploadFile` (python-multipart already present).
+`Suites` sheet (one row per suite item: suite name, template name — `Position` and
+`Portfolio Name Override` dropped 2026-08-18, R14). Import parses the same layout with `UploadFile` (python-multipart already present).
 **Rejected**: CSV — two related record sets don't fit one flat file, and the spec's requirement is
 "opens in Excel"; two separate CSVs would make the all-or-nothing import contract awkward.
 
@@ -154,6 +160,9 @@ O14-8 designates `analysis_template_tag` as the mechanism for the LOB axis in su
 
 ## R12 — Legacy currency names use the Risk Modeler creation limit
 
+*(Briefly marked superseded on 2026-08-18 when currencies were thought droppable; **reinstated
+the same day** — R13 as amended keeps the currency cache, so P-06's truncation stands.)*
+
 Risk Modeler's create-currency screen requires a one-to-three-character code and limits the
 currency name to 16 characters. Existing Risk Modeler data can exceed the name limit; one such
 row caused SQL Server error 2628 while refreshing `irp_currency`.
@@ -162,3 +171,57 @@ row caused SQL Server error 2628 while refreshing `irp_currency`.
 gateway still returns the Risk Modeler response unchanged. **Rejected**: failing the entire sync
 or omitting the legacy currency, because either choice prevents the cache from supplying the
 currency code to analysis templates.
+
+## R13 — Currencies, currency schemes, and scheme vintages are all stored (design session 2026-08-18, note 16 D3/O15-2; amended same day)
+
+CIC works in currency **schemes**: an analysis is tied to a scheme, the currency is pulled from
+within it, and the same currency (e.g. EUR) appears in multiple schemes with different FX rates —
+the scheme is the selection unit, and only ~2–5 will ever exist. Cheryl: "I don't think we need to
+see currencies." But analysis submission requires a specific value from **all three** objects —
+the wheel's currency block (`_build_analysis_currency_dict`, irp-integration working copy) is
+`{code, scheme, vintage, asOfDate}`, with `asOfDate` derived from the chosen vintage's
+`effectiveDate`.
+
+**Decision (T-07, as amended)**: cache all three sets — keep `irp_currency` (and R12's
+truncation), add `irp_currency_scheme` and `irp_currency_scheme_vintage`. The metadata screen's
+fourth tab becomes **currency schemes** with their vintages (order: model profiles, output
+profiles, event-rate schemes, currency schemes); individual currencies stay cached for the
+builder's pick list but get no tab (D3). `analysis_template` keeps `currency_code` and gains
+`currency_scheme_code` + `currency_vintage`; the builder defaults the vintage to the scheme's
+latest by effective date. The scheme/vintage reads (`search_currency_schemes`,
+`search_currency_scheme_vintages`, `get_latest_currency_scheme_vintage`) exist in the sibling
+irp-integration working copy but not in the released `0.6.0rc1` (same cross-repo pattern as
+T-06); the new cache columns and `CurrencySchemeEntry`/`CurrencySchemeVintageEntry` fields are
+provisional until a release pins them. This **resolves O15-2**: the template stores the member
+currency *and* the scheme (and the vintage). **Rejected**: replacing currencies with schemes
+outright (the first 2026-08-18 reading of D3) — it would have left submission unable to fill
+`code`; also rejected: storing `asOfDate` on the template (derivable from the cached vintage;
+storing it invites drift).
+
+**Amended 2026-08-19 (spec P-10 / plan T-09)**: the scheme + vintage become a **nullable pair**
+on the template (both set or both NULL; currency stays required). A NULL pair means "Risk Modeler
+default", displayed as **"Default"** and resolved at **submit time** in Iteration 7 — the default
+scheme (`isDefault=True AND isActive=True`), then that scheme's latest vintage by
+`effectiveDate` — because the submission API **never defaults these values** (Ben-confirmed:
+a full `{code, scheme, vintage, asOfDate}` block must always be sent). When a scheme is chosen a
+vintage is required: the builder pre-selects the scheme's latest, and a scheme with no vintages
+blocks the save. Pick lists filter the **local cache** with substring/LIKE semantics.
+**Rejected**: resolving the default at *save* time (snapshots the current vintage, which goes
+stale when a new one lands — templates are touched ~yearly, so "default" must stay evergreen);
+live per-keystroke `where_clause` type-ahead against Risk Modeler (`currencyCode="<input>"` is an
+exact-match lookup, not a search, and the cache already holds all three small sets — the
+where-clause filters belong to the sync and to submit-time default resolution); validating
+currency-in-scheme membership (the scheme must carry a rate for the chosen currency — real, but
+deliberately deferred: currency is a minor slice of the feature and the admin is trusted; a
+mispairing fails at submit).
+
+## R14 — Design-session-16 trims (2026-08-18, note 16 D11/§2.1)
+
+**Decisions**: (a) `analysis_template.treaty_name_pattern` is **dropped** (D11/O15-6) — treaties
+are selected explicitly at run time in Iteration 7, never stored as a glob on the template; (b)
+suites are **unordered** ("it's just a group… that we can run all together") —
+`template_suite_item` loses `position` and `portfolio_name_override`, and the workbook `Suites`
+sheet loses the `Position` and `Portfolio Name Override` columns (both flagged low-value at the
+8/18 review and confirmed dropped). Display and export order is normalized by name.
+**Rejected**: keeping `position` for stable round-trip display (the design note floated it;
+the approver decided 2026-08-18 to drop it outright — name-normalized ordering suffices).

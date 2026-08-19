@@ -9,17 +9,24 @@
 **What changes in the system** (details in [data-model.md](data-model.md),
 [contracts/routes.md](contracts/routes.md),
 [contracts/transfer-workbook.md](contracts/transfer-workbook.md), evidence in
-[research.md](research.md) — decisions R1–R11):
+[research.md](research.md) — decisions R1–R14):
 
-- 8 new WORKBENCH tables in `alembic/versions/0001_initial.py`: 4 reference-cache tables
-  (`irp_model_profile`, `irp_output_profile`, `irp_event_rate_scheme`, `irp_currency`) and 4
+- 10 new WORKBENCH tables in `alembic/versions/0001_initial.py`: 6 reference-cache tables
+  (`irp_model_profile`, `irp_output_profile`, `irp_event_rate_scheme`, `irp_currency`,
+  `irp_currency_scheme`, `irp_currency_scheme_vintage`) and 4
   template tables (`analysis_template`, `analysis_template_tag`, `template_suite`,
-  `template_suite_item`), plus a `sync_irp_metadata` row in `rwb_job_type_kind`.
-- `app/services/irp_gateway.py` gains 4 reference-data list methods (dataclasses + Protocol +
-  real impl + `FakeIRP`) — the first use of the wheel's `reference_data` manager. A fifth,
-  `list_accumulation_profiles`, is **deferred**: the accumulation read it needs in irp-integration
-  is tabled (T-02, 2026-08-18); the schema keeps `is_accumulation` (default 0) so resuming is
-  additive. Separately, irp-integration gains a pure classification/pairing validation utility
+  `template_suite_item`), plus a `sync_irp_metadata` row in `rwb_job_type_kind`. **Currency
+  additions (T-07, 2026-08-18)**: the built `irp_currency` table stays; `irp_currency_scheme` and
+  `irp_currency_scheme_vintage` are added once the irp-integration scheme/vintage reads ship in a
+  release (they exist in the sibling working copy); their columns are provisional until then.
+- `app/services/irp_gateway.py` gains reference-data list methods (dataclasses + Protocol +
+  real impl + `FakeIRP`) — the first use of the wheel's `reference_data` manager. Four are built
+  (model profiles, output profiles, event-rate schemes, currencies); `list_currency_schemes` and
+  `list_currency_scheme_vintages` await the irp-integration release (T-07 — reads exist in the
+  sibling working copy). A
+  seventh, `list_accumulation_profiles`, is **deferred**: the accumulation read it needs in
+  irp-integration is tabled (T-02, 2026-08-18); the schema keeps `is_accumulation` (default 0) so
+  resuming is additive. Separately, irp-integration gains a pure classification/pairing validation utility
   (T-06) — DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing rules,
   extracted from the wheel's submit path (`analysis.py:246-296`) so template save, import, and
   analysis submit all enforce one implementation, never re-implemented app-side. The T-06 utility
@@ -27,10 +34,9 @@
   `classify_model_profile` and `validate_analysis_settings` in the `0.6.0rc1` pre-release, the
   wheel's submit path is refactored onto it, and this repo consumes it via the pinned TestPyPI
   build (`make irp-testpypi`, `irp-integration[databridge]==0.6.0rc1`).
-- New worker `app/workers/metadata_jobs.py`: `sync_irp_metadata` actor refreshes all four cache
+- New worker `app/workers/metadata_jobs.py`: `sync_irp_metadata` actor refreshes all the cache
   tables in one transaction (snapshot upsert + hard delete of rows the fetch no longer returned —
-  cache rows have no soft delete); currency names are truncated to Risk Modeler's 16-character
-  create-currency limit (P-06); enqueued from the metadata page via `ensure_pending_rwb_job` with
+  cache rows have no soft delete); enqueued from the metadata page via `ensure_pending_rwb_job` with
   a fixed sentinel requestor — a sync requested while one is pending or running is refused with
   a "sync already in progress" message, never interleaved (T-01, FR-002).
 - New router `app/routers/templates.py` + templates under `app/templates/pages/`: the four-tab
@@ -69,7 +75,12 @@ validation are unblocked; the tabled T-02 accumulation read means no Accumulatio
 if it slips past the iteration), and the accumulation columns in data-model.md stay provisional
 until its spike runs; (2) starter-suite contents
 are indicative until Cheryl's US/Canada default-settings list lands (O14-4, P-02) — now a
-workbook edit, not code (T-05).
+workbook edit, not code (T-05); (3) the currency-scheme and scheme-vintage reads (T-07) exist in
+the irp-integration working copy but not in a released build — until a release ships them, the
+metadata sync/tab covers currencies only, the `irp_currency_scheme`/`irp_currency_scheme_vintage`
+columns and `CurrencySchemeEntry`/`CurrencySchemeVintageEntry` fields stay provisional, and the
+template builder's scheme/vintage pick lists (spec P-07, FR-005/FR-006) are gated on the addition;
+the built `irp_currency` cache and `list_currencies` read stay either way.
 
 **Decisions**:
 
@@ -81,6 +92,9 @@ workbook edit, not code (T-05).
 | T-04 | Transfer file is one `.xlsx` workbook, two sheets, openpyxl (R6); export-all includes templates in no suite, and import replaces a matched suite's items wholesale (spec Clarifications 2026-08-18). | Approved via research |
 | T-05 | Starter suites seed from `infra/scripts/starter_suites.xlsx` through the import service; the seed skips when any live suite exists (R10). If every suite has been deleted, a later seed run re-creates the starter four — resurrection accepted. | Approved 2026-08-18 |
 | T-06 | DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing validation ship as a pure (no-I/O) utility in irp-integration, extracted from the submit path; the workbench calls it at template save and import, and the wheel's submit refactors onto it — one implementation, three enforcement points, nothing replicated app-side. Supersedes R2's "derive with the wheel's exact rule" replication. | **Landed & validated 2026-08-18** — `irp_integration.analysis_validation` (`classify_model_profile`, `validate_analysis_settings`) in `0.6.0rc1`; submit path refactored onto it; consumed via pinned TestPyPI build, `make irp-testpypi` (tasks T003) |
+| T-07 | The workbench caches and stores **all three currency objects** (spec P-07 as amended 2026-08-18): analysis submission's currency block is `{code, scheme, vintage, asOfDate}`, so `irp_currency` is **kept** (with its P-06 truncation) and two cache tables are **added** — `irp_currency_scheme` and `irp_currency_scheme_vintage` — with matching gateway reads `list_currency_schemes` and `list_currency_scheme_vintages` alongside the existing `list_currencies`. The metadata fourth tab becomes Currency Schemes (schemes with their vintages; currencies cached but not tabbed, D3). `analysis_template` keeps `currency_code` and gains `currency_scheme_code` + `currency_vintage`; `asOfDate` derives from the cached vintage's effective date at submit time. The scheme/vintage reads exist in the irp-integration working copy (`search_currency_schemes`, `search_currency_scheme_vintages`) but are unreleased — columns/fields provisional until they ship. This resolves O15-2: the template stores the member currency *and* the scheme (and the vintage). | Approved 2026-08-18, amended same day — gated on the external release (tasks T045–T048) |
+| T-08 | Suites are unordered (spec P-08): `template_suite_item` drops `position` and `portfolio_name_override`; the workbook `Suites` sheet drops the `Position` and `Portfolio Name Override` columns; export normalizes row order by name. `analysis_template.treaty_name_pattern` and the workbook `Treaty Name Pattern` column are dropped with it (spec P-09). | Approved 2026-08-18 |
+| T-09 | Currency scheme + vintage are **nullable as a pair** on `analysis_template` (CHECK: both or neither — amends T-07's NOT NULL columns; spec P-10). NULL pair = Risk Modeler default: displayed "Default", resolved at submit time in Iteration 7 (default active scheme, then its latest vintage by effective date) because the submission API never defaults — a full currency block is always sent. Builder: currency always required; choosing a scheme requires a vintage (pre-selected to the scheme's latest, changeable, via an HTMX vintage-options fragment); a scheme with zero vintages blocks save. Import: vintage without scheme = error; scheme with blank vintage fills with the scheme's latest cached vintage, erroring when the scheme is unresolved or vintage-less. All pick lists substring-filter the local cache — no live Risk Modeler queries from dropdowns. Currency-in-scheme membership deliberately unvalidated (deferred; trusted admin). | Approved 2026-08-19 |
 
 **Constitution check** (v3.1.0) — no violations; the articles that shaped the design:
 
@@ -89,7 +103,7 @@ workbook edit, not code (T-05).
   + dispatch is the only request-path action. (The EDM-sync precedent's inline-read latitude was
   considered and not needed — R5.) The T-06 validation utility is pure (no I/O), so importing it
   from `template_service` on the request path touches no IRP interface Article 11 governs.
-- **Article 2**: templates store profile/scheme/currency **names**, resolved live by Risk Modeler
+- **Article 2**: templates store profile/scheme/currency/vintage **names/codes**, resolved live by Risk Modeler
   at submit time (Iteration 7); the cache exists for pick lists and validation, never as a typed
   handle registry.
 - **Article 3**: the two new boolean settings are API parameters, not categoricals — no kind
@@ -113,8 +127,10 @@ one user story implemented end-to-end at a time.
 **Language/Version**: Python 3.13 (uv-managed)
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX (Article 8), SQLAlchemy Core via `/db`,
 Dramatiq + Redis (existing worker runtime), openpyxl, irp-integration (source-switchable; the
-T-06 validation utility shipped in the `0.6.0rc1` pre-release — accumulation read still tabled —
-so development runs on the pinned TestPyPI build, `make irp-testpypi`)
+T-06 validation utility shipped in the `0.6.0rc1` pre-release — accumulation read still tabled;
+the currency-scheme and scheme-vintage reads (T-07) exist in the sibling working copy but await a
+release — so development runs on the pinned TestPyPI build,
+`make irp-testpypi`)
 **Storage**: SQL Server — WORKBENCH database only (Article 6); SQLite injected via
 `register_engine` in the unit tier
 **Testing**: pytest, three tiers (`tests/unit`, `tests/sqlserver`, `tests/irp`)
@@ -137,8 +153,8 @@ and the contracts.
 ```text
 specs/009-template-suites/
 ├── plan.md              # this file
-├── research.md          # probe evidence + decisions R1–R10
-├── data-model.md        # 8 tables, validation rules, seeds, test mirror
+├── research.md          # probe evidence + decisions R1–R14
+├── data-model.md        # 10 tables, validation rules, seeds, test mirror
 ├── quickstart.md        # per-story verification + test tiers
 └── contracts/
     ├── routes.md            # nav nodes, pages, fragments, gateway + worker contracts
@@ -148,11 +164,12 @@ specs/009-template-suites/
 ### Source code (changed directories only)
 
 ```text
-alembic/versions/0001_initial.py      # +8 tables, +1 kind row, filtered unique indexes
+alembic/versions/0001_initial.py      # +10 tables (2 with T-07), +1 kind row, filtered unique indexes
 app/nav/manifest.py                   # +templates.suites, +templates.metadata children
 app/routers/templates.py              # NEW — all routes (contracts/routes.md)
 app/routers/shell.py                  # -templates_page stub
-app/services/irp_gateway.py           # +5 reference-data dataclasses/methods
+app/services/irp_gateway.py           # +reference-data dataclasses/methods (profiles, schemes,
+                                      #   currencies now; currency schemes + vintages with T-07)
 app/services/template_service.py      # NEW — CRUD, validation, scheme pre-fill, workbook build/parse
 app/workers/metadata_jobs.py          # NEW — sync_irp_metadata actor
 app/templates/pages/                  # templates.html (rework), templates_metadata.html, forms
@@ -160,11 +177,15 @@ app/templates/partials/               # metadata table fragment, scheme options,
 infra/scripts/seed_db.py              # +sync_irp_metadata kind row, +starter-suite import (T-05)
 infra/scripts/starter_suites.xlsx     # NEW — seed workbook, transfer-workbook format (T-05)
 ../../IRP/irp-integration             # sibling repo: pure classification/pairing validation
-                                      #   utility (T-06) shipped in 0.6.0rc1; accumulation read
-                                      #   (T-02) tabled
+                                      #   utility (T-06) shipped in 0.6.0rc1; currency-scheme +
+                                      #   vintage reads (T-07) in working copy awaiting release;
+                                      #   accumulation read (T-02) tabled
 docs/ui_previews/                     # metadata + builder previews (UI-first)
 docs/DATA_MODEL.md                    # reconcile §7 deltas (tag_name, occupancy column, created_by,
-                                      #   dropped auto_name_pattern/region_label/peril_code) + §10 columns
+                                      #   dropped auto_name_pattern/region_label/peril_code/
+                                      #   treaty_name_pattern, currency scheme+vintage columns,
+                                      #   unordered suite items) + §10 columns incl.
+                                      #   irp_currency_scheme + irp_currency_scheme_vintage
 tests/iteration1_mirror.py            # +ITERATION4_SCHEMA, drift lists
 tests/unit/                           # worker, routes, validation, workbook, gating tests
 tests/sqlserver/                      # migration assertions for the new tables/indexes
