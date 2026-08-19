@@ -1,4 +1,5 @@
-"""Risk Modeler name-collision check — shared by EDM and RDM flows (issue #17).
+"""Risk Modeler name-collision check — shared by the EDM, RDM, and breakout-group
+flows (issue #17; spec 005 P-25).
 
 The single place that answers "does this name already exist in Risk Modeler?",
 distinguishing *no collision* from *check unavailable*:
@@ -62,6 +63,13 @@ def check_member_name(kind: str, name: str) -> CollisionCheck:
     return _check("rdm" if kind == "rdm" else "edm", name)
 
 
+def check_portfolio_name(*, exposure_irp_id: str, name: str) -> CollisionCheck:
+    """Portfolio-name check scoped to one EDM (spec 005 P-25): a breakout
+    group's name is blocked when any portfolio in the exposure already carries
+    it. Cached per (exposure, name), same TTL as the EDM/RDM checks."""
+    return _check(f"portfolio:{exposure_irp_id}", name)
+
+
 def clear_cache() -> None:
     """Drop every cached result (test hook)."""
     with _lock:
@@ -80,9 +88,8 @@ def _check(kind: str, name: str) -> CollisionCheck:
         if entry is not None and entry[0] > now:
             return CollisionCheck(names=entry[1])
 
-    search = (irp_gateway.search_edms if kind == "edm" else irp_gateway.search_rdms)
     try:
-        names = tuple(hit.name for hit in search(trimmed))
+        names = tuple(hit.name for hit in _search(kind, trimmed))
     except Exception:  # noqa: BLE001 — fail open; the worker submit is the backstop
         logger.warning("%s name-collision check unavailable (gateway error)",
                        kind.upper(), exc_info=True)
@@ -95,6 +102,15 @@ def _check(kind: str, name: str) -> CollisionCheck:
     return CollisionCheck(names=names)
 
 
+def _search(kind: str, name: str):
+    if kind == "edm":
+        return irp_gateway.search_edms(name)
+    if kind == "rdm":
+        return irp_gateway.search_rdms(name)
+    return irp_gateway.find_portfolio_by_name(
+        exposure_irp_id=kind.removeprefix("portfolio:"), name=name)
+
+
 def _evict(now: float) -> None:
     """Drop expired entries; if none expired, drop the soonest-to-expire one."""
     expired = [k for k, (exp, _) in _cache.items() if exp <= now]
@@ -105,4 +121,4 @@ def _evict(now: float) -> None:
 
 
 __all__ = ["CollisionCheck", "check_edm_name", "check_rdm_name",
-           "check_member_name", "clear_cache"]
+           "check_member_name", "check_portfolio_name", "clear_cache"]

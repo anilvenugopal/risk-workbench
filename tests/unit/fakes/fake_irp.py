@@ -20,12 +20,15 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
+    BreakoutSelection,
+    DuplicatePortfolioNameError,
     EdmCatalogEntry,
     EntityHit,
     ExposureDetail,
     JobStatus,
     PortfolioHit,
     SubmitResult,
+    SubPortfolioResult,
     TreatyDetail,
 )
 
@@ -82,6 +85,36 @@ class FakeIRP:
         self.summary_reads: list[str] = []
         # per-analysis metadata failure knob (US3 — blank, never error)
         self.raise_on_analysis_metadata = False
+        # ── spec-005 breakout knobs ──────────────────────────────────────────
+        # confirm-time freshness read (FR-002a): recorded calls + failure knob
+        self.stamp_reads: list[str] = []
+        self.raise_on_fetch_stamp = False
+        # selection: value → account ids; value → per-value read error (W-14);
+        # the selection read raising fails the whole job (the real gateway's
+        # single DataBridge query is all-or-nothing — R1, revised 2026-08-05)
+        self.selection_by_value: dict[str, list[int]] = {}
+        self.selection_errors: dict[str, str] = {}
+        self.raise_on_selection_read = False
+        self.selection_calls: list[dict] = []
+        # Add-time match count (P-29): derived from selection_by_value when
+        # seeded, so a test that seeds selections gets the count the run would
+        # find; 1 when nothing is seeded. Override the answer, or make the read
+        # raise (the caller fails open), with these knobs.
+        self.match_count_override: int | None = None
+        self.raise_on_match_count = False
+        self.match_count_calls: list[dict] = []
+        # composition: names already taken in RM → create raises the DISTINCT
+        # duplicate-name type (the adoption signal); per-name generic failures;
+        # recorded create/populate calls; seedable adopt hits per number;
+        # read-back count overrides (portfolio_irp_id → count; a count that
+        # differs from the ids sent raises, as the real gateway does)
+        self.taken_portfolio_names: set[str] = set()
+        self.fail_create_for: dict[str, str] = {}
+        self.created_sub_portfolios: list[dict] = []
+        self.populate_calls: list[dict] = []
+        self.hits_by_number: dict[str, list[PortfolioHit]] = {}
+        self.readback_counts: dict[str, int] = {}
+        self._next_sub_portfolio_id = 430
         # ── unfiltered EDM catalog (the "sync existing EDMs" page) ───────────
         # explicitly seeded catalog entries (a list, not a name-keyed dict —
         # EDM names are not unique in RM and the diff must cope with that)
@@ -143,20 +176,38 @@ class FakeIRP:
             "is_group": is_group, "metadata": metadata})
 
     def add_portfolio(self, *, edm_exposure_id: str | int, irp_id: str | int,
-                      name: str, exposure: dict | None = None) -> None:
+                      name: str, exposure: dict | None = None,
+                      stamp: str | None = None) -> None:
         """Seed a portfolio enumerable by ``list_portfolios`` for an EDM (by its RM
         exposureId), with the canned exposure payload ``get_portfolio_exposure``
-        returns (``DEFAULT_EXPOSURE`` when omitted)."""
+        returns (``DEFAULT_EXPOSURE`` when omitted). ``stamp`` seeds the RM
+        stampDate the enumeration carries and ``fetch_portfolio_stamp`` returns
+        (spec 005 FR-002a); update it via ``set_portfolio_stamp`` to simulate the
+        portfolio changing in Risk Modeler after a backfill."""
         self._portfolios.setdefault(str(edm_exposure_id), []).append({
-            "irp_id": str(irp_id), "name": name,
+            "irp_id": str(irp_id), "name": name, "stamp": stamp,
             "exposure": (exposure if exposure is not None else dict(DEFAULT_EXPOSURE))})
+
+    def set_portfolio_stamp(self, *, edm_exposure_id: str | int,
+                            irp_id: str | int, stamp: str | None) -> None:
+        """Move a seeded portfolio's RM stampDate — the portfolio changed in Risk
+        Modeler (the FR-002a staleness case)."""
+        for p in self._portfolios.get(str(edm_exposure_id), []):
+            if p["irp_id"] == str(irp_id):
+                p["stamp"] = stamp
+                return
+        raise KeyError(f"fake IRP: unknown portfolio {irp_id}")
 
     def set_exposure_summary(self, edm_name: str,
                              by_portfolio: dict[str, dict]) -> None:
         """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
         returns — ``{portfolioId(str): {portfolio_name, countries, states,
-        lines_of_business, currencies}}`` (the sql/databridge/ script set).
-        Unseeded EDMs return ``{}``."""
+        lines_of_business, currencies, account_total, breakout_values,
+        breakout_coverage}}`` (the sql/databridge/ script set). Seed
+        ``breakout_coverage`` per dimension as ``{"covered": n, "multi_value": n}``
+        to exercise the measured FR-007 disclosure; omit it for the pre-2026-08-05
+        summary that degrades to the qualitative one. Unseeded EDMs return
+        ``{}``."""
         self._summaries[edm_name] = {str(k): dict(v)
                                      for k, v in by_portfolio.items()}
 
@@ -243,8 +294,22 @@ class FakeIRP:
     def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
         if self.raise_on_list_portfolios:
             raise RuntimeError("fake IRP: forced list_portfolios failure")
-        return [PortfolioHit(irp_id=p["irp_id"], name=p["name"])
+        return [PortfolioHit(irp_id=p["irp_id"], name=p["name"],
+                             stamp=p.get("stamp"))
                 for p in self._portfolios.get(str(edm_irp_id), [])]
+
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
+                              portfolio_irp_id: str) -> str | None:
+        # The confirm-time freshness read (spec 005 FR-002a). Seed the stamp via
+        # add_portfolio(stamp=...) / set_portfolio_stamp; force a gateway error
+        # with raise_on_fetch_stamp (→ the confirm refuses, no job row).
+        self.stamp_reads.append(str(portfolio_irp_id))
+        if self.raise_on_fetch_stamp:
+            raise RuntimeError("fake IRP: forced fetch_portfolio_stamp failure")
+        for p in self._portfolios.get(str(exposure_irp_id), []):
+            if p["irp_id"] == str(portfolio_irp_id):
+                return p.get("stamp")
+        return None
 
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail:
@@ -282,6 +347,112 @@ class FakeIRP:
                     exposure_resource_type=a.get("exposure_resource_type"),
                     is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
+
+    # ── spec-005 breakout composition (mirrors the gateway seam) ────────────────
+
+    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
+                                 source_portfolio_irp_id: str, dimension: str,
+                                 values) -> BreakoutSelection:
+        # The selection read is the input to EVERY value — its failure raises
+        # and the worker fails the job before anything is created.
+        if self.raise_on_selection_read:
+            raise RuntimeError("fake IRP: forced selection read failure")
+        self.selection_calls.append({
+            "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
+            "source_portfolio_irp_id": str(source_portfolio_irp_id),
+            "dimension": dimension, "values": list(values)})
+        return BreakoutSelection(
+            accounts_by_value={v: list(self.selection_by_value.get(v, []))
+                               for v in values if v not in self.selection_errors},
+            errors_by_value={v: self.selection_errors[v]
+                             for v in values if v in self.selection_errors})
+
+    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str, filters) -> int:
+        if self.raise_on_match_count:
+            raise RuntimeError("fake IRP: forced match-count failure")
+        self.match_count_calls.append({
+            "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
+            "source_portfolio_irp_id": str(source_portfolio_irp_id),
+            "filters": {d: list(v) for d, v in filters.items()}})
+        if self.match_count_override is not None:
+            return self.match_count_override
+        if not self.selection_by_value:
+            # Nothing seeded is no opinion, not an empty breakout — a fake that
+            # answered zero here would refuse every Add in every test that never
+            # mentions selections.
+            return 1
+        # OR within a dimension, AND across dimensions (P-20) over the seeded
+        # selections — the same set algebra the run performs.
+        matched: set[int] | None = None
+        for values in filters.values():
+            union: set[int] = set()
+            for value in values:
+                union |= set(self.selection_by_value.get(value, []))
+            matched = union if matched is None else matched & union
+        return len(matched or set())
+
+    def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                             name: str, number: str, description: str,
+                             account_ids) -> SubPortfolioResult:
+        if name in self.fail_create_for:
+            raise RuntimeError(self.fail_create_for[name])
+        if name in self.taken_portfolio_names:
+            raise DuplicatePortfolioNameError(
+                f"portfolio name already exists in the EDM: {name}")
+        self._next_sub_portfolio_id += 1
+        pid = str(self._next_sub_portfolio_id)
+        self.created_sub_portfolios.append({
+            "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
+            "name": name, "number": number, "description": description,
+            "account_ids": list(account_ids), "portfolio_irp_id": pid})
+        self.taken_portfolio_names.add(name)
+        return self._read_back(pid, account_ids)
+
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                               portfolio_irp_id: str,
+                               account_ids) -> SubPortfolioResult:
+        # adopt-then-populate heal (R7): re-adding members is safe (W-9)
+        self.populate_calls.append({
+            "portfolio_irp_id": str(portfolio_irp_id),
+            "account_ids": list(account_ids)})
+        return self._read_back(str(portfolio_irp_id), account_ids)
+
+    def _read_back(self, pid: str, account_ids) -> SubPortfolioResult:
+        # The gateway decides success by reading the portfolio back and
+        # comparing against the ids sent; a mismatch raises (FR-008).
+        selected = len(set(account_ids))
+        count = self.readback_counts.get(pid, selected)
+        if count != selected:
+            raise ValueError(
+                f"sub-portfolio {pid} holds {count} accounts after the add; "
+                f"{selected} were selected")
+        return SubPortfolioResult(portfolio_irp_id=pid, account_count=count)
+
+    def find_portfolio_by_number(self, *, exposure_irp_id: str,
+                                 number: str) -> list[PortfolioHit]:
+        # EVERY hit — the worker refuses to adopt when there is more than one
+        return list(self.hits_by_number.get(number, []))
+
+    def find_portfolio_by_name(self, *, exposure_irp_id: str,
+                               name: str) -> list[PortfolioHit]:
+        # The group-name check's RM leg (spec 005 P-25): casefolded exact match
+        # over the exposure's seeded + created portfolios; raise_on_search
+        # forces the fail-open path, as for the EDM/RDM checks.
+        self.search_calls.append(("portfolio", name))
+        if self.raise_on_search:
+            raise RuntimeError("fake IRP: forced search failure")
+        wanted = name.casefold()
+        hits = [PortfolioHit(irp_id=p["irp_id"], name=p["name"],
+                             stamp=p.get("stamp"))
+                for p in self._portfolios.get(str(exposure_irp_id), [])
+                if p["name"].casefold() == wanted]
+        hits += [PortfolioHit(irp_id=c["portfolio_irp_id"], name=c["name"],
+                              stamp=None)
+                 for c in self.created_sub_portfolios
+                 if (c["exposure_irp_id"] == str(exposure_irp_id)
+                     and c["name"].casefold() == wanted)]
+        return hits
 
     def get_import_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),

@@ -730,6 +730,65 @@ if (document.readyState !== 'loading') {
 }
 document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 
+// ── Swap state preservation ───────────────────────────────────────────────────
+// Two things live only in the DOM, and an HTMX swap replaces DOM: how far the
+// analyst has scrolled, and which <details> are open. The EDM detail page's
+// #edm-detail wrapper is the scrolling element (.shell is height:100vh with
+// overflow hidden — the page itself never scrolls), so a poll that swaps it, or
+// that swaps a section inside it, must not cost the analyst their place.
+// Recorded for the swap target's subtree before the swap and reapplied after it
+// settles: every <details id> keeps its open/closed state, and the scroller
+// keeps its offset. Elements the response added (a generated portfolio row) are
+// absent from the record and render at their server-rendered default.
+//
+// Keyed by the target element, not held in one slot: the Portfolios section
+// poll swaps the section and out-of-band-swaps two more elements, and an
+// analyst opening the breakout modal mid-poll adds a fourth request. With one
+// slot, beforeSwap B overwrote A's record and afterSettle A consumed B's — so
+// A restored B's open rows and B restored nothing at all.
+const swapState = new WeakMap();
+
+function detailsOpenState(root) {
+  const state = {};
+  if (root.matches && root.matches('details[id]')) state[root.id] = root.open;
+  root.querySelectorAll('details[id]').forEach((d) => { state[d.id] = d.open; });
+  return state;
+}
+
+document.addEventListener('htmx:beforeSwap', (e) => {
+  const target = e.detail.target;
+  if (!target || !target.querySelectorAll) return;
+  // 204 and other no-swap responses (the populated-mid-sync body poll) leave
+  // the DOM alone — recording then would strand a stale offset for the next
+  // real swap to restore.
+  if (e.detail.shouldSwap === false) {
+    swapState.delete(target);
+    return;
+  }
+  const scroller = document.getElementById('edm-detail');
+  swapState.set(target, {
+    details: detailsOpenState(target),
+    scrollTop: scroller ? scroller.scrollTop : null,
+  });
+});
+
+document.addEventListener('htmx:afterSettle', (e) => {
+  const target = e.detail && e.detail.target;
+  if (!target) return;
+  const state = swapState.get(target);
+  if (!state) return;
+  swapState.delete(target);
+  Object.keys(state.details).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.tagName === 'DETAILS') el.open = state.details[id];
+  });
+  // The swap may have replaced #edm-detail itself — re-resolve it by id. A
+  // recorded 0 is a real offset, so compare against null rather than testing
+  // truthiness.
+  const scroller = document.getElementById('edm-detail');
+  if (scroller && state.scrollTop !== null) scroller.scrollTop = state.scrollTop;
+});
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is
@@ -774,6 +833,15 @@ function messageFromResponse(xhr) {
     }
   } catch (_) { /* fall through to the generic message */ }
   return null;
+}
+
+// A breakout refusal names one set of ticked values and one breakout name. Editing
+// either makes it wrong, so it clears on edit the way ncReset drops a stale name
+// verdict.
+function boClearCartError(el) {
+  const form = el && el.closest('form');
+  const box = form && form.querySelector('#bo-cart-error');
+  if (box) box.innerHTML = '';
 }
 
 document.addEventListener('htmx:responseError', (e) => {

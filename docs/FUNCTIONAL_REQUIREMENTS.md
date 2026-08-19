@@ -314,6 +314,8 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 Re-shaping exposure to match treaty terms before analysis. This cannot be done in the current workflow tool (done in RiskLink today, which is slow); Risk Modeler makes it fast and synchronous, so it becomes a *preferred* path.
 
+> **Build record (2026-08-05).** The two one-click breakouts — by line of business and by geography at state/state-equivalent grain — shipped in Iteration 4: see `specs/005-subportfolio-breakouts/spec.md` and PRD §10A.5/§21. The 2026-07-29 product direction resolved the commercial-geo open question below (Risk Modeler assigns whole accounts; accepted and disclosed in the preview). The filtered sub-portfolio builder and the complement split are fast-follows.
+
 | Requirement | Implementation | Notes |
 |---|---|---|
 | Sub-portfolios are created by filtering an EDM's exposure. | Not implemented | To match terms the broker didn't break out — e.g. isolate a state with a different retention, or exclude a line of business. |
@@ -326,8 +328,8 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| One-click breakout by line of business creates one sub-portfolio per LOB. | Not implemented | Simplest case; unaffected by the commercial-geo problem below. |
-| One-click breakout by state/country creates one sub-portfolio per geography. | Not implemented |  |
+| One-click breakout by line of business creates one sub-portfolio per LOB. | Implemented | Simplest case; unaffected by the commercial-geo problem below. |
+| One-click breakout by state/country creates one sub-portfolio per geography. | Implemented | State/state-equivalent grain only (spec 005). |
 | One-click complement split ("X vs. not-X") creates one portfolio for selected states and one for everything else. | Not implemented | e.g. Northeast and everything-not-Northeast, from a single action. |
 | Breakouts sum to 100% of the source portfolio. | Not implemented | Not "run the whole thing, then a subset, and subtract" — that's messy. |
 | A "do the opposite" option produces the complement of a defined filter without re-coding it. | Not implemented | Define "Florida mobile home" once and also get "everything that's not Florida mobile home." |

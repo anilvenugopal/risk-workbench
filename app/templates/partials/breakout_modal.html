@@ -1,0 +1,348 @@
+{# Breakout modal (spec 005 — FR-001/FR-006/FR-007/FR-006c; custom grouping
+   FR-018–021 — preview docs/ui_previews/breakout_modal.html). Fetched into
+   #breakout-modal-mount on the EDM detail page — OUTSIDE the self-polling
+   #edm-detail wrapper, so the 3-second poll never removes an open modal
+   (package_modal precedent). The mount carries the hx-on::before-swap handler
+   that lets the 404/409 fragments swap in. One stored-summary snapshot per
+   render: switching dimension or mode re-fetches this fragment; the confirm
+   carries the snapshot's as_of (FR-002b); a Sync submitted from inside CLOSES
+   the dialog and hands progress to the page's own indicator + self-poll.
+   The custom pane renders EVERY groupable dimension's checkbox list in this
+   one fetch — Alpine pills toggle x-show, so switching dimensions loses no
+   ticked state (T-15); cart rows arrive server-composed from the
+   group-preview POST. #}
+{%- set base_url = '/edms/' ~ edm_id ~ '/portfolios/' ~ portfolio_id ~ '/breakout' -%}
+{%- set gate = modal.gate if not missing else None -%}
+{%- set custom_mode = mode == 'custom' -%}
+{%- set groupable = (gate.dimensions | selectattr('eligible') | list)
+      if not missing else [] -%}
+{%- set pane_open = (not missing) and gate.portfolio_eligible
+      and not gate.in_flight and error_kind != 'stale' -%}
+{%- set confirmable = pane_open and not custom_mode and modal.dimension -%}
+{%- set cart_ready = pane_open and custom_mode and groupable -%}
+{%- macro sync_button(label) -%}
+<button type="button" class="bo-link"
+        hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
+        hx-vals='{"csrf_token": "{{ generate_csrf_token() }}"}'
+        @htmx:after-request="$el.closest('.modal').remove()"
+        title="Runs the page's Sync and closes this dialog — Break out re-enables when the refresh finishes">{{ label }}</button>
+{%- endmacro -%}
+{%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
+{%- macro dim_meta(d) -%}
+{{ d.values|length }} {% if d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}{% if d.dimension == 'lob' %}line{% elif d.dimension == 'peril' %}peril{% else %}state{% endif %}{{ '' if d.values|length == 1 else 's' }}{% endif %} present
+{%- endmacro -%}
+<div class="modal" id="breakout-modal" x-data>
+  {% if confirmable %}
+  <form class="bo-modal" method="post" action="{{ base_url }}"
+        hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="dimension" value="{{ modal.dimension }}">
+    <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
+  {% elif cart_ready %}
+  {# The cart form (FR-018): "Add breakout" posts THIS form's fields to the
+     group-preview route (server-composed row appended to the cart); the
+     submit posts the carted group JSONs to the cart confirm. n counts the
+     cart rows — a tiny Alpine sliver; the server re-validates everything. #}
+  <form class="bo-modal" method="post" action="{{ base_url }}/groups"
+        hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+        x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
+        @htmx:after-settle="recount()"
+        @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
+  {% else %}
+  <div class="bo-modal">
+  {% endif %}
+
+    <div class="bo-modal__header">
+      <span class="bo-modal__title">Break out</span>
+      {% if not missing %}
+      <span class="bo-modal__src">{{ modal.portfolio_name }}{% if modal.portfolio_irp_id %} · Portfolio #{{ modal.portfolio_irp_id }}{% endif %}{% if gate.account_total is not none %} · {{ '{:,}'.format(gate.account_total) }} accounts{% endif %}</span>
+      {% endif %}
+    </div>
+
+    <div class="bo-modal__body">
+      {% if missing %}
+      <div class="bo-note bo-note--plain">This portfolio no longer exists — it
+        may have been deleted. Close this dialog; the page updates on its own.</div>
+
+      {% else %}
+      {% if error %}
+      <div class="bo-note bo-note--notice">
+        {{ error }}{% if error_kind == 'rewritten' %} Check the values and confirm again.{% endif %}
+        {% if error_kind == 'stale' %}{{ sync_button('Sync the EDM') }}{% endif %}
+      </div>
+      {% endif %}
+
+      {% if gate.in_flight %}
+      {# a live run_breakout_* job on this portfolio — no second confirm #}
+      {% set flight_dim = (gate.dimensions | selectattr('dimension', 'equalto', gate.in_flight) | list | first) %}
+      <div class="bo-flight"><span class="bo-spinner"></span>
+        <span>A <strong>{{ (flight_dim.label if flight_dim else gate.in_flight)|lower }}</strong>
+        breakout is already running for this portfolio — sub-portfolios appear
+        in the list as they are created.</span>
+      </div>
+
+      {% elif error_kind == 'stale' %}
+      {# FR-002a refusal — the stored summary trails Risk Modeler; a retry
+         would refuse again, so only the Sync path is offered (banner above) #}
+
+      {% else %}
+      {% if pane_open %}
+      <div class="bo-tabs">
+        <button type="button" class="bo-tab"
+                {% if not custom_mode %}aria-selected="true"{% else %}hx-get="{{ base_url }}"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Quick breakout</button>
+        <button type="button" class="bo-tab"
+                {% if custom_mode %}aria-selected="true"{% else %}hx-get="{{ base_url }}?mode=custom"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML"{% endif %}>Custom breakouts</button>
+      </div>
+      {% endif %}
+
+      {% if custom_mode %}
+      {% if cart_ready %}
+      {# Add breakout is gated the way Import is (importForm pattern): disabled
+         until the as-you-type check comes back usable — 'ok', or 'unchecked'
+         when Risk Modeler was unreachable (fail-open; the Add-time re-check
+         in the group-preview route is the backstop). #}
+      <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
+                     resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
+                       ({ name: c.name, v: c.value, shown: c.dataset.display,
+                          d: c.closest('.bo-checks').dataset.dimlabel })) },
+                     get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
+                     get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
+           @change="resel(); boClearCartError($el)"
+           @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
+           @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
+           @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
+        <div class="bo-pills">
+          {% for d in gate.dimensions %}
+          {% if d.eligible %}
+          <button type="button" class="bo-pill" :aria-pressed="dim === '{{ d.dimension }}'"
+                  @click="dim = '{{ d.dimension }}'">{{ d.label }}
+            <span class="bo-pill__meta">· {{ d.values|length }}</span></button>
+          {% else %}
+          <button type="button" class="bo-pill" disabled
+                  title="{{ d.reason }}">{{ d.label }}</button>
+          {% endif %}
+          {% endfor %}
+        </div>
+        {% for d in groupable %}
+        <div class="bo-checks" x-show="dim === '{{ d.dimension }}'"
+             data-dimlabel="{{ d.label }}"
+             {% if not loop.first %}style="display:none"{% endif %}>
+          {% for v in d.values %}
+          {%- set shown = v.value | breakout_display(d.dimension) -%}
+          <label class="bo-check">
+            <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}"
+                   data-display="{{ shown }}">
+            <span>{{ shown }}</span>
+            {% if v.label %}<span class="bo-check__label">{{ v.label }}</span>{% endif %}
+            <span class="bo-check__accounts">{{ '{:,}'.format(v.accounts) }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% endfor %}
+        {# Ticked values across every dimension, as chips — derived from the
+           checkboxes, so it clears with them when Add breakout succeeds.
+           Clicking a chip unticks the box. #}
+        <div class="bo-picked" x-show="sel.length" x-cloak>
+          <template x-for="s in sel" :key="s.name + '|' + s.v">
+            <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
+                    @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
+                              .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
+                            resel()">
+              <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
+            </button>
+          </template>
+        </div>
+        {# The name is the sub-portfolio name, exactly as typed (P-24); the
+           as-you-type check and the Add-time block refuse a name already
+           present in the EDM (P-25 — the EDM import name-check pattern). #}
+        <div class="bo-addrow">
+          <input type="text" name="group_label" maxlength="{{ name_max }}"
+                 placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
+                 @input="nameVal = $el.value; nameState = 'pending';
+                         ncReset($el.closest('form').querySelector('.name-collision'));
+                         boClearCartError($el)"
+                 hx-get="{{ base_url }}/name-check"
+                 hx-trigger="keyup changed delay:500ms"
+                 hx-target="next .name-collision" hx-swap="outerHTML">
+          <button type="button" class="btn-sm" :disabled="!nameCleared"
+                  hx-post="{{ base_url }}/group-preview"
+                  hx-target="#bo-cart-rows" hx-swap="beforeend"
+                  hx-include="closest form"
+                  {# Keyed on the status, not detail.successful: the mount's
+                     before-swap handler clears isError for a 409 so the refusal
+                     renders without an error toast, which also makes htmx report
+                     the refusal as successful. Clearing on that wiped the ticked
+                     values and the refusal itself. #}
+                  @htmx:after-request="if ($event.detail.xhr.status === 200) {
+                    const f = $el.closest('form');
+                    f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
+                    f.querySelector('[name=group_label]').value = '';
+                    boClearCartError($el);
+                    ncReset(f.querySelector('.name-collision'));
+                    nameVal = ''; nameState = 'pending'; resel();
+                  }">Add breakout</button>
+        </div>
+        {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
+        <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
+      </div>
+      <div id="bo-cart-error"></div>
+      <div class="bo-cart">
+        <div class="bo-cart__head">Cart</div>
+        <div id="bo-cart-rows"></div>
+        <div class="bo-cart__empty" x-show="n === 0">No breakouts yet — tick
+          values across any dimensions, name the breakout, and Add.</div>
+      </div>
+      <div class="bo-note bo-note--overlap">Breakouts can overlap — an account
+        matching every filter of two breakouts is included in full in each.
+        Exact counts arrive when the run completes.</div>
+      {% else %}
+      <div class="bo-pills">
+        {% for d in gate.dimensions %}
+        <button type="button" class="bo-pill" disabled
+                {% if d.reason %}title="{{ d.reason }}"{% endif %}>{{ d.label }}</button>
+        {% endfor %}
+      </div>
+      {% if gate.refresh_in_flight %}
+      <div class="bo-note bo-note--plain">Close this dialog — when the sync
+        finishes the page updates on its own and Break out re-enables.</div>
+      {% elif not gate.portfolio_eligible %}
+      <div class="bo-note bo-note--plain">Breakout is not available right now:
+        {{ gate.reason }}.</div>
+      {% else %}
+      <div class="bo-note bo-note--plain">No dimension carries two or more
+        distinct values — custom breakouts read the stored exposure summary.
+        {{ sync_button('Run Sync') }} to refresh it.</div>
+      {% endif %}
+      {% endif %}
+
+      {% else %}
+      <div class="bo-dims">
+        {% for d in gate.dimensions %}
+        {% if not gate.portfolio_eligible %}
+        <div class="bo-dim bo-dim--disabled">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__reason">{{ gate.reason }}</span>
+        </div>
+        {% elif not d.eligible %}
+        <div class="bo-dim bo-dim--disabled">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__reason">
+            {%- if d.reason == missing_summary_reason -%}
+            exposure summary not available — {{ sync_button('run Sync') }}
+            {%- else -%}{{ d.reason }}{%- endif -%}
+          </span>
+        </div>
+        {% elif d.dimension == modal.dimension %}
+        <button class="bo-dim" aria-pressed="true" type="button">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__meta">{{ dim_meta(d) }}</span>
+        </button>
+        {% else %}
+        <button class="bo-dim" aria-pressed="false" type="button"
+                hx-get="{{ base_url }}?dimension={{ d.dimension }}"
+                hx-target="#breakout-modal-mount" hx-swap="innerHTML">
+          <span class="bo-dim__name">{{ dim_title(d) }}</span>
+          <span class="bo-dim__meta">{{ dim_meta(d) }}</span>
+        </button>
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      {% if gate.refresh_in_flight %}
+      <div class="bo-note bo-note--plain">Close this dialog — when the sync
+        finishes the page updates on its own and Break out re-enables.</div>
+      {% elif not gate.portfolio_eligible %}
+      <div class="bo-note bo-note--plain">Breakout is not available right now:
+        {{ gate.reason }}.</div>
+      {% elif not modal.dimension %}
+      <div class="bo-note bo-note--plain">The breakout reads the stored
+        exposure summary. Running Sync closes this dialog and starts the
+        refresh on the page — Break out re-enables when it finishes.</div>
+      {% else %}
+
+      {# ── the preview list (FR-006) — every sub-portfolio, NEVER truncated ── #}
+      <div class="bo-list">
+        <div class="bo-list__head"><span>Value</span><span>Generated name</span><span class="r">Accounts</span></div>
+        <div class="bo-list__scroll">
+          {% for entry in modal.plan %}
+          <div class="bo-row">
+            <span class="bo-row__value">{{ entry.value }}{% if entry.label %}<span class="bo-row__label">{{ entry.label }}</span>{% endif %}</span>
+            <span class="bo-row__name">{{ entry.name }}{% if entry.exists %} <span class="bo-row__exists">· already created</span>{% endif %}</span>
+            <span class="bo-row__accounts">{{ '{:,}'.format(entry.accounts) }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if modal.plan|length > large_fanout_threshold %}
+      {# FR-006c (P-15 as amended 2026-08-04): the plain statement, no more #}
+      <div class="bo-note bo-note--notice">
+        <strong>{{ modal.plan|length }} sub-portfolios is a large run</strong> —
+        it will take several minutes.
+      </div>
+      {% endif %}
+
+      {# ── disclosures (FR-007 as revised / P-21): two short quantified
+            lines — overlap and blank values — with qualitative one-liners
+            when the summary carries no measured coverage. #}
+      {% set ov = modal.overlap %}
+      {% if ov.repeats is none %}
+      <div class="bo-note bo-note--overlap">Accounts matching more than one
+        {{ modal.noun }} are included in full in each matching
+        sub-portfolio.</div>
+      {% elif ov.repeats == 0 %}
+      <div class="bo-note bo-note--overlap">No overlapping accounts — none of
+        the {{ '{:,}'.format(ov.covered) }} accounts that carry a
+        {{ modal.noun }} matches more than one.</div>
+      {% else %}
+      <div class="bo-note bo-note--overlap"><strong>Warning: overlapping
+        accounts</strong> — {{ '{:,}'.format(ov.repeats) }} of
+        {{ '{:,}'.format(ov.covered) }} accounts match more than one
+        {{ modal.noun }} and are included in full in each matching
+        sub-portfolio.</div>
+      {% endif %}
+      {% if ov.uncovered %}
+      <div class="bo-note bo-note--plain">{{ '{:,}'.format(ov.uncovered) }} of
+        {{ '{:,}'.format(ov.account_total) }} accounts carry no
+        {{ modal.noun }} value and are left out.</div>
+      {% elif ov.uncovered == 0 %}
+      <div class="bo-note bo-note--plain">None left out — every account
+        carries a {{ modal.noun }} value.</div>
+      {% else %}
+      <div class="bo-note bo-note--plain">Accounts with no {{ modal.noun }}
+        value are left out.</div>
+      {% endif %}
+
+      {% endif %}
+      {% endif %}
+      {% endif %}
+      {% endif %}
+    </div>
+
+    <div class="bo-modal__footer">
+      {% if confirmable %}
+      <span class="bo-modal__count"><strong>{{ modal.plan|length }}</strong> sub-portfolio{{ '' if modal.plan|length == 1 else 's' }} will be created</span>
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
+      <button type="submit" class="btn-sm btn-sm--primary">Create {{ modal.plan|length }} sub-portfolio{{ '' if modal.plan|length == 1 else 's' }}</button>
+      {% elif cart_ready %}
+      <span class="bo-modal__count"><strong x-text="n">0</strong>
+        <span x-text="n === 1 ? 'breakout' : 'breakouts'">breakouts</span></span>
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Cancel</button>
+      <button type="submit" class="btn-sm btn-sm--primary" :disabled="n === 0"
+              x-text="'Create ' + n + ' sub-portfolio' + (n === 1 ? '' : 's')">Create sub-portfolios</button>
+      {% else %}
+      <button type="button" class="btn-sm" @click="$el.closest('.modal').remove()">Close</button>
+      {% endif %}
+    </div>
+
+  {% if confirmable or cart_ready %}
+  </form>
+  {% else %}
+  </div>
+  {% endif %}
+</div>

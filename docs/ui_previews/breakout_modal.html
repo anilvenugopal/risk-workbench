@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Breakout Modal · UI Preview · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css (via _scaffold.html).
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1280px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--positive{background:var(--color-positive-wash);color:var(--color-positive);border-color:var(--color-positive-border)}
+.badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
+.btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg)}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:var(--space-6);margin-top:var(--space-4)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2);min-width:0}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.spinner{width:14px;height:14px;flex:none;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:-2px;margin-right:var(--space-2)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ============================================================================
+   THE PROPOSED STYLES — these are what lands in details.css (Article 9, tokens
+   only). Class names use the shared-kit .modal-* convention (UI_WORKFLOW
+   advisory: one convention per screen).
+   ============================================================================ */
+.bo-modal{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:100%;max-width:560px;display:flex;flex-direction:column;overflow:hidden}
+.bo-modal__header{display:flex;align-items:baseline;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
+.bo-modal__title{font-size:var(--fs-h3);font-weight:var(--fw-semibold)}
+.bo-modal__src{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)}
+.bo-modal__body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+.bo-modal__footer{display:flex;justify-content:flex-end;align-items:center;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
+.bo-modal__count{margin-right:auto;font-size:var(--fs-label);color:var(--text-secondary)}
+.bo-modal__count strong{color:var(--text-primary)}
+
+/* dimension chooser — two options, each enabled/disabled with reason */
+.bo-dims{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-2)}
+.bo-dim{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);background:var(--surface-panel);cursor:pointer;text-align:left;font:inherit}
+.bo-dim[aria-pressed="true"]{border-color:var(--color-brand);background:var(--color-brand-faint);box-shadow:inset 0 0 0 1px var(--color-brand)}
+.bo-dim__name{display:block;font-size:var(--fs-label);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.bo-dim__meta{display:block;font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:1px}
+.bo-dim:disabled{cursor:not-allowed;background:var(--surface-recessed)}
+.bo-dim:disabled .bo-dim__name{color:var(--text-disabled)}
+.bo-dim__reason{display:block;font-size:var(--fs-caption);color:var(--color-warning);margin-top:1px}
+.bo-dim__reason a{color:var(--color-brand);font-weight:var(--fw-medium)}
+
+/* the preview list — every sub-portfolio to be created, NEVER truncated */
+.bo-list{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden}
+.bo-list__scroll{max-height:300px;overflow-y:auto}
+.bo-list__head,.bo-row{display:grid;grid-template-columns:96px minmax(0,1fr) 76px;align-items:center;gap:var(--space-3);padding:var(--space-1) var(--space-3)}
+.bo-list__head{position:sticky;top:0;background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding-top:var(--space-2);padding-bottom:var(--space-2)}
+.bo-row{border-bottom:1px solid var(--c-border-faint);font-size:var(--fs-label)}
+.bo-row:last-child{border-bottom:none}
+.bo-row__value{font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bo-row__label{display:block;font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-regular)}
+.bo-row__name{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bo-row__accounts{text-align:right;font-variant-numeric:tabular-nums}
+.bo-row__exists{font-size:var(--fs-caption);color:var(--text-tertiary);font-style:italic}
+
+/* disclosures (FR-007) — info tone for the measured statement, neutral for the fixed ones */
+.bo-note{border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);line-height:1.45}
+.bo-note--overlap{background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info)}
+.bo-note--notice{background:var(--color-warning-bg);border:1px solid var(--color-warning-border);color:var(--color-warning)}
+.bo-note--plain{background:var(--surface-recessed);border:1px solid var(--border-faint);color:var(--text-tertiary)}
+.bo-note strong{font-weight:var(--fw-semibold)}
+
+/* custom grouping (follow-on FR-018–021) — mode tabs, dimension pills,
+   value checkboxes, and the cart */
+.bo-tabs{display:flex;gap:var(--space-1);border-bottom:1px solid var(--border-default)}
+.bo-tab{font:inherit;font-size:var(--fs-label);font-weight:var(--fw-medium);color:var(--text-tertiary);background:none;border:none;border-bottom:2px solid transparent;padding:var(--space-1) var(--space-2);cursor:pointer}
+.bo-tab[aria-selected="true"]{color:var(--color-brand);border-bottom-color:var(--color-brand);font-weight:var(--fw-semibold)}
+.bo-pills{display:flex;gap:var(--space-2);flex-wrap:wrap}
+.bo-pill{font:inherit;font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid var(--border-default);border-radius:var(--radius-pill);padding:2px var(--space-3);background:var(--surface-panel);cursor:pointer;color:var(--text-secondary)}
+.bo-pill[aria-pressed="true"]{border-color:var(--color-brand);background:var(--color-brand-faint);color:var(--color-brand);font-weight:var(--fw-semibold)}
+.bo-pill:disabled{cursor:not-allowed;background:var(--surface-recessed);color:var(--text-disabled)}
+.bo-pill__meta{font-weight:var(--fw-regular);color:var(--text-tertiary)}
+.bo-checks{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:170px;overflow-y:auto;padding:var(--space-1) var(--space-2)}
+.bo-check{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);padding:2px var(--space-1)}
+.bo-check input{margin:0}
+.bo-check__label{color:var(--text-tertiary);font-size:var(--fs-caption)}
+.bo-check__accounts{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--text-tertiary);font-size:var(--fs-caption)}
+.bo-addrow{display:flex;gap:var(--space-2)}
+.bo-addrow input[type=text]{flex:1;height:30px;border:1px solid var(--border-default);border-radius:var(--radius-md);padding:0 var(--space-3);font:inherit;font-size:var(--fs-label)}
+.bo-cart{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden}
+.bo-cart__head{background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3)}
+.bo-cart__empty{padding:var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+.bo-cart-row{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--c-border-faint);display:flex;flex-direction:column;gap:2px}
+.bo-cart-row:last-child{border-bottom:none}
+.bo-cart-row__top{display:flex;align-items:baseline;gap:var(--space-2)}
+.bo-cart-row__label{font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.bo-cart-row__name{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bo-cart-row__remove{margin-left:auto;font:inherit;font-size:var(--fs-caption);color:var(--text-tertiary);background:none;border:none;cursor:pointer}
+.bo-cart-row__filters{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.bo-cart-row__meta{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.bo-cart-row__warn{font-size:var(--fs-caption);color:var(--color-warning)}
+
+/* in-flight / banner (page-side) */
+.bo-flight{display:flex;align-items:center;font-size:var(--fs-label);color:var(--text-secondary);background:var(--color-brand-faint);border:1px solid var(--color-brand-border);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)}
+.bo-banner{border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-label);margin-bottom:var(--space-3)}
+.bo-banner--ok{background:var(--color-positive-bg);border:1px solid var(--color-positive-border);color:var(--color-positive)}
+.bo-banner--partial{background:var(--color-warning-bg);border:1px solid var(--color-warning-border);color:var(--color-warning)}
+.bo-row-error{font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-bg);border:1px solid var(--color-negative-border);border-radius:var(--radius-sm);padding:var(--space-1) var(--space-2);margin:var(--space-1) 0}
+.bo-row-error a{color:var(--color-brand);font-weight:var(--fw-medium)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>PREVIEW — spec 005 breakout modal (T026 + T043; revised for the follow-on: P-21 short
+    disclosures shipped, section 3 adds the custom-grouping cart — T082, approval blocks the
+    template/routes).</strong>
+    One-click portfolio breakouts by LOB &amp; geography. Every state below; the confirm carries a hidden
+    <code>summary_as_of</code> field (FR-002b) and CSRF token. 👍 in chat approves; the Jinja2 template is wired after.
+  </div>
+
+  <div class="hero">Break out — modal states</div>
+  <div class="sub">Opened from the <strong>Break out</strong> control on a portfolio row of the EDM detail page (EDM <em>ready</em> only).</div>
+
+  <div class="eyebrow">1 · LOB happy path — the US1 case</div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">eligible · by line of business (6 values, quantified overlap)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" aria-pressed="true" type="button">
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__meta">6 lines present</span>
+            </button>
+            <button class="bo-dim" aria-pressed="false" type="button">
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__meta">14 states present</span>
+            </button>
+          </div>
+          <div class="bo-list">
+            <div class="bo-list__head"><span>Value</span><span>Generated name</span><span style="text-align:right">Accounts</span></div>
+            <div class="bo-list__scroll">
+              <div class="bo-row"><span class="bo-row__value">CAE Comm</span><span class="bo-row__name">usfl_commercial - CAE Comm</span><span class="bo-row__accounts">112</span></div>
+              <div class="bo-row"><span class="bo-row__value">EQ Comm</span><span class="bo-row__name">usfl_commercial - EQ Comm</span><span class="bo-row__accounts">801</span></div>
+              <div class="bo-row"><span class="bo-row__value">FLD Comm</span><span class="bo-row__name">usfl_commercial - FLD Comm</span><span class="bo-row__accounts">900</span></div>
+              <div class="bo-row"><span class="bo-row__value">FR Comm</span><span class="bo-row__name">usfl_commercial - FR Comm</span><span class="bo-row__accounts">63</span></div>
+              <div class="bo-row"><span class="bo-row__value">GL Comm</span><span class="bo-row__name">usfl_commercial - GL Comm <span class="bo-row__exists">· already created</span></span><span class="bo-row__accounts">44</span></div>
+              <div class="bo-row"><span class="bo-row__value">WS Comm</span><span class="bo-row__name">usfl_commercial - WS Comm</span><span class="bo-row__accounts">92</span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--overlap">
+            <strong>Warning: overlapping accounts</strong> — 311 of 1,690 accounts match more than
+            one line of business and are included in full in each matching sub-portfolio.
+          </div>
+          <div class="bo-note bo-note--plain">
+            11 of 1,701 accounts carry no line of business value and are left out.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>6</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 6 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">clean partition (no repeats, nothing uncovered) · absent breakout_coverage fallback below</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">night_book · Portfolio #7 · 500 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" aria-pressed="true" type="button">
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__meta">2 lines present</span>
+            </button>
+            <button class="bo-dim" aria-pressed="false" type="button">
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__meta">3 states present</span>
+            </button>
+          </div>
+          <div class="bo-list">
+            <div class="bo-list__head"><span>Value</span><span>Generated name</span><span style="text-align:right">Accounts</span></div>
+            <div class="bo-list__scroll">
+              <div class="bo-row"><span class="bo-row__value">Personal</span><span class="bo-row__name">night_book - Personal</span><span class="bo-row__accounts">310</span></div>
+              <div class="bo-row"><span class="bo-row__value">Commercial</span><span class="bo-row__name">night_book - Commercial</span><span class="bo-row__accounts">190</span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--overlap">
+            No overlapping accounts — none of the 500 accounts that carry a line of business
+            matches more than one.
+          </div>
+          <div class="bo-note bo-note--plain">
+            None left out — every account carries a line of business value.
+          </div>
+          <div class="bo-note bo-note--overlap" style="opacity:.75">
+            <em>(absent breakout_coverage variant — a summary written before the 2026-08-05 revision)</em> Accounts matching more than one line of business are
+            included in full in each matching sub-portfolio.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>2</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 2 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">2 · Geography (state) — the US2 case, labels beside codes</div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">eligible · by geography (state) — Admin1Code values, Admin1Name labels where geocoded</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" aria-pressed="false" type="button">
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__meta">6 lines present</span>
+            </button>
+            <button class="bo-dim" aria-pressed="true" type="button">
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__meta">4 states present</span>
+            </button>
+          </div>
+          <div class="bo-list">
+            <div class="bo-list__head"><span>Value</span><span>Generated name</span><span style="text-align:right">Accounts</span></div>
+            <div class="bo-list__scroll">
+              <div class="bo-row"><span class="bo-row__value">AL<span class="bo-row__label">ALABAMA</span></span><span class="bo-row__name">usfl_commercial - AL</span><span class="bo-row__accounts">96</span></div>
+              <div class="bo-row"><span class="bo-row__value">FL<span class="bo-row__label">FLORIDA</span></span><span class="bo-row__name">usfl_commercial - FL</span><span class="bo-row__accounts">1,241</span></div>
+              <div class="bo-row"><span class="bo-row__value">GA<span class="bo-row__label">GEORGIA</span></span><span class="bo-row__name">usfl_commercial - GA</span><span class="bo-row__accounts">204</span></div>
+              <div class="bo-row"><span class="bo-row__value">TX<span class="bo-row__label">&mdash;</span></span><span class="bo-row__name">usfl_commercial - TX</span><span class="bo-row__accounts">412</span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--overlap">
+            <strong>Warning: overlapping accounts</strong> — 252 of 1,624 accounts match more than
+            one state and are included in full in each matching sub-portfolio.
+          </div>
+          <div class="bo-note bo-note--plain">
+            77 of 1,701 accounts carry no state value and are left out.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>4</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 4 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">40+ value fan-out — untruncated list (scrolls), FR-006c several-minutes statement</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">global_property · Portfolio #12 · 4,880 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" aria-pressed="false" type="button" disabled>
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__reason">only one line of business present</span>
+            </button>
+            <button class="bo-dim" aria-pressed="true" type="button">
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__meta">43 states / state-equivalents present</span>
+            </button>
+          </div>
+          <div class="bo-list">
+            <div class="bo-list__head"><span>Value</span><span>Generated name</span><span style="text-align:right">Accounts</span></div>
+            <div class="bo-list__scroll" style="max-height:220px">
+              <div class="bo-row"><span class="bo-row__value">AB<span class="bo-row__label">ALBERTA</span></span><span class="bo-row__name">global_property - AB</span><span class="bo-row__accounts">18</span></div>
+              <div class="bo-row"><span class="bo-row__value">AK<span class="bo-row__label">ALASKA</span></span><span class="bo-row__name">global_property - AK</span><span class="bo-row__accounts">4</span></div>
+              <div class="bo-row"><span class="bo-row__value">AL<span class="bo-row__label">ALABAMA</span></span><span class="bo-row__name">global_property - AL</span><span class="bo-row__accounts">51</span></div>
+              <div class="bo-row"><span class="bo-row__value">AR<span class="bo-row__label">ARKANSAS</span></span><span class="bo-row__name">global_property - AR</span><span class="bo-row__accounts">22</span></div>
+              <div class="bo-row"><span class="bo-row__value">AZ<span class="bo-row__label">ARIZONA</span></span><span class="bo-row__name">global_property - AZ</span><span class="bo-row__accounts">67</span></div>
+              <div class="bo-row"><span class="bo-row__value">BW<span class="bo-row__label">BADEN-WÜRTTEMBERG</span></span><span class="bo-row__name">global_property - BW</span><span class="bo-row__accounts">12</span></div>
+              <div class="bo-row"><span class="bo-row__value">BY<span class="bo-row__label">BAYERN</span></span><span class="bo-row__name">global_property - BY</span><span class="bo-row__accounts">9</span></div>
+              <div class="bo-row"><span class="bo-row__value">CA<span class="bo-row__label">CALIFORNIA</span></span><span class="bo-row__name">global_property - CA</span><span class="bo-row__accounts">402</span></div>
+              <div class="bo-row"><span class="bo-row__value">CO<span class="bo-row__label">COLORADO</span></span><span class="bo-row__name">global_property - CO</span><span class="bo-row__accounts">88</span></div>
+              <div class="bo-row"><span class="bo-row__value">CT<span class="bo-row__label">CONNECTICUT</span></span><span class="bo-row__name">global_property - CT</span><span class="bo-row__accounts">35</span></div>
+              <div class="bo-row" style="border-bottom:none"><span class="bo-row__value" style="color:var(--text-tertiary);font-style:italic">… 33 more rows — the list scrolls, it is never cut</span><span></span><span></span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--notice">
+            <strong>43 sub-portfolios is a large run</strong> — it will take several minutes.
+          </div>
+          <div class="bo-note bo-note--overlap">
+            <strong>Warning: overlapping accounts</strong> — 1,004 of 4,880 accounts match more
+            than one state and are included in full in each matching sub-portfolio.
+          </div>
+          <div class="bo-note bo-note--plain">
+            Accounts with no state value are left out.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>43</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 43 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">3 · Custom groups — the cart (follow-on FR-018–021; D12/D13/D14/D17)</div>
+  <div class="sub" style="font-size:var(--fs-caption);max-width:900px">
+    Mode tabs sit above the pane: <strong>Quick breakout</strong> is sections 1–2 unchanged;
+    <strong>Custom groups</strong> is below. Dimension pills toggle the checkbox list client-side
+    (one fetch, no state loss); the server composes every cart row (name, key, upper-bound count).
+    Peril values are numeric RMS codes in the EDM and display as their mnemonic — 1 reads
+    <code>EQ</code>, 2 <code>WS</code> (P-30, closing O-02): no lookup exists to read, so
+    <code>breakout_service</code> maintains the vocabulary and shows an unmapped code raw.
+  </div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">custom mode · empty cart — pills + checkboxes, nothing added yet</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button">Line of business <span class="bo-pill__meta">· 6</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 14</span></button>
+            <button class="bo-pill" type="button">Peril <span class="bo-pill__meta">· 2</span></button>
+          </div>
+          <div class="bo-checks">
+            <label class="bo-check"><input type="checkbox"> <span>AL</span> <span class="bo-check__label">ALABAMA</span> <span class="bo-check__accounts">96</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>FL</span> <span class="bo-check__label">FLORIDA</span> <span class="bo-check__accounts">1,241</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>GA</span> <span class="bo-check__label">GEORGIA</span> <span class="bo-check__accounts">204</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>TX</span> <span class="bo-check__accounts">412</span></label>
+          </div>
+          <div class="bo-addrow">
+            <input type="text" placeholder="Group name — e.g. Coastal HU">
+            <button class="btn btn--secondary" type="button" disabled>Add group</button>
+          </div>
+          <div class="bo-cart">
+            <div class="bo-cart__head">Cart</div>
+            <div class="bo-cart__empty">No groups yet — tick values across any dimensions, name the group, and Add.</div>
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>0</strong> groups</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">cart with 3 groups — one multi-dimension incl. peril, one overlap warning, up-to counts (P-23)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button">Line of business <span class="bo-pill__meta">· 6</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 2 selected</span></button>
+            <button class="bo-pill" type="button">Peril <span class="bo-pill__meta">· 1 selected</span></button>
+          </div>
+          <div class="bo-checks" style="max-height:96px">
+            <label class="bo-check"><input type="checkbox"> <span>AL</span> <span class="bo-check__label">ALABAMA</span> <span class="bo-check__accounts">96</span></label>
+            <label class="bo-check"><input type="checkbox" checked> <span>FL</span> <span class="bo-check__label">FLORIDA</span> <span class="bo-check__accounts">1,241</span></label>
+            <label class="bo-check"><input type="checkbox" checked> <span>GA</span> <span class="bo-check__label">GEORGIA</span> <span class="bo-check__accounts">204</span></label>
+            <label class="bo-check"><input type="checkbox"> <span>TX</span> <span class="bo-check__accounts">412</span></label>
+          </div>
+          <div class="bo-addrow">
+            <input type="text" value="Coastal wind">
+            <button class="btn btn--secondary" type="button">Add group</button>
+          </div>
+          <div class="bo-cart">
+            <div class="bo-cart__head">Cart — 3 groups</div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">Coastal HU</span>
+                <span class="bo-cart-row__name">usfl_commercial - Coastal HU</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: FL, GA · peril: WS</div>
+              <div class="bo-cart-row__meta">up to 1,445 accounts</div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">Inland book</span>
+                <span class="bo-cart-row__name">usfl_commercial - Inland book</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: AL, TX</div>
+              <div class="bo-cart-row__meta">up to 508 accounts</div>
+            </div>
+            <div class="bo-cart-row">
+              <div class="bo-cart-row__top">
+                <span class="bo-cart-row__label">FL earthquake</span>
+                <span class="bo-cart-row__name">usfl_commercial - FL earthquake</span>
+                <button class="bo-cart-row__remove" type="button">remove</button>
+              </div>
+              <div class="bo-cart-row__filters">state: FL · lob: EQ Comm</div>
+              <div class="bo-cart-row__meta">up to 801 accounts <span class="bo-cart-row__warn">· may overlap with Coastal HU</span></div>
+            </div>
+          </div>
+          <div class="bo-note bo-note--overlap">
+            Groups can overlap — an account matching every filter of two groups is included in
+            full in each. Exact counts arrive when the run completes.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>3</strong> groups · up to 2,754 accounts</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 3 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">disabled pills — a dimension with one distinct value is not offered (matches quick mode)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">mono_line · Portfolio #9 · 1,240 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-tabs">
+            <button class="bo-tab" type="button">Quick breakout</button>
+            <button class="bo-tab" aria-selected="true" type="button">Custom groups</button>
+          </div>
+          <div class="bo-pills">
+            <button class="bo-pill" type="button" disabled title="only one line of business present">Line of business <span class="bo-pill__meta">· 1</span></button>
+            <button class="bo-pill" aria-pressed="true" type="button">Geography (state) <span class="bo-pill__meta">· 5</span></button>
+            <button class="bo-pill" type="button" disabled title="only one peril present">Peril <span class="bo-pill__meta">· 1</span></button>
+          </div>
+          <div class="bo-note bo-note--plain" style="text-align:center">(checkbox list + cart render as in the tiles above)</div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>0</strong> groups</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">cart in flight — one episode per portfolio (blocks quick mode too); page chip below</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-flight"><span class="spinner"></span>
+            <span>A <strong>custom group</strong> breakout is already running for this portfolio —
+            sub-portfolios appear in the list as they are created.</span>
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+        </div>
+      </div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+        <span style="float:right"><span class="spinner"></span><span style="color:var(--text-secondary)">custom groups — 1 of 3 done</span></span>
+      </div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+        <span style="color:var(--text-tertiary);font-size:10px">▸</span>
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial - Coastal HU</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #24</span>
+        <div style="font-size:var(--fs-caption);color:var(--text-tertiary)" title="state: FL, GA · peril: WS">↳ from usfl_commercial · group: Coastal HU</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">4 · Disabled &amp; in-flight states</div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">missing summary — both dimensions disabled, Sync pointer</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">legacy_import · Portfolio #3</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" type="button" disabled>
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__reason">exposure summary not available — <a href="#">run Sync</a></span>
+            </button>
+            <button class="bo-dim" type="button" disabled>
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__reason">exposure summary not available — <a href="#">run Sync</a></span>
+            </button>
+          </div>
+          <div class="bo-note bo-note--plain">
+            The breakout reads the stored exposure summary. Running Sync closes this dialog and starts the
+            refresh on the page — Break out re-enables when it finishes.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">single value — dimension disabled with reason</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">mono_line · Portfolio #9 · 1,240 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" type="button" disabled>
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__reason">only one line of business present</span>
+            </button>
+            <button class="bo-dim" aria-pressed="true" type="button">
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__meta">5 states present</span>
+            </button>
+          </div>
+          <div class="bo-note bo-note--plain" style="text-align:center">
+            (state preview renders here as in section 2)
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>5</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 5 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">breakout in flight — chooser replaced, live indicator</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-flight"><span class="spinner"></span>
+            <span>A <strong>line of business</strong> breakout is already running for this portfolio —
+            sub-portfolios appear in the list as they are created.</span>
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">sync running (P-16) — the summary this preview reads is being rewritten</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-dims">
+            <button class="bo-dim" type="button" disabled>
+              <span class="bo-dim__name">By line of business</span>
+              <span class="bo-dim__reason">this EDM is syncing — the exposure summary is being rewritten</span>
+            </button>
+            <button class="bo-dim" type="button" disabled>
+              <span class="bo-dim__name">By geography (state)</span>
+              <span class="bo-dim__reason">this EDM is syncing — the exposure summary is being rewritten</span>
+            </button>
+          </div>
+          <div class="bo-note bo-note--plain">
+            Close this dialog — when the sync finishes the page updates on its own and Break out re-enables.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">5 · Confirm refusals (409 — modal re-rendered with the reason, no job created; the cart confirm maps to the same variants)</div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">confirm refused: a Sync rewrote the exposure summary while the modal was open (FR-002b)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-note bo-note--notice">
+            <strong>This EDM was synced while you were reviewing</strong> — here is the current breakout.
+            Check the values and confirm again.
+          </div>
+          <div class="bo-note bo-note--plain" style="text-align:center">(fresh preview re-renders below, as in section 1)</div>
+        </div>
+        <div class="bo-modal__footer">
+          <span class="bo-modal__count"><strong>7</strong> sub-portfolios will be created</span>
+          <button class="btn btn--secondary" type="button">Cancel</button>
+          <button class="btn btn--primary" type="button">Create 7 sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile__label">stale summary — Risk Modeler moved (FR-002a)</div>
+      <div class="bo-modal">
+        <div class="bo-modal__header">
+          <span class="bo-modal__title">Break out</span>
+          <span class="bo-modal__src">usfl_commercial · Portfolio #1 · 1,701 accounts</span>
+        </div>
+        <div class="bo-modal__body">
+          <div class="bo-note bo-note--notice">
+            <strong>Portfolio data has changed in Risk Modeler since the last sync</strong> —
+            <a href="#">Sync the EDM</a>, then retry.
+          </div>
+        </div>
+        <div class="bo-modal__footer">
+          <button class="btn btn--secondary" type="button">Close</button>
+          <button class="btn btn--primary" type="button" disabled>Create sub-portfolios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="eyebrow">6 · Page-side: completion banner + durable per-row error line (FR-012; a cart's terminal jobs aggregate into ONE banner)</div>
+  <div class="board">
+    <div class="tile">
+      <div class="tile__label">completion — full success (toast + banner on first poll after terminal)</div>
+      <div>
+        <div class="bo-banner bo-banner--ok"><strong>LOB breakout of usfl_commercial:</strong> 6 created — exposure figures are filling in automatically.</div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="tile__label">cart completion — the newest cart's jobs aggregated (FR-020)</div>
+      <div>
+        <div class="bo-banner bo-banner--partial"><strong>Custom group breakout of usfl_commercial:</strong> 2 created, 1 failed.</div>
+        <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+          <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+          <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+          <div class="bo-row-error"><strong>usfl_commercial - Inland book failed:</strong> no account matches every filter of this group — nothing was created.</div>
+        </div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="tile__label">completion — partial failure + the durable per-row error (survives refresh, no dismissal; superseded by the next run)</div>
+      <div>
+        <div class="bo-banner bo-banner--partial"><strong>State breakout of usfl_commercial:</strong> 10 created, 1 adopted, 1 failed.</div>
+        <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+          <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+          <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+          <div class="bo-row-error"><strong>MT — usfl_commercial - MT failed:</strong> selection returned zero accounts — the stored summary has drifted from Risk Modeler; <a href="#">Sync the EDM</a> and retry.</div>
+        </div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="tile__label">in-flight indicator on the portfolio row (rides the existing 3s self-poll)</div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)">
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)"> Portfolio #1</span>
+        <span style="float:right"><span class="spinner"></span><span style="color:var(--text-secondary)">breakout running — 4 of 6 created</span></span>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="tile__label">the row control (derivative — near the expand affordance, EDM ready only)</div>
+      <div style="border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label);display:flex;align-items:center;gap:var(--space-3)">
+        <span style="color:var(--text-tertiary);font-size:10px">▸</span>
+        <span style="font-weight:var(--fw-semibold)">usfl_commercial</span>
+        <span style="font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)">Portfolio #1</span>
+        <span style="margin-left:auto"></span>
+        <button class="btn btn--secondary" style="height:24px;padding:0 var(--space-3);font-size:var(--fs-caption)" type="button">Break out</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
