@@ -239,17 +239,21 @@
 .entity-table-wrap { border: 1px solid var(--border-default);
   border-radius: var(--radius-md); overflow: hidden; background: var(--surface-panel); }
 .entity-table { table-layout: fixed; width: 100%; }
-.entity-table .name-col { width: 220px; }
-.entity-table .status-col { width: 150px; }
-.entity-table .entity-notes-cell { width: 260px;
-  white-space: normal; overflow-wrap: anywhere; }
-.entity-table .count-col { text-align: right; width: 170px;
+.entity-table .name-col { width: 260px; }
+.entity-table .status-col { width: 130px; text-align: center; white-space: nowrap; }
+.entity-table .entity-notes-cell { white-space: normal; overflow-wrap: anywhere; }
+.entity-table .count-col { text-align: center; width: 140px;
   font-variant-numeric: tabular-nums; }
-.entity-table .rm-col { width: 150px; }
-.entity-table .entity-action-col { width: 190px; text-align: right; }
+.entity-table .entity-action-col { width: 140px; text-align: right; }
 .entity-table .entity-name { display: inline-block; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
   color: var(--color-brand); font-weight: var(--fw-medium); }
+.entity-actions { display: flex; align-items: center; justify-content: flex-end;
+  gap: var(--space-2); }
+.entity-remove-btn { border: 0; background: none; padding: 2px 4px; line-height: 1;
+  color: var(--text-tertiary); cursor: pointer; font-size: var(--fs-label);
+  border-radius: var(--radius-sm); }
+.entity-remove-btn:hover { color: var(--color-danger); background: var(--color-danger-bg); }
 .entity-notes-cell__read { display: flex; align-items: flex-start; gap: var(--space-2);
   white-space: pre-wrap; }
 .entity-notes-cell__read span { flex: 1; }

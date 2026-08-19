@@ -232,9 +232,13 @@ behavior for each URL.
 
 ## Phase 10: Submission table column alignment
 
-- [x] T060 [FR-006] Cap the Name column width in `submission_edm_table.html` and
-  `submission_rdm_table.html` so the EDM and RDM tables render identical column
-  widths regardless of name length; Notes remains the only variable-width column.
+- [x] T060 [FR-006] Give `submission_edm_table.html` and `submission_rdm_table.html`
+  fixed-width columns (`table-layout: fixed` with an explicit width per column) so
+  the EDM and RDM tables render identical column widths regardless of name or
+  notes length.
+- [x] T061 [FR-006] Narrow the Status and Portfolio/Analysis count columns to their
+  content, center-align both, drop the separate Risk Modeler column, and move its
+  "Open" link into the Action column alongside a compact "X" remove button.
 
 ## Dependencies
 

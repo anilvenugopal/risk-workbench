@@ -23,7 +23,7 @@
 </div>
 <div class="entity-table-wrap">
   <table class="mk-table entity-table">
-    <thead><tr>{{ sort_th(edm_sort_links.name, 'Name', 'name-col') }}{{ sort_th(edm_sort_links.status, 'Status', 'status-col') }}<th class="entity-notes-cell">Notes</th>{{ sort_th(edm_sort_links.count, 'Portfolio count', 'count-col') }}<th class="rm-col">Risk Modeler</th>{% if is_active %}<th class="entity-action-col">Action</th>{% endif %}</tr></thead>
+    <thead><tr>{{ sort_th(edm_sort_links.name, 'Name', 'name-col') }}{{ sort_th(edm_sort_links.status, 'Status', 'status-col') }}<th class="entity-notes-cell">Notes</th>{{ sort_th(edm_sort_links.count, 'Portfolio count', 'count-col') }}<th class="entity-action-col">Action</th></tr></thead>
     <tbody>
     {% for edm in submission_edms %}
       <tr>
@@ -31,12 +31,11 @@
         <td class="status-col"><span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">{{ (edm.status or 'unknown')|replace('_', ' ') }}</span></td>
         {% set entity = edm %}{% set entity_kind = 'edm' %}{% include "partials/submission_entity_note_cell.html" %}
         <td class="count-col">{% if edm.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ edm.portfolio_count }}{% endif %}</td>
-        <td>{% if edm.status == 'ready' and edm.rm_url %}<a class="rm-link" href="{{ edm.rm_url }}" target="_blank" rel="noopener">Open</a>{% elif edm.status != 'ready' %}<span class="na">Available when ready</span>{% else %}<span class="na">Unavailable</span>{% endif %}</td>
-        {% if is_active %}<td class="entity-action-col"><form method="post" action="/submissions/{{ submission.id }}/edms/{{ edm.id }}/detach" hx-post="/submissions/{{ submission.id }}/edms/{{ edm.id }}/detach" hx-target="#submission-edm-section" hx-swap="outerHTML" hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"><input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}"><button class="btn-sm btn-sm--danger" type="submit">Remove from submission</button></form></td>{% endif %}
+        <td class="entity-action-col"><div class="entity-actions">{% if edm.status == 'ready' and edm.rm_url %}<a class="rm-link" href="{{ edm.rm_url }}" target="_blank" rel="noopener">Open</a>{% elif edm.status != 'ready' %}<span class="na">Available when ready</span>{% else %}<span class="na">Unavailable</span>{% endif %}{% if is_active %}<form method="post" action="/submissions/{{ submission.id }}/edms/{{ edm.id }}/detach" hx-post="/submissions/{{ submission.id }}/edms/{{ edm.id }}/detach" hx-target="#submission-edm-section" hx-swap="outerHTML" hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"><input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}"><button class="entity-remove-btn" type="submit" title="Remove from submission" aria-label="Remove from submission">&#10005;</button></form>{% endif %}</div></td>
       </tr>
     {% endfor %}
     {% if not submission_edms %}
-      <tr><td colspan="{{ 6 if is_active else 5 }}" class="entity-table-state"><strong>No EDMs added</strong>Add a new EDM or select one already in the workbench.</td></tr>
+      <tr><td colspan="5" class="entity-table-state"><strong>No EDMs added</strong>Add a new EDM or select one already in the workbench.</td></tr>
     {% endif %}
     </tbody>
   </table>
