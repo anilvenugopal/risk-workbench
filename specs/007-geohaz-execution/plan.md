@@ -15,8 +15,8 @@
 - The Dramatiq worker (`app/workers/geohaz_jobs.py`) calls `irp_gateway.submit_geohaz(...)` — a new gateway method wrapping the wheel's `submit_geohaz_job` — then `irp_job_service.record_submitted_irp_job(...)` with the new `irp_portfolio_id` and `request_params` arguments. A submit exception writes a terminal `SUBMISSION FAILED` `irp_job` via `record_submission_failure`, isolated per portfolio (FR-006).
 - The wheel resolves EDM and portfolio **by name** at submit time (`search_edms` → `search_portfolios`) — exactly Article 2's name-based coupling; the worker passes the stored `irp_edm.name` and `irp_portfolio.name`.
 - FR-005 (never re-run geocoding): wheel 0.5.0 takes the layer list from the caller and inserts nothing — the app submits a **hazard-only layer list**, so no geocode layer ever reaches Risk Modeler (research R4; the 0.3.1 `skipPrevGeocoded` workaround is obsolete).
-- Parameter mapping (research R5): the app always builds earthquake and windstorm hazard layers with `engineType="RL"`, data version `"latest"`, `overrideUserDef=true`, and `skipPrevHazard=false`. DLM is recorded in the parameter set.
-- Data version is the literal `"latest"`, which Risk Modeler resolves server-side — no config setting, no version-discovery API needed (research R6).
+- Parameter mapping (research R5): the app always builds earthquake and windstorm hazard layers with `engineType="RL"`, the configured data version, `overrideUserDef=true`, and `skipPrevHazard=false`. DLM is recorded in the parameter set.
+- Data version comes from a single config setting `HAZARD_DATA_VERSION` (default `25.0`) because the wheel has no version-discovery API and Risk Modeler does not accept a `"latest"` literal (research R6).
 - The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
 - On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the most recent lookup details display the string as Result without parsing it (research R7). Missing summary text renders as unavailable.
 - The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). On successful completion, a terminal resolver reads Get Portfolio Metadata outside the database transaction and the terminal handler replaces the `metrics` portion of `irp_portfolio.exposure_detail` while retaining its DataBridge summary.
@@ -33,7 +33,7 @@
 | T-02 | Submission is worker-side: one `run_geohaz` `rwb_job` per selected portfolio; the launch POST enqueues and confirms, the Dramatiq worker performs the Risk Modeler submit | Approved (plan) | R2 — the wheel's submit makes 3 RM reads before the POST (not sub-second), and every existing submit is worker-side; supersedes the spec's Key Entities "synchronously on the request path" wording (spec.md amended in this pass; user-visible behavior unchanged) |
 | T-03 | The P-05 record is the geohaz `irp_job` row: `irp_portfolio_id`, `request_params`, and `completion_summary`; analyst = `inserted_by` | Approved (plan) | R3 — a dedicated lookup table would duplicate status, timestamps, and actor the job row already owns |
 | T-04 | FR-005 is satisfied directly: the app submits a hazard-only layer list — no geocode layer is ever sent | Approved (plan) | R4 — wheel 0.5.0 takes the caller's layer list verbatim; the 0.3.1 forced-geocode workaround and its upstream follow-up are obsolete |
-| T-05 | Data version is the literal `"latest"`, resolved by Risk Modeler; model family renders DLM-only (HD disabled pending O7-1) — `engineType` is caller-supplied but only `"RL"` is confirmed | Approved (plan) | R5/R6 — Risk Modeler accepts `"latest"` directly, so no version-discovery config is needed; the HD engineType value is unconfirmed |
+| T-05 | Data version is config-owned (`HAZARD_DATA_VERSION`, single value, default `25.0`); model family renders DLM-only (HD disabled pending O7-1) — `engineType` is caller-supplied but only `"RL"` is confirmed | Approved (plan) | R5/R6 — no discovery API, and Risk Modeler rejects the `"latest"` literal; the HD engineType value is unconfirmed |
 | T-06 | Store the terminal body verbatim and copy `tasks[].output.summary` into `irp_job.completion_summary`; display the string without parsing it | Approved (plan) | R7 — captured Risk Modeler response supplied 2026-08-13 |
 | T-07 | FR-006 recovery is relaunch: `SUBMISSION FAILED` is terminal so the portfolio is immediately launchable again; the auto-retry batch stays the existing no-op stub, and geohaz failure rows join it when it is implemented (per-entity dedup now possible via `irp_portfolio_id`) | Approved (plan) | R9 — the `_submission_retry` batch was never implemented (poller stub); building it is not this feature |
 
@@ -48,7 +48,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 - **Article 4** — no new status columns; `irp_job.status` stays an in-place update.
 - **Articles 8/9** — Jinja2 + HTMX fragments, native `<details>`, Alpine for portfolio selection, and the existing `.dtable` tokens.
 - **Article 12** — unit tier covers the peril validator, gate/eligibility, param mapping, column-state derivation, count parser, worker success/failure, and poller routing; SQL Server tier covers the migration via the schema-drift mirror; the opt-in IRP tier captures a real completion body.
-- **Article 13** — the launch POST is CSRF-validated; no new secrets or configuration (data version is the literal `"latest"`).
+- **Article 13** — the launch POST is CSRF-validated; no new secrets (`HAZARD_DATA_VERSION` is configuration, not a credential).
 
 ### DB lifecycle (WORKBENCH)
 
@@ -116,10 +116,10 @@ specs/007-geohaz-execution/
 alembic/versions/0001_initial.py     # EDIT: irp_job.irp_portfolio_id (+FK after irp_portfolio create, +index),
                                      #       irp_job.request_params; rwb_job_type_kind ('run_geohaz','Run GeoHaz',28)
 infra/scripts/seed_db.py             # EDIT: run_geohaz MERGE row
-infra/.env.example                   # EDIT: GEOHAZ_DATA_VERSIONS
+infra/.env.example                   # EDIT: HAZARD_DATA_VERSION
 tests/iteration1_mirror.py           # EDIT: mirror columns + seed constants (drift guard)
 
-app/config.py                        # EDIT: geohaz_data_versions setting
+app/config.py                        # EDIT: hazard_data_version setting
 app/services/irp_gateway.py          # EDIT: submit_geohaz + get_geohaz_job (Protocol, _RealGateway,
                                      #       free functions, __all__)
 app/services/irp_job_service.py      # EDIT: irp_portfolio_id + request_params on the writers;

@@ -398,7 +398,7 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | Hazard lookup starts with one click and no parameter modal. | Not implemented | Every launch uses the standard DLM parameters. (Design note 14 §2.1.) |
 | Geocoding is not re-run by default. | Not implemented | Broker geocoding is preserved — Cheryl has never re-geocoded in this role. |
 | Re-geocoding, if ever needed, is done intentionally inside the model. | Not implemented | Not a workbench action. |
-| Hazard lookup uses data version `latest`, resolved by Risk Modeler. | Not implemented | v25 as of now. |
+| Hazard lookup uses the configured `HAZARD_DATA_VERSION`. | Not implemented | v25 as of now. |
 | Hazard lookup uses DLM (non-HD). | Not implemented |  |
 | Previously looked-up locations are not skipped. User-defined hazard values are overwritten. | Not implemented | "The more comprehensive the data, the better." |
 | Hazard lookup runs earthquake and windstorm. | Not implemented | Fixed for the one-click DLM launch. |

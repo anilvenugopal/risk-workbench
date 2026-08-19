@@ -116,29 +116,35 @@ The app builds the layer list; the wheel validates shape and passes it through (
 | Perils: earthquake, windstorm (both default on; ≥1 required) | One hazard layer per peril: `{"type": "hazard", "name": "earthquake"/"windstorm", "engineType": "RL", "version": <data_version>, "layerOptions": {...}}` | The wheel accepts any non-empty layer list — the ≥1-peril rule is enforced app-side, form and server. Layer names match the `request_params.perils` tokens. |
 | Skip locations with previous hazard lookup (default off) | `layerOptions.skipPrevHazard` on every hazard layer | Independent checkbox boolean. |
 | Overwrite user-defined hazard values (default on) | `layerOptions.overrideUserDef` on every hazard layer | Independent checkbox boolean. Both layer option keys are required by `validate_geohaz_layers`. |
-| Data version: latest (default) | `version` on every layer, literal `"latest"` | Per-layer on the wire; every launch sends the same value. See R6. |
+| Data version: configured value (default `25.0`) | `version` on every layer | Per-layer on the wire; every launch sends the same value. See R6. |
 | Model family: DLM (default) | `engineType` on every layer — `"RL"` (the DLM engine, the only value observed) | Rendered DLM-only with HD disabled (O7-1 open — the HD engineType value is unconfirmed); recorded in `request_params` so the P-05 record answers "what ran". Now caller-supplied, so enabling HD later is a form + mapping change, no wheel change. |
 
 ## R6 — Data-version discovery (plan T-05)
 
 **Finding**: no wheel API enumerates geohaz data versions (`reference_data.py` covers model profiles,
 event-rate schemes, currency vintages — nothing for geohaz versions). 0.5.0 has no default either —
-`version` is a required field on every layer. The PRD says v25 is current (§10B.2, 2026-08). Risk
-Modeler documentation confirms `version` also accepts the literal string `"latest"`, which it resolves
-server-side to the current data version.
+`version` is a required field on every layer. The PRD says v25 is current (§10B.2, 2026-08).
 
-**Decision (2026-08-19, reverses the 2026-08-13 decision below)**: every launch sends the literal
-`"latest"`. No config setting, no per-environment value to keep current as Moody's ships new data
-versions.
+**Decision (2026-08-19, current)**: a single config setting `HAZARD_DATA_VERSION` (plain string,
+default `25.0`), surfaced in `infra/.env.example` and `app/config.py`. Every launch sends this value
+unchanged; `launch()` rejects any other value (there is exactly one legitimate value at a time, so a
+caller passing anything else is a bug, not a user choice). Bumping to a new Moody's release is a
+one-line config edit, no deploy of application code.
 
-**Original decision (2026-08-13, superseded)**: a config setting `GEOHAZ_DATA_VERSIONS`
-(comma-separated, newest first; the first entry was the form default), surfaced in
-`infra/.env.example` and `app/config.py`. Rejected then: a kind table (external Moody's vocabulary —
-seed migration per RM release, the exact churn Article 3's carve-out exists to avoid); hardcoding a
-version number in the template (no way to correct without a deploy); free-text input (typo →
-submission failure discovered a poll cycle later). This traded a config-drift risk (a stale version
-number surfacing as `SUBMISSION FAILED`/`FAILED`) for one manual step per Moody's release — the
-`"latest"` literal removes that trade entirely.
+**Rejected**:
+- *A kind table* (external Moody's vocabulary — seed migration per RM release, the exact churn
+  Article 3's carve-out exists to avoid).
+- *Hardcoding the version number in the template* (no way to correct without a deploy).
+- *Free-text input* (typo → submission failure discovered a poll cycle later).
+- *A comma-separated list of versions* (2026-08-13, the original shape of this setting) — the launch
+  is one-click with no dropdown, so only the first entry was ever read; the list added a `NoDecode`
+  parser and a min-length-1 validator for a set that never had more than one live member. Collapsed to
+  a single string.
+
+**Also tried and reverted (2026-08-19, same day)**: sending the literal string `"latest"`, based on
+Risk Modeler documentation that appeared to describe server-side resolution of that value. Confirmed
+wrong before shipping — Risk Modeler does not accept `"latest"` for geohaz's `version` field. Reverted
+to the configured-value approach above in the same session.
 
 ## R7 — Completion summary: store the Risk Modeler string (plan T-06)
 

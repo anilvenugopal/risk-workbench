@@ -19,7 +19,7 @@ The page shows Risk Modeler's stored `hazardVersion` for each portfolio and neve
 | ID | Decision | Status | Source |
 |---|---|---|---|
 | P-01 | Hazard lookup launches from the EDM summary page against one or more selected portfolios; one geohaz job per portfolio, one parameter set per launch | Approved | Design session 2026-08-07; PRD §10B.1 |
-| P-02 | Hazard lookup is one click with no modal. Every launch uses data version `latest`, DLM, earthquake + windstorm, skip locations with previous hazard lookup = no, and overwrite user-defined hazard values = yes | Approved | Design session 2026-08-14, D4; version reversed 2026-08-19 (research R6) |
+| P-02 | Hazard lookup is one click with no modal. Every launch uses the configured hazard data version, DLM, earthquake + windstorm, skip locations with previous hazard lookup = no, and overwrite user-defined hazard values = yes | Approved | Design session 2026-08-14, D4; briefly changed to the literal `latest` 2026-08-19, reverted same day — Risk Modeler rejects `latest` (research R6) |
 | P-03 | The portfolios table displays the raw `hazardVersion` returned by Get Portfolio Metadata; the value does not gate an action | Approved | Approver direction, 2026-08-17; supersedes the 2026-08-07 decision |
 | P-04 | Hazard lookup is optional and never an analysis prerequisite; the launch gate is EDM + ≥1 portfolio | Approved | PRD §10B.5, §13.1 |
 | P-05 | Settles PRD O8-3 — what the workbench saves per lookup and shows for the most recent run. Saved at submit: the parameter set, launching analyst, and submit timestamp. Saved at completion: terminal status, completion timestamp, and the `tasks[].output.summary` string. The portfolio details display the saved summary string without parsing it | Approved | Updated from captured response and approver direction 2026-08-13 |
@@ -50,7 +50,7 @@ The page shows Risk Modeler's stored `hazardVersion` for each portfolio and neve
 
 ### User Story 1 - Launch hazard lookup on selected portfolios (Priority: P1)
 
-An analyst working an EDM opens its summary page, selects one or more portfolios, and clicks Run hazard lookup. The workbench uses data version `latest`, DLM, earthquake + windstorm, skip locations with previous hazard lookup off, and overwrite user-defined hazard values on. One parameter set applies to every selected portfolio. The workbench submits one geohaz job per portfolio and confirms in the same interaction; the analyst never opens Risk Modeler. Broker geocoding is preserved.
+An analyst working an EDM opens its summary page, selects one or more portfolios, and clicks Run hazard lookup. The workbench uses the configured hazard data version, DLM, earthquake + windstorm, skip locations with previous hazard lookup off, and overwrite user-defined hazard values on. One parameter set applies to every selected portfolio. The workbench submits one geohaz job per portfolio and confirms in the same interaction; the analyst never opens Risk Modeler. Broker geocoding is preserved.
 
 **Why this priority**: The launch is the iteration — everything else (status and latest-run details) exists to track what the launch submitted. It is the from-screen action the 2026-08-07 design session approved ("Ability to execute hazard lookup from the screen — yes").
 
@@ -59,7 +59,7 @@ An analyst working an EDM opens its summary page, selects one or more portfolios
 **Acceptance Scenarios**:
 
 1. **Given** an EDM with two or more portfolios, **When** the analyst selects two and launches hazard lookup with the defaults, **Then** two geohaz jobs are submitted — one per selected portfolio, both carrying the same parameter set — and each portfolio's "Hazard Version" column shows its job's in-line status.
-2. **Given** one or more selected portfolios, **When** the analyst clicks Run hazard lookup, **Then** the lookup starts without opening a modal and uses data version `latest`, DLM, earthquake + windstorm, Skip locations with previous hazard lookup off, and Overwrite user-defined hazard values on.
+2. **Given** one or more selected portfolios, **When** the analyst clicks Run hazard lookup, **Then** the lookup starts without opening a modal and uses the configured hazard data version, DLM, earthquake + windstorm, Skip locations with previous hazard lookup off, and Overwrite user-defined hazard values on.
 4. **Given** an EDM with no portfolios, **When** the analyst views the summary page, **Then** the hazard-lookup action is disabled (the prerequisite gate requires EDM + ≥1 portfolio).
 5. **Given** a launch across five portfolios where submission fails for the third, **When** the launch completes, **Then** the jobs already submitted stand, the remaining portfolios are still attempted, the failed submission is visible as failed for that portfolio, and that portfolio is immediately launchable again.
 6. **Given** a portfolio with a non-terminal geohaz job, **When** the analyst composes a new launch, **Then** that portfolio cannot be included and its row shows the running job's status.
@@ -120,7 +120,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 **Launch (US1)**
 
 - **FR-001**: The EDM summary page MUST let the analyst select one or more of the EDM's portfolios and launch hazard lookup once for the selection; the workbench MUST submit one geohaz job per selected portfolio. Launching is open to every authenticated user — no role gate; the lookup record captures who launched it.
-- **FR-002**: Clicking Run hazard lookup MUST submit immediately without a modal. Every launch MUST use data version `latest`, model family DLM, earthquake and windstorm, skip locations with previous hazard lookup off, and overwrite user-defined hazard values on.
+- **FR-002**: Clicking Run hazard lookup MUST submit immediately without a modal. Every launch MUST use the configured hazard data version, model family DLM, earthquake and windstorm, skip locations with previous hazard lookup off, and overwrite user-defined hazard values on.
 - **FR-003**: One launch carries one parameter set: the submitted parameters MUST apply identically to every portfolio selected in that launch.
 - **FR-004**: The hazard-lookup action MUST be enabled only when the EDM and at least one portfolio exist (prerequisite gate, PRD §13.1), and MUST be disabled otherwise.
 - **FR-005**: Hazard lookup MUST NOT re-run geocoding — broker geocoding is preserved.
@@ -163,7 +163,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 ## Assumptions
 
 - **P-05 settles PRD O8-3.** The workbench saves the parameter set, analyst, submit timestamp, terminal status, completion timestamp, and `tasks[].output.summary`. The portfolio displays the most recent run's saved summary string unchanged.
-- **"Latest" data version is resolved by Risk Modeler, not the workbench.** Every launch sends the literal string `"latest"` as `version` on each hazard layer (research R6).
+- **Data version is a single configured value, not hard-coded.** `HAZARD_DATA_VERSION` (currently `25.0`) is used at launch time; Risk Modeler has no `"latest"` resolution, so the value is bumped by config edit as Moody's ships new versions (research R6).
 - **One launch is scoped to one EDM.** Portfolio selection and the launch button live on a single EDM's summary page; cross-EDM launches are not offered.
 - **Concurrent lookups on one portfolio are prevented** (P-06). Risk Modeler may permit them, but a second concurrent lookup on the same portfolio has no analyst value and invites accidental double submission.
 - **HD hazard lookup is outside MVP.** Hazard lookup launched by the workbench is DLM-only. Enhanced risk data (O7-2) is not a launch parameter.

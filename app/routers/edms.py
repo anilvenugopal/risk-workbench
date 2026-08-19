@@ -21,6 +21,7 @@ from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
+from app.config import settings
 from app.nav import get_nav_context
 from app.services import edm_service, geohaz_service, rdm_service
 from app.services.errors import (
@@ -255,7 +256,7 @@ def geohaz_launch(
         result = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=selected,
-            data_version="latest",
+            data_version=settings.hazard_data_version,
             perils=["earthquake", "windstorm"],
             skip_prev_hazard=False,
             override_user_def=True,

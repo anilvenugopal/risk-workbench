@@ -7,9 +7,9 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 ## `POST /edms/{edm_id}/geohaz` — launch
 
 - Form fields: `csrf_token` and `portfolio_ids` (repeated).
-- The route supplies the parameter set: data version `"latest"`, DLM,
-  earthquake + windstorm, `skip_prev_hazard=false`, and
-  `override_user_def=true`.
+- The route supplies the parameter set: the configured data version
+  (`settings.hazard_data_version`), DLM, earthquake + windstorm,
+  `skip_prev_hazard=false`, and `override_user_def=true`.
 - Validates: gate (EDM exists, ≥1 portfolio — FR-004), every `portfolio_ids`
   belongs to this EDM and is P-06-eligible.
 - On success: enqueues one `run_geohaz` rwb_job per portfolio (one shared

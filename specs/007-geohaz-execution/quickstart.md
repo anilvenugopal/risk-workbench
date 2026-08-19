@@ -10,6 +10,7 @@ How to verify the feature. Contracts: [contracts/](contracts/); schema:
   report and stop if it is down.
 - DB lifecycle: **Rebuild** — `make db-rebuild` (destructive) after the
   migration edit.
+- `HAZARD_DATA_VERSION` set in `.env` (default `25.0`).
 - An EDM in `ready` with ≥2 synced portfolios (import one via the existing
   flow, or `make db-rebuild` seed + sync).
 
@@ -39,8 +40,9 @@ kind row mirrored.
    shows each portfolio's raw `hazardVersion` in the final **"Hazard Version"**
    column. An absent or empty value displays empty (SC-006).
 2. Select two portfolios → **Run hazard lookup**. No modal opens. Both jobs use
-   data version `latest`, DLM, earthquake + windstorm, Skip locations
-   with previous hazard lookup off, and Overwrite user-defined hazard values on.
+   the configured `HAZARD_DATA_VERSION`, DLM, earthquake + windstorm, Skip
+   locations with previous hazard lookup off, and Overwrite user-defined
+   hazard values on.
 3. Both portfolios' cells show **SUBMITTING** immediately, **SUBMITTED** after
    Risk Modeler accepts each job, then Risk Modeler statuses,
    refreshing without a reload (watch the network tab: per-cell 3s polls that

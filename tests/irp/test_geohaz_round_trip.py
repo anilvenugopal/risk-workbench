@@ -12,6 +12,7 @@ import pytest
 os.environ.setdefault(
     "SESSION_SECRET_KEY", "irp-test-secret-key-not-for-production")
 
+from app.config import settings  # noqa: E402
 from app.services import geohaz_service, irp_gateway  # noqa: E402
 
 pytestmark = pytest.mark.irp
@@ -29,7 +30,8 @@ def _required_target(name: str) -> str:
 def test_geohaz_hazard_only_round_trip_captures_terminal_body():
     edm_name = _required_target("IRP_TEST_GEOHAZ_EDM_NAME")
     portfolio_name = _required_target("IRP_TEST_GEOHAZ_PORTFOLIO_NAME")
-    version = os.environ.get("IRP_TEST_GEOHAZ_VERSION", "latest").strip()
+    version = os.environ.get(
+        "IRP_TEST_GEOHAZ_VERSION", settings.hazard_data_version).strip()
     timeout = int(os.environ.get("IRP_TEST_GEOHAZ_TIMEOUT_SECS", "900"))
 
     submitted = irp_gateway.submit_geohaz(
