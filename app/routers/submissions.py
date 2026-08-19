@@ -318,35 +318,24 @@ def _entity_table_response(
     sort_state = _entity_sort_state(request)
     entity_sort, entity_descending = sort_state[kind]
     sort_query = _entity_sort_query(sort_state)
-    if kind == "edm":
-        template = "partials/submission_edm_table.html"
-        entities = submission_service.list_submission_edms(
-            submission_id, sort=entity_sort, descending=entity_descending)
-        rows = {
-            "submission_edms": entities,
-            "edm_backfill_running": _entity_backfill_running("edm", entities),
-            "edm_sort_links": _entity_sort_links(
-                submission_id, "edm", sort_state),
-            "edm_table_url": (
-                f"/submissions/{submission_id}/edms/table?{sort_query}"),
-        }
-    else:
-        template = "partials/submission_rdm_table.html"
-        entities = submission_service.list_submission_rdms(
-            submission_id, sort=entity_sort, descending=entity_descending)
-        rows = {
-            "submission_rdms": entities,
-            "rdm_backfill_running": _entity_backfill_running("rdm", entities),
-            "rdm_sort_links": _entity_sort_links(
-                submission_id, "rdm", sort_state),
-            "rdm_table_url": (
-                f"/submissions/{submission_id}/rdms/table?{sort_query}"),
-        }
-    return _partial(request, template, {
+    list_entities = (
+        submission_service.list_submission_edms if kind == "edm"
+        else submission_service.list_submission_rdms)
+    count_field = "portfolio_count" if kind == "edm" else "analysis_count"
+    count_label = "Portfolio count" if kind == "edm" else "Analysis count"
+    entities = list_entities(
+        submission_id, sort=entity_sort, descending=entity_descending)
+    return _partial(request, "partials/submission_entity_table.html", {
         "submission": submission,
         "is_active": submission.status_code == submission_service.ACTIVE,
         "entity_message": message,
-        **rows,
+        "kind": kind,
+        "entities": entities,
+        "backfill_running": _entity_backfill_running(kind, entities),
+        "sort_links": _entity_sort_links(submission_id, kind, sort_state),
+        "table_url": f"/submissions/{submission_id}/{kind}s/table?{sort_query}",
+        "count_field": count_field,
+        "count_label": count_label,
     }, status_code=status_code)
 
 

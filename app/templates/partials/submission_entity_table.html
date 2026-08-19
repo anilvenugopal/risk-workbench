@@ -1,0 +1,43 @@
+{% macro sort_th(link, title, class_name='') %}
+<th{% if class_name %} class="{{ class_name }}"{% endif %} aria-sort="{{ link.aria }}">
+  <a class="sort-th{{ ' is-sorted' if link.active }}" href="{{ link.href }}"
+     hx-get="{{ link.partial_href }}" hx-target="#submission-{{ kind }}-section"
+     hx-swap="outerHTML" hx-push-url="{{ link.href }}">{{ title
+    }}<span class="sort-th__caret" aria-hidden="true">{{ link.caret }}</span></a>
+</th>
+{% endmacro %}
+{% set live = backfill_running or entities | selectattr('status', 'in', ('pending_import', 'importing')) | list | length > 0 %}
+<section id="submission-{{ kind }}-section"
+  {%- if live %}
+  hx-get="{{ table_url }}" hx-trigger="every 3s [!document.querySelector('.entity-notes-cell--editing')]"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+{% if entity_message %}<div class="form-banner">{{ entity_message }}</div>{% endif %}
+<div class="section-head submission-entity-head">
+  <h2>{{ kind|upper }}s</h2>
+  {% if is_active %}
+  <button class="btn-sm btn-sm--primary" type="button"
+          hx-get="/submissions/{{ submission.id }}/{{ kind }}s/add"
+          hx-target="#submission-entity-modal" hx-swap="innerHTML">Add {{ kind|upper }}</button>
+  {% endif %}
+</div>
+<div class="entity-table-wrap">
+  <table class="mk-table entity-table">
+    <thead><tr>{{ sort_th(sort_links.name, 'Name', 'name-col') }}{{ sort_th(sort_links.status, 'Status', 'status-col') }}<th class="entity-notes-cell">Notes</th>{{ sort_th(sort_links.count, count_label, 'count-col') }}<th class="entity-action-col">Action</th></tr></thead>
+    <tbody>
+    {% for entity in entities %}
+      <tr>
+        <td class="name-col"><a class="entity-name" href="/submissions/{{ submission.id }}/{{ kind }}s/{{ entity.id }}" title="{{ entity.name }}">{{ entity.name }}</a></td>
+        <td class="status-col"><span class="status-chip status-chip--{{ (entity.status or 'unknown')|lower|replace(' ', '-') }}">{{ (entity.status or 'unknown')|replace('_', ' ') }}</span></td>
+        {% set entity_kind = kind %}{% include "partials/submission_entity_note_cell.html" %}
+        <td class="count-col">{% if entity.status in ('pending_import', 'importing') %}<span class="na">Pending</span>{% else %}{{ entity|attr(count_field) }}{% endif %}</td>
+        <td class="entity-action-col"><div class="entity-actions">{% if entity.status == 'ready' and entity.rm_url %}<a class="rm-link" href="{{ entity.rm_url }}" target="_blank" rel="noopener">Open</a>{% elif entity.status != 'ready' %}<span class="na">Available when ready</span>{% else %}<span class="na">Unavailable</span>{% endif %}{% if is_active %}<form method="post" action="/submissions/{{ submission.id }}/{{ kind }}s/{{ entity.id }}/detach" hx-post="/submissions/{{ submission.id }}/{{ kind }}s/{{ entity.id }}/detach" hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML" hx-on::before-swap="if(event.detail.xhr.status===409) event.detail.shouldSwap=true"><input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}"><button class="entity-remove-btn" type="submit" title="Remove from submission" aria-label="Remove from submission">&#10005;</button></form>{% endif %}</div></td>
+      </tr>
+    {% endfor %}
+    {% if not entities %}
+      <tr><td colspan="5" class="entity-table-state"><strong>No {{ kind|upper }}s added</strong>Add a new {{ kind|upper }} or select one already in the workbench.</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+</section>

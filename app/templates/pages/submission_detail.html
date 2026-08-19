@@ -131,8 +131,16 @@
     {% endfor %}
   </ul>
 
-  {% include "partials/submission_edm_table.html" %}
-  {% include "partials/submission_rdm_table.html" %}
+  {% with kind='edm', entities=submission_edms, backfill_running=edm_backfill_running,
+          sort_links=edm_sort_links, table_url=edm_table_url,
+          count_field='portfolio_count', count_label='Portfolio count' %}
+    {% include "partials/submission_entity_table.html" %}
+  {% endwith %}
+  {% with kind='rdm', entities=submission_rdms, backfill_running=rdm_backfill_running,
+          sort_links=rdm_sort_links, table_url=rdm_table_url,
+          count_field='analysis_count', count_label='Analysis count' %}
+    {% include "partials/submission_entity_table.html" %}
+  {% endwith %}
   <div id="submission-entity-modal"></div>
 </div>
 {% endblock %}
