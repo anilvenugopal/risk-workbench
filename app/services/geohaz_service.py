@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _parse_json_dict, _uid
 from app.services.errors import GeohazLaunchConflict, InvalidGeohazLaunch
@@ -241,8 +240,6 @@ def launch(
         raise InvalidGeohazLaunch("Select at least one peril.")
     if any(peril not in _PERILS for peril in selected_perils):
         raise InvalidGeohazLaunch("Select only earthquake or windstorm.")
-    if data_version not in settings.geohaz_data_versions:
-        raise InvalidGeohazLaunch("Select a configured hazard data version.")
     request_params = {
         "data_version": data_version,
         "model_family": "DLM",
