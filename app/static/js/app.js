@@ -143,7 +143,6 @@ document.addEventListener('alpine:init', () => {
   // button is simply never disabled.
   Alpine.data('importForm', (opts = {}) => ({
     sourceSelected: false,
-    appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
     nameVal: '',
     nameState: 'pending',
     init() {
@@ -159,7 +158,7 @@ document.addEventListener('alpine:init', () => {
       return !!this.nameVal.trim() && this.nameState === 'pending';
     },
     get canSubmit() {
-      return this.sourceSelected && this.appliedSelected
+      return this.sourceSelected
         && !!this.nameVal.trim() && ncCleared(this.nameState);
     },
     onName(e) {
@@ -184,9 +183,6 @@ document.addEventListener('alpine:init', () => {
         }
         this.sourceSelected =
           !!this.$root.querySelector('input[name="source_paths"]:checked');
-      } else if (cb.name === 'applied_edm_ids') {
-        this.appliedSelected =
-          !!this.$root.querySelector('input[name="applied_edm_ids"]:checked');
       }
     },
     onSwap() {
