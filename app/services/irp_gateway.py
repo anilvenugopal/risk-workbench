@@ -566,7 +566,7 @@ class _RealGateway:
             model_region_code=row.get("modelRegionCode"),
             model_version_code=row.get("modelVersionCode"),
             is_hd=bool(row.get("isHD")),
-        ) for row in rows]
+        ) for row in rows if row.get("isActive") is True]
 
     def list_currencies(self) -> list[CurrencyEntry]:
         rows = self._reference_rows(
