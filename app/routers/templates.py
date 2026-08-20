@@ -11,17 +11,25 @@ from irp_integration.analysis_validation import classify_model_profile
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import rwb_job_service
+from app.services._common import _rm_base_url
 from app.workers import dispatch
 from db import execute, execute_one
 
 router = APIRouter()
 
 _METADATA_SYNC_REQUESTOR_ID = "00000000-0000-0000-0000-000000000009"
+# rm_path is the tenant-relative path of this tab's Risk Modeler settings screen
+# (joined to `_rm_base_url()`, same tenant-subdomain rule as the EDM deep links
+# in edm_service.py); None where RM has no equivalent screen (event-rate schemes).
 _METADATA_TABS = (
-    {"key": "model-profiles", "label": "Model Profiles", "count_key": "model_profiles"},
-    {"key": "output-profiles", "label": "Output Profiles", "count_key": "output_profiles"},
-    {"key": "event-rate-schemes", "label": "Event Rate Schemes", "count_key": "event_rate_schemes"},
-    {"key": "currencies", "label": "Currencies", "count_key": "currencies"},
+    {"key": "model-profiles", "label": "Model Profiles", "count_key": "model_profiles",
+     "rm_path": "riskmodeler/datasources/model-settings/profiles"},
+    {"key": "output-profiles", "label": "Output Profiles", "count_key": "output_profiles",
+     "rm_path": "riskmodeler/datasources/model-settings/output"},
+    {"key": "event-rate-schemes", "label": "Event Rate Schemes", "count_key": "event_rate_schemes",
+     "rm_path": None},
+    {"key": "currencies", "label": "Currencies", "count_key": "currencies",
+     "rm_path": "home/reference-data/currencies/currency"},
 )
 
 
@@ -96,6 +104,16 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
     return rows
 
 
+def _metadata_rm_url(tab: str) -> str | None:
+    rm_path = next(
+        metadata_tab["rm_path"] for metadata_tab in _METADATA_TABS
+        if metadata_tab["key"] == tab)
+    if rm_path is None:
+        return None
+    base = _rm_base_url()
+    return f"{base}/{rm_path}" if base else None
+
+
 def _metadata_context(request: Request) -> dict:
     requested_tab = request.query_params.get("tab", "model-profiles")
     valid_tabs = {tab["key"] for tab in _METADATA_TABS}
@@ -139,6 +157,7 @@ def _metadata_context(request: Request) -> dict:
         "active_tab_label": next(
             metadata_tab["label"] for metadata_tab in _METADATA_TABS
             if metadata_tab["key"] == tab),
+        "active_tab_rm_url": _metadata_rm_url(tab),
         "q": q,
         "rows": _metadata_rows(tab, q),
         "counts": counts,

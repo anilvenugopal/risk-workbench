@@ -13,9 +13,11 @@ import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
+from app.config import settings
 from db import get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,20 @@ logger = logging.getLogger(__name__)
 def _utcnow() -> datetime:
     """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _rm_base_url() -> str | None:
+    """The Risk Modeler web UI's origin, ``https://<tenant>.<domain>`` — derived
+    from ``RISK_MODELER_TENANT_NAME`` and the registrable domain of
+    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod): the
+    UI lives on the TENANT subdomain, never the API host. ``None`` when either
+    is not configured (e.g. api-key auth deployments) — callers hide the link."""
+    tenant = settings.risk_modeler_tenant_name.strip()
+    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
+    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
+    if not tenant or not domain:
+        return None
+    return f"https://{tenant}.{domain}"
 
 
 def _json(value: Any) -> str | None:
@@ -144,4 +160,4 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 
 
 __all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
-           "_snapshot_prune", "_parse_json_dict"]
+           "_snapshot_prune", "_parse_json_dict", "_rm_base_url"]

@@ -23,6 +23,12 @@
       {% endif %}
     {% endif %}
     {% if last_synced_at %}<span>Last synced {{ last_synced_at }}</span>{% endif %}
+    {% if active_tab_rm_url %}
+    <span class="sec__spacer"></span>
+    <a class="sec__note sec__note--link" href="{{ active_tab_rm_url }}"
+       target="_blank" rel="noopener"
+       title="Open {{ active_tab_label }} in Risk Modeler (new tab)">Open in Risk Modeler ↗</a>
+    {% endif %}
   </div>
 
   <form class="metadata-filter" method="get" action="/templates/metadata"

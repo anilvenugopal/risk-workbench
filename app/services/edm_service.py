@@ -27,9 +27,8 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
-from app.config import settings
 from app.services import (
     analysis_service,
     irp_gateway,
@@ -39,7 +38,7 @@ from app.services import (
     rwb_job_service,
     treaty_service,
 )
-from app.services._common import _uid, _utcnow
+from app.services._common import _rm_base_url, _uid, _utcnow
 from app.services.analysis_service import BrokerAnalysisGroup
 from app.services.errors import (
     ConcurrencyConflict,
@@ -488,22 +487,17 @@ def _analyses_backfill_running(edm_id: str) -> bool:
 
 def _rm_datasource_url(name: str, screen: str) -> str | None:
     """The Risk Modeler UI deep link for one of this EDM's datasource screens —
-    ``https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
-    <edm-name>/<screen>``, where ``<rm-domain>`` is the registrable domain of
-    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
-    RM's web UI lives on the TENANT subdomain, not the API host. A plain
-    navigation link, never an API call (Article 11). ``None`` when the tenant
-    name or base URL is not configured (e.g. api-key auth deployments).
+    ``<rm-base>/riskmodeler/datasources/<edm-name>/<screen>`` (see
+    ``_rm_base_url``). A plain navigation link, never an API call (Article 11).
+    ``None`` when the tenant name or base URL is not configured (e.g. api-key
+    auth deployments).
 
     RM addresses the datasource by *name*, not exposureId, and EDM names are not
     unique — for a duplicated name the link lands on whichever one RM picks."""
-    tenant = settings.risk_modeler_tenant_name.strip()
-    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
-    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
-    if not tenant or not domain:
+    base = _rm_base_url()
+    if base is None:
         return None
-    return (f"https://{tenant}.{domain}/riskmodeler/datasources/"
-            f"{quote(str(name), safe='')}/{screen}")
+    return f"{base}/riskmodeler/datasources/{quote(str(name), safe='')}/{screen}"
 
 
 def _detail_state(status: str | None, as_of: Any,

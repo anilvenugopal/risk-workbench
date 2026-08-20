@@ -177,3 +177,52 @@ def test_bad_csrf_token_does_not_enqueue_sync(iteration2_db):
     assert response.status_code == 303
     assert response.headers["location"] == "/templates/metadata"
     assert execute("SELECT id FROM rwb_job", connection="WORKBENCH") == []
+
+
+# ── Risk Modeler deep links on each metadata tab ──────────────────────────────
+
+def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
+    iteration2_db, monkeypatch,
+):
+    monkeypatch.setattr(settings, "risk_modeler_base_url",
+                        "https://api-euw1.rms-ppe.com/")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "prodmgmt")
+
+    body = _client().get(
+        "/templates/metadata/table?tab=model-profiles"
+    ).text
+    assert (
+        'href="https://prodmgmt.rms-ppe.com/riskmodeler/datasources/'
+        'model-settings/profiles"' in body
+    )
+
+    body = _client().get(
+        "/templates/metadata/table?tab=output-profiles"
+    ).text
+    assert (
+        'href="https://prodmgmt.rms-ppe.com/riskmodeler/datasources/'
+        'model-settings/output"' in body
+    )
+
+    body = _client().get(
+        "/templates/metadata/table?tab=currencies"
+    ).text
+    assert (
+        'href="https://prodmgmt.rms-ppe.com/home/reference-data/'
+        'currencies/currency"' in body
+    )
+
+    body = _client().get(
+        "/templates/metadata/table?tab=event-rate-schemes"
+    ).text
+    assert "Open in Risk Modeler" not in body
+
+
+def test_tab_rm_links_hidden_when_tenant_not_configured(iteration2_db, monkeypatch):
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "")
+
+    body = _client().get(
+        "/templates/metadata/table?tab=model-profiles"
+    ).text
+
+    assert "Open in Risk Modeler" not in body
