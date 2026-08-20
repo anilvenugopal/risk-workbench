@@ -114,7 +114,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
@@ -138,7 +138,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
@@ -167,7 +167,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
@@ -199,7 +199,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
@@ -234,7 +234,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
@@ -257,7 +257,7 @@
                  :placeholder="placeholder">
           <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
                @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+            <template x-for="(opt, i) in filteredOptions" :key="i">
               <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
                       :data-value="opt.value" x-text="opt.label"></button>
             </template>
