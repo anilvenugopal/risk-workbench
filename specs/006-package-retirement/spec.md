@@ -43,6 +43,7 @@ picker, and submission-scoped RDM section.
 | T-04 | Approved | Remove `package_id` from jobs and analyses. Keep EDM/RDM as execution targets and add nullable `requested_from_submission_id` to `irp_job` as provenance only. |
 | T-05 | Approved | Rebuild the pre-go-live WORKBENCH database from the edited single Alembic revision; do not write a package-to-association data converter. |
 | T-06 | Approved | Build and verify this feature against `irp-integration` 0.4.0 from TestPyPI. Its `submit_rdm_import_job` method accepts `exposure_set_name`. |
+| T-07 | Approved | Blank env values fall through to field defaults via `env_ignore_empty=True` on `Settings`; added for CI, which exports blank vars such as `IRP_SUBMISSION_MAX_RETRIES`. |
 
 ## User Scenarios & Testing
 

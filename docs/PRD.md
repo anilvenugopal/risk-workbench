@@ -1267,7 +1267,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Moved in from Iteration 1:** §5.1 (password login, bcrypt, forced password change, `must_change_password` flow), §5.2/§5.3 (OIDC/BFF, PKCE, MSAL, JIT provisioning for PremiumIQ), §5.5 (schema: `user_session`, `login_attempt`, `password_hash`/`must_change_password` on `app_user`), §6.1 (roles), §6.3 (admin: Users, password reset, force-logout). **Deferred from Iteration 1:** rate limiting lockout (§5.1.3 — `login_attempt` table created and logged but lockout gate not implemented).
 
-### Iteration 1 — Submission & Package domain model
+### Iteration 1 — Submission & Package domain model (Package schema since retired)
 
 > **CR-003 restructuring.** This iteration was previously "Domain, file inventory & RLS" and built the Customer/Program spine, the `apply_scope()`/`user_customer_access` RLS machinery, and the full file-inventory subsystem — **all dropped by CR-003.** The scope below is the redesigned deal-centric model with no customer hierarchy, no RLS, and no file inventory. It covers the full DATA_MODEL §4 "Submission & Package" domain — the submission behavior plus the package *structure* that Iteration 2 builds its behavior on. **Reconciliation with the pre-CR-003 leftovers is a small removal step (CR-003 §8.3): the built migration `0001_initial.py` only ever created the `customer`, `program`, and `user_customer_access` shell tables plus the generic `db/scope.py` helper — the `submission`, `package`, and file-inventory tables were never built. So the cleanup is just dropping those three tables + `db/scope.py`/`test_scope.py`, not unwinding a live domain.**
 
@@ -1282,9 +1282,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Out:** Customer/Program/RLS/file-inventory (dropped, CR-003); EDM/RDM entity management, search, workflow references; Package *behavior* — creation via shared-drive browse, name-collision check, IRP sync/delete, and the §7.4 package cards — all Iteration 2, building on the package schema defined here.
 
-**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening works from both `COMPLETED → ACTIVE` and `CANCELLED → ACTIVE`, and that a closed submission is read-only — edits to its fields and CRM-ID tags are blocked until it is reopened (the gate's effect on package actions follows when package behavior lands in Iteration 2). The `package`/`submission_package` schema is in place and unit-tested: `irp_edm`/`irp_rdm` accept a nullable `package_id`, the app-level ≥1-member invariant is covered by a test, and the M:N lets one package attach to two submissions.
+**Exit:** browse all submissions with the "my submissions" filter (no scoping — every analyst sees every deal); filter by cedant / treaty type / inception; create a submission with CRM-ID tags and an optional renewal link; set its status and confirm reopening works from both `COMPLETED → ACTIVE` and `CANCELLED → ACTIVE`, and that a closed submission is read-only — edits to its fields and CRM-ID tags are blocked until it is reopened. The `package`/`submission_package` schema was delivered and unit-tested as written here (nullable `package_id` on `irp_edm`/`irp_rdm`, app-level ≥1-member invariant, M:N to submissions) and was later removed by `specs/006-package-retirement/`; `submission_edm`/`submission_rdm` replaced it.
 
-### Iteration 2 — EDM & RDM entity management (incl. Packages)
+### Iteration 2 — EDM & RDM entity management (incl. Packages, since retired)
 
 > **Reordered (2026-07-08).** This was previously Iteration 3; EDM/RDM management now comes before the search framework, and Package *behavior* is built here in full on top of the package schema defined in Iteration 1 (DATA_MODEL §4). Because the IRP import plumbing lands in this iteration, Package sync/delete are **real from the start** — there is no longer a stub-then-real two-step across iterations (the package UI can still be built against 60-second heartbeat stubs first and wired to real IRP within the iteration).
 
@@ -1297,7 +1297,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Out:** the global command-palette search framework (§19, Ctrl/Cmd-J and providers — Iteration 3); analysis, grouping, results, repositories; workflow references (Workflow/Stage/Task layer is out of scope for this entire PRD update — being redesigned separately). *(Package job chaining across RWB-job/IRP-job space (A21) — the prerequisite for the real sync/delete paths — is now **resolved**; see §22 A21 and DATA_MODEL.md §8.)*
 
-**Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. Create an EDM-only, an RDM-only, and an EDM+RDM package by browsing the shared drive and selecting file(s); see the IRP name-collision warning; Save-and-Sync runs a real IRP sync with EDM-before-RDM ordering on a both-package, and Delete runs a real IRP delete with RDM-before-EDM ordering; clicking a job count on a package card lands on the Jobs list pre-filtered via query string.
+**Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. The Package exit criteria (create EDM-only/RDM-only/both packages from the shared drive, the IRP name-collision warning, Save-and-Sync with EDM-before-RDM ordering, Delete with RDM-before-EDM ordering, package-card job-count links to the pre-filtered Jobs list) were delivered as written here and later removed by `specs/006-package-retirement/`; imports are now entity-scoped.
 
 > **Correction (2026-07-21).** The exit criterion "analyst receives a Teams/email notification on completion" was **not actually delivered** in this iteration; notification delivery is greenfield and is scheduled as **Iteration 11**. The poller/worker job-completion path it would hang off does exist.
 
@@ -1530,8 +1530,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 Scope: §9.4 name-collision paragraph + Save bullet, this log — reconciles the PRD with the amended spec-003 FR-012/SC-005 and superseded research R8 (approver-confirmed 2026-07-27). No CR (behavior refinement forced by irp-integration ≥ 0.2.1, which validates EDM name uniqueness at submit time — the old non-blocking override could no longer produce the duplicate it offered, only a graceless worker failure minutes later).
 
-- **Collision → blocking error at save time** on every surface (standalone EDM/RDM import, package-modal Save **and** Save-and-Sync, package re-sync), with as-you-type validation (debounced ~500ms, results cached ~30s in-process — issue #11) that disables the submit buttons while a collision error is showing. Re-sync checks only members it will actually (re)submit — a `ready` member never self-collides.
-- **Fail open when Risk Modeler is unreachable:** the save proceeds with a visible warning; the worker-side submit validation is the backstop, and its specific failure message is surfaced on the EDM/RDM detail pages and package-card member rows.
+- **Collision → blocking error at save time** on every surface (the EDM/RDM import forms), with as-you-type validation (debounced ~500ms, results cached ~30s in-process — issue #11) that disables the submit buttons while a collision error is showing.
+- **Fail open when Risk Modeler is unreachable:** the save proceeds with a visible warning; the worker-side submit validation is the backstop, and its specific failure message is surfaced on the EDM/RDM detail pages.
 - **Delete-the-existing-Risk-Modeler-entity-and-reimport** as a collision remedy is deferred to a follow-up issue.
 - The submission-level "similar deal already exists" warning (§7.2b) is unrelated and stays non-blocking.
 
