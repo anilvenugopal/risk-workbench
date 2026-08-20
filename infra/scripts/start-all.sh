@@ -39,8 +39,13 @@ redis-server \
 
 # ── 2. nginx ──────────────────────────────────────────────────────────────────
 echo "[start] nginx..."
-# nginx.conf is volume-mounted so edits take effect on reload (make nginx-reload)
-nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
+# nginx.conf is a template — ${APP_ROOT} must be substituted with the real
+# checkout path (source file is volume-mounted, so edits take effect on
+# reload via make nginx-reload; the generated file in LOG_DIR is not).
+APP_ROOT=$WORKSPACE envsubst '$APP_ROOT' \
+    < "$WORKSPACE/deploy/nginx/nginx.conf" \
+    > "$LOG_DIR/nginx.conf"
+nginx -c "$LOG_DIR/nginx.conf" -g "daemon on;"
 
 # ── 3. Dramatiq workers ───────────────────────────────────────────────────────
 echo "[start] Dramatiq workers..."

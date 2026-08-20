@@ -21,17 +21,34 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 # ── Preflight checks ──────────────────────────────────────────────────────────
-for cmd in uv redis-server odbcinst docker; do
+# redis-server (Ubuntu) or valkey-server (RHEL9) — either satisfies the broker.
+if ! which redis-server > /dev/null 2>&1 && ! which valkey-server > /dev/null 2>&1; then
+    echo "ERROR: neither 'redis-server' nor 'valkey-server' found." >&2
+    echo "       See docs/SCAFFOLDING.md (Ubuntu) or docs/RHEL9_SYSTEM_SETUP.md (RHEL9)." >&2
+    exit 1
+fi
+
+for cmd in uv odbcinst docker; do
     if ! which "$cmd" > /dev/null 2>&1; then
-        echo "ERROR: '$cmd' not found. See docs/SCAFFOLDING.md First-Time Setup." >&2
+        echo "ERROR: '$cmd' not found. See docs/SCAFFOLDING.md (Ubuntu) or docs/RHEL9_SYSTEM_SETUP.md (RHEL9)." >&2
         exit 1
     fi
 done
 
-if ! dpkg -l msodbcsql18 > /dev/null 2>&1; then
+# dpkg (Debian/Ubuntu) vs rpm (RHEL9) — package database differs by distro.
+if which dpkg > /dev/null 2>&1; then
+    ODBC_INSTALLED=$(dpkg -l msodbcsql18 > /dev/null 2>&1 && echo yes || echo no)
+elif which rpm > /dev/null 2>&1; then
+    ODBC_INSTALLED=$(rpm -q msodbcsql18 > /dev/null 2>&1 && echo yes || echo no)
+else
+    echo "ERROR: neither 'dpkg' nor 'rpm' found — cannot verify ODBC Driver 18 install." >&2
+    exit 1
+fi
+
+if [ "$ODBC_INSTALLED" = "no" ]; then
     echo "ERROR: ODBC Driver 18 not installed." >&2
-    echo "       Run Step 3 in docs/SCAFFOLDING.md." >&2
-    echo "       If you are on Ubuntu 26.04, use the 24.04 repo URL (see SCAFFOLDING.md)." >&2
+    echo "       Ubuntu: Step 3 in docs/SCAFFOLDING.md." >&2
+    echo "       RHEL9:  docs/RHEL9_SYSTEM_SETUP.md, ODBC Driver section." >&2
     exit 1
 fi
 

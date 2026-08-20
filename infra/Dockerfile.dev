@@ -22,11 +22,13 @@ ENV PYTHONUNBUFFERED=1 \
 # nginx: reverse proxy (same package as prod).
 # redis-server: in-process Redis (same as prod; no separate container needed).
 # procps: ps/kill for start-all.sh process management.
+# gettext-base: envsubst, used to fill in nginx.conf's ${APP_ROOT} placeholder.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl gnupg ca-certificates apt-transport-https \
         gcc g++ unixodbc-dev \
         nginx \
         redis-server \
+        gettext-base \
         procps \
     && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
         | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \

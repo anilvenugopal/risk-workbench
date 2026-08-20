@@ -111,9 +111,10 @@ wsl-setup:   ## [WSL2] Create databases and run migrations (after manual system 
 wsl-start:   ## [WSL2] Start SQL Server + Redis (idempotent — safe if already running)
 	@bash infra/scripts/wsl-start.sh
 
-wsl-stop:   ## [WSL2] Stop SQL Server container and Redis
+wsl-stop:   ## [WSL2] Stop SQL Server container and Redis/Valkey
 	$(COMPOSE) stop sqlserver
-	redis-cli shutdown nosave 2>/dev/null || true
+	@which redis-cli > /dev/null 2>&1 && redis-cli shutdown nosave 2>/dev/null || true
+	@which valkey-cli > /dev/null 2>&1 && valkey-cli shutdown nosave 2>/dev/null || true
 	@echo "Stopped."
 
 wsl-app:   ## [WSL2] Start the web app (uvicorn with live reload on :8000)
@@ -124,6 +125,9 @@ wsl-worker:   ## [WSL2] Start the Dramatiq background worker
 
 wsl-poller:   ## [WSL2] Start the IRP job poller
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.poller.run --loop'
+
+wsl-nginx:   ## [WSL2] Start nginx in the foreground, fronting uvicorn on :80 (optional — uvicorn on :8000 works without it)
+	sudo nginx -c "$(CURDIR)/deploy/nginx/nginx.conf" -g "daemon off;"
 
 wsl-db-bootstrap:   ## [WSL2] Create the 3 app databases (safe to re-run — skips existing)
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python infra/scripts/bootstrap_db.py'
