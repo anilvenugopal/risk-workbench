@@ -62,7 +62,7 @@
     </label>
   </form>
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th class="col-actions"></th></tr></thead>
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Event rate scheme</th><th>Output profile</th><th class="col-actions"></th></tr></thead>
     <tbody>
       {% for template in templates %}
       <tr class="data-row"
@@ -73,6 +73,14 @@
         </td>
         <td>{{ forms.family_badge(template.profile_family) or '—' }}</td>
         <td>{{ template.analysis_profile_name }}</td>
+        <td>
+          {{ template.event_rate_scheme_name or '—' }}
+          {% if template.event_rate_scheme_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
+        </td>
+        <td>
+          {{ template.output_profile_name }}
+          {% if template.output_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
+        </td>
         <td class="row-actions">
           {% if current_user.is_admin %}
           <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
@@ -88,7 +96,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="4">
+      <tr><td class="empty" colspan="6">
         {% if q %}No templates match — <a class="clear-filters" href="/templates?tab=templates">clear filters</a>.
         {% else %}No analysis templates yet.
           {% if current_user.is_admin %}<a href="/templates/analysis-templates/new">Create one</a> to get started.
