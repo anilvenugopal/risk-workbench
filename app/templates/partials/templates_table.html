@@ -17,7 +17,7 @@
 
   {% if active_tab == 'suites' %}
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Items</th><th>Author</th><th class="col-actions"></th></tr></thead>
+    <thead><tr><th>Name</th><th>Items</th><th>Author</th><th class="col-actions">Action</th></tr></thead>
     <tbody>
       {% for suite in suites %}
       <tr class="data-row"
@@ -28,7 +28,7 @@
         </td>
         <td>{{ suite.item_count }}</td>
         <td>{{ suite.author_name or '—' }}</td>
-        <td class="row-actions">
+        <td class="col-actions"><div class="row-actions">
           {% if current_user.is_admin %}
           <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -40,7 +40,7 @@
                     onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete</button>
           </form>
           {% endif %}
-        </td>
+        </div></td>
       </tr>
       {% else %}
       <tr><td class="empty" colspan="4">
@@ -62,7 +62,7 @@
     </label>
   </form>
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Event rate scheme</th><th>Output profile</th><th class="col-actions"></th></tr></thead>
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Event rate scheme</th><th>Output profile</th><th class="col-actions">Action</th></tr></thead>
     <tbody>
       {% for template in templates %}
       <tr class="data-row"
@@ -81,7 +81,7 @@
           {{ template.output_profile_name }}
           {% if template.output_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
         </td>
-        <td class="row-actions">
+        <td class="col-actions"><div class="row-actions">
           {% if current_user.is_admin %}
           <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -93,7 +93,7 @@
                     onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete</button>
           </form>
           {% endif %}
-        </td>
+        </div></td>
       </tr>
       {% else %}
       <tr><td class="empty" colspan="6">
