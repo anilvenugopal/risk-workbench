@@ -365,6 +365,10 @@ def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
 
 
+def _toast_header(message: str, kind: str) -> str:
+    return json.dumps({"rwb:toast": {"message": message, "type": kind}})
+
+
 @router.post("/edms/{edm_id}/geohaz")
 def geohaz_launch(
     request: Request,
@@ -390,22 +394,17 @@ def geohaz_launch(
             query = urlencode({"geohaz_error": str(exc)})
             return RedirectResponse(f"/edms/{edm_id}?{query}", status_code=303)
         response = _body_partial(request, edm_id)
-        response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-            "message": str(exc),
-            "type": "error",
-        }})
+        response.headers["HX-Trigger"] = _toast_header(str(exc), "error")
         return response
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}?geohaz=queued", status_code=303)
     response = _body_partial(request, edm_id)
-    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": (
-            f"Hazard lookup queued for {len(result.portfolio_ids)} "
-            f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
-        ),
-        "type": "success",
-    }})
+    message = (
+        f"Hazard lookup queued for {len(result.portfolio_ids)} "
+        f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
+    )
+    response.headers["HX-Trigger"] = _toast_header(message, "success")
     return response
 
 
