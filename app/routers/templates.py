@@ -5,16 +5,14 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from irp_integration.analysis_validation import classify_model_profile
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import rwb_job_service, template_service
 from app.services._common import _rm_ui_root
 from app.services.template_service import (
-    SuiteItemValues,
     TemplateInUseError,
     TemplateServiceError,
     TemplateValidationError,
@@ -136,9 +134,8 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
         """,
         {"q": match}, connection="WORKBENCH")
     for row in rows:
-        row["family"] = (
-            "Accumulation" if row["is_accumulation"]
-            else classify_model_profile(row["software_version_code"] or "")
+        row["family"] = template_service.profile_family(
+            row["is_accumulation"], row["software_version_code"]
         )
     return rows
 
@@ -168,7 +165,7 @@ def _metadata_context(request: Request) -> dict:
           (SELECT COUNT(*) FROM irp_currency_scheme) AS currency_schemes
         """,
         connection="WORKBENCH")
-    jobs = execute(
+    latest_job = execute_one(
         """
         SELECT status_code, error_detail, completed_at, updated_at
         FROM rwb_job
@@ -176,7 +173,6 @@ def _metadata_context(request: Request) -> dict:
         ORDER BY updated_at DESC
         """,
         connection="WORKBENCH")
-    latest_job = jobs[0] if jobs else None
     cache_sync = execute_one(
         """
         SELECT MAX(updated_at) AS last_synced_at
@@ -217,12 +213,16 @@ def _admin_context(request: Request) -> dict:
     q = (request.query_params.get("q") or "").strip()
     suites = template_service.list_suites()
     all_templates = template_service.list_templates()
+    matching = (
+        [t for t in all_templates if q.lower() in t["name"].lower()]
+        if tab == "templates" else []
+    )
     return {
         "active_tab": tab,
         "q": q,
         "suites": suites,
         "suite_count": len(suites),
-        "templates": template_service.list_templates(q) if tab == "templates" else [],
+        "templates": matching,
         "template_count": len(all_templates),
     }
 
@@ -443,10 +443,7 @@ def vintage_options_fragment(request: Request):
     return _page(request, "partials/vintage_options.html", {"options": options})
 
 
-@router.post("/templates/analysis-templates")
-def create_template_route(
-    request: Request,
-    csrf_token: Annotated[str, Form()],
+def _template_form(
     name: Annotated[str, Form()] = "",
     analysis_profile_name: Annotated[str, Form()] = "",
     event_rate_scheme_name: Annotated[str, Form()] = "",
@@ -459,14 +456,8 @@ def create_template_route(
     franchise_deductible: Annotated[str | None, Form()] = None,
     treat_construction_occupancy_as_unknown: Annotated[str, Form()] = "1",
     tags: Annotated[str, Form()] = "",
-):
-    current_user, redirect = _require_admin(request)
-    if redirect:
-        return redirect
-    if not validate_csrf_token(csrf_token):
-        return RedirectResponse("/templates?tab=templates", status_code=303)
-
-    form = {
+) -> dict:
+    return {
         "name": name,
         "analysis_profile_name": analysis_profile_name,
         "event_rate_scheme_name": event_rate_scheme_name or None,
@@ -481,11 +472,25 @@ def create_template_route(
             treat_construction_occupancy_as_unknown == "1",
         "tags": tags,
     }
+
+
+@router.post("/templates/analysis-templates")
+def create_template_route(
+    request: Request,
+    csrf_token: Annotated[str, Form()],
+    form: Annotated[dict, Depends(_template_form)],
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/templates?tab=templates", status_code=303)
+
     values, errors = _parse_template_values(form)
     if values is not None:
         try:
-            template_service.create_template(
-                values, tags=tags.split(";"), actor_id=current_user.id,
+            template_service.save_template(
+                values, tags=form["tags"].split(";"), actor_id=current_user.id,
             )
         except TemplateValidationError as exc:
             errors = list(exc.errors)
@@ -513,18 +518,7 @@ def update_template_route(
     request: Request,
     template_id: str,
     csrf_token: Annotated[str, Form()],
-    name: Annotated[str, Form()] = "",
-    analysis_profile_name: Annotated[str, Form()] = "",
-    event_rate_scheme_name: Annotated[str, Form()] = "",
-    output_profile_name: Annotated[str, Form()] = "",
-    currency_code: Annotated[str, Form()] = "",
-    currency_scheme_code: Annotated[str, Form()] = "",
-    currency_vintage: Annotated[str, Form()] = "",
-    min_loss_threshold: Annotated[str, Form()] = "1.00",
-    num_max_loss_event: Annotated[str, Form()] = "1",
-    franchise_deductible: Annotated[str | None, Form()] = None,
-    treat_construction_occupancy_as_unknown: Annotated[str, Form()] = "1",
-    tags: Annotated[str, Form()] = "",
+    form: Annotated[dict, Depends(_template_form)],
 ):
     current_user, redirect = _require_admin(request)
     if redirect:
@@ -533,26 +527,12 @@ def update_template_route(
         return RedirectResponse(
             f"/templates/analysis-templates/{template_id}", status_code=303)
 
-    form = {
-        "name": name,
-        "analysis_profile_name": analysis_profile_name,
-        "event_rate_scheme_name": event_rate_scheme_name or None,
-        "output_profile_name": output_profile_name,
-        "currency_code": currency_code,
-        "currency_scheme_code": currency_scheme_code,
-        "currency_vintage": currency_vintage,
-        "min_loss_threshold": min_loss_threshold,
-        "num_max_loss_event": num_max_loss_event,
-        "franchise_deductible": franchise_deductible == "on",
-        "treat_construction_occupancy_as_unknown":
-            treat_construction_occupancy_as_unknown == "1",
-        "tags": tags,
-    }
     values, errors = _parse_template_values(form)
     if values is not None:
         try:
-            template_service.update_template(
-                template_id, values, tags=tags.split(";"), actor_id=current_user.id,
+            template_service.save_template(
+                values, tags=form["tags"].split(";"), actor_id=current_user.id,
+                template_id=template_id,
             )
         except TemplateValidationError as exc:
             errors = list(exc.errors)
@@ -618,10 +598,7 @@ def create_suite_route(
         return RedirectResponse("/templates?tab=suites", status_code=303)
     ids = template_ids or []
     try:
-        template_service.create_suite(
-            name, [SuiteItemValues(item_id) for item_id in ids],
-            actor_id=current_user.id,
-        )
+        template_service.save_suite(name, ids, actor_id=current_user.id)
     except TemplateValidationError as exc:
         context = _suite_form_context(
             request, mode="create", suite=None,
@@ -657,9 +634,8 @@ def update_suite_route(
         return RedirectResponse(f"/templates/suites/{suite_id}", status_code=303)
     ids = template_ids or []
     try:
-        template_service.update_suite(
-            suite_id, name, [SuiteItemValues(item_id) for item_id in ids],
-            actor_id=current_user.id,
+        template_service.save_suite(
+            name, ids, actor_id=current_user.id, suite_id=suite_id,
         )
     except TemplateValidationError as exc:
         context = _suite_form_context(

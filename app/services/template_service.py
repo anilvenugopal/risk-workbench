@@ -32,11 +32,6 @@ class TemplateValues:
     treat_construction_occupancy_as_unknown: bool = True
 
 
-@dataclass(frozen=True)
-class SuiteItemValues:
-    template_id: str
-
-
 class TemplateServiceError(ValueError):
     pass
 
@@ -100,15 +95,17 @@ def _profile(conn, name: str) -> dict | None:
     )
 
 
-def classify_profile(profile_name: str, *, conn=None) -> str | None:
-    with _txn(conn) as working:
-        profile = _profile(working, profile_name)
-        if profile is None:
-            return None
-        if profile["is_accumulation"]:
-            return "Accumulation"
-        version = profile["software_version_code"]
-        return classify_model_profile(version) if version is not None else None
+def profile_family(
+    is_accumulation: bool | None, software_version_code: str | None,
+) -> str | None:
+    """DLM/HD/Accumulation marker for a cached model profile (FR-004);
+    None when the cached software version is absent — no marker, and the
+    DLM scheme-required rule does not apply."""
+    if is_accumulation:
+        return "Accumulation"
+    if software_version_code is None:
+        return None
+    return classify_model_profile(software_version_code)
 
 
 def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
@@ -310,9 +307,9 @@ def save_template(
                     """), write_params)
                     if result.rowcount == 0:
                         raise TemplateServiceError("Analysis template was not found")
+        except TemplateServiceError:
+            raise
         except Exception as exc:
-            if isinstance(exc, TemplateServiceError):
-                raise
             if is_unique_violation(exc):
                 raise TemplateValidationError([
                     f'An analysis template named "{params["name"]}" already exists'
@@ -322,29 +319,9 @@ def save_template(
         return saved_id
 
 
-def create_template(
-    values: TemplateValues, *, tags: Iterable[str] = (),
-    actor_id: str | None = None, conn=None,
-) -> str:
-    return save_template(values, tags=tags, actor_id=actor_id, conn=conn)
-
-
-def update_template(
-    template_id: str, values: TemplateValues, *, tags: Iterable[str] = (),
-    actor_id: str | None = None, conn=None,
-) -> str:
-    return save_template(
-        values, tags=tags, actor_id=actor_id, template_id=template_id, conn=conn
-    )
-
-
-_TEMPLATE_SELECT = """
-    SELECT t.*, u.display_name AS author_name,
-           mp.id AS model_profile_id, mp.is_accumulation,
-           mp.software_version_code,
-           op.id AS output_profile_id,
-           ers.id AS event_rate_scheme_id,
-           c.id AS currency_id,
+# Resolved flags for a template's currency scheme/vintage references (FR-011);
+# expects the template table aliased as `t`.
+_CURRENCY_RESOLVED_SQL = """
            CASE WHEN EXISTS (
                SELECT 1 FROM irp_currency_scheme cs
                WHERE cs.code = t.currency_scheme_code
@@ -354,6 +331,17 @@ _TEMPLATE_SELECT = """
                WHERE v.currency_scheme_code = t.currency_scheme_code
                  AND v.vintage = t.currency_vintage
            ) THEN 1 ELSE 0 END AS currency_vintage_resolved
+"""
+
+
+_TEMPLATE_SELECT = f"""
+    SELECT t.*, u.display_name AS author_name,
+           mp.id AS model_profile_id, mp.is_accumulation,
+           mp.software_version_code,
+           op.id AS output_profile_id,
+           ers.id AS event_rate_scheme_id,
+           c.id AS currency_id,
+           {_CURRENCY_RESOLVED_SQL}
     FROM analysis_template t
     LEFT JOIN app_user u ON u.id = t.inserted_by
     LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
@@ -383,16 +371,10 @@ def _decorate_template(row: dict, tags: Iterable[str] = ()) -> dict:
         row["currency_scheme_unresolved"],
         row["currency_vintage_unresolved"],
     ))
-    if row["model_profile_id"] is None:
-        row["profile_family"] = None
-    elif row["is_accumulation"]:
-        row["profile_family"] = "Accumulation"
-    elif row["software_version_code"] is not None:
-        row["profile_family"] = classify_model_profile(
-            row["software_version_code"]
-        )
-    else:
-        row["profile_family"] = None
+    row["profile_family"] = (
+        None if row["model_profile_id"] is None
+        else profile_family(row["is_accumulation"], row["software_version_code"])
+    )
     return row
 
 
@@ -416,15 +398,14 @@ def get_template(template_id: str, *, conn=None) -> dict | None:
         return _decorate_template(row, (tag["tag_name"] for tag in tags))
 
 
-def list_templates(q: str = "", *, conn=None) -> list[dict]:
+def list_templates(*, conn=None) -> list[dict]:
     with _txn(conn) as working:
         rows = _rows(
             working,
             _TEMPLATE_SELECT + """
-            WHERE t.deleted_at IS NULL AND LOWER(t.name) LIKE :q
+            WHERE t.deleted_at IS NULL
             ORDER BY t.name
             """,
-            {"q": f"%{q.strip().lower()}%"},
         )
         tags_by_id: dict[str, list[str]] = {}
         for tag in _rows(working, """
@@ -474,11 +455,11 @@ def delete_template(
             raise TemplateServiceError("Analysis template was not found")
 
 
-def _validate_suite(conn, name: str, items: list[SuiteItemValues]) -> None:
+def _validate_suite(conn, name: str, template_ids: list[str]) -> None:
     errors = []
     if not name.strip():
         errors.append("Suite name is required")
-    ids = [_uid(item.template_id) for item in items]
+    ids = [_uid(template_id) for template_id in template_ids]
     if len(ids) != len(set(ids)):
         errors.append("A template can appear only once in a suite")
     if ids:
@@ -500,16 +481,16 @@ def _validate_suite(conn, name: str, items: list[SuiteItemValues]) -> None:
 
 def save_suite(
     name: str,
-    items: Iterable[SuiteItemValues],
+    template_ids: Iterable[str],
     *,
     actor_id: str | None = None,
     suite_id: str | None = None,
     conn=None,
 ) -> str:
-    item_list = list(items)
+    id_list = list(template_ids)
     clean_name = name.strip()
     with _txn(conn) as working:
-        _validate_suite(working, clean_name, item_list)
+        _validate_suite(working, clean_name, id_list)
         duplicate_sql = """
             SELECT id FROM template_suite
             WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL
@@ -543,9 +524,9 @@ def save_suite(
                     """), params)
                     if result.rowcount == 0:
                         raise TemplateServiceError("Template suite was not found")
+        except TemplateServiceError:
+            raise
         except Exception as exc:
-            if isinstance(exc, TemplateServiceError):
-                raise
             if is_unique_violation(exc):
                 raise TemplateValidationError([
                     f'A template suite named "{clean_name}" already exists'
@@ -556,7 +537,7 @@ def save_suite(
             text("DELETE FROM template_suite_item WHERE suite_id = :id"),
             {"id": saved_id},
         )
-        for item in item_list:
+        for template_id in id_list:
             working.execute(text("""
                 INSERT INTO template_suite_item
                     (id, suite_id, template_id, inserted_at, inserted_by)
@@ -564,27 +545,11 @@ def save_suite(
             """), {
                 "id": str(uuid.uuid4()),
                 "suite": saved_id,
-                "template": item.template_id,
+                "template": template_id,
                 "now": now,
                 "actor": actor_id,
             })
         return saved_id
-
-
-def create_suite(
-    name: str, items: Iterable[SuiteItemValues], *,
-    actor_id: str | None = None, conn=None,
-) -> str:
-    return save_suite(name, items, actor_id=actor_id, conn=conn)
-
-
-def update_suite(
-    suite_id: str, name: str, items: Iterable[SuiteItemValues], *,
-    actor_id: str | None = None, conn=None,
-) -> str:
-    return save_suite(
-        name, items, actor_id=actor_id, suite_id=suite_id, conn=conn
-    )
 
 
 def get_suite(suite_id: str, *, conn=None) -> dict | None:
@@ -598,21 +563,13 @@ def get_suite(suite_id: str, *, conn=None) -> dict | None:
         if suite is None:
             return None
         suite["id"] = _uid(suite["id"])
-        items = _rows(working, """
+        items = _rows(working, f"""
             SELECT i.id, i.template_id,
                    t.name AS template_name, t.deleted_at AS template_deleted_at,
                    mp.id AS model_profile_id, op.id AS output_profile_id,
                    ers.id AS event_rate_scheme_id, c.id AS currency_id,
                    t.event_rate_scheme_name,
-                   CASE WHEN EXISTS (
-                       SELECT 1 FROM irp_currency_scheme cs
-                       WHERE cs.code = t.currency_scheme_code
-                   ) THEN 1 ELSE 0 END AS currency_scheme_resolved,
-                   CASE WHEN EXISTS (
-                       SELECT 1 FROM irp_currency_scheme_vintage v
-                       WHERE v.currency_scheme_code = t.currency_scheme_code
-                         AND v.vintage = t.currency_vintage
-                   ) THEN 1 ELSE 0 END AS currency_vintage_resolved
+                   {_CURRENCY_RESOLVED_SQL}
             FROM template_suite_item i
             LEFT JOIN analysis_template t ON t.id = i.template_id
             LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
@@ -698,14 +655,9 @@ def reference_options(*, conn=None) -> dict[str, list[dict]]:
             FROM irp_model_profile ORDER BY name
         """)
         for profile in profiles:
-            if profile["is_accumulation"]:
-                profile["family"] = "Accumulation"
-            elif profile["software_version_code"] is not None:
-                profile["family"] = classify_model_profile(
-                    profile["software_version_code"]
-                )
-            else:
-                profile["family"] = None
+            profile["family"] = profile_family(
+                profile["is_accumulation"], profile["software_version_code"]
+            )
         return {
             "model_profiles": profiles,
             "output_profiles": _rows(
@@ -721,15 +673,13 @@ def reference_options(*, conn=None) -> dict[str, list[dict]]:
         }
 
 
-def vintage_options(
-    scheme_code: str, *, selected: str | None = None, conn=None,
-) -> list[dict]:
+def vintage_options(scheme_code: str, *, conn=None) -> list[dict]:
     """Cached vintages for one currency scheme, latest `effective_date` first.
 
     A duplicate vintage code (raw-snapshot cache, no unique key) collapses to
     its most recent `effective_date` — the select only needs one option per
-    distinct vintage value. Pre-selects `selected` when given (editing an
-    existing template), else the latest by effective date (T-09 default)."""
+    distinct vintage value. Pre-selects the latest by effective date (T-09
+    default)."""
     with _txn(conn) as working:
         if not scheme_code:
             return []
@@ -749,22 +699,15 @@ def vintage_options(
             reverse=True,
         )
         for index, option in enumerate(options):
-            option["selected"] = (
-                option["vintage"] == selected if selected is not None
-                else index == 0
-            )
+            option["selected"] = index == 0
         return options
 
 
 __all__ = [
-    "SuiteItemValues",
     "TemplateInUseError",
     "TemplateServiceError",
     "TemplateValidationError",
     "TemplateValues",
-    "classify_profile",
-    "create_suite",
-    "create_template",
     "delete_suite",
     "delete_template",
     "get_suite",
@@ -772,11 +715,10 @@ __all__ = [
     "list_suites",
     "list_tag_names",
     "list_templates",
+    "profile_family",
     "reference_options",
     "save_suite",
     "save_template",
     "scheme_options",
-    "update_suite",
-    "update_template",
     "vintage_options",
 ]
