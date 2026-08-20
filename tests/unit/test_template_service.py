@@ -58,9 +58,9 @@ def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
     with iteration2_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_model_profile
-                (id, irp_id, name, is_accumulation, rms_default, inserted_at, updated_at)
+                (id, irp_id, name, is_accumulation, inserted_at, updated_at)
             VALUES
-                ('accumulation', 99, 'Global Accumulation', 1, 0,
+                ('accumulation', 99, 'Global Accumulation', 1,
                  '2026-08-18', '2026-08-18')
         """)
 
@@ -172,9 +172,9 @@ def test_unresolved_flag_tracks_cache_removal_and_return(iteration2_db, fake_irp
         conn.exec_driver_sql("""
             INSERT INTO irp_model_profile
                 (id, irp_id, name, is_accumulation, software_version_code,
-                 peril_code, model_region_code, rms_default, inserted_at, updated_at)
+                 peril_code, model_region_code, inserted_at, updated_at)
             VALUES
-                ('returned', 1, 'RMS Default RL25', 0, 'RL25', 'WS', 'NAWS', 1,
+                ('returned', 1, 'RMS Default RL25', 0, 'RL25', 'WS', 'NAWS',
                  '2026-08-18', '2026-08-18')
         """)
     assert template_service.get_template(template_id)["unresolved"] is False

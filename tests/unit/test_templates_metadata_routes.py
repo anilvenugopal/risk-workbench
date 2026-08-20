@@ -111,6 +111,9 @@ def test_currency_schemes_tab_renders_schemes_with_their_vintages(
     assert "RL25" in body
     assert "RL24" in body
     assert "2025-05-28" in body
+    assert "2025-05-28 00:00:00" not in body
+    assert "USD" in body
+    assert "30 days" in body
 
 
 def test_currency_schemes_tab_filters_by_name_or_code(iteration2_db, fake_irp):
@@ -169,10 +172,10 @@ def test_accumulation_marker_takes_precedence_over_version_classification(
             """
             INSERT INTO irp_model_profile
               (id, irp_id, name, is_accumulation, software_version_code,
-               rms_default, inserted_at, updated_at)
+               inserted_at, updated_at)
             VALUES
               ('accumulation-profile', 99, 'Global Accumulation', 1, 'HDv3.0',
-               0, '2026-08-18 10:00:00', '2026-08-18 10:00:00')
+               '2026-08-18 10:00:00', '2026-08-18 10:00:00')
             """
         )
 
@@ -289,7 +292,7 @@ def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
     ).text
     assert (
         'href="https://prodmgmt.rms-ppe.com/home/reference-data/'
-        'currencies/currency"' in body
+        'currencies/currency-schemes"' in body
     )
 
     body = _client().get(

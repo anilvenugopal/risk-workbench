@@ -129,7 +129,7 @@ def test_reference_data_reads_map_the_sandbox_fields():
         get_model_profiles=lambda: {"items": [{
             "id": 1, "name": "RL25 profile", "softwareVersionCode": "RL25",
             "perilCode": "WS", "modelRegionCode": "NAWS", "peril": "Wind",
-            "region": "North America", "analysisType": "EP", "rmsDefault": True,
+            "region": "North America", "analysisType": "EP",
         }]},
         get_output_profiles=lambda: [{
             "id": 2, "name": "Output", "rmsDefault": False,
@@ -149,7 +149,7 @@ def test_reference_data_reads_map_the_sandbox_fields():
 
     assert gw.list_model_profiles() == [irp_gateway.ModelProfileEntry(
         1, "RL25 profile", "RL25", "WS", "NAWS", "Wind",
-        "North America", "EP", True)]
+        "North America", "EP")]
     assert gw.list_output_profiles() == [
         irp_gateway.OutputProfileEntry(2, "Output", False)]
     assert gw.list_event_rate_schemes() == [irp_gateway.EventRateSchemeEntry(

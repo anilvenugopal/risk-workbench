@@ -160,7 +160,6 @@ ITERATION4_SCHEMA = [
         is_accumulation INTEGER NOT NULL DEFAULT 0,
         software_version_code TEXT, peril_code TEXT, model_region_code TEXT,
         peril TEXT, region TEXT, analysis_type TEXT,
-        rms_default INTEGER NOT NULL DEFAULT 0,
         inserted_at TEXT, updated_at TEXT,
         UNIQUE (irp_id)
     )""",
@@ -184,6 +183,7 @@ ITERATION4_SCHEMA = [
     )""",
     """CREATE TABLE irp_currency_scheme (
         id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT, code TEXT,
+        anchor_currency_code TEXT, update_interval_days INTEGER,
         inserted_at TEXT, updated_at TEXT,
         UNIQUE (irp_id)
     )""",

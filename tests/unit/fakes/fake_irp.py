@@ -95,19 +95,19 @@ class FakeIRP:
         self.raise_on_list_edms = False
         self.model_profiles = [
             ModelProfileEntry(1, "RMS Default RL25", "RL25", "WS", "NAWS",
-                              "Windstorm", "North America", "Exceedance Probability", True),
+                              "Windstorm", "North America", "Exceedance Probability"),
             ModelProfileEntry(2, "RMS Default HD", "HDv3.0", "WS", "NAWS",
-                              "Windstorm", "North America", "Exceedance Probability", True),
+                              "Windstorm", "North America", "Exceedance Probability"),
             ModelProfileEntry(3, "Open profile", "Open", "EQ", "NAEQ",
-                              "Earthquake", "North America", "User Defined", False),
+                              "Earthquake", "North America", "User Defined"),
         ]
         self.output_profiles = [OutputProfileEntry(10, "RMS Default Output", True)]
         self.event_rate_schemes = [
             EventRateSchemeEntry(20, "RMS WS", "WS", "NAWS", "25.0", False)]
         self.currencies = [CurrencyEntry("USD", "US Dollar", "United States", "$")]
         self.currency_schemes = [
-            CurrencySchemeEntry(30, "RMS Scheme", "RMS"),
-            CurrencySchemeEntry(31, "Deterministic Scheme", "DT"),
+            CurrencySchemeEntry(30, "RMS Scheme", "RMS", "USD", 30),
+            CurrencySchemeEntry(31, "Deterministic Scheme", "DT", "EUR", 365),
         ]
         # RMS carries two vintages (latest RL25) so pre-fill-latest logic has
         # something to choose between; DT carries one, under a vintage code
