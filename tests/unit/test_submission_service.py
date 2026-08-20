@@ -16,7 +16,14 @@ from datetime import date
 
 import pytest
 
+from app.services import edm_service, rdm_service
 from app.services import submission_service as svc
+from app.services.errors import (
+    ConcurrencyConflict,
+    SelfLinkError,
+    SubmissionClosed,
+    UnknownLinkError,
+)
 from app.services.submission_service import (
     add_crm_id,
     cedant_suggestions,
@@ -32,13 +39,8 @@ from app.services.submission_service import (
     set_status,
     update_submission,
 )
-from app.services.errors import (
-    ConcurrencyConflict,
-    SelfLinkError,
-    SubmissionClosed,
-    UnknownLinkError,
-)
-from db import execute_command
+from app.workers import entity_jobs
+from db import execute, execute_command, execute_one, execute_scalar
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -89,6 +91,271 @@ def test_get_submission_has_no_access_restriction(iteration1_db):
     # Owned by B, still fully readable (no row-level security, FR-019).
     sid = _mk(iteration1_db, owner=iteration1_db.user_b).submission_id
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
+
+
+def test_submission_entities_use_direct_associations_and_stored_counts(iteration2_db):
+    first = _mk(iteration2_db, name="First").submission_id
+    second = _mk(iteration2_db, name="Second", cedant="Second Re").submission_id
+    edm_id = str(uuid.uuid4())
+    rdm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedEDM', 'ready', 101)",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_rdm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedRDM', 'ready', 202)",
+        {"id": rdm_id}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '301')",
+        {"id": str(uuid.uuid4()), "edm": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_analysis (id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'SharedRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_id}, connection="WORKBENCH")
+
+    first_edms = svc.list_submission_edms(first)
+    second_edms = svc.list_submission_edms(second)
+    first_rdms = svc.list_submission_rdms(first)
+    second_rdms = svc.list_submission_rdms(second)
+
+    assert [(row.id, row.portfolio_count) for row in first_edms] == [(edm_id, 1)]
+    assert [(row.id, row.portfolio_count) for row in second_edms] == [(edm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in first_rdms] == [(rdm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in second_rdms] == [(rdm_id, 1)]
+
+
+def test_submission_entity_tables_sort_by_name_status_and_count(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Sorted entities").submission_id
+    edm_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for edm_id, name, status in zip(
+        edm_ids, ("BravoEDM", "AlphaEDM", "CharlieEDM"),
+        ("ready", "importing", "error"), strict=True,
+    ):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, :status)",
+            {"id": edm_id, "name": name, "status": status},
+            connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH",
+        )
+    for index in range(2):
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+            "VALUES (:id, :edm, :name, :irp)",
+            {"id": str(uuid.uuid4()), "edm": edm_ids[0],
+             "name": f"Portfolio{index}", "irp": str(index)},
+            connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '3')",
+        {"id": str(uuid.uuid4()), "edm": edm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.name for row in svc.list_submission_edms(
+        submission_id, sort="name", descending=True)] == [
+            "CharlieEDM", "BravoEDM", "AlphaEDM"]
+    assert [row.status for row in svc.list_submission_edms(
+        submission_id, sort="status")] == ["error", "importing", "ready"]
+    assert [row.portfolio_count for row in svc.list_submission_edms(
+        submission_id, sort="count", descending=True)] == [2, 1, 0]
+
+    rdm_ids = [str(uuid.uuid4()) for _ in range(2)]
+    for rdm_id, name in zip(rdm_ids, ("SmallRDM", "LargeRDM"), strict=True):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": rdm_id, "name": name}, connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_analysis "
+        "(id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'LargeRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.analysis_count for row in svc.list_submission_rdms(
+        submission_id, sort="count", descending=True)] == [1, 0]
+
+
+@pytest.mark.parametrize(
+    ("sort", "descending", "expected"),
+    [
+        ("name", False, "e.name ASC, e.id ASC"),
+        ("name", True, "e.name DESC, e.id ASC"),
+        ("status", False, "e.status ASC, e.name ASC, e.id ASC"),
+        ("count", True, "portfolio_count DESC, e.name ASC, e.id ASC"),
+    ],
+)
+def test_submission_entity_table_order_uses_unique_columns(
+    sort, descending, expected,
+):
+    assert svc._entity_table_order(
+        sort, descending, entity_alias="e", count_alias="portfolio_count",
+    ) == expected
+
+
+def test_submission_import_creates_entity_association_and_provenance(
+    iteration2_db, fake_irp, drive,
+):
+    submission_id = _mk(iteration2_db, name="Import target").submission_id
+
+    edm = edm_service.import_edm(
+        name="Imported_EDM", source_file_path=str(drive / "edm1.bak"),
+        actor_id=iteration2_db.user_a, submission_id=submission_id)
+    rdm = rdm_service.import_rdm(
+        name="Imported_RDM", source_file_path=str(drive / "rdm1.mdf"),
+        actor_id=iteration2_db.user_a, submission_id=submission_id)
+
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_edm WHERE submission_id=:s AND edm_id=:e",
+        {"s": submission_id, "e": edm.entity_id}, connection="WORKBENCH") == 1
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_rdm WHERE submission_id=:s AND rdm_id=:r",
+        {"s": submission_id, "r": rdm.entity_id}, connection="WORKBENCH") == 1
+    heads = execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id IN (:e, :r) "
+        "ORDER BY rwb_job_type",
+        {"e": edm.entity_id, "r": rdm.entity_id}, connection="WORKBENCH")
+    assert len(heads) == 2
+    assert all(submission_id in row["input_data"] for row in heads)
+
+    entity_jobs.run_pending()
+    jobs = execute(
+        "SELECT requested_from_submission_id, irp_edm_id, irp_rdm_id FROM irp_job "
+        "WHERE requested_from_submission_id=:s ORDER BY irp_job_type",
+        {"s": submission_id}, connection="WORKBENCH")
+    assert len(jobs) == 2
+    assert all(
+        str(row["requested_from_submission_id"]).lower() == submission_id
+        for row in jobs
+    )
+    assert sum(row["irp_edm_id"] is not None for row in jobs) == 1
+    assert sum(row["irp_rdm_id"] is not None for row in jobs) == 1
+
+
+def test_add_existing_candidates_exclude_related_and_deleted_entities(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Candidate target").submission_id
+    available = str(uuid.uuid4())
+    related = str(uuid.uuid4())
+    deleted = str(uuid.uuid4())
+    for entity_id, name, deleted_at in (
+        (available, "AvailableEDM", None),
+        (related, "RelatedEDM", None),
+        (deleted, "DeletedEDM", "2026-01-01 00:00:00"),
+    ):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status, deleted_at) "
+            "VALUES (:id, :name, 'ready', :deleted)",
+            {"id": entity_id, "name": name, "deleted": deleted_at},
+            connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": related}, connection="WORKBENCH")
+
+    page = svc.list_edm_candidates(submission_id, query="available", page=1)
+
+    assert [row.id for row in page.rows] == [available]
+    assert page.has_next is False
+
+
+def test_add_existing_candidates_are_paginated(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Candidate pages").submission_id
+    for index in range(svc.PAGE_SIZE + 1):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": str(uuid.uuid4()), "name": f"Candidate{index:03d}"},
+            connection="WORKBENCH")
+
+    first = svc.list_edm_candidates(submission_id, page=1)
+    second = svc.list_edm_candidates(submission_id, page=2)
+
+    assert len(first.rows) == svc.PAGE_SIZE and first.has_next is True
+    assert len(second.rows) == 1 and second.has_next is False
+
+
+def test_attach_existing_keeps_valid_selections_when_others_are_stale(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Attach target").submission_id
+    valid = str(uuid.uuid4())
+    already_related = str(uuid.uuid4())
+    missing = str(uuid.uuid4())
+    for entity_id, name in ((valid, "ValidRDM"), (already_related, "RelatedRDM")):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": already_related}, connection="WORKBENCH")
+
+    result = svc.attach_rdms(
+        submission_id=submission_id,
+        rdm_ids=[valid, valid, already_related, missing, "invalid", "invalid"],
+        actor_id=iteration2_db.user_a)
+
+    assert result.attached_ids == [valid]
+    assert result.stale_ids == ["invalid", already_related, missing]
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_rdm WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 2
+
+
+def test_detach_removes_only_the_selected_submission_association(iteration2_db):
+    first = _mk(iteration2_db, name="Detach first").submission_id
+    second = _mk(iteration2_db, name="Detach second", cedant="Second Re").submission_id
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'SharedDetach', 'ready')",
+        {"id": edm_id}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+
+    assert svc.detach_edm(submission_id=first, edm_id=edm_id) is True
+
+    assert execute_one(
+        "SELECT id FROM irp_edm WHERE id=:e", {"e": edm_id},
+        connection="WORKBENCH") is not None
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_edm WHERE edm_id=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+    assert svc.list_submission_edms(second)[0].id == edm_id
+
+
+def test_closed_submission_rejects_association_writes(iteration2_db, drive):
+    submission_id = _mk(iteration2_db, name="Closed associations").submission_id
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'ClosedEDM', 'ready')",
+        {"id": edm_id}, connection="WORKBENCH")
+    set_status(
+        submission_id=submission_id, to_status="COMPLETED", reason=None,
+        expected_updated_at=_marker(submission_id), actor_id=iteration2_db.user_a)
+
+    with pytest.raises(SubmissionClosed):
+        svc.attach_edms(
+            submission_id=submission_id, edm_ids=[edm_id],
+            actor_id=iteration2_db.user_a)
+    with pytest.raises(SubmissionClosed):
+        svc.detach_edm(submission_id=submission_id, edm_id=edm_id)
+    with pytest.raises(SubmissionClosed):
+        edm_service.import_edm(
+            name="ClosedImport", source_file_path=str(drive / "edm1.bak"),
+            actor_id=iteration2_db.user_a, submission_id=submission_id)
 
 
 def test_cedant_suggestions_distinct_and_sorted(iteration1_db):

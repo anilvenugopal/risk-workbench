@@ -1,5 +1,8 @@
 # Implementation Plan: Submission & Package Domain Model (Iteration 1)
 
+> **Superseded in part:** `specs/006-package-retirement/` replaces the Package
+> schema and data-access design. The Submission design remains in force.
+
 **Branch**: `002-submission-package-domain` | **Date**: 2026-07-10 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/002-submission-package-domain/spec.md`

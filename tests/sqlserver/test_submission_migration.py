@@ -1,4 +1,4 @@
-"""SQL Server integration tests for the Iteration-1 submission/package schema.
+"""SQL Server integration tests for the submission association schema.
 
 Run with: pytest tests/sqlserver --run-sqlserver  (requires live SQL Server)
 
@@ -24,11 +24,13 @@ from db.errors import SQLServerQueryError
 pytestmark = pytest.mark.sqlserver
 
 ITERATION1_TABLES = [
-    "treaty_type_kind", "submission_status_kind", "package", "submission",
-    "submission_crm_id", "submission_status_event", "submission_package",
-    "irp_edm", "irp_rdm",
+    "treaty_type_kind", "submission_status_kind", "submission",
+    "submission_crm_id", "submission_status_event", "irp_edm", "irp_rdm",
+    "submission_edm", "submission_rdm",
 ]
-REMOVED_TABLES = ["customer", "program", "user_customer_access"]
+REMOVED_TABLES = [
+    "customer", "program", "user_customer_access", "package", "submission_package",
+]
 
 
 def _table_exists(name: str) -> int:
@@ -108,6 +110,28 @@ class TestSubmissionMigration:
             {}, connection="WORKBENCH")
         assert n >= 5  # analyst, treaty_type, status, links_to, inserted/updated_by
 
+    @pytest.mark.parametrize("table,entity_column,index_name", [
+        ("submission_edm", "edm_id", "ix_submission_edm_edm_submission"),
+        ("submission_rdm", "rdm_id", "ix_submission_rdm_rdm_submission"),
+    ])
+    def test_association_key_and_reverse_index(self, table, entity_column, index_name):
+        keys = execute(
+            "SELECT c.name FROM sys.indexes i "
+            "JOIN sys.index_columns ic ON ic.object_id = i.object_id "
+            "AND ic.index_id = i.index_id "
+            "JOIN sys.columns c ON c.object_id = i.object_id "
+            "AND c.column_id = ic.column_id "
+            "WHERE i.object_id = OBJECT_ID(:table) AND i.is_primary_key = 1 "
+            "ORDER BY ic.key_ordinal",
+            {"table": f"dbo.{table}"}, connection="WORKBENCH")
+        assert [row["name"] for row in keys] == ["submission_id", entity_column]
+        assert execute_scalar(
+            "SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(:table) "
+            "AND name = :name",
+            {"table": f"dbo.{table}", "name": index_name},
+            connection="WORKBENCH",
+        ) == 1
+
 
 # ── Fixtures: a throwaway analyst + submission (cleaned up after) ─────────────
 
@@ -135,7 +159,8 @@ def temp_submission():
             ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "uid": uid})
     yield sid, uid
     # cleanup (children first)
-    for tbl in ("submission_status_event", "submission_crm_id"):
+    for tbl in ("submission_edm", "submission_rdm", "submission_status_event",
+                "submission_crm_id"):
         execute_command(f"DELETE FROM {tbl} WHERE submission_id = :sid",
                         {"sid": sid}, connection="WORKBENCH")
     execute_command("DELETE FROM submission WHERE id = :sid", {"sid": sid},

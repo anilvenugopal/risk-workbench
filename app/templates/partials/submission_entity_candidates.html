@@ -1,0 +1,24 @@
+<div id="submission-entity-candidates">
+  {% if candidate_page.rows %}
+  <div class="entity-candidate-list">
+    {% for candidate in candidate_page.rows %}
+    <label class="entity-candidate">
+      <input type="checkbox" name="entity_ids" value="{{ candidate.id }}">
+      <span>{{ candidate.name }}</span>
+      {% if candidate.status %}<span class="status-chip status-chip--{{ candidate.status }}">{{ candidate.status | replace('_', ' ') | title }}</span>{% endif %}
+    </label>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="entity-candidate-empty">
+    {% if query | trim %}No available {{ entity_kind }}s match this search.{% else %}No available {{ entity_kind }}s to add.{% endif %}
+  </div>
+  {% endif %}
+  {% if candidate_page.page > 1 or candidate_page.has_next %}
+  <nav class="entity-candidate-pager" aria-label="{{ entity_kind }} candidate pages">
+    {% if candidate_page.page > 1 %}<a class="btn-sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page - 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Previous</a>{% endif %}
+    <span>Page {{ candidate_page.page }}</span>
+    {% if candidate_page.has_next %}<a class="btn-sm" href="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates?q={{ query | urlencode }}&page={{ candidate_page.page + 1 }}" hx-target="#submission-entity-candidates" hx-swap="outerHTML">Next</a>{% endif %}
+  </nav>
+  {% endif %}
+</div>

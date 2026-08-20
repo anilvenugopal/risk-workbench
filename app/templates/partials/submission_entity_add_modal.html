@@ -1,0 +1,62 @@
+<div class="modal-overlay" x-data="{ tab: '{{ active_tab }}' }" @click.self="document.getElementById('submission-entity-modal').replaceChildren()">
+  <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="submission-entity-modal-title">
+    <div class="modal-header">
+      <h2 id="submission-entity-modal-title" class="modal-title">Add {{ entity_kind }}</h2>
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('submission-entity-modal').replaceChildren()">×</button>
+    </div>
+    {% if errors %}<div class="modal-error">{% for error in errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
+    <div class="modal-body">
+      <div class="tabs" role="tablist">
+        <button class="tab" :class="{ 'tab--active': tab === 'import' }" type="button" @click="tab = 'import'">Import new {{ entity_kind }}</button>
+        <button class="tab" :class="{ 'tab--active': tab === 'existing' }" type="button" @click="tab = 'existing'">Add existing {{ entity_kind }}</button>
+      </div>
+
+      <form x-show="tab === 'import'" method="post" action="/submissions/{{ submission.id }}/{{ entity_plural }}/import"
+            hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/import"
+            hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
+            hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
+            @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()"
+            x-data="importForm()" @change="onChange($event)" @htmx:after-swap="onSwap()"
+            @htmx:response-error="onCheckError($event)" @htmx:send-error="onCheckError($event)">
+        <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+        <div class="wf-field">
+          <label>SOURCE FILE <span class="wf-field__hint">(select one)</span></label>
+          <div hx-get="/browse{% if submission.directory_path %}?path={{ submission.directory_path | urlencode }}{% endif %}" hx-trigger="load" hx-target="this" hx-swap="innerHTML">Loading the shared drive…</div>
+        </div>
+        <div class="wf-field">
+          <label for="submission-{{ kind }}-name">NAME</label>
+          <input class="wf-field__input nc-input" id="submission-{{ kind }}-name" name="name"
+                 value="{{ form.name }}" required x-ref="name" @input="onName($event)"
+                 hx-get="/{{ entity_plural }}/name-check" hx-trigger="keyup changed delay:500ms, recheck"
+                 hx-target="next .name-collision" hx-swap="outerHTML">
+        </div>
+        {% with name = form.name, kind = entity_kind %}{% include "partials/name_collision.html" %}{% endwith %}
+        <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
+        <div class="modal-footer entity-modal-footer">
+          <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
+          <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Import {{ entity_kind }}</button>
+        </div>
+      </form>
+
+      <div x-show="tab === 'existing'">
+        <form class="entity-candidate-search" method="get" action="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-get="/submissions/{{ submission.id }}/{{ entity_plural }}/candidates" hx-trigger="input delay:300ms, submit" hx-target="#submission-entity-candidates" hx-swap="outerHTML">
+          <div class="wf-field">
+            <label for="{{ kind }}-candidate-query">SEARCH</label>
+            <input class="wf-field__input" id="{{ kind }}-candidate-query" name="q" value="{{ query }}" placeholder="Search by name">
+          </div>
+        </form>
+        <form method="post" action="/submissions/{{ submission.id }}/{{ entity_plural }}/attach" hx-post="/submissions/{{ submission.id }}/{{ entity_plural }}/attach"
+              hx-target="#submission-{{ kind }}-section" hx-swap="outerHTML"
+              hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
+              @htmx:after-request="if ($event.detail.successful) document.getElementById('submission-entity-modal').replaceChildren()">
+          <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+          {% include "partials/submission_entity_candidates.html" %}
+          <div class="modal-footer entity-modal-footer">
+            <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('submission-entity-modal').replaceChildren()">Cancel</button>
+            <button class="modal-btn modal-btn--primary" type="submit">Add selected</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
