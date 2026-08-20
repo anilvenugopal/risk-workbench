@@ -1,4 +1,5 @@
 {% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
 {% block title %}
 {% if mode == 'create' %}New analysis template
 {% elif mode == 'edit' %}Edit {{ template.name }}
@@ -21,9 +22,7 @@
     </h1>
     {% if template %}
     <div class="detail-meta">
-      {% if template.profile_family %}
-      <span class="badge badge--{{ 'warning' if template.profile_family == 'Accumulation' else ('info' if template.profile_family == 'HD' else 'brand') }}">{{ template.profile_family }}</span>
-      {% endif %}
+      {{ forms.family_badge(template.profile_family) }}
       {% if template.unresolved %}<span class="badge badge--negative">unresolved reference</span>{% endif %}
     </div>
     {% endif %}
@@ -107,19 +106,7 @@
             </option>
             {% endfor %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls() }}
         </div>
         <div class="wf-field__msg wf-field__hint">Options come from Analysis Metadata; the marker shows DLM / HD / Accumulation (FR-004).</div>
       </div>
@@ -131,19 +118,7 @@
                   x-ref="select" x-show="false" @htmx:after-swap="sync()">
             {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls(required=false) }}
         </div>
         <div class="wf-field__msg wf-field__hint">Required for DLM analyses; filtered to the selected profile's peril/region.</div>
       </div>
@@ -160,19 +135,7 @@
             </option>
             {% endfor %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls() }}
         </div>
       </div>
 
@@ -192,19 +155,7 @@
             </option>
             {% endfor %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls() }}
         </div>
       </div>
 
@@ -227,19 +178,7 @@
             </option>
             {% endfor %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls() }}
         </div>
       </div>
 
@@ -250,19 +189,7 @@
                   x-ref="select" x-show="false" @htmx:after-swap="sync()">
             {% with options = currency_vintage_options %}{% include "partials/vintage_options.html" %}{% endwith %}
           </select>
-          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
-                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
-                 x-ref="input" x-model="query"
-                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
-                 :placeholder="placeholder">
-          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
-               @mousedown.prevent @click="pick($event.target.closest('.ta__opt'))">
-            <template x-for="(opt, i) in filteredOptions" :key="i">
-              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
-                      :data-value="opt.value" x-text="opt.label"></button>
-            </template>
-            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
-          </div>
+          {{ forms.typeahead_controls() }}
         </div>
         <div class="wf-field__msg wf-field__hint">Pre-selects the scheme's latest vintage by effective date; change it to pin an older one. A scheme with no cached vintages blocks save.</div>
       </div>
@@ -299,7 +226,7 @@
         <datalist id="tag-names">
           {% for tag in tag_names %}<option value="{{ tag }}">{% endfor %}
         </datalist>
-        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — autocompletes over tags already used on templates (FR-006).</div>
+        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — the first tag autocompletes over tags already used on templates (FR-006).</div>
       </div>
     </div>
 

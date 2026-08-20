@@ -1,3 +1,4 @@
+{% import "partials/form_macros.html" as forms %}
 <div id="templates-content">
   <nav class="tabs" aria-label="Templates and suites">
     <a class="tab{% if active_tab == 'suites' %} tab--active{% endif %}"
@@ -57,11 +58,7 @@
           <a class="open-link" href="/templates/analysis-templates/{{ template.id }}">{{ template.name }}</a>
           {% if template.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
         </td>
-        <td>
-          {% if template.profile_family %}
-          <span class="badge badge--{{ 'warning' if template.profile_family == 'Accumulation' else ('info' if template.profile_family == 'HD' else 'brand') }}">{{ template.profile_family }}</span>
-          {% else %}—{% endif %}
-        </td>
+        <td>{{ forms.family_badge(template.profile_family) or '—' }}</td>
         <td>{{ template.analysis_profile_name }}</td>
         <td class="mono">{{ template.currency_code }} · {{ template.currency_scheme_code }} · {{ template.currency_vintage }}</td>
       </tr>

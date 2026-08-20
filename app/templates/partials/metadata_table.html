@@ -1,3 +1,4 @@
+{% import "partials/form_macros.html" as forms %}
 <div id="metadata-content">
   <nav class="tabs" aria-label="Analysis metadata">
     {% for tab in tabs %}
@@ -60,7 +61,7 @@
           {% if active_tab == "model-profiles" %}
           <tr>
             <td>{{ row.name }}</td>
-            <td><span class="badge badge--{{ 'warning' if row.family == 'Accumulation' else ('info' if row.family == 'HD' else 'brand') }}">{{ row.family }}</span></td>
+            <td>{{ forms.family_badge(row.family) or '—' }}</td>
             <td class="mono">{{ row.software_version_code or '—' }}</td>
             <td>{{ row.peril or '—' }}</td><td>{{ row.region or '—' }}</td>
             <td>{{ row.analysis_type or '—' }}</td>
