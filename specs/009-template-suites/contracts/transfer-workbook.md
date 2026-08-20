@@ -4,6 +4,10 @@
 > enhancement — nothing in this contract is built or seeded in the MVP; setup is manual. This
 > document is retained as the worked design for the enhancement; the FR/decision references below
 > describe the requirements as they stood when the design was parked.
+>
+> **Stale since 2026-08-20 (spec P-11):** currency came off templates entirely, so the
+> `Currency Scheme` / `Currency Vintage` / `Currency` columns below no longer have template
+> columns to map to. A revival of this design must drop them; the rest stands.
 
 One `.xlsx` workbook (openpyxl). Export writes three sheets: `Templates` and `Suites` (the data
 sheets — import reads the identical layout) plus `Reference Data` (advisory pick lists —

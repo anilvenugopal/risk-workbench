@@ -50,10 +50,11 @@ are synced (the wheel filters `isActive=True`).
 
 ### `irp_currency`
 
-Built in US1 and **kept** (spec P-07 as amended 2026-08-18): analysis submission's currency block
-is `{code, scheme, vintage, asOfDate}`, so the currency itself stays a stored/selected value —
-and the metadata screen keeps its own Currencies tab alongside Currency Schemes (D3's "not
-tabbed" call reversed 2026-08-19, user-corrected). `id` PK, `code` NVARCHAR NOT NULL
+Built in US1 and **kept** (spec P-07): analysis submission's currency block is
+`{code, scheme, vintage, asOfDate}`, so the currency stays cached for the metadata tab and
+Iteration 7's submit-time picker (nothing on a template stores it — P-11) — and the metadata
+screen keeps its own Currencies tab alongside Currency Schemes (D3's "not tabbed" call reversed
+2026-08-19, user-corrected). `id` PK, `code` NVARCHAR NOT NULL
 UNIQUE (natural key, `uq_irp_currency_code`), `name` (16-char truncation, P-06), `country_name`,
 `symbol`, audit.
 
@@ -71,7 +72,7 @@ display column added 2026-08-19, user-directed), `update_interval_days` INT NULL
 user-confirmed field name — not in the 2026-08-19 sandbox probe list above, which only exercised
 the raw wheel read, not this field), audit. Only active schemes are cached (`isActive` filter,
 like event-rate schemes). No `is_default` column (dropped 2026-08-19: upstream `isDefault` is
-true/false/**null** in the sandbox and nothing consumes it after the P-10 reversal — re-add only
+true/false/**null** in the sandbox and nothing consumes it — re-add only
 if the metadata tab ever wants a "Default" marker).
 
 ### `irp_currency_scheme_vintage`
@@ -86,8 +87,9 @@ it wholesale — delete-all + insert, never a keyed upsert — storing exactly w
 duplicates included. Columns: `id` PK, `vintage` NVARCHAR(400) NOT NULL (e.g. "RL25"; sandbox
 values up to 371 chars observed, and the value must round-trip verbatim into submission, so no
 truncation), `currency_scheme_code` NVARCHAR(50) NOT NULL (name-based link to the scheme,
-Article 2 — no FK), `effective_date` DATETIME2 NOT NULL, audit. The builder defaults a template's
-vintage to the chosen scheme's latest by `effective_date`.
+Article 2 — no FK), `effective_date` DATETIME2 NOT NULL, audit. Iteration 7's submit-time picker defaults the
+vintage to the chosen scheme's latest by `effective_date` (spec P-11); nothing in this feature
+stores a vintage.
 
 ## Templates & suites (DATA_MODEL §7 with deltas)
 
@@ -97,10 +99,10 @@ Deltas from DATA_MODEL §7, to be reconciled there at implementation: (a)
 `treat_construction_occupancy_as_unknown` column (spec FR-005, wheel parameter); (d) no separate
 `created_by` — `inserted_by` is the authorship record (one fact, one column); (e)
 `treaty_name_pattern` is dropped (spec P-09 / O15-6 — treaties selected at run time in
-Iteration 7); (f) `currency_scheme_code` and `currency_vintage` join `currency_code` — all three **required
-NOT NULL** (spec P-10 as reversed 2026-08-19 / plan T-07/T-09): every template pins the full set
-of currency values submission needs; NULL is never stored and no default is resolved at submit
-time — Iteration 7 submits the stored values as-is; (g)
+Iteration 7); (f) **no currency columns** — `currency_code`, `currency_scheme_code`, and
+`currency_vintage` were built under the old P-10 and **removed 2026-08-20** (spec P-11 / plan
+T-10, design note 17 D4): the currency block is a submit-time parameter in Iteration 7, never
+template configuration (reversal history: research.md R13); (g)
 `template_suite_item` loses `position` and `portfolio_name_override` — suites are unordered
 (spec P-08).
 
@@ -113,9 +115,6 @@ time — Iteration 7 submits the stored values as-is; (g)
 | `analysis_profile_name` | NVARCHAR(200) NOT NULL | RM model-profile name (name-based coupling, Art. 2) |
 | `output_profile_name` | NVARCHAR(200) NOT NULL | |
 | `event_rate_scheme_name` | NVARCHAR(200) NULL | required when the cached profile is DLM (validated at save) |
-| `currency_code` | NVARCHAR(20) NOT NULL | submission `code` (e.g. "USD") — kept from the US1 build; always required |
-| `currency_scheme_code` | NVARCHAR(50) NOT NULL | submission `scheme` (e.g. "RMS") — P-07/P-10; name-based coupling, Art. 2; required — never NULL, no "Default" state, no default resolution at submit time (the submission API never defaults; Iteration 7 sends the stored value) |
-| `currency_vintage` | NVARCHAR(400) NOT NULL | submission `vintage` (e.g. "RL25") — required; width matches `irp_currency_scheme_vintage.vintage` (probe: values up to 371 chars exist upstream); the builder pre-selects the chosen scheme's latest by effective date; `asOfDate` derives from the vintage's effective date at submit time, never stored |
 | `min_loss_threshold` | DECIMAL(18,2) NOT NULL DEFAULT 1.00 | FR-005: numeric, 2 dp |
 | `num_max_loss_event` | INT NOT NULL DEFAULT 1 | |
 | `franchise_deductible` | BIT NOT NULL DEFAULT 0 | |
@@ -123,9 +122,8 @@ time — Iteration 7 submits the stored values as-is; (g)
 | `deleted_at` | DATETIME2 NULL | soft delete |
 | audit | | `inserted_at/updated_at`, `inserted_by/updated_by` (authorship = `inserted_by`) |
 
-No currency-pair CHECK: P-10 as reversed makes both columns NOT NULL, which supersedes the
-briefly-specced `ck_analysis_template_currency_pair` (both-or-neither) — the column constraints
-are the whole rule.
+No currency columns: the submit-time currency block (`{code, scheme, vintage, asOfDate}`) is
+supplied at analysis submit in Iteration 7 (spec P-11), never stored here.
 
 Not a boolean pair of kind tables: `franchise_deductible` and
 `treat_construction_occupancy_as_unknown` are boolean API parameters mirrored onto submit calls,
@@ -160,21 +158,19 @@ lifecycle).
   the scheme's `(peril_code, model_region_code)` must match the profile's → mismatch rejected
   (same rule submit enforces). A side absent from the cache → that check is skipped and the
   template is *unresolved* (R9); never a save-blocker (FR-011).
-- **Currency rules (P-10)**: `currency_code`, `currency_scheme_code`, and `currency_vintage` are
-  all required — a missing value rejects the save naming the field (belt to the NOT NULL columns'
-  suspenders; NULL is never stored). The builder pre-selects the chosen scheme's latest vintage
-  by `effective_date`; a scheme with zero cached vintages blocks the save, naming the scheme.
-  When both the scheme and vintage resolve
-  in the cache, the vintage must belong to the scheme (`currency_scheme_code` match); either side
-  absent from the cache → check skipped, template unresolved (R9), same posture as the DLM rules.
-  Vintage lookups (validation and the R9 read-time unresolved flag) use EXISTS-style semantics,
-  never a bare LEFT JOIN — the raw-snapshot vintage cache has no unique key, and a duplicate row
-  must not fan out template reads. Currency-in-scheme membership is deliberately **not**
-  validated (deferred — trusted admin; fails at submit in Iteration 7).
 - **Name uniqueness**: duplicate live template/suite name → reject (DB filtered-unique is the
   guarantee; `is_unique_violation` absorbed into the form error).
 - **Delete guard**: deleting a template referenced by live suites → blocked, referencing suite
   names returned (FR-010).
+- **Duplicate (P-12/FR-021, plan T-11)** — no schema change: `duplicate_template` copies the
+  `analysis_template` row and its `analysis_template_tag` rows; `duplicate_suite` copies the
+  `template_suite` row and its `template_suite_item` rows (same `template_id` references —
+  templates are shared, never deep-copied). The copy's `name` is `<name> (copy)` with a counter
+  on collision, base truncated to fit NVARCHAR(200); the filtered-unique index still guards the
+  race.
+
+*(No currency validation: currency came off templates 2026-08-20 — spec P-11; history in
+research.md R13.)*
 
 ## Seed data
 

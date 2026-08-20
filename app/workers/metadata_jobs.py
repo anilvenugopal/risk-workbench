@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 import uuid
 from dataclasses import asdict
 
@@ -17,10 +16,6 @@ from db import get_connection
 _ = broker.redis_broker
 
 _CURRENCY_NAME_MAX_LENGTH = 16
-
-
-def _worker_id() -> str:
-    return f"{socket.gethostname()}:{__name__}"
 
 
 def _sync_table(conn, *, table: str, key: str, rows: list[dict],
@@ -147,7 +142,7 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
 
 @dramatiq.actor(max_retries=0)
 def sync_irp_metadata(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=_sync_irp_metadata_body)
 
 

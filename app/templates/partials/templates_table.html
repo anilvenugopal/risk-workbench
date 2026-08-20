@@ -1,3 +1,4 @@
+{% import "partials/form_macros.html" as forms %}
 <div id="templates-content">
   <nav class="tabs" aria-label="Templates and suites">
     <a class="tab{% if active_tab == 'suites' %} tab--active{% endif %}"
@@ -16,20 +17,33 @@
 
   {% if active_tab == 'suites' %}
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Items</th><th>Author</th></tr></thead>
+    <thead><tr><th>Name</th><th>Items</th><th>Author</th><th class="col-actions">Action</th></tr></thead>
     <tbody>
       {% for suite in suites %}
       <tr class="data-row"
-          onclick="if (!event.target.closest('a')) location.href='/templates/suites/{{ suite.id }}'">
+          onclick="if (!event.target.closest('a, form')) location.href='/templates/suites/{{ suite.id }}'">
         <td>
           <a class="open-link" href="/templates/suites/{{ suite.id }}">{{ suite.name }}</a>
           {% if suite.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
         </td>
         <td>{{ suite.item_count }}</td>
         <td>{{ suite.author_name or '—' }}</td>
+        <td class="col-actions"><div class="row-actions">
+          {% if current_user.is_admin %}
+          <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm" type="submit">Duplicate</button>
+          </form>
+          <form method="post" action="/templates/suites/{{ suite.id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm btn-sm--danger" type="submit"
+                    onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete</button>
+          </form>
+          {% endif %}
+        </div></td>
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="3">
+      <tr><td class="empty" colspan="4">
         No template suites yet.
         {% if current_user.is_admin %}<a href="/templates/suites/new">Create one</a> to get started.
         {% else %}Nothing is seeded — an admin sets these up.{% endif %}
@@ -48,25 +62,41 @@
     </label>
   </form>
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Currency</th></tr></thead>
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Event rate scheme</th><th>Output profile</th><th class="col-actions">Action</th></tr></thead>
     <tbody>
       {% for template in templates %}
       <tr class="data-row"
-          onclick="if (!event.target.closest('a')) location.href='/templates/analysis-templates/{{ template.id }}'">
+          onclick="if (!event.target.closest('a, form')) location.href='/templates/analysis-templates/{{ template.id }}'">
         <td>
           <a class="open-link" href="/templates/analysis-templates/{{ template.id }}">{{ template.name }}</a>
           {% if template.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
         </td>
-        <td>
-          {% if template.profile_family %}
-          <span class="badge badge--{{ 'warning' if template.profile_family == 'Accumulation' else ('info' if template.profile_family == 'HD' else 'brand') }}">{{ template.profile_family }}</span>
-          {% else %}—{% endif %}
-        </td>
+        <td>{{ forms.family_badge(template.profile_family) or '—' }}</td>
         <td>{{ template.analysis_profile_name }}</td>
-        <td class="mono">{{ template.currency_code }} · {{ template.currency_scheme_code }} · {{ template.currency_vintage }}</td>
+        <td>
+          {{ template.event_rate_scheme_name or '—' }}
+          {% if template.event_rate_scheme_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
+        </td>
+        <td>
+          {{ template.output_profile_name }}
+          {% if template.output_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
+        </td>
+        <td class="col-actions"><div class="row-actions">
+          {% if current_user.is_admin %}
+          <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm" type="submit">Duplicate</button>
+          </form>
+          <form method="post" action="/templates/analysis-templates/{{ template.id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+            <button class="btn-sm btn-sm--danger" type="submit"
+                    onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete</button>
+          </form>
+          {% endif %}
+        </div></td>
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="4">
+      <tr><td class="empty" colspan="6">
         {% if q %}No templates match — <a class="clear-filters" href="/templates?tab=templates">clear filters</a>.
         {% else %}No analysis templates yet.
           {% if current_user.is_admin %}<a href="/templates/analysis-templates/new">Create one</a> to get started.

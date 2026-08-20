@@ -11,6 +11,7 @@ reclaim a dead worker's row.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -121,6 +122,11 @@ class _Heartbeat:
 
 
 # ── the shared claim → heartbeat → complete lifecycle ───────────────────────────
+
+def worker_id(module_name: str) -> str:
+    """The host:module claim/heartbeat identity actors pass to run_job."""
+    return f"{socket.gethostname()}:{module_name}"
+
 
 def run_job(*, rwb_job_id: Any, worker_id: str,
             body: Callable[[], "JobResult | dict | None"]) -> bool:

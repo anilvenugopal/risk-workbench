@@ -242,6 +242,23 @@ from the cache (it was needed for submission's `code` regardless), so this rever
 the tab, its `_metadata_rows`/`counts` branches, and the RM deep link (same
 `home/reference-data/currencies/currency` path as Currency Schemes) all return.
 
+**Reversed 2026-08-20 (design note 17 D4/D5/D7 → spec P-11, plan T-10)**: currency is removed
+from templates **entirely** — the third and final flip (optional pair → required NOT NULL → not
+stored at all). Analysis currency, scheme, and vintage become **submit-time parameters** in
+Iteration 7: chosen per run at the suite level, pre-filled from env-var defaults (USD; latest
+RMS scheme; most-recent *currently-effective* vintage — a future-dated vintage never
+auto-selects) and always put in front of the analyst; genuinely mixed-currency books run as
+separate regional suites (80/20). Rationale: currency baked into a template triplicates
+templates per currency and goes stale the moment a new scheme/vintage releases, and CIC — not
+the system — decides when the default flips ("I want to flip the switch"). `analysis_template`
+drops all three columns; `_validate_currency`, the builder's three currency selects, and the
+vintage-options fragment come out with them. The three cache tables, the six-set sync, and both
+metadata tabs **stand** — they serve the metadata view now and the Iteration-7 picker later.
+O15-2's template-storage half is superseded; the env-var defaults are Iteration-7 app config,
+never a modeled table (note 17 D6/O17-3). **Rejected**: keeping the stored values merely as
+pre-filled defaults for submit (still stale, still triplicated — the point is that currency is
+never hard-linked to a template).
+
 ## R14 — Design-session-16 trims (2026-08-18, note 16 D11/§2.1)
 
 **Decisions**: (a) `analysis_template.treaty_name_pattern` is **dropped** (D11/O15-6) — treaties
@@ -251,3 +268,23 @@ suites are **unordered** ("it's just a group… that we can run all together") �
 the 8/18 review and confirmed dropped). Display order is normalized by name.
 **Rejected**: keeping `position` for stable display (the design note floated it;
 the approver decided 2026-08-18 to drop it outright — name-normalized ordering suffices).
+
+## R15 — Duplicate-and-edit replaces Excel as the bulk path (design session 2026-08-20, note 17 D9/D11)
+
+Ben spent ~60% of a day speccing the Excel import/export and hit dependent-dropdown validation,
+model-profile metadata, and diff handling; CIC agreed to table Excel (revisit ~next month) and
+treat go-live setup as manual. The near-term bulk affordances: **duplicate-and-edit** (this
+feature — spec P-12/FR-021, plan T-11) and **direct SQL edits** of non-validated fields such as
+names (operational, pending DB write access from Randy; no workbench code).
+
+**Decision (P-12, user-confirmed 2026-08-20)**: Duplicate is persist-then-edit — pressing the
+button immediately saves the copy (named `<name> (copy)`, counter on collision, base truncated to
+fit NVARCHAR(200)) and opens its edit screen. A suite copy is **shallow**: it copies membership
+rows referencing the same templates. A template copy repeats field values and tags; since the
+original already passed save validation with identical values, only the name could reject, and
+the suffix rule prevents that.
+**Rejected**: an unsaved pre-filled "new" form (the user chose save-first: press Duplicate → the
+copy exists → edit); deep-copying a suite's templates (templates are shared across suites — the
+"swap in an updated model" use case is served by duplicating the *template* and swapping the copy
+into the suite); the Excel seed/import itself (still deferred, design retained in
+`contracts/transfer-workbook.md` — R6).

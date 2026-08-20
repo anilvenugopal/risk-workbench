@@ -210,8 +210,7 @@ ITERATION4_SCHEMA = [
     )""",
     """CREATE TABLE analysis_template (
         id TEXT PRIMARY KEY, name TEXT, analysis_profile_name TEXT,
-        output_profile_name TEXT, event_rate_scheme_name TEXT, currency_code TEXT,
-        currency_scheme_code TEXT NOT NULL, currency_vintage TEXT NOT NULL,
+        output_profile_name TEXT, event_rate_scheme_name TEXT,
         min_loss_threshold NUMERIC NOT NULL DEFAULT 1.00,
         num_max_loss_event INTEGER NOT NULL DEFAULT 1,
         franchise_deductible INTEGER NOT NULL DEFAULT 0,
