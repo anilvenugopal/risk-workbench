@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestRailNodes:
     def test_returns_7_top_rail_nodes(self):
@@ -40,6 +38,14 @@ class TestChildren:
         kids = children("workflows")
         keys = [k["key"] for k in kids]
         assert "workflows.rwb_jobs" in keys
+
+    def test_templates_has_suite_and_metadata_children(self):
+        from app.nav.manifest import children
+        kids = children("templates")
+        assert [(kid["key"], kid["label"], kid["route"]) for kid in kids] == [
+            ("templates.suites", "Template Suites", "/templates"),
+            ("templates.metadata", "Analysis Metadata", "/templates/metadata"),
+        ]
 
     def test_home_has_no_children(self):
         from app.nav.manifest import children

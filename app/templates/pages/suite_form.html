@@ -1,0 +1,101 @@
+{% extends "base/shell.html" %}
+{% block title %}
+{% if mode == 'create' %}New suite
+{% elif mode == 'edit' %}Edit {{ suite.name }}
+{% else %}{{ suite.name }}
+{% endif %}
+{% endblock %}
+
+{% block page_actions %}
+<a href="/templates?tab=suites" class="btn-sm">← Back to suites</a>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad" style="max-width: 720px;">
+  <div class="detail-head">
+    <h1>
+      {% if mode == 'create' %}New suite
+      {% elif mode == 'edit' %}Edit {{ suite.name }}
+      {% else %}{{ suite.name }}
+      {% endif %}
+    </h1>
+    {% if suite and suite.unresolved %}
+    <div class="detail-meta"><span class="badge badge--negative">unresolved reference</span></div>
+    {% endif %}
+  </div>
+
+  {% if errors %}
+  <div class="form-banner form-banner--error">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if mode == 'view' %}
+  {# ── Read-only display for non-admin analysts ── #}
+  <div class="wf-fields">
+    <div class="wf-field"><label>AUTHOR</label><span class="wf-field__val">{{ suite.author_name or '—' }}</span></div>
+  </div>
+  <div class="section-head"><h2>Templates in this suite</h2></div>
+  {# `suite['items']` — bracket access: Jinja's dot-notation would resolve
+     to dict.items() (the builtin method), not the "items" key. #}
+  {% if suite['items'] %}
+  <div class="wf-list">
+    {% for item in suite['items'] %}
+    {% if item.template_name %}
+    <a class="wf-link" href="/templates/analysis-templates/{{ item.template_id }}">
+      <span>{{ item.template_name }}</span>
+      {% if item.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
+    </a>
+    {% else %}
+    <div class="wf-link"><span class="na">Template removed</span></div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No templates added.</p>
+  {% endif %}
+
+  {% else %}
+  {# ── Create/edit form (admin) — suites are an unordered set (P-08), a
+        plain checkbox picker with no drag handles or position numbers ── #}
+  {% set action = ('/templates/suites/' ~ suite.id) if mode == 'edit' else '/templates/suites' %}
+  <form method="post" action="{{ action }}">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-fields" style="max-width:480px">
+      <div class="wf-field">
+        <label>SUITE NAME <span class="wf-field__req">*</span></label>
+        <input class="wf-field__input" type="text" name="name" required value="{{ name_value }}">
+      </div>
+    </div>
+
+    <div class="section-head"><h2>Templates in this suite</h2></div>
+    <input class="wf-field__input" id="suite-item-filter" type="text"
+           placeholder="Filter templates…" autocomplete="off"
+           oninput="document.querySelectorAll('#suite-item-picker .picker-item').forEach(function(row){ row.style.display = row.dataset.name.indexOf(this.value.toLowerCase()) === -1 ? 'none' : ''; }, this)"
+           style="margin-bottom: var(--space-2); max-width: 320px;">
+    <div id="suite-item-picker" class="picker-list">
+      {% include "partials/suite_item_rows.html" %}
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit">Save suite</button>
+      <a class="btn-sm" href="/templates?tab=suites">Cancel</a>
+    </div>
+  </form>
+
+  {% if mode == 'edit' %}
+  <div class="form-actions" style="margin-top: var(--space-4);">
+    <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm" type="submit">Duplicate suite</button>
+    </form>
+    <form method="post" action="/templates/suites/{{ suite.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit"
+              onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete suite</button>
+    </form>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

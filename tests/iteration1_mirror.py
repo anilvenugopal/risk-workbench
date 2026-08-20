@@ -161,6 +161,74 @@ ITERATION3_SCHEMA = [
     )""",
 ]
 
+ITERATION4_SCHEMA = [
+    """CREATE TABLE irp_model_profile (
+        id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT,
+        is_accumulation INTEGER NOT NULL DEFAULT 0,
+        software_version_code TEXT, peril_code TEXT, model_region_code TEXT,
+        peril TEXT, region TEXT, analysis_type TEXT,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (irp_id)
+    )""",
+    """CREATE TABLE irp_output_profile (
+        id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT,
+        rms_default INTEGER NOT NULL DEFAULT 0,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (irp_id)
+    )""",
+    """CREATE TABLE irp_event_rate_scheme (
+        id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT, peril_code TEXT,
+        model_region_code TEXT, model_version_code TEXT,
+        is_hd INTEGER NOT NULL DEFAULT 0,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (irp_id)
+    )""",
+    """CREATE TABLE irp_currency (
+        id TEXT PRIMARY KEY, code TEXT, name TEXT, country_name TEXT, symbol TEXT,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (code)
+    )""",
+    """CREATE TABLE irp_currency_scheme (
+        id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT, code TEXT,
+        anchor_currency_code TEXT, update_interval_days INTEGER,
+        inserted_at TEXT, updated_at TEXT,
+        UNIQUE (irp_id)
+    )""",
+    # No irp_id/unique key — raw snapshot, delete-all + insert per sync (R13).
+    """CREATE TABLE irp_currency_scheme_vintage (
+        id TEXT PRIMARY KEY, vintage TEXT, currency_scheme_code TEXT,
+        effective_date TEXT,
+        inserted_at TEXT, updated_at TEXT
+    )""",
+    """CREATE TABLE analysis_template (
+        id TEXT PRIMARY KEY, name TEXT, analysis_profile_name TEXT,
+        output_profile_name TEXT, event_rate_scheme_name TEXT,
+        min_loss_threshold NUMERIC NOT NULL DEFAULT 1.00,
+        num_max_loss_event INTEGER NOT NULL DEFAULT 1,
+        franchise_deductible INTEGER NOT NULL DEFAULT 0,
+        treat_construction_occupancy_as_unknown INTEGER NOT NULL DEFAULT 1,
+        deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
+    )""",
+    """CREATE UNIQUE INDEX uq_analysis_template_live_name
+        ON analysis_template (name) WHERE deleted_at IS NULL""",
+    """CREATE TABLE analysis_template_tag (
+        template_id TEXT, tag_name TEXT, inserted_at TEXT, inserted_by TEXT,
+        PRIMARY KEY (template_id, tag_name)
+    )""",
+    """CREATE TABLE template_suite (
+        id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT,
+        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
+    )""",
+    """CREATE UNIQUE INDEX uq_template_suite_live_name
+        ON template_suite (name) WHERE deleted_at IS NULL""",
+    """CREATE TABLE template_suite_item (
+        id TEXT PRIMARY KEY, suite_id TEXT, template_id TEXT,
+        inserted_at TEXT, inserted_by TEXT,
+        UNIQUE (suite_id, template_id)
+    )""",
+]
+
 IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RDM", 20),
                      ("geohaz", "Geohazard", 40),
                      ("analysis", "Analysis", 50), ("grouping", "Grouping", 60),
@@ -172,7 +240,8 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
-                     ("notify_analyst", "Notify Analyst", 60)]
+                     ("notify_analyst", "Notify Analyst", 60),
+                     ("sync_irp_metadata", "Sync IRP metadata", 90)]
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
                                ("rwb_job", "RWB Job", 30)]
@@ -194,6 +263,10 @@ EXACT_MATCH_TABLES = (
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",
+    "irp_model_profile", "irp_output_profile", "irp_event_rate_scheme",
+    "irp_currency", "irp_currency_scheme", "irp_currency_scheme_vintage",
+    "analysis_template", "analysis_template_tag",
+    "template_suite", "template_suite_item",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # unit services touch; the real tables carry extra Iteration-2 IRP columns
@@ -211,7 +284,8 @@ def mirror_columns() -> dict[str, set[str]]:
     parser, so this never drifts from the DDL the unit tier actually runs."""
     conn = sqlite3.connect(":memory:")
     try:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA,
+                    *ITERATION4_SCHEMA):
             conn.execute(ddl)
         return {
             table: {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}

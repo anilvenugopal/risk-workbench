@@ -411,4 +411,4 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
 __all__ = ["SubmissionRef", "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
            "_submission_entity_context", "_import_entity", "_mark_importing",
-           "_mark_error", "_retry_import", "_replace_source_file"]
+           "_mark_error", "_retry_import", "_replace_source_file", "_rm_ui_root"]

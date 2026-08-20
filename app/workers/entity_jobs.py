@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import json
 import logging
-import socket
 import uuid
 from typing import Any, Callable
 
@@ -60,10 +59,6 @@ logger = logging.getLogger(__name__)
 # Importing this module registers the actors against the broker configured in
 # app.workers.broker (module import side effect — no Redis connection yet).
 _ = broker.redis_broker
-
-
-def _worker_id() -> str:
-    return f"{socket.gethostname()}:{__name__}"
 
 
 def _load_input(rwb_job_id: Any) -> dict:
@@ -120,7 +115,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @dramatiq.actor(max_retries=0)
 def upload_edm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _upload_edm_body(rwb_job_id))
 
 
@@ -166,7 +161,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @dramatiq.actor(max_retries=0)
 def upload_rdm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _upload_rdm_body(rwb_job_id))
 
 
@@ -328,7 +323,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
 
 @dramatiq.actor(max_retries=0)
 def backfill_rdm_analyses(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
 
 
@@ -475,7 +470,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @dramatiq.actor(max_retries=0)
 def backfill_edm_detail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 

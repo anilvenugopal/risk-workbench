@@ -20,10 +20,16 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
+    CurrencyEntry,
+    CurrencySchemeEntry,
+    CurrencySchemeVintageEntry,
     EdmCatalogEntry,
     EntityHit,
+    EventRateSchemeEntry,
     ExposureDetail,
     JobStatus,
+    ModelProfileEntry,
+    OutputProfileEntry,
     PortfolioHit,
     SubmitResult,
     TreatyDetail,
@@ -88,6 +94,32 @@ class FakeIRP:
         # EDM names are not unique in RM and the diff must cope with that)
         self._catalog: list[dict] = []
         self.raise_on_list_edms = False
+        self.model_profiles = [
+            ModelProfileEntry(1, "RMS Default RL25", "RL25", "WS", "NAWS",
+                              "Windstorm", "North America", "Exceedance Probability"),
+            ModelProfileEntry(2, "RMS Default HD", "HDv3.0", "WS", "NAWS",
+                              "Windstorm", "North America", "Exceedance Probability"),
+            ModelProfileEntry(3, "Open profile", "Open", "EQ", "NAEQ",
+                              "Earthquake", "North America", "User Defined"),
+        ]
+        self.output_profiles = [OutputProfileEntry(10, "RMS Default Output", True)]
+        self.event_rate_schemes = [
+            EventRateSchemeEntry(20, "RMS WS", "WS", "NAWS", "25.0", False)]
+        self.currencies = [CurrencyEntry("USD", "US Dollar", "United States", "$")]
+        self.currency_schemes = [
+            CurrencySchemeEntry(30, "RMS Scheme", "RMS", "USD", 30),
+            CurrencySchemeEntry(31, "Deterministic Scheme", "DT", "EUR", 365),
+        ]
+        # RMS carries two vintages (latest RL25) so pre-fill-latest logic has
+        # something to choose between; DT carries one, under a vintage code
+        # RMS doesn't share — so a vintage resolving under the wrong scheme
+        # is directly exercisable against these defaults.
+        self.currency_scheme_vintages = [
+            CurrencySchemeVintageEntry("RL25", "RMS", "2025-05-28T00:00:00.000Z"),
+            CurrencySchemeVintageEntry("RL23", "RMS", "2023-05-28T00:00:00.000Z"),
+            CurrencySchemeVintageEntry("RL24", "DT", "2024-05-28T00:00:00.000Z"),
+        ]
+        self.raise_on_reference_data = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -315,3 +347,26 @@ class FakeIRP:
             raise RuntimeError("fake IRP: forced search failure")
         return ([EntityHit(irp_id=f"rdm-{name}", name=name)]
                 if name in self._rdm_names else [])
+
+    def _reference_data(self, rows):
+        if self.raise_on_reference_data:
+            raise RuntimeError("fake IRP: forced reference-data failure")
+        return list(rows)
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]:
+        return self._reference_data(self.model_profiles)
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]:
+        return self._reference_data(self.output_profiles)
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]:
+        return self._reference_data(self.event_rate_schemes)
+
+    def list_currencies(self) -> list[CurrencyEntry]:
+        return self._reference_data(self.currencies)
+
+    def list_currency_schemes(self) -> list[CurrencySchemeEntry]:
+        return self._reference_data(self.currency_schemes)
+
+    def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]:
+        return self._reference_data(self.currency_scheme_vintages)

@@ -146,6 +146,62 @@ class AnalysisMetadata:
     is_group: bool = False
 
 
+@dataclass(frozen=True)
+class ModelProfileEntry:
+    irp_id: int
+    name: str
+    software_version_code: str | None = None
+    peril_code: str | None = None
+    model_region_code: str | None = None
+    peril: str | None = None
+    region: str | None = None
+    analysis_type: str | None = None
+
+
+@dataclass(frozen=True)
+class OutputProfileEntry:
+    irp_id: int
+    name: str
+    rms_default: bool = False
+
+
+@dataclass(frozen=True)
+class EventRateSchemeEntry:
+    irp_id: int
+    name: str
+    peril_code: str | None = None
+    model_region_code: str | None = None
+    model_version_code: str | None = None
+    is_hd: bool = False
+
+
+@dataclass(frozen=True)
+class CurrencyEntry:
+    code: str
+    name: str
+    country_name: str | None = None
+    symbol: str | None = None
+
+
+@dataclass(frozen=True)
+class CurrencySchemeEntry:
+    irp_id: int
+    name: str
+    code: str
+    anchor_currency_code: str | None = None
+    update_interval_days: int | None = None
+
+
+@dataclass(frozen=True)
+class CurrencySchemeVintageEntry:
+    """No ``irp_id`` — the upstream vintage item has no id field and
+    ``(currency_scheme_code, vintage)`` is not unique (R13); the cache stores
+    exactly what the API returned, duplicates included."""
+    vintage: str
+    currency_scheme_code: str
+    effective_date: str
+
+
 # ── The interface the poller/workers depend on (fake implements it in CI) ────────
 
 @runtime_checkable
@@ -179,6 +235,18 @@ class IRPGateway(Protocol):
     def search_treaties(self, *, edm_irp_id: int) -> list[TreatyDetail]: ...
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]: ...
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]: ...
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]: ...
+
+    def list_currencies(self) -> list[CurrencyEntry]: ...
+
+    def list_currency_schemes(self) -> list[CurrencySchemeEntry]: ...
+
+    def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -450,6 +518,91 @@ class _RealGateway:
                 updated_at=r.get("updatedAt")))
         return entries
 
+    # ── analysis reference data (worker-only snapshot reads) ──────────────────
+
+    @staticmethod
+    def _reference_rows(payload, label: str) -> list[dict]:
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict) and isinstance(payload.get("items"), list):
+            rows = payload["items"]
+        else:
+            raise ValueError(f"unexpected {label} response shape")
+        if not all(isinstance(row, dict) for row in rows):
+            raise ValueError(f"unexpected {label} row shape")
+        return rows
+
+    def list_model_profiles(self) -> list[ModelProfileEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_model_profiles(), "model profiles")
+        return [ModelProfileEntry(
+            irp_id=int(row["id"]),
+            name=str(row["name"]),
+            software_version_code=row.get("softwareVersionCode"),
+            peril_code=row.get("perilCode"),
+            model_region_code=row.get("modelRegionCode"),
+            peril=row.get("peril"),
+            region=row.get("region"),
+            analysis_type=row.get("analysisType"),
+        ) for row in rows]
+
+    def list_output_profiles(self) -> list[OutputProfileEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_output_profiles(), "output profiles")
+        return [OutputProfileEntry(
+            irp_id=int(row["id"]),
+            name=str(row["name"]),
+            rms_default=bool(row.get("rmsDefault")),
+        ) for row in rows]
+
+    def list_event_rate_schemes(self) -> list[EventRateSchemeEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.get_event_rate_schemes(),
+            "event rate schemes")
+        return [EventRateSchemeEntry(
+            irp_id=int(row["eventRateSchemeId"]),
+            name=str(row["eventRateSchemeName"]),
+            peril_code=row.get("perilCode"),
+            model_region_code=row.get("modelRegionCode"),
+            model_version_code=row.get("modelVersionCode"),
+            is_hd=bool(row.get("isHD")),
+        ) for row in rows if row.get("isActive") is True]
+
+    def list_currencies(self) -> list[CurrencyEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.search_currencies(), "currencies")
+        return [CurrencyEntry(
+            code=str(row["currencyCode"]),
+            name=str(row["currencyName"]),
+            country_name=row.get("countryName"),
+            symbol=row.get("currencySymbol"),
+        ) for row in rows]
+
+    def list_currency_schemes(self) -> list[CurrencySchemeEntry]:
+        # Only active schemes are cached (data-model.md) — like event-rate
+        # schemes, but here the filter is an explicit where_clause rather than
+        # baked into the wheel method (R13).
+        rows = self._reference_rows(
+            self._client().reference_data.search_currency_schemes(
+                where_clause="isActive=True"), "currency schemes")
+        return [CurrencySchemeEntry(
+            irp_id=int(row["currencySchemeId"]),
+            name=str(row["currencySchemeName"]),
+            code=str(row["currencySchemeCode"]),
+            anchor_currency_code=row.get("anchorCurrencyCode"),
+            update_interval_days=row.get("updateIntervalInDays"),
+        ) for row in rows]
+
+    def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]:
+        rows = self._reference_rows(
+            self._client().reference_data.search_currency_scheme_vintages(),
+            "currency scheme vintages")
+        return [CurrencySchemeVintageEntry(
+            vintage=str(row["vintage"]),
+            currency_scheme_code=str(row["currencySchemeCode"]),
+            effective_date=str(row["effectiveDate"]),
+        ) for row in rows]
+
 
 # ── Active-implementation registry (the injection seam) ──────────────────────────
 
@@ -532,12 +685,40 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
+def list_model_profiles() -> list[ModelProfileEntry]:
+    return _active().list_model_profiles()
+
+
+def list_output_profiles() -> list[OutputProfileEntry]:
+    return _active().list_output_profiles()
+
+
+def list_event_rate_schemes() -> list[EventRateSchemeEntry]:
+    return _active().list_event_rate_schemes()
+
+
+def list_currencies() -> list[CurrencyEntry]:
+    return _active().list_currencies()
+
+
+def list_currency_schemes() -> list[CurrencySchemeEntry]:
+    return _active().list_currency_schemes()
+
+
+def list_currency_scheme_vintages() -> list[CurrencySchemeVintageEntry]:
+    return _active().list_currency_scheme_vintages()
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
+    "ModelProfileEntry", "OutputProfileEntry", "EventRateSchemeEntry",
+    "CurrencyEntry", "CurrencySchemeEntry", "CurrencySchemeVintageEntry",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "search_analyses", "get_import_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
-    "search_treaties", "get_analysis_metadata",
+    "search_treaties", "get_analysis_metadata", "list_model_profiles",
+    "list_output_profiles", "list_event_rate_schemes", "list_currencies",
+    "list_currency_schemes", "list_currency_scheme_vintages",
 ]

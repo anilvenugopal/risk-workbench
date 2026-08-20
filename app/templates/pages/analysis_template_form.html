@@ -1,0 +1,190 @@
+{% extends "base/shell.html" %}
+{% import "partials/form_macros.html" as forms %}
+{% block title %}
+{% if mode == 'create' %}New analysis template
+{% elif mode == 'edit' %}Edit {{ template.name }}
+{% else %}{{ template.name }}
+{% endif %}
+{% endblock %}
+
+{% block page_actions %}
+<a href="/templates?tab=templates" class="btn-sm">← Back to templates</a>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad" style="max-width: 720px;">
+  <div class="detail-head">
+    <h1>
+      {% if mode == 'create' %}New analysis template
+      {% elif mode == 'edit' %}Edit {{ template.name }}
+      {% else %}{{ template.name }}
+      {% endif %}
+    </h1>
+    {% if template %}
+    <div class="detail-meta">
+      {{ forms.family_badge(template.profile_family) }}
+      {% if template.unresolved %}<span class="badge badge--negative">unresolved reference</span>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if errors %}
+  <div class="form-banner form-banner--error">
+    {% for e in errors %}<div>{{ e }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if mode == 'view' %}
+  {# ── Read-only display for non-admin analysts (FR-011 unresolved flags inline) ── #}
+  <div class="wf-fields">
+    <div class="wf-field">
+      <label>MODEL PROFILE</label>
+      <span class="wf-field__val">{{ template.analysis_profile_name }}
+        {% if template.model_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}</span>
+    </div>
+    <div class="wf-field">
+      <label>EVENT RATE SCHEME</label>
+      <span class="wf-field__val">{{ template.event_rate_scheme_name or '—' }}
+        {% if template.event_rate_scheme_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}</span>
+    </div>
+    <div class="wf-field">
+      <label>OUTPUT PROFILE</label>
+      <span class="wf-field__val">{{ template.output_profile_name }}
+        {% if template.output_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}</span>
+    </div>
+    <div class="wf-field"><label>MIN LOSS THRESHOLD</label><span class="wf-field__val">{{ template.min_loss_threshold }}</span></div>
+    <div class="wf-field"><label>MAX LOSS EVENTS</label><span class="wf-field__val">{{ template.num_max_loss_event }}</span></div>
+    <div class="wf-field"><label>FRANCHISE DEDUCTIBLE</label><span class="wf-field__val">{{ 'Yes' if template.franchise_deductible else 'No' }}</span></div>
+    <div class="wf-field"><label>UNRECOGNIZED CONSTRUCTION / OCCUPANCY</label><span class="wf-field__val">{{ 'Treat as unknown' if template.treat_construction_occupancy_as_unknown else 'Skip location during analysis' }}</span></div>
+    <div class="wf-field">
+      <label>TAGS</label>
+      <span class="wf-field__val">
+        {% if template.tags %}{% for tag in template.tags %}<span class="badge badge--brand">{{ tag }}</span> {% endfor %}{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="wf-field"><label>AUTHOR</label><span class="wf-field__val">{{ template.author_name or '—' }}</span></div>
+  </div>
+
+  {% else %}
+  {# ── Create/edit form (admin) ── #}
+  {% set action = ('/templates/analysis-templates/' ~ template.id) if mode == 'edit' else '/templates/analysis-templates' %}
+  <form method="post" action="{{ action }}">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <div class="wf-fields">
+      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
+      <div class="wf-field">
+        <label>NAME <span class="wf-field__req">*</span></label>
+        <input class="wf-field__input" type="text" name="name" required value="{{ form.name or '' }}">
+      </div>
+
+      <div class="wf-field">
+        <label>MODEL PROFILE <span class="wf-field__req">*</span></label>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="analysis_profile_name" id="tpl-profile" required
+                  x-ref="select" x-show="false"
+                  hx-get="/templates/analysis-templates/scheme-options"
+                  hx-trigger="change" hx-target="#tpl-scheme" hx-swap="innerHTML"
+                  hx-vals='js:{"profile": document.getElementById("tpl-profile").value}'>
+            <option value=""{% if not (model_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose a model profile…</option>
+            {% for option in model_profile_options %}
+            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+              {%- if option.unresolved -%}
+              {{ option.name }} (not found in Risk Modeler)
+              {%- else -%}
+              {{ option.name }}{% if option.family %} — {{ option.family }}{% if option.software_version_code %} · {{ option.software_version_code }}{% endif %}{% endif %}
+              {%- endif -%}
+            </option>
+            {% endfor %}
+          </select>
+          {{ forms.typeahead_controls() }}
+        </div>
+        <div class="wf-field__msg wf-field__hint">Options come from Analysis Metadata; the marker shows DLM / HD / Accumulation (FR-004).</div>
+      </div>
+
+      <div class="wf-field">
+        <label>EVENT RATE SCHEME</label>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="event_rate_scheme_name" id="tpl-scheme"
+                  x-ref="select" x-show="false" @htmx:after-swap="sync()">
+            {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
+          </select>
+          {{ forms.typeahead_controls(required=false) }}
+        </div>
+        <div class="wf-field__msg wf-field__hint">Required for DLM analyses; filtered to the selected profile's peril/region.</div>
+      </div>
+
+      <div class="wf-field">
+        <label>OUTPUT PROFILE <span class="wf-field__req">*</span></label>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="output_profile_name" required
+                  x-ref="select" x-show="false">
+            <option value=""{% if not (output_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose an output profile…</option>
+            {% for option in output_profile_options %}
+            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+              {{ option.name }}{% if option.unresolved %} (not found in Risk Modeler){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          {{ forms.typeahead_controls() }}
+        </div>
+      </div>
+
+      <div class="wf-field">
+        <label>MIN LOSS THRESHOLD</label>
+        <input class="wf-field__input" type="text" name="min_loss_threshold" value="{{ form.min_loss_threshold }}" style="max-width:140px">
+      </div>
+
+      <div class="wf-field">
+        <label>MAX LOSS EVENTS</label>
+        <input class="wf-field__input" type="number" name="num_max_loss_event" value="{{ form.num_max_loss_event }}" style="max-width:140px">
+      </div>
+
+      <div class="wf-field">
+        <label>FRANCHISE DEDUCTIBLE</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-label);font-weight:normal">
+          <input type="checkbox" name="franchise_deductible" style="width:auto"{% if form.franchise_deductible %} checked{% endif %}>
+          Apply franchise deductible
+        </label>
+      </div>
+
+      <div class="wf-field">
+        <label>UNRECOGNIZED CONSTRUCTION / OCCUPANCY</label>
+        <select class="wf-field__input" name="treat_construction_occupancy_as_unknown">
+          <option value="1"{% if form.treat_construction_occupancy_as_unknown %} selected{% endif %}>Treat as unknown</option>
+          <option value="0"{% if not form.treat_construction_occupancy_as_unknown %} selected{% endif %}>Skip location during analysis</option>
+        </select>
+      </div>
+
+      <div class="wf-field">
+        <label>TAGS</label>
+        <input class="wf-field__input" type="text" name="tags" list="tag-names" value="{{ form.tags or '' }}">
+        <datalist id="tag-names">
+          {% for tag in tag_names %}<option value="{{ tag }}">{% endfor %}
+        </datalist>
+        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — the first tag autocompletes over tags already used on templates (FR-006).</div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="submit">Save template</button>
+      <a class="btn-sm" href="/templates?tab=templates">Cancel</a>
+    </div>
+  </form>
+
+  {% if mode == 'edit' %}
+  <div class="form-actions" style="margin-top: var(--space-4);">
+    <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm" type="submit">Duplicate template</button>
+    </form>
+    <form method="post" action="/templates/analysis-templates/{{ template.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit"
+              onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete template</button>
+    </form>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

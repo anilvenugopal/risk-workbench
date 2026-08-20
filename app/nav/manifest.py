@@ -112,6 +112,31 @@ NODES: list[dict[str, Any]] = [
         "hidden": False,
         "bottom": True,
     },
+    # ── Templates sidebar ────────────────────────────────────────────────────
+    {
+        "key": "templates.suites",
+        "label": "Template Suites",
+        "parent": "templates",
+        "route": "/templates",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
+    {
+        "key": "templates.metadata",
+        "label": "Analysis Metadata",
+        "parent": "templates",
+        "route": "/templates/metadata",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": True,
+        "roles": [],
+        "hidden": False,
+        "bottom": False,
+    },
     # ── Submissions sidebar ──────────────────────────────────────────────────
     {
         "key": "submissions.all",

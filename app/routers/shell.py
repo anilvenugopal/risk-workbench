@@ -46,11 +46,6 @@ def results(request: Request):
     return _render(request, "pages/results.html", "results")
 
 
-@router.get("/templates", response_class=HTMLResponse)
-def templates_page(request: Request):
-    return _render(request, "pages/templates.html", "templates")
-
-
 @router.get("/account", response_class=HTMLResponse)
 def account(request: Request):
     return _render(request, "pages/account.html", "account")
