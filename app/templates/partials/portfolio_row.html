@@ -2,13 +2,12 @@
    FR-012/FR-013). Context: `p` (portfolio_service.PortfolioRow). The snapshot
    is namespaced (data-model §2): "metrics" = RM /metrics verbatim (counts +
    perilsExposed string); "summary" = the DataBridge aggregate
-   (geography/LOB/currency), null until available. Rows written before
-   2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
-   shape. Every field is read defensively; a missing field renders "—", never
-   an error. Records == locations, so there is no separate Records column
-   (preview rev 7). Expanding the row (8/4 CR15) reveals the FULL value lists
-   the collapsed cells truncate — lines of business, countries, states,
-   currencies — capped at 100 values each (CR19). #}
+   (geography/LOB/currency), null until available. Every field is read
+   defensively; a missing field renders "—", never an error. Records ==
+   locations, so there is no separate Records column (preview rev 7).
+   Expanding the row (8/4 CR15) reveals the FULL value lists the collapsed
+   cells truncate — lines of business, countries, states, currencies —
+   capped at 100 values each (CR19). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -19,7 +18,7 @@
   {%- if vals -%}{{ vals|join(', ') }}{%- else -%}<span class="na">&mdash;</span>{%- endif -%}
 {%- endmacro -%}
 {%- set d = p.exposure_detail or {} -%}
-{%- set m = d.get('metrics') or d -%}
+{%- set m = d.get('metrics') or {} -%}
 {%- set s = d.get('summary') or {} -%}
 {%- set lobs = s.get('lines_of_business') or [] -%}
 {%- set countries = s.get('countries') or [] -%}

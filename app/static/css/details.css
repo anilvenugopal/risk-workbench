@@ -119,17 +119,6 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
 .state-box--warn strong { color: var(--color-warning); }
 
-/* GeoHaz launch modal. Uses the package modal frame and detail-page form tokens. */
-.geohaz-selection { color: var(--text-secondary); font-size: var(--fs-label); margin: calc(-1 * var(--space-2)) 0 var(--space-5); }
-.geohaz-field { border: 0; padding: 0; margin: 0 0 var(--space-4); }
-.geohaz-field > label,
-.geohaz-field > legend { display: block; color: var(--text-tertiary); font-size: var(--fs-caption); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; margin-bottom: var(--space-2); }
-.geohaz-field select { width: 100%; padding: 7px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-primary); font: inherit; }
-.geohaz-options { display: flex; gap: var(--space-5); flex-wrap: wrap; }
-.geohaz-options label { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
-.geohaz-help { color: var(--color-danger); font-size: var(--fs-caption); margin: var(--space-2) 0 0; }
-.geohaz-fixed { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-recessed); color: var(--text-secondary); }
-
 /* GeoHaz status column and most recent lookup details. */
 .geohaz-cell { font-weight: var(--fw-semibold); }
 .geohaz-cell--live { color: var(--color-info); }
@@ -141,6 +130,7 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .geohaz-details__list dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
 .geohaz-details__list dd { margin: 2px 0 0; font-size: var(--fs-label); white-space: normal; }
 .geohaz-details__result { padding-top: var(--space-2); border-top: 1px solid var(--border-faint); }
+.geohaz-details__failed { color: var(--color-danger); font-weight: var(--fw-semibold); }
 @media (max-width: 760px) {
   .portfolio-detail-columns { grid-template-columns: 1fr; }
   .geohaz-details { padding: var(--space-3) 0 0; border-left: 0; border-top: 1px solid var(--border-faint); }
