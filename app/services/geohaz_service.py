@@ -41,17 +41,24 @@ class LatestLookup:
         return self.status in ("FAILED", "CANCELLED", "SUBMISSION FAILED")
 
 
-def _read_states(*, edm_id: Any | None = None,
-                 portfolio_id: Any | None = None) -> dict[str, CellState]:
+def _scope_clause(*, portfolio_col: str, edm_col: str,
+                   edm_id: Any | None, portfolio_id: Any | None,
+                   ) -> tuple[str, dict[str, str]]:
     if portfolio_id is not None:
-        where = "p.id = :portfolio_id"
+        where = f"{portfolio_col} = :portfolio_id"
         params = {"portfolio_id": str(portfolio_id)}
         if edm_id is not None:
-            where += " AND p.edm_id = :edm_id"
+            where += f" AND {edm_col} = :edm_id"
             params["edm_id"] = str(edm_id)
-    else:
-        where = "p.edm_id = :edm_id"
-        params = {"edm_id": str(edm_id)}
+        return where, params
+    return f"{edm_col} = :edm_id", {"edm_id": str(edm_id)}
+
+
+def _read_states(*, edm_id: Any | None = None,
+                 portfolio_id: Any | None = None) -> dict[str, CellState]:
+    where, params = _scope_clause(
+        portfolio_col="p.id", edm_col="p.edm_id",
+        edm_id=edm_id, portfolio_id=portfolio_id)
     rows = execute(
         f"""
         WITH job_state AS (
@@ -134,12 +141,9 @@ def completion_summary(result: dict[str, Any] | None) -> str | None:
 
 def _latest_lookups(*, edm_id: Any | None = None,
                     portfolio_id: Any | None = None) -> dict[str, LatestLookup]:
-    if portfolio_id is not None:
-        where = "j.irp_portfolio_id = :portfolio_id"
-        params = {"portfolio_id": str(portfolio_id)}
-    else:
-        where = "j.irp_edm_id = :edm_id"
-        params = {"edm_id": str(edm_id)}
+    where, params = _scope_clause(
+        portfolio_col="j.irp_portfolio_id", edm_col="j.irp_edm_id",
+        edm_id=edm_id, portfolio_id=portfolio_id)
     rows = execute(
         f"""
         WITH ranked AS (
