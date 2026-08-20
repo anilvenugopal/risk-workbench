@@ -60,9 +60,9 @@ An analyst working an EDM opens its summary page, selects one or more portfolios
 
 1. **Given** an EDM with two or more portfolios, **When** the analyst selects two and launches hazard lookup with the defaults, **Then** two geohaz jobs are submitted — one per selected portfolio, both carrying the same parameter set — and each portfolio's "Hazard Version" column shows its job's in-line status.
 2. **Given** one or more selected portfolios, **When** the analyst clicks Run hazard lookup, **Then** the lookup starts without opening a modal and uses the configured hazard data version, DLM, earthquake + windstorm, Skip locations with previous hazard lookup off, and Overwrite user-defined hazard values on.
-4. **Given** an EDM with no portfolios, **When** the analyst views the summary page, **Then** the hazard-lookup action is disabled (the prerequisite gate requires EDM + ≥1 portfolio).
-5. **Given** a launch across five portfolios where submission fails for the third, **When** the launch completes, **Then** the jobs already submitted stand, the remaining portfolios are still attempted, the failed submission is visible as failed for that portfolio, and that portfolio is immediately launchable again.
-6. **Given** a portfolio with a non-terminal geohaz job, **When** the analyst composes a new launch, **Then** that portfolio cannot be included and its row shows the running job's status.
+3. **Given** an EDM with no portfolios, **When** the analyst views the summary page, **Then** the hazard-lookup action is disabled (the prerequisite gate requires EDM + ≥1 portfolio).
+4. **Given** a launch across five portfolios where submission fails for the third, **When** the launch completes, **Then** the jobs already submitted stand, the remaining portfolios are still attempted, the failed submission is visible as failed for that portfolio, and that portfolio is immediately launchable again.
+5. **Given** a portfolio with a non-terminal geohaz job, **When** the analyst composes a new launch, **Then** that portfolio cannot be included and its row shows the running job's status.
 
 ---
 
@@ -90,11 +90,11 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 
 **Why this priority**: The summary is the payoff of a completed lookup and the substance of the P-05 lineage record, but it has no value until launches (US1) and tracking (US2) exist.
 
-**Independent Test**: Let a lookup complete; expand the portfolio row and confirm the Risk Modeler completion summary displays with the parameter set, launching analyst, and timestamps.
+**Independent Test**: Let a lookup complete; expand the portfolio row and confirm the Risk Modeler completion summary displays with the parameter set.
 
 **Acceptance Scenarios**:
 
-1. **Given** a lookup that reached terminal success, **When** the analyst expands the portfolio row, **Then** the lookup's record shows `tasks[].output.summary` alongside the submitted parameter set, launching analyst, and timestamps.
+1. **Given** a lookup that reached terminal success, **When** the analyst expands the portfolio row, **Then** the lookup's record shows `tasks[].output.summary` alongside the submitted parameter set.
 2. **Given** the summary says a layer processed zero locations, **When** the summary is shown, **Then** the original Risk Modeler text remains unchanged.
 3. **Given** a completion response without a task output summary, **When** the record is shown, **Then** the summary displays as unavailable, never an error page.
 4. **Given** a portfolio looked up more than once through the workbench, **When** the analyst expands its row, **Then** only the most recent lookup's parameters and result are displayed.
@@ -126,6 +126,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 - **FR-005**: Hazard lookup MUST NOT re-run geocoding — broker geocoding is preserved.
 - **FR-006**: Each submitted job MUST be recorded as a geohaz-type IRP job carrying the parameter set it was submitted with. A submission failure for one portfolio MUST NOT undo jobs already submitted or prevent the remaining portfolios in the launch from being attempted; the failed submission is terminal and visible, and that portfolio MUST be immediately launchable again (recovery is relaunch — an automatic submission-retry batch is future work, not this feature).
 - **FR-007**: A portfolio with a non-terminal geohaz job MUST NOT be includable in a new launch (P-06); a portfolio whose latest geohaz job is terminal MUST be launchable again.
+- **FR-024**: The portfolios table header MUST carry a select-all checkbox that selects every eligible (P-06) portfolio for launch.
 
 **Status & latest details on the summary page (US2)**
 
@@ -133,14 +134,14 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 - **FR-011**: The portfolios table on the EDM summary page MUST carry **"Hazard Version"** as its final column (P-07). The column MUST display **SUBMITTING** while the worker sends a job, the Risk Modeler job status while the job is non-terminal, and the raw stored `hazardVersion` otherwise. An absent or empty `hazardVersion` MUST display empty.
 - **FR-012**: While a geohaz job is non-terminal, its status in the column MUST refresh by polling the workbench without a manual page reload (no live push — SSE is Iteration 6).
 - **FR-013**: EDM sync MUST store the Get Portfolio Metadata response, including `hazardVersion`, in `irp_portfolio.exposure_detail`. The workbench MUST NOT use `hazardVersion` to gate an action (P-03).
-- **FR-014**: A geohaz job that fails — in submission or in Risk Modeler — MUST be visible in the portfolio's expanded details when it is the most recent run, MUST NOT replace the column's stored `hazardVersion`, MUST NOT change the portfolio's or EDM's own state, and MUST NOT block a later launch on that portfolio.
+- **FR-014**: A geohaz job that fails — in submission or in Risk Modeler — MUST be visible in the portfolio's expanded details when it is the most recent run, with Result showing the terminal status (Failed / Cancelled / Submission failed) in place of a completion summary; it MUST NOT replace the column's stored `hazardVersion`, MUST NOT change the portfolio's or EDM's own state, and MUST NOT block a later launch on that portfolio.
 - **FR-015**: Hazard lookup MUST NOT be a prerequisite for analysis: no prerequisite gate may require a geohaz job to have run (P-04).
 
 **Completion record (US3)**
 
 - **FR-020**: When a geohaz job finishes successfully, the workbench MUST copy `tasks[].output.summary` from the completion response into the geohaz `irp_job` and refresh the portfolio's Get Portfolio Metadata snapshot in the background — never on a web request path.
 - **FR-021**: The per-lookup record MUST comprise (P-05): the submitted parameter set, launching analyst, submitted and completed timestamps, terminal status, and completion summary string.
-- **FR-022**: Expanding a portfolio row MUST show a column to the right of Lines of business, Countries, States, and Currencies. The column MUST show only the most recent lookup's Data Version, Model Family, Hazard Layers, Skip locations with previous hazard lookup, Overwrite user-defined hazard values, and Result. Result MUST use `completion_summary`.
+- **FR-022**: Expanding a portfolio row MUST show a column to the right of Lines of business, Countries, States, and Currencies. The column MUST show only the most recent lookup's Data Version, Model Family, Hazard Layers, Skip locations with previous hazard lookup, Overwrite user-defined hazard values, and Result. Result MUST use `completion_summary` when the most recent lookup succeeded, or the terminal status (Failed / Cancelled / Submission failed) when it did not.
 - **FR-023**: The workbench MUST display the completion summary without parsing or rewriting it. A missing summary MUST render as unavailable and MUST NOT cause a page error.
 
 ### Key Entities

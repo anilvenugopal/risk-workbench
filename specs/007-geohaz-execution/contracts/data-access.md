@@ -8,15 +8,14 @@ fragments.
 ## Writes (request path — WORKBENCH only, no Risk Modeler call)
 
 ```python
-def launch(*, edm_id, portfolio_ids: list, data_version: str,
-           perils: list[str], skip_prev_hazard: bool,
-           override_user_def: bool, actor_id) -> LaunchResult
+def launch(*, edm_id, portfolio_ids: list, actor_id) -> LaunchResult
 ```
-- Validates: gate (FR-004), portfolio membership + P-06 eligibility, ≥1 peril,
-  `data_version` matches the configured `settings.hazard_data_version`
-  (research R6). Rejects the launch whole on any failure — nothing partially
-  enqueued.
-- Builds the single `request_params` document (FR-003, data-model §3).
+- Validates: gate (FR-004), portfolio membership + P-06 eligibility. Rejects
+  the launch whole on any failure — nothing partially enqueued.
+- Builds the single `request_params` document from the fixed DLM parameter
+  set (FR-002/FR-003, data-model §3) — the configured `settings.hazard_data_version`
+  (research R6), DLM, earthquake + windstorm, `skip_prev_hazard=False`,
+  `override_user_def=True`.
 - Per portfolio: `rwb_job_service.ensure_pending_rwb_job(requestor_type='analyst_request',
   requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` then
   `dispatch.dispatch(...)`. The unique head makes the enqueue idempotent per
@@ -33,10 +32,11 @@ def cell_state(portfolio_id) -> CellState
     # single-portfolio variant for the poll fragment; CellState carries
     # `live: bool` so the template emits hx-trigger only while non-terminal
 
-def eligible(portfolio_id) -> bool          # P-06 (used by launch + form render)
-
 def latest_lookup(portfolio_id) -> LatestLookup | None
-    # newest irp_job row with parsed request_params and completion_summary
+    # newest irp_job row with parsed request_params, completion_summary, and status
+
+def latest_lookups(edm_id) -> dict[portfolio_id, LatestLookup]
+    # newest irp_job row per portfolio in one EDM (batch form for the table render)
 
 def completion_summary(result: dict | None) -> str | None
     # returns tasks[].output.summary for terminal poller storage

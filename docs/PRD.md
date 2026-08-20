@@ -718,13 +718,25 @@ Every launch uses the same parameter set. The analyst does not review or change 
 
 The hazard job returns a **summary of locations looked up per layer**, shown to the analyst when it completes. Exactly which fields of the completion response the workbench records is decided at Iteration 5 spec time (O8-3).
 
-### 10B.4 On-screen display: app-side lineage, not version stamps
+### 10B.4 On-screen display: Hazard Version column + app-side lineage
 
-Settled in the 2026-08-07 design session — "Geocode and hazard information on the screen — no. Ability to execute hazard lookup from the screen — yes."
+The 2026-08-07 design session settled "Geocode and hazard information on the screen — no. Ability to
+execute hazard lookup from the screen — yes." Approver direction on 2026-08-17 (P-03/P-07) added a
+Hazard Version column to the portfolios table, superseding the "no version stamp" framing this
+section originally carried.
 
-- The workbench **assumes exposure arrives geocoded and hazard-retrieved**. It shows **no geocode/hazard version stamp** on the summary page and **never reads RM's stamp to gate anything** — a live analysis on parcel-geocoded data with no stamp succeeded, so the stamp is not evidence of geocode state (O8-1 tracks confirming its origin with Moody's).
-- What the summary page shows instead is the **workbench's own execution history**: per portfolio, whether hazard lookup has been run **through the workbench** (from `irp_job` rows with `irp_job_type = geohaz`), and the **in-line status of any non-terminal geohaz job** on that portfolio. Status refreshes by polling the workbench (§14.7 SSE lands with Iteration 6 and can replace the polling).
-- Which execution details are recorded and displayed per lookup (data version, perils, per-layer counts, …) is **O8-3**, decided at Iteration 5 spec time.
+- The portfolios table's final column is **"Hazard Version"**. It shows **SUBMITTING** while the
+  worker sends a job, the Risk Modeler job status while a geohaz job is non-terminal, and otherwise
+  the portfolio's **raw stored `hazardVersion`** from Get Portfolio Metadata (empty when absent).
+  Status refreshes by polling the workbench (§14.7 SSE lands with Iteration 6 and can replace the
+  polling).
+- The stamp still gates nothing: the workbench **never reads `hazardVersion` to gate an action** — a
+  live analysis on parcel-geocoded data with no stamp succeeded, so the stamp is not evidence of
+  geocode state (O8-1 tracks confirming its origin with Moody's).
+- Expanding a portfolio row shows the **workbench's own execution history**: the most recent geohaz
+  lookup's parameters and result, from `irp_job` rows with `irp_job_type = geohaz`. Which execution
+  details are recorded and displayed per lookup (data version, perils, per-layer counts, …) is
+  **O8-3**, settled at Iteration 5 spec time.
 
 ### 10B.5 Prerequisite gate & relationship to analysis
 
@@ -1506,6 +1518,14 @@ launch is one-click with no dropdown, so the list never had more than one live m
 Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — Risk Modeler documentation appeared to
 confirm `version` accepts the literal string `"latest"`, resolved server-side. Reverted same day
 (entry above) after confirming Risk Modeler rejects the literal.
+
+### 2026-08-17 — Portfolios table shows a Hazard Version column
+
+Scope: §10B.4 — approver direction (P-03/P-07), spec 007. Supersedes the 2026-08-12 entry's "no
+version stamps" framing below: the portfolios table's final column is now **"Hazard Version"**,
+showing a non-terminal geohaz job's in-line status or otherwise the portfolio's raw stored
+`hazardVersion`. The value still gates nothing — Risk Modeler's stamp is not read to block or permit
+any workbench action.
 
 ### 2026-08-14 — DLM hazard lookup changed to one click
 

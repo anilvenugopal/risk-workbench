@@ -171,7 +171,9 @@ that portfolio has a non-terminal lookup — the established self-terminating pa
   rows; geohaz status lives inside those rows.
 - *One table-wide poll with `hx-swap-oob` cell updates* — fewer requests, but a new pattern with no
   precedent in the app; per-cell polling is bounded by P-06 (≤ one non-terminal lookup per portfolio,
-  ≤ 25 portfolios per EDM).
+  ≤ 25 portfolios per EDM). What shipped still uses `hx-swap-oob`, just not for the poll itself: each
+  per-cell response carries the cell plus two oob sibling swaps (the row's selection checkbox and its
+  most-recent-lookup details), so one poll tick refreshes all three without a table-wide trigger.
 
 ## R9 — FR-006 recovery without the retry batch (plan T-07)
 

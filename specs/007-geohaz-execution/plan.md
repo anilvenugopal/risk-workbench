@@ -135,7 +135,9 @@ app/routers/edms.py                  # EDIT: POST /edms/{edm_id}/geohaz         
 app/templates/partials/
 ├── edm_detail_body.html             # EDIT: column header + --cols/min-width; selection form + launch button
 ├── portfolio_row.html               # EDIT: checkbox cell, geohaz cell include, latest lookup details column
-└── geohaz_cell.html                 # NEW: the self-terminating status cell fragment
+├── geohaz_cell.html                 # NEW: the self-terminating status cell fragment
+├── geohaz_checkbox.html             # NEW: the per-portfolio selection checkbox (oob-swapped by the cell fragment)
+└── geohaz_details.html              # NEW: the most recent lookup's details column (oob-swapped by the cell fragment)
 app/static/js/app.js                 # EDIT: portfolio-selection component
 app/static/css/                     # EDIT: status and latest-details styling via tokens if needed
 

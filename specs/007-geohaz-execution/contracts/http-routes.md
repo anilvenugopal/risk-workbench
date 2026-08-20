@@ -22,14 +22,18 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 
 ## `GET /edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell` — status cell fragment
 
-- Renders `partials/geohaz_cell.html`: the in-line status for a non-terminal
-  job or the stored raw `hazardVersion` otherwise (data-model §4).
+- Renders `partials/geohaz_cell.html`, which carries three elements: the
+  status cell itself, an `hx-swap-oob` checkbox (only when the portfolio is
+  not live — keeps the row's selection checkbox in sync with eligibility),
+  and an `hx-swap-oob` most-recent-lookup details section.
+- The status cell shows the in-line status for a non-terminal job or the
+  stored raw `hazardVersion` otherwise (data-model §4).
 - Self-terminating poll: the fragment carries
   `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only
   while** the portfolio has a non-terminal lookup; on terminal render the
   attributes are omitted and polling stops (FR-012, T-01).
-- 404 if the portfolio is gone (soft-deleted) — renders a terminal empty cell,
-  never an error page.
+- 200 with a terminal empty cell (no `hx-trigger`) if the portfolio is gone —
+  the swap ends the poll instead of leaving it running against a 404.
 
 ## Existing routes touched
 

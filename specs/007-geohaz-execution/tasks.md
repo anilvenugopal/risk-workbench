@@ -23,7 +23,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 **Purpose**: The one new configuration value everything else reads.
 
-- [X] T001 Add `geohaz_data_versions: list[str]` to `app/config.py` (parsed from `GEOHAZ_DATA_VERSIONS`, comma-separated, first entry is the form default — research R6) and document `GEOHAZ_DATA_VERSIONS` in `infra/.env.example` (e.g. `25.0,24.0`)
+- [X] T001 Add `hazard_data_version: str` to `app/config.py` (parsed from `HAZARD_DATA_VERSION`, default `"25.0"` — research R6) and document `HAZARD_DATA_VERSION` in `infra/.env.example`
 
 ---
 
@@ -57,7 +57,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 
 ### Implementation for User Story 1
 
-- [X] T010 [US1] Create `app/services/geohaz_service.py`: `eligible(portfolio_id)` (P-06 — no non-terminal geohaz `irp_job`, no pending/claimed `run_geohaz` rwb_job head) and `launch(*, edm_id, portfolio_ids, data_version, perils, skip_prev_hazard, override_user_def, actor_id) -> LaunchResult` — validate the gate (FR-004), portfolio membership + eligibility, ≥1 peril (FR-002), `data_version` ∈ `settings.geohaz_data_versions`; reject the launch whole on any failure; build the single `request_params` document (data-model §3, FR-003); per portfolio `ensure_pending_rwb_job(requestor_type='analyst_request', requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` + dispatch (contracts/data-access.md); `input_data` carries ids, names, analyst, and params (data-model §2)
+- [X] T010 [US1] Create `app/services/geohaz_service.py`: `launch(*, edm_id, portfolio_ids, actor_id) -> LaunchResult` — validate the gate (FR-004), portfolio membership + P-06 eligibility (no non-terminal geohaz `irp_job`, no pending/claimed `run_geohaz` rwb_job head); reject the launch whole on any failure; build the single `request_params` document from the fixed DLM parameter set — `settings.hazard_data_version`, DLM, earthquake + windstorm, `skip_prev_hazard=False`, `override_user_def=True` (data-model §3, FR-002/FR-003); per portfolio `ensure_pending_rwb_job(requestor_type='analyst_request', requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` + dispatch (contracts/data-access.md); `input_data` carries ids, names, analyst, and params (data-model §2)
 - [X] T011 [P] [US1] Create `app/workers/geohaz_jobs.py`: `_run_geohaz_body(rwb_job_id)` reads `input_data`, calls `irp_gateway.submit_geohaz(...)`, on success `record_submitted_irp_job(irp_job_type='geohaz', irp_edm_id=…, irp_portfolio_id=…, irp_id=…, resource_uri=…, payload=…, request_params=…, actor_id=…)`, on exception `record_submission_failure(...)` then `JobResult.fail(...)`; module-level `_BODIES = {"run_geohaz": _run_geohaz_body}` for loader auto-discovery and the unit-tier drain; no portfolio/EDM/submission state change (contracts/worker-poller.md, FR-006/FR-014)
 - [X] T012 [US1] Make the portfolio-selection form post directly to the launch route and remove `geohaz_modal.html` (FR-002)
 - [X] T013 [P] [US1] Remove the unused geohaz modal Alpine component from `app/static/js/app.js`
@@ -65,7 +65,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 - [X] T015 [US1] Add the selection form and launch button to `app/templates/partials/edm_detail_body.html`: button disabled until ≥1 eligible portfolio is checked, absent when the gate fails (no portfolios — FR-004)
 - [X] T016 [US1] Add the selection checkbox cell to `app/templates/partials/portfolio_row.html`, disabled when the portfolio is P-06-ineligible
 - [X] T017 [P] [US1] Unit tests in `tests/unit/test_geohaz_service.py`: gate/membership/peril/data-version validation each reject the launch whole with nothing enqueued; P-06-ineligible selection rejected; a valid launch enqueues one `run_geohaz` rwb_job per portfolio, all carrying the same `request_params` document
-- [X] T018 [P] [US1] Unit tests in `tests/unit/test_run_geohaz_worker.py` (FakeIRP + synchronous drain): submit success writes a `QUEUED` geohaz `irp_job` with `irp_portfolio_id`, `request_params`, `inserted_by`, and the `irp_job_resource` row; a submit exception writes a terminal `SUBMISSION FAILED` row and fails the rwb_job; one portfolio's failure leaves its siblings' jobs untouched (FR-006)
+- [X] T018 [P] [US1] Unit tests in `tests/unit/test_run_geohaz_worker.py` (FakeIRP + synchronous drain): submit success writes a `SUBMITTED` geohaz `irp_job` with `irp_portfolio_id`, `request_params`, `inserted_by`, and the `irp_job_resource` row; a submit exception writes a terminal `SUBMISSION FAILED` row and fails the rwb_job; one portfolio's failure leaves its siblings' jobs untouched (FR-006)
 
 **Checkpoint**: User Story 1 works end-to-end (launch → jobs submitted). **STOP** — the approver clicks the running feature before User Story 2 begins.
 
@@ -102,7 +102,7 @@ Existing single-project `app/` tree at the repository root (plan.md Project Stru
 - [X] T026 [US3] Add `completion_summary(result) -> str | None` to `app/services/geohaz_service.py`; the poller copies `tasks[].output.summary` into `irp_job.completion_summary`, and `latest_lookup` reads the stored string (research R7)
 - [X] T027 [US3] Render the completion summary string as Result in the most recent lookup details; missing summary text displays as unavailable (FR-023)
 - [X] T028 [P] [US3] Unit tests in `tests/unit/test_geohaz_parser.py`: actual response shape returns the task output summary; missing summary returns `None`
-- [ ] T029 [US3] Create the opt-in sandbox test in `tests/irp/` (run via `make shell` + `uv run pytest tests/irp --run-irp -k geohaz`): submit one real lookup on a small sandbox portfolio with the hazard-only layer list, poll within the test, save the terminal `get_geohaz_job` body, and confirm Risk Modeler accepts the geocode-free submit and still returns `tasks[].output.summary`
+- [X] T029 [US3] Create the opt-in sandbox test in `tests/irp/` (run via `make shell` + `uv run pytest tests/irp --run-irp -k geohaz`): submit one real lookup on a small sandbox portfolio with the hazard-only layer list, poll within the test, save the terminal `get_geohaz_job` body, and confirm Risk Modeler accepts the geocode-free submit and still returns `tasks[].output.summary`
 
 **Checkpoint**: All three stories functional. **STOP** for the approver.
 
