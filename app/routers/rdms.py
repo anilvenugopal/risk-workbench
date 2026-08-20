@@ -1,10 +1,10 @@
 """RDM routes — standalone import, detail, recovery, and name check.
 
-Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
-every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
-POST (Article 13). Risk Modeler *submits* stay worker-side; the one RM call on a
-request path is the name-collision **read** (permitted by Article 11, cached per
-``name_check``). No row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+Mirrors ``edms.py``. An RDM imports once against its own exposure set — no EDM
+pairing (FR-018). CSRF on every POST (Article 13). Risk Modeler *submits* stay
+worker-side; the one RM call on a request path is the name-collision **read**
+(permitted by Article 11, cached per ``name_check``). No row scoping
+(Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import save_notes
-from app.services import rdm_service
+from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
