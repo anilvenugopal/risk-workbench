@@ -202,12 +202,42 @@ def _active_analysts() -> list[dict]:
     )
 
 
+# One place per kind for the router-level operations that differ between EDM
+# and RDM — mirrors the service layer's own ``_common._ENTITY_ASSOC``.
+_ENTITY_KIND = {
+    "edm": {
+        "list": submission_service.list_submission_edms,
+        "candidates": submission_service.list_edm_candidates,
+        "importer": edm_service.import_edm,
+        "attach": lambda *, submission_id, entity_ids, actor_id: (
+            submission_service.attach_edms(
+                submission_id=submission_id, edm_ids=entity_ids,
+                actor_id=actor_id)),
+        "detach": lambda *, submission_id, entity_id: submission_service.detach_edm(
+            submission_id=submission_id, edm_id=entity_id),
+        "backfill_status": edm_service.latest_backfill_status,
+        "count_field": "portfolio_count",
+        "count_label": "Portfolio count",
+    },
+    "rdm": {
+        "list": submission_service.list_submission_rdms,
+        "candidates": submission_service.list_rdm_candidates,
+        "importer": rdm_service.import_rdm,
+        "attach": lambda *, submission_id, entity_ids, actor_id: (
+            submission_service.attach_rdms(
+                submission_id=submission_id, rdm_ids=entity_ids,
+                actor_id=actor_id)),
+        "detach": lambda *, submission_id, entity_id: submission_service.detach_rdm(
+            submission_id=submission_id, rdm_id=entity_id),
+        "backfill_status": rdm_service.latest_backfill_status,
+        "count_field": "analysis_count",
+        "count_label": "Analysis count",
+    },
+}
+
+
 def _entity_backfill_running(kind: str, entities: list) -> bool:
-    latest_status = (
-        edm_service.latest_backfill_status
-        if kind == "edm"
-        else rdm_service.latest_backfill_status
-    )
+    latest_status = _ENTITY_KIND[kind]["backfill_status"]
     return any(
         latest_status(entity.id) in ("pending", "running")
         for entity in entities
@@ -315,15 +345,11 @@ def _entity_table_response(
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
+    cfg = _ENTITY_KIND[kind]
     sort_state = _entity_sort_state(request)
     entity_sort, entity_descending = sort_state[kind]
     sort_query = _entity_sort_query(sort_state)
-    list_entities = (
-        submission_service.list_submission_edms if kind == "edm"
-        else submission_service.list_submission_rdms)
-    count_field = "portfolio_count" if kind == "edm" else "analysis_count"
-    count_label = "Portfolio count" if kind == "edm" else "Analysis count"
-    entities = list_entities(
+    entities = cfg["list"](
         submission_id, sort=entity_sort, descending=entity_descending)
     return _partial(request, "partials/submission_entity_table.html", {
         "submission": submission,
@@ -334,8 +360,8 @@ def _entity_table_response(
         "backfill_running": _entity_backfill_running(kind, entities),
         "sort_links": _entity_sort_links(submission_id, kind, sort_state),
         "table_url": f"/submissions/{submission_id}/{kind}s/table?{sort_query}",
-        "count_field": count_field,
-        "count_label": count_label,
+        "count_field": cfg["count_field"],
+        "count_label": cfg["count_label"],
     }, status_code=status_code)
 
 
@@ -355,12 +381,8 @@ def _submission_entity_note_response(
 ):
     if not validate_csrf_token(csrf_token):
         return HTMLResponse("Invalid CSRF token", status_code=403)
-    entities = (
-        submission_service.list_submission_edms(submission_id)
-        if kind == "edm"
-        else submission_service.list_submission_rdms(submission_id)
-    )
-    entity = next((row for row in entities if str(row.id) == entity_id), None)
+    rows = _ENTITY_KIND[kind]["list"](submission_id, entity_id=entity_id)
+    entity = rows[0] if rows else None
     if entity is None:
         return HTMLResponse(
             f"That {kind.upper()} is not related to this submission.",
@@ -441,11 +463,7 @@ def _entity_modal_response(
             request, submission_id, kind,
             message="Reopen this submission before changing its data associations.",
             status_code=409)
-    candidates = (
-        submission_service.list_edm_candidates(submission_id)
-        if kind == "edm"
-        else submission_service.list_rdm_candidates(submission_id)
-    )
+    candidates = _ENTITY_KIND[kind]["candidates"](submission_id)
     response = _partial(request, "partials/submission_entity_add_modal.html", {
         "submission": submission,
         "entity_kind": kind.upper(),
@@ -795,13 +813,8 @@ def _candidate_response(
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
-    candidates = (
-        submission_service.list_edm_candidates(
-            submission_id, query=query, page=page)
-        if kind == "edm"
-        else submission_service.list_rdm_candidates(
-            submission_id, query=query, page=page)
-    )
+    candidates = _ENTITY_KIND[kind]["candidates"](
+        submission_id, query=query, page=page)
     return _partial(request, "partials/submission_entity_candidates.html", {
         "submission": submission,
         "entity_kind": kind.upper(),
@@ -845,7 +858,7 @@ def _import_submission_entity(
             errors=["A name and a source file selection are required."],
             form={"name": name}, status_code=422)
     try:
-        importer = edm_service.import_edm if kind == "edm" else rdm_service.import_rdm
+        importer = _ENTITY_KIND[kind]["importer"]
         result = importer(
             name=name.strip(), source_file_path=source,
             actor_id=request.state.user.id, submission_id=submission_id)
@@ -899,15 +912,9 @@ def _attach_submission_entities(
             errors=[f"Select at least one {kind.upper()} to add."],
             active_tab="existing", status_code=422)
     try:
-        result = (
-            submission_service.attach_edms(
-                submission_id=submission_id, edm_ids=entity_ids,
-                actor_id=request.state.user.id)
-            if kind == "edm"
-            else submission_service.attach_rdms(
-                submission_id=submission_id, rdm_ids=entity_ids,
-                actor_id=request.state.user.id)
-        )
+        result = _ENTITY_KIND[kind]["attach"](
+            submission_id=submission_id, entity_ids=entity_ids,
+            actor_id=request.state.user.id)
     except SubmissionClosed:
         return _entity_table_response(
             request, submission_id, kind,
@@ -954,14 +961,8 @@ def _detach_submission_entity(
     if submission_service.get_submission(submission_id) is None:
         return _not_found(request)
     try:
-        if kind == "edm":
-            submission_service.detach_edm(
-                submission_id=submission_id, edm_id=entity_id,
-                actor_id=request.state.user.id)
-        else:
-            submission_service.detach_rdm(
-                submission_id=submission_id, rdm_id=entity_id,
-                actor_id=request.state.user.id)
+        _ENTITY_KIND[kind]["detach"](
+            submission_id=submission_id, entity_id=entity_id)
     except SubmissionClosed:
         return _entity_table_response(
             request, submission_id, kind,

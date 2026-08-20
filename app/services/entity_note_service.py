@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services._common import _utcnow
+from app.services._common import _ENTITY_ASSOC, _utcnow
 from app.services.errors import NoteConflict
 from db import execute_command, execute_one
-
-_TABLES = {"edm": "irp_edm", "rdm": "irp_rdm"}
 
 
 def update_notes(
     *, kind: str, entity_id: Any, notes: str, original_notes: str, actor_id: Any,
 ) -> str | None:
-    table = _TABLES[kind]
+    table = _ENTITY_ASSOC[kind]["table"]
     entity_id = str(entity_id)
     original = original_notes or None
     value = notes.strip() or None

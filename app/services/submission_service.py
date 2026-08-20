@@ -527,18 +527,23 @@ def _entity_table_order(
 
 def list_submission_edms(
     submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
-    descending: bool = False,
+    descending: bool = False, entity_id: Any | None = None,
 ) -> list[SubmissionEdm]:
     order_by = _entity_table_order(
         sort, descending, entity_alias="e", count_alias="portfolio_count")
+    params: dict[str, Any] = {"id": str(submission_id)}
+    entity_filter = ""
+    if entity_id is not None:
+        entity_filter = " AND e.id = :entity_id"
+        params["entity_id"] = str(entity_id)
     rows = execute(
         "SELECT e.id, e.name, e.status, e.notes, COUNT(p.id) AS portfolio_count "
         "FROM submission_edm se JOIN irp_edm e ON e.id = se.edm_id "
         "LEFT JOIN irp_portfolio p ON p.edm_id = e.id AND p.deleted_at IS NULL "
-        "WHERE se.submission_id = :id AND e.deleted_at IS NULL "
+        "WHERE se.submission_id = :id AND e.deleted_at IS NULL" + entity_filter + " "
         "GROUP BY e.id, e.name, e.status, e.notes, e.inserted_at "
         f"ORDER BY {order_by}",
-        {"id": str(submission_id)}, connection="WORKBENCH",
+        params, connection="WORKBENCH",
     )
     return [
         SubmissionEdm(
@@ -553,18 +558,23 @@ def list_submission_edms(
 
 def list_submission_rdms(
     submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
-    descending: bool = False,
+    descending: bool = False, entity_id: Any | None = None,
 ) -> list[SubmissionRdm]:
     order_by = _entity_table_order(
         sort, descending, entity_alias="r", count_alias="analysis_count")
+    params: dict[str, Any] = {"id": str(submission_id)}
+    entity_filter = ""
+    if entity_id is not None:
+        entity_filter = " AND r.id = :entity_id"
+        params["entity_id"] = str(entity_id)
     rows = execute(
         "SELECT r.id, r.name, r.status, r.notes, COUNT(a.id) AS analysis_count "
         "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
         "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
-        "WHERE sr.submission_id = :id AND r.deleted_at IS NULL "
+        "WHERE sr.submission_id = :id AND r.deleted_at IS NULL" + entity_filter + " "
         "GROUP BY r.id, r.name, r.status, r.notes, r.inserted_at "
         f"ORDER BY {order_by}",
-        {"id": str(submission_id)}, connection="WORKBENCH",
+        params, connection="WORKBENCH",
     )
     return [
         SubmissionRdm(
@@ -712,12 +722,12 @@ def _detach_entity(
     return result.rowcount > 0
 
 
-def detach_edm(*, submission_id: Any, edm_id: Any, actor_id: Any) -> bool:
+def detach_edm(*, submission_id: Any, edm_id: Any) -> bool:
     return _detach_entity(
         submission_id=submission_id, entity_id=edm_id, kind="edm")
 
 
-def detach_rdm(*, submission_id: Any, rdm_id: Any, actor_id: Any) -> bool:
+def detach_rdm(*, submission_id: Any, rdm_id: Any) -> bool:
     return _detach_entity(
         submission_id=submission_id, entity_id=rdm_id, kind="rdm")
 

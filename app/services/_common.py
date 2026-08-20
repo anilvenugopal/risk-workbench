@@ -31,8 +31,8 @@ class SubmissionRef:
 
 # EDM/RDM shared identity: entity table, M:N submission-association table and
 # its FK column naming the entity, the ``rwb_job_type`` its upload head
-# enqueues under, and the display label for error/log text — keyed the same
-# way entity_note_service._TABLES is, for the same reason (one place per kind).
+# enqueues under, and the display label for error/log text. Also the kind→table
+# map ``entity_note_service.update_notes`` uses.
 _ENTITY_ASSOC = {
     "edm": {"table": "irp_edm", "assoc": "submission_edm", "id_col": "edm_id",
             "job_type": "upload_edm", "label": "EDM"},

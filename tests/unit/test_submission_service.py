@@ -325,8 +325,7 @@ def test_detach_removes_only_the_selected_submission_association(iteration2_db):
             "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
             {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
 
-    assert svc.detach_edm(
-        submission_id=first, edm_id=edm_id, actor_id=iteration2_db.user_a) is True
+    assert svc.detach_edm(submission_id=first, edm_id=edm_id) is True
 
     assert execute_one(
         "SELECT id FROM irp_edm WHERE id=:e", {"e": edm_id},
@@ -352,9 +351,7 @@ def test_closed_submission_rejects_association_writes(iteration2_db, drive):
             submission_id=submission_id, edm_ids=[edm_id],
             actor_id=iteration2_db.user_a)
     with pytest.raises(SubmissionClosed):
-        svc.detach_edm(
-            submission_id=submission_id, edm_id=edm_id,
-            actor_id=iteration2_db.user_a)
+        svc.detach_edm(submission_id=submission_id, edm_id=edm_id)
     with pytest.raises(SubmissionClosed):
         edm_service.import_edm(
             name="ClosedImport", source_file_path=str(drive / "edm1.bak"),
