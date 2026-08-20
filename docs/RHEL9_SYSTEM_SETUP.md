@@ -1,7 +1,8 @@
 # RHEL9 System Setup
 
-Installs the system-level packages Risk Workbench needs to run: Python 3.12,
-the Microsoft ODBC Driver 18 for SQL Server, Redis, nginx, and build tools.
+Installs the system-level packages Risk Workbench needs to run: git, Python
+3.12, the Microsoft ODBC Driver 18 for SQL Server, Redis, nginx, and build
+tools.
 
 Each step is tagged:
 
@@ -14,8 +15,78 @@ Each step is tagged:
 Prerequisite: [RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) completed —
 registered RHEL9 distro, `dev-user` created with sudo, locale fixed.
 
-This covers system packages only. For cloning the repo, `uv`, and running the
-app for development, see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
+This covers system packages only. For `uv` and running the app for
+development, see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
+
+---
+
+## git
+
+Needed to get the code onto the box at all — a genuine system-level
+prerequisite, not a dev-setup nicety.
+
+### [WSL: do yourself] / [Prod: request from infra]
+
+```bash
+sudo dnf install -y git
+```
+
+Direct AppStream package, no surprises expected.
+
+### Verify
+
+```bash
+git --version
+```
+
+### Production considerations
+
+Confirm with infra how the production server actually receives code —
+`git clone`/`git pull` directly against GitHub assumes outbound internet
+access and GitHub credentials configured on the server, which many
+corporate RHEL9 servers won't have. A CI/CD pipeline that pushes a built
+artifact to the server (rather than the server pulling from GitHub itself)
+may not need `git` installed on the production server at all — this is a
+[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) decision, not something to assume
+either way.
+
+---
+
+## Application directory and ownership (`/opt/risk-workbench`)
+
+Where the application code and its data actually live, and who owns it —
+easy to do ad hoc and forget to write down, so captured here explicitly.
+
+**Confirmed earlier:** `/opt` itself is root-owned; a plain user cannot
+create anything under it without `sudo` (see "`/opt` ownership for the
+application directory" below for the permission-denied proof).
+
+### [WSL: do yourself] — dry run, using `dev-user` as the account
+
+For this dry run, `dev-user` doubles as the app's owner — no dedicated
+service account was created. **This is deliberate, not an oversight**: the
+real production account name is infra's to assign, unknown until then, and
+will need substituting in regardless of what we pick here. Using `dev-user`
+now avoids inventing a throwaway name that has to be replaced later anyway.
+
+```bash
+sudo mkdir -p /opt/risk-workbench
+sudo chown dev-user:dev-user /opt/risk-workbench
+```
+
+### [Prod: request from infra]
+
+Request `/opt/risk-workbench` (or infra's preferred path, if they don't
+follow this FHS convention) be created, owned by **a dedicated service
+account** — not a personal developer account, and not literally `dev-user`.
+The request needs:
+
+- The directory path.
+- Confirmation of which account should own it (infra assigns this; get the
+  exact name before finalizing any deployment script or systemd unit that
+  references it).
+- Whether that account needs a login shell at all, or should be locked down
+  (`nologin`) since it only ever runs as a systemd service, never interactively.
 
 ---
 
