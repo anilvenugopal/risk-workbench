@@ -20,7 +20,8 @@ Existing rail root `templates` (route `/templates`, roles `[]`) gains two childr
 
 | Method + path | Who | Behavior |
 |---|---|---|
-| `GET /templates` | all | Administration page: suite list (name, item count, author, unresolved badge) + template list (filterable). Create/edit/delete controls rendered only for `is_admin`. |
+| `GET /templates` | all | Administration page: **Suites** and **Templates** render as two tabs of one page (`?tab=suites` default, `?tab=templates` — `.tabs` component, mirroring the metadata page's tab pattern) rather than two lists together (user-directed 2026-08-20 — never list both at once). Suites tab: name, item count, author, unresolved badge. Templates tab: filterable list (name/family/model profile/currency). Create/edit/delete controls rendered only for `is_admin`. |
+| `GET /templates/table` | all | HTMX fragment: the active tab's table + (for the Templates tab) its filter input (`hx-trigger="input delay:300ms"`, edm_library/metadata pattern). Tab links `hx-get` this route and `hx-push-url` back to `/templates?tab=...`. Shares its context builder with the page route so they cannot drift (same pattern as `/templates/metadata/table`). |
 | `GET /templates/analysis-templates/new` | admin | Template builder form. Pick lists from live cache, substring-filtered (FR-006 — never live RM queries) — model-profile options carry their DLM/HD/Accumulation marker (FR-004); scheme list filtered by chosen profile's peril/region (fragment below); currency, currency scheme, and scheme vintage all required (P-10) — choosing a scheme loads its vintage options (fragment below) with the latest by effective date pre-selected, and a vintage-less scheme blocks save naming the scheme; analysis settings pre-filled with R8 defaults. |
 | `POST /templates/analysis-templates` | admin | Create; on validation error re-render form with errors (form-banner pattern); on success redirect to `/templates`. |
 | `GET /templates/analysis-templates/{id}` | all | Template detail; edit form when admin; unresolved references flagged inline (R9). |
@@ -28,7 +29,7 @@ Existing rail root `templates` (route `/templates`, roles `[]`) gains two childr
 | `POST /templates/analysis-templates/{id}/delete` | admin | Soft delete; blocked with referencing suite names when live suites use it (FR-010). |
 | `GET /templates/analysis-templates/scheme-options` | all | HTMX fragment: `<option>` list of live schemes matching `?profile=<name>`'s peril/region, pre-selected when exactly one (T-03). Triggered on profile change. |
 | `GET /templates/analysis-templates/vintage-options` | all | HTMX fragment: `<option>` list of cached vintages for `?scheme=<code>` (vintage code + effective date), latest by effective date pre-selected (T-09/P-10); empty scheme param → empty list (no scheme chosen yet — the form cannot submit without scheme and vintage). Triggered on currency-scheme change. |
-| `GET /templates/suites/new` | admin | Suite form: name + template picker (unordered membership, P-08). |
+| `GET /templates/suites/new` | admin | Suite form: name + template picker (unordered membership, P-08) — a plain checkbox list, no ordering controls, with a client-side filter box over the picker (user-directed 2026-08-20; no HTMX round trip needed at this scale). |
 | `POST /templates/suites` | admin | Create suite with items. |
 | `GET /templates/suites/{id}` | all | Suite detail: items (sorted by template name for display), empty-state marker for zero items. |
 | `POST /templates/suites/{id}` | admin | Update name/items (items rewritten). |
