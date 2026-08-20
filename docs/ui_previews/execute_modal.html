@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Execute Suite / Execute Template modal · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+
+/* components.css — verbatim: badge, btn-sm, modal-*, tabs */
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--sm{font-size:10px;padding:1px 6px}
+.icon-btn{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);border:0;background:transparent;cursor:pointer;font-size:16px}
+.icon-btn:hover{background:var(--surface-hover);color:var(--text-primary)}
+.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
+.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
+.btn-sm:disabled{opacity:.5;cursor:not-allowed}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,22,41,0.45);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:1000}
+.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:720px;max-width:calc(100vw - 40px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
+.modal-title{flex:1;font-size:var(--fs-h3);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-3);overflow-y:auto}
+.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
+.modal-footer{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
+.modal-btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:0}
+.modal-btn:disabled{opacity:.5;cursor:not-allowed}
+.modal-btn--secondary{color:var(--text-secondary);border:1px solid var(--border-default);background:transparent}
+.modal-btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg);border:1px solid transparent}
+.wf-field{display:flex;flex-direction:column;gap:var(--space-1)}
+.wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);width:100%}
+.tag-empty{color:var(--text-tertiary)}
+.entity-candidate-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:280px;overflow-y:auto}
+.entity-candidate-empty{padding:var(--space-5);text-align:center;color:var(--text-tertiary)}
+.state-box{padding:var(--space-5);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-recessed);color:var(--text-secondary)}
+.state-box--warn{background:var(--color-warning-wash);border-color:var(--color-warning-border);color:var(--color-warning)}
+
+/* ============================================================================
+   PROPOSED — net-new classes for the execution modal (T011/T014). Nothing
+   below exists in packages.css/submissions.css yet.
+   ============================================================================ */
+.pv-wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:80ch}
+.pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
+.pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:90ch}
+.pv-cap b{color:var(--text-primary)}
+.pv-stage{position:static;background:transparent;display:block;padding:0;margin-bottom:var(--space-6)}
+.pv-stage .modal-card{margin:0}
+
+.exec-search{margin-bottom:0}
+.exec-list{display:flex;flex-direction:column;gap:var(--space-1)}
+.exec-row{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.exec-row__head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);cursor:pointer}
+.exec-row__head:hover{background:var(--surface-hover)}
+.exec-row__caret{font-size:11px;color:var(--text-tertiary);width:12px;transition:transform var(--dur-fast) ease}
+.exec-row[open] .exec-row__caret{transform:rotate(90deg)}
+.exec-row__name{flex:1;font-size:var(--fs-label);color:var(--text-primary)}
+.exec-row__count{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.exec-row__body{padding:var(--space-1) var(--space-3) var(--space-3) 40px;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--border-faint)}
+.exec-tpl{display:flex;align-items:center;gap:var(--space-2);padding:6px 0;font-size:var(--fs-label)}
+.exec-tpl__name{flex:1;color:var(--text-secondary)}
+.exec-tpl--off .exec-tpl__name{color:var(--text-disabled);text-decoration:line-through}
+.exec-section-label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:.04em;margin-bottom:var(--space-1)}
+.exec-picked{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-radius:var(--radius-md);font-size:var(--fs-label);color:var(--text-secondary)}
+.exec-picked b{color:var(--text-primary)}
+.exec-treaty-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:140px;overflow-y:auto}
+.exec-treaty{display:flex;align-items:center;gap:var(--space-2);padding:6px var(--space-3);border-bottom:1px solid var(--border-faint);font-size:var(--fs-label)}
+.exec-treaty:last-child{border-bottom:0}
+.exec-treaty:hover{background:var(--surface-hover)}
+.exec-summary{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.exec-summary b{color:var(--text-primary);font-weight:var(--fw-semibold)}
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <div class="pv-hero">Execute Suite / Execute Template modal</div>
+  <div class="pv-sub">Opens from the Portfolios header once &ge;1 portfolio is checked. Same fragment for both entry points — <code>kind=suite</code> shows suites (expandable to their templates, deselectable); <code>kind=template</code> shows templates directly, no suites. Built on the existing <code>.modal-*</code> / <code>.entity-candidate-*</code> classes; the <b>exec-*</b> rules are net-new (T014).</div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">State 1 · kind=suite — one suite expanded, two templates deselected</div>
+  <p class="pv-cap">Search re-GETs the row list (300ms debounce, same pattern as <code>submission_entity_candidates</code>). Every suite's templates are checked by default (FR-003); this suite has 5, with 2 unticked. Selected portfolios are read-only, carried as hidden inputs. Submit is enabled: &ge;1 suite chosen and &ge;1 template remains overall.</p>
+
+  <div class="pv-stage modal-overlay" style="position:static">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">Execute Suite &middot; 2 portfolios selected</span>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind, US Gulf Coast Property</div>
+
+        <div class="wf-field exec-search">
+          <label for="s1">SEARCH SUITES</label>
+          <input class="wf-field__input" id="s1" type="text" placeholder="Search by name" value="hurricane">
+        </div>
+
+        <div>
+          <div class="exec-section-label">Suites</div>
+          <div class="exec-list">
+            <details class="exec-row" open>
+              <summary class="exec-row__head">
+                <input type="checkbox" checked onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">US Hurricane — Standard Suite</span>
+                <span class="exec-row__count">5 templates &middot; 3 selected</span>
+              </summary>
+              <div class="exec-row__body">
+                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU DLM v23</span></label>
+                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU HD v23</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
+                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU Accumulation</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+              </div>
+            </details>
+            <details class="exec-row">
+              <summary class="exec-row__head">
+                <input type="checkbox" onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">US Hurricane — Extended Suite</span>
+                <span class="exec-row__count">8 templates</span>
+              </summary>
+            </details>
+            <details class="exec-row">
+              <summary class="exec-row__head">
+                <input type="checkbox" onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">Coastal Flood — HD Only</span>
+                <span class="exec-row__count">2 templates</span>
+              </summary>
+            </details>
+          </div>
+        </div>
+
+        <div>
+          <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
+          <div class="exec-treaty-list">
+            <label class="exec-treaty"><input type="checkbox" checked><span>Cat XoL Layer 1</span></label>
+            <label class="exec-treaty"><input type="checkbox"><span>Cat XoL Layer 2</span></label>
+            <label class="exec-treaty"><input type="checkbox"><span>Quota Share 20%</span></label>
+          </div>
+        </div>
+
+        <div class="exec-summary">Will submit <b>2 portfolios &times; 3 templates = 6 analyses</b>.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
+        <button class="modal-btn modal-btn--primary" type="button">Execute</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">State 2 · every template deselected — Submit disabled</div>
+  <p class="pv-cap">Edge case from the spec: a suite is chosen but every one of its templates was unticked. Submit disables even though a suite row is checked (FR-002).</p>
+
+  <div class="pv-stage modal-overlay" style="position:static">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">Execute Suite &middot; 2 portfolios selected</span>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind, US Gulf Coast Property</div>
+        <div class="wf-field exec-search">
+          <label for="s2">SEARCH SUITES</label>
+          <input class="wf-field__input" id="s2" type="text" placeholder="Search by name">
+        </div>
+        <div>
+          <div class="exec-section-label">Suites</div>
+          <div class="exec-list">
+            <details class="exec-row" open>
+              <summary class="exec-row__head">
+                <input type="checkbox" checked onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">US Hurricane — Standard Suite</span>
+                <span class="exec-row__count">5 templates &middot; 0 selected</span>
+              </summary>
+              <div class="exec-row__body">
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v23</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU HD v23</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Accumulation</span></label>
+                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div>
+          <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
+          <div class="exec-treaty-list">
+            <label class="exec-treaty"><input type="checkbox"><span>Cat XoL Layer 1</span></label>
+          </div>
+        </div>
+        <div class="exec-summary">No templates remain selected — nothing would submit.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
+        <button class="modal-btn modal-btn--primary" type="button" disabled>Execute</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">State 3 · kind=template — flat list, no suites, search with no matches</div>
+  <p class="pv-cap">Execute Template shows templates directly (no expand, no suite union). Submit disabled until one is chosen. Search with no hits shows the same empty state as <code>submission_entity_candidates</code>.</p>
+
+  <div class="pv-stage modal-overlay" style="position:static">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">Execute Template &middot; 1 portfolio selected</span>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind</div>
+        <div class="wf-field exec-search">
+          <label for="s3">SEARCH TEMPLATES</label>
+          <input class="wf-field__input" id="s3" type="text" placeholder="Search by name" value="zzz-no-match">
+        </div>
+        <div>
+          <div class="exec-section-label">Templates</div>
+          <div class="entity-candidate-empty">No live templates match this search.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
+        <button class="modal-btn modal-btn--primary" type="button" disabled>Execute</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">State 4 · blocking message — prerequisite gate</div>
+  <p class="pv-cap">EDM not <code>ready</code>, no portfolios exist, or there are zero live suites/templates to offer — the fragment renders a blocking message in place of the form rather than an empty form (FR-001).</p>
+
+  <div class="pv-stage modal-overlay" style="position:static">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">Execute Suite</span>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="state-box state-box--warn">No template suites exist yet. Create one under
+          Templates &amp; Suites before running an execution.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:var(--space-9)"></div>
+</div>
+</body>
+</html>
