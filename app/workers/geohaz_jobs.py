@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import socket
-from collections.abc import Callable
 from typing import Any
 
 import dramatiq
@@ -89,11 +88,6 @@ def run_geohaz(rwb_job_id: str) -> None:
         worker_id=_worker_id(),
         body=lambda: _run_geohaz_body(rwb_job_id),
     )
-
-
-_BODIES: dict[str, Callable[[Any], runtime.JobResult]] = {
-    "run_geohaz": _run_geohaz_body,
-}
 
 
 __all__ = ["run_geohaz"]

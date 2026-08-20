@@ -12,7 +12,7 @@ def _run(job_id: str) -> bool:
     return runtime.run_job(
         rwb_job_id=job_id,
         worker_id="geohaz-test-worker",
-        body=lambda: geohaz_jobs._BODIES["run_geohaz"](job_id),
+        body=lambda: geohaz_jobs._run_geohaz_body(job_id),
     )
 
 
