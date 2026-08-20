@@ -106,9 +106,8 @@ def upgrade() -> None:
     )
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  Iteration 1 — Submission & Package domain (data-model §1–§7)
-    #  Created in FK dependency order: kinds → package → submission →
-    #  children/join → irp_edm/irp_rdm.
+    #  Submission and Risk Modeler entity tables
+    #  Created in foreign-key dependency order.
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── treaty_type_kind (kind) ─────────────────────────────────────────────────
@@ -129,22 +128,6 @@ def upgrade() -> None:
         sa.Column("sort_order", sa.Integer, nullable=False),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
-    )
-
-    # ── package (bundle — structure only this iteration) ────────────────────────
-    op.create_table(
-        "package",
-        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("name", sa.NVARCHAR(255), nullable=True),
-        sa.Column("deleted_at", DATETIME2, nullable=True),  # soft delete (FR-027)
-        sa.Column("inserted_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("updated_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("inserted_by", sa.Uuid, nullable=True),
-        sa.Column("updated_by", sa.Uuid, nullable=True),
-        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
-        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
 
     # ── submission (the deal — top-level entity) ────────────────────────────────
@@ -230,31 +213,17 @@ def upgrade() -> None:
     op.create_index("ix_submission_status_event_submission_id",
                     "submission_status_event", ["submission_id"])
 
-    # ── submission_package (deal ↔ package M:N — composite PK) ───────────────────
-    op.create_table(
-        "submission_package",
-        sa.Column("submission_id", sa.Uuid, nullable=False),
-        sa.Column("package_id", sa.Uuid, nullable=False),
-        sa.Column("inserted_at", DATETIME2, nullable=False,
-                  server_default=sa.text("GETUTCDATE()")),
-        sa.Column("inserted_by", sa.Uuid, nullable=True),
-        sa.PrimaryKeyConstraint("submission_id", "package_id"),
-        sa.ForeignKeyConstraint(["submission_id"], ["submission.id"]),
-        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
-        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
-    )
-
-    # ── irp_edm (member table — full shape, schema only; data-model §7) ──────────
+    # ── irp_edm ────────────────────────────────────────────────────────────────────
     op.create_table(
         "irp_edm",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("package_id", sa.Uuid, nullable=True),  # bundle membership (FR-023)
         sa.Column("source_file_path", sa.NVARCHAR(1024), nullable=True),
         sa.Column("name", sa.NVARCHAR(255), nullable=False),
         sa.Column("irp_id", sa.Integer, nullable=True),
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),
         sa.Column("server_name", sa.NVARCHAR(255), nullable=True),
+        sa.Column("notes", sa.NVARCHAR(250), nullable=True),
         # plain VARCHAR — external-status mirror (Article 3 carve-out); inert here.
         sa.Column("status", sa.NVARCHAR(50), nullable=True),
         sa.Column("deleted_at", DATETIME2, nullable=True),
@@ -264,11 +233,9 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
-        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
-    op.create_index("ix_irp_edm_package_id", "irp_edm", ["package_id"])
     live_irp_edm = sa.text("irp_id IS NOT NULL AND deleted_at IS NULL")
     op.create_index(
         "uq_irp_edm_live_irp_id",
@@ -283,12 +250,12 @@ def upgrade() -> None:
     op.create_table(
         "irp_rdm",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("package_id", sa.Uuid, nullable=True),  # bundle membership (FR-023)
         sa.Column("source_file_path", sa.NVARCHAR(1024), nullable=True),
         sa.Column("name", sa.NVARCHAR(255), nullable=False),
         sa.Column("irp_id", sa.Integer, nullable=True),
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),
+        sa.Column("notes", sa.NVARCHAR(250), nullable=True),
         # plain VARCHAR — external-status mirror (Article 3 carve-out); inert here.
         sa.Column("status", sa.NVARCHAR(50), nullable=True),  # no edm_id (data-model §5)
         sa.Column("deleted_at", DATETIME2, nullable=True),
@@ -298,11 +265,9 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
-        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
     )
-    op.create_index("ix_irp_rdm_package_id", "irp_rdm", ["package_id"])
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 2 — irp_job / rwb_job families (data-model §1–§5, §8, §13)
@@ -312,6 +277,36 @@ def upgrade() -> None:
     # ══════════════════════════════════════════════════════════════════════════
 
     # ── kind tables (Article 3) ─────────────────────────────────────────────────
+    op.create_table(
+        "submission_edm",
+        sa.Column("submission_id", sa.Uuid, nullable=False),
+        sa.Column("edm_id", sa.Uuid, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.PrimaryKeyConstraint("submission_id", "edm_id"),
+        sa.ForeignKeyConstraint(["submission_id"], ["submission.id"]),
+        sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+    )
+    op.create_index("ix_submission_edm_edm_submission", "submission_edm",
+                    ["edm_id", "submission_id"])
+
+    op.create_table(
+        "submission_rdm",
+        sa.Column("submission_id", sa.Uuid, nullable=False),
+        sa.Column("rdm_id", sa.Uuid, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.PrimaryKeyConstraint("submission_id", "rdm_id"),
+        sa.ForeignKeyConstraint(["submission_id"], ["submission.id"]),
+        sa.ForeignKeyConstraint(["rdm_id"], ["irp_rdm.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+    )
+    op.create_index("ix_submission_rdm_rdm_submission", "submission_rdm",
+                    ["rdm_id", "submission_id"])
+
     for kind in (
         "irp_job_type_kind",
         "irp_job_resource_type_kind",
@@ -329,13 +324,13 @@ def upgrade() -> None:
                       server_default=sa.text("GETUTCDATE()")),
         )
 
-    # ── irp_job (one tracked IRP async op; grain = package; data-model §2) ───────
+    # ── irp_job (one tracked Risk Modeler asynchronous operation) ────────────────
     # NOTE: created WITHOUT irp_portfolio_id — irp_portfolio does not exist until a
     # later iteration (data-model §2 note / research R13); the FK is added with it.
     op.create_table(
         "irp_job",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("package_id", sa.Uuid, nullable=True),
+        sa.Column("requested_from_submission_id", sa.Uuid, nullable=True),
         sa.Column("irp_edm_id", sa.Uuid, nullable=True),
         sa.Column("irp_rdm_id", sa.Uuid, nullable=True),
         sa.Column("irp_job_type", sa.NVARCHAR(50), nullable=False),
@@ -360,7 +355,7 @@ def upgrade() -> None:
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
-        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
+        sa.ForeignKeyConstraint(["requested_from_submission_id"], ["submission.id"]),
         sa.ForeignKeyConstraint(["irp_edm_id"], ["irp_edm.id"]),
         sa.ForeignKeyConstraint(["irp_rdm_id"], ["irp_rdm.id"]),
         sa.ForeignKeyConstraint(["irp_job_type"], ["irp_job_type_kind.code"]),
@@ -370,7 +365,8 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_job_type_status", "irp_job", ["irp_job_type", "status"])
     op.create_index("ix_irp_job_status", "irp_job", ["status"])
-    op.create_index("ix_irp_job_package_id", "irp_job", ["package_id"])
+    op.create_index("ix_irp_job_requested_from_submission_id", "irp_job",
+                    ["requested_from_submission_id"])
 
     # ── irp_job_resource (typed submit payload — the resource URI; §3) ──────────
     op.create_table(
@@ -394,7 +390,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requestor_type", sa.NVARCHAR(50), nullable=False),
         # requestor_id has NO DB FK — its target varies by requestor_type
-        # (package / irp_job / rwb_job), data-model §4.
+        # (irp_job / analyst_request / rwb_job), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
         sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
@@ -421,7 +417,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["status_code"], ["rwb_job_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
-        # The A21 idempotency backbone — every chained enqueue is idempotent on it.
+        # Every chained enqueue is idempotent on this key.
         sa.UniqueConstraint("requestor_type", "requestor_id", "rwb_job_type",
                             name="uq_rwb_job_requestor_type"),
     )
@@ -440,9 +436,7 @@ def upgrade() -> None:
     )
 
     # ── irp_analysis (captured broker analyses; §6a + spec-004 detail cols) ──────
-    # Iteration 2 (D2): a minimal subset of DATA_MODEL §6, populated by the
-    # backfill_rdm_analyses worker on import_rdm FINISHED so package delete can
-    # enumerate the exact Moody's analyses an RDM produced (per RDM×EDM pair).
+    # Populated by backfill_rdm_analyses after import_rdm finishes.
     # Iteration 3 (spec 004, data-model §4): settings_metadata (JSON snapshot, R2),
     # is_group (FR-035), exposure_resource_id (the RM portfolio pointer, R9 —
     # resolved to irp_portfolio at READ time, never a stored FK). group_parent_id
@@ -452,7 +446,6 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("rdm_id", sa.Uuid, nullable=False),
         sa.Column("edm_id", sa.Uuid, nullable=True),
-        sa.Column("package_id", sa.Uuid, nullable=True),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=False),  # Moody's analysisId
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
         sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=False),
@@ -465,8 +458,7 @@ def upgrade() -> None:
         # RM exposureResourceId as string — set ONLY when exposureResourceType ==
         # 'PORTFOLIO' (R9/FR-036); no index — the resolve join keys on edm_id.
         sa.Column("exposure_resource_id", sa.NVARCHAR(64), nullable=True),
-        # Soft-delete: stamped by delete_analysis AND by the backfill's stale-row
-        # prune (RM search no longer returns the analysis).
+        # Stamped when a successful analysis refresh no longer returns the row.
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
@@ -476,17 +468,15 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["rdm_id"], ["irp_rdm.id"]),
         sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
-        sa.ForeignKeyConstraint(["package_id"], ["package.id"]),
         sa.ForeignKeyConstraint(["status_code"], ["irp_analysis_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
         # Idempotent backfill backbone — a duplicate search never double-inserts.
-        sa.UniqueConstraint("rdm_id", "edm_id", "irp_id",
-                            name="uq_irp_analysis_pair"),
+        sa.UniqueConstraint("rdm_id", "irp_id",
+                            name="uq_irp_analysis_rdm_irp"),
         # No scope/customer column (Article 6).
     )
-    op.create_index("ix_irp_analysis_rdm_edm", "irp_analysis", ["rdm_id", "edm_id"])
-    op.create_index("ix_irp_analysis_package_id", "irp_analysis", ["package_id"])
+    op.create_index("ix_irp_analysis_rdm_id", "irp_analysis", ["rdm_id"])
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
@@ -550,13 +540,11 @@ def upgrade() -> None:
     op.create_index("ix_irp_treaty_edm_id", "irp_treaty", ["edm_id"])
 
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
-    # irp_job_type_kind — NOTE: there is NO delete_rdm type (RDM delete is
-    # synchronous and creates no irp_job — A21 / research R6).
+    # irp_job_type_kind
     op.execute(sa.text(
         "INSERT INTO irp_job_type_kind (code, label, sort_order) VALUES "
         "('import_edm', 'Import EDM', 10), "
         "('import_rdm', 'Import RDM', 20), "
-        "('delete_edm', 'Delete EDM', 30), "
         "('geohaz', 'Geohazard', 40), "
         "('analysis', 'Analysis', 50), "
         "('grouping', 'Grouping', 60), "
@@ -575,9 +563,7 @@ def upgrade() -> None:
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
-        "('notify_analyst', 'Notify Analyst', 60), "
-        "('delete_rdm', 'Delete RDM', 70), "
-        "('delete_edm', 'Delete EDM', 80)"
+        "('notify_analyst', 'Notify Analyst', 60)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
@@ -637,8 +623,7 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
-    op.drop_index("ix_irp_analysis_package_id", table_name="irp_analysis")
-    op.drop_index("ix_irp_analysis_rdm_edm", table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_rdm_id", table_name="irp_analysis")
     op.drop_table("irp_analysis")
     op.drop_table("rwb_job_heartbeat")
     op.drop_index("ix_rwb_job_requestor", table_name="rwb_job")
@@ -646,7 +631,7 @@ def downgrade() -> None:
     op.drop_table("rwb_job")
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
-    op.drop_index("ix_irp_job_package_id", table_name="irp_job")
+    op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")
     op.drop_index("ix_irp_job_status", table_name="irp_job")
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")
     op.drop_table("irp_job")
@@ -661,12 +646,13 @@ def downgrade() -> None:
         op.drop_table(kind)
 
     # Iteration-1 tables — reverse FK order.
-    op.drop_index("ix_irp_rdm_package_id", table_name="irp_rdm")
+    op.drop_index("ix_submission_rdm_rdm_submission", table_name="submission_rdm")
+    op.drop_table("submission_rdm")
+    op.drop_index("ix_submission_edm_edm_submission", table_name="submission_edm")
+    op.drop_table("submission_edm")
     op.drop_table("irp_rdm")
     op.drop_index("uq_irp_edm_live_irp_id", table_name="irp_edm")
-    op.drop_index("ix_irp_edm_package_id", table_name="irp_edm")
     op.drop_table("irp_edm")
-    op.drop_table("submission_package")
     op.drop_index("ix_submission_status_event_submission_id",
                   table_name="submission_status_event")
     op.drop_table("submission_status_event")
@@ -678,7 +664,6 @@ def downgrade() -> None:
     op.drop_index("ix_submission_cedant_name", table_name="submission")
     op.drop_index("ix_submission_assigned_analyst_id", table_name="submission")
     op.drop_table("submission")
-    op.drop_table("package")
     op.drop_table("submission_status_kind")
     op.drop_table("treaty_type_kind")
 

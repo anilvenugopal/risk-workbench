@@ -18,8 +18,10 @@ is wrong.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 from functools import partial
+from typing import Annotated
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, Request
@@ -27,10 +29,18 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import package_sync_service, shared_drive, submission_service
+from app.routers._entity_notes import apply_notes, check_csrf, note_context
+from app.services import (
+    edm_service,
+    rdm_service,
+    shared_drive,
+    submission_service,
+)
 from app.services.errors import (
     ConcurrencyConflict,
+    InvalidMemberName,
     InvalidSourceFile,
+    NameCollisionError,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
@@ -191,17 +201,119 @@ def _active_analysts() -> list[dict]:
     )
 
 
+# One place per kind for the router-level operations that differ between EDM
+# and RDM — mirrors the service layer's own ``_common._ENTITY_ASSOC``.
+_ENTITY_KIND = {
+    "edm": {
+        "list": submission_service.list_submission_edms,
+        "candidates": submission_service.list_edm_candidates,
+        "importer": edm_service.import_edm,
+        "attach": lambda *, submission_id, entity_ids, actor_id: (
+            submission_service.attach_edms(
+                submission_id=submission_id, edm_ids=entity_ids,
+                actor_id=actor_id)),
+        "detach": lambda *, submission_id, entity_id: submission_service.detach_edm(
+            submission_id=submission_id, edm_id=entity_id),
+        "backfill_statuses": edm_service.latest_backfill_statuses,
+        "count_field": "portfolio_count",
+        "count_label": "Portfolio count",
+    },
+    "rdm": {
+        "list": submission_service.list_submission_rdms,
+        "candidates": submission_service.list_rdm_candidates,
+        "importer": rdm_service.import_rdm,
+        "attach": lambda *, submission_id, entity_ids, actor_id: (
+            submission_service.attach_rdms(
+                submission_id=submission_id, rdm_ids=entity_ids,
+                actor_id=actor_id)),
+        "detach": lambda *, submission_id, entity_id: submission_service.detach_rdm(
+            submission_id=submission_id, rdm_id=entity_id),
+        "backfill_statuses": rdm_service.latest_backfill_statuses,
+        "count_field": "analysis_count",
+        "count_label": "Analysis count",
+    },
+}
+
+
+def _entity_backfill_running(kind: str, entities: list) -> bool:
+    statuses = _ENTITY_KIND[kind]["backfill_statuses"](
+        [entity.id for entity in entities])
+    return any(status in ("pending", "running") for status in statuses.values())
+
+
+def _entity_sort_state(request: Request) -> dict[str, tuple[str, bool]]:
+    state = {}
+    for kind in ("edm", "rdm"):
+        sort = request.query_params.get(
+            f"{kind}_sort", submission_service.ENTITY_TABLE_DEFAULT_SORT)
+        if sort not in submission_service.ENTITY_TABLE_SORTS:
+            sort = submission_service.ENTITY_TABLE_DEFAULT_SORT
+        direction = request.query_params.get(f"{kind}_dir", "asc")
+        state[kind] = (sort, direction == "desc")
+    return state
+
+
+def _entity_sort_query(state: dict[str, tuple[str, bool]]) -> str:
+    return urlencode([
+        ("edm_sort", state["edm"][0]),
+        ("edm_dir", "desc" if state["edm"][1] else "asc"),
+        ("rdm_sort", state["rdm"][0]),
+        ("rdm_dir", "desc" if state["rdm"][1] else "asc"),
+    ])
+
+
+def _entity_sort_links(
+    submission_id: str, kind: str, state: dict[str, tuple[str, bool]],
+) -> dict[str, dict]:
+    current_sort, current_descending = state[kind]
+    links = {}
+    for sort in submission_service.ENTITY_TABLE_SORTS:
+        active = sort == current_sort
+        next_descending = (
+            not current_descending if active
+            else submission_service.ENTITY_TABLE_SORT_STARTS_DESCENDING[sort]
+        )
+        next_state = dict(state)
+        next_state[kind] = (sort, next_descending)
+        query = _entity_sort_query(next_state)
+        links[sort] = {
+            "href": f"/submissions/{submission_id}?{query}",
+            "partial_href": f"/submissions/{submission_id}/{kind}s/table?{query}",
+            "active": active,
+            "aria": (
+                "descending" if current_descending else "ascending"
+            ) if active else "none",
+            "caret": ("▼" if current_descending else "▲") if active else "",
+        }
+    return links
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return None
     analysts = _active_analysts()
+    sort_state = _entity_sort_state(request)
+    edm_sort, edm_descending = sort_state["edm"]
+    rdm_sort, rdm_descending = sort_state["rdm"]
+    submission_edms = submission_service.list_submission_edms(
+        submission_id, sort=edm_sort, descending=edm_descending)
+    submission_rdms = submission_service.list_submission_rdms(
+        submission_id, sort=rdm_sort, descending=rdm_descending)
+    sort_query = _entity_sort_query(sort_state)
     return {
         "submission": submission,
         "status_history": submission_service.get_status_history(submission_id),
         "crm_tags": submission_service.list_crm_ids(submission_id),
-        "package_cards": package_sync_service.get_package_cards(submission_id),
+        "submission_edms": submission_edms,
+        "submission_rdms": submission_rdms,
+        "edm_backfill_running": _entity_backfill_running("edm", submission_edms),
+        "rdm_backfill_running": _entity_backfill_running("rdm", submission_rdms),
+        "edm_sort_links": _entity_sort_links(submission_id, "edm", sort_state),
+        "rdm_sort_links": _entity_sort_links(submission_id, "rdm", sort_state),
+        "edm_table_url": f"/submissions/{submission_id}/edms/table?{sort_query}",
+        "rdm_table_url": f"/submissions/{submission_id}/rdms/table?{sort_query}",
         "link_target": submission_service.get_submission(
             submission.links_to_submission_id),
         "analysts": analysts,
@@ -221,6 +333,130 @@ def _detail_response(request: Request, submission_id: str, status_code: int = 20
         {"current_user": request.state.user, "nav": nav, **ctx},
         status_code=status_code,
     )
+
+
+def _entity_table_response(
+    request: Request, submission_id: str, kind: str, *,
+    message: str | None = None, status_code: int = 200,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    cfg = _ENTITY_KIND[kind]
+    sort_state = _entity_sort_state(request)
+    entity_sort, entity_descending = sort_state[kind]
+    sort_query = _entity_sort_query(sort_state)
+    entities = cfg["list"](
+        submission_id, sort=entity_sort, descending=entity_descending)
+    return _partial(request, "partials/submission_entity_table.html", {
+        "submission": submission,
+        "is_active": submission.status_code == submission_service.ACTIVE,
+        "entity_message": message,
+        "kind": kind,
+        "entities": entities,
+        "backfill_running": _entity_backfill_running(kind, entities),
+        "sort_links": _entity_sort_links(submission_id, kind, sort_state),
+        "table_url": f"/submissions/{submission_id}/{kind}s/table?{sort_query}",
+        "count_field": cfg["count_field"],
+        "count_label": cfg["count_label"],
+    }, status_code=status_code)
+
+
+@router.get("/submissions/{submission_id}/edms/table", response_class=HTMLResponse)
+def submission_edm_table(request: Request, submission_id: str):
+    return _entity_table_response(request, submission_id, "edm")
+
+
+@router.get("/submissions/{submission_id}/rdms/table", response_class=HTMLResponse)
+def submission_rdm_table(request: Request, submission_id: str):
+    return _entity_table_response(request, submission_id, "rdm")
+
+
+def _submission_entity_note_response(
+    request: Request, submission_id: str, kind: str, entity_id: str, *,
+    notes: str, original_notes: str, csrf_token: str,
+):
+    denied = check_csrf(csrf_token)
+    if denied is not None:
+        return denied
+    rows = _ENTITY_KIND[kind]["list"](submission_id, entity_id=entity_id)
+    entity = rows[0] if rows else None
+    if entity is None:
+        return HTMLResponse(
+            f"That {kind.upper()} is not related to this submission.",
+            status_code=404,
+        )
+    outcome = apply_notes(
+        request, kind=kind, entity_id=entity_id, notes=notes,
+        original_notes=original_notes)
+    if isinstance(outcome, HTMLResponse):
+        return outcome
+    if request.headers.get("HX-Request") != "true":
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if outcome.status_code == 200:
+        entity = replace(entity, notes=outcome.saved)
+    return _partial(request, "partials/submission_entity_note_cell.html", {
+        "submission": submission_service.get_submission(submission_id),
+        "entity": entity,
+        "entity_kind": kind,
+        **note_context(outcome, entity_notes=entity.notes, notes=notes,
+                       original_notes=original_notes),
+    }, status_code=outcome.status_code)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/table-notes")
+def update_submission_edm_note(
+    request: Request, submission_id: str, edm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    return _submission_entity_note_response(
+        request, submission_id, "edm", edm_id, notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+    )
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/table-notes")
+def update_submission_rdm_note(
+    request: Request, submission_id: str, rdm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    return _submission_entity_note_response(
+        request, submission_id, "rdm", rdm_id, notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+    )
+
+
+def _entity_modal_response(
+    request: Request, submission_id: str, kind: str, *,
+    errors: list[str] | None = None, form: dict | None = None,
+    active_tab: str = "import", status_code: int = 200,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    if submission.status_code != submission_service.ACTIVE:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before changing its data associations.",
+            status_code=409)
+    candidates = _ENTITY_KIND[kind]["candidates"](submission_id)
+    response = _partial(request, "partials/submission_entity_add_modal.html", {
+        "submission": submission,
+        "entity_kind": kind.upper(),
+        "entity_plural": f"{kind}s",
+        "kind": kind,
+        "candidate_page": candidates,
+        "query": "",
+        "errors": errors or [],
+        "form": form or {"name": ""},
+        "active_tab": active_tab,
+    }, status_code=status_code)
+    if status_code >= 400 and _is_htmx(request):
+        response.headers["HX-Retarget"] = "#submission-entity-modal"
+        response.headers["HX-Reswap"] = "innerHTML"
+    return response
 
 
 def _not_found(request: Request):
@@ -535,6 +771,201 @@ def create(
 @router.get("/submissions/{submission_id}", response_class=HTMLResponse)
 def detail(request: Request, submission_id: str):
     return _detail_response(request, submission_id)
+
+
+# ── Submission EDM/RDM associations ────────────────────────────────────────────
+
+@router.get("/submissions/{submission_id}/edms/add", response_class=HTMLResponse)
+def add_edm_modal(request: Request, submission_id: str):
+    return _entity_modal_response(request, submission_id, "edm")
+
+
+@router.get("/submissions/{submission_id}/rdms/add", response_class=HTMLResponse)
+def add_rdm_modal(request: Request, submission_id: str):
+    return _entity_modal_response(request, submission_id, "rdm")
+
+
+def _candidate_response(
+    request: Request, submission_id: str, kind: str, query: str, page: int,
+):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    candidates = _ENTITY_KIND[kind]["candidates"](
+        submission_id, query=query, page=page)
+    return _partial(request, "partials/submission_entity_candidates.html", {
+        "submission": submission,
+        "entity_kind": kind.upper(),
+        "entity_plural": f"{kind}s",
+        "candidate_page": candidates,
+        "query": query,
+    })
+
+
+@router.get("/submissions/{submission_id}/edms/candidates", response_class=HTMLResponse)
+def edm_candidates(
+    request: Request, submission_id: str, q: str = "", page: int = 1,
+):
+    return _candidate_response(request, submission_id, "edm", q, page)
+
+
+@router.get("/submissions/{submission_id}/rdms/candidates", response_class=HTMLResponse)
+def rdm_candidates(
+    request: Request, submission_id: str, q: str = "", page: int = 1,
+):
+    return _candidate_response(request, submission_id, "rdm", q, page)
+
+
+def _import_submission_entity(
+    request: Request, submission_id: str, kind: str, name: str,
+    source_paths: list[str], csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    if submission.status_code != submission_service.ACTIVE:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before importing data.", status_code=409)
+    source = source_paths[0] if source_paths else ""
+    if not name.strip() or not source:
+        return _entity_modal_response(
+            request, submission_id, kind,
+            errors=["A name and a source file selection are required."],
+            form={"name": name}, status_code=422)
+    try:
+        importer = _ENTITY_KIND[kind]["importer"]
+        result = importer(
+            name=name.strip(), source_file_path=source,
+            actor_id=request.state.user.id, submission_id=submission_id)
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
+        return _entity_modal_response(
+            request, submission_id, kind, errors=[str(exc)],
+            form={"name": name}, status_code=422)
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before importing data.", status_code=409)
+    message = f"{kind.upper()} import started."
+    if result.collision_unchecked:
+        message += " Risk Modeler name availability could not be checked."
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind, message=message)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/import")
+def import_submission_edm(
+    request: Request, submission_id: str, name: str = Form(""),
+    source_paths: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _import_submission_entity(
+        request, submission_id, "edm", name, source_paths or [], csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/import")
+def import_submission_rdm(
+    request: Request, submission_id: str, name: str = Form(""),
+    source_paths: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _import_submission_entity(
+        request, submission_id, "rdm", name, source_paths or [], csrf_token)
+
+
+def _attach_submission_entities(
+    request: Request, submission_id: str, kind: str,
+    entity_ids: list[str], csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    if not entity_ids:
+        return _entity_modal_response(
+            request, submission_id, kind,
+            errors=[f"Select at least one {kind.upper()} to add."],
+            active_tab="existing", status_code=422)
+    try:
+        result = _ENTITY_KIND[kind]["attach"](
+            submission_id=submission_id, entity_ids=entity_ids,
+            actor_id=request.state.user.id)
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before adding existing data.",
+            status_code=409)
+    message = None
+    if result.stale_ids:
+        count = len(result.stale_ids)
+        message = (
+            f"{count} selected {kind.upper()}{'' if count == 1 else 's'} could not "
+            "be added because the selection was no longer available."
+        )
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind, message=message)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/attach")
+def attach_submission_edms(
+    request: Request, submission_id: str,
+    entity_ids: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _attach_submission_entities(
+        request, submission_id, "edm", entity_ids or [], csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/attach")
+def attach_submission_rdms(
+    request: Request, submission_id: str,
+    entity_ids: Annotated[list[str] | None, Form()] = None,
+    csrf_token: str = Form(...),
+):
+    return _attach_submission_entities(
+        request, submission_id, "rdm", entity_ids or [], csrf_token)
+
+
+def _detach_submission_entity(
+    request: Request, submission_id: str, kind: str,
+    entity_id: str, csrf_token: str,
+):
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    try:
+        _ENTITY_KIND[kind]["detach"](
+            submission_id=submission_id, entity_id=entity_id)
+    except SubmissionClosed:
+        return _entity_table_response(
+            request, submission_id, kind,
+            message="Reopen this submission before removing data.", status_code=409)
+    if _is_htmx(request):
+        return _entity_table_response(request, submission_id, kind)
+    return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/detach")
+def detach_submission_edm(
+    request: Request, submission_id: str, edm_id: str,
+    csrf_token: str = Form(...),
+):
+    return _detach_submission_entity(
+        request, submission_id, "edm", edm_id, csrf_token)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/detach")
+def detach_submission_rdm(
+    request: Request, submission_id: str, rdm_id: str,
+    csrf_token: str = Form(...),
+):
+    return _detach_submission_entity(
+        request, submission_id, "rdm", rdm_id, csrf_token)
 
 
 # ── Edit / update ──────────────────────────────────────────────────────────────

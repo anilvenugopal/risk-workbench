@@ -1,5 +1,9 @@
 # Feature Specification: Submission & Package Domain Model (Iteration 1)
 
+> **Superseded in part:** `specs/006-package-retirement/` replaces every Package
+> requirement with direct `submission_edm` and `submission_rdm` associations.
+> Submission, status, CRM-ID, and access requirements remain historical inputs.
+
 **Feature Branch**: `002-submission-package-domain`
 
 **Created**: 2026-07-10

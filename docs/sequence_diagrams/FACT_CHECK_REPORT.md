@@ -2,6 +2,10 @@
 
 Audit date: 2026-07-31
 
+Historical evidence: the audit predates spec 006. References to the retired domain and
+deleted diagram paths describe the repository state on the audit date, not implemented
+behavior after package retirement.
+
 ## Scope and method
 
 This audit compared the current-state diagrams and the cross-cutting claims in

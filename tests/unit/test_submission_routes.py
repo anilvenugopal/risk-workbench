@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import date
+from urllib.parse import quote
 
 import pytest
 from fastapi import FastAPI, Request
@@ -30,12 +31,12 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.services import submission_service
+from app.services import rwb_job_service, submission_service
 from db import execute, execute_command, execute_scalar
 
 
 @pytest.fixture()
-def client(iteration1_db) -> TestClient:
+def client(iteration2_db) -> TestClient:
     """Router under test, with the fixture's Analyst A as the logged-in user."""
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
@@ -43,7 +44,7 @@ def client(iteration1_db) -> TestClient:
     from app.services.auth_service import CurrentUser
 
     user = CurrentUser(
-        id=iteration1_db.user_a, email="analyst.a@example.com",
+        id=iteration2_db.user_a, email="analyst.a@example.com",
         display_name="Analyst A", session_id="s", role_codes=["analyst"],
         is_admin=False, must_change_password=False, entra_oid=None,
         is_active=True)
@@ -63,7 +64,7 @@ def client(iteration1_db) -> TestClient:
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
     test_client = TestClient(app, follow_redirects=False)
-    test_client.db = iteration1_db
+    test_client.db = iteration2_db
     return test_client
 
 
@@ -90,6 +91,515 @@ def _payload(**overrides) -> dict:
 def _count() -> int:
     return execute_scalar("SELECT COUNT(*) FROM submission", {},
                           connection="WORKBENCH")
+
+
+def test_detail_renders_fixed_edm_and_rdm_tables_with_independent_empty_states(
+    client, monkeypatch,
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
+    created = client.post("/submissions", data=_payload(name="Data tables"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, irp_id) "
+        "VALUES (:id, 'DirectEDM', 'ready', 101)",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    for index in range(20):
+        extra_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status, irp_id) "
+            "VALUES (:id, :name, 'ready', :irp)",
+            {"id": extra_id, "name": f"LongEDM{index:02d}", "irp": 200 + index},
+            connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": extra_id}, connection="WORKBENCH",
+        )
+
+    body = client.get(f"/submissions/{submission_id}").text
+
+    assert '<h2>EDMs</h2>' in body
+    assert '<h2>RDMs</h2>' in body
+    assert "Portfolio count" in body and "Analysis count" in body
+    assert "DirectEDM" in body
+    assert f'href="/submissions/{submission_id}/edms/{edm_id}"' in body
+    assert "LongEDM19" in body
+    assert (
+        "https://tenant.moodys.com/riskmodeler/datasources/DirectEDM/portfolios"
+        in body
+    )
+    assert "No RDMs added" in body
+    assert "No EDMs added" not in body
+    assert "Packages" not in body
+
+
+def test_submission_entity_table_sort_updates_order_and_submission_url(client):
+    created = client.post("/submissions", data=_payload(name="Sortable entities"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    for name in ("AlphaEDM", "ZuluEDM"):
+        entity_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+        )
+
+    response = client.get(
+        f"/submissions/{submission_id}/edms/table"
+        "?edm_sort=name&edm_dir=desc&rdm_sort=status&rdm_dir=asc")
+
+    assert response.text.index("ZuluEDM") < response.text.index("AlphaEDM")
+    assert 'aria-sort="descending"' in response.text
+    assert "edm_sort=name&amp;edm_dir=asc" in response.text
+    assert "rdm_sort=status&amp;rdm_dir=asc" in response.text
+    assert f'hx-push-url="/submissions/{submission_id}?' in response.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id"),
+    ],
+)
+def test_submission_entity_note_edits_in_place(
+    client, kind, table, association_table, entity_column,
+):
+    created = client.post("/submissions", data=_payload(name=f"Note {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status, notes) "
+        "VALUES (:id, :name, 'ready', 'Original note')",
+        {"id": entity_id, "name": f"Note{kind.upper()}"},
+        connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:submission_id, :entity_id)",
+        {"submission_id": submission_id, "entity_id": entity_id},
+        connection="WORKBENCH",
+    )
+    submission = submission_service.get_submission(submission_id)
+    submission_service.set_status(
+        submission_id=submission_id, to_status="COMPLETED", reason=None,
+        expected_updated_at=submission.updated_at, actor_id=client.db.user_a,
+    )
+
+    table_response = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert "x-on:dblclick" in table_response.text
+    assert "$el.form.requestSubmit()" in table_response.text
+    assert "Edit " + kind[:-1].upper() + " notes" in table_response.text
+
+    saved = client.post(
+        f"/submissions/{submission_id}/{kind}/{entity_id}/table-notes",
+        headers={"HX-Request": "true"},
+        data={"csrf_token": _csrf(), "notes": "Saved in the table",
+              "original_notes": "Original note"},
+    )
+
+    assert saved.status_code == 200
+    assert "Saved in the table" in saved.text
+    assert execute_scalar(
+        f"SELECT notes FROM {table} WHERE id = :id", {"id": entity_id},
+        connection="WORKBENCH",
+    ) == "Saved in the table"
+
+
+def test_submission_entity_note_preserves_conflicting_input(client):
+    created = client.post("/submissions", data=_payload(name="Note conflict"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, notes) "
+        "VALUES (:id, 'ConflictEDM', 'ready', 'Newer note')",
+        {"id": edm_id}, connection="WORKBENCH",
+    )
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH",
+    )
+
+    response = client.post(
+        f"/submissions/{submission_id}/edms/{edm_id}/table-notes",
+        headers={"HX-Request": "true"},
+        data={"csrf_token": _csrf(), "notes": "My note",
+              "original_notes": "Older note"},
+    )
+
+    assert response.status_code == 409
+    assert "My note" in response.text
+    assert "Newer note" in response.text
+    assert 'name="original_notes" value="Newer note"' in response.text
+
+
+def test_submission_entity_note_rejects_invalid_csrf(client):
+    response = client.post(
+        "/submissions/unknown/edms/unknown/table-notes",
+        data={"csrf_token": "bad", "notes": "Text", "original_notes": ""},
+    )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id"),
+    ],
+)
+def test_submission_entity_table_hides_risk_modeler_link_until_ready(
+    client, monkeypatch, kind, table, association_table, entity_column,
+):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "risk_modeler_base_url", "https://api.moodys.com")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "tenant")
+    created = client.post("/submissions", data=_payload(name=f"Hidden link {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) "
+        "VALUES (:id, 'PendingResource', 'importing')",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+
+    pending = client.get(f"/submissions/{submission_id}/{kind}/table")
+    assert "Open" not in pending.text
+    assert "Available when ready" in pending.text
+
+    execute_command(
+        f"UPDATE {table} SET status = 'ready' WHERE id = :id",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    ready = client.get(f"/submissions/{submission_id}/{kind}/table")
+    assert "Open" in ready.text
+    assert "Available when ready" not in ready.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "PollingEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "PollingRDM"),
+    ],
+)
+def test_submission_entity_table_polls_until_import_is_terminal(
+    client, kind, table, association_table, entity_column, name,
+):
+    created = client.post("/submissions", data=_payload(name=f"Polling {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) "
+        "VALUES (:id, :name, 'importing')",
+        {"id": entity_id, "name": name}, connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+
+    live = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert live.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
+    assert 'hx-trigger="every 3s ' in live.text
+    assert "Status" in live.text
+    assert "importing" in live.text
+
+    execute_command(
+        f"UPDATE {table} SET status = 'ready' WHERE id = :id",
+        {"id": entity_id}, connection="WORKBENCH",
+    )
+    terminal = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert terminal.status_code == 200
+    assert "Status" in terminal.text
+    assert "ready" in terminal.text
+    assert "every 3s" not in terminal.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "backfill_type"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "backfill_edm_detail"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "backfill_rdm_analyses"),
+    ],
+)
+def test_submission_entity_table_polls_until_backfill_is_terminal(
+    client, kind, table, association_table, entity_column, backfill_type,
+):
+    created = client.post("/submissions", data=_payload(name=f"Backfill {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    entity_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": entity_id, "name": f"Backfill{kind.upper()}"},
+        connection="WORKBENCH",
+    )
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": entity_id}, connection="WORKBENCH",
+    )
+    job_id = rwb_job_service.enqueue_rwb_job(
+        requestor_type="analyst_request",
+        requestor_id=entity_id,
+        rwb_job_type=backfill_type,
+        input_data={entity_column: entity_id},
+    )
+
+    detail = client.get(f"/submissions/{submission_id}")
+    live = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert detail.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in detail.text
+    assert live.status_code == 200
+    assert f'hx-get="/submissions/{submission_id}/{kind}/table?' in live.text
+    assert 'hx-trigger="every 3s ' in live.text
+
+    execute_command(
+        "UPDATE rwb_job SET status_code = 'succeeded', updated_at = CURRENT_TIMESTAMP "
+        "WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH",
+    )
+    terminal = client.get(f"/submissions/{submission_id}/{kind}/table")
+
+    assert terminal.status_code == 200
+    assert "every 3s" not in terminal.text
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "available_name", "related_name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "AvailableEDM", "RelatedEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "AvailableRDM", "RelatedRDM"),
+    ],
+)
+def test_add_modal_lists_unrelated_existing_entities(
+    client, kind, table, association_table, entity_column, available_name, related_name,
+):
+    created = client.post("/submissions", data=_payload(name="Add modal"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    available = str(uuid.uuid4())
+    related = str(uuid.uuid4())
+    for entity_id, name in ((available, available_name), (related, related_name)):
+        execute_command(
+            f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": submission_id, "e": related}, connection="WORKBENCH")
+
+    response = client.get(f"/submissions/{submission_id}/{kind}/add")
+
+    assert response.status_code == 200
+    label = kind[:-1].upper()
+    assert f"Import new {label}" in response.text and f"Add existing {label}" in response.text
+    assert available_name in response.text and related_name not in response.text
+    assert 'hx-trigger="input delay:300ms, submit"' in response.text
+    assert "$event.detail.elt === $el && $event.detail.successful" in response.text
+
+
+@pytest.mark.parametrize("kind,label", [("edms", "EDMs"), ("rdms", "RDMs")])
+def test_add_modal_distinguishes_no_candidates_from_no_search_matches(
+    client, kind, label,
+):
+    created = client.post("/submissions", data=_payload(name=f"Empty {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    initial = client.get(f"/submissions/{submission_id}/{kind}/add")
+    searched = client.get(
+        f"/submissions/{submission_id}/{kind}/candidates?q=missing")
+
+    assert f"No available {label} to add." in initial.text
+    assert f"No available {label} match this search." in searched.text
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+def test_add_modal_starts_browse_in_the_submission_directory(client, drive, kind):
+    directory_path = str(drive / "deals" / "zephyr")
+    created = client.post("/submissions", data=_payload(
+        name=f"Browse {kind}", directory_path=directory_path))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+
+    body = client.get(f"/submissions/{submission_id}/{kind}/add").text
+
+    assert f'hx-get="/browse?path={quote(directory_path)}"' in body
+    assert ">×</button>" in body
+    assert "Checking name availability…" in body
+
+
+@pytest.mark.parametrize("kind,source", [("edms", "edm1.bak"), ("rdms", "rdm1.mdf")])
+def test_submission_import_route_creates_association(
+    client, fake_irp, drive, kind, source,
+):
+    created = client.post("/submissions", data=_payload(name=f"Import {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    response = client.post(
+        f"/submissions/{submission_id}/{kind}/import",
+        data={"name": f"New_{kind}", "source_paths": str(drive / source),
+              "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 200
+    table = "submission_edm" if kind == "edms" else "submission_rdm"
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 1
+
+
+@pytest.mark.parametrize(
+    ("kind", "table", "association_table", "entity_column", "name"),
+    [
+        ("edms", "irp_edm", "submission_edm", "edm_id", "RouteEDM"),
+        ("rdms", "irp_rdm", "submission_rdm", "rdm_id", "RouteRDM"),
+    ],
+)
+def test_attach_and_detach_routes_change_only_the_association(
+    client, kind, table, association_table, entity_column, name,
+):
+    first = client.post("/submissions", data=_payload(name="Route first"))
+    first_id = first.headers["location"].rsplit("/", 1)[-1]
+    second = client.post(
+        "/submissions", data=_payload(name="Route second", cedant_name="Second Re"))
+    second_id = second.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+        "VALUES (:s, :e)",
+        {"s": second_id, "e": edm_id}, connection="WORKBENCH")
+
+    attached = client.post(
+        f"/submissions/{first_id}/{kind}/attach",
+        data={"entity_ids": edm_id, "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+    detached = client.post(
+        f"/submissions/{first_id}/{kind}/{edm_id}/detach",
+        data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
+
+    assert attached.status_code == 200 and detached.status_code == 200
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE {entity_column}=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {table} WHERE id=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+@pytest.mark.parametrize("status", ["COMPLETED", "CANCELLED"])
+def test_closed_submission_rejects_attach_and_detach_routes(client, status, kind):
+    created = client.post("/submissions", data=_payload(name=f"Closed {status}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": f"ClosedRoute{kind}"}, connection="WORKBENCH")
+    marker = submission_service.get_submission(submission_id).updated_at
+    client.post(
+        f"/submissions/{submission_id}/status",
+        data={"to_status": status, "reason": "", "updated_at": marker,
+              "csrf_token": _csrf()})
+
+    attach = client.post(
+        f"/submissions/{submission_id}/{kind}/attach",
+        data={"entity_ids": edm_id, "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+    detach = client.post(
+        f"/submissions/{submission_id}/{kind}/{edm_id}/detach",
+        data={"csrf_token": _csrf()}, headers={"HX-Request": "true"})
+
+    assert attach.status_code == 409 and detach.status_code == 409
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 0
+
+
+@pytest.mark.parametrize("kind,source", [("edms", "edm1.bak"), ("rdms", "rdm1.mdf")])
+@pytest.mark.parametrize("status", ["COMPLETED", "CANCELLED"])
+def test_closed_submission_rejects_import_routes(
+    client, fake_irp, drive, status, kind, source,
+):
+    created = client.post(
+        "/submissions", data=_payload(name=f"Closed import {status} {kind}"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    marker = submission_service.get_submission(submission_id).updated_at
+    client.post(
+        f"/submissions/{submission_id}/status",
+        data={"to_status": status, "reason": "", "updated_at": marker,
+              "csrf_token": _csrf()})
+
+    response = client.post(
+        f"/submissions/{submission_id}/{kind}/import",
+        data={"name": f"Closed_{status}_{kind}",
+              "source_paths": str(drive / source), "csrf_token": _csrf()},
+        headers={"HX-Request": "true"})
+
+    entity_table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    assert response.status_code == 409
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {entity_table}", {}, connection="WORKBENCH") == 0
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table}", {}, connection="WORKBENCH") == 0
+    assert fake_irp.submits == []
+
+
+@pytest.mark.parametrize("kind", ["edms", "rdms"])
+@pytest.mark.parametrize("action", ["import", "attach", "detach"])
+def test_submission_entity_routes_validate_csrf(client, kind, action):
+    created = client.post("/submissions", data=_payload(name="CSRF entity"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    table = "irp_edm" if kind == "edms" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edms" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edms" else "rdm_id"
+    execute_command(
+        f"INSERT INTO {table} (id, name, status) VALUES (:id, :name, 'ready')",
+        {"id": edm_id, "name": f"CSRF{kind}"}, connection="WORKBENCH")
+    if action == "detach":
+        execute_command(
+            f"INSERT INTO {association_table} (submission_id, {entity_column}) "
+            "VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    endpoint = f"/submissions/{submission_id}/{kind}/{action}"
+    if action == "detach":
+        endpoint = f"/submissions/{submission_id}/{kind}/{edm_id}/detach"
+
+    response = client.post(
+        endpoint, data={"entity_ids": edm_id, "name": "ForgedImport",
+                        "source_paths": "ignored.bak", "csrf_token": "forged"})
+
+    assert response.status_code == 303
+    assert execute_scalar(
+        f"SELECT COUNT(*) FROM {association_table} WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == (1 if action == "detach" else 0)
 
 
 # ── CR4: required marking + per-field errors ─────────────────────────────────
