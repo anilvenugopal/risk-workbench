@@ -156,7 +156,7 @@ def test_reference_data_reads_map_the_sandbox_fields():
         get_event_rate_schemes=lambda: {"items": [{
             "eventRateSchemeId": 3, "eventRateSchemeName": "Scheme",
             "perilCode": "WS", "modelRegionCode": "NAWS",
-            "modelVersionCode": "25.0", "isHD": False,
+            "modelVersionCode": "25.0", "isHD": False, "isActive": True
         }]},
         search_currencies=lambda: {"items": [{
             "currencyCode": "USD", "currencyName": "US Dollar",
