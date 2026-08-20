@@ -479,7 +479,6 @@ document.addEventListener('alpine:init', () => {
       this.select.value = opt.dataset.value;
       this.select.dispatchEvent(new Event('change', { bubbles: true }));
       this.sync();
-      this.$refs.input.focus();
     },
   }));
 
