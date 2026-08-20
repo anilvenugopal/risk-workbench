@@ -314,33 +314,33 @@ erDiagram
 
   analysis_template {
     uniqueidentifier id PK
-    uniqueidentifier created_by FK "app_user; author"
-    string name
+    string name "unique among live rows"
     string analysis_profile_name "IRP model profile name"
     string output_profile_name
-    string event_rate_scheme_name "nullable; required for DLM, optional for HD"
-    string treaty_name_pattern "nullable; glob/regex to auto-select treaties at submit time"
-    string currency_code
-    string region_label "display metadata; used in auto-naming"
-    string peril_code "display metadata; used in auto-naming"
-    string auto_name_pattern "Jinja2 pattern for generated job names"
-    bool franchise_deductible
-    float min_loss_threshold "nullable"
-    int num_max_loss_event "nullable"
+    string event_rate_scheme_name "nullable; required for DLM, optional for HD/Accumulation"
+    string currency_code "required (P-10)"
+    string currency_scheme_code "required (P-10)"
+    string currency_vintage "required (P-10)"
+    decimal min_loss_threshold "default 1.00"
+    int num_max_loss_event "default 1"
+    bool franchise_deductible "default 0"
+    bool treat_construction_occupancy_as_unknown "default 1"
+    datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
-    uniqueidentifier inserted_by FK
+    uniqueidentifier inserted_by FK "app_user; author"
     uniqueidentifier updated_by FK
   }
   analysis_template_tag {
-    uniqueidentifier template_id FK
-    string irp_tag_id "IRP tag ID from irp_tag cache"
+    uniqueidentifier template_id FK "PK(template_id, tag_name)"
+    string tag_name "RM resolves and creates tags at submit"
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
   template_suite {
     uniqueidentifier id PK
-    string name "e.g. Global 2026 Q1"
+    string name "e.g. Global 2026 Q1; unique among live rows"
+    datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -349,16 +349,16 @@ erDiagram
   template_suite_item {
     uniqueidentifier id PK
     uniqueidentifier suite_id FK
-    uniqueidentifier template_id FK
-    int position "submission order"
-    string portfolio_name_override "nullable"
+    uniqueidentifier template_id FK "UNIQUE(suite_id, template_id)"
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
 ```
 
-- Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
-- `treaty_name_pattern` auto-selects treaty names from the EDM at submit time; `auto_name_pattern` generates each job's name, evaluated against submission context.
+- Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD/Accumulation (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
+- **Suites are unordered** (spec 009 P-08): `template_suite_item` is a plain membership row — no `position`, no per-item settings; `UNIQUE(suite_id, template_id)` keeps a template in a suite at most once.
+- **Currency triple is required, never NULL** (spec 009 P-10): the submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the stored vintage's effective date — no default logic at submit time.
+- **Dropped in spec 009:** `treaty_name_pattern` (P-09 — treaties are picked explicitly at run time in the execution modal), `region_label`/`peril_code` (P-03 — region/output level conveyed by names), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule — PRD §2.6).
 
 ---
 

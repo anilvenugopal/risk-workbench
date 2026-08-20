@@ -350,44 +350,43 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Standard model (DLM) profiles are selected from a pre-compiled list. | Not implemented | Profiles are created and managed in Risk Modeler; the workbench selects, it does not own profile management. |
-| Multiple model profiles can be selected for one portfolio/treaty combination. | Not implemented |  |
-| Output profiles are selected from a pre-compiled list. | Not implemented | Also created and managed in Risk Modeler. |
-| User-defined (UD) profiles are supported and selectable. | Not implemented | Naming convention `UD` + initials, e.g. UDCT. |
-| Profile lists can be filtered. | Not implemented | When the list grows long — "just get to UDCT." |
-| An event-rate scheme is configurable per analysis. | Not implemented | People are "very picky" about it. |
-| Franchise deductible is an exposed per-analysis toggle. | Not implemented | Deal-specific; the team wants direct access — the exception to holding advanced settings constant. |
-| Unrecognized construction / occupancy type is an exposed per-analysis toggle. | Not implemented |  |
-| Min loss threshold and max loss event stay at defaults. | Not implemented | Held constant, not surfaced. |
-| Tags can be set per analysis. | Not implemented |  |
-| Loss/analysis currency is selected per analysis. | Not implemented | Assigned in the analysis builder; changing it affects only the selected analyses. |
-| Analysis currency defaults to the exposure's native currency when the exposure is one-to-one. | Not implemented | A single currency in the exposure. |
-| Analysis currency defaults to USD otherwise. | Not implemented | General default; a US book must not default to Euros. |
-| The latest currency scheme is used by default when rerunning. | Not implemented | Currency scheme = the exchange rate at a point in time. |
-| A custom currency scheme can be selected when one exists. | Not implemented | The workbench does not build or import schemes — those are built in Risk Modeler. |
-| Treaties are selected by name or pattern. | Not implemented |  |
-| DLM requires an event-rate scheme. | Not implemented | Determined by the model profile, not the file. |
-| HD makes the event-rate scheme optional. | Not implemented | Determined by the model profile, not the file. |
-| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Not implemented | **Added 8/14.** A dedicated analysis-metadata screen; same pattern as EDM data — selected, not owned. |
-| Event-rate schemes are selected, never authored. | Not implemented | **Added 8/14.** CIC does not create custom event rates. |
+| Standard model (DLM) profiles are selected from a pre-compiled list. | Implemented | Profiles are created and managed in Risk Modeler; the workbench selects, it does not own profile management. Delivered as the template builder over the synced metadata cache (Iteration 6, spec 009). |
+| Multiple model profiles can be selected for one portfolio/treaty combination. | Not implemented | One profile per template; choosing several templates (or a suite) in one execution covers this (Iteration 7). |
+| Output profiles are selected from a pre-compiled list. | Implemented | Also created and managed in Risk Modeler. |
+| User-defined (UD) profiles are supported and selectable. | Implemented | Naming convention `UD` + initials, e.g. UDCT. |
+| Profile lists can be filtered. | Implemented | Substring filtering over the local cache (spec 009 FR-006) — "just get to UDCT." |
+| An event-rate scheme is configurable per analysis. | Implemented | Per template since Iteration 6. People are "very picky" about it. |
+| Franchise deductible is an exposed per-analysis toggle. | Implemented | A template-builder setting. Deal-specific; the team wants direct access — the exception to holding advanced settings constant. |
+| Unrecognized construction / occupancy type is an exposed per-analysis toggle. | Implemented | Template setting: "Skip location during analysis" or "Treat as unknown". |
+| Min loss threshold and max loss event are surfaced in the template builder, pre-filled with defaults. | Implemented | **Changed 8/18 (spec 009 FR-005).** Was "stay at defaults, not surfaced." |
+| Tags can be set per analysis. | Implemented | Per template, stored as names; Risk Modeler resolves and creates tags at submit time. |
+| Loss/analysis currency is selected per analysis. | Implemented | Per template: currency, currency scheme, and scheme vintage — all three required (spec 009 P-10). |
+| No currency defaulting happens at submit time; the template's stored currency, scheme, and vintage are submitted exactly. | Implemented | **Reversed 8/19 (spec 009 P-10).** Replaces the native-currency/USD defaults and the latest-scheme-on-rerun rule. The submit block is `{code, scheme, vintage, asOfDate}`, with `asOfDate` derived from the stored vintage's effective date. |
+| The template builder pre-selects the chosen scheme's latest vintage. | Implemented | **Changed 8/19 (P-10).** Latest by effective date, changeable; a scheme with no cached vintages blocks the save. |
+| A custom currency scheme can be selected when one exists. | Implemented | The workbench does not build or import schemes — those are built in Risk Modeler. |
+| Treaties are selected explicitly at run time, in the execution modal. | Not implemented | **Changed 8/18 (spec 009 P-09) and 8/20.** The template-stored name pattern is dropped; the analyst picks treaties by name when executing (§5, Iteration 7). |
+| DLM requires an event-rate scheme. | Implemented | Determined by the model profile, not the file; enforced at template save. |
+| HD makes the event-rate scheme optional. | Implemented | Determined by the model profile, not the file. |
+| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Implemented | **Added 8/14.** The analysis-metadata screen: five tabs (model profiles, output profiles, event-rate schemes, currencies, currency schemes with vintages); same pattern as EDM data — selected, not owned. Accumulation profiles await a tabled irp-integration read (spec 009 FR-001). |
+| Event-rate schemes are selected, never authored. | Implemented | **Added 8/14.** CIC does not create custom event rates. |
 
 **Templates & suites**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme + currency, plus optional additional settings. | Not implemented | **Changed 8/14.** "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD. Supersedes the "big three" phrasing. |
-| A suite is an ordered set of templates. | Not implemented | **Changed 8/14.** e.g. "Global 2026 Q1." |
-| A suite is defined primarily by region and output level. | Not implemented | **Added 8/14.** The other settings are standardized within the suite. |
-| Suites are predefined, not freeform user-built. | Not implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Exceptions drop to the long list or Risk Modeler. |
-| Suites and templates are maintained on an administration page. | Not implemented | **Added 8/14.** Models and countries change. Starter set: US, Canada, US+Canada, global — ~10 templates each; the heavy country-by-country setup is CIC's. |
-| Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Added 8/14.** Moves suites built in one environment into another instead of rebuilding by hand. |
-| A suite may mix DLM, HD, and accumulation templates. | Not implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
-| Line of business is a further suite axis carrying different settings. | Not implemented | **Added 8/14.** Property / auto / workers comp; handled via tags or naming convention (O14-8). |
-| Applying a suite generates all its analyses at once. | Not implemented | Ready to review and adjust before submitting. |
-| Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. |
+| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme + currency selection, plus analysis settings. | Implemented | **Changed 8/14; shipped Iteration 6 (spec 009).** "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD/Accumulation. Currency selection = currency + currency scheme + scheme vintage, all three required (P-10). |
+| A suite is an unordered set of templates. | Implemented | **Changed 8/18 (spec 009 P-08)** — was "ordered". No item order, no per-item settings; a template appears at most once per suite. e.g. "Global 2026 Q1." |
+| A suite is defined primarily by region and output level. | Implemented | **Added 8/14.** Both conveyed by the suite's name, not stored fields (spec 009 P-03); the other settings are standardized within the suite. |
+| Suites are predefined, not freeform user-built. | Implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Create/edit/delete is admin-role-gated (spec 009 P-01); every analyst can view. Exceptions drop to the long list or Risk Modeler. |
+| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Nothing is seeded — starter suites (US, Canada, US+Canada, global) are set up manually on this page (spec 009 P-02). |
+| Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Deferred 8/19 (spec 009 P-02).** Nice-to-have; the worked design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`. |
+| A suite may mix DLM, HD, and accumulation templates. | Implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
+| Line of business is a further suite axis carrying different settings. | Implemented | **Added 8/14.** Property / auto / workers comp; carried via template tags and naming convention — no dedicated LOB field. |
+| Applying a suite generates all its analyses at once. | Not implemented | **Changed 8/20.** Submission happens directly from the execution modal — one analysis per selected portfolio × template, no separate review page (§5). A chosen suite can be expanded in the modal to deselect templates first. |
+| Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. **Convention locked 8/20:** portfolio name + template name (resolves O7-3); the per-template pattern was dropped 8/18. |
 | An analysis can be renamed, including after it has run. | Not implemented |  |
 
-> **Open question — auto-naming convention.** The draft convention draws on portfolio name + near-term/long-term + event-rate scheme, but is not finalized. (Design note 07 §2.3, O7-3.)
+> **Resolved 8/20 — auto-naming convention (O7-3).** Analysis names follow a fixed rule: **portfolio name + template name** — the template name already conveys profile, region, and peril, so nothing is configurable. Risk Modeler caps analysis names at 64 characters: the submitted name is truncated from the right to fit, and the workbench stores the full untruncated name on `irp_analysis`.
 
 **Out of scope for MVP:** profile management (created and managed in Risk Modeler); schedule and stagger analyses (add only if RM makes it easy).
 
@@ -423,13 +422,24 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 **Running & tracking**
 
+> **Build order (8/20).** Suite execution — running one or more template suites against one or more selected portfolios — ships first; single-template execution follows through the same modal; loss-number retrieval for executed analyses comes later in the iteration (PRD §21 Iteration 7).
+
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A single analysis can be submitted against a portfolio. | Not implemented |  |
+| A single analysis can be submitted against a portfolio. | Not implemented | Delivered as single-template execution — the second phase of Iteration 7, after suite execution. |
 | Multiple portfolios can be selected and run in one action. | Not implemented | Cheryl recently had to rerun the same data across 6 portfolios one at a time. |
 | All analyses in a suite (50–150+) can be batch-submitted in one action. | Not implemented |  |
-| Running a suite is: select portfolios and treaties, pick the suite, go. | Not implemented | **Added 8/14.** The default path needs no inspection of the constituent rows — "I'm trying to go fast." |
-| A suite can be expanded to deselect individual templates before submitting. | Not implemented | **Added 8/14.** e.g. flood not covered by the treaty; the rest still auto-queues. |
+| Running a suite is: select portfolios, open the execution modal, pick suite(s) and treaties, submit. | Not implemented | **Added 8/14, changed 8/20** (was "select portfolios and treaties, pick the suite, go"). The default path needs no inspection of the constituent rows — "I'm trying to go fast." |
+| Execution starts from one or more selected portfolios. | Not implemented | **Added 8/20.** Portfolio-first: the analyst multi-selects portfolios on the EDM detail page, then chooses Execute Suite or Execute Template. |
+| The execution modal lists suites (or templates) with a simple search. | Not implemented | **Added 8/20.** |
+| Several suites — or several templates — can be chosen in one execution. | Not implemented | **Added 8/20.** Templates are deduplicated across the chosen suites. |
+| Suites and templates cannot be mixed in one execution. | Not implemented | **Added 8/20.** One kind at a time. |
+| Submit is disabled until at least one suite or template is chosen. | Not implemented | **Added 8/20.** |
+| Treaties are selected in the execution modal. | Not implemented | **Added 8/20.** Explicitly, by name, at run time (spec 009 P-09); the selection applies to every submitted analysis. |
+| One analysis is submitted per selected portfolio × template combination. | Not implemented | **Added 8/20.** Submission is direct from the modal — no separate review page. |
+| An analysis record is written when its job is submitted and updated with settings/metadata when the job completes. | Not implemented | **Added 8/20.** `irp_analysis` written at submit; metadata backfilled on completion. Loss numbers are a later phase of Iteration 7 (§7). |
+| A failure to submit is surfaced to the analyst immediately. | Not implemented | **Added 8/20.** The failed submission takes the retry path (PRD §14.3); never a silent drop. |
+| A suite can be expanded to deselect individual templates before submitting. | Not implemented | **Added 8/14; placed inside the execution modal 8/20.** e.g. flood not covered by the treaty; the rest still auto-queues. |
 | A suite analysis that fails because the data lacks its peril is expected, not an error. | Not implemented | **Added 8/14.** No loss = no charge; run it all, deal with failures at the end. |
 | Every suite-analysis failure is surfaced with its reason. | Not implemented | **Added 8/14.** The job summary says the peril wasn't present — never silently ignored. |
 | Accumulation analyses can be run. | Not implemented | In scope, with accumulation-specific settings; output detail in §7. |
@@ -448,6 +458,14 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | The analyst is not emailed when an individual job completes. | Not implemented | **Reversed 8/5.** Per-job success email was the starting proposal and was rejected as inbox clutter that gets ignored. Replaced by the daily digest — §8. |
 | The analyst is emailed immediately when a job fails. | Not implemented | **Changed 8/5.** Errors never aggregate and never wait for the digest — §8. |
 | Only operations whose inputs exist are offered. | Not implemented | EDM → portfolio → analysis → grouping. Prevents starting work that can't succeed. |
+
+**Executed analyses on the EDM page** (8/20)
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| User-executed analyses appear in their own section on the EDM detail page. | Not implemented | **Added 8/20.** Presented like the broker-analysis review (§2.3) — settings/metadata per analysis — but with no RDM grouping; there is no RDM in play. |
+| Each executed analysis shows the portfolio it ran against. | Not implemented | **Added 8/20.** Trustworthy here — the workbench submitted it; the §2.2 trust rule concerns data that left CIC's environment (§7). |
+| Executed analyses update live on the page as their jobs move through statuses. | Not implemented | **Added 8/20.** Same live-refresh treatment as import jobs. |
 
 **Out of scope for MVP:** cedant ID check/creation; checking treaty coding accuracy (manual — treaty display in §2.2 helps the analyst catch it); **bulk treaty creation from CSV/Excel** — deprioritized 8/4: not something CIC does today, and "whether I do it in Excel or I do it in Risk Modeler, I basically have to do the same steps either way. At least there's some error checking that happens in Risk Modeler." Whether Risk Modeler even supports it is unknown and now academic (design note 08, O8-7).
 
