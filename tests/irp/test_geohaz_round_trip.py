@@ -64,7 +64,6 @@ def test_geohaz_hazard_only_round_trip_captures_terminal_body():
     assert result.status == "FINISHED", (
         f"GeoHaz job {submitted.irp_id} ended as {result.status}; "
         f"terminal body saved to {capture_path}.")
-    assert geohaz_service.parse_layer_counts(
-        json.dumps(result.result)) is not None, (
-            "Update parse_layer_counts for the captured terminal body at "
-            f"{capture_path}.")
+    assert geohaz_service.completion_summary(result.result) is not None, (
+        "Update completion_summary for the captured terminal body at "
+        f"{capture_path}.")

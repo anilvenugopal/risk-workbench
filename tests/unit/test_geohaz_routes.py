@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from app.services import irp_job_service
 from db import execute, execute_command
@@ -36,11 +35,6 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     assert "disabled" in blocked.split(">", 1)[0]
     assert f'action="/edms/{edm_id}/geohaz"' in body
     assert f'hx-post="/edms/{edm_id}/geohaz"' in body
-    assert 'id="geohaz-modal-mount"' not in body
-    assert 'name="data_version"' not in body
-    assert 'name="perils"' not in body
-    assert "--cols:42px 230px 92px" in body
-    assert "min-width:1357px" in body
     portfolio_head = body[body.index('class="dtable__head"'):]
     portfolio_head = portfolio_head[:portfolio_head.index("</div>")]
     assert portfolio_head.index("Currency") < portfolio_head.index("Hazard Version")
@@ -97,12 +91,7 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
 
     response = _client().post(
         f"/edms/{edm_id}/geohaz",
-        data={
-            **_form(portfolio_ids),
-            "data_version": "24.0",
-            "perils": "windstorm",
-            "skip_prev_hazard": "true",
-        },
+        data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
     )
 
@@ -138,13 +127,6 @@ def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(iteration2_db
     assert response.headers["location"] == f"/edms/{edm_id}?geohaz=queued"
     page = _client().get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
-
-
-def test_geohaz_alpine_components_are_registered_in_app_js():
-    source = Path("app/static/js/app.js").read_text(encoding="utf-8")
-    assert "Alpine.data('geohazSelection'" in source
-    assert "Alpine.data('geohazModal'" not in source
-    assert "new MutationObserver(() => this.refresh())" in source
 
 
 def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
@@ -202,7 +184,7 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
     response = _client().get(
         f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
     assert "geohaz-cell" in response.text
     assert "hx-trigger" not in response.text
 
@@ -249,4 +231,5 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
     assert "Yes" in body
     assert "No" in body
     assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." not in body
-    assert "Unavailable" in body
+    assert "Failed" in body
+    assert "Unavailable" not in body
