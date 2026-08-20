@@ -136,6 +136,10 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Hazard-lookup portfolio picker. A MutationObserver (not @change, unlike
+  // syncPicks below) because the geohaz-cell poll disables/enables a checkbox by
+  // OOB-swapping its whole <span> on job completion — a DOM replacement fires no
+  // native change event.
   Alpine.data('geohazSelection', () => ({
     count: 0,
     total: 0,
