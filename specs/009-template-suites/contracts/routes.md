@@ -35,7 +35,7 @@ Existing rail root `templates` (route `/templates`, roles `[]`) gains two childr
 | `POST /templates/suites/{id}/delete` | admin | Soft delete. |
 | `GET /templates/metadata` | all | Metadata page: five tabs (`?tab=model-profiles` default, `output-profiles`, `event-rate-schemes`, `currencies`, `currency-schemes` — P-07; the currency-schemes tab lists schemes with their vintages; the `currencies` tab was briefly swapped out for it in the T016 rework, then restored the same iteration once currency-schemes shipped — both stay), `.tabs` CSS component, tab links `hx-get` the fragment + `hx-push-url`. Shows the last-synced time and status/failure from the latest `sync_irp_metadata` rwb_job. |
 | `GET /templates/metadata/table` | all | HTMX fragment: one tab's read-only table, filter input (`hx-trigger="input delay:300ms"`, edm_library pattern), model profiles show the
-DLM/HD/Accumulation marker + raw software version. Shared context builder with the page route so they cannot drift. Each tab also carries an "Open in Risk Modeler ↗" deep link to that tab's RM settings screen — a fixed tenant-relative path per tab (`riskmodeler/datasources/model-settings/profiles`, `.../output`, `home/reference-data/currencies/currency` — shared by both the `currencies` and `currency-schemes` tabs), joined to the same tenant-subdomain base the EDM deep links use (`_rm_base_url`, shared with `edm_service._rm_datasource_url`); hidden when the tenant/base URL is unconfigured. Event Rate Schemes has no RM equivalent screen, so its tab carries no link. |
+DLM/HD/Accumulation marker + raw software version. Shared context builder with the page route so they cannot drift. Each tab also carries an "Open in Risk Modeler ↗" deep link to that tab's RM settings screen — a fixed tenant-relative path per tab (`riskmodeler/datasources/model-settings/profiles`, `.../output`, `home/reference-data/currencies/currency` for the `currencies` tab, `home/reference-data/currencies/currency-schemes` for the `currency-schemes` tab — split into its own path 2026-08-19, user-corrected), joined to the same tenant-subdomain base the EDM deep links use (`_rm_base_url`, shared with `edm_service._rm_datasource_url`); hidden when the tenant/base URL is unconfigured. Event Rate Schemes has no RM equivalent screen, so its tab carries no link. |
 | `POST /templates/metadata/sync` | all | Enqueue `sync_irp_metadata` rwb_job + dispatch; PRG back to `/templates/metadata?sync=queued`. When a sync job is already pending or running, nothing is enqueued and the PRG lands on `?sync=already-running`, rendered as a "sync already in progress" message (FR-002); `ensure_pending_rwb_job` with the sentinel requestor makes the check race-safe. |
 
 *(No export/import routes — Excel flows are out of MVP scope, spec P-02; design retained in
@@ -49,18 +49,27 @@ Four new frozen dataclasses and `IRPGateway` Protocol methods, implemented via
 ```
 list_model_profiles() -> list[ModelProfileEntry]      # irp_id, name, software_version_code,
                                                       # peril_code, model_region_code, peril,
-                                                      # region, analysis_type, rms_default
+                                                      # region, analysis_type — no rms_default
+                                                      # (dropped 2026-08-19, user-corrected: no
+                                                      # "default model profile" concept exists in
+                                                      # Risk Modeler)
 list_output_profiles() -> list[OutputProfileEntry]    # irp_id, name, rms_default
 list_event_rate_schemes() -> list[EventRateSchemeEntry]  # irp_id, name, peril_code,
                                                       # model_region_code, model_version_code, is_hd
 list_currencies() -> list[CurrencyEntry]              # code, name, country_name, symbol — built
                                                       # during US1 and KEPT (P-07 as amended:
                                                       # submission needs the currency code)
-list_currency_schemes() -> list[CurrencySchemeEntry]  # irp_id, name, code — pinned 2026-08-19 by
+list_currency_schemes() -> list[CurrencySchemeEntry]  # irp_id, name, code,
+                                                      # anchor_currency_code,
+                                                      # update_interval_days — pinned 2026-08-19 by
                                                       # the 0.6.0rc2 release + sandbox probe
-                                                      # (currencySchemeId/Name/Code; active
-                                                      # schemes only; no is_default — dropped
-                                                      # with the P-10 reversal)
+                                                      # (currencySchemeId/Name/Code/
+                                                      # anchorCurrencyCode; active schemes only;
+                                                      # no is_default — dropped with the P-10
+                                                      # reversal; anchor_currency_code and
+                                                      # update_interval_days (= updateIntervalInDays,
+                                                      # user-confirmed, not in the probe) added to
+                                                      # the metadata tab same day, user-directed)
 list_currency_scheme_vintages()
     -> list[CurrencySchemeVintageEntry]               # vintage, currency_scheme_code,
                                                       # effective_date — NO irp_id: the API item

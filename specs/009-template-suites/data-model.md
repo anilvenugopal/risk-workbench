@@ -30,8 +30,11 @@ delete cannot orphan anything — a missing name is the read-time unresolved fla
 | `peril` | NVARCHAR(100) NULL | display |
 | `region` | NVARCHAR(100) NULL | display |
 | `analysis_type` | NVARCHAR(50) NULL | display/filter (e.g. "Exceedance Probability") |
-| `rms_default` | BIT NOT NULL DEFAULT 0 | display/filter |
 | audit | | `inserted_at/updated_at` |
+
+No `rms_default` column (dropped 2026-08-19, user-corrected): there is no "default model profile"
+concept in Risk Modeler, so the Model Profiles metadata tab's "Default" column is removed along
+with the upstream `rmsDefault` field it displayed.
 
 ### `irp_output_profile`
 
@@ -62,8 +65,12 @@ exist. **Columns pinned 2026-08-19** by the released `0.6.0rc2` read plus a sand
 schemes; item fields `currencySchemeId` / `currencySchemeName` / `currencySchemeCode` — codes
 non-null and unique, observed ≤26 chars, names ≤29): `id` PK, `irp_id` INT NOT NULL UNIQUE
 (= `currencySchemeId`), `name` NVARCHAR(200) NOT NULL, `code` NVARCHAR(50) NOT NULL (scheme
-code, e.g. "RMS", "DT"), audit. Only active schemes are cached (`isActive` filter, like
-event-rate schemes). No `is_default` column (dropped 2026-08-19: upstream `isDefault` is
+code, e.g. "RMS", "DT"), `anchor_currency_code` NVARCHAR(10) NULL (= `anchorCurrencyCode`,
+display column added 2026-08-19, user-directed), `update_interval_days` INT NULL (=
+`updateIntervalInDays`, from `search_currency_schemes`; display column added 2026-08-19,
+user-confirmed field name — not in the 2026-08-19 sandbox probe list above, which only exercised
+the raw wheel read, not this field), audit. Only active schemes are cached (`isActive` filter,
+like event-rate schemes). No `is_default` column (dropped 2026-08-19: upstream `isDefault` is
 true/false/**null** in the sandbox and nothing consumes it after the P-10 reversal — re-add only
 if the metadata tab ever wants a "Default" marker).
 

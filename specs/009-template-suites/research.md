@@ -16,6 +16,11 @@ get_event_rate_schemes / search_currencies` against the CIC sandbox tenant).
 ~4.8k rows total per sync — small enough to refresh in one worker transaction. 3,474 model
 profiles confirms the spec's "filterable, just get to UDCT" requirement is not optional.
 
+**Reversed 2026-08-19 (user-corrected)**: `rmsDefault` is dropped from the model-profile cache and
+the Model Profiles metadata tab loses its "Default" column — there is no "default model profile"
+concept in Risk Modeler. (`get_output_profiles()`'s `rmsDefault` is unaffected — Output Profiles
+keeps its own Default column.)
+
 **Amended 2026-08-18 (design session, note 16 D3; re-amended same day)**: the
 `search_currencies()` row **stands** — currencies stay cached because analysis submission needs a
 currency code — and two further reads join it when the irp-integration release ships them:
@@ -215,6 +220,18 @@ junk observed), and `vintage` values run up to **371 chars** — so the vintage 
 snapshot (no `irp_id`, no unique index, delete-all + insert per sync — user-decided) and
 `vintage` columns are NVARCHAR(400), never truncated (the value must round-trip verbatim into
 submission).
+
+**Amended 2026-08-19 (user-directed)**: `anchorCurrencyCode` (probed above but not cached) is
+added to `irp_currency_scheme` as a display-only `anchor_currency_code` column, surfaced as
+"Anchor Currency" on the Currency Schemes metadata tab. Also added: `updateIntervalInDays` from
+`search_currency_schemes`, cached as `update_interval_days` and shown as "Update Interval" —
+**not** part of the 2026-08-19 probe above (that probe only exercised the raw wheel-method read);
+the field name is user-confirmed rather than probe-verified. Same session: the Currency Schemes
+tab's "Open in Risk Modeler ↗" link is split onto its own tenant-relative path,
+`home/reference-data/currencies/currency-schemes` (previously it shared the plain `currencies`
+tab's `.../currency` path); and the metadata table's vintage badges display `effectiveDate`
+truncated to the day (`YYYY-MM-DD`) — the stored `DATETIME2` value and the submission round-trip
+are unaffected, this is a display-only truncation in the metadata table row builder.
 
 **Reversed 2026-08-19 (D3's "no tab" call, user-corrected)**: the metadata screen's Currencies
 tab is **restored** alongside Currency Schemes — five tabs total (model profiles, output
