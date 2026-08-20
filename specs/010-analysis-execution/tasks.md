@@ -2,7 +2,7 @@
 
 **Input**: Design documents from `/specs/010-analysis-execution/`
 
-**Prerequisites**: plan.md, spec.md, research.md (T-01…T-18), data-model.md, contracts/, quickstart.md
+**Prerequisites**: plan.md, spec.md, research.md (T-01…T-20), data-model.md, contracts/, quickstart.md
 
 **Tests**: Included — the constitution requires all three tiers, and quickstart.md names
 what each tier covers. Unit tests run after every change (`uv run pytest tests/unit`);
@@ -26,6 +26,7 @@ at a checkpoint for the approver to click the running feature before the next be
 **Purpose**: Config defaults the retry batch and workers read.
 
 - [X] T001 In `app/config.py`, change `IRP_SUBMISSION_MAX_RETRIES` default `None` → `3` and add `IRP_SUBMISSION_RETRY_BASE_SECS` (default 60) per data-model.md §6
+- [ ] T049 In `app/config.py`, add the pinned currency-default settings per data-model.md §6 (T-19): `default_analysis_currency_code` (`USD`), `default_analysis_currency_scheme` (`RMS`), `default_analysis_currency_vintage` (empty); document them in `infra/.env.example` *(added 2026-08-20, note 17 D6/P-16)*
 
 ---
 
@@ -42,6 +43,7 @@ at a checkpoint for the approver to click the running feature before the next be
 - [X] T008 [P] Add submission/backfill gateway functions to `app/services/irp_gateway.py` per contracts/irp-gateway.md: `submit_portfolio_analysis` (explicit `currency`, `skip_duplicate_check=True`, returns `(job_id, request_body)`), `get_analysis_job`, `get_analysis_by_name` — protocol + `_RealGateway`; confirm signatures against the active wheel first (`make irp-status`, TestPyPI `0.6.0rc2`)
 - [X] T009 [P] Add FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: per-name programmable submit success (job id + body with `resourceUri`) and `IRPIntegrationError`, job-status sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_by_name` resolution
 - [X] T010 Extend `app/services/irp_job_service.py`: `record_submitted_irp_job` / `record_submission_failure` accept `irp_portfolio_id`, `irp_analysis_id`, `request_params`; `resource_uri` written to `irp_job_resource` from `request_body["resourceUri"]` (depends on T003)
+- [ ] T050 Add `irp_analysis.execution_item_no` (INT NULL) to `alembic/versions/0001_initial.py` per data-model.md §1, mirror it in `tests/iteration1_mirror.py`, and add its column assertion to the T006 `irp_analysis` checks in `tests/sqlserver/` — the exact resume key now that a template can appear once per chosen suite *(added 2026-08-20, P-02 amended)*
 
 **Checkpoint**: Unit + SQL Server tiers green on the new schema — user story work can begin.
 
@@ -49,21 +51,21 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ## Phase 3: User Story 1 — Run template suites against selected portfolios (Priority: P1) 🎯 MVP
 
-**Goal**: Multi-select portfolios → Execute Suite modal (search, expandable suites, per-execution template deselection, treaty picker) → background submit of one analysis per portfolio × template, deduplicated across suites, fixed naming with the 64-char cap and rerun suffix, failures visible and submission failures retried.
+**Goal**: Multi-select portfolios → Execute Suite modal (search, expandable suites, per-execution template deselection, per-suite currency with pinned defaults, treaty picker) → background submit of one analysis per portfolio × selected template of each chosen suite, fixed naming with the 64-char cap and rerun suffix, failures visible and submission failures retried.
 
 **Independent Test**: With an imported EDM holding several portfolios and the spec-009 suites, run one suite against two portfolios and confirm one submitted analysis per portfolio × template, correctly named, each with its own tracked job (quickstart Phase 1).
 
 ### UI Preview for User Story 1 🎨
 
-- [ ] T011 [US1] Rendered HTML preview of the execution modal in `docs/ui_previews/execute_modal.html` (from `_scaffold.html`): suite list with search, one suite expanded with two templates deselected, treaty picker, disabled/enabled Submit, and the blocking-message state — approved before building the template and route
+- [ ] T011 [US1] Rendered HTML preview of the execution modal in `docs/ui_previews/execute_modal.html` (from `_scaffold.html`): suite list with search, one suite expanded with two templates deselected, per-suite currency block (pre-filled defaults, one suite overridden, one with an empty vintage picker — FR-019/FR-020), treaty picker, disabled/enabled Submit, and the blocking-message state — approved before building the template and route
 
 ### Implementation for User Story 1
 
 - [ ] T012 [US1] Portfolio multi-select: checkbox (`name="portfolio_ids"`, `syncPicks()` pattern) in `app/templates/partials/portfolio_row.html`; **Execute Suite** / **Execute Template** buttons in the Portfolios header of `app/templates/partials/edm_detail_body.html`, disabled until ≥1 checked, offered only when the EDM is `ready` and ≥1 portfolio exists (FR-001); picks JS in `app/static/js/app.js`
-- [ ] T013 [US1] New `app/services/analysis_execution_service.py`: gate validation (server-side dedupe of `portfolio_ids` and `template_ids` — FR-005 must not depend on the browser posting a clean set; EDM `ready`, portfolios belong, templates live, `kind=suite` ⇒ ≥1 suite, ≥1 template, treaty names exist); name rule helpers (`full = f"{p.name} {t.name}"`, right-truncate to 64, `" (n)"` suffix re-clipping the base — T-04/T-05); plan composition per contracts/worker-poller.md §1 with `asOfDate` from `irp_currency_scheme_vintage.effective_date` (T-03); `request_execution` persists the plan via `enqueue_rwb_job(requestor_type='analyst_request', requestor_id=execution_id, rwb_job_type='execute_analysis_batch', input_data=plan)` + dispatch (FR-012)
-- [ ] T014 [US1] Modal fragment `app/templates/partials/execute_analysis_modal.html` (`submission_entity_add_modal` pattern): search (300ms debounce re-GET with `q`), suite checkbox rows expanding via `<details>` into template lists checked by default (FR-003), treaty picker from `irp_treaty` (zero valid — FR-004), read-only selected portfolios as hidden inputs, Alpine Submit-disable until ≥1 suite chosen and ≥1 template remains (FR-002)
+- [ ] T013 [US1] New `app/services/analysis_execution_service.py`: gate validation (EDM `ready`, portfolios belong, posted templates live and belonging to their suite, `kind=suite` ⇒ ≥1 suite with ≥1 template selected, every currency block complete and cache-valid — `code` in `irp_currency`, `scheme` in `irp_currency_scheme`, `(scheme, vintage)` in `irp_currency_scheme_vintage` (FR-019/FR-020), treaty names exist); name rule helpers (`full = f"{p.name} {t.name}"`, right-truncate to 64, `" (n)"` suffix re-clipping the base — T-04/T-05); plan composition per contracts/worker-poller.md §1 — one `item_no`-ordinaled item per suite×template selection carrying its suite's currency block with `asOfDate` from the chosen vintage's `effective_date` (T-03, P-15), `tag_names` extended with the submission name when a submission context exists (FR-021, T-20); `request_execution` persists the plan via `enqueue_rwb_job(requestor_type='analyst_request', requestor_id=execution_id, rwb_job_type='execute_analysis_batch', input_data=plan)` + dispatch (FR-012)
+- [ ] T014 [US1] Modal fragment `app/templates/partials/execute_analysis_modal.html` (`submission_entity_add_modal` pattern): search (300ms debounce re-GET with `q`), suite checkbox rows expanding via `<details>` into template lists checked by default (FR-003), per-suite currency block (code/scheme/vintage selects, vintage options scoped to the chosen scheme, pre-filled from the T049 defaults, blank when a default is unset/cache-absent — FR-019/FR-020), treaty picker from `irp_treaty` (zero valid — FR-004), read-only selected portfolios as hidden inputs, Alpine Submit-disable until ≥1 suite chosen, ≥1 template remains, and every currency block is complete (FR-002/FR-020)
 - [ ] T015 [US1] `GET`/`POST .../edms/{edm_id}/execute` in `app/routers/edms.py`, standalone + submission-contextual variants per contracts/routes.md: GET renders the fragment or the blocking message; POST validates CSRF, runs the T013 gate (422 re-renders the modal), composes + persists the plan, responds 204 with `HX-Trigger: execution-submitted` — no IRP call on the request path
-- [ ] T016 [US1] New `app/workers/analysis_jobs.py` with `execute_analysis_batch` actor (`_BODIES` registration, `max_retries=0`, `time_limit=60*60*1000` — T-17) per contracts/worker-poller.md §2: iterate portfolios × templates with per-item isolation; resume check on `(execution_id, portfolio, template)`; transaction A inserts the `irp_analysis` row claiming the name (`status_code='pending'`, FR-008); submit outside any transaction via T008 gateway with exactly the plan's values (FR-006); transaction B records the `irp_job` (`request_params`, `resource_uri`) and flips `status_code='running'`, or on `IRPIntegrationError` calls `record_submission_failure` and writes `irp_analysis.failure_reason` (FR-010); `output_data = {"submitted": n, "submission_failed": m}`
+- [ ] T016 [US1] New `app/workers/analysis_jobs.py` with `execute_analysis_batch` actor (`_BODIES` registration, `max_retries=0`, `time_limit=60*60*1000` — T-17) per contracts/worker-poller.md §2: iterate portfolios × plan items with per-item isolation; resume check on `(execution_id, portfolio, item_no)` via `irp_analysis.execution_item_no` (T050); transaction A inserts the `irp_analysis` row claiming the name (`status_code='pending'`, FR-008); submit outside any transaction via T008 gateway with exactly the plan item's values including its currency block (FR-006); transaction B records the `irp_job` (`request_params`, `resource_uri`) and flips `status_code='running'`, or on `IRPIntegrationError` calls `record_submission_failure` and writes `irp_analysis.failure_reason` (FR-010); `output_data = {"submitted": n, "submission_failed": m}`
 - [ ] T017 [US1] Port the `TimeLimitExceeded` handling fix into `app/workers/runtime.py` (from `origin/007-geohaz-execution`, plan.md source list)
 - [ ] T018 [US1] Poller `analysis` job type in `app/poller/run.py`: `_GETTERS["analysis"] = irp_gateway.get_analysis_job`; terminal handler — FINISHED enqueues head `rwb_job` `backfill_analysis_detail` (`requestor_type='irp_job'`, `requestor_id=job.id`); FAILED/CANCELLED set `irp_analysis.status_code='error'` + `failure_reason` from the completion body (FR-011, T-08)
 - [ ] T019 [US1] `backfill_analysis_detail` worker in `app/workers/analysis_jobs.py` per contracts/worker-poller.md §4 (standard actor pattern, `max_retries=0`): resolve by exact submitted name via `get_analysis_by_name(irp_analysis.name, edm_name)`; write `irp_id`, `settings_metadata`, `exposure_resource_id`; `status_code='ready'`; failure → `rwb_job` `failed` with `error_detail` (FR-009)
@@ -71,8 +73,8 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ### Tests for User Story 1
 
-- [ ] T021 [P] [US1] Unit tests for naming (truncation, suffix re-clipping, full-name suffix), plan composition + immutability, and the gate (including duplicate `portfolio_ids`/`template_ids` in the form deduped server-side) in `tests/unit/test_analysis_execution_service.py`
-- [ ] T022 [P] [US1] Unit tests for the worker bodies against FakeIRP in `tests/unit/test_analysis_jobs_worker.py`: per-item isolation (one failure never stops the loop), dedup across suites, resume skip after reclaim, submission-failure recording, backfill resolution
+- [ ] T021 [P] [US1] Unit tests for naming (truncation, suffix re-clipping, full-name suffix), plan composition + immutability (per-suite currency onto items, `item_no` ordinals, submission tag appended, `asOfDate` from the chosen vintage), and the gate (incomplete or cache-invalid currency block → 422) in `tests/unit/test_analysis_execution_service.py`
+- [ ] T022 [P] [US1] Unit tests for the worker bodies against FakeIRP in `tests/unit/test_analysis_jobs_worker.py`: per-item isolation (one failure never stops the loop), a template shared by two suites submitting once per suite with each suite's currency and a suffixed name, resume skip after reclaim keyed on `execution_item_no`, submission-failure recording, backfill resolution
 - [ ] T023 [P] [US1] Unit tests for the poller handler (FINISHED enqueue, FAILED/CANCELLED reason extraction) and the retry batch (backoff eligibility, in-place update, exhaustion → `error`) in `tests/unit/`
 - [ ] T024 [US1] IRP sandbox test in `tests/irp/`: one real submit → single-status poll → backfill round-trip (`make shell` → `uv run pytest tests/irp --run-irp`)
 
@@ -109,7 +111,7 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] `kind=template` variant in `app/templates/partials/execute_analysis_modal.html` and the `GET`/`POST .../execute` routes in `app/routers/edms.py`: template checkbox rows (no suites offered, no expansion), same search and treaty picker, Submit disabled until ≥1 template (FR-002); POST gate accepts `kind=template` with no `suite_ids`
+- [ ] T030 [US3] `kind=template` variant in `app/templates/partials/execute_analysis_modal.html` and the `GET`/`POST .../execute` routes in `app/routers/edms.py`: template checkbox rows (no suites offered, no expansion), same search and treaty picker, one currency block for the whole execution (FR-019), Submit disabled until ≥1 template and the currency block is complete (FR-002/FR-020); POST gate accepts `kind=template` with flat `template_ids` + a single currency block
 - [ ] T031 [P] [US3] Unit tests in `tests/unit/test_analysis_execution_service.py`: template-kind gate (no suites required, suites rejected), identical naming/plan/failure behavior, kinds never mixed
 
 **Checkpoint**: Both execution kinds work. **STOP** for approver click-through.
@@ -169,9 +171,9 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: none
-- **Foundational (Phase 2)**: after Setup — blocks all stories. T002 → T003 (same migration file); T005 after T002–T004; T010 after T003
-- **US1 (Phase 3)**: after Foundational. T011 preview approved before T014/T015; T013 before T015/T016; T016 before T018–T020; T008–T010 feed T016
+- **Setup (Phase 1)**: none. T049 (currency defaults) added 2026-08-20 — feeds T013/T014
+- **Foundational (Phase 2)**: after Setup — blocks all stories. T002 → T003 (same migration file); T005 after T002–T004; T010 after T003; T050 (`execution_item_no`, added 2026-08-20) before T016
+- **US1 (Phase 3)**: after Foundational. T011 preview approved before T014/T015; T013 before T015/T016; T016 before T018–T020; T008–T010, T049, T050 feed T016
 - **US2 (Phase 4)**: after US1 (renders what US1 writes). T025 preview approved before T027/T028; T026 before T027/T028
 - **US3 (Phase 5)**: after US1 (parameterizes the same modal, service, and worker)
 - **US4 (Phase 6)**: after US1 (chains off `backfill_analysis_detail`); T032 → T034; T032/T035/T036 before T037; T038 preview approved before T040; T039 before T040

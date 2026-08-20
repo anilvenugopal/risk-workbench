@@ -19,31 +19,42 @@ plainly when a tier did not run.
 
 1. On the EDM detail page, check 2 portfolios → **Execute Suite** enables. Click it.
 2. In the modal: search finds a suite; pick one with ~10 templates; expand it and
-   deselect 2; pick a treaty; Submit (disabled until a suite was chosen).
+   deselect 2; the suite's currency block shows the `.env` defaults pre-filled
+   (code/scheme/vintage, vintage list scoped to the chosen scheme); pick a treaty;
+   Submit (disabled until a suite was chosen and the currency block is complete).
 3. Modal closes immediately (P-11). The user-executed section fills as submissions land:
    expect `2 × 8 = 16` analyses, each named `portfolio name + template name` (≤64 chars
    sent to RM; hover/expanded shows the full name), each with its own job.
 4. Watch statuses move (QUEUED → RUNNING → FINISHED/FAILED) without refreshing — the 3s
    body poll. Confirm the same list appears for a second logged-in analyst.
-5. Pick two suites sharing a template → the shared template submits once per portfolio.
-6. Peril mismatch: include a template whose peril the EDM lacks → that analysis ends
+5. Pick two suites sharing a template and confirm different currencies (say USD and
+   EUR) → each suite shows its own currency block; the shared template submits once per
+   suite per portfolio, the second copy suffixed `" (n)"`, and each analysis's
+   `irp_job.request_params` carries its suite's currency. Clear
+   `DEFAULT_ANALYSIS_CURRENCY_VINTAGE` (or set it to a value not in the cache) → the
+   vintage picker pre-selects nothing and Submit stays disabled until one is chosen.
+6. Run from the submission-contextual EDM page → in Risk Modeler, each submitted
+   analysis carries the submission's name as a tag (FR-021); the same run from the
+   standalone EDM page carries no submission tag.
+7. Peril mismatch: include a template whose peril the EDM lacks → that analysis ends
    FAILED with RM's reason ("no locations match the criteria") shown on its row; siblings
    unaffected.
-7. Submission failure: break `RISK_MODELER_BASE_URL` mid-run (or use the sandbox outage
+8. Submission failure: break `RISK_MODELER_BASE_URL` mid-run (or use the sandbox outage
    window) → affected rows show "Failed to submit" immediately, the poller's retry batch
    resubmits with backoff up to `IRP_SUBMISSION_MAX_RETRIES`, then the row stays visible
    as failed-to-submit with its reason.
-8. On completion, expand a finished analysis → settings/metadata are shown (backfill).
-9. Recovery: kill the Dramatiq worker mid-run; after
-   `RWB_HEARTBEAT_STALE_SECS` the reconciler re-pends the job and the run finishes with
-   no duplicate analyses for already-submitted items.
-10. Rerun the same suite against the same portfolio → new analyses named with a numeric
+9. On completion, expand a finished analysis → settings/metadata are shown (backfill).
+10. Recovery: kill the Dramatiq worker mid-run; after
+    `RWB_HEARTBEAT_STALE_SECS` the reconciler re-pends the job and the run finishes with
+    no duplicate analyses for already-submitted items.
+11. Rerun the same suite against the same portfolio → new analyses named with a numeric
     suffix inside the 64-char cap; nothing blocked (P-10).
 
 ## Phase 2 — Single-template execution (US3)
 
 1. Check 1 portfolio → **Execute Template**; the modal lists templates only (no suites),
-   same search; pick 2; Submit disabled until one is chosen.
+   same search, one currency block for the whole execution; pick 2; Submit disabled
+   until one is chosen.
 2. Expect 2 analyses with identical naming/tracking/failure behavior as Phase 1.
 
 ## Treaty pass-through (any phase, FR-018)

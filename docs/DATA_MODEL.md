@@ -283,6 +283,7 @@ erDiagram
     uniqueidentifier irp_portfolio_id FK "nullable; own analyses only — the portfolio it ran against"
     uniqueidentifier analysis_template_id FK "nullable; own analyses only — survives template soft-delete"
     uniqueidentifier execution_id "nullable; own analyses only — the execute_analysis_batch run's requestor_id"
+    int execution_item_no "nullable; the plan item's ordinal — (execution_id, irp_portfolio_id, execution_item_no) is the worker's resume key (spec 010)"
     string failure_reason "nullable; RM run-failure message or submit exception message"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
@@ -327,9 +328,6 @@ erDiagram
     string analysis_profile_name "IRP model profile name"
     string output_profile_name
     string event_rate_scheme_name "nullable; required for DLM, optional for HD/Accumulation"
-    string currency_code "required (P-10)"
-    string currency_scheme_code "required (P-10)"
-    string currency_vintage "required (P-10)"
     decimal min_loss_threshold "default 1.00"
     int num_max_loss_event "default 1"
     bool franchise_deductible "default 0"
@@ -366,7 +364,7 @@ erDiagram
 
 - Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD/Accumulation (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
 - **Suites are unordered** (spec 009 P-08): `template_suite_item` is a plain membership row — no `position`, no per-item settings; `UNIQUE(suite_id, template_id)` keeps a template in a suite at most once.
-- **Currency triple is required, never NULL** (spec 009 P-10): the submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the stored vintage's effective date — no default logic at submit time.
+- **Templates store no currency** (design note 17 D4/D5, 2026-08-20 — reverses spec 009 P-10): analysis currency, currency scheme, and scheme vintage are chosen in the execution modal at submit time, per chosen suite, pre-filled from pinned env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_*`, §10). The submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the chosen vintage's effective date; the confirmed values ride the persisted execution plan (spec 010).
 - **Dropped in spec 009:** `treaty_name_pattern` (P-09 — treaties are picked explicitly at run time in the execution modal), `region_label`/`peril_code` (P-03 — region/output level conveyed by names), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule — PRD §2.6).
 
 ---
@@ -628,6 +626,24 @@ erDiagram
     datetime inserted_at
     datetime updated_at
   }
+  irp_currency_scheme {
+    uniqueidentifier id PK
+    int irp_id
+    string name
+    string code
+    string anchor_currency_code "nullable; base currency"
+    int update_interval_days "nullable"
+    datetime inserted_at
+    datetime updated_at
+  }
+  irp_currency_scheme_vintage {
+    uniqueidentifier id PK
+    string vintage
+    string currency_scheme_code
+    datetime effective_date
+    datetime inserted_at
+    datetime updated_at
+  }
   irp_database_server {
     uniqueidentifier id PK
     string name "IRP server name (natural key)"
@@ -638,6 +654,8 @@ erDiagram
 ```
 
 - `irp_currency.code` and `irp_database_server.name` are natural keys — neither has a Moody's-assigned surrogate id, so neither carries an `irp_id`.
+- **Currency-scheme vintages are versions nested inside a scheme** (design note 17 D2): `irp_currency_scheme_vintage` has no `irp_id` and no unique key — the upstream vintage item carries no id and `(currency_scheme_code, vintage)` is not unique upstream (Risk Modeler allows duplicate vintage names) — so the sync is a raw snapshot, delete-all + insert. The metadata screen and the spec-010 submit-time currency picker read these two tables.
+- **Currency defaults are configuration, not a table** (design note 17 D6/D7): `DEFAULT_ANALYSIS_CURRENCY_CODE` / `_SCHEME` / `_VINTAGE` env vars pre-fill the execution modal's pickers; ops edits them, the system never advances them when a newer vintage syncs. No admin UI or RBAC in MVP.
 
 ---
 

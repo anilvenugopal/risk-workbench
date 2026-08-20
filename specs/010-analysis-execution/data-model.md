@@ -19,6 +19,7 @@ Today the table is broker-shaped. Changed/added columns:
 | `irp_portfolio_id` | **new** Uuid NULL FK → `irp_portfolio.id` | The portfolio the analysis ran against (trustworthy — workbench submitted it) |
 | `analysis_template_id` | **new** Uuid NULL FK → `analysis_template.id` | The template it came from; survives template soft-delete |
 | `execution_id` | **new** Uuid NULL | The run's UUID — equals the `execute_analysis_batch` row's `requestor_id`; the "originating submission context" of FR-008 together with `inserted_by` |
+| `execution_item_no` | **new** INT NULL | The plan item's ordinal within the run. With cross-suite dedup dropped (P-02 as amended), `(execution_id, portfolio, template)` can repeat — `(execution_id, irp_portfolio_id, execution_item_no)` is the worker's exact resume key. NULL for broker rows |
 | `failure_reason` | **new** NVARCHAR(MAX) NULL | RM's run-failure message (poller, T-08) or the submit exception message (worker) |
 
 Constraints:
@@ -106,5 +107,11 @@ execution), `rwb_job_type='execute_analysis_batch'`.
 | `IRP_SUBMISSION_MAX_RETRIES` | default `None` → `3` (PRD §14.3; T-09) |
 | `IRP_SUBMISSION_RETRY_BASE_SECS` | **new**, default 60 — backoff base for the retry batch |
 | `OUTPUTS_BASE_DIR` | existing; gains the `analyses/` subtree (loss phase) |
+| `DEFAULT_ANALYSIS_CURRENCY_CODE` | **new**, default `USD` — pre-fills the modal's currency picker (P-16, T-19) |
+| `DEFAULT_ANALYSIS_CURRENCY_SCHEME` | **new**, default `RMS` — pre-fills the scheme picker |
+| `DEFAULT_ANALYSIS_CURRENCY_VINTAGE` | **new**, default empty — pre-fills the vintage picker; empty or cache-absent ⇒ no pre-selection |
+
+The currency defaults are pinned configuration, not a table (note 17 D6/D7/O17-3):
+ops edits `.env` on the VM; the system never advances them when a newer vintage syncs.
 
 Dependency: add `pyarrow` (Parquet writes; loss phase, T-13).

@@ -83,9 +83,9 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 
 | ID | Decision | Status |
 |---|---|---|
-| T-01 | One `execute_analysis_batch` rwb_job per execution; the approved plan (portfolios, template value snapshots, treaty names) persisted in `input_data`; worker loops the submit call with per-item isolation and a resumable skip check | Approved |
+| T-01 | One `execute_analysis_batch` rwb_job per execution; the approved plan (portfolios, template value snapshots with each item's confirmed currency block, treaty names) persisted in `input_data`; worker loops the submit call with per-item isolation and a resumable skip check | Approved |
 | T-02 | Loop `submit_portfolio_analysis_job` app-side; never `submit_portfolio_analysis_jobs` | Approved |
-| T-03 | Currency block always passed explicitly; `asOfDate` derived from `irp_currency_scheme_vintage.effective_date` at plan-persist time | Approved |
+| T-03 | Currency block always passed explicitly, taken from the modal's confirmed selection (per suite — spec P-15, note 17 D4/D5); `asOfDate` derived from the chosen vintage's `irp_currency_scheme_vintage.effective_date` at plan-persist time | Approved (amended 2026-08-20) |
 | T-04 | Name = `"{portfolio.name} {template.name}"` (single space); `irp_analysis.name` holds the ≤64-char name sent to RM, new `full_name` column holds the untruncated name | Approved |
 | T-05 | Rerun collision check is local (`irp_analysis` names for the EDM), suffix `" (n)"` fitted inside the 64-char cap; RM call uses `skip_duplicate_check=True` | Approved |
 | T-06 | Schema edits in the single revision `0001_initial.py` (dev drop-create-seed): reshape `irp_analysis`, extend `irp_job`, add `analysis_result_meta` + `analysis_perspective_kind` in the loss phase | Approved |
@@ -101,6 +101,8 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 | T-16 | Treaty pass-through: RM datasource link (existing pattern) + an Alpine sliver that fires the existing detail-sync POST when the window regains focus after the link was clicked | Approved |
 | T-17 | `execute_analysis_batch` actor gets `time_limit=60*60*1000` (Dramatiq's 10-min default is too short for 150 sequential submits) | Approved |
 | T-18 | No extra rate limiter: the sequential per-item loop plus the client's built-in retry is the throttle (PRD §15.6) | Approved |
+| T-19 | Currency defaults are three pinned settings in `app/config.py` — `default_analysis_currency_code` (default `USD`), `default_analysis_currency_scheme` (default `RMS`), `default_analysis_currency_vintage` (default empty) — read from `.env`, changed by ops only (spec P-16, note 17 D6/D7). The modal pre-fills from them; a value that is empty or absent from the synced cache pre-selects nothing. No admin UI, no table | Approved 2026-08-20 |
+| T-20 | Submission tag: plan composition appends the submission's name to each item's `tag_names` when the execution has a submission context (spec P-17); RM resolves/creates the tag at submit (existing wheel behavior for `tag_names`). Workbench association is the existing `irp_job.requested_from_submission_id` + plan `submission_id` — no schema change | Approved 2026-08-20 |
 
 ## Rationale and rejected alternatives
 
@@ -114,18 +116,24 @@ request-path submit loop (Article 11 permits it, but 150 × ~6 RM calls each blo
 response for minutes and dies with the browser — P-11 exists precisely because of this);
 one rwb_job per analysis (above).
 
-**Resumability inside T-01.** Per item: (1) transaction A inserts the `irp_analysis` row
-(claiming the computed name, satisfying FR-008); (2) the RM submit runs outside any
+**Resumability inside T-01.** Per work unit: (1) transaction A inserts the `irp_analysis`
+row (claiming the computed name, satisfying FR-008); (2) the RM submit runs outside any
 transaction; (3) transaction B writes the `irp_job` row. On reclaim the worker skips
-items whose `irp_analysis` row already has an `irp_job`; a row without one is re-submitted
-using its already-recorded name. A death between (2) and (3) can duplicate one RM
+work units whose `irp_analysis` row already has an `irp_job`; a row without one is
+re-submitted using its already-recorded name. The work-unit key is `(execution_id,
+portfolio_id, execution_item_no)` — with dedup dropped (P-02 as amended), the same
+portfolio × template can legitimately appear twice in one run, so the plan-item ordinal,
+stored on `irp_analysis.execution_item_no`, is what makes the resume check exact. A death between (2) and (3) can duplicate one RM
 submission — accepted: idempotent IRP submission is a documented upgrade, not default
 complexity (Article 10), and the window is one item wide.
 
 **T-02/T-03** — forced by the wheel: the batch helper loses `resourceUri` (unrecoverable
 later; §15.3 needs it for every result getter) and cannot carry currency. Explicit
-currency is FR-006; the library's silent USD fallback is exactly the defaulting spec 009
-P-10 reversed.
+currency is FR-006; the library's silent USD fallback is exactly the submit-time
+defaulting FR-006 forbids. The block's values come from the modal's per-suite selection
+(spec P-15 — design note 17 moved currency off templates entirely), captured into the
+plan at compose time; pre-filling a visible picker from the T-19 env defaults is not
+submit-time defaulting — the analyst confirms it.
 
 **T-04 — two name columns.** The submitted name is not derivable from the full name once
 a suffix exists (the suffix survives clipping, the middle doesn't), and the completion
@@ -161,7 +169,7 @@ poll. Introducing SSE here would be new infrastructure (nginx `proxy_buffering o
 subscription fan-out) for no requirement the poll doesn't meet at a 3s cadence. PRD §14.7
 remains the eventual home for SSE when the status bar is built.
 
-**T-12 (Proposed) — minimal job listing.** FR-014 says analysis jobs "MUST appear in the
+**T-12 — minimal job listing.** FR-014 (as then worded) said analysis jobs "MUST appear in the
 existing job views", but those views are stubs — the spec's assumption was wrong. The
 smallest honest change is a plain read-only table on the existing `/workflows/irp-jobs`
 route. The alternative — treating the FR as vacuously satisfied — hides 150-job runs from

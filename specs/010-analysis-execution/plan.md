@@ -9,8 +9,9 @@
 **What changes in the system.** The portfolio table on the EDM detail page gains
 multi-select and Execute Suite / Execute Template buttons. Submit persists the approved
 run as JSON on a new `execute_analysis_batch` rwb_job and returns immediately; a Dramatiq
-worker loops `submit_portfolio_analysis_job` once per portfolio × template, writing an
-`irp_analysis` row and an `analysis`-type `irp_job` per item. The poller gains the
+worker loops `submit_portfolio_analysis_job` once per plan item (portfolio × selected
+template of each chosen suite — no dedup across suites), writing an `irp_analysis` row
+and an `analysis`-type `irp_job` per item. The poller gains the
 `analysis` getter/handler, a completion backfill worker, and the (until now scaffolded)
 submission-retry batch. A user-executed analyses section joins the EDM detail body and
 updates through the page's existing 3s self-poll. The loss phase adds the
@@ -25,8 +26,15 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   after a reclaim (T-01).
 - Loop the single submit call — the wheel's batch helper discards `request_body`
   (losing `resourceUri`, needed by every result getter) and cannot carry currency (T-02).
-- Currency block always explicit, `asOfDate` from the stored vintage's `effective_date`;
-  the wheel's silent USD default is exactly what FR-006 forbids (T-03).
+- Currency block always explicit, taken from the modal's confirmed per-suite selection
+  (P-15) with `asOfDate` from the chosen vintage's `effective_date`; the wheel's silent
+  USD default is exactly what FR-006 forbids (T-03). Pickers pre-fill from three pinned
+  env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_CODE` / `_SCHEME` / `_VINTAGE`, T-19);
+  an unset or cache-absent default pre-selects nothing (FR-020).
+- Submission tag (FR-021, T-20): plan composition appends the submission's name to every
+  item's `tag_names` when the execution has a submission context; RM resolves/creates the
+  tag at submit. Workbench-side the association is the existing
+  `requested_from_submission_id` + plan `submission_id` — no new column.
 - Naming: `irp_analysis.name` = the ≤64-char name sent to RM, new `full_name` = the
   untruncated name; local collision check + `" (n)"` suffix, `skip_duplicate_check=True`
   (T-04/T-05).
@@ -62,7 +70,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
 [contracts/irp-gateway.md](contracts/irp-gateway.md) must be re-confirmed against the
 active wheel at implementation; the IRP-sandbox tier is the proof.
 
-**Decisions**: T-01…T-18 in [research.md](research.md) — all Approved. No open items.
+**Decisions**: T-01…T-20 in [research.md](research.md) — all Approved. No open items.
 
 ## Technical Context
 
@@ -133,7 +141,7 @@ Articles that shaped the design:
 ```text
 specs/010-analysis-execution/
 ├── plan.md              # This file
-├── research.md          # T-01…T-18 with evidence and rejected alternatives
+├── research.md          # T-01…T-20 with evidence and rejected alternatives
 ├── data-model.md        # irp_analysis reshape, irp_job columns, analysis_result_meta, seeds
 ├── quickstart.md        # Per-phase verification
 ├── contracts/
@@ -158,7 +166,7 @@ app/
 │                                    # retrieve_analysis_results (new)
 ├── workers/runtime.py               # TimeLimitExceeded handling (007-branch fix)
 ├── poller/run.py                    # analysis getter/handler, _submission_retry
-├── config.py                        # retry defaults, retry base secs
+├── config.py                        # retry defaults, retry base secs, currency defaults
 ├── templates/partials/              # execute_analysis_modal, executed_analysis_row,
 │                                    # analysis_losses, edm_detail_body edits,
 │                                    # portfolio_row checkbox, irp_jobs_table

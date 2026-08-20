@@ -18,10 +18,13 @@ execution time.
   "actor_id": "uuid",
   "treaty_names": ["Treaty A", "Treaty B"],
   "portfolios": [{"id": "uuid", "name": "US Southeast Wind"}],
-  "templates": [
+  "items": [
     {
-      "id": "uuid",
-      "name": "US HU DLM v23",
+      "item_no": 0,
+      "suite_id": "uuid | null",
+      "suite_name": "US 2026 Q1 | null",
+      "template_id": "uuid",
+      "template_name": "US HU DLM v23",
       "analysis_profile_name": "...",
       "output_profile_name": "...",
       "event_rate_scheme_name": "... | null",
@@ -36,24 +39,35 @@ execution time.
 }
 ```
 
+One item per selected template of each chosen suite — no dedup across suites (spec
+P-02 as amended): a template in two chosen suites appears twice, each item carrying its
+suite's confirmed `currency` block (P-15/T-03; `asOfDate` resolved from the chosen
+vintage's `effective_date` at compose time). Template runs produce items with
+`suite_id`/`suite_name` null and the execution's single currency block. `tag_names`
+includes the submission's name when the execution has a submission context (FR-021,
+T-20).
+
 ## 2. `execute_analysis_batch` worker (`app/workers/analysis_jobs.py`)
 
 Actor named exactly `execute_analysis_batch` (name-based dispatch), registered in the
 module's `_BODIES`, `max_retries=0`, `time_limit=60*60*1000` (T-17). Body iterates
-`portfolios × templates` in plan order; **per-item isolation** — one item's failure never
-stops the loop (FR-010/FR-011; 005 breakout pattern).
+`portfolios × items` in plan order; **per-item isolation** — one item's failure never
+stops the loop (FR-010/FR-011; 005 breakout pattern). The work-unit key is
+`(execution_id, portfolio, item_no)` — `(portfolio, template)` alone is ambiguous when
+two suites share a template.
 
-Per item (portfolio *p*, template *t*):
+Per work unit (portfolio *p*, item *i*):
 
-1. **Resume check** (FR-015): an `irp_analysis` row for `(execution_id, p.id, t.id)`
-   with an `irp_job` row → skip (already done). A row **without** an `irp_job` → go to
-   step 3 reusing its recorded `name`.
-2. **Name** (FR-007, T-04/T-05): `full = f"{p.name} {t.name}"`; `rm = full[:64]`; while a
-   live `irp_analysis` with `(edm_id, name=rm)` exists, next suffix `" (n)"`, re-clipping
-   the base so `rm` stays ≤64; the same suffix is appended to `full`. Transaction A:
-   insert `irp_analysis` (`edm_id`, `irp_portfolio_id`, `analysis_template_id`,
-   `execution_id`, `name=rm`, `full_name=full`, `status_code='pending'`,
-   `inserted_by=actor_id`) — the row is visible immediately (FR-008) and claims the name.
+1. **Resume check** (FR-015): an `irp_analysis` row for `(execution_id, p.id,
+   i.item_no)` (`execution_item_no` column) with an `irp_job` row → skip (already done).
+   A row **without** an `irp_job` → go to step 3 reusing its recorded `name`.
+2. **Name** (FR-007, T-04/T-05): `full = f"{p.name} {i.template_name}"`; `rm = full[:64]`;
+   while a live `irp_analysis` with `(edm_id, name=rm)` exists, next suffix `" (n)"`,
+   re-clipping the base so `rm` stays ≤64; the same suffix is appended to `full`.
+   Transaction A: insert `irp_analysis` (`edm_id`, `irp_portfolio_id`,
+   `analysis_template_id`, `execution_id`, `execution_item_no=i.item_no`, `name=rm`,
+   `full_name=full`, `status_code='pending'`, `inserted_by=actor_id`) — the row is
+   visible immediately (FR-008) and claims the name.
 3. **Submit** (outside any transaction): `irp_gateway.submit_portfolio_analysis(...)`
    with exactly the plan's snapshot values and explicit `currency` (FR-006, T-02/T-03),
    `treaty_names` from the plan (FR-004/US1-5), `skip_duplicate_check=True`.

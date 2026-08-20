@@ -22,34 +22,49 @@ Fragment contents:
   (300ms debounce, `submission_entity_candidates` pattern).
 - `kind=suite`: one checkbox row per live suite; a chosen suite expands (`<details>`)
   into its template list, every template checked by default, deselectable (FR-003).
-  Deselection touches nothing in `template_suite_item`.
-- `kind=template`: one checkbox row per live template.
+  Deselection touches nothing in `template_suite_item`. Each chosen suite shows its own
+  **currency block** — analysis currency, currency scheme, scheme vintage (FR-019) —
+  pre-filled from the `DEFAULT_ANALYSIS_CURRENCY_*` settings (FR-020, T-19); the vintage
+  select lists only the chosen scheme's vintages (`irp_currency_scheme_vintage` rows for
+  that `currency_scheme_code`); a default that is unset or absent from the cache leaves
+  that picker unselected.
+- `kind=template`: one checkbox row per live template, plus a single currency block for
+  the execution (same pre-fill rules).
 - Treaty picker: checkbox per `irp_treaty` row of this EDM (names from the local cache;
   zero selected is valid — gross run, FR-004).
 - Selected portfolios shown read-only and carried as hidden `portfolio_ids` inputs.
-- Submit button disabled (Alpine) until ≥1 suite/template chosen **and** ≥1 template
-  remains selected (FR-002, edge case "every template deselected").
+- Submit button disabled (Alpine) until ≥1 suite/template chosen, ≥1 template remains
+  selected (FR-002, edge case "every template deselected"), **and** every visible
+  currency block has all three values chosen (FR-020).
 
 Errors: EDM not `ready`, no portfolios given, or no live suites/templates → the fragment
 renders the blocking message in place of the form (prerequisite gate, FR-001).
 
 ### `POST .../edms/{edm_id}/execute`
 
-Form fields: `kind`, `portfolio_ids` (repeated), `template_ids` (repeated — the final
-deduplicated template set as ticked in the modal; for `kind=suite` the browser posts the
-union of checked templates across expanded suites), `suite_ids` (repeated, `kind=suite`
-only — validated non-empty, not persisted), `treaty_names` (repeated).
+Form fields: `kind`, `portfolio_ids` (repeated). For `kind=suite`, per chosen suite:
+the suite's checked templates as `templates_{suite_id}` (repeated) and its currency
+block as `currency_code_{suite_id}` / `currency_scheme_{suite_id}` /
+`currency_vintage_{suite_id}` — currency is per suite (FR-019), so template selections
+post grouped by suite, not as one union. For `kind=template`: `template_ids` (repeated)
+plus a single `currency_code` / `currency_scheme` / `currency_vintage`. Both kinds:
+`treaty_names` (repeated).
 
 Server behavior (`analysis_execution_service.request_execution`):
-1. Gate: dedupe `portfolio_ids` and `template_ids` server-side (FR-005 must not depend
-   on the browser posting a clean set); EDM exists and `ready`; every `portfolio_id`
-   belongs to the EDM; every `template_id` is live; `kind=suite` ⇒ ≥1 `suite_id`; ≥1
-   template; every treaty name exists in `irp_treaty` for this EDM. Any failure → 422
-   re-render of the modal with the message (`hx-on::before-swap` keeps 409/422 swaps).
-2. Compose the plan **once** (FR-012): mint `execution_id`, snapshot each template's
-   stored values (including the currency block with `asOfDate` derived from
-   `irp_currency_scheme_vintage.effective_date` — T-03), portfolio ids+names, treaty
-   names, actor, EDM name, optional submission id.
+1. Gate: EDM exists and `ready`; every `portfolio_id` belongs to the EDM; every posted
+   template is live and (for `kind=suite`) belongs to its suite; `kind=suite` ⇒ ≥1 suite
+   with ≥1 template still selected; every currency block complete, with `code` in
+   `irp_currency`, `scheme` in `irp_currency_scheme`, and an
+   `irp_currency_scheme_vintage` row for `(scheme, vintage)` (FR-019/FR-020 — the
+   membership of currency *in* scheme stays unvalidated, edge case list); every treaty
+   name exists in `irp_treaty` for this EDM. Any failure → 422 re-render of the modal
+   with the message (`hx-on::before-swap` keeps 409/422 swaps).
+2. Compose the plan **once** (FR-012): mint `execution_id`, one item per suite×template
+   selection (`item_no` ordinal) snapshotting the template's stored values plus its
+   suite's confirmed currency block (`asOfDate` derived from the chosen vintage's
+   `effective_date` — T-03) and `tag_names` extended with the submission's name when a
+   submission context exists (FR-021, T-20), portfolio ids+names, treaty names, actor,
+   EDM name, optional submission id.
 3. `enqueue_rwb_job(requestor_type='analyst_request', requestor_id=execution_id,
    rwb_job_type='execute_analysis_batch', input_data=plan)` + `dispatch(...)`.
 4. Respond 204 with `HX-Trigger: execution-submitted`; the modal closes and the
@@ -90,7 +105,7 @@ now offered for create as well). An Alpine sliver marks the page when the link i
 clicked and, on the next `window` focus, POSTs the existing `.../sync` route once; the
 3s poll then shows the refreshed treaties. No `irp_job`, no job-monitor entry.
 
-## Job monitor (T-12, Proposed)
+## Job monitor (T-12)
 
 ### `GET /workflows/irp-jobs` (+ `/workflows/irp-jobs/table` fragment)
 
