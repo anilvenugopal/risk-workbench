@@ -26,7 +26,7 @@ at a checkpoint for the approver to click the running feature before the next be
 **Purpose**: Config defaults the retry batch and workers read.
 
 - [X] T001 In `app/config.py`, change `IRP_SUBMISSION_MAX_RETRIES` default `None` → `3` and add `IRP_SUBMISSION_RETRY_BASE_SECS` (default 60) per data-model.md §6
-- [ ] T049 In `app/config.py`, add the pinned currency-default settings per data-model.md §6 (T-19): `default_analysis_currency_code` (`USD`), `default_analysis_currency_scheme` (`RMS`), `default_analysis_currency_vintage` (empty); document them in `infra/.env.example` *(added 2026-08-20, note 17 D6/P-16)*
+- [X] T049 In `app/config.py`, add the pinned currency-default settings per data-model.md §6 (T-19): `default_analysis_currency_code` (`USD`), `default_analysis_currency_scheme` (`RMS`), `default_analysis_currency_vintage` (empty); document them in `infra/.env.example` *(added 2026-08-20, note 17 D6/P-16)*
 
 ---
 
@@ -43,7 +43,7 @@ at a checkpoint for the approver to click the running feature before the next be
 - [X] T008 [P] Add submission/backfill gateway functions to `app/services/irp_gateway.py` per contracts/irp-gateway.md: `submit_portfolio_analysis` (explicit `currency`, `skip_duplicate_check=True`, returns `(job_id, request_body)`), `get_analysis_job`, `get_analysis_by_name` — protocol + `_RealGateway`; confirm signatures against the active wheel first (`make irp-status`, TestPyPI `0.6.0rc2`)
 - [X] T009 [P] Add FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: per-name programmable submit success (job id + body with `resourceUri`) and `IRPIntegrationError`, job-status sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_by_name` resolution
 - [X] T010 Extend `app/services/irp_job_service.py`: `record_submitted_irp_job` / `record_submission_failure` accept `irp_portfolio_id`, `irp_analysis_id`, `request_params`; `resource_uri` written to `irp_job_resource` from `request_body["resourceUri"]` (depends on T003)
-- [ ] T050 Add `irp_analysis.execution_item_no` (INT NULL) to `alembic/versions/0001_initial.py` per data-model.md §1, mirror it in `tests/iteration1_mirror.py`, and add its column assertion to the T006 `irp_analysis` checks in `tests/sqlserver/` — the exact resume key now that a template can appear once per chosen suite *(added 2026-08-20, P-02 amended)*
+- [X] T050 Add `irp_analysis.execution_item_no` (INT NULL) to `alembic/versions/0001_initial.py` per data-model.md §1, mirror it in `tests/iteration1_mirror.py`, and add its column assertion to the T006 `irp_analysis` checks in `tests/sqlserver/` — the exact resume key now that a template can appear once per chosen suite *(added 2026-08-20, P-02 amended)*
 
 **Checkpoint**: Unit + SQL Server tiers green on the new schema — user story work can begin.
 
