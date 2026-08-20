@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     irp_submission_max_retries: int = 3
     irp_submission_retry_base_secs: int = 60
 
+    # Pinned currency defaults that pre-fill the execute-analysis modal's currency
+    # picker (P-16, T-19). Ops edits these in .env; the app never advances them when
+    # a newer vintage syncs. An empty vintage (or one absent from the cache) leaves
+    # the vintage picker with no pre-selection.
+    default_analysis_currency_code: str = "USD"
+    default_analysis_currency_scheme: str = "RMS"
+    default_analysis_currency_vintage: str = ""
+
     # TTL for the in-process Risk Modeler name-collision cache (issue #11) — shared
     # by the as-you-type check endpoints and the save-time blocking check.
     name_check_cache_ttl_secs: int = 30
