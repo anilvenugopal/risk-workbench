@@ -72,8 +72,9 @@
 .data-row { cursor: pointer; }
 .data-row:hover td { background: var(--surface-hover); }
 .open-link { color: var(--color-brand); font-size: var(--fs-label); }
-.row-actions { display: flex; gap: var(--space-2); white-space: nowrap; width: 1%; }
-.row-actions form { display: contents; }
+.col-actions, .row-actions { width: 1%; white-space: nowrap; }
+.row-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.row-actions form { margin: 0; }
 
 /* ── Home ────────────────────────────────────────────────────────────────── */
 .home { padding: 22px 26px; overflow: auto; }

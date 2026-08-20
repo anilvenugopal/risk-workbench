@@ -17,7 +17,7 @@
 
   {% if active_tab == 'suites' %}
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Items</th><th>Author</th>{% if current_user.is_admin %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th>Name</th><th>Items</th><th>Author</th><th class="col-actions"></th></tr></thead>
     <tbody>
       {% for suite in suites %}
       <tr class="data-row"
@@ -28,8 +28,8 @@
         </td>
         <td>{{ suite.item_count }}</td>
         <td>{{ suite.author_name or '—' }}</td>
-        {% if current_user.is_admin %}
         <td class="row-actions">
+          {% if current_user.is_admin %}
           <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
             <button class="btn-sm" type="submit">Duplicate</button>
@@ -39,11 +39,11 @@
             <button class="btn-sm btn-sm--danger" type="submit"
                     onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete</button>
           </form>
+          {% endif %}
         </td>
-        {% endif %}
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="{{ 4 if current_user.is_admin else 3 }}">
+      <tr><td class="empty" colspan="4">
         No template suites yet.
         {% if current_user.is_admin %}<a href="/templates/suites/new">Create one</a> to get started.
         {% else %}Nothing is seeded — an admin sets these up.{% endif %}
@@ -62,7 +62,7 @@
     </label>
   </form>
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th>{% if current_user.is_admin %}<th></th>{% endif %}</tr></thead>
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th class="col-actions"></th></tr></thead>
     <tbody>
       {% for template in templates %}
       <tr class="data-row"
@@ -73,8 +73,8 @@
         </td>
         <td>{{ forms.family_badge(template.profile_family) or '—' }}</td>
         <td>{{ template.analysis_profile_name }}</td>
-        {% if current_user.is_admin %}
         <td class="row-actions">
+          {% if current_user.is_admin %}
           <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
             <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
             <button class="btn-sm" type="submit">Duplicate</button>
@@ -84,11 +84,11 @@
             <button class="btn-sm btn-sm--danger" type="submit"
                     onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete</button>
           </form>
+          {% endif %}
         </td>
-        {% endif %}
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="{{ 4 if current_user.is_admin else 3 }}">
+      <tr><td class="empty" colspan="4">
         {% if q %}No templates match — <a class="clear-filters" href="/templates?tab=templates">clear filters</a>.
         {% else %}No analysis templates yet.
           {% if current_user.is_admin %}<a href="/templates/analysis-templates/new">Create one</a> to get started.
