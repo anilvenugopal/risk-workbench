@@ -29,9 +29,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
     edm_service,
-    entity_note_service,
     rdm_service,
     shared_drive,
     submission_service,
@@ -41,7 +41,6 @@ from app.services.errors import (
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
-    NoteConflict,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
@@ -215,7 +214,7 @@ _ENTITY_KIND = {
                 actor_id=actor_id)),
         "detach": lambda *, submission_id, entity_id: submission_service.detach_edm(
             submission_id=submission_id, edm_id=entity_id),
-        "backfill_status": edm_service.latest_backfill_status,
+        "backfill_statuses": edm_service.latest_backfill_statuses,
         "count_field": "portfolio_count",
         "count_label": "Portfolio count",
     },
@@ -229,7 +228,7 @@ _ENTITY_KIND = {
                 actor_id=actor_id)),
         "detach": lambda *, submission_id, entity_id: submission_service.detach_rdm(
             submission_id=submission_id, rdm_id=entity_id),
-        "backfill_status": rdm_service.latest_backfill_status,
+        "backfill_statuses": rdm_service.latest_backfill_statuses,
         "count_field": "analysis_count",
         "count_label": "Analysis count",
     },
@@ -237,11 +236,9 @@ _ENTITY_KIND = {
 
 
 def _entity_backfill_running(kind: str, entities: list) -> bool:
-    latest_status = _ENTITY_KIND[kind]["backfill_status"]
-    return any(
-        latest_status(entity.id) in ("pending", "running")
-        for entity in entities
-    )
+    statuses = _ENTITY_KIND[kind]["backfill_statuses"](
+        [entity.id for entity in entities])
+    return any(status in ("pending", "running") for status in statuses.values())
 
 
 def _entity_sort_state(request: Request) -> dict[str, tuple[str, bool]]:
@@ -379,8 +376,9 @@ def _submission_entity_note_response(
     request: Request, submission_id: str, kind: str, entity_id: str, *,
     notes: str, original_notes: str, csrf_token: str,
 ):
-    if not validate_csrf_token(csrf_token):
-        return HTMLResponse("Invalid CSRF token", status_code=403)
+    denied = check_csrf(csrf_token)
+    if denied is not None:
+        return denied
     rows = _ENTITY_KIND[kind]["list"](submission_id, entity_id=entity_id)
     entity = rows[0] if rows else None
     if entity is None:
@@ -388,42 +386,22 @@ def _submission_entity_note_response(
             f"That {kind.upper()} is not related to this submission.",
             status_code=404,
         )
-    error = None
-    conflict = None
-    conflict_active = False
-    status_code = 200
-    try:
-        saved_notes = entity_note_service.update_notes(
-            kind=kind, entity_id=entity_id, notes=notes,
-            original_notes=original_notes, actor_id=request.state.user.id,
-        )
-    except LookupError:
-        return HTMLResponse(f"That {kind.upper()} does not exist.", status_code=404)
-    except ValueError as exc:
-        error = str(exc)
-        status_code = 422
-    except NoteConflict as exc:
-        conflict = exc.current_note
-        conflict_active = True
-        original_notes = exc.current_note or ""
-        status_code = 409
+    outcome = apply_notes(
+        request, kind=kind, entity_id=entity_id, notes=notes,
+        original_notes=original_notes)
+    if isinstance(outcome, HTMLResponse):
+        return outcome
     if request.headers.get("HX-Request") != "true":
         return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
-    if status_code == 200:
-        entity = replace(entity, notes=saved_notes)
+    if outcome.status_code == 200:
+        entity = replace(entity, notes=outcome.saved)
     return _partial(request, "partials/submission_entity_note_cell.html", {
         "submission": submission_service.get_submission(submission_id),
         "entity": entity,
         "entity_kind": kind,
-        "note_value": notes if status_code != 200 else (entity.notes or ""),
-        "note_original": (
-            original_notes if status_code != 200 else (entity.notes or "")
-        ),
-        "note_error": error,
-        "note_conflict": conflict,
-        "note_conflict_active": conflict_active,
-        "note_editing": status_code != 200,
-    }, status_code=status_code)
+        **note_context(outcome, entity_notes=entity.notes, notes=notes,
+                       original_notes=original_notes),
+    }, status_code=outcome.status_code)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/table-notes")

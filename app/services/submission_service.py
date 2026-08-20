@@ -28,12 +28,11 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from sqlalchemy import text
 
-from app.config import settings
-from app.services._common import _uid, _utcnow
+from app.services._common import _rm_ui_root, _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
@@ -430,25 +429,25 @@ def create_submission(
         "actor": actor,
     }
     with get_connection("WORKBENCH") as conn, conn.begin():
-            conn.execute(text(
-                """
-                INSERT INTO submission
-                    (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                     inception_date, treaty_year, links_to_submission_id,
-                     directory_path, status_code, inserted_at, updated_at,
-                     inserted_by, updated_by)
-                VALUES
-                    (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
-                     'ACTIVE', :now, :now, :actor, :actor)
-                """
-            ), params)
-            conn.execute(text(
-                """
-                INSERT INTO submission_status_event
-                    (id, submission_id, status_code, reason, at, inserted_by)
-                VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
-                """
-            ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+        conn.execute(text(
+            """
+            INSERT INTO submission
+                (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
+                 inception_date, treaty_year, links_to_submission_id,
+                 directory_path, status_code, inserted_at, updated_at,
+                 inserted_by, updated_by)
+            VALUES
+                (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
+                 'ACTIVE', :now, :now, :actor, :actor)
+            """
+        ), params)
+        conn.execute(text(
+            """
+            INSERT INTO submission_status_event
+                (id, submission_id, status_code, reason, at, inserted_by)
+            VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
+            """
+        ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
     for crm_id in crm_ids or []:
         if crm_id.strip():
             add_crm_id(submission_id=sid, crm_id=crm_id, actor_id=actor)
@@ -499,15 +498,12 @@ def get_submission(submission_id: Any) -> Submission | None:
 
 
 def _risk_modeler_url(name: str, *, kind: str) -> str | None:
-    tenant = settings.risk_modeler_tenant_name.strip()
-    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
-    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
-    if not tenant or not domain:
+    root = _rm_ui_root()
+    if root is None:
         return None
-    root = f"https://{tenant}.{domain}/riskmodeler"
     if kind == "edm":
-        return f"{root}/datasources/{quote(name, safe='')}/portfolios"
-    return f"{root}/analyses?sourceRdmName={quote(name, safe='')}"
+        return f"{root}/riskmodeler/datasources/{quote(str(name), safe='')}/portfolios"
+    return f"{root}/riskmodeler/analyses?sourceRdmName={quote(str(name), safe='')}"
 
 
 def _entity_table_order(
@@ -525,66 +521,60 @@ def _entity_table_order(
     return f"{column} {direction}, {entity_alias}.name ASC, {entity_alias}.id ASC"
 
 
-def list_submission_edms(
-    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
-    descending: bool = False, entity_id: Any | None = None,
-) -> list[SubmissionEdm]:
+def _list_submission_entities(
+    submission_id: Any, *, kind: str, sort: str, descending: bool,
+    entity_id: Any | None,
+) -> list[SubmissionEdm] | list[SubmissionRdm]:
+    edm = kind == "edm"
+    entity_table = "irp_edm" if edm else "irp_rdm"
+    association_table = "submission_edm" if edm else "submission_rdm"
+    entity_column = "edm_id" if edm else "rdm_id"
+    child_table = "irp_portfolio" if edm else "irp_analysis"
+    count_alias = "portfolio_count" if edm else "analysis_count"
+    dto = SubmissionEdm if edm else SubmissionRdm
     order_by = _entity_table_order(
-        sort, descending, entity_alias="e", count_alias="portfolio_count")
+        sort, descending, entity_alias="e", count_alias=count_alias)
     params: dict[str, Any] = {"id": str(submission_id)}
     entity_filter = ""
     if entity_id is not None:
         entity_filter = " AND e.id = :entity_id"
         params["entity_id"] = str(entity_id)
     rows = execute(
-        "SELECT e.id, e.name, e.status, e.notes, COUNT(p.id) AS portfolio_count "
-        "FROM submission_edm se JOIN irp_edm e ON e.id = se.edm_id "
-        "LEFT JOIN irp_portfolio p ON p.edm_id = e.id AND p.deleted_at IS NULL "
-        "WHERE se.submission_id = :id AND e.deleted_at IS NULL" + entity_filter + " "
+        f"SELECT e.id, e.name, e.status, e.notes, COUNT(c.id) AS {count_alias} "
+        f"FROM {association_table} a JOIN {entity_table} e ON e.id = a.{entity_column} "
+        f"LEFT JOIN {child_table} c ON c.{entity_column} = e.id AND c.deleted_at IS NULL "
+        "WHERE a.submission_id = :id AND e.deleted_at IS NULL" + entity_filter + " "
         "GROUP BY e.id, e.name, e.status, e.notes, e.inserted_at "
         f"ORDER BY {order_by}",
         params, connection="WORKBENCH",
     )
     return [
-        SubmissionEdm(
+        dto(
             id=_uid(row["id"]), name=row["name"], status=row["status"],
-            portfolio_count=int(row["portfolio_count"] or 0),
-            rm_url=_risk_modeler_url(row["name"], kind="edm"),
+            rm_url=_risk_modeler_url(row["name"], kind=kind),
             notes=row["notes"],
+            **{count_alias: int(row[count_alias] or 0)},
         )
         for row in rows
     ]
+
+
+def list_submission_edms(
+    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
+    descending: bool = False, entity_id: Any | None = None,
+) -> list[SubmissionEdm]:
+    return _list_submission_entities(
+        submission_id, kind="edm", sort=sort, descending=descending,
+        entity_id=entity_id)
 
 
 def list_submission_rdms(
     submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
     descending: bool = False, entity_id: Any | None = None,
 ) -> list[SubmissionRdm]:
-    order_by = _entity_table_order(
-        sort, descending, entity_alias="r", count_alias="analysis_count")
-    params: dict[str, Any] = {"id": str(submission_id)}
-    entity_filter = ""
-    if entity_id is not None:
-        entity_filter = " AND r.id = :entity_id"
-        params["entity_id"] = str(entity_id)
-    rows = execute(
-        "SELECT r.id, r.name, r.status, r.notes, COUNT(a.id) AS analysis_count "
-        "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
-        "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
-        "WHERE sr.submission_id = :id AND r.deleted_at IS NULL" + entity_filter + " "
-        "GROUP BY r.id, r.name, r.status, r.notes, r.inserted_at "
-        f"ORDER BY {order_by}",
-        params, connection="WORKBENCH",
-    )
-    return [
-        SubmissionRdm(
-            id=_uid(row["id"]), name=row["name"], status=row["status"],
-            analysis_count=int(row["analysis_count"] or 0),
-            rm_url=_risk_modeler_url(row["name"], kind="rdm"),
-            notes=row["notes"],
-        )
-        for row in rows
-    ]
+    return _list_submission_entities(
+        submission_id, kind="rdm", sort=sort, descending=descending,
+        entity_id=entity_id)
 
 
 def _list_entity_candidates(

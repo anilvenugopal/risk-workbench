@@ -15,9 +15,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from sqlalchemy import text
 
+from app.config import settings
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,21 @@ logger = logging.getLogger(__name__)
 class SubmissionRef:
     id: str
     name: str
+
+
+def _rm_ui_root() -> str | None:
+    """The Risk Modeler web UI origin — ``https://<RISK_MODELER_TENANT_NAME>.
+    <rm-domain>``, where ``<rm-domain>`` is the registrable domain of
+    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
+    RM's web UI lives on the TENANT subdomain, not the API host. For plain
+    navigation links, never an API call (Article 11). ``None`` when the tenant
+    name or base URL is not configured (e.g. api-key auth deployments)."""
+    tenant = settings.risk_modeler_tenant_name.strip()
+    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
+    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
+    if not tenant or not domain:
+        return None
+    return f"https://{tenant}.{domain}"
 
 
 # EDM/RDM shared identity: entity table, M:N submission-association table and
@@ -319,7 +336,7 @@ def _retry_import(kind: str, *, entity_id: Any, actor_id: Any) -> None:
     cfg = _ENTITY_ASSOC[kind]
     eid = str(entity_id)
     current = execute_one(
-        f"SELECT status, updated_at FROM {cfg['table']} "
+        f"SELECT status FROM {cfg['table']} "
         "WHERE id = :id AND deleted_at IS NULL",
         {"id": eid}, connection="WORKBENCH")
     if current is None or current["status"] in _LOCKED:

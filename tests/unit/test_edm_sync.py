@@ -23,6 +23,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
+from app.config import settings
 from app.poller import run as poller
 from app.services import edm_service
 from app.workers import dispatch, entity_jobs
@@ -196,13 +197,13 @@ def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
     # on the API host itself. The EDM name is URL-encoded; a missing tenant or
     # base URL yields None (link hidden).
     edm_id = _legacy_edm(name="townsend edm")
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url",
+    monkeypatch.setattr(settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com/")
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "acme")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "acme")
     assert edm_service.get_edm_detail(edm_id).rm_treaties_url == (
         "https://acme.rms-ppe.com/riskmodeler/datasources/townsend%20edm/treaties")
 
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "")
     assert edm_service.get_edm_detail(edm_id).rm_treaties_url is None
 
 

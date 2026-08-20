@@ -27,9 +27,8 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
-from app.config import settings
 from app.services import (
     analysis_service,
     irp_gateway,
@@ -46,6 +45,7 @@ from app.services._common import (
     _mark_importing,
     _replace_source_file,
     _retry_import,
+    _rm_ui_root,
     _submission_entity_context,
     _uid,
     _utcnow,
@@ -387,8 +387,6 @@ class EdmDetail:
     # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
     # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
-    # Direct submission associations, oldest first.
-    submissions: list[SubmissionRef] = field(default_factory=list)
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -426,23 +424,45 @@ def latest_backfill_status(edm_id: str) -> str | None:
     return row["status_code"] if row is not None else None
 
 
+def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
+    """``latest_backfill_status`` for a whole entity table in one query —
+    newest ``updated_at`` per EDM reduced app-side. Every requested id gets a
+    key; EDMs whose detail backfill never ran map to ``None``."""
+    statuses: dict[str, str | None] = {str(e): None for e in edm_ids}
+    if not statuses:
+        return statuses
+    params = {f"e{i}": value for i, value in enumerate(statuses)}
+    placeholders = ", ".join(f":e{i}" for i in range(len(statuses)))
+    rows = execute(
+        "SELECT rj.status_code, "
+        "COALESCE(ij.irp_edm_id, rj.requestor_id) AS edm_id "
+        "FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
+        f"AND (ij.irp_edm_id IN ({placeholders}) "
+        "     OR (rj.requestor_type = 'analyst_request' "
+        f"         AND rj.requestor_id IN ({placeholders}))) "
+        "ORDER BY rj.updated_at DESC",
+        params, connection="WORKBENCH")
+    for row in rows:
+        key = str(row["edm_id"])
+        if statuses.get(key) is None:
+            statuses[key] = row["status_code"]
+    return statuses
+
+
 def _rm_datasource_url(name: str, screen: str) -> str | None:
-    """The Risk Modeler UI deep link for one of this EDM's datasource screens —
-    ``https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
-    <edm-name>/<screen>``, where ``<rm-domain>`` is the registrable domain of
-    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
-    RM's web UI lives on the TENANT subdomain, not the API host. A plain
-    navigation link, never an API call (Article 11). ``None`` when the tenant
-    name or base URL is not configured (e.g. api-key auth deployments).
+    """The Risk Modeler UI deep link for one of this EDM's datasource screens
+    (``_rm_ui_root`` explains the tenant-subdomain origin). ``None`` when the
+    UI root is not configured.
 
     RM addresses the datasource by *name*, not exposureId, and EDM names are not
     unique — for a duplicated name the link lands on whichever one RM picks."""
-    tenant = settings.risk_modeler_tenant_name.strip()
-    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
-    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
-    if not tenant or not domain:
+    root = _rm_ui_root()
+    if root is None:
         return None
-    return (f"https://{tenant}.{domain}/riskmodeler/datasources/"
+    return (f"{root}/riskmodeler/datasources/"
             f"{quote(str(name), safe='')}/{screen}")
 
 
@@ -483,15 +503,6 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     job_status = latest_backfill_status(eid)
-    submissions: list[SubmissionRef] = []
-    for submission in execute(
-        "SELECT s.id, s.name FROM submission_edm se "
-        "JOIN submission s ON s.id = se.submission_id "
-        "WHERE se.edm_id = :id ORDER BY s.inserted_at",
-        {"id": eid}, connection="WORKBENCH",
-    ):
-        submissions.append(SubmissionRef(
-            id=_uid(submission["id"]), name=submission["name"]))
     return EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -510,7 +521,6 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
-        submissions=submissions,
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
@@ -656,7 +666,8 @@ __all__ = [
     "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
     "list_adoptable_edms", "adopt_edms",
-    "latest_import_error", "latest_backfill_status", "get_edm_detail",
+    "latest_import_error", "latest_backfill_status", "latest_backfill_statuses",
+    "get_edm_detail",
     "get_contextual_edm_detail", "sync_detail", "sync_contextual_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal",

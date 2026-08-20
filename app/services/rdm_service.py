@@ -184,6 +184,34 @@ def latest_backfill_status(rdm_id: Any) -> str | None:
     return row["status_code"] if row is not None else None
 
 
+def latest_backfill_statuses(rdm_ids: list[Any]) -> dict[str, str | None]:
+    """``latest_backfill_status`` for a whole entity table in one query —
+    newest ``updated_at`` per RDM reduced app-side. Every requested id gets a
+    key; RDMs whose analyses capture never ran map to ``None``."""
+    statuses: dict[str, str | None] = {str(r): None for r in rdm_ids}
+    if not statuses:
+        return statuses
+    params = {f"e{i}": value for i, value in enumerate(statuses)}
+    placeholders = ", ".join(f":e{i}" for i in range(len(statuses)))
+    rows = execute(
+        "SELECT rj.status_code, "
+        "COALESCE(ij.irp_rdm_id, rj.requestor_id) AS rdm_id "
+        "FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
+        f"AND (ij.irp_rdm_id IN ({placeholders}) "
+        "     OR (rj.requestor_type = 'analyst_request' "
+        f"         AND rj.requestor_id IN ({placeholders}))) "
+        "ORDER BY rj.updated_at DESC",
+        params, connection="WORKBENCH")
+    for row in rows:
+        key = str(row["rdm_id"])
+        if statuses.get(key) is None:
+            statuses[key] = row["status_code"]
+    return statuses
+
+
 def sync_detail(*, rdm_id: Any, actor_id: Any) -> str | None:
     """Analyst-triggered re-run of ``backfill_rdm_analyses`` for one RDM — the
     recovery path for RDMs imported before the settings capture shipped.
@@ -301,6 +329,6 @@ __all__ = [
     "check_name_collision", "import_rdm", "list_rdms", "get_rdm",
     "get_rdm_detail", "get_contextual_rdm_detail", "latest_import_error",
     "retry_import", "replace_source_file", "latest_backfill_status",
-    "sync_detail", "mark_importing", "mark_error",
+    "latest_backfill_statuses", "sync_detail", "mark_importing", "mark_error",
     "rollup_on_terminal",
 ]

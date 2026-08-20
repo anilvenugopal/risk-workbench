@@ -17,6 +17,7 @@ import uuid
 
 from sqlalchemy.exc import IntegrityError
 
+from app.config import settings
 from app.services import edm_service
 from app.workers import dispatch
 from db import execute, execute_command, execute_one
@@ -70,9 +71,9 @@ def test_carries_the_display_fields_from_risk_modeler(iteration2_db, fake_irp):
 
 def test_links_each_row_to_its_risk_modeler_portfolios_screen(
         iteration2_db, fake_irp, monkeypatch):
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_base_url",
+    monkeypatch.setattr(settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com")
-    monkeypatch.setattr(edm_service.settings, "risk_modeler_tenant_name", "acme")
+    monkeypatch.setattr(settings, "risk_modeler_tenant_name", "acme")
     fake_irp.add_catalog_edm(name="a name/with slash", irp_id=501)
 
     assert edm_service.list_adoptable_edms().rows[0].rm_url == (
