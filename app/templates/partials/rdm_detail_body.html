@@ -29,6 +29,7 @@
 <div class="page-pad" id="rdm-detail"
   x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
   x-bind:class="{ 'rdm-notes-open': notesOpen }"
+  x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
   hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"

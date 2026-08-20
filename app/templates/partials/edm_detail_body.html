@@ -28,6 +28,7 @@
 <div class="page-pad" id="edm-detail"
   x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
   x-bind:class="{ 'edm-notes-open': notesOpen }"
+  x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
   hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing') && !document.querySelector('#edm-detail.edm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"

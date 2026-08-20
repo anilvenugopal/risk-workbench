@@ -8,7 +8,8 @@
   <p class="entity-note__text" x-show="!editing">{{ entity_notes or 'No notes.' }}</p>
   <form method="post" action="{{ note_action }}" x-show="editing"
         hx-post="{{ note_action }}" hx-target="#entity-note" hx-swap="outerHTML"
-        hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true">
+        hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
+        hx-on::after-request="if(event.detail.successful) htmx.trigger('#entity-note', 'entity-note-saved')">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="original_notes" value="{{ note_original or '' }}" x-ref="original">
     {% if note_error %}<div class="form-banner form-banner--error">{{ note_error }}</div>{% endif %}
@@ -26,7 +27,7 @@
       <span class="entity-note__count"><span x-ref="count">{{ note_value|length }}</span>/250</span>
       <button class="btn-sm btn-sm--primary" type="submit">Save</button>
       <button class="btn-sm" type="button"
-              x-on:click="$refs.note.value = $refs.original.value; $refs.count.textContent = $refs.note.value.length; editing = false; $root.classList.remove('entity-note--editing')">Cancel</button>
+              x-on:click="$refs.note.value = $refs.original.value; $refs.count.textContent = $refs.note.value.length; editing = false; $root.classList.remove('entity-note--editing'); $dispatch('entity-note-saved')">Cancel</button>
     </div>
   </form>
 </section>

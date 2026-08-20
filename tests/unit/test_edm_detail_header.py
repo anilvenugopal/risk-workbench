@@ -130,6 +130,11 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
     assert "entity-note--editing" in response.text
     assert "!document.querySelector('#edm-detail .entity-note--editing')" in response.text
     assert "!document.querySelector('#edm-detail.edm-notes-open')" in response.text
+    # FR-027: Save/Cancel clear the notesOpen gate so the 3s poll resumes.
+    assert 'x-on:entity-note-saved="notesOpen = false"' in response.text
+    assert ("hx-on::after-request=\"if(event.detail.successful) "
+            "htmx.trigger('#entity-note', 'entity-note-saved')\"") in response.text
+    assert "$dispatch('entity-note-saved')" in response.text
 
 
 def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
