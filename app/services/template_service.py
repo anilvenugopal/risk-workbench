@@ -714,7 +714,46 @@ def reference_options(*, conn=None) -> dict[str, list[dict]]:
             "currencies": _rows(
                 working, "SELECT code, name FROM irp_currency ORDER BY code"
             ),
+            "currency_schemes": _rows(
+                working,
+                "SELECT code, name FROM irp_currency_scheme ORDER BY name",
+            ),
         }
+
+
+def vintage_options(
+    scheme_code: str, *, selected: str | None = None, conn=None,
+) -> list[dict]:
+    """Cached vintages for one currency scheme, latest `effective_date` first.
+
+    A duplicate vintage code (raw-snapshot cache, no unique key) collapses to
+    its most recent `effective_date` — the select only needs one option per
+    distinct vintage value. Pre-selects `selected` when given (editing an
+    existing template), else the latest by effective date (T-09 default)."""
+    with _txn(conn) as working:
+        if not scheme_code:
+            return []
+        rows = _rows(working, """
+            SELECT vintage, effective_date
+            FROM irp_currency_scheme_vintage
+            WHERE currency_scheme_code = :code
+            ORDER BY effective_date DESC
+        """, {"code": scheme_code})
+        latest_by_vintage: dict[str, dict] = {}
+        for row in rows:
+            if row["vintage"] not in latest_by_vintage:
+                latest_by_vintage[row["vintage"]] = row
+        options = sorted(
+            latest_by_vintage.values(),
+            key=lambda row: row["effective_date"],
+            reverse=True,
+        )
+        for index, option in enumerate(options):
+            option["selected"] = (
+                option["vintage"] == selected if selected is not None
+                else index == 0
+            )
+        return options
 
 
 __all__ = [
@@ -739,4 +778,5 @@ __all__ = [
     "scheme_options",
     "update_suite",
     "update_template",
+    "vintage_options",
 ]

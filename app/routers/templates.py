@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from fastapi import APIRouter, Form, Request
@@ -10,8 +11,15 @@ from irp_integration.analysis_validation import classify_model_profile
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import rwb_job_service
+from app.services import rwb_job_service, template_service
 from app.services._common import _rm_base_url
+from app.services.template_service import (
+    SuiteItemValues,
+    TemplateInUseError,
+    TemplateServiceError,
+    TemplateValidationError,
+    TemplateValues,
+)
 from app.workers import dispatch
 from db import execute, execute_one
 
@@ -39,15 +47,20 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _render(request: Request, template: str, nav_key: str):
-    current_user = request.state.user
+def _page(request: Request, template: str, context: dict, *, status_code: int = 200):
     return _templates(request).TemplateResponse(
-        request,
-        template,
-        {"current_user": current_user,
-         "nav": get_nav_context(current_user, nav_key)},
-    )
+        request, template, context, status_code=status_code)
 
+
+def _require_admin(request: Request):
+    """Return (current_user, None) if admin, else (None, redirect-to-home)."""
+    user = getattr(request.state, "user", None)
+    if not user or not user.is_admin:
+        return None, RedirectResponse("/", status_code=302)
+    return user, None
+
+
+# ── Analysis Metadata (US1) ────────────────────────────────────────────────────
 
 def _metadata_rows(tab: str, q: str) -> list[dict]:
     match = f"%{q.lower()}%"
@@ -196,11 +209,177 @@ def _metadata_context(request: Request) -> dict:
     }
 
 
-# Literal template and metadata routes precede the parameterized routes added by
-# the administration story.
+# ── Administration (US2): suites/templates tabs ───────────────────────────────
+
+def _admin_context(request: Request) -> dict:
+    requested_tab = request.query_params.get("tab", "suites")
+    tab = requested_tab if requested_tab in ("suites", "templates") else "suites"
+    q = (request.query_params.get("q") or "").strip()
+    suites = template_service.list_suites()
+    all_templates = template_service.list_templates()
+    return {
+        "active_tab": tab,
+        "q": q,
+        "suites": suites,
+        "suite_count": len(suites),
+        "templates": template_service.list_templates(q) if tab == "templates" else [],
+        "template_count": len(all_templates),
+    }
+
+
+def _select_options(rows: list[dict], key: str, current_value: str | None) -> list[dict]:
+    """Live cache rows for a `<select>`, marking the stored/submitted value as
+    selected. If that value isn't among the live rows (FR-011 unresolved), a
+    synthetic option carries it through instead of silently swapping in
+    whatever option would otherwise render first — never a silent overwrite
+    on save."""
+    options = [dict(row) for row in rows]
+    if not current_value:
+        return options
+    if any(option.get(key) == current_value for option in options):
+        for option in options:
+            option["selected"] = option.get(key) == current_value
+        return options
+    for option in options:
+        option["selected"] = False
+    return [{key: current_value, "unresolved": True, "selected": True}] + options
+
+
+def _template_values_from_dict(values: dict) -> dict:
+    """Normalize a `get_template()` row or a submitted form dict into the
+    shape both the form template and `_template_form_context` expect —
+    tags as a semicolon string rather than `get_template()`'s list."""
+    normalized = dict(values)
+    tags = normalized.get("tags")
+    if isinstance(tags, list):
+        normalized["tags"] = "; ".join(tags)
+    return normalized
+
+
+def _template_form_context(
+    request: Request, *, mode: str, template: dict | None,
+    form: dict | None, errors: list[str],
+) -> dict:
+    current_user = request.state.user
+    values = _template_values_from_dict(
+        form if form is not None else (template or {})
+    )
+    # R8 default: brand-new create (no form, no template yet) starts on
+    # "Treat as unknown" — Jinja's Undefined is falsy, so an absent key would
+    # otherwise render the "Skip location" option selected instead.
+    if values.get("treat_construction_occupancy_as_unknown") is None:
+        values["treat_construction_occupancy_as_unknown"] = True
+    values.setdefault("min_loss_threshold", Decimal("1.00"))
+    values.setdefault("num_max_loss_event", 1)
+    profile_name = values.get("analysis_profile_name") or ""
+    scheme_code = values.get("currency_scheme_code") or ""
+    reference = template_service.reference_options()
+    event_scheme_rows = (
+        template_service.scheme_options(profile_name) if profile_name else []
+    )
+    vintage_rows = (
+        template_service.vintage_options(scheme_code) if scheme_code else []
+    )
+    return {
+        "current_user": current_user,
+        "nav": get_nav_context(current_user, "templates.suites"),
+        "mode": mode,
+        "template": template,
+        "form": values,
+        "errors": list(errors),
+        "model_profile_options": _select_options(
+            reference["model_profiles"], "name", values.get("analysis_profile_name")),
+        "event_rate_scheme_options": _select_options(
+            event_scheme_rows, "name", values.get("event_rate_scheme_name")),
+        "output_profile_options": _select_options(
+            reference["output_profiles"], "name", values.get("output_profile_name")),
+        "currency_options": _select_options(
+            reference["currencies"], "code", values.get("currency_code")),
+        "currency_scheme_options": _select_options(
+            reference["currency_schemes"], "code", values.get("currency_scheme_code")),
+        "currency_vintage_options": _select_options(
+            vintage_rows, "vintage", values.get("currency_vintage")),
+        "tag_names": template_service.list_tag_names(),
+    }
+
+
+def _parse_template_values(form: dict) -> tuple[TemplateValues | None, list[str]]:
+    errors: list[str] = []
+    try:
+        threshold = Decimal(form["min_loss_threshold"] or "1.00")
+    except InvalidOperation:
+        threshold = Decimal("1.00")
+        errors.append("Min loss threshold must be a number")
+    try:
+        max_events = int(form["num_max_loss_event"] or "1")
+    except ValueError:
+        max_events = 1
+        errors.append("Max loss events must be a whole number")
+    if errors:
+        return None, errors
+    values = TemplateValues(
+        name=form["name"],
+        analysis_profile_name=form["analysis_profile_name"],
+        output_profile_name=form["output_profile_name"],
+        event_rate_scheme_name=form["event_rate_scheme_name"] or None,
+        currency_code=form["currency_code"],
+        currency_scheme_code=form["currency_scheme_code"],
+        currency_vintage=form["currency_vintage"],
+        min_loss_threshold=threshold,
+        num_max_loss_event=max_events,
+        franchise_deductible=form["franchise_deductible"],
+        treat_construction_occupancy_as_unknown=form[
+            "treat_construction_occupancy_as_unknown"],
+    )
+    return values, []
+
+
+def _suite_form_context(
+    request: Request, *, mode: str, suite: dict | None,
+    form: dict | None, errors: list[str],
+) -> dict:
+    current_user = request.state.user
+    if form is not None:
+        name_value = form.get("name", "")
+        selected_ids = {str(value).lower() for value in form.get("template_ids", [])}
+    else:
+        name_value = suite["name"] if suite else ""
+        selected_ids = (
+            {item["template_id"] for item in suite["items"]} if suite else set()
+        )
+    return {
+        "current_user": current_user,
+        "nav": get_nav_context(current_user, "templates.suites"),
+        "mode": mode,
+        "suite": suite,
+        "name_value": name_value,
+        "errors": list(errors),
+        "templates": template_service.list_templates(),
+        "selected_ids": selected_ids,
+    }
+
+
+# Literal template/metadata/administration routes precede the parameterized
+# routes (EDM-router precedent): /templates, /templates/table,
+# /templates/metadata*, /templates/analysis-templates/{new,scheme-options,
+# vintage-options}, /templates/suites/new all resolve before the
+# `{template_id}` / `{suite_id}` routes further down this file.
+
 @router.get("/templates", response_class=HTMLResponse)
 def suites_page(request: Request):
-    return _render(request, "pages/templates.html", "templates.suites")
+    context = _admin_context(request)
+    context.update({
+        "current_user": request.state.user,
+        "nav": get_nav_context(request.state.user, "templates.suites"),
+    })
+    return _page(request, "pages/templates.html", context)
+
+
+@router.get("/templates/table", response_class=HTMLResponse)
+def templates_table_fragment(request: Request):
+    context = _admin_context(request)
+    context["current_user"] = request.state.user
+    return _page(request, "partials/templates_table.html", context)
 
 
 @router.get("/templates/metadata", response_class=HTMLResponse)
@@ -210,14 +389,12 @@ def metadata_page(request: Request):
         "current_user": request.state.user,
         "nav": get_nav_context(request.state.user, "templates.metadata"),
     })
-    return _templates(request).TemplateResponse(
-        request, "pages/templates_metadata.html", context)
+    return _page(request, "pages/templates_metadata.html", context)
 
 
 @router.get("/templates/metadata/table", response_class=HTMLResponse)
 def metadata_table(request: Request):
-    return _templates(request).TemplateResponse(
-        request, "partials/metadata_table.html", _metadata_context(request))
+    return _page(request, "partials/metadata_table.html", _metadata_context(request))
 
 
 @router.post("/templates/metadata/sync")
@@ -238,6 +415,279 @@ def sync_metadata(
             "/templates/metadata?sync=already-running", status_code=303)
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="sync_irp_metadata")
     return RedirectResponse("/templates/metadata?sync=queued", status_code=303)
+
+
+# ── Analysis template builder (US2) ────────────────────────────────────────────
+
+@router.get("/templates/analysis-templates/new", response_class=HTMLResponse)
+def new_template_form(request: Request):
+    _current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    context = _template_form_context(
+        request, mode="create", template=None, form=None, errors=[])
+    return _page(request, "pages/analysis_template_form.html", context)
+
+
+@router.get("/templates/analysis-templates/scheme-options", response_class=HTMLResponse)
+def scheme_options_fragment(request: Request):
+    profile = (request.query_params.get("profile") or "").strip()
+    options = template_service.scheme_options(profile) if profile else []
+    return _page(request, "partials/scheme_options.html", {"options": options})
+
+
+@router.get("/templates/analysis-templates/vintage-options", response_class=HTMLResponse)
+def vintage_options_fragment(request: Request):
+    scheme = (request.query_params.get("scheme") or "").strip()
+    options = template_service.vintage_options(scheme) if scheme else []
+    return _page(request, "partials/vintage_options.html", {"options": options})
+
+
+@router.post("/templates/analysis-templates")
+def create_template_route(
+    request: Request,
+    csrf_token: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    analysis_profile_name: Annotated[str, Form()] = "",
+    event_rate_scheme_name: Annotated[str, Form()] = "",
+    output_profile_name: Annotated[str, Form()] = "",
+    currency_code: Annotated[str, Form()] = "",
+    currency_scheme_code: Annotated[str, Form()] = "",
+    currency_vintage: Annotated[str, Form()] = "",
+    min_loss_threshold: Annotated[str, Form()] = "1.00",
+    num_max_loss_event: Annotated[str, Form()] = "1",
+    franchise_deductible: Annotated[str | None, Form()] = None,
+    treat_construction_occupancy_as_unknown: Annotated[str, Form()] = "1",
+    tags: Annotated[str, Form()] = "",
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/templates?tab=templates", status_code=303)
+
+    form = {
+        "name": name,
+        "analysis_profile_name": analysis_profile_name,
+        "event_rate_scheme_name": event_rate_scheme_name or None,
+        "output_profile_name": output_profile_name,
+        "currency_code": currency_code,
+        "currency_scheme_code": currency_scheme_code,
+        "currency_vintage": currency_vintage,
+        "min_loss_threshold": min_loss_threshold,
+        "num_max_loss_event": num_max_loss_event,
+        "franchise_deductible": franchise_deductible == "on",
+        "treat_construction_occupancy_as_unknown":
+            treat_construction_occupancy_as_unknown == "1",
+        "tags": tags,
+    }
+    values, errors = _parse_template_values(form)
+    if values is not None:
+        try:
+            template_service.create_template(
+                values, tags=tags.split(";"), actor_id=current_user.id,
+            )
+        except TemplateValidationError as exc:
+            errors = list(exc.errors)
+        else:
+            return RedirectResponse("/templates?tab=templates", status_code=303)
+
+    context = _template_form_context(
+        request, mode="create", template=None, form=form, errors=errors)
+    return _page(request, "pages/analysis_template_form.html", context)
+
+
+@router.get("/templates/analysis-templates/{template_id}", response_class=HTMLResponse)
+def template_detail(request: Request, template_id: str):
+    template = template_service.get_template(template_id)
+    if template is None:
+        return RedirectResponse("/templates?tab=templates", status_code=303)
+    mode = "edit" if request.state.user.is_admin else "view"
+    context = _template_form_context(
+        request, mode=mode, template=template, form=None, errors=[])
+    return _page(request, "pages/analysis_template_form.html", context)
+
+
+@router.post("/templates/analysis-templates/{template_id}")
+def update_template_route(
+    request: Request,
+    template_id: str,
+    csrf_token: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    analysis_profile_name: Annotated[str, Form()] = "",
+    event_rate_scheme_name: Annotated[str, Form()] = "",
+    output_profile_name: Annotated[str, Form()] = "",
+    currency_code: Annotated[str, Form()] = "",
+    currency_scheme_code: Annotated[str, Form()] = "",
+    currency_vintage: Annotated[str, Form()] = "",
+    min_loss_threshold: Annotated[str, Form()] = "1.00",
+    num_max_loss_event: Annotated[str, Form()] = "1",
+    franchise_deductible: Annotated[str | None, Form()] = None,
+    treat_construction_occupancy_as_unknown: Annotated[str, Form()] = "1",
+    tags: Annotated[str, Form()] = "",
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(
+            f"/templates/analysis-templates/{template_id}", status_code=303)
+
+    form = {
+        "name": name,
+        "analysis_profile_name": analysis_profile_name,
+        "event_rate_scheme_name": event_rate_scheme_name or None,
+        "output_profile_name": output_profile_name,
+        "currency_code": currency_code,
+        "currency_scheme_code": currency_scheme_code,
+        "currency_vintage": currency_vintage,
+        "min_loss_threshold": min_loss_threshold,
+        "num_max_loss_event": num_max_loss_event,
+        "franchise_deductible": franchise_deductible == "on",
+        "treat_construction_occupancy_as_unknown":
+            treat_construction_occupancy_as_unknown == "1",
+        "tags": tags,
+    }
+    values, errors = _parse_template_values(form)
+    if values is not None:
+        try:
+            template_service.update_template(
+                template_id, values, tags=tags.split(";"), actor_id=current_user.id,
+            )
+        except TemplateValidationError as exc:
+            errors = list(exc.errors)
+        except TemplateServiceError:
+            return RedirectResponse("/templates?tab=templates", status_code=303)
+        else:
+            return RedirectResponse("/templates?tab=templates", status_code=303)
+
+    context = _template_form_context(
+        request, mode="edit", template={"id": template_id, **form}, form=form,
+        errors=errors)
+    return _page(request, "pages/analysis_template_form.html", context)
+
+
+@router.post("/templates/analysis-templates/{template_id}/delete")
+def delete_template_route(
+    request: Request,
+    template_id: str,
+    csrf_token: Annotated[str, Form()],
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(
+            f"/templates/analysis-templates/{template_id}", status_code=303)
+    try:
+        template_service.delete_template(template_id, actor_id=current_user.id)
+    except TemplateInUseError as exc:
+        template = template_service.get_template(template_id)
+        context = _template_form_context(
+            request, mode="edit", template=template, form=None,
+            errors=[str(exc)])
+        return _page(request, "pages/analysis_template_form.html", context)
+    except TemplateServiceError:
+        pass
+    return RedirectResponse("/templates?tab=templates", status_code=303)
+
+
+# ── Suite builder (US2) ────────────────────────────────────────────────────────
+
+@router.get("/templates/suites/new", response_class=HTMLResponse)
+def new_suite_form(request: Request):
+    _current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    context = _suite_form_context(
+        request, mode="create", suite=None, form=None, errors=[])
+    return _page(request, "pages/suite_form.html", context)
+
+
+@router.post("/templates/suites")
+def create_suite_route(
+    request: Request,
+    csrf_token: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    template_ids: Annotated[list[str] | None, Form()] = None,
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse("/templates?tab=suites", status_code=303)
+    ids = template_ids or []
+    try:
+        template_service.create_suite(
+            name, [SuiteItemValues(item_id) for item_id in ids],
+            actor_id=current_user.id,
+        )
+    except TemplateValidationError as exc:
+        context = _suite_form_context(
+            request, mode="create", suite=None,
+            form={"name": name, "template_ids": ids}, errors=list(exc.errors),
+        )
+        return _page(request, "pages/suite_form.html", context)
+    return RedirectResponse("/templates?tab=suites", status_code=303)
+
+
+@router.get("/templates/suites/{suite_id}", response_class=HTMLResponse)
+def suite_detail(request: Request, suite_id: str):
+    suite = template_service.get_suite(suite_id)
+    if suite is None:
+        return RedirectResponse("/templates?tab=suites", status_code=303)
+    mode = "edit" if request.state.user.is_admin else "view"
+    context = _suite_form_context(
+        request, mode=mode, suite=suite, form=None, errors=[])
+    return _page(request, "pages/suite_form.html", context)
+
+
+@router.post("/templates/suites/{suite_id}")
+def update_suite_route(
+    request: Request,
+    suite_id: str,
+    csrf_token: Annotated[str, Form()],
+    name: Annotated[str, Form()] = "",
+    template_ids: Annotated[list[str] | None, Form()] = None,
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/templates/suites/{suite_id}", status_code=303)
+    ids = template_ids or []
+    try:
+        template_service.update_suite(
+            suite_id, name, [SuiteItemValues(item_id) for item_id in ids],
+            actor_id=current_user.id,
+        )
+    except TemplateValidationError as exc:
+        context = _suite_form_context(
+            request, mode="edit", suite={"id": suite_id, "name": name},
+            form={"name": name, "template_ids": ids}, errors=list(exc.errors),
+        )
+        return _page(request, "pages/suite_form.html", context)
+    except TemplateServiceError:
+        return RedirectResponse("/templates?tab=suites", status_code=303)
+    return RedirectResponse("/templates?tab=suites", status_code=303)
+
+
+@router.post("/templates/suites/{suite_id}/delete")
+def delete_suite_route(
+    request: Request,
+    suite_id: str,
+    csrf_token: Annotated[str, Form()],
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/templates/suites/{suite_id}", status_code=303)
+    try:
+        template_service.delete_suite(suite_id, actor_id=current_user.id)
+    except TemplateServiceError:
+        pass
+    return RedirectResponse("/templates?tab=suites", status_code=303)
 
 
 __all__ = ["router"]

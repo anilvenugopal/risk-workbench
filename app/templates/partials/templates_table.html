@@ -1,0 +1,80 @@
+<div id="templates-content">
+  <nav class="tabs" aria-label="Templates and suites">
+    <a class="tab{% if active_tab == 'suites' %} tab--active{% endif %}"
+       href="/templates?tab=suites"
+       hx-get="/templates/table?tab=suites" hx-target="#templates-content" hx-swap="outerHTML"
+       hx-push-url="/templates?tab=suites">
+      Suites <span class="badge badge--neutral">{{ suite_count }}</span>
+    </a>
+    <a class="tab{% if active_tab == 'templates' %} tab--active{% endif %}"
+       href="/templates?tab=templates"
+       hx-get="/templates/table?tab=templates" hx-target="#templates-content" hx-swap="outerHTML"
+       hx-push-url="/templates?tab=templates">
+      Templates <span class="badge badge--neutral">{{ template_count }}</span>
+    </a>
+  </nav>
+
+  {% if active_tab == 'suites' %}
+  <table class="mk-table">
+    <thead><tr><th>Name</th><th>Items</th><th>Author</th></tr></thead>
+    <tbody>
+      {% for suite in suites %}
+      <tr class="data-row"
+          onclick="if (!event.target.closest('a')) location.href='/templates/suites/{{ suite.id }}'">
+        <td>
+          <a class="open-link" href="/templates/suites/{{ suite.id }}">{{ suite.name }}</a>
+          {% if suite.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
+        </td>
+        <td>{{ suite.item_count }}</td>
+        <td>{{ suite.author_name or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td class="empty" colspan="3">
+        No template suites yet.
+        {% if current_user.is_admin %}<a href="/templates/suites/new">Create one</a> to get started.
+        {% else %}Nothing is seeded — an admin sets these up.{% endif %}
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% else %}
+  <form class="filters" method="get" action="/templates"
+        hx-get="/templates/table" hx-trigger="input delay:300ms"
+        hx-target="#templates-content" hx-swap="outerHTML">
+    <input type="hidden" name="tab" value="templates">
+    <label>Search
+      <input class="wf-field__input" type="text" name="q" value="{{ q }}" autocomplete="off">
+    </label>
+  </form>
+  <table class="mk-table">
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Currency</th></tr></thead>
+    <tbody>
+      {% for template in templates %}
+      <tr class="data-row"
+          onclick="if (!event.target.closest('a')) location.href='/templates/analysis-templates/{{ template.id }}'">
+        <td>
+          <a class="open-link" href="/templates/analysis-templates/{{ template.id }}">{{ template.name }}</a>
+          {% if template.unresolved %}<span class="badge badge--negative">unresolved</span>{% endif %}
+        </td>
+        <td>
+          {% if template.profile_family %}
+          <span class="badge badge--{{ 'warning' if template.profile_family == 'Accumulation' else ('info' if template.profile_family == 'HD' else 'brand') }}">{{ template.profile_family }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td>{{ template.analysis_profile_name }}</td>
+        <td class="mono">{{ template.currency_code }} · {{ template.currency_scheme_code }} · {{ template.currency_vintage }}</td>
+      </tr>
+      {% else %}
+      <tr><td class="empty" colspan="4">
+        {% if q %}No templates match — <a class="clear-filters" href="/templates?tab=templates">clear filters</a>.
+        {% else %}No analysis templates yet.
+          {% if current_user.is_admin %}<a href="/templates/analysis-templates/new">Create one</a> to get started.
+          {% else %}Nothing is seeded — an admin sets these up.{% endif %}
+        {% endif %}
+      </td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
