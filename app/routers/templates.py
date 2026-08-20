@@ -31,7 +31,7 @@ _METADATA_TABS = (
     {"key": "currencies", "label": "Currencies", "count_key": "currencies",
      "rm_path": "home/reference-data/currencies/currency"},
     {"key": "currency-schemes", "label": "Currency Schemes", "count_key": "currency_schemes",
-     "rm_path": "home/reference-data/currencies/currency"},
+     "rm_path": "home/reference-data/currencies/currency-schemes"},
 )
 
 
@@ -87,7 +87,7 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
     if tab == "currency-schemes":
         schemes = execute(
             """
-            SELECT irp_id, name, code
+            SELECT irp_id, name, code, anchor_currency_code, update_interval_days
             FROM irp_currency_scheme
             WHERE LOWER(name) LIKE :q
                OR LOWER(code) LIKE :q
@@ -102,6 +102,7 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
             ORDER BY effective_date DESC
             """,
             connection="WORKBENCH"):
+            vintage["effective_date"] = str(vintage["effective_date"])[:10]
             vintages_by_scheme.setdefault(
                 vintage["currency_scheme_code"], []).append(vintage)
         for scheme in schemes:
@@ -111,7 +112,7 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
     rows = execute(
         """
         SELECT irp_id, name, is_accumulation, software_version_code,
-               peril, region, analysis_type, rms_default
+               peril, region, analysis_type
         FROM irp_model_profile
         WHERE LOWER(name) LIKE :q
            OR LOWER(COALESCE(software_version_code, '')) LIKE :q

@@ -63,11 +63,11 @@ body{background:var(--surface-page);color:var(--text-primary);font-family:var(--
     </div>
 
     <table class="metadata-table">
-      <thead><tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th><th>Default</th></tr></thead>
+      <thead><tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th></tr></thead>
       <tbody>
-        <tr><td>UDCT NA Wind RL25</td><td><span class="badge badge--brand">DLM</span></td><td class="mono">RL25</td><td>Windstorm</td><td>North America</td><td>Exceedance Probability</td><td>—</td></tr>
-        <tr><td>UDCT US Wildfire HD</td><td><span class="badge badge--info">HD</span></td><td class="mono">HDv3.0</td><td>Wildfire</td><td>United States</td><td>Exceedance Probability</td><td>—</td></tr>
-        <tr><td>UDCT Global Accumulation</td><td><span class="badge badge--warning">Accumulation</span></td><td class="mono">—</td><td>All perils</td><td>Global</td><td>Accumulation</td><td>—</td></tr>
+        <tr><td>UDCT NA Wind RL25</td><td><span class="badge badge--brand">DLM</span></td><td class="mono">RL25</td><td>Windstorm</td><td>North America</td><td>Exceedance Probability</td></tr>
+        <tr><td>UDCT US Wildfire HD</td><td><span class="badge badge--info">HD</span></td><td class="mono">HDv3.0</td><td>Wildfire</td><td>United States</td><td>Exceedance Probability</td></tr>
+        <tr><td>UDCT Global Accumulation</td><td><span class="badge badge--warning">Accumulation</span></td><td class="mono">—</td><td>All perils</td><td>Global</td><td>Accumulation</td></tr>
       </tbody>
     </table>
   </section>
@@ -119,11 +119,11 @@ body{background:var(--surface-page);color:var(--text-primary);font-family:var(--
       <div class="metadata-panel">
         <nav class="tabs"><a class="tab" href="#">Model Profiles</a><a class="tab" href="#">Output Profiles</a><a class="tab" href="#">Event Rate Schemes</a><a class="tab" href="#">Currencies</a><a class="tab tab--active" href="#">Currency Schemes</a></nav>
         <table class="metadata-table">
-          <thead><tr><th>Name</th><th>Code</th><th>Vintages</th></tr></thead>
+          <thead><tr><th>Name</th><th>Code</th><th>Anchor Currency</th><th>Update Interval</th><th>Vintages</th></tr></thead>
           <tbody>
-            <tr><td>RMS Scheme</td><td class="mono">RMS</td><td><span class="badge badge--neutral">RL25 · 2025-05-28</span><span class="badge badge--neutral">RL24 · 2024-05-28</span></td></tr>
-            <tr><td>Deterministic Scheme</td><td class="mono">DT</td><td><span class="badge badge--neutral">RL25 · 2025-05-28</span></td></tr>
-            <tr><td>Empty Scheme</td><td class="mono">EMPTY</td><td>—</td></tr>
+            <tr><td>RMS Scheme</td><td class="mono">RMS</td><td class="mono">USD</td><td>30 days</td><td><span class="badge badge--neutral">RL25 · 2025-05-28</span><span class="badge badge--neutral">RL24 · 2024-05-28</span></td></tr>
+            <tr><td>Deterministic Scheme</td><td class="mono">DT</td><td class="mono">EUR</td><td>365 days</td><td><span class="badge badge--neutral">RL25 · 2025-05-28</span></td></tr>
+            <tr><td>Empty Scheme</td><td class="mono">EMPTY</td><td class="mono">—</td><td>—</td><td>—</td></tr>
           </tbody>
         </table>
       </div>

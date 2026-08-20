@@ -44,7 +44,7 @@
     <table class="mk-table metadata-table">
       <thead>
         {% if active_tab == "model-profiles" %}
-        <tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th><th>Default</th></tr>
+        <tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th></tr>
         {% elif active_tab == "output-profiles" %}
         <tr><th>Name</th><th>Risk Modeler ID</th><th>Default</th></tr>
         {% elif active_tab == "event-rate-schemes" %}
@@ -52,7 +52,7 @@
         {% elif active_tab == "currencies" %}
         <tr><th>Code</th><th>Name</th><th>Country</th><th>Symbol</th></tr>
         {% else %}
-        <tr><th>Name</th><th>Code</th><th>Vintages</th></tr>
+        <tr><th>Name</th><th>Code</th><th>Anchor Currency</th><th>Update Interval</th><th>Vintages</th></tr>
         {% endif %}
       </thead>
       <tbody>
@@ -63,7 +63,7 @@
             <td><span class="badge badge--{{ 'warning' if row.family == 'Accumulation' else ('info' if row.family == 'HD' else 'brand') }}">{{ row.family }}</span></td>
             <td class="mono">{{ row.software_version_code or '—' }}</td>
             <td>{{ row.peril or '—' }}</td><td>{{ row.region or '—' }}</td>
-            <td>{{ row.analysis_type or '—' }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td>
+            <td>{{ row.analysis_type or '—' }}</td>
           </tr>
           {% elif active_tab == "output-profiles" %}
           <tr><td>{{ row.name }}</td><td class="mono">{{ row.irp_id }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td></tr>
@@ -75,6 +75,8 @@
           <tr>
             <td>{{ row.name }}</td>
             <td class="mono">{{ row.code }}</td>
+            <td class="mono">{{ row.anchor_currency_code or '—' }}</td>
+            <td>{{ (row.update_interval_days ~ ' days') if row.update_interval_days is not none else '—' }}</td>
             <td>
               {% if row.vintages %}
                 {% for vintage in row.vintages %}<span class="badge badge--neutral">{{ vintage.vintage }} · {{ vintage.effective_date }}</span>{% endfor %}

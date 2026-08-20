@@ -164,7 +164,6 @@ class ModelProfileEntry:
     peril: str | None = None
     region: str | None = None
     analysis_type: str | None = None
-    rms_default: bool = False
 
 
 @dataclass(frozen=True)
@@ -197,6 +196,8 @@ class CurrencySchemeEntry:
     irp_id: int
     name: str
     code: str
+    anchor_currency_code: str | None = None
+    update_interval_days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -574,7 +575,6 @@ class _RealGateway:
             peril=row.get("peril"),
             region=row.get("region"),
             analysis_type=row.get("analysisType"),
-            rms_default=bool(row.get("rmsDefault")),
         ) for row in rows]
 
     def list_output_profiles(self) -> list[OutputProfileEntry]:
@@ -620,6 +620,8 @@ class _RealGateway:
             irp_id=int(row["currencySchemeId"]),
             name=str(row["currencySchemeName"]),
             code=str(row["currencySchemeCode"]),
+            anchor_currency_code=row.get("anchorCurrencyCode"),
+            update_interval_days=row.get("updateIntervalInDays"),
         ) for row in rows]
 
     def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]:

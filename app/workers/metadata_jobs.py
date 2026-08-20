@@ -112,7 +112,7 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
                 columns=("irp_id", "name", "is_accumulation",
                          "software_version_code", "peril_code",
                          "model_region_code", "peril", "region",
-                         "analysis_type", "rms_default"), now=now)
+                         "analysis_type"), now=now)
             _sync_table(
                 conn, table="irp_output_profile", key="irp_id", rows=output_rows,
                 columns=("irp_id", "name", "rms_default"), now=now)
@@ -126,7 +126,9 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
             _sync_table(
                 conn, table="irp_currency_scheme", key="irp_id",
                 rows=currency_scheme_rows,
-                columns=("irp_id", "name", "code"), now=now)
+                columns=("irp_id", "name", "code", "anchor_currency_code",
+                         "update_interval_days"),
+                now=now)
             _replace_table(
                 conn, table="irp_currency_scheme_vintage",
                 rows=currency_scheme_vintage_rows,
