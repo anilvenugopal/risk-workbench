@@ -36,7 +36,10 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def test_templates_placeholder_uses_template_suites_navigation():
+def test_templates_placeholder_uses_template_suites_navigation(iteration2_db):
+    # The Phase-2 placeholder page (this test's original subject) was reworked
+    # into the Phase-4 suites/templates administration page (T026), which
+    # reads the template/suite tables — needs a registered WORKBENCH engine.
     response = _client().get("/templates")
     assert response.status_code == 200
     assert "Template Suites" in response.text
