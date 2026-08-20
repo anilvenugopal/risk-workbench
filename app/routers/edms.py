@@ -21,7 +21,6 @@ from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
-from app.config import settings
 from app.nav import get_nav_context
 from app.services import edm_service, geohaz_service, rdm_service
 from app.services.errors import (
@@ -256,10 +255,6 @@ def geohaz_launch(
         result = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=selected,
-            data_version=settings.hazard_data_version,
-            perils=["earthquake", "windstorm"],
-            skip_prev_hazard=False,
-            override_user_def=True,
             actor_id=request.state.user.id,
         )
     except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:
@@ -291,6 +286,10 @@ def geohaz_launch(
     response_class=HTMLResponse,
 )
 def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
+    # 200 always: htmx never swaps a non-2xx response, so a 404 here would leave
+    # a deleted portfolio's cell polling forever. The terminal fragment carries
+    # no hx-* attributes, and the swap itself ends the poll (edms.py:314-319
+    # precedent).
     state = geohaz_service.cell_state(portfolio_id, edm_id=edm_id)
     return _partial(
         request,
@@ -303,7 +302,6 @@ def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
             ),
             "refresh_details": True,
         },
-        status_code=200 if state is not None else 404,
     )
 
 

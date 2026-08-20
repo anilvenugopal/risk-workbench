@@ -12,9 +12,6 @@ from app.services.errors import GeohazLaunchConflict, InvalidGeohazLaunch
 from app.workers import dispatch
 from db import execute, execute_one
 
-_PERILS = frozenset({"earthquake", "windstorm"})
-_TERMINAL_IRP_STATUSES = ("FINISHED", "FAILED", "CANCELLED", "SUBMISSION FAILED")
-
 
 @dataclass(frozen=True)
 class LaunchResult:
@@ -37,6 +34,11 @@ class LatestLookup:
     id: str
     request_params: dict[str, Any]
     completion_summary: str | None
+    status: str
+
+    @property
+    def failed(self) -> bool:
+        return self.status in ("FAILED", "CANCELLED", "SUBMISSION FAILED")
 
 
 def _read_states(*, edm_id: Any | None = None,
@@ -50,21 +52,15 @@ def _read_states(*, edm_id: Any | None = None,
     else:
         where = "p.edm_id = :edm_id"
         params = {"edm_id": str(edm_id)}
-    params.update({
-        "finished": _TERMINAL_IRP_STATUSES[0],
-        "failed": _TERMINAL_IRP_STATUSES[1],
-        "cancelled": _TERMINAL_IRP_STATUSES[2],
-        "submit_failed": _TERMINAL_IRP_STATUSES[3],
-    })
     rows = execute(
         f"""
         WITH job_state AS (
             SELECT irp_portfolio_id,
                    MAX(CASE WHEN status NOT IN (
-                       :finished, :failed, :cancelled, :submit_failed
+                       'FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED'
                    ) THEN 1 ELSE 0 END) AS has_live_job,
                    MAX(CASE WHEN status NOT IN (
-                       :finished, :failed, :cancelled, :submit_failed
+                       'FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED'
                    ) THEN status ELSE NULL END) AS live_status
             FROM irp_job
             WHERE irp_job_type = 'geohaz'
@@ -94,7 +90,7 @@ def _read_states(*, edm_id: Any | None = None,
     for row in rows:
         pid = _uid(row["id"])
         detail = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
-        metrics = detail.get("metrics") or detail
+        metrics = detail.get("metrics") or {}
         hazard_version = metrics.get("hazardVersion")
         label = hazard_version if isinstance(hazard_version, str) else ""
         if row["has_live_head"] and not row["has_live_job"]:
@@ -136,75 +132,58 @@ def completion_summary(result: dict[str, Any] | None) -> str | None:
     return None
 
 
-def latest_lookup(portfolio_id: Any) -> LatestLookup | None:
-    """Return the portfolio's most recent workbench GeoHaz submission."""
+def _latest_lookups(*, edm_id: Any | None = None,
+                    portfolio_id: Any | None = None) -> dict[str, LatestLookup]:
+    if portfolio_id is not None:
+        where = "j.irp_portfolio_id = :portfolio_id"
+        params = {"portfolio_id": str(portfolio_id)}
+    else:
+        where = "j.irp_edm_id = :edm_id"
+        params = {"edm_id": str(edm_id)}
     rows = execute(
-        """
+        f"""
         WITH ranked AS (
-            SELECT j.id, j.request_params, j.completion_summary,
+            SELECT j.id, j.irp_portfolio_id, j.request_params,
+                   j.completion_summary, j.status,
                    ROW_NUMBER() OVER (
+                       PARTITION BY j.irp_portfolio_id
                        ORDER BY j.inserted_at DESC, j.id DESC
                    ) AS recency
             FROM irp_job j
-            WHERE j.irp_portfolio_id = :portfolio_id
-              AND j.irp_job_type = 'geohaz'
+            WHERE j.irp_job_type = 'geohaz' AND {where}
         )
-        SELECT r.id, r.request_params, r.completion_summary
+        SELECT r.id, r.irp_portfolio_id, r.request_params,
+               r.completion_summary, r.status
         FROM ranked r
         WHERE r.recency = 1
         """,
-        {"portfolio_id": str(portfolio_id)},
+        params,
         connection="WORKBENCH",
     )
-    if not rows:
-        return None
-    row = rows[0]
-    return LatestLookup(
-        id=_uid(row["id"]),
-        request_params=(
-            _parse_json_dict(row["request_params"], "request_params") or {}),
-        completion_summary=row["completion_summary"],
-    )
+    return {
+        _uid(row["irp_portfolio_id"]): LatestLookup(
+            id=_uid(row["id"]),
+            request_params=(
+                _parse_json_dict(row["request_params"], "request_params") or {}),
+            completion_summary=row["completion_summary"],
+            status=row["status"],
+        )
+        for row in rows
+    }
 
 
-def eligible(portfolio_id: Any) -> bool:
-    """Return whether the portfolio can start another GeoHaz lookup."""
-    pid = str(portfolio_id)
-    row = execute_one(
-        "SELECT CASE WHEN EXISTS ("
-        "  SELECT 1 FROM irp_portfolio "
-        "  WHERE id = :id AND deleted_at IS NULL"
-        ") AND NOT EXISTS ("
-        "  SELECT 1 FROM irp_job WHERE irp_portfolio_id = :id "
-        "  AND irp_job_type = 'geohaz' "
-        "  AND status NOT IN (:finished, :failed, :cancelled, :submit_failed)"
-        ") AND NOT EXISTS ("
-        "  SELECT 1 FROM rwb_job WHERE requestor_type = 'analyst_request' "
-        "  AND requestor_id = :id AND rwb_job_type = 'run_geohaz' "
-        "  AND status_code IN ('pending', 'running')"
-        ") THEN 1 ELSE 0 END AS is_eligible",
-        {
-            "id": pid,
-            "finished": _TERMINAL_IRP_STATUSES[0],
-            "failed": _TERMINAL_IRP_STATUSES[1],
-            "cancelled": _TERMINAL_IRP_STATUSES[2],
-            "submit_failed": _TERMINAL_IRP_STATUSES[3],
-        },
-        connection="WORKBENCH",
-    )
-    return bool(row and row["is_eligible"])
+def latest_lookup(portfolio_id: Any) -> LatestLookup | None:
+    """Return the portfolio's most recent workbench GeoHaz submission."""
+    return _latest_lookups(portfolio_id=portfolio_id).get(_uid(portfolio_id))
 
 
-def launch(
-    *,
-    edm_id: Any,
-    portfolio_ids: list[Any],
-    data_version: str,
-    perils: list[str],
-    skip_prev_hazard: bool,
-    override_user_def: bool,
-    actor_id: Any,
-) -> LaunchResult:
+def latest_lookups(edm_id: Any) -> dict[str, LatestLookup]:
+    """Return the most recent workbench GeoHaz submission for every portfolio
+    in one EDM."""
+    return _latest_lookups(edm_id=edm_id)
+
+
+def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchResult:
     """Validate one launch and enqueue one worker job per selected portfolio."""
     eid = str(edm_id)
     edm = execute_one(
@@ -213,11 +192,8 @@ def launch(
     if edm is None:
         raise InvalidGeohazLaunch("The EDM no longer exists.")
 
-    all_portfolios = execute(
-        "SELECT id, name FROM irp_portfolio "
-        "WHERE edm_id = :edm AND deleted_at IS NULL ORDER BY name",
-        {"edm": eid}, connection="WORKBENCH")
-    if not all_portfolios:
+    states = _read_states(edm_id=eid)
+    if not states:
         raise InvalidGeohazLaunch(
             "Hazard lookup requires at least one portfolio in the EDM.")
 
@@ -225,30 +201,22 @@ def launch(
     if not selected_ids:
         raise InvalidGeohazLaunch("Select at least one portfolio.")
 
-    by_id = {_uid(row["id"]): row for row in all_portfolios}
-    if any(pid not in by_id for pid in selected_ids):
+    if any(pid not in states for pid in selected_ids):
         raise InvalidGeohazLaunch(
             "Every selected portfolio must belong to this EDM.")
 
-    ineligible = [by_id[pid]["name"] for pid in selected_ids if not eligible(pid)]
-    if ineligible:
-        names = ", ".join(ineligible)
+    live = [states[pid].portfolio_name for pid in selected_ids if states[pid].live]
+    if live:
+        names = ", ".join(live)
         raise GeohazLaunchConflict(
             f"Hazard lookup is already in progress for: {names}.")
 
-    selected_perils = list(dict.fromkeys(perils))
-    if not selected_perils:
-        raise InvalidGeohazLaunch("Select at least one peril.")
-    if any(peril not in _PERILS for peril in selected_perils):
-        raise InvalidGeohazLaunch("Select only earthquake or windstorm.")
-    if data_version != settings.hazard_data_version:
-        raise InvalidGeohazLaunch("Select a configured hazard data version.")
     request_params = {
-        "data_version": data_version,
+        "data_version": settings.hazard_data_version,
         "model_family": "DLM",
-        "perils": selected_perils,
-        "skip_prev_hazard": skip_prev_hazard,
-        "override_user_def": override_user_def,
+        "perils": ["earthquake", "windstorm"],
+        "skip_prev_hazard": False,
+        "override_user_def": True,
     }
     actor = str(actor_id)
     job_ids: list[str] = []
@@ -261,7 +229,7 @@ def launch(
                 "irp_portfolio_id": pid,
                 "irp_edm_id": eid,
                 "edm_name": edm["name"],
-                "portfolio_name": by_id[pid]["name"],
+                "portfolio_name": states[pid].portfolio_name,
                 "requested_by_user_id": actor,
                 "params": request_params,
             },
@@ -278,6 +246,7 @@ def launch(
 
 
 __all__ = [
-    "CellState", "LaunchResult", "LatestLookup", "cell_state", "eligible",
-    "completion_summary", "latest_lookup", "launch", "lookup_states",
+    "CellState", "LaunchResult", "LatestLookup", "cell_state",
+    "completion_summary", "latest_lookup", "latest_lookups", "launch",
+    "lookup_states",
 ]
