@@ -11,16 +11,13 @@
   `make irp-status` shows the active source) carrying the T-06 validation utility and the T-07
   currency-scheme + scheme-vintage reads (released & pinned 2026-08-19). The
   accumulation-profile read is tabled (T-02), so no Accumulation rows appear until it resumes.
-  Until the app-side tab swap lands (T015–T017), the fourth tab still shows the
-  individual-currency list (which stays cached regardless — submission needs currency, scheme,
-  and vintage), not currency schemes.
 - Sign in as the seeded admin (`admin@example.com`) for mutating steps; any analyst for viewing.
 
-## US1 — Metadata sync & four-tab screen
+## US1 — Metadata sync & five-tab screen
 
-1. Open **Templates → Analysis Metadata** (`/templates/metadata`). Before any sync: four tabs
-   (Model Profiles, Output Profiles, Event Rate Schemes, Currency Schemes with their vintages —
-   P-07), each with an
+1. Open **Templates → Analysis Metadata** (`/templates/metadata`). Before any sync: five tabs
+   (Model Profiles, Output Profiles, Event Rate Schemes, Currencies, Currency Schemes with their
+   vintages — P-07, Currencies reversed back in 2026-08-19), each with an
    empty state and no last-synced time.
 2. Click **Sync IRP Metadata**. The page reports the queued job; when the worker finishes,
    refresh: each tab lists its set read-only, last-synced time shown. Model profiles carry a

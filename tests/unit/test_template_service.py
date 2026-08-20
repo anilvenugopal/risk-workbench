@@ -34,27 +34,12 @@ def _values(**changes) -> TemplateValues:
     return TemplateValues(**values)
 
 
-def _seed_currency_scheme(conn, *, code="RMS", vintage="RL25", irp_id=1) -> None:
-    """Currency-scheme/vintage cache rows the currency-scheme extension of US1
-    (T011-T014) will populate from the sync worker; seeded directly here since
-    that gateway/worker read isn't wired up yet (independent track, tasks.md)."""
-    conn.exec_driver_sql(
-        "INSERT INTO irp_currency_scheme "
-        "(id, irp_id, name, code, inserted_at, updated_at) VALUES "
-        f"('scheme-{code}', {irp_id}, '{code}', '{code}', '2026-08-19', '2026-08-19')"
-    )
-    conn.exec_driver_sql(
-        "INSERT INTO irp_currency_scheme_vintage "
-        "(id, vintage, currency_scheme_code, effective_date, inserted_at, updated_at) "
-        f"VALUES ('vintage-{code}-{vintage}', '{vintage}', '{code}', "
-        "'2025-01-01', '2026-08-19', '2026-08-19')"
-    )
-
-
 def _sync(iteration2_db, fake_irp):
+    # Populates irp_currency_scheme/irp_currency_scheme_vintage too (T011-T014):
+    # the fake's defaults give "RMS" the vintages RL25 (latest)/RL23, and "DT"
+    # the vintage RL24 — a code RMS doesn't share, so tests can exercise a
+    # vintage that resolves under the wrong scheme without seeding anything.
     metadata_jobs._sync_irp_metadata_body()
-    with iteration2_db.engine.begin() as conn:
-        _seed_currency_scheme(conn)
 
 
 def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
@@ -293,24 +278,9 @@ def test_currency_scheme_with_no_cached_vintages_blocks_save(iteration2_db, fake
 def test_currency_vintage_not_in_scheme_is_rejected_when_both_resolve(
     iteration2_db, fake_irp,
 ):
+    # The synced defaults give "DT" the vintage "RL24" — it resolves in the
+    # cache, but not under the "RMS" scheme the template names here.
     _sync(iteration2_db, fake_irp)
-    with iteration2_db.engine.begin() as conn:
-        # A second scheme with its own vintage — "RL24" resolves (exists in the
-        # cache) but not under the "RMS" scheme the template names.
-        conn.exec_driver_sql("""
-            INSERT INTO irp_currency_scheme
-                (id, irp_id, name, code, inserted_at, updated_at)
-            VALUES
-                ('scheme-dt', 3, 'DT', 'DT', '2026-08-19', '2026-08-19')
-        """)
-        conn.exec_driver_sql("""
-            INSERT INTO irp_currency_scheme_vintage
-                (id, vintage, currency_scheme_code, effective_date,
-                 inserted_at, updated_at)
-            VALUES
-                ('vintage-dt-rl24', 'RL24', 'DT', '2024-01-01',
-                 '2026-08-19', '2026-08-19')
-        """)
 
     with pytest.raises(TemplateValidationError) as exc:
         template_service.create_template(_values(

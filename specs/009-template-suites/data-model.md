@@ -48,8 +48,9 @@ are synced (the wheel filters `isActive=True`).
 ### `irp_currency`
 
 Built in US1 and **kept** (spec P-07 as amended 2026-08-18): analysis submission's currency block
-is `{code, scheme, vintage, asOfDate}`, so the currency itself stays a stored/selected value even
-though the metadata screen shows schemes, not currencies (D3). `id` PK, `code` NVARCHAR NOT NULL
+is `{code, scheme, vintage, asOfDate}`, so the currency itself stays a stored/selected value —
+and the metadata screen keeps its own Currencies tab alongside Currency Schemes (D3's "not
+tabbed" call reversed 2026-08-19, user-corrected). `id` PK, `code` NVARCHAR NOT NULL
 UNIQUE (natural key, `uq_irp_currency_code`), `name` (16-char truncation, P-06), `country_name`,
 `symbol`, audit.
 

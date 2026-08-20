@@ -164,6 +164,38 @@ def test_reference_data_read_rejects_an_unexpected_container():
         gw.list_model_profiles()
 
 
+def test_list_currency_schemes_filters_to_active_and_maps_sandbox_fields():
+    captured = {}
+
+    def search_currency_schemes(where_clause=""):
+        captured["where_clause"] = where_clause
+        return {"items": [{
+            "currencySchemeId": 30, "currencySchemeName": "RMS Scheme",
+            "currencySchemeCode": "RMS", "isActive": True, "isDefault": None,
+        }]}
+
+    gw = _gw(reference_data=SimpleNamespace(
+        search_currency_schemes=search_currency_schemes))
+
+    assert gw.list_currency_schemes() == [
+        irp_gateway.CurrencySchemeEntry(30, "RMS Scheme", "RMS")]
+    assert captured["where_clause"] == "isActive=True"
+
+
+def test_list_currency_scheme_vintages_maps_sandbox_fields_with_no_where_filter():
+    # No id field upstream (R13) — the dataclass has none either.
+    gw = _gw(reference_data=SimpleNamespace(
+        search_currency_scheme_vintages=lambda: {"items": [{
+            "vintage": "RL25", "currencySchemeCode": "RMS",
+            "effectiveDate": "2025-05-28T00:00:00.000Z",
+            "vintageDescription": "Reference Loss 2025",
+        }]}))
+
+    assert gw.list_currency_scheme_vintages() == [
+        irp_gateway.CurrencySchemeVintageEntry(
+            "RL25", "RMS", "2025-05-28T00:00:00.000Z")]
+
+
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the

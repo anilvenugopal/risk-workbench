@@ -65,12 +65,31 @@ def _sync_table(conn, *, table: str, key: str, rows: list[dict],
         ), stale)
 
 
+def _replace_table(conn, *, table: str, rows: list[dict],
+                   columns: tuple[str, ...], now) -> None:
+    """Delete-all + insert, for a cache with no natural key (R13) — the raw
+    vintage snapshot, where duplicates are stored exactly as the API returned
+    them rather than upserted against an id that doesn't exist upstream."""
+    conn.execute(text(f"DELETE FROM {table}"))
+    if not rows:
+        return
+    insert_columns = ("id", *columns, "inserted_at", "updated_at")
+    values = [f":{column}" for column in insert_columns]
+    conn.execute(text(
+        f"INSERT INTO {table} ({', '.join(insert_columns)}) "
+        f"VALUES ({', '.join(values)})"
+    ), [{**{column: row[column] for column in columns}, "id": str(uuid.uuid4()),
+         "inserted_at": now, "updated_at": now} for row in rows])
+
+
 def _sync_irp_metadata_body() -> runtime.JobResult:
     try:
         model_profiles = irp_gateway.list_model_profiles()
         output_profiles = irp_gateway.list_output_profiles()
         event_rate_schemes = irp_gateway.list_event_rate_schemes()
         currencies = irp_gateway.list_currencies()
+        currency_schemes = irp_gateway.list_currency_schemes()
+        currency_scheme_vintages = irp_gateway.list_currency_scheme_vintages()
     except Exception as exc:  # noqa: BLE001 - the job stores the gateway reason
         return runtime.JobResult.fail(f"IRP metadata sync failed: {exc}")
 
@@ -82,6 +101,8 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
         {**asdict(row), "name": row.name[:_CURRENCY_NAME_MAX_LENGTH]}
         for row in currencies
     ]
+    currency_scheme_rows = [asdict(row) for row in currency_schemes]
+    currency_scheme_vintage_rows = [asdict(row) for row in currency_scheme_vintages]
     now = _utcnow()
 
     with get_connection("WORKBENCH") as conn:
@@ -102,12 +123,23 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
             _sync_table(
                 conn, table="irp_currency", key="code", rows=currency_rows,
                 columns=("code", "name", "country_name", "symbol"), now=now)
+            _sync_table(
+                conn, table="irp_currency_scheme", key="irp_id",
+                rows=currency_scheme_rows,
+                columns=("irp_id", "name", "code"), now=now)
+            _replace_table(
+                conn, table="irp_currency_scheme_vintage",
+                rows=currency_scheme_vintage_rows,
+                columns=("vintage", "currency_scheme_code", "effective_date"),
+                now=now)
 
     return runtime.JobResult.ok(
         model_profiles=len(model_rows),
         output_profiles=len(output_rows),
         event_rate_schemes=len(scheme_rows),
         currencies=len(currency_rows),
+        currency_schemes=len(currency_scheme_rows),
+        currency_scheme_vintages=len(currency_scheme_vintage_rows),
     )
 
 

@@ -14,6 +14,7 @@ from app.config import settings
 from app.routers import templates
 from app.services import rwb_job_service
 from app.services.auth_service import CurrentUser
+from app.services.irp_gateway import CurrencyEntry
 from app.workers import dispatch, metadata_jobs
 from db import execute
 
@@ -51,24 +52,95 @@ def _flat(body: str) -> str:
     return re.sub(r"\s+", " ", body)
 
 
-def test_metadata_page_renders_all_four_read_only_tabs(iteration2_db):
+def test_metadata_page_renders_all_five_read_only_tabs(iteration2_db):
     body = _client().get("/templates/metadata").text
 
     assert "Model Profiles" in body
     assert "Output Profiles" in body
     assert "Event Rate Schemes" in body
     assert "Currencies" in body
+    assert "Currency Schemes" in body
 
 
 def test_no_metadata_tab_has_create_or_edit_controls(iteration2_db):
     client = _client()
     for tab in (
-        "model-profiles", "output-profiles", "event-rate-schemes", "currencies"
+        "model-profiles", "output-profiles", "event-rate-schemes",
+        "currencies", "currency-schemes",
     ):
         body = client.get(f"/templates/metadata/table?tab={tab}").text
         assert 'href="/templates/analysis-templates/new"' not in body
         assert ">Create<" not in body
         assert ">Edit<" not in body
+
+
+def test_currencies_tab_renders_synced_currencies(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    body = _client().get("/templates/metadata/table?tab=currencies").text
+
+    assert "USD" in body
+    assert "US Dollar" in body
+    assert "United States" in body
+
+
+def test_currencies_tab_filters_by_code_name_or_country(iteration2_db, fake_irp):
+    fake_irp.currencies = [
+        *fake_irp.currencies,
+        CurrencyEntry("EUR", "Euro", "France", "€"),
+    ]
+    metadata_jobs._sync_irp_metadata_body()
+
+    body = _client().get("/templates/metadata/table?tab=currencies&q=euro").text
+
+    assert "EUR" in body
+    assert "USD" not in body
+
+
+def test_currency_schemes_tab_renders_schemes_with_their_vintages(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+
+    body = _client().get(
+        "/templates/metadata/table?tab=currency-schemes"
+    ).text
+
+    assert "RMS Scheme" in body
+    assert "Deterministic Scheme" in body
+    assert "RL25" in body
+    assert "RL24" in body
+    assert "2025-05-28" in body
+
+
+def test_currency_schemes_tab_filters_by_name_or_code(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    body = _client().get(
+        "/templates/metadata/table?tab=currency-schemes&q=dt"
+    ).text
+
+    assert "Deterministic Scheme" in body
+    assert "RMS Scheme" not in body
+
+
+def test_currency_scheme_with_no_vintages_shows_empty_marker(iteration2_db):
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            INSERT INTO irp_currency_scheme
+              (id, irp_id, name, code, inserted_at, updated_at)
+            VALUES
+              ('empty-scheme', 99, 'Empty Scheme', 'EMPTY',
+               '2026-08-19 10:00:00', '2026-08-19 10:00:00')
+            """
+        )
+
+    body = _client().get(
+        "/templates/metadata/table?tab=currency-schemes&q=empty"
+    ).text
+
+    assert "Empty Scheme" in body
 
 
 def test_metadata_fragment_filters_and_uses_wheel_marker_derivation(
@@ -206,6 +278,14 @@ def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
 
     body = _client().get(
         "/templates/metadata/table?tab=currencies"
+    ).text
+    assert (
+        'href="https://prodmgmt.rms-ppe.com/home/reference-data/'
+        'currencies/currency"' in body
+    )
+
+    body = _client().get(
+        "/templates/metadata/table?tab=currency-schemes"
     ).text
     assert (
         'href="https://prodmgmt.rms-ppe.com/home/reference-data/'

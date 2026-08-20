@@ -216,6 +216,15 @@ snapshot (no `irp_id`, no unique index, delete-all + insert per sync — user-de
 `vintage` columns are NVARCHAR(400), never truncated (the value must round-trip verbatim into
 submission).
 
+**Reversed 2026-08-19 (D3's "no tab" call, user-corrected)**: the metadata screen's Currencies
+tab is **restored** alongside Currency Schemes — five tabs total (model profiles, output
+profiles, event-rate schemes, currencies, currency schemes). D3's assumption that ~2–5 schemes
+would make raw currencies uninteresting to browse didn't hold once the probe found 45 schemes
+and 51 vintages; the user still wants a plain currency list. `irp_currency` was never dropped
+from the cache (it was needed for submission's `code` regardless), so this reversal is UI-only —
+the tab, its `_metadata_rows`/`counts` branches, and the RM deep link (same
+`home/reference-data/currencies/currency` path as Currency Schemes) all return.
+
 ## R14 — Design-session-16 trims (2026-08-18, note 16 D11/§2.1)
 
 **Decisions**: (a) `analysis_template.treaty_name_pattern` is **dropped** (D11/O15-6) — treaties

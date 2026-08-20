@@ -49,8 +49,10 @@
         <tr><th>Name</th><th>Risk Modeler ID</th><th>Default</th></tr>
         {% elif active_tab == "event-rate-schemes" %}
         <tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th></tr>
-        {% else %}
+        {% elif active_tab == "currencies" %}
         <tr><th>Code</th><th>Name</th><th>Country</th><th>Symbol</th></tr>
+        {% else %}
+        <tr><th>Name</th><th>Code</th><th>Vintages</th></tr>
         {% endif %}
       </thead>
       <tbody>
@@ -67,8 +69,20 @@
           <tr><td>{{ row.name }}</td><td class="mono">{{ row.irp_id }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td></tr>
           {% elif active_tab == "event-rate-schemes" %}
           <tr><td>{{ row.name }}</td><td class="mono">{{ row.peril_code or '—' }}</td><td class="mono">{{ row.model_region_code or '—' }}</td><td class="mono">{{ row.model_version_code or '—' }}</td><td>{{ 'Yes' if row.is_hd else 'No' }}</td></tr>
-          {% else %}
+          {% elif active_tab == "currencies" %}
           <tr><td class="mono">{{ row.code }}</td><td>{{ row.name }}</td><td>{{ row.country_name or '—' }}</td><td>{{ row.symbol or '—' }}</td></tr>
+          {% else %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td class="mono">{{ row.code }}</td>
+            <td>
+              {% if row.vintages %}
+                {% for vintage in row.vintages %}<span class="badge badge--neutral">{{ vintage.vintage }} · {{ vintage.effective_date }}</span>{% endfor %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
           {% endif %}
         {% else %}
         <tr><td class="empty" colspan="7">

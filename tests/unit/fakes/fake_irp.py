@@ -21,6 +21,8 @@ from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
     CurrencyEntry,
+    CurrencySchemeEntry,
+    CurrencySchemeVintageEntry,
     EdmCatalogEntry,
     EntityHit,
     EventRateSchemeEntry,
@@ -103,6 +105,19 @@ class FakeIRP:
         self.event_rate_schemes = [
             EventRateSchemeEntry(20, "RMS WS", "WS", "NAWS", "25.0", False)]
         self.currencies = [CurrencyEntry("USD", "US Dollar", "United States", "$")]
+        self.currency_schemes = [
+            CurrencySchemeEntry(30, "RMS Scheme", "RMS"),
+            CurrencySchemeEntry(31, "Deterministic Scheme", "DT"),
+        ]
+        # RMS carries two vintages (latest RL25) so pre-fill-latest logic has
+        # something to choose between; DT carries one, under a vintage code
+        # RMS doesn't share — so a vintage resolving under the wrong scheme
+        # is directly exercisable against these defaults.
+        self.currency_scheme_vintages = [
+            CurrencySchemeVintageEntry("RL25", "RMS", "2025-05-28T00:00:00.000Z"),
+            CurrencySchemeVintageEntry("RL23", "RMS", "2023-05-28T00:00:00.000Z"),
+            CurrencySchemeVintageEntry("RL24", "DT", "2024-05-28T00:00:00.000Z"),
+        ]
         self.raise_on_reference_data = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
@@ -355,3 +370,9 @@ class FakeIRP:
 
     def list_currencies(self) -> list[CurrencyEntry]:
         return self._reference_data(self.currencies)
+
+    def list_currency_schemes(self) -> list[CurrencySchemeEntry]:
+        return self._reference_data(self.currency_schemes)
+
+    def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]:
+        return self._reference_data(self.currency_scheme_vintages)

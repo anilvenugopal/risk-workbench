@@ -30,6 +30,8 @@ _METADATA_TABS = (
      "rm_path": None},
     {"key": "currencies", "label": "Currencies", "count_key": "currencies",
      "rm_path": "home/reference-data/currencies/currency"},
+    {"key": "currency-schemes", "label": "Currency Schemes", "count_key": "currency_schemes",
+     "rm_path": "home/reference-data/currencies/currency"},
 )
 
 
@@ -82,6 +84,29 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
             ORDER BY code
             """,
             {"q": match}, connection="WORKBENCH")
+    if tab == "currency-schemes":
+        schemes = execute(
+            """
+            SELECT irp_id, name, code
+            FROM irp_currency_scheme
+            WHERE LOWER(name) LIKE :q
+               OR LOWER(code) LIKE :q
+            ORDER BY name
+            """,
+            {"q": match}, connection="WORKBENCH")
+        vintages_by_scheme: dict[str, list[dict]] = {}
+        for vintage in execute(
+            """
+            SELECT vintage, currency_scheme_code, effective_date
+            FROM irp_currency_scheme_vintage
+            ORDER BY effective_date DESC
+            """,
+            connection="WORKBENCH"):
+            vintages_by_scheme.setdefault(
+                vintage["currency_scheme_code"], []).append(vintage)
+        for scheme in schemes:
+            scheme["vintages"] = vintages_by_scheme.get(scheme["code"], [])
+        return schemes
 
     rows = execute(
         """
@@ -125,7 +150,8 @@ def _metadata_context(request: Request) -> dict:
           (SELECT COUNT(*) FROM irp_model_profile) AS model_profiles,
           (SELECT COUNT(*) FROM irp_output_profile) AS output_profiles,
           (SELECT COUNT(*) FROM irp_event_rate_scheme) AS event_rate_schemes,
-          (SELECT COUNT(*) FROM irp_currency) AS currencies
+          (SELECT COUNT(*) FROM irp_currency) AS currencies,
+          (SELECT COUNT(*) FROM irp_currency_scheme) AS currency_schemes
         """,
         connection="WORKBENCH")
     jobs = execute(
@@ -145,6 +171,8 @@ def _metadata_context(request: Request) -> dict:
           UNION ALL SELECT updated_at FROM irp_output_profile
           UNION ALL SELECT updated_at FROM irp_event_rate_scheme
           UNION ALL SELECT updated_at FROM irp_currency
+          UNION ALL SELECT updated_at FROM irp_currency_scheme
+          UNION ALL SELECT updated_at FROM irp_currency_scheme_vintage
         ) AS metadata_updates
         """,
         connection="WORKBENCH")

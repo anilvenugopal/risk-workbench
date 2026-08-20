@@ -48,24 +48,24 @@
 
 ## Phase 3: User Story 1 — Sync and view analysis metadata (Priority: P1) 🎯 MVP
 
-**Goal**: On-demand `sync_irp_metadata` worker refreshes the six cache tables from Risk Modeler; a four-tab read-only metadata page (fourth tab: currency schemes with their vintages) lists them filterable with DLM/HD/Accumulation markers and last-synced time.
+**Goal**: On-demand `sync_irp_metadata` worker refreshes the six cache tables from Risk Modeler; a five-tab read-only metadata page (fourth tab: currencies; fifth tab: currency schemes with their vintages) lists them filterable with DLM/HD/Accumulation markers and last-synced time.
 
-**Independent Test**: Run the sync against the IRP sandbox; the four tabs match Risk Modeler's lists, filtering narrows ~3,500 profiles to a UD profile without a reload, no create/edit control exists, a second sync while one runs is refused with "sync already in progress", and a failed sync leaves the cache and last-synced time intact (quickstart US1).
+**Independent Test**: Run the sync against the IRP sandbox; the five tabs match Risk Modeler's lists, filtering narrows ~3,500 profiles to a UD profile without a reload, no create/edit control exists, a second sync while one runs is refused with "sync already in progress", and a failed sync leaves the cache and last-synced time intact (quickstart US1).
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] 6 frozen dataclasses (`ModelProfileEntry`, `OutputProfileEntry`, `EventRateSchemeEntry`, `CurrencyEntry`, `CurrencySchemeEntry`, `CurrencySchemeVintageEntry`) and the 6 `list_*` Protocol methods + real implementation via `client.reference_data` in `app/services/irp_gateway.py`, field lists per contracts/routes.md (`list_accumulation_profiles` deferred — see *Deferred: accumulation*). *4 of 6 built; remaining: `CurrencySchemeEntry`/`list_currency_schemes` and `CurrencySchemeVintageEntry`/`list_currency_scheme_vintages`*
-- [ ] T012 [P] [US1] Mirror the 6 list methods in `tests/unit/fakes/fake_irp.py` with configurable sample data covering DLM (`RL25`), HD (`HDv3.0`), and `Open` rows, plus schemes with multiple vintages. *4 built; remaining: the two currency-scheme mirrors*
-- [ ] T013 [US1] The `sync_irp_metadata` Dramatiq actor in `app/workers/metadata_jobs.py` (name-based dispatch, body via `runtime.run_job`): fetch all six sets, truncate currency names to Risk Modeler's 16-character creation limit (P-06), then one WORKBENCH transaction — snapshot upsert keyed on `irp_id` (currencies: `code`; scheme vintages: **delete-all + insert** — no upstream id or unique key, duplicates stored as returned), hard delete of rows the fetch no longer returned; return `JobResult.ok(synced counts)` / `.fail(reason)`; a gateway failure aborts before any write (FR-002). *Built for four sets; remaining: the scheme + vintage fetches in the same transaction*
-- [ ] T014 [P] [US1] Unit tests for the worker in `tests/unit/test_metadata_sync_worker.py` (fake IRP): initial populate, re-sync removes vanished rows and updates changed names, legacy currency names truncated to 16 characters (P-06), fetch failure leaves prior cache rows intact and fails the job. *Built for four sets; remaining: scheme/vintage cases (incl. inactive schemes filtered out, and duplicate vintage rows stored as returned then replaced wholesale on re-sync)*
-- [ ] T015 [US1] UI preview `docs/ui_previews/templates_metadata.html` (from `docs/ui_previews/_scaffold.html`, reuse the existing `.tabs` CSS component): four tabs with **currency schemes** (schemes + their vintages) as the fourth (P-07/D3 — no currencies tab), per-tab filter input, DLM/HD/Accumulation marker + raw software version column, last-synced line, sync button, empty state — approved before wiring. *Built and approved with a currencies fourth tab; remaining: swap it for currency schemes and re-approve*
-- [ ] T016 [US1] `GET /templates/metadata` page route in `app/routers/templates.py` + `app/templates/pages/templates_metadata.html`: four tabs (`?tab=model-profiles` default, `output-profiles`, `event-rate-schemes`, `currency-schemes`), tab links `hx-get` the fragment with `hx-push-url`, last-synced time and status/failure reason from the latest `sync_irp_metadata` rwb_job, `?sync=` banner messages; context built by a builder shared with the fragment route. *Built with a `currencies` fourth tab; remaining: the tab swap*
-- [ ] T017 [US1] `GET /templates/metadata/table` HTMX fragment + `app/templates/partials/metadata_table.html`: one tab's read-only table with filter input (`hx-trigger="input delay:300ms"`, edm_library pattern); model-profile tab derives the marker (is_accumulation → Accumulation, else the T-06 classification utility — never a re-implemented rule) and shows the raw version; currency-schemes tab lists each scheme with its vintages (vintage code + effective date). *Built minus the currency-schemes tab body*
+- [x] T011 [US1] 6 frozen dataclasses (`ModelProfileEntry`, `OutputProfileEntry`, `EventRateSchemeEntry`, `CurrencyEntry`, `CurrencySchemeEntry`, `CurrencySchemeVintageEntry`) and the 6 `list_*` Protocol methods + real implementation via `client.reference_data` in `app/services/irp_gateway.py`, field lists per contracts/routes.md (`list_accumulation_profiles` deferred — see *Deferred: accumulation*). *Done 2026-08-19: `CurrencySchemeEntry`/`list_currency_schemes` (explicit `where_clause="isActive=True"`, per the wheel's `search_currency_schemes` signature) and `CurrencySchemeVintageEntry`/`list_currency_scheme_vintages` added.*
+- [x] T012 [P] [US1] Mirror the 6 list methods in `tests/unit/fakes/fake_irp.py` with configurable sample data covering DLM (`RL25`), HD (`HDv3.0`), and `Open` rows, plus schemes with multiple vintages. *Done 2026-08-19: `currency_schemes` (RMS, DT) and `currency_scheme_vintages` (RMS: RL25 latest + RL23; DT: RL24 — a code RMS doesn't share) added.*
+- [x] T013 [US1] The `sync_irp_metadata` Dramatiq actor in `app/workers/metadata_jobs.py` (name-based dispatch, body via `runtime.run_job`): fetch all six sets, truncate currency names to Risk Modeler's 16-character creation limit (P-06), then one WORKBENCH transaction — snapshot upsert keyed on `irp_id` (currencies: `code`; scheme vintages: **delete-all + insert** — no upstream id or unique key, duplicates stored as returned), hard delete of rows the fetch no longer returned; return `JobResult.ok(synced counts)` / `.fail(reason)`; a gateway failure aborts before any write (FR-002). *Done 2026-08-19: scheme fetch synced via the existing keyed `_sync_table` helper; vintages via a new `_replace_table` helper (delete-all + insert, no natural key).*
+- [x] T014 [P] [US1] Unit tests for the worker in `tests/unit/test_metadata_sync_worker.py` (fake IRP): initial populate, re-sync removes vanished rows and updates changed names, legacy currency names truncated to 16 characters (P-06), fetch failure leaves prior cache rows intact and fails the job. *Done 2026-08-19: six-table populate/counts, scheme removal on resync, and a dedicated wholesale-replace test (seeds a duplicate vintage pair, asserts both stored, then resyncs to a disjoint set and asserts the old rows are gone). Inactive-scheme filtering is exercised at the gateway unit level (`test_irp_gateway.py`) since the fake has no active/inactive concept — filtering happens via the where_clause the real gateway sends.*
+- [x] T015 [US1] UI preview `docs/ui_previews/templates_metadata.html` (from `docs/ui_previews/_scaffold.html`, reuse the existing `.tabs` CSS component): tabs with **currency schemes** (schemes + their vintages), per-tab filter input, DLM/HD/Accumulation marker + raw software version column, last-synced line, sync button, empty state — approved before wiring. *Done 2026-08-19: Currency Schemes tab added (schemes + vintage badges, incl. an empty-vintages scheme). Reversed same day (user-corrected): the Currencies tab, first dropped per P-07/D3, is restored alongside it — five tabs total. User 👍'd 2026-08-19 per docs/UI_WORKFLOW.md.*
+- [x] T016 [US1] `GET /templates/metadata` page route in `app/routers/templates.py` + `app/templates/pages/templates_metadata.html`: five tabs (`?tab=model-profiles` default, `output-profiles`, `event-rate-schemes`, `currencies`, `currency-schemes`), tab links `hx-get` the fragment with `hx-push-url`, last-synced time and status/failure reason from the latest `sync_irp_metadata` rwb_job, `?sync=` banner messages; context built by a builder shared with the fragment route. *Done 2026-08-19: `currency-schemes` tab added; counts query now counts `irp_currency_scheme` too; last-synced UNION extended to both new tables. Reversed same day: `currencies` tab (briefly replaced by `currency-schemes`) restored alongside it, with its own `_metadata_rows`/counts branch.*
+- [x] T017 [US1] `GET /templates/metadata/table` HTMX fragment + `app/templates/partials/metadata_table.html`: one tab's read-only table with filter input (`hx-trigger="input delay:300ms"`, edm_library pattern); model-profile tab derives the marker (is_accumulation → Accumulation, else the T-06 classification utility — never a re-implemented rule) and shows the raw version; currency-schemes tab lists each scheme with its vintages (vintage code + effective date). *Done 2026-08-19: currency-schemes tab renders scheme name/code + a badge per vintage (vintage code · effective date), "—" when a scheme has no cached vintages. Reversed same day: the currencies tab's own Code/Name/Country/Symbol table (briefly removed) is restored as an explicit branch alongside currency-schemes.*
 - [x] T018 [US1] `POST /templates/metadata/sync` in `app/routers/templates.py`: CSRF-validated, open to every analyst; `ensure_pending_rwb_job` with the fixed sentinel requestor + dispatch, PRG to `?sync=queued`; when a sync job is already pending/running nothing is enqueued and PRG lands on `?sync=already-running` rendered as "sync already in progress" (FR-002)
-- [ ] T019 [P] [US1] Unit tests for the metadata routes in `tests/unit/test_templates_metadata_routes.py`: page renders four tabs, fragment filters, marker derivation shown, currency-schemes tab renders vintages, sync enqueues once, second request refused with the message, failed-job reason displayed, no create/edit control in any tab's markup. *Built against the currencies tab; remaining: the currency-schemes cases*
-- [ ] T020 [P] [US1] IRP-tier shape test `tests/irp/test_reference_data_shapes.py` (opt-in `--run-irp`): all six gateway reads return the documented fields against the sandbox. *Built for four reads; remaining: the two scheme/vintage reads*
+- [x] T019 [P] [US1] Unit tests for the metadata routes in `tests/unit/test_templates_metadata_routes.py`: page renders five tabs, fragment filters, marker derivation shown, currencies tab renders/filters, currency-schemes tab renders vintages, sync enqueues once, second request refused with the message, failed-job reason displayed, no create/edit control in any tab's markup. *Done 2026-08-19: currency-schemes cases added (renders schemes + vintages, filters by name/code, empty-vintages marker); the RM deep-link test extended to cover both the `currencies` and `currency-schemes` tabs (same deep link). Reversed same day: currencies-tab render/filter tests restored.*
+- [x] T020 [P] [US1] IRP-tier shape test `tests/irp/test_reference_data_shapes.py` (opt-in `--run-irp`): all six gateway reads return the documented fields against the sandbox. *Done 2026-08-19: `list_currency_schemes`/`list_currency_scheme_vintages` added to the sandbox assertions.*
 
-**Checkpoint**: quickstart US1 passes end-to-end against the sandbox, currency-schemes tab included. **STOP** — approver clicks the running slice before US2 begins.
+**Checkpoint**: reached 2026-08-19 — the currency-scheme extension of US1, plus the same-day reversal restoring the Currencies tab, is built and unit-tested (926 unit tests green); the T015 preview is 👍'd. Only the sandbox shape assertions (T020) and the full quickstart US1 walkthrough against the live IRP sandbox remain to be run (`make shell` → `uv run pytest tests/irp --run-irp`, then quickstart.md). **STOP** — approver clicks the running slice before US2 begins.
 
 ---
 
@@ -133,7 +133,7 @@ FR-001/FR-004's three-way promise. Deferred work, in order:
 
 - **Phase 1 (external)**: complete — T003 (`0.6.0rc1`) and T045 (`0.6.0rc2`). T001/T002 remain deferred with accumulation
 - **Foundational (Phase 2)**: T004 → T005 share `0001_initial.py`; T007/T008 after T005; T006/T009/T010 done. The T004/T005 schema deltas BLOCK every task that touches the affected tables (T011–T017, T019–T024, T031)
-- **US1 (Phase 3)**: needs Phase 2; the remaining US1 work is the currency-scheme extension of already-built pieces (gateway → worker → tabs → tests)
+- **US1 (Phase 3)**: needs Phase 2; done 2026-08-19 — T011–T020 all built and unit-green; only the sandbox-only pieces (T020 against a live tenant, the quickstart walkthrough) remain to actually run
 - **US2 (Phase 4)**: needs Phase 2; T021/T022 conformance next; T046 (deferred-code removal) anytime; T025 approval gates T026–T031; consumes US1's cache for pick lists (buildable against fake/synced data, but the story is verified after US1)
 - **Polish (Phase 6)**: after all desired stories
 
@@ -154,19 +154,22 @@ FR-001/FR-004's three-way promise. Deferred work, in order:
 
 ### Current state (2026-08-19)
 
-Everything through the four-set sync and metadata page is built and green (915 unit tests pass);
-the US2 service layer is built and green against the pre-trim shapes. The workbook import and
-seed wiring that were built are now out of scope (spec P-02) and come out via T046. The remaining
-work falls in three tracks:
+US1 (Phase 3) is fully built and unit-green, six-set sync included (924 unit tests pass): the
+gateway's two currency-scheme/vintage reads, the fake mirrors, the worker's scheme sync + wholesale
+vintage replace, the currency-schemes metadata tab (schemes + vintage badges), and the route/worker
+unit tests. The US2 service layer is built and green against the required-currency shapes (T021/T022
+conformance already landed, ahead of this pass — `_sync()` in `test_template_service.py` now relies
+on the real sync worker instead of hand-seeding currency-scheme rows). The workbook import and seed
+wiring that were built are now out of scope (spec P-02) and come out via T046. The remaining work:
 
-1. **Schema + conformance**: T004/T005 deltas → T007/T008 → T021/T022/T024 trims + required currency scheme/vintage; T046 deferred-code removal
-2. **Currency-scheme extension of US1**: T011–T014 scheme/vintage reads + sync → T015–T017/T019 tab swap → T020
-3. **US2 pages**: T025 approval → T026–T031
+1. **US1 sandbox validation**: T020 against a live tenant (`make shell` → `uv run pytest tests/irp --run-irp`) + the quickstart US1 walkthrough; the T015 preview still wants the user's informal 👍
+2. **US2 pages**: T025 approval → T026–T031
+3. **Polish**: T041–T043 after US2
 
 ### Incremental Delivery
 
-1. Schema deltas + conformance track → `make db-rebuild` clean
-2. US1 currency-scheme extension → validate quickstart US1 → demo
+1. Schema deltas + conformance track → `make db-rebuild` clean — done
+2. US1 currency-scheme extension → validate quickstart US1 against the sandbox → demo
 3. US2 pages/routes/gating → validate quickstart US2 → demo
 4. Polish → DATA_MODEL reconciliation + full three-tier run + quickstart sweep
 
