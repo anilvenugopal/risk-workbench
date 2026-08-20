@@ -21,9 +21,6 @@ def _values(**changes) -> TemplateValues:
         "analysis_profile_name": "RMS Default RL25",
         "output_profile_name": "RMS Default Output",
         "event_rate_scheme_name": "RMS WS",
-        "currency_code": "USD",
-        "currency_scheme_code": "RMS",
-        "currency_vintage": "RL25",
         "min_loss_threshold": Decimal("1.00"),
         "num_max_loss_event": 1,
         "franchise_deductible": False,
@@ -223,79 +220,57 @@ def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
         template_service.save_suite("US", [template_id, template_id])
 
 
-def test_currency_scheme_is_required(iteration2_db, fake_irp):
+def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
-
-    with pytest.raises(TemplateValidationError) as exc:
-        template_service.save_template(_values(currency_scheme_code=""))
-
-    assert "Currency scheme is required" in exc.value.errors
-
-
-def test_currency_vintage_is_required(iteration2_db, fake_irp):
-    metadata_jobs._sync_irp_metadata_body()
-
-    with pytest.raises(TemplateValidationError) as exc:
-        template_service.save_template(_values(currency_vintage=""))
-
-    assert "Currency vintage is required" in exc.value.errors
-
-
-def test_currency_scheme_with_no_cached_vintages_blocks_save(iteration2_db, fake_irp):
-    metadata_jobs._sync_irp_metadata_body()
-    with iteration2_db.engine.begin() as conn:
-        conn.exec_driver_sql("""
-            INSERT INTO irp_currency_scheme
-                (id, irp_id, name, code, inserted_at, updated_at)
-            VALUES
-                ('scheme-empty', 2, 'Empty Scheme', 'EMPTY', '2026-08-19', '2026-08-19')
-        """)
-
-    with pytest.raises(TemplateValidationError) as exc:
-        template_service.save_template(_values(
-            currency_scheme_code="EMPTY", currency_vintage="RL25",
-        ))
-
-    assert any('scheme "EMPTY" has no cached vintages' in error
-               for error in exc.value.errors)
-
-
-def test_currency_vintage_not_in_scheme_is_rejected_when_both_resolve(
-    iteration2_db, fake_irp,
-):
-    # The synced defaults give "DT" the vintage "RL24" — it resolves in the
-    # cache, but not under the "RMS" scheme the template names here.
-    metadata_jobs._sync_irp_metadata_body()
-
-    with pytest.raises(TemplateValidationError) as exc:
-        template_service.save_template(_values(
-            currency_scheme_code="RMS", currency_vintage="RL24",
-        ))
-
-    assert any(
-        'does not belong to currency scheme "RMS"' in error
-        for error in exc.value.errors
+    template_id = template_service.save_template(
+        _values(), tags=["US", "Wind"], actor_id=iteration2_db.user_a,
     )
 
+    copy_id = template_service.duplicate_template(
+        template_id, actor_id=iteration2_db.user_a,
+    )
 
-def test_currency_unresolved_when_scheme_or_vintage_absent_from_cache(
-    iteration2_db, fake_irp,
-):
+    original = template_service.get_template(template_id)
+    copy = template_service.get_template(copy_id)
+    assert copy_id != template_id
+    assert copy["name"] == "US Wind DLM (copy)"
+    assert copy["analysis_profile_name"] == original["analysis_profile_name"]
+    assert copy["output_profile_name"] == original["output_profile_name"]
+    assert copy["event_rate_scheme_name"] == original["event_rate_scheme_name"]
+    assert copy["tags"] == ["US", "Wind"]
+
+
+def test_duplicate_template_name_collision_gets_a_counter(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values())
 
-    unresolved_scheme_id = template_service.save_template(_values(
-        name="Unresolved Currency Scheme",
-        currency_scheme_code="MISSING", currency_vintage="RL25",
-    ))
-    unresolved_vintage_id = template_service.save_template(_values(
-        name="Unresolved Currency Vintage",
-        currency_vintage="MISSING",
-    ))
+    first_copy = template_service.duplicate_template(template_id)
+    second_copy = template_service.duplicate_template(template_id)
 
-    scheme_template = template_service.get_template(unresolved_scheme_id)
-    assert scheme_template["currency_scheme_unresolved"] is True
-    assert scheme_template["unresolved"] is True
+    assert template_service.get_template(first_copy)["name"] == "US Wind DLM (copy)"
+    assert template_service.get_template(second_copy)["name"] == "US Wind DLM (copy 2)"
 
-    vintage_template = template_service.get_template(unresolved_vintage_id)
-    assert vintage_template["currency_vintage_unresolved"] is True
-    assert vintage_template["unresolved"] is True
+
+def test_duplicate_template_truncates_base_to_fit_name_column(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    long_name = "A" * 200
+    template_id = template_service.save_template(_values(name=long_name))
+
+    copy_id = template_service.duplicate_template(template_id)
+
+    copy_name = template_service.get_template(copy_id)["name"]
+    assert copy_name == "A" * 193 + " (copy)"
+    assert len(copy_name) == 200
+
+
+def test_duplicate_suite_copies_membership_not_templates(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values())
+    suite_id = template_service.save_suite("US", [template_id])
+
+    copy_id = template_service.duplicate_suite(suite_id)
+
+    copy = template_service.get_suite(copy_id)
+    assert copy_id != suite_id
+    assert copy["name"] == "US (copy)"
+    assert [item["template_id"] for item in copy["items"]] == [template_id]

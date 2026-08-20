@@ -96,14 +96,15 @@
 
 ### Design-session-17 amendments (2026-08-20 — note 17; spec P-11/P-12/FR-021)
 
-- [ ] T047 [US2] [P-11] Remove the currency columns from the schema: drop `currency_code`, `currency_scheme_code`, and `currency_vintage` from `analysis_template` in `alembic/versions/0001_initial.py`; mirror the drop in `tests/iteration1_mirror.py` (`ITERATION4_SCHEMA`); flip `tests/sqlserver/test_template_suite_schema.py`'s currency NOT-NULL assertions to absence assertions
-- [ ] T048 [US2] [P-11] Currency removal sweep over code (T-10): the three fields out of `TemplateValues`, `_validate_currency`, `vintage_options()`, and the `currency_scheme_unresolved`/`currency_vintage_unresolved` flags out of `app/services/template_service.py`; the `vintage-options` route and currency form parsing out of `app/routers/templates.py`; `app/templates/partials/vintage_options.html` deleted; the currency/scheme/vintage selects out of `analysis_template_form.html`; the Currency column out of `templates_table.html`; the currency cases out of `tests/unit/test_template_service.py` and `tests/unit/test_templates_routes.py`. The sync worker, gateway reads, and all five metadata tabs stay untouched
-- [ ] T049 [US2] [P-12/FR-021] Duplicate-and-edit (T-11): `duplicate_template(id)` + `duplicate_suite(id)` in `template_service.py` (copy row + tag/membership rows in one transaction; `<name> (copy)` with collision counter, base truncated to fit NVARCHAR(200)); `POST /templates/analysis-templates/{id}/duplicate` + `POST /templates/suites/{id}/duplicate` in `templates.py` (`_require_admin`, CSRF, redirect to the copy's detail page); Duplicate button on both detail pages (admin-only); unit tests — copy fidelity (fields, tags, membership), collision naming, truncation, non-admin rejected
-- [ ] T050 [US2] [FR-007/O17-9] Event-rate scheme options must populate on model-profile selection: reproduce the blank-until-typed behavior from the 8/20 demo against current code (the T028 fragment may already cover it — the demoed build may predate it); fix the trigger if real; route test asserting the scheme options render on profile change with no filter input
+- [X] T047 [US2] [P-11] Remove the currency columns from the schema: drop `currency_code`, `currency_scheme_code`, and `currency_vintage` from `analysis_template` in `alembic/versions/0001_initial.py`; mirror the drop in `tests/iteration1_mirror.py` (`ITERATION4_SCHEMA`); flip `tests/sqlserver/test_template_suite_schema.py`'s currency NOT-NULL assertions to absence assertions. *Done 2026-08-20: the NOT-NULL test replaced with three absence-assertion parametrize cases alongside the existing dropped-column checks.*
+- [X] T048 [US2] [P-11] Currency removal sweep over code (T-10): the three fields out of `TemplateValues`, `_validate_currency`, `vintage_options()`, and the `currency_scheme_unresolved`/`currency_vintage_unresolved` flags out of `app/services/template_service.py`; the `vintage-options` route and currency form parsing out of `app/routers/templates.py`; `app/templates/partials/vintage_options.html` deleted; the currency/scheme/vintage selects out of `analysis_template_form.html`; the Currency column out of `templates_table.html`; the currency cases out of `tests/unit/test_template_service.py` and `tests/unit/test_templates_routes.py`. The sync worker, gateway reads, and all five metadata tabs stay untouched. *Done 2026-08-20 — 961 unit tests green.*
+- [X] T049 [US2] [P-12/FR-021] Duplicate-and-edit (T-11): `duplicate_template(id)` + `duplicate_suite(id)` in `template_service.py` (copy row + tag/membership rows in one transaction; `<name> (copy)` with collision counter, base truncated to fit NVARCHAR(200)); `POST /templates/analysis-templates/{id}/duplicate` + `POST /templates/suites/{id}/duplicate` in `templates.py` (`_require_admin`, CSRF, redirect to the copy's detail page); Duplicate button on both detail pages (admin-only); unit tests — copy fidelity (fields, tags, membership), collision naming, truncation, non-admin rejected. *Done 2026-08-20: `duplicate_template`/`duplicate_suite` reuse `save_template`/`save_suite` under the copied row's own transaction rather than hand-rolled INSERT SQL — the copy re-validates for free and the naming/truncation helper (`_duplicate_name`) is shared between both.*
+- [X] T050 [US2] [FR-007/O17-9] Event-rate scheme options must populate on model-profile selection: reproduce the blank-until-typed behavior from the 8/20 demo against current code (the T028 fragment may already cover it — the demoed build may predate it); fix the trigger if real; route test asserting the scheme options render on profile change with no filter input. *Investigated 2026-08-20: traced the profile→scheme cascade (native `change` event dispatched with `bubbles:true` from `pick()`, htmx's `hx-vals='js:...'` reading the just-set value, and the `@htmx:after-swap` Alpine listener — confirmed htmx dispatches both the camelCase and kebab-case event names, verified against the vendored `htmx.min.js` and this codebase's other working `@htmx:after-swap` usages) — no wiring defect found; the two "Fix dropdowns"/"Fix model profile dropdown" commits earlier the same day (the `@mousedown.prevent` fix) most likely already fixed the demoed symptom. No code change; added regression tests instead (`test_scheme_options_populate_on_profile_change_alone`, `test_edit_form_prefills_scheme_options_for_the_stored_profile`).*
 
 **Checkpoint**: T021–T031 built and unit-green (958 unit tests) under the pre-note-17 design;
-T047–T050 amend that build. Quickstart US2's live walkthrough against the dev stack has not been
-run. **STOP** — approver clicks the running slice before Polish.
+T047–T050 amend that build and are themselves done and unit-green (961 unit tests). Quickstart
+US2's live walkthrough against the dev stack has not been run. **STOP** — approver clicks the
+running slice before Polish.
 
 ---
 
@@ -179,12 +180,15 @@ tests (T031). The workbook import and seed wiring that were built pre-deferral a
 The 2026-08-20 design session (note 17) then amended the spec: currency comes off templates
 entirely (P-11 — T047/T048 undo the built currency columns, validation, and builder fields;
 the cache and metadata tabs stay), duplicate-and-edit is added (P-12/FR-021 — T049), and the
-event-rate options must populate on profile selection (O17-9 — T050). The remaining work:
+event-rate options must populate on profile selection (O17-9 — T050). **T047–T050 are now done**
+(961 unit tests green): the schema/mirror/sqlserver-assertion currency drop, the full code sweep
+(service, router, templates, tests), `duplicate_template`/`duplicate_suite` with a Duplicate
+button on both detail pages, and the O17-9 investigation (no wiring defect found; regression
+tests added). The remaining work:
 
-1. **Note-17 amendments**: T047 → T048, then T049 and T050 (order free)
-2. **US1 sandbox validation**: T020 against a live tenant (`make shell` → `uv run pytest tests/irp --run-irp`) + the quickstart US1 walkthrough; the T015 preview still wants the user's informal 👍
-3. **US2 live click-through**: quickstart US2 against the dev stack (`make dev-up` / WSL2) — not yet run in this pass, DB-tier setup wasn't available; unit-level coverage (route rendering + service validation) is green
-4. **Polish**: T041–T043 after US2
+1. **US1 sandbox validation**: T020 against a live tenant (`make shell` → `uv run pytest tests/irp --run-irp`) + the quickstart US1 walkthrough; the T015 preview still wants the user's informal 👍
+2. **US2 live click-through**: quickstart US2 against the dev stack (`make dev-up` / WSL2) — not yet run in this pass, DB-tier setup wasn't available; unit-level coverage (route rendering + service validation) is green
+3. **Polish**: T041–T043 after US2
 
 ### Incremental Delivery
 

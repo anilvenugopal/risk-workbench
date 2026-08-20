@@ -84,11 +84,17 @@
   </form>
 
   {% if mode == 'edit' %}
-  <form method="post" action="/templates/suites/{{ suite.id }}/delete" style="margin-top: var(--space-4);">
-    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm btn-sm--danger" type="submit"
-            onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete suite</button>
-  </form>
+  <div class="form-actions" style="margin-top: var(--space-4);">
+    <form method="post" action="/templates/suites/{{ suite.id }}/duplicate">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm" type="submit">Duplicate suite</button>
+    </form>
+    <form method="post" action="/templates/suites/{{ suite.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit"
+              onclick="return confirm('Delete {{ suite.name }}? This cannot be undone.')">Delete suite</button>
+    </form>
+  </div>
   {% endif %}
   {% endif %}
 </div>

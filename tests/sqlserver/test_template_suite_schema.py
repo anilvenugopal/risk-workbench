@@ -98,18 +98,11 @@ def test_analysis_template_defaults():
     assert defaults["treat_construction_occupancy_as_unknown"].strip("()'") == "1"
 
 
-def test_analysis_template_currency_scheme_and_vintage_are_not_null():
-    nullable = {row["COLUMN_NAME"]: row["IS_NULLABLE"] for row in execute(
-        "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
-        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'analysis_template'",
-        connection="WORKBENCH",
-    )}
-    assert nullable["currency_scheme_code"] == "NO"
-    assert nullable["currency_vintage"] == "NO"
-
-
 @pytest.mark.parametrize("table,column", [
     ("analysis_template", "treaty_name_pattern"),
+    ("analysis_template", "currency_code"),
+    ("analysis_template", "currency_scheme_code"),
+    ("analysis_template", "currency_vintage"),
     ("template_suite_item", "position"),
     ("template_suite_item", "portfolio_name_override"),
 ])

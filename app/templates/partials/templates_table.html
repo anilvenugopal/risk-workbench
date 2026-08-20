@@ -49,7 +49,7 @@
     </label>
   </form>
   <table class="mk-table">
-    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Currency</th></tr></thead>
+    <thead><tr><th>Name</th><th>Family</th><th>Model profile</th></tr></thead>
     <tbody>
       {% for template in templates %}
       <tr class="data-row"
@@ -60,10 +60,9 @@
         </td>
         <td>{{ forms.family_badge(template.profile_family) or '—' }}</td>
         <td>{{ template.analysis_profile_name }}</td>
-        <td class="mono">{{ template.currency_code }} · {{ template.currency_scheme_code }} · {{ template.currency_vintage }}</td>
       </tr>
       {% else %}
-      <tr><td class="empty" colspan="4">
+      <tr><td class="empty" colspan="3">
         {% if q %}No templates match — <a class="clear-filters" href="/templates?tab=templates">clear filters</a>.
         {% else %}No analysis templates yet.
           {% if current_user.is_admin %}<a href="/templates/analysis-templates/new">Create one</a> to get started.

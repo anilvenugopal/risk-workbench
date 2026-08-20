@@ -52,15 +52,6 @@
       <span class="wf-field__val">{{ template.output_profile_name }}
         {% if template.output_profile_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}</span>
     </div>
-    <div class="wf-field">
-      <label>CURRENCY</label>
-      <span class="wf-field__val">{{ template.currency_code }}
-        {% if template.currency_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
-        · {{ template.currency_scheme_code }}
-        {% if template.currency_scheme_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}
-        · {{ template.currency_vintage }}
-        {% if template.currency_vintage_unresolved %}<span class="badge badge--negative">not found</span>{% endif %}</span>
-    </div>
     <div class="wf-field"><label>MIN LOSS THRESHOLD</label><span class="wf-field__val">{{ template.min_loss_threshold }}</span></div>
     <div class="wf-field"><label>MAX LOSS EVENTS</label><span class="wf-field__val">{{ template.num_max_loss_event }}</span></div>
     <div class="wf-field"><label>FRANCHISE DEDUCTIBLE</label><span class="wf-field__val">{{ 'Yes' if template.franchise_deductible else 'No' }}</span></div>
@@ -140,61 +131,6 @@
       </div>
 
       <div class="wf-field">
-        <label>CURRENCY <span class="wf-field__req">*</span></label>
-        <div class="ta" x-data="selectSearch()" @click.outside="close()">
-          <select class="wf-field__input" name="currency_code" required
-                  x-ref="select" x-show="false">
-            <option value=""{% if not (currency_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency…</option>
-            {% for option in currency_options %}
-            <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
-              {%- if option.unresolved -%}
-              {{ option.code }} (not found)
-              {%- else -%}
-              {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
-              {%- endif -%}
-            </option>
-            {% endfor %}
-          </select>
-          {{ forms.typeahead_controls() }}
-        </div>
-      </div>
-
-      <div class="wf-field">
-        <label>CURRENCY SCHEME <span class="wf-field__req">*</span></label>
-        <div class="ta" x-data="selectSearch()" @click.outside="close()">
-          <select class="wf-field__input" name="currency_scheme_code" id="tpl-currency-scheme" required
-                  x-ref="select" x-show="false"
-                  hx-get="/templates/analysis-templates/vintage-options"
-                  hx-trigger="change" hx-target="#tpl-vintage" hx-swap="innerHTML"
-                  hx-vals='js:{"scheme": document.getElementById("tpl-currency-scheme").value}'>
-            <option value=""{% if not (currency_scheme_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency scheme…</option>
-            {% for option in currency_scheme_options %}
-            <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
-              {%- if option.unresolved -%}
-              {{ option.code }} (not found)
-              {%- else -%}
-              {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
-              {%- endif -%}
-            </option>
-            {% endfor %}
-          </select>
-          {{ forms.typeahead_controls() }}
-        </div>
-      </div>
-
-      <div class="wf-field">
-        <label>CURRENCY VINTAGE <span class="wf-field__req">*</span></label>
-        <div class="ta" x-data="selectSearch()" @click.outside="close()">
-          <select class="wf-field__input" name="currency_vintage" id="tpl-vintage" required
-                  x-ref="select" x-show="false" @htmx:after-swap="sync()">
-            {% with options = currency_vintage_options %}{% include "partials/vintage_options.html" %}{% endwith %}
-          </select>
-          {{ forms.typeahead_controls() }}
-        </div>
-        <div class="wf-field__msg wf-field__hint">Pre-selects the scheme's latest vintage by effective date; change it to pin an older one. A scheme with no cached vintages blocks save.</div>
-      </div>
-
-      <div class="wf-field">
         <label>MIN LOSS THRESHOLD</label>
         <input class="wf-field__input" type="text" name="min_loss_threshold" value="{{ form.min_loss_threshold }}" style="max-width:140px">
       </div>
@@ -237,11 +173,17 @@
   </form>
 
   {% if mode == 'edit' %}
-  <form method="post" action="/templates/analysis-templates/{{ template.id }}/delete" style="margin-top: var(--space-4);">
-    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
-    <button class="btn-sm btn-sm--danger" type="submit"
-            onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete template</button>
-  </form>
+  <div class="form-actions" style="margin-top: var(--space-4);">
+    <form method="post" action="/templates/analysis-templates/{{ template.id }}/duplicate">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm" type="submit">Duplicate template</button>
+    </form>
+    <form method="post" action="/templates/analysis-templates/{{ template.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <button class="btn-sm btn-sm--danger" type="submit"
+              onclick="return confirm('Delete {{ template.name }}? This cannot be undone.')">Delete template</button>
+    </form>
+  </div>
   {% endif %}
   {% endif %}
 </div>

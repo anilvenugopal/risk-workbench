@@ -272,13 +272,9 @@ def _template_form_context(
     values.setdefault("min_loss_threshold", Decimal("1.00"))
     values.setdefault("num_max_loss_event", 1)
     profile_name = values.get("analysis_profile_name") or ""
-    scheme_code = values.get("currency_scheme_code") or ""
     reference = template_service.reference_options()
     event_scheme_rows = (
         template_service.scheme_options(profile_name) if profile_name else []
-    )
-    vintage_rows = (
-        template_service.vintage_options(scheme_code) if scheme_code else []
     )
     return {
         "current_user": current_user,
@@ -293,12 +289,6 @@ def _template_form_context(
             event_scheme_rows, "name", values.get("event_rate_scheme_name")),
         "output_profile_options": _select_options(
             reference["output_profiles"], "name", values.get("output_profile_name")),
-        "currency_options": _select_options(
-            reference["currencies"], "code", values.get("currency_code")),
-        "currency_scheme_options": _select_options(
-            reference["currency_schemes"], "code", values.get("currency_scheme_code")),
-        "currency_vintage_options": _select_options(
-            vintage_rows, "vintage", values.get("currency_vintage")),
         "tag_names": template_service.list_tag_names(),
     }
 
@@ -322,9 +312,6 @@ def _parse_template_values(form: dict) -> tuple[TemplateValues | None, list[str]
         analysis_profile_name=form["analysis_profile_name"],
         output_profile_name=form["output_profile_name"],
         event_rate_scheme_name=form["event_rate_scheme_name"] or None,
-        currency_code=form["currency_code"],
-        currency_scheme_code=form["currency_scheme_code"],
-        currency_vintage=form["currency_vintage"],
         min_loss_threshold=threshold,
         num_max_loss_event=max_events,
         franchise_deductible=form["franchise_deductible"],
@@ -361,8 +348,8 @@ def _suite_form_context(
 
 # Literal template/metadata/administration routes precede the parameterized
 # routes (EDM-router precedent): /templates, /templates/table,
-# /templates/metadata*, /templates/analysis-templates/{new,scheme-options,
-# vintage-options}, /templates/suites/new all resolve before the
+# /templates/metadata*, /templates/analysis-templates/{new,scheme-options},
+# /templates/suites/new all resolve before the
 # `{template_id}` / `{suite_id}` routes further down this file.
 
 @router.get("/templates", response_class=HTMLResponse)
@@ -436,21 +423,11 @@ def scheme_options_fragment(request: Request):
     return _page(request, "partials/scheme_options.html", {"options": options})
 
 
-@router.get("/templates/analysis-templates/vintage-options", response_class=HTMLResponse)
-def vintage_options_fragment(request: Request):
-    scheme = (request.query_params.get("scheme") or "").strip()
-    options = template_service.vintage_options(scheme) if scheme else []
-    return _page(request, "partials/vintage_options.html", {"options": options})
-
-
 def _template_form(
     name: Annotated[str, Form()] = "",
     analysis_profile_name: Annotated[str, Form()] = "",
     event_rate_scheme_name: Annotated[str, Form()] = "",
     output_profile_name: Annotated[str, Form()] = "",
-    currency_code: Annotated[str, Form()] = "",
-    currency_scheme_code: Annotated[str, Form()] = "",
-    currency_vintage: Annotated[str, Form()] = "",
     min_loss_threshold: Annotated[str, Form()] = "1.00",
     num_max_loss_event: Annotated[str, Form()] = "1",
     franchise_deductible: Annotated[str | None, Form()] = None,
@@ -462,9 +439,6 @@ def _template_form(
         "analysis_profile_name": analysis_profile_name,
         "event_rate_scheme_name": event_rate_scheme_name or None,
         "output_profile_name": output_profile_name,
-        "currency_code": currency_code,
-        "currency_scheme_code": currency_scheme_code,
-        "currency_vintage": currency_vintage,
         "min_loss_threshold": min_loss_threshold,
         "num_max_loss_event": num_max_loss_event,
         "franchise_deductible": franchise_deductible == "on",
@@ -572,6 +546,26 @@ def delete_template_route(
     return RedirectResponse("/templates?tab=templates", status_code=303)
 
 
+@router.post("/templates/analysis-templates/{template_id}/duplicate")
+def duplicate_template_route(
+    request: Request,
+    template_id: str,
+    csrf_token: Annotated[str, Form()],
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(
+            f"/templates/analysis-templates/{template_id}", status_code=303)
+    try:
+        new_id = template_service.duplicate_template(
+            template_id, actor_id=current_user.id)
+    except TemplateServiceError:
+        return RedirectResponse("/templates?tab=templates", status_code=303)
+    return RedirectResponse(f"/templates/analysis-templates/{new_id}", status_code=303)
+
+
 # ── Suite builder (US2) ────────────────────────────────────────────────────────
 
 @router.get("/templates/suites/new", response_class=HTMLResponse)
@@ -664,6 +658,24 @@ def delete_suite_route(
     except TemplateServiceError:
         pass
     return RedirectResponse("/templates?tab=suites", status_code=303)
+
+
+@router.post("/templates/suites/{suite_id}/duplicate")
+def duplicate_suite_route(
+    request: Request,
+    suite_id: str,
+    csrf_token: Annotated[str, Form()],
+):
+    current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/templates/suites/{suite_id}", status_code=303)
+    try:
+        new_id = template_service.duplicate_suite(suite_id, actor_id=current_user.id)
+    except TemplateServiceError:
+        return RedirectResponse("/templates?tab=suites", status_code=303)
+    return RedirectResponse(f"/templates/suites/{new_id}", status_code=303)
 
 
 __all__ = ["router"]
