@@ -389,6 +389,100 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Searchable enhancement over a plain <select> (analysis template create/edit —
+  // model profile, event rate scheme, output profile, currency, currency scheme,
+  // currency vintage). The <select> stays the source of truth (native `required`,
+  // and the profile/scheme fields still drive their hx-get cascades off it) but is
+  // hidden once Alpine mounts; a text input filters its live options client-side,
+  // matching the "links to" typeahead's degrade-without-JS story but with an
+  // already-known, already-rendered option list instead of a server round trip.
+  // `sync()` also re-runs after htmx swaps in a fresh option list for the two
+  // cascade targets (event rate scheme, currency vintage), since replacing
+  // <option> children doesn't fire a native change event.
+  Alpine.data('selectSearch', () => ({
+    isOpen: false,
+    activeIndex: -1,
+    query: '',
+    init() {
+      this.sync();
+    },
+    get select() {
+      return this.$refs.select;
+    },
+    get allOptions() {
+      return Array.from(this.select.options)
+        .filter((o) => o.value !== '')
+        .map((o) => ({ value: o.value, label: o.textContent.trim() }));
+    },
+    get filteredOptions() {
+      const term = this.query.trim().toLowerCase();
+      if (!term) return this.allOptions;
+      return this.allOptions.filter((o) => o.label.toLowerCase().includes(term));
+    },
+    get placeholder() {
+      const blank = this.select.querySelector('option[value=""]');
+      return blank ? blank.textContent.trim() : 'Search…';
+    },
+    narrow() {
+      this.activeIndex = this.filteredOptions.length === 1 ? 0 : -1;
+    },
+    sync() {
+      const current = this.select.selectedOptions[0];
+      this.query = current && current.value ? current.textContent.trim() : '';
+      this.isOpen = false;
+      this.activeIndex = -1;
+    },
+    open() {
+      // Clears the field to show every option rather than just the one matching
+      // the current selection; close() restores the committed label if the
+      // analyst leaves without picking a row.
+      this.isOpen = true;
+      this.query = '';
+      this.activeIndex = -1;
+    },
+    close() {
+      this.sync();
+    },
+    onInput() {
+      this.isOpen = true;
+      this.narrow();
+    },
+    move(step) {
+      const count = this.filteredOptions.length;
+      if (!count) return;
+      this.activeIndex = (this.activeIndex + step + count) % count;
+      this.$nextTick(() => {
+        const active = this.$refs.menu.querySelector('.is-active');
+        if (active) active.scrollIntoView({ block: 'nearest' });
+      });
+    },
+    onKey(e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (this.isOpen) this.move(1); else this.open();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.move(-1);
+      } else if (e.key === 'Escape') {
+        this.close();
+      } else if (e.key === 'Enter' && this.isOpen && this.activeIndex >= 0) {
+        // Only swallow Enter when a menu row is highlighted, so Enter still
+        // submits the form when the analyst is just typing (typeahead precedent).
+        e.preventDefault();
+        this.pick(this.$refs.menu.querySelectorAll('.ta__opt')[this.activeIndex]);
+      } else if (e.key === 'Tab') {
+        this.close();
+      }
+    },
+    pick(opt) {
+      if (!opt) return;
+      this.select.value = opt.dataset.value;
+      this.select.dispatchEvent(new Event('change', { bubbles: true }));
+      this.sync();
+      this.$refs.input.focus();
+    },
+  }));
+
   // Status, Treaty type and Owner filters on the submissions list (D16). The
   // options are already in the DOM; clicking one toggles it and leaves the menu
   // open, and the component writes one hidden input per picked value and

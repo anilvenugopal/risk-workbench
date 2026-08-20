@@ -90,84 +90,180 @@
 
       <div class="wf-field">
         <label>MODEL PROFILE <span class="wf-field__req">*</span></label>
-        <select class="wf-field__input" name="analysis_profile_name" id="tpl-profile" required
-                hx-get="/templates/analysis-templates/scheme-options"
-                hx-trigger="change" hx-target="#tpl-scheme" hx-swap="innerHTML"
-                hx-vals='js:{"profile": document.getElementById("tpl-profile").value}'>
-          <option value=""{% if not (model_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose a model profile…</option>
-          {% for option in model_profile_options %}
-          <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
-            {%- if option.unresolved -%}
-            {{ option.name }} (not found in Risk Modeler)
-            {%- else -%}
-            {{ option.name }}{% if option.family %} — {{ option.family }}{% if option.software_version_code %} · {{ option.software_version_code }}{% endif %}{% endif %}
-            {%- endif -%}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="analysis_profile_name" id="tpl-profile" required
+                  x-ref="select" x-show="false"
+                  hx-get="/templates/analysis-templates/scheme-options"
+                  hx-trigger="change" hx-target="#tpl-scheme" hx-swap="innerHTML"
+                  hx-vals='js:{"profile": document.getElementById("tpl-profile").value}'>
+            <option value=""{% if not (model_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose a model profile…</option>
+            {% for option in model_profile_options %}
+            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+              {%- if option.unresolved -%}
+              {{ option.name }} (not found in Risk Modeler)
+              {%- else -%}
+              {{ option.name }}{% if option.family %} — {{ option.family }}{% if option.software_version_code %} · {{ option.software_version_code }}{% endif %}{% endif %}
+              {%- endif -%}
+            </option>
+            {% endfor %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
         <div class="wf-field__msg wf-field__hint">Options come from Analysis Metadata; the marker shows DLM / HD / Accumulation (FR-004).</div>
       </div>
 
       <div class="wf-field">
         <label>EVENT RATE SCHEME</label>
-        <select class="wf-field__input" name="event_rate_scheme_name" id="tpl-scheme">
-          {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="event_rate_scheme_name" id="tpl-scheme"
+                  x-ref="select" x-show="false" @htmx:after-swap="sync()">
+            {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
         <div class="wf-field__msg wf-field__hint">Required for DLM analyses; filtered to the selected profile's peril/region.</div>
       </div>
 
       <div class="wf-field">
         <label>OUTPUT PROFILE <span class="wf-field__req">*</span></label>
-        <select class="wf-field__input" name="output_profile_name" required>
-          <option value=""{% if not (output_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose an output profile…</option>
-          {% for option in output_profile_options %}
-          <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
-            {{ option.name }}{% if option.unresolved %} (not found in Risk Modeler){% endif %}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="output_profile_name" required
+                  x-ref="select" x-show="false">
+            <option value=""{% if not (output_profile_options | selectattr('selected') | list) %} selected{% endif %}>Choose an output profile…</option>
+            {% for option in output_profile_options %}
+            <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
+              {{ option.name }}{% if option.unresolved %} (not found in Risk Modeler){% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
       </div>
 
       <div class="wf-field">
         <label>CURRENCY <span class="wf-field__req">*</span></label>
-        <select class="wf-field__input" name="currency_code" required>
-          <option value=""{% if not (currency_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency…</option>
-          {% for option in currency_options %}
-          <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
-            {%- if option.unresolved -%}
-            {{ option.code }} (not found)
-            {%- else -%}
-            {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
-            {%- endif -%}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="currency_code" required
+                  x-ref="select" x-show="false">
+            <option value=""{% if not (currency_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency…</option>
+            {% for option in currency_options %}
+            <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
+              {%- if option.unresolved -%}
+              {{ option.code }} (not found)
+              {%- else -%}
+              {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
+              {%- endif -%}
+            </option>
+            {% endfor %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
       </div>
 
       <div class="wf-field">
         <label>CURRENCY SCHEME <span class="wf-field__req">*</span></label>
-        <select class="wf-field__input" name="currency_scheme_code" id="tpl-currency-scheme" required
-                hx-get="/templates/analysis-templates/vintage-options"
-                hx-trigger="change" hx-target="#tpl-vintage" hx-swap="innerHTML"
-                hx-vals='js:{"scheme": document.getElementById("tpl-currency-scheme").value}'>
-          <option value=""{% if not (currency_scheme_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency scheme…</option>
-          {% for option in currency_scheme_options %}
-          <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
-            {%- if option.unresolved -%}
-            {{ option.code }} (not found)
-            {%- else -%}
-            {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
-            {%- endif -%}
-          </option>
-          {% endfor %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="currency_scheme_code" id="tpl-currency-scheme" required
+                  x-ref="select" x-show="false"
+                  hx-get="/templates/analysis-templates/vintage-options"
+                  hx-trigger="change" hx-target="#tpl-vintage" hx-swap="innerHTML"
+                  hx-vals='js:{"scheme": document.getElementById("tpl-currency-scheme").value}'>
+            <option value=""{% if not (currency_scheme_options | selectattr('selected') | list) %} selected{% endif %}>Choose a currency scheme…</option>
+            {% for option in currency_scheme_options %}
+            <option value="{{ option.code }}"{% if option.selected %} selected{% endif %}>
+              {%- if option.unresolved -%}
+              {{ option.code }} (not found)
+              {%- else -%}
+              {{ option.code }}{% if option.name %} — {{ option.name }}{% endif %}
+              {%- endif -%}
+            </option>
+            {% endfor %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
       </div>
 
       <div class="wf-field">
         <label>CURRENCY VINTAGE <span class="wf-field__req">*</span></label>
-        <select class="wf-field__input" name="currency_vintage" id="tpl-vintage" required>
-          {% with options = currency_vintage_options %}{% include "partials/vintage_options.html" %}{% endwith %}
-        </select>
+        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+          <select class="wf-field__input" name="currency_vintage" id="tpl-vintage" required
+                  x-ref="select" x-show="false" @htmx:after-swap="sync()">
+            {% with options = currency_vintage_options %}{% include "partials/vintage_options.html" %}{% endwith %}
+          </select>
+          <input class="wf-field__input" type="text" autocomplete="off" x-cloak required
+                 role="combobox" aria-autocomplete="list" :aria-expanded="isOpen"
+                 x-ref="input" x-model="query"
+                 @focus="open()" @input="onInput()" @keydown="onKey($event)"
+                 :placeholder="placeholder">
+          <div class="ta__menu" x-ref="menu" x-show="isOpen" x-cloak
+               @click="pick($event.target.closest('.ta__opt'))">
+            <template x-for="(opt, i) in filteredOptions" :key="opt.value">
+              <button type="button" class="ta__opt" :class="{ 'is-active': i === activeIndex }"
+                      :data-value="opt.value" x-text="opt.label"></button>
+            </template>
+            <div class="ta__empty" x-show="!filteredOptions.length">No matches</div>
+          </div>
+        </div>
         <div class="wf-field__msg wf-field__hint">Pre-selects the scheme's latest vintage by effective date; change it to pin an older one. A scheme with no cached vintages blocks save.</div>
       </div>
 
