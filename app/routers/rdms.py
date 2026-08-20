@@ -254,8 +254,8 @@ def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
     """The shell-less #rdm-detail wrapper — the HTMX swap/poll unit."""
     ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
-        # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # End the every-3s poll instead of returning a repeating 404.
+        # RDM hard-gone mid-poll: return a terminal notice with no trigger,
+        # so the every-3s poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'

@@ -272,44 +272,44 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
                 conn, rdm_id=rdm_id,
                 seen_ids=[hit.analysis_id for hit in hits], now=now)
             for hit in hits:
-                    # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
-                    # a concurrent backfill of the same RDM can win the race and
-                    # leave this insert violating UNIQUE(rdm_id, irp_id).
-                    # Absorb that in a SAVEPOINT as a dedup hit so the outer txn
-                    # (and the rollup) survives.
-                    try:
-                        with conn.begin_nested():
-                            conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
-                                "id": str(uuid.uuid4()),
-                                "rdm": str(rdm_id),
-                                "irp": str(hit.analysis_id), "name": hit.name,
-                                "srdm": rdm.name,
-                                "cby": (str(apply_irp_id)
-                                        if apply_irp_id is not None else None),
-                                "now": now})
-                    except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
-                        if not is_unique_violation(exc):
-                            raise
-                    # Detail overwrite (US3): the pointer prefers the per-analysis
-                    # metadata, falling back to the search hit; promoted ONLY for
-                    # exposureResourceType == "PORTFOLIO" (R9).
-                    meta = meta_by_id.get(hit.analysis_id)
-                    rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
-                    if meta is not None and meta.exposure_resource_id is not None:
-                        rid, rtype = (meta.exposure_resource_id,
-                                      meta.exposure_resource_type)
-                    pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
-                    key = {"rdm": str(rdm_id),
-                           "irp": str(hit.analysis_id), "x": pointer, "now": now}
-                    if meta is not None:
-                        conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
-                            **key,
-                            "sm": (json.dumps(meta.payload) if meta.payload else None),
-                            "grp": (1 if meta.is_group else 0)})
-                    elif pointer is not None:
-                        # metadata read failed — refresh the pointer only when
-                        # the search hit actually carried one
-                        conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
+                # The NOT EXISTS pre-check is not atomic under READ COMMITTED;
+                # a concurrent backfill of the same RDM can win the race and
+                # leave this insert violating UNIQUE(rdm_id, irp_id).
+                # Absorb that in a SAVEPOINT as a dedup hit so the outer txn
+                # (and the rollup) survives.
+                try:
+                    with conn.begin_nested():
+                        conn.execute(text(_INSERT_ANALYSIS_IF_ABSENT), {
+                            "id": str(uuid.uuid4()),
+                            "rdm": str(rdm_id),
+                            "irp": str(hit.analysis_id), "name": hit.name,
+                            "srdm": rdm.name,
+                            "cby": (str(apply_irp_id)
+                                    if apply_irp_id is not None else None),
+                            "now": now})
+                except Exception as exc:  # noqa: BLE001 — UNIQUE race → already captured
+                    if not is_unique_violation(exc):
+                        raise
+                # Detail overwrite (US3): the pointer prefers the per-analysis
+                # metadata, falling back to the search hit; promoted ONLY for
+                # exposureResourceType == "PORTFOLIO" (R9).
+                meta = meta_by_id.get(hit.analysis_id)
+                rid, rtype = hit.exposure_resource_id, hit.exposure_resource_type
+                if meta is not None and meta.exposure_resource_id is not None:
+                    rid, rtype = (meta.exposure_resource_id,
+                                  meta.exposure_resource_type)
+                pointer = rid if (rid is not None and rtype == "PORTFOLIO") else None
+                key = {"rdm": str(rdm_id),
+                       "irp": str(hit.analysis_id), "x": pointer, "now": now}
+                if meta is not None:
+                    conn.execute(text(_UPDATE_ANALYSIS_DETAIL), {
+                        **key,
+                        "sm": (json.dumps(meta.payload) if meta.payload else None),
+                        "grp": (1 if meta.is_group else 0)})
+                elif pointer is not None:
+                    # metadata read failed — refresh the pointer only when
+                    # the search hit actually carried one
+                    conn.execute(text(_UPDATE_ANALYSIS_POINTER), key)
             # Mark the RDM ready and stamp its last successful analysis refresh.
             rdm_service.rollup_on_terminal(
                 conn, rdm_id=rdm_id, rm_status="FINISHED", irp_id=apply_irp_id)

@@ -364,8 +364,8 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
-        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # End the every-3s poll instead of returning a repeating 404.
+        # EDM hard-gone mid-poll: return a terminal notice with no trigger,
+        # so the every-3s poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
