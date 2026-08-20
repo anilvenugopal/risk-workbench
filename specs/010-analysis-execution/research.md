@@ -94,7 +94,7 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 | T-09 | Implement the poller `_submission_retry` batch: per-analysis latest `SUBMISSION FAILED` row, exponential backoff, retry updates that row in place; `IRP_SUBMISSION_MAX_RETRIES` default changes `None` → 3 (PRD §14.3) | Approved |
 | T-10 | On `FINISHED` the poller enqueues `backfill_analysis_detail`; that worker resolves the RM analysis by name, writes `irp_id` + `settings_metadata`, and (loss phase) chains `retrieve_analysis_results` | Approved |
 | T-11 | Live updates reuse the existing 3s body self-poll; the `live` flag adds "any executed analysis non-terminal". No SSE in this feature | Approved |
-| T-12 | Fill the `/workflows/irp-jobs` stub with a minimal `irp_job` listing (name/type/status/submitted-by/when, 3s poll) so analysis jobs are visible per FR-014 | Proposed |
+| T-12 | Fill the `/workflows/irp-jobs` stub with a minimal `irp_job` listing (name/type/status/submitted-by/when, 3s poll) so analysis jobs are visible per FR-014; delivered as the iteration's final phase | Approved 2026-08-20 |
 | T-13 | Loss storage per DATA_MODEL §9: Parquet row-level files + one `analysis_result_meta` row per (analysis, perspective); summary columns `aal`, `std_dev`, `max_event_loss`, `elt_record_count`, `has_plt`; return-period/OEP/AEP numbers read from the EP Parquet at view time; add `pyarrow` | Approved |
 | T-14 | Parquet path is `{OUTPUTS_BASE_DIR}/analyses/{analysis_id}/{perspective_code}/{result_type}.parquet` — keyed by analysis id, not submission id | Approved |
 | T-15 | Retrieval attempts all three perspectives; a perspective RM returns nothing for gets no meta row and no error | Approved |
@@ -165,8 +165,8 @@ remains the eventual home for SSE when the status bar is built.
 existing job views", but those views are stubs — the spec's assumption was wrong. The
 smallest honest change is a plain read-only table on the existing `/workflows/irp-jobs`
 route. The alternative — treating the FR as vacuously satisfied — hides 150-job runs from
-the one page named for them. Needs approver confirmation before implement; nothing else
-in the design depends on it.
+the one page named for them. Approved 2026-08-20 and scheduled as the iteration's final
+delivery phase (after loss retrieval); nothing else in the design depends on it.
 
 **T-13/T-14 — result storage.** DATA_MODEL §9 owns the hybrid (SQL summary + Parquet
 rows). Deviation: §9's path template starts at `{submission_outputs_dir}`, but executions
@@ -178,6 +178,15 @@ on drill-down — the meta row is a list-view index, not the report.
 **T-15** — an analysis run without treaties has no meaningful RL perspective; RM returns
 empty rather than erroring. Absence of a perspective is data, not a failure (graceful-empty
 doctrine).
+
+**Retrieval/backfill failure handling (P-14 amended 2026-08-20).** The originally
+clarified design — automatic backoff retry up to a configured maximum plus a
+retrieval-failed display — is deferred to a later iteration. `retrieve_analysis_results`
+and `backfill_analysis_detail` follow the standard rwb_job actor pattern every existing
+worker uses: `max_retries=0`, a failure lands the `rwb_job` in `failed` with
+`error_detail`, interruption is recovered by the heartbeat + reconciler, and resume goes
+through each worker's skip check. The detail view shows results-pending until numbers
+arrive. No retrieval-retry config settings and no retrieval-failure column are added.
 
 **T-16** — no RM API exists for treaty edit and no tracked job is wanted (P-08). The
 refocus-triggered sync reuses `edm_service.sync_detail` unchanged; without it the analyst

@@ -65,6 +65,12 @@ edit and save there; return to the workbench window → the treaty section refre
 5. On disk: `{OUTPUTS_BASE_DIR}/analyses/{analysis_id}/{GR|GU|RL}/*.parquet` matches the
    meta rows' `*_file_path` columns.
 
+## Phase 4 — Job monitor listing (T-12)
+
+Open `/workflows/irp-jobs` → a read-only table lists the run's analysis jobs alongside
+other tracked jobs (type, entity/analysis name, status, submitted-by, when, attempts),
+newest first, refreshing on the 3s poll. No actions offered.
+
 ## Cross-references
 
 - Schema assertions: [data-model.md](data-model.md)

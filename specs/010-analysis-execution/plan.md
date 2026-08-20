@@ -42,7 +42,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
 - Live updates are the existing HTMX 3s body self-poll — no SSE exists in the app; FR-014's
   "same treatment as import jobs" is the poll (T-11).
 - `/workflows/irp-jobs` stub gets a minimal read-only `irp_job` listing so analysis jobs
-  are visible (FR-014) — **Proposed, needs approver confirmation** (T-12).
+  are visible (FR-014) — approved, delivered as the iteration's final phase (T-12).
 - Loss phase per DATA_MODEL §9: Parquet row data + `analysis_result_meta` summary per
   (analysis, perspective); path keyed by analysis id; empty perspectives are data, not
   errors; PLT for HD only; `pyarrow` added (T-13/T-14/T-15).
@@ -51,15 +51,18 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
 - `execute_analysis_batch` actor `time_limit` raised to 1h; no extra rate limiter — the
   sequential loop is the throttle (T-17/T-18).
 - Delivery follows P-09: phase 1 suite execution + tracking (US1+US2), phase 2 single
-  templates (US3), phase 3 loss retrieval (US4). UI-first previews for the modal, the
-  user-executed section, and the loss fragment before building.
+  templates (US3), phase 3 loss retrieval (US4), phase 4 the job-monitor listing (T-12).
+  UI-first previews for the modal, the user-executed section, and the loss fragment
+  before building.
+- Retrieval/backfill failure handling is the standard rwb_job actor pattern
+  (`max_retries=0`, failure → `failed` + `error_detail`, reconciler recovers
+  interruption); the P-14 backoff retry and retrieval-failed display are deferred.
 
 **Risk.** The wheel is pre-release (0.6.0rc2) and moves: signatures in
 [contracts/irp-gateway.md](contracts/irp-gateway.md) must be re-confirmed against the
 active wheel at implementation; the IRP-sandbox tier is the proof.
 
-**Decisions**: T-01…T-18 in [research.md](research.md) — all Approved except T-12
-(Proposed). No open items.
+**Decisions**: T-01…T-18 in [research.md](research.md) — all Approved. No open items.
 
 ## Technical Context
 

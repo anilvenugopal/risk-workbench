@@ -14,7 +14,7 @@
 
 **What this feature does NOT do.** No grouping (Iteration 8), no broker side-by-side comparison (Iteration 9), **no broker (RDM) loss-number retrieval** (P-12 — own executed analyses only; broker retrieval lands with the work that consumes it), no Loss Repository export (Iteration 10), no hazard lookup (shipped separately, Iteration 5 — and never an analysis prerequisite), no in-app treaty editor (pass-through only), no EP-curve graph, no editing of templates or suites (executed as defined by spec 009), **no workbench cancellation** (P-13 — a submitted run executes in full; jobs are cancelled in Risk Modeler's own UI and mirrored back as CANCELLED).
 
-**Delivery is phased** (P-09): suite execution first, single-template execution second, loss-number retrieval last. Each phase is separately verifiable.
+**Delivery is phased** (P-09): suite execution first, single-template execution second, loss-number retrieval third, and the job-monitor listing as the final phase. Each phase is separately verifiable.
 
 **Business rules that shape the design** (PRD §11.3a, §14, design note D13/D14):
 
@@ -35,12 +35,12 @@
 | P-06 | Peril/portfolio mismatch is expected, not an error; every failed analysis is reported with its reason. | Approved (D14) |
 | P-07 | An analysis record is written at submission and backfilled with settings/metadata when its job completes. | Approved (PRD §11.3a, 2026-08-20) |
 | P-08 | Treaty create/edit is a Risk Modeler pass-through: new window, edit and save there, return, page refreshes. No tracked job. | Approved (FR §5, reconfirmed 2026-08-04) |
-| P-09 | Phased delivery: suite execution → single-template execution → loss-number retrieval. | Approved (PRD §21 Iteration 7) |
+| P-09 | Phased delivery: suite execution → single-template execution → loss-number retrieval → job-monitor listing. | Approved (PRD §21 Iteration 7; listing phase added 2026-08-20) |
 | P-10 | Rerun naming: when the fixed name already exists, a numeric suffix is appended within the 64-character cap. Reruns never block, and analysis names stay unique — Iteration 8 grouping resolves member analyses by name. The stored full name carries the same suffix. | Approved 2026-08-20 |
 | P-11 | Background submit: clicking Submit closes the modal immediately; the confirmed run (portfolios × templates + treaties) is persisted and submitted in the background, each analysis appearing in the user-executed section as its submission lands. Navigating away never abandons the run. | Approved 2026-08-20 |
 | P-12 | Broker (RDM) loss-number retrieval is out of this spec's scope — retrieval here covers own executed analyses only. (PRD §17.2 anticipates broker retrieval once the machinery exists; it ships with the work that consumes it, not here.) | Deferred 2026-08-20 |
 | P-13 | No workbench cancellation: once Submit is clicked the run executes in full. An analysis is cancelled only in Risk Modeler's own UI; the workbench mirrors CANCELLED (treated as a failure). | Approved 2026-08-20 |
-| P-14 | Loss-retrieval failure is retried automatically with backoff up to a configured maximum; the detail view shows results-pending until numbers arrive, retrieval-failed with the reason after exhaustion. The analysis stays FINISHED — the run succeeded. | Approved 2026-08-20 |
+| P-14 | Loss-retrieval failure follows the standard background-job handling: the retrieval job is marked failed with its reason, interrupted work is recovered automatically (FR-015), and the detail view shows results-pending until numbers arrive. Automatic backoff retry and a retrieval-failed display are deferred to a later iteration. The analysis stays FINISHED — the run succeeded. | Approved 2026-08-20 |
 
 **How to verify.** Select several portfolios, run a suite from the modal, and watch one auto-named analysis per portfolio × template appear in the EDM page's user-executed section and move through statuses live; deselect a template inside an expanded suite and see it excluded; force a peril mismatch and read its reason; run a single template the same way; edit a treaty via the Risk Modeler pass-through and see the refreshed view reflect it; after the loss-retrieval phase, open a finished analysis and read its loss numbers per perspective.
 
@@ -52,7 +52,7 @@
 - Q: Re-executing the same portfolio × template produces a duplicate fixed name — block, allow duplicates, or suffix? → A: **Unique suffix** (P-10): append a counter within the 64-character cap. Reruns never block, and names stay unique for Iteration 8 grouping's name-based resolution.
 - Q: For a large run (150+ submissions), does the analyst wait in the modal until every submission returns? → A: **No — background submit** (P-11): the modal closes on Submit, the confirmed run is persisted and executed exactly as approved, and analyses appear in the user-executed section as each submission lands.
 - Q: Can the analyst cancel anything from the workbench after Submit — an in-flight analysis, or the unsubmitted remainder of a background run? → A: **No** (P-13). No workbench cancellation; individual jobs are cancelled in Risk Modeler's own UI and the workbench mirrors CANCELLED.
-- Q: What does the analyst see when loss-result retrieval fails for a FINISHED analysis, and how does it recover? → A: **Automatic retry with a visible outcome** (P-14): retried with backoff up to a configured maximum; the detail view shows results-pending until numbers arrive and retrieval-failed with the reason after exhaustion. The analysis status stays FINISHED.
+- Q: What does the analyst see when loss-result retrieval fails for a FINISHED analysis, and how does it recover? → A: **Standard job-failure handling** (P-14, amended 2026-08-20): the retrieval job is marked failed with its reason; interrupted retrievals recover via the FR-015 machinery; the detail view shows results-pending until numbers arrive. Automatic backoff retry and a retrieval-failed display are deferred to a later iteration. The analysis status stays FINISHED.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -127,7 +127,7 @@ After an executed analysis finishes, the workbench retrieves its loss results au
 2. **Given** stored results, **When** the analyst opens the analysis detail view, **Then** ELT summary (AAL, max event loss, record count), standard deviation, return-period losses, and OEP/AEP are shown, and the analyst can switch between Gross, Ground-Up, and Reinsurance-Layer perspectives.
 3. **Given** an HD analysis, **Then** PLT data is retrieved and viewable; **Given** a DLM analysis, **Then** no PLT is offered.
 4. **Given** a failed analysis, **Then** no retrieval is attempted and the analysis still shows its failure reason.
-5. **Given** a FINISHED analysis whose loss-result retrieval fails, **Then** retrieval is retried automatically with backoff, the detail view shows results-pending until the numbers arrive, and after the configured maximum it shows retrieval-failed with the reason — the analysis status stays FINISHED (P-14).
+5. **Given** a FINISHED analysis whose loss-result retrieval fails, **Then** the retrieval job is marked failed with its reason, the detail view shows results-pending, and the analysis status stays FINISHED (P-14). An interrupted retrieval is recovered and completed automatically (FR-015).
 
 ---
 
@@ -143,7 +143,7 @@ After an executed analysis finishes, the workbench retrieves its loss results au
 - Submission retry exhausts its maximum → the analysis stays failed-to-submit, visible with its reason; no silent disappearance.
 - The suite or template list is edited by an admin while the modal is open → the execution uses the selection as submitted; no re-read mid-run.
 - An accumulation-profile template in a suite → runs like any other template; its output shape is handled at results viewing.
-- Loss-result retrieval fails for a FINISHED analysis → retried automatically with backoff; results-pending shown until numbers arrive, retrieval-failed with the reason after the configured maximum; the analysis stays FINISHED (P-14).
+- Loss-result retrieval fails for a FINISHED analysis → the retrieval job is marked failed with its reason; the detail view shows results-pending; the analysis stays FINISHED (P-14). Automatic backoff retry is deferred.
 
 ## Requirements *(mandatory)*
 
@@ -170,12 +170,12 @@ After an executed analysis finishes, the workbench retrieves its loss results au
 **Tracking (US2)**
 
 - **FR-013**: The EDM detail page MUST show a user-executed analyses section listing every workbench-executed analysis for that EDM — presented like the broker-analysis sections but with no RDM grouping — each showing its full name, the portfolio it ran against, and its current status.
-- **FR-014**: The user-executed section MUST update live as jobs change status, without a manual page refresh — the same live treatment as import jobs. Analysis jobs MUST appear in the existing job views with the same attribution and filtering as other tracked jobs.
+- **FR-014**: The user-executed section MUST update live as jobs change status, without a manual page refresh — the same live treatment as import jobs. Analysis jobs MUST appear in the `/workflows/irp-jobs` job listing with the same attribution as other tracked jobs; that page is a stub today, and the minimal read-only listing ships as the final phase of this iteration.
 - **FR-015**: Background steps interrupted mid-work (a worker that dies holding a claimed step) MUST be recovered automatically and completed without analyst or developer intervention.
 
 **Loss-number retrieval (US4 — last phase, P-09)**
 
-- **FR-016**: When an executed analysis reaches FINISHED, the workbench MUST retrieve its loss results automatically in the background, per financial perspective (Gross, Ground-Up, Reinsurance Layer), and store a per-perspective summary plus the row-level data. No analyst action triggers retrieval. Retrieval covers own executed analyses only; broker (RDM) results are out of this spec (P-12). A failed retrieval MUST be retried automatically with backoff up to a configured maximum; the detail view shows results-pending until the numbers arrive and retrieval-failed with the reason after the maximum is exhausted. The analysis status stays FINISHED throughout (P-14).
+- **FR-016**: When an executed analysis reaches FINISHED, the workbench MUST retrieve its loss results automatically in the background, per financial perspective (Gross, Ground-Up, Reinsurance Layer), and store a per-perspective summary plus the row-level data. No analyst action triggers retrieval. Retrieval covers own executed analyses only; broker (RDM) results are out of this spec (P-12). A failed retrieval follows the standard background-job handling: the retrieval job is marked failed with its reason, interrupted work recovers per FR-015, and the detail view shows results-pending until the numbers arrive — automatic backoff retry is deferred to a later iteration (P-14). The analysis status stays FINISHED throughout.
 - **FR-017**: The executed-analysis detail views MUST show the retrieved numbers — ELT summary (AAL / pure premium, max event loss, record count), standard deviation, return-period losses (indicative set 1000 / 500 / 250 / 100 / ~20–25 year), and OEP and AEP — switchable by perspective; PLT MUST be shown for HD analyses only. No EP-curve graph is required.
 
 **Treaty create/edit pass-through (P-08)**
@@ -205,7 +205,7 @@ After an executed analysis finishes, the workbench retrieves its loss results au
 
 - **Treaty selection is optional** — an execution with zero treaties runs the analyses without treaty application. The prerequisite gate's "(+ named treaties)" applies only when the analyses are meant to apply reinsurance.
 - **The user-executed section shows all workbench-executed analyses for the EDM**, regardless of which analyst ran them — consistent with global visibility (no row-level security).
-- **Job-monitor and status-bar views exist from earlier iterations**; analysis jobs join them without a redesign of those views.
+- **The job-monitor pages are stubs today** (`/workflows/irp-jobs`, `/workflows/rwb-jobs`); a minimal read-only `irp_job` listing ships as the final phase of this iteration so analysis jobs are visible (FR-014). The status bar stays a placeholder.
 - **Accumulation-profile templates execute through the same path** as DLM/HD templates; accumulation-specific output shapes matter at results viewing, not at submission.
 - **The exact return-period point set is indicative** (1000 / 500 / 250 / 100 / ~20–25 year) pending O5-2 (owned by the PRD); the retrieval stores what Risk Modeler returns.
 - **Suite/template administration is unchanged** — this feature reads templates and suites as spec 009 shipped them (unordered suites, all-required currency triple, no per-item settings).

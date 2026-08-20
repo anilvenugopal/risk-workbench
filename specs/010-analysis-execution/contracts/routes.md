@@ -41,10 +41,11 @@ union of checked templates across expanded suites), `suite_ids` (repeated, `kind
 only — validated non-empty, not persisted), `treaty_names` (repeated).
 
 Server behavior (`analysis_execution_service.request_execution`):
-1. Gate: EDM exists and `ready`; every `portfolio_id` belongs to the EDM; every
-   `template_id` is live; `kind=suite` ⇒ ≥1 `suite_id`; ≥1 template; every treaty name
-   exists in `irp_treaty` for this EDM. Any failure → 422 re-render of the modal with the
-   message (`hx-on::before-swap` keeps 409/422 swaps).
+1. Gate: dedupe `portfolio_ids` and `template_ids` server-side (FR-005 must not depend
+   on the browser posting a clean set); EDM exists and `ready`; every `portfolio_id`
+   belongs to the EDM; every `template_id` is live; `kind=suite` ⇒ ≥1 `suite_id`; ≥1
+   template; every treaty name exists in `irp_treaty` for this EDM. Any failure → 422
+   re-render of the modal with the message (`hx-on::before-swap` keeps 409/422 swaps).
 2. Compose the plan **once** (FR-012): mint `execution_id`, snapshot each template's
    stored values (including the currency block with `asOfDate` derived from
    `irp_currency_scheme_vintage.effective_date` — T-03), portfolio ids+names, treaty

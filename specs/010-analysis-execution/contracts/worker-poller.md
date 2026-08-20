@@ -94,9 +94,11 @@ then update `irp_analysis`: `irp_id`, `settings_metadata` (the `backfill_rdm_ana
 shape), `exposure_resource_id` (from `irp_job_resource`), `status_code='ready'`.
 On success, loss phase only: chain `retrieve_analysis_results` via
 `ensure_pending_rwb_job(requestor_type='rwb_job', requestor_id=own id)` + dispatch.
-Resolution failure → `rwb_job` `failed` with `error_detail` (reconciler/Dramatiq
-handling unchanged; the analysis keeps `running` + its job row shows FINISHED, which the
-section renders as "completed, details pending" until a retry lands).
+Actor follows the standard pattern (`max_retries=0`). Resolution failure → `rwb_job`
+`failed` with `error_detail`; the analysis keeps `running` + its job row shows FINISHED,
+which the section renders as "completed, details pending". The reconciler recovers an
+*interrupted* backfill; a genuinely failed one stays `failed` until re-dispatched —
+automatic retry is deferred (P-14 amendment, research.md).
 
 ## 5. `retrieve_analysis_results` worker (loss phase, FR-016)
 
@@ -111,6 +113,11 @@ from `settings_metadata` (HD ⇒ PLT). For each perspective `GR`, `GU`, `RL`:
    the meta row (summary columns + paths) in one transaction.
 
 Own analyses only — never fired for rows with `rdm_id` set (P-12).
+
+Actor follows the standard pattern (`max_retries=0`): a failure lands the `rwb_job` in
+`failed` with `error_detail`, and the detail view keeps showing results-pending.
+Interruption recovers via the reconciler plus the step-1 skip; automatic backoff retry
+and a retrieval-failed display are deferred (P-14 amendment, research.md).
 
 ## 6. `_submission_retry` batch (poller step, FR-010, T-09)
 
