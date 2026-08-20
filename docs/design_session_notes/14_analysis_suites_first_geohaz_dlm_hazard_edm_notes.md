@@ -98,7 +98,7 @@ Closes the packages-removal thread from `13` §1/§3 ("merge these changes and b
 ### 3.1 EDM notes — final shape (D1, D2)
 
 - **Edit in place** in the submission table (both Wendy and Cheryl said yes); **no rich-text formatting** preserved (Wendy: not necessary). Both edit surfaces (table + EDM detail) coexist.
-- **EDM-detail notes section becomes collapsible, collapsed by default,** and compact — notes are most useful in the submission list (to tell EDMs apart when choosing), less so once inside a portfolio, and shouldn't force scrolling past them to reach portfolio info. Ideally fits existing white space rather than a full horizontal band.
+- **EDM-detail notes section becomes collapsible, collapsed by default,** and compact — notes are most useful in the submission list (to tell EDMs apart when choosing), less so once inside an EDM, and shouldn't force scrolling past them to reach portfolio info. Ideally fits existing white space rather than a full horizontal band.
 - **Cap = 250 characters** (supersedes the "~255" in `13` §3.3). Stored only in the Workbench (§6 EDM notes field; not written to Risk Modeler).
 
 ### 3.2 Submission page (built / closing out)

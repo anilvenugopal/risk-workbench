@@ -2,7 +2,7 @@
 
 ``list_adoptable_edms`` diffs Risk Modeler's exposures list against ``irp_edm``;
 ``adopt_edms`` inserts a ``ready`` row per selected exposureId — no
-``source_file_path``, no package, no import submit — and enqueues one
+``source_file_path``, no import submit, and enqueues one
 ``backfill_edm_detail`` head each, which is what fetches the portfolios, their
 exposure figures, and the treaties.
 
@@ -221,7 +221,7 @@ def test_the_name_search_narrows_the_list_before_it_is_paged(
 
 # ── adopt_edms ───────────────────────────────────────────────────────────────────
 
-def test_adopt_inserts_a_ready_row_with_no_source_file_or_package(
+def test_adopt_inserts_a_ready_row_with_no_source_file(
         iteration2_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501, server_name="databridge-2")
 
@@ -229,7 +229,7 @@ def test_adopt_inserts_a_ready_row_with_no_source_file_or_package(
 
     assert len(result.adopted) == 1
     row = execute_one(
-        "SELECT name, irp_id, status, server_name, source_file_path, package_id, "
+        "SELECT name, irp_id, status, server_name, source_file_path, "
         "as_of, created_by_irp_job_irp_id, inserted_by FROM irp_edm WHERE id = :i",
         {"i": result.adopted[0]}, connection="WORKBENCH")
     assert row["name"] == "alpha"
@@ -237,7 +237,6 @@ def test_adopt_inserts_a_ready_row_with_no_source_file_or_package(
     assert row["status"] == edm_service.READY
     assert row["server_name"] == "databridge-2"
     assert row["source_file_path"] is None
-    assert row["package_id"] is None
     # backfill_edm_detail stamps as_of; there is no creating import job.
     assert row["as_of"] is None
     assert row["created_by_irp_job_irp_id"] is None

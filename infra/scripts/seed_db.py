@@ -99,13 +99,12 @@ def main() -> int:
             print("  [treaty_type_kind] seeds OK")
 
             # ── Iteration-2 kind seeds (idempotent MERGE) — data-model §13 ──────
-            # irp_job_type_kind — NO delete_rdm (RDM delete is synchronous, R6).
+            # irp_job_type_kind
             conn.execute(text("""
                 MERGE irp_job_type_kind AS target
                 USING (VALUES
                     ('import_edm', 'Import EDM', 10),
                     ('import_rdm', 'Import RDM', 20),
-                    ('delete_edm', 'Delete EDM', 30),
                     ('geohaz',     'Geohazard', 40),
                     ('analysis',   'Analysis',  50),
                     ('grouping',   'Grouping',  60),
@@ -137,8 +136,6 @@ def main() -> int:
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
-                    ('delete_rdm',                'Delete RDM',                70),
-                    ('delete_edm',                'Delete EDM',                80),
                     ('sync_irp_metadata',         'Sync IRP metadata',         90)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code

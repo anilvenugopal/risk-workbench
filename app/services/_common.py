@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlsplit
@@ -18,28 +20,55 @@ from urllib.parse import urlsplit
 from sqlalchemy import text
 
 from app.config import settings
-from db import get_connection, is_unique_violation
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
 
-def _utcnow() -> datetime:
-    """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+@dataclass(frozen=True)
+class SubmissionRef:
+    id: str
+    name: str
 
 
-def _rm_base_url() -> str | None:
-    """The Risk Modeler web UI's origin, ``https://<tenant>.<domain>`` — derived
-    from ``RISK_MODELER_TENANT_NAME`` and the registrable domain of
-    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod): the
-    UI lives on the TENANT subdomain, never the API host. ``None`` when either
-    is not configured (e.g. api-key auth deployments) — callers hide the link."""
+def _rm_ui_root() -> str | None:
+    """The Risk Modeler web UI origin — ``https://<RISK_MODELER_TENANT_NAME>.
+    <rm-domain>``, where ``<rm-domain>`` is the registrable domain of
+    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
+    RM's web UI lives on the TENANT subdomain, not the API host. For plain
+    navigation links, never an API call (Article 11). ``None`` when the tenant
+    name or base URL is not configured (e.g. api-key auth deployments)."""
     tenant = settings.risk_modeler_tenant_name.strip()
     api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
     domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
     if not tenant or not domain:
         return None
     return f"https://{tenant}.{domain}"
+
+
+# EDM/RDM shared identity: entity table, M:N submission-association table and
+# its FK column naming the entity, the ``rwb_job_type`` its upload head
+# enqueues under, and the display label for error/log text. Also the kind→table
+# map ``entity_note_service.update_notes`` uses.
+_ENTITY_ASSOC = {
+    "edm": {"table": "irp_edm", "assoc": "submission_edm", "id_col": "edm_id",
+            "job_type": "upload_edm", "label": "EDM"},
+    "rdm": {"table": "irp_rdm", "assoc": "submission_rdm", "id_col": "rdm_id",
+            "job_type": "upload_rdm", "label": "RDM"},
+}
+# The EDM/RDM import-status vocabulary — identical values in both kinds (each
+# service also exports its own PENDING/IMPORTING/READY/ERROR constants for its
+# own status-filter vocabulary; only the values need to agree here).
+_PENDING = "pending_import"
+_IMPORTING = "importing"
+_READY = "ready"
+_ERROR = "error"
+_LOCKED = (_IMPORTING, _READY)
+
+
+def _utcnow() -> datetime:
+    """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _json(value: Any) -> str | None:
@@ -145,6 +174,226 @@ def _snapshot_prune(conn, *, table: str, edm_id: Any,
         params).rowcount
 
 
+def _attach_submissions(kind: str, rows: list) -> None:
+    """Set each row's ``.submissions`` from the entity's M:N submission
+    association table (oldest-first) — shared by ``edm_service.list_edms``
+    and ``rdm_service.list_rdms``. One query for the whole page; standalone
+    rows keep the default []."""
+    cfg = _ENTITY_ASSOC[kind]
+    entity_ids = [r.id for r in rows]
+    if not entity_ids:
+        return
+    params = {f"e{i}": value for i, value in enumerate(entity_ids)}
+    placeholders = ", ".join(f":e{i}" for i in range(len(entity_ids)))
+    refs: dict[str, list[SubmissionRef]] = {}
+    for association in execute(
+        f"SELECT a.{cfg['id_col']} AS entity_id, s.id, s.name "
+        f"FROM {cfg['assoc']} a JOIN submission s ON s.id = a.submission_id "
+        f"WHERE a.{cfg['id_col']} IN ({placeholders}) ORDER BY s.inserted_at",
+        params, connection="WORKBENCH",
+    ):
+        refs.setdefault(_uid(association["entity_id"]), []).append(
+            SubmissionRef(id=_uid(association["id"]), name=association["name"]))
+    for row in rows:
+        row.submissions = refs.get(row.id, [])
+
+
+def _submission_entity_context(
+    kind: str, *, submission_id: Any, entity_id: Any,
+) -> tuple[SubmissionRef, list[SubmissionRef]] | None:
+    """Confirm ``entity_id`` (an EDM or RDM) belongs to ``submission_id``, and
+    return the owning submission plus the sibling choices — this submission's
+    other same-kind entities, the named one first. ``None`` when the entity
+    isn't associated with the submission (or is soft-deleted) — shared by
+    ``edm_service.get_contextual_edm_detail`` and
+    ``rdm_service.get_contextual_rdm_detail``."""
+    cfg = _ENTITY_ASSOC[kind]
+    sid = str(submission_id)
+    eid = str(entity_id)
+    source = execute_one(
+        f"SELECT s.id, s.name FROM submission s "
+        f"JOIN {cfg['assoc']} a ON a.submission_id = s.id "
+        f"JOIN {cfg['table']} e ON e.id = a.{cfg['id_col']} "
+        "WHERE s.id = :submission_id AND e.id = :entity_id "
+        "AND e.deleted_at IS NULL",
+        {"submission_id": sid, "entity_id": eid}, connection="WORKBENCH")
+    if source is None:
+        return None
+    choices = execute(
+        f"SELECT e.id, e.name FROM {cfg['assoc']} a "
+        f"JOIN {cfg['table']} e ON e.id = a.{cfg['id_col']} "
+        "WHERE a.submission_id = :submission_id AND e.deleted_at IS NULL "
+        "ORDER BY CASE WHEN e.id = :entity_id THEN 0 ELSE 1 END, e.name",
+        {"submission_id": sid, "entity_id": eid}, connection="WORKBENCH")
+    return (
+        SubmissionRef(id=_uid(source["id"]), name=source["name"]),
+        [SubmissionRef(id=_uid(row["id"]), name=row["name"]) for row in choices],
+    )
+
+
+def _import_entity(
+    kind: str, *, name: str, source_file_path: str, actor_id: Any,
+    submission_id: Any | None,
+) -> tuple[str, bool]:
+    """Create a pending EDM/RDM and enqueue its upload head — the shared shape
+    of ``edm_service.import_edm``/``rdm_service.import_rdm``. The only Risk
+    Modeler call is the cached name-collision read (Article 11), raised as
+    ``NameCollisionError`` before anything is persisted. Returns
+    ``(entity_id, collision_unchecked)``; the caller wraps it in its own
+    ``ImportResult``."""
+    from app.services import rwb_job_service, shared_drive
+    from app.services.errors import NameCollisionError, SubmissionClosed
+    from app.services.name_check import _check as _check_name_collision
+    from app.services.name_check import clean_entity_name
+    from app.workers import dispatch
+
+    cfg = _ENTITY_ASSOC[kind]
+    name = clean_entity_name(name)
+    canonical = shared_drive.validate_selection(source_file_path)
+    check = _check_name_collision(kind, name)
+    if check.collides:
+        raise NameCollisionError(
+            f"An {cfg['label']} named '{name}' already exists in Risk Modeler. "
+            "Choose a different name.")
+
+    entity_id = str(uuid.uuid4())
+    now = _utcnow()
+    actor = str(actor_id)
+    sid = str(submission_id) if submission_id is not None else None
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        if sid is not None:
+            status = conn.execute(text(
+                "SELECT status_code FROM submission WHERE id = :id"
+            ), {"id": sid}).scalar()
+            if status != "ACTIVE":
+                raise SubmissionClosed(
+                    f"Submission is {status or 'missing'}; only ACTIVE deals are editable.")
+        conn.execute(text(
+            f"""
+            INSERT INTO {cfg['table']} (id, source_file_path, name, status,
+                inserted_at, updated_at, inserted_by, updated_by)
+            VALUES (:id, :src, :name, :status, :now, :now, :by, :by)
+            """
+        ), {"id": entity_id, "src": canonical, "name": name, "status": _PENDING,
+            "now": now, "by": actor})
+        if sid is not None:
+            conn.execute(text(
+                f"INSERT INTO {cfg['assoc']} "
+                f"(submission_id, {cfg['id_col']}, inserted_at, inserted_by) "
+                "VALUES (:submission_id, :entity_id, :now, :actor)"
+            ), {"submission_id": sid, "entity_id": entity_id,
+                "now": now, "actor": actor})
+    input_data = {cfg["id_col"]: entity_id}
+    if sid is not None:
+        input_data["requested_from_submission_id"] = sid
+    job_id = rwb_job_service.enqueue_rwb_job(
+        requestor_type="analyst_request", requestor_id=entity_id,
+        rwb_job_type=cfg["job_type"], input_data=input_data, actor_id=actor,
+    )
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])
+    return entity_id, not check.checked
+
+
+def _mark_importing(kind: str, *, entity_id: Any, actor_id: Any | None = None) -> None:
+    """Worker-side: the import submit succeeded — flip ``pending_import`` →
+    ``importing`` (FR-004). Left alone if the row was already advanced
+    (idempotent re-run)."""
+    cfg = _ENTITY_ASSOC[kind]
+    execute_command(
+        f"UPDATE {cfg['table']} SET status = :s, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status = :from_status",
+        {"s": _IMPORTING, "now": _utcnow(),
+         "by": (str(actor_id) if actor_id is not None else None),
+         "id": str(entity_id), "from_status": _PENDING},
+        connection="WORKBENCH",
+    )
+
+
+def _mark_error(kind: str, *, entity_id: Any, actor_id: Any | None = None) -> None:
+    """Worker-side: a submit-side failure (never reached Risk Modeler) — flip
+    an import-in-progress entity to the visible, analyst-recoverable ``error``
+    state. Only touches ``pending_import``/``importing``; idempotent on
+    re-run."""
+    cfg = _ENTITY_ASSOC[kind]
+    execute_command(
+        f"UPDATE {cfg['table']} SET status = :s, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status IN (:p, :i)",
+        {"s": _ERROR, "now": _utcnow(),
+         "by": (str(actor_id) if actor_id is not None else None),
+         "id": str(entity_id), "p": _PENDING, "i": _IMPORTING},
+        connection="WORKBENCH",
+    )
+
+
+def _retry_import(kind: str, *, entity_id: Any, actor_id: Any) -> None:
+    """Re-enqueue a single EDM/RDM's upload head (FR-045). No-op when already
+    ``ready`` or in flight (``importing``); otherwise resets an ``error``
+    entity back to ``pending_import`` **and** the head back to ``pending`` so
+    the worker re-submits (the body only advances a ``pending_import`` row)."""
+    from app.services import rwb_job_service
+    from app.workers import dispatch
+
+    cfg = _ENTITY_ASSOC[kind]
+    eid = str(entity_id)
+    current = execute_one(
+        f"SELECT status FROM {cfg['table']} "
+        "WHERE id = :id AND deleted_at IS NULL",
+        {"id": eid}, connection="WORKBENCH")
+    if current is None or current["status"] in _LOCKED:
+        return
+    execute_command(
+        f"UPDATE {cfg['table']} SET status = :p, updated_at = :now, updated_by = :by "
+        "WHERE id = :id AND status = :err",
+        {"p": _PENDING, "err": _ERROR, "now": _utcnow(), "by": str(actor_id), "id": eid},
+        connection="WORKBENCH",
+    )
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=eid,
+        rwb_job_type=cfg["job_type"], input_data={cfg["id_col"]: eid},
+        actor_id=str(actor_id),
+    )
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])
+    logger.info("%s %s import retry requested by analyst %s",
+               cfg["label"].lower(), eid, actor_id)
+
+
+def _replace_source_file(
+    kind: str, *, entity_id: Any, new_source_file_path: str,
+    expected_updated_at: Any, actor_id: Any,
+) -> None:
+    """Replace the source file of a failed/errored EDM/RDM and re-import
+    (FR-046). Optimistic-concurrency checked on ``updated_at`` (FR-039)."""
+    from app.services import rwb_job_service, shared_drive
+    from app.services.errors import ConcurrencyConflict
+    from app.workers import dispatch
+
+    cfg = _ENTITY_ASSOC[kind]
+    eid = str(entity_id)
+    canonical = shared_drive.validate_selection(new_source_file_path)
+    rows = execute_command(
+        f"""
+        UPDATE {cfg['table']}
+        SET source_file_path = :src, status = :status, updated_at = :now,
+            updated_by = :by
+        WHERE id = :id AND updated_at = :expected AND deleted_at IS NULL
+        """,
+        {"src": canonical, "status": _PENDING, "now": _utcnow(),
+         "by": str(actor_id), "id": eid, "expected": expected_updated_at},
+        connection="WORKBENCH",
+    )
+    if rows == 0:
+        raise ConcurrencyConflict(
+            f"This {cfg['label']} changed since you opened it — reload and re-apply.")
+    job_id = rwb_job_service.ensure_pending_rwb_job(
+        requestor_type="analyst_request", requestor_id=eid,
+        rwb_job_type=cfg["job_type"], input_data={cfg["id_col"]: eid},
+        actor_id=str(actor_id),
+    )
+    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])
+    logger.info("%s %s source file replaced by analyst %s — re-import enqueued",
+               cfg["label"].lower(), eid, actor_id)
+
+
 def _parse_json_dict(raw: Any, what: str) -> dict | None:
     """A stored JSON snapshot column parsed to a dict, ``None`` on NULL /
     unparseable / non-dict content — the read models render the graceful empty
@@ -159,5 +408,7 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-__all__ = ["_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
-           "_snapshot_prune", "_parse_json_dict", "_rm_base_url"]
+__all__ = ["SubmissionRef", "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
+           "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
+           "_submission_entity_context", "_import_entity", "_mark_importing",
+           "_mark_error", "_retry_import", "_replace_source_file", "_rm_ui_root"]

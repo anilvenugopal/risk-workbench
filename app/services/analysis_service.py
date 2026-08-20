@@ -1,16 +1,13 @@
 """Analysis service — the broker-analysis read models (spec 004 US3).
 
-Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``
-(broker ⇔ ``rdm_id`` set — DATA_MODEL §6; no stored origin column):
+Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
 
   • ``list_broker_analyses(rdm_id)`` — the RDM page (FR-030/FR-031, R8):
-    grouped by ``rdm_id`` so an analysis applied across M EDMs is shown ONCE
-    (the M pair-rows are handles sharing one ``irp_id``); each with its parsed
+    grouped by ``rdm_id``; each with its parsed
     ``settings_metadata`` (missing/partial → blank, never error) and
     ``is_group`` (FR-035).
-  • ``list_edm_analyses(edm_id)`` — the EDM page (8/5 D15): every RDM in the
-    EDM's package, each grouped with its analyses — including RDMs with none.
-  • ``analysis_counts`` — un-empties the package-card / EDM counts (FR-050).
+  • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
+    submission RDM context and therefore returns no groups.
 
 **No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
 way to tie an RDM analysis to an EDM portfolio, and every analysis here is
@@ -33,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services._common import _parse_json_dict, _uid
-from db import execute, execute_one
+from db import execute
 
 
 @dataclass
@@ -86,18 +83,19 @@ class BrokerAnalysisGroup:
     rdm_id: str
     rdm_name: str | None
     rdm_irp_id: Any
+    status: str | None = None
+    analysis_count: int = 0
     analyses: list[BrokerAnalysis] = field(default_factory=list)
+    # A backfill_rdm_analyses head is pending/running for this RDM — the EDM
+    # detail page's contextual broker-analyses section polls while any group
+    # carries this, so an RDM's own capture finishing after the EDM's own
+    # backfill still lands without a manual refresh.
+    sync_running: bool = False
 
     @property
     def edm_count(self) -> int:
         return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
-
-@dataclass
-class AnalysisCounts:
-    """FR-050 — the populated counts (spec 003 D5 rendered these empty)."""
-    total: int = 0
-    rdm_count: int = 0
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -229,64 +227,55 @@ def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
 
 
 def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The EDM page's read (8/5 D15): every RDM in the EDM's package with its
-    broker analyses — two EDMs and two RDMs means each EDM page lists both
-    RDMs, and an RDM with no analyses still gets an (empty) group, because the
-    point is Wendy's paired-book check: "were the same analyses run… if you
-    have 12 analyses in one, you have 12 analyses in the other." Listing
-    asserts no EDM↔RDM link (the RDMs merely share the package). A packageless
-    EDM falls back to the analyses applied against it. Never attributed to a
-    portfolio (8/4 D8). No scoping (Article 6)."""
-    edm = execute_one("SELECT package_id FROM irp_edm WHERE id = :id",
-                      {"id": str(edm_id)}, connection="WORKBENCH")
-    package_id = edm["package_id"] if edm else None
-    if not package_id:
-        rows = execute(
-            f"{_HANDLE_SELECT} AND a.edm_id = :e "
-            "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
-            {"e": str(edm_id)}, connection="WORKBENCH")
-        return _group_by_rdm([dict(r) for r in rows])
+    """Direct library EDM pages have no submission context and show no RDM list."""
+    return []
 
+
+def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
+    """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
-        f"{_HANDLE_SELECT} AND r.package_id = :p AND r.deleted_at IS NULL "
-        "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
-        {"p": str(package_id)}, connection="WORKBENCH")
-    by_rdm = {g.rdm_id: g for g in _group_by_rdm([dict(r) for r in rows])}
-    rdms = execute(
-        "SELECT id, name, irp_id FROM irp_rdm "
-        "WHERE package_id = :p AND deleted_at IS NULL ORDER BY inserted_at",
-        {"p": str(package_id)}, connection="WORKBENCH")
-    ordered = [by_rdm.pop(_uid(r["id"]),
-                          BrokerAnalysisGroup(rdm_id=_uid(r["id"]),
-                                              rdm_name=r["name"],
-                                              rdm_irp_id=r["irp_id"]))
-               for r in rdms]
-    ordered.extend(by_rdm.values())   # defensive — should be empty
-    return ordered
+        "SELECT r.id, r.name, r.irp_id, r.status, COUNT(a.id) AS analysis_count "
+        "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
+        "WHERE sr.submission_id = :submission_id AND r.deleted_at IS NULL "
+        "GROUP BY r.id, r.name, r.irp_id, r.status, r.inserted_at "
+        "ORDER BY r.inserted_at, r.name",
+        {"submission_id": str(submission_id)}, connection="WORKBENCH")
+    return [
+        BrokerAnalysisGroup(
+            rdm_id=_uid(row["id"]), rdm_name=row["name"],
+            rdm_irp_id=row["irp_id"], status=row["status"],
+            analysis_count=int(row["analysis_count"] or 0))
+        for row in rows
+    ]
 
 
-def analysis_counts(*, edm_id: Any) -> AnalysisCounts:
-    """FR-050: populated counts for one EDM (the package card renders these
-    per member, the EDM detail directly). ``total`` dedups on (rdm_id, irp_id)
-    — one per broker analysis, not per handle."""
+def list_submission_rdm_analyses(
+    *, submission_id: Any, rdm_id: Any,
+) -> list[BrokerAnalysis] | None:
+    """Return stored analyses when the RDM belongs to the named submission.
+
+    ``None`` distinguishes an invalid association from an associated RDM with no
+    captured analyses. The query never calls Risk Modeler.
+    """
+    associated = execute(
+        "SELECT r.id FROM submission_rdm sr "
+        "JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "WHERE sr.submission_id = :submission_id AND sr.rdm_id = :rdm_id "
+        "AND r.deleted_at IS NULL",
+        {"submission_id": str(submission_id), "rdm_id": str(rdm_id)},
+        connection="WORKBENCH")
+    if not associated:
+        return None
     rows = execute(
-        """
-        SELECT a.rdm_id, a.irp_id
-        FROM irp_analysis a
-        WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
-          AND a.edm_id = :e
-        """,
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    # Dedup app-side on (rdm_id, irp_id) — the handle → analysis collapse (R8).
-    # Portable (no dialect string-concat in aggregates); the per-view row count
-    # is small.
-    keys = {(_uid(r["rdm_id"]), str(r["irp_id"])) for r in rows}
-    return AnalysisCounts(total=len(keys),
-                          rdm_count=len({k[0] for k in keys}))
+        f"{_HANDLE_SELECT} AND a.rdm_id = :rdm_id "
+        "ORDER BY a.name, a.irp_id, a.id",
+        {"rdm_id": str(rdm_id)}, connection="WORKBENCH")
+    return _dedup_handles([dict(row) for row in rows])
 
 
 __all__ = [
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
-    "AnalysisCounts", "list_broker_analyses", "list_edm_analyses",
-    "analysis_counts",
+    "list_broker_analyses", "list_edm_analyses", "list_submission_rdms",
+    "list_submission_rdm_analyses",
 ]

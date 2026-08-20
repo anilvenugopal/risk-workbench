@@ -1,5 +1,8 @@
 # Implementation Plan: EDM & RDM Entity Management (incl. Packages) (Iteration 2)
 
+> **Superseded in part:** `specs/006-package-retirement/` owns the replacement
+> schema, routes, workers, and standalone RDM import design.
+
 **Branch**: `003-edm-rdm-entity-management` | **Date**: 2026-07-13 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/003-edm-rdm-entity-management/spec.md`

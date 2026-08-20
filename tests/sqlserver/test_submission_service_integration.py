@@ -47,7 +47,7 @@ import pytest
 
 from app.services import submission_service as svc
 from app.services.errors import UnknownLinkError
-from db import execute_command, get_engine
+from db import execute, execute_command, get_engine
 
 # Re-collect the entire unit submission-service suite against the fixture below.
 from tests.unit.test_submission_service import *  # noqa: F401,F403
@@ -55,13 +55,54 @@ from tests.unit.test_submission_service import *  # noqa: F401,F403
 pytestmark = pytest.mark.sqlserver
 
 
-def _cleanup(user_a: str, user_b: str) -> None:
-    """Delete, child-first, everything the reused tests created for these two
-    analysts, then the analysts themselves. Best-effort ordering respects the
-    real FKs (events/crm → submission → app_user)."""
+def _cleanup(
+    user_a: str,
+    user_b: str,
+    edm_ids: set[str],
+    rdm_ids: set[str],
+) -> None:
+    """Delete the submissions and EDM/RDM rows created by one reused test."""
     ids = {"a": user_a, "b": user_b}
     owned = ("SELECT id FROM submission "
              "WHERE assigned_analyst_id IN (:a, :b) OR inserted_by IN (:a, :b)")
+    for entity_id in edm_ids | rdm_ids:
+        execute_command(
+            "DELETE FROM rwb_job_heartbeat WHERE rwb_job_id IN "
+            "(SELECT id FROM rwb_job WHERE requestor_id = :id)",
+            {"id": entity_id}, connection="WORKBENCH")
+        execute_command(
+            "DELETE FROM rwb_job WHERE requestor_id = :id",
+            {"id": entity_id}, connection="WORKBENCH")
+    for edm_id in edm_ids:
+        execute_command(
+            "DELETE FROM irp_job_resource WHERE irp_job_id IN "
+            "(SELECT id FROM irp_job WHERE irp_edm_id = :id)",
+            {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_job WHERE irp_edm_id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_analysis WHERE edm_id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_portfolio WHERE edm_id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_treaty WHERE edm_id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM submission_edm WHERE edm_id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_edm WHERE id = :id",
+                        {"id": edm_id}, connection="WORKBENCH")
+    for rdm_id in rdm_ids:
+        execute_command(
+            "DELETE FROM irp_job_resource WHERE irp_job_id IN "
+            "(SELECT id FROM irp_job WHERE irp_rdm_id = :id)",
+            {"id": rdm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_job WHERE irp_rdm_id = :id",
+                        {"id": rdm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_analysis WHERE rdm_id = :id",
+                        {"id": rdm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM submission_rdm WHERE rdm_id = :id",
+                        {"id": rdm_id}, connection="WORKBENCH")
+        execute_command("DELETE FROM irp_rdm WHERE id = :id",
+                        {"id": rdm_id}, connection="WORKBENCH")
     execute_command(
         f"DELETE FROM submission_status_event WHERE submission_id IN ({owned})",
         ids, connection="WORKBENCH")
@@ -91,6 +132,14 @@ def iteration1_db() -> SimpleNamespace:
     Server, not SQLite."""
     user_a = str(uuid.uuid4())
     user_b = str(uuid.uuid4())
+    edm_ids_before = {
+        str(row["id"])
+        for row in execute("SELECT id FROM irp_edm", {}, connection="WORKBENCH")
+    }
+    rdm_ids_before = {
+        str(row["id"])
+        for row in execute("SELECT id FROM irp_rdm", {}, connection="WORKBENCH")
+    }
     for uid, tag in ((user_a, "A"), (user_b, "B")):
         execute_command(
             "INSERT INTO app_user (id, email, display_name, must_change_password, "
@@ -102,7 +151,25 @@ def iteration1_db() -> SimpleNamespace:
         yield SimpleNamespace(engine=get_engine("WORKBENCH"),
                               user_a=user_a, user_b=user_b)
     finally:
-        _cleanup(user_a, user_b)
+        edm_ids_after = {
+            str(row["id"])
+            for row in execute("SELECT id FROM irp_edm", {}, connection="WORKBENCH")
+        }
+        rdm_ids_after = {
+            str(row["id"])
+            for row in execute("SELECT id FROM irp_rdm", {}, connection="WORKBENCH")
+        }
+        _cleanup(
+            user_a,
+            user_b,
+            edm_ids_after - edm_ids_before,
+            rdm_ids_after - rdm_ids_before,
+        )
+
+
+@pytest.fixture()
+def iteration2_db(iteration1_db) -> SimpleNamespace:
+    return iteration1_db
 
 
 def test_string_marker_round_trips_against_datetime2(iteration1_db):

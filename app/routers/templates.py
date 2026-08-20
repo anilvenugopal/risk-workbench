@@ -12,7 +12,7 @@ from irp_integration.analysis_validation import classify_model_profile
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.services import rwb_job_service, template_service
-from app.services._common import _rm_base_url
+from app.services._common import _rm_ui_root
 from app.services.template_service import (
     SuiteItemValues,
     TemplateInUseError,
@@ -27,7 +27,7 @@ router = APIRouter()
 
 _METADATA_SYNC_REQUESTOR_ID = "00000000-0000-0000-0000-000000000009"
 # rm_path is the tenant-relative path of this tab's Risk Modeler settings screen
-# (joined to `_rm_base_url()`, same tenant-subdomain rule as the EDM deep links
+# (joined to `_rm_ui_root()`, same tenant-subdomain rule as the EDM deep links
 # in edm_service.py); None where RM has no equivalent screen (event-rate schemes).
 _METADATA_TABS = (
     {"key": "model-profiles", "label": "Model Profiles", "count_key": "model_profiles",
@@ -149,7 +149,7 @@ def _metadata_rm_url(tab: str) -> str | None:
         if metadata_tab["key"] == tab)
     if rm_path is None:
         return None
-    base = _rm_base_url()
+    base = _rm_ui_root()
     return f"{base}/{rm_path}" if base else None
 
 

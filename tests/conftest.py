@@ -88,6 +88,32 @@ def _dispose_registered_engines():
     dispose_all()
 
 
+@pytest.fixture()
+def fake_irp():
+    """Inject an in-memory fake Risk Modeler as the active IRP gateway."""
+    from app.services import irp_gateway
+    from tests.unit.fakes.fake_irp import FakeIRP
+
+    fake = FakeIRP()
+    irp_gateway.configure(fake)
+    yield fake
+    irp_gateway.reset()
+
+
+@pytest.fixture()
+def drive(tmp_path, monkeypatch):
+    """Create exposure files under the configured shared-drive root."""
+    from app.config import settings
+
+    root = tmp_path / "share"
+    root.mkdir()
+    for fname in ("edm1.bak", "edm2.bak", "rdm1.mdf", "rdm2.mdf"):
+        (root / fname).write_text("x")
+    (root / "deals" / "zephyr").mkdir(parents=True)
+    monkeypatch.setattr(settings, "shared_drive_root", str(root))
+    return root
+
+
 # ── SQLite engine fixture (unit tests) ───────────────────────────────────────
 # Injects a SQLite engine into the db/ package for the WORKBENCH connection.
 # Unit tests never touch SQL Server.
@@ -113,8 +139,8 @@ def sqlite_conn(sqlite_engine):
         conn.rollback()
 
 
-# ── Iteration-1 submission/package schema (unit tier) ────────────────────────
-# The portable SQLite mirror of the WORKBENCH tables the submission/package
+# ── Iteration-1 submission data schema (unit tier) ───────────────────────────
+# The portable SQLite mirror of the WORKBENCH tables the submission and entity
 # services touch lives in tests/iteration1_mirror.py (single source, so the SQL
 # Server drift guard validates the exact same shape). This fixture builds it,
 # seeds the kind tables + two analysts, and registers it as WORKBENCH.

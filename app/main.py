@@ -75,7 +75,6 @@ from app.routers import (  # noqa: E402
     auth,
     edms,
     health,
-    packages,
     rdms,
     shared_drive,
     shell,
@@ -94,7 +93,6 @@ app.include_router(shared_drive.router)
 app.include_router(edms.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
-app.include_router(packages.router)
 app.include_router(template_routes.router)
 app.include_router(shell.router)
 

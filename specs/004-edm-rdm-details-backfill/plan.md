@@ -1,5 +1,8 @@
 # Implementation Plan: EDM/RDM Details & Backfill (Iteration 3)
 
+> **Superseded in part:** `specs/006-package-retirement/` owns the contextual EDM
+> route and Submission-scoped RDM query changes.
+
 **Branch**: `004-edm-rdm-details-backfill` | **Date**: 2026-07-23 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/004-edm-rdm-details-backfill/spec.md`

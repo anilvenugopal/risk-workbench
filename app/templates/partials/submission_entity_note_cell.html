@@ -1,0 +1,33 @@
+<td id="submission-{{ entity_kind }}-{{ entity.id }}-notes"
+    class="entity-notes-cell{% if note_editing %} entity-notes-cell--editing{% endif %}"
+    x-data="{ editing: {{ 'true' if note_editing else 'false' }} }">
+  <div class="entity-notes-cell__read" x-show="!editing"
+       x-on:dblclick="editing = true; $root.classList.add('entity-notes-cell--editing'); $nextTick(() => $refs.note.focus())">
+    <span>{{ entity.notes or '—' }}</span>
+    <button class="entity-notes-cell__edit" type="button"
+            aria-label="Edit {{ entity_kind|upper }} notes"
+            x-on:click="editing = true; $root.classList.add('entity-notes-cell--editing'); $nextTick(() => $refs.note.focus())">Edit</button>
+  </div>
+  <form method="post"
+        action="/submissions/{{ submission.id }}/{{ entity_kind }}s/{{ entity.id }}/table-notes"
+        x-show="editing"
+        hx-post="/submissions/{{ submission.id }}/{{ entity_kind }}s/{{ entity.id }}/table-notes"
+        hx-target="#submission-{{ entity_kind }}-{{ entity.id }}-notes"
+        hx-swap="outerHTML"
+        hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <input type="hidden" name="original_notes" value="{{ note_original|default(entity.notes or '') }}" x-ref="original">
+    {% if note_error %}<div class="entity-notes-cell__error">{{ note_error }}</div>{% endif %}
+    {% if note_conflict_active %}
+    <div class="entity-notes-cell__error">
+      The note changed while you were editing. The saved note is: {{ note_conflict or 'No notes.' }}
+      Press Enter again to replace it.
+    </div>
+    {% endif %}
+    <textarea class="entity-notes-cell__input" name="notes" maxlength="250" rows="2"
+              aria-label="{{ entity_kind|upper }} notes" x-ref="note"
+              x-on:keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); $el.form.requestSubmit() }"
+              x-on:keydown.escape.prevent="$refs.note.value = $refs.original.value; editing = false; $root.classList.remove('entity-notes-cell--editing')">{{ note_value|default(entity.notes or '') }}</textarea>
+    <span class="entity-notes-cell__hint">Enter to save · Esc to cancel</span>
+  </form>
+</td>

@@ -19,14 +19,6 @@ signature change never scatters across services.
 Injection: tests call ``configure(FakeIRP())``; production code calls the module
 free functions (``submit_edm_import(...)`` etc.), which delegate to the active
 implementation — the real, ``IRPClient``-backed one by default.
-
-**Caller caveat — EDM delete identifier (open defect).** ``submit_delete_edm``
-forwards its ``edm_irp_id`` to the wheel as the Risk Modeler *exposureId*
-(``DELETE /exposures/{exposureId}``) — NOT the import *job id*. Callers therefore
-MUST pass the EDM's exposureId, i.e. ``irp_edm.irp_id`` must be backfilled with the
-exposureId at import-FINISHED (name lookup via ``search_edms`` or from the import
-completion body), not with the import job id the submit returned. Until the poller
-does that, ``delete_edm`` targets the wrong resource.
 """
 
 from __future__ import annotations
@@ -98,8 +90,8 @@ class EdmCatalogEntry:
 @dataclass(frozen=True)
 class AnalysisHit:
     """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
-    Moody's ``analysisId`` as a string — the ``delete_analysis`` key. The pair names
-    are echoed back so the backfill worker can persist lineage on ``irp_analysis``.
+    Moody's ``analysisId`` as a string. The source names are echoed back so the
+    backfill worker can persist lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -216,19 +208,13 @@ class CurrencySchemeVintageEntry:
 class IRPGateway(Protocol):
     def submit_edm_import(self, *, name: str, source_file_path: str) -> SubmitResult: ...
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult: ...
-
-    def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult: ...
-
-    def delete_analysis(self, *, analysis_id: int) -> None: ...
+    def submit_rdm_import(self, *, name: str,
+                          source_file_path: str) -> SubmitResult: ...
 
     def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]: ...
+                        exposure_name: str | None = None) -> list[AnalysisHit]: ...
 
     def get_import_job(self, irp_id: str) -> JobStatus: ...
-
-    def get_delete_edm_job(self, irp_id: str) -> JobStatus: ...
 
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
@@ -296,36 +282,25 @@ class _RealGateway:
         return SubmitResult(irp_id=str(job_id),
                             resource_uri=body.get("resourceUri"), payload=body)
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult:
-        # D3: every RDM apply targets an EDM. The wheel requires edm_name — a
-        # no-EDM apply is a programming error, not a runtime IRP failure.
-        if not edm_name:
-            raise ValueError("submit_rdm_import requires an edm_name (D3).")
+    def submit_rdm_import(self, *, name: str,
+                          source_file_path: str) -> SubmitResult:
         job_id, body = self._client().rdm.submit_rdm_import_job(
-            rdm_name=name, edm_name=edm_name, rdm_file_path=source_file_path)
+            rdm_name=name,
+            rdm_file_path=source_file_path,
+            exposure_set_name=name,
+        )
         return SubmitResult(irp_id=str(job_id),
                             resource_uri=body.get("resourceUri"), payload=body)
 
-    def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
-        # edm_irp_id is the RM exposureId (see the module docstring caveat), not the
-        # import job id. Returns only a job id (no request body / resource_uri).
-        job_id = self._client().edm.submit_delete_edm_job(exposure_id=edm_irp_id)
-        return SubmitResult(irp_id=str(job_id), payload={"exposure_id": edm_irp_id})
-
-    # ── synchronous analysis delete + search (no irp_job — R6 / D2) ───────────────
-
-    def delete_analysis(self, *, analysis_id: int) -> None:
-        self._client().analysis.delete_analysis(analysis_id)
-
     def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]:
+                        exposure_name: str | None = None) -> list[AnalysisHit]:
         # Build the pair filter here with json.dumps quoting (mirrors search_edms /
         # search_rdms) so a name with a quote/space can never malform the filter —
         # the callers pass raw names, never a pre-built filter string.
-        filter = (f"sourceRdmName={json.dumps(source_rdm_name)} "
-                  f"AND exposureName={json.dumps(exposure_name)}")
-        # Paginated so delete-enumeration captures every analysis for the pair (D2).
+        filter = f"sourceRdmName={json.dumps(source_rdm_name)}"
+        if exposure_name is not None:
+            filter += f" AND exposureName={json.dumps(exposure_name)}"
+        # Paginated so the capture includes every analysis for the RDM.
         rows = self._client().analysis.search_analyses_paginated(filter=filter)
         return [
             AnalysisHit(
@@ -501,12 +476,6 @@ class _RealGateway:
         data = self._client().import_job.get_import_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    def get_delete_edm_job(self, irp_id: str) -> JobStatus:
-        # EDM delete is a platform risk-data job (DELETE /exposures/{id} → jobs/{id}),
-        # tracked via the unified risk-data job endpoint — same WORKFLOW vocabulary.
-        data = self._client().risk_data_job.get_risk_data_job(int(irp_id))
-        return JobStatus(status=str(data["status"]), result=data)
-
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
@@ -665,32 +634,19 @@ def submit_edm_import(*, name: str, source_file_path: str) -> SubmitResult:
     return _active().submit_edm_import(name=name, source_file_path=source_file_path)
 
 
-def submit_rdm_import(*, name: str, source_file_path: str,
-                      edm_name: str | None) -> SubmitResult:
+def submit_rdm_import(*, name: str, source_file_path: str) -> SubmitResult:
     return _active().submit_rdm_import(
-        name=name, source_file_path=source_file_path, edm_name=edm_name)
-
-
-def submit_delete_edm(*, edm_irp_id: int) -> SubmitResult:
-    return _active().submit_delete_edm(edm_irp_id=edm_irp_id)
-
-
-def delete_analysis(*, analysis_id: int) -> None:
-    return _active().delete_analysis(analysis_id=analysis_id)
+        name=name, source_file_path=source_file_path)
 
 
 def search_analyses(*, source_rdm_name: str,
-                    exposure_name: str) -> list[AnalysisHit]:
+                    exposure_name: str | None = None) -> list[AnalysisHit]:
     return _active().search_analyses(source_rdm_name=source_rdm_name,
                                      exposure_name=exposure_name)
 
 
 def get_import_job(irp_id: str) -> JobStatus:
     return _active().get_import_job(irp_id)
-
-
-def get_delete_edm_job(irp_id: str) -> JobStatus:
-    return _active().get_delete_edm_job(irp_id)
 
 
 def search_edms(name: str) -> list[EntityHit]:
@@ -759,8 +715,7 @@ __all__ = [
     "ModelProfileEntry", "OutputProfileEntry", "EventRateSchemeEntry",
     "CurrencyEntry", "CurrencySchemeEntry", "CurrencySchemeVintageEntry",
     "IRPGateway", "configure", "reset",
-    "submit_edm_import", "submit_rdm_import", "submit_delete_edm",
-    "delete_analysis", "search_analyses", "get_import_job", "get_delete_edm_job",
+    "submit_edm_import", "submit_rdm_import", "search_analyses", "get_import_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
     "search_treaties", "get_analysis_metadata", "list_model_profiles",
