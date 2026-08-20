@@ -15,11 +15,11 @@
   (`irp_model_profile`, `irp_output_profile`, `irp_event_rate_scheme`, `irp_currency`,
   `irp_currency_scheme`, `irp_currency_scheme_vintage`) and 4
   template tables (`analysis_template`, `analysis_template_tag`, `template_suite`,
-  `template_suite_item`), plus a `sync_irp_metadata` row in `rwb_job_type_kind`. **Currency
-  additions (T-07, 2026-08-18)**: the built `irp_currency` table stays; `irp_currency_scheme` and
-  `irp_currency_scheme_vintage` are added alongside it — their columns were pinned when the
-  irp-integration scheme/vintage reads shipped in `0.6.0rc2` (released & pinned 2026-08-19,
-  task T045).
+  `template_suite_item`), plus a `sync_irp_metadata` row in `rwb_job_type_kind`. The three
+  currency cache tables stay (`irp_currency` plus `irp_currency_scheme` and
+  `irp_currency_scheme_vintage`, columns pinned by the `0.6.0rc2` release, task T045);
+  `analysis_template` carries **no currency columns** — the three built under the old P-10 come
+  out (spec P-11 / T-10, 2026-08-20).
 - `app/services/irp_gateway.py` gains reference-data list methods (dataclasses + Protocol +
   real impl + `FakeIRP`) — the first use of the wheel's `reference_data` manager. Four are built
   (model profiles, output profiles, event-rate schemes, currencies); `list_currency_schemes` and
@@ -50,6 +50,19 @@
   skipped when a side is absent from the cache — live-name uniqueness, delete
   guard naming referencing suites, read-time unresolved flags) and the scheme filter/pre-fill
   query (T-03).
+- **Currency comes off templates (spec P-11 / T-10, 2026-08-20, design note 17)**:
+  `analysis_template` loses `currency_code`/`currency_scheme_code`/`currency_vintage`,
+  `template_service` loses `_validate_currency`, `vintage_options()`, and the currency unresolved
+  flags, and the builder loses its three currency selects and the `vintage-options` fragment. The
+  six-set sync, the gateway reads, and the five metadata tabs are unchanged — the currency cache
+  serves the metadata view now and Iteration 7's submit-time picker later.
+- **Duplicate-and-edit (spec P-12/FR-021 / T-11, 2026-08-20)**: `duplicate_template`/
+  `duplicate_suite` in `template_service` copy the row plus tag/membership rows and compute the
+  `<name> (copy)` name; `POST .../{id}/duplicate` routes redirect to the copy's edit screen;
+  Duplicate button on both detail pages, admin-only. No schema change.
+- **Bug fix (O17-9, spec FR-007)**: the event-rate scheme pick list populates on model-profile
+  selection — the 8/20 demo showed it blank until a character was typed; reproduce against
+  current code (the T028 fragment may already cover it) and fix the trigger if real.
 - **Out of MVP scope (spec P-02)**: Excel export/import and starter-suite seeding — nothing is
   seeded and no transfer routes/services ship; initial setup is manual via the admin pages. The
   Excel flows are a nice-to-have enhancement; the worked design is retained in
@@ -72,7 +85,7 @@ the irp-integration working copy but not in a released build~~ — **resolved 20
 and `get_latest_currency_scheme_vintage` (released & pinned via `make irp-testpypi`, task T045);
 the `irp_currency_scheme`/`irp_currency_scheme_vintage` columns and
 `CurrencySchemeEntry`/`CurrencySchemeVintageEntry` fields are pinned, and nothing external gates
-the scheme/vintage pick lists or any remaining task.
+the currency metadata tabs or any remaining task.
 
 **Decisions**:
 
@@ -84,9 +97,10 @@ the scheme/vintage pick lists or any remaining task.
 | T-04 | Excel export/import (transfer workbook, R6) — **out of MVP scope** (spec P-02); worked design retained in `contracts/transfer-workbook.md` as a nice-to-have enhancement. | Deferred 2026-08-19 |
 | T-05 | Starter-suite seeding (R10) — **out of MVP scope** (spec P-02); nothing is seeded, setup is manual. | Deferred 2026-08-19 |
 | T-06 | DLM/HD classification and the DLM-requires-scheme + scheme-peril/region-pairing validation ship as a pure (no-I/O) utility in irp-integration, extracted from the submit path; the workbench calls it at template save, and the wheel's submit refactors onto it — one implementation, nothing replicated app-side. Supersedes R2's "derive with the wheel's exact rule" replication. | **Landed & validated 2026-08-18** — `irp_integration.analysis_validation` (`classify_model_profile`, `validate_analysis_settings`) in `0.6.0rc1`; submit path refactored onto it; consumed via pinned TestPyPI build, `make irp-testpypi` (tasks T003) |
-| T-07 | The workbench caches and stores **all three currency objects** (spec P-07 as amended 2026-08-18): analysis submission's currency block is `{code, scheme, vintage, asOfDate}`, so `irp_currency` is **kept** (with its P-06 truncation) and two cache tables are **added** — `irp_currency_scheme` and `irp_currency_scheme_vintage` — with matching gateway reads `list_currency_schemes` and `list_currency_scheme_vintages` alongside the existing `list_currencies`. The metadata screen gains a fifth tab, Currency Schemes (schemes with their vintages); the existing Currencies tab **stays** (reversed 2026-08-19, user-corrected — D3's "not tabbed" call is dropped: see research.md R13). `analysis_template` keeps `currency_code` and gains `currency_scheme_code` + `currency_vintage`; `asOfDate` derives from the cached vintage's effective date at submit time. The scheme/vintage reads (`search_currency_schemes`, `search_currency_scheme_vintages`) shipped in `irp-integration==0.6.0rc2` — columns/fields pinned by the release plus a 2026-08-19 sandbox probe (research R13): vintage items carry **no id** and no unique natural key, so `irp_currency_scheme_vintage` is a raw snapshot (no `irp_id`, no unique index, delete-all + insert per sync) with `vintage` NVARCHAR(400); the scheme cache drops `is_default` (nothing consumes it after the P-10 reversal). This resolves O15-2: the template stores the member currency *and* the scheme (and the vintage). | Approved 2026-08-18, amended same day — external release landed 2026-08-19 (task T045); shapes probe-pinned 2026-08-19; tab reversed same day |
+| T-07 | The workbench caches and stores **all three currency objects** (spec P-07 as amended 2026-08-18): analysis submission's currency block is `{code, scheme, vintage, asOfDate}`, so `irp_currency` is **kept** (with its P-06 truncation) and two cache tables are **added** — `irp_currency_scheme` and `irp_currency_scheme_vintage` — with matching gateway reads `list_currency_schemes` and `list_currency_scheme_vintages` alongside the existing `list_currencies`. The metadata screen gains a fifth tab, Currency Schemes (schemes with their vintages); the existing Currencies tab **stays** (reversed 2026-08-19, user-corrected — D3's "not tabbed" call is dropped: see research.md R13). Nothing on `analysis_template` references the currency cache (P-11/T-10, 2026-08-20): the cache serves the metadata tabs now and Iteration 7's submit-time picker later, where `asOfDate` derives from the chosen vintage's effective date. The scheme/vintage reads (`search_currency_schemes`, `search_currency_scheme_vintages`) shipped in `irp-integration==0.6.0rc2` — columns/fields pinned by the release plus a 2026-08-19 sandbox probe (research R13): vintage items carry **no id** and no unique natural key, so `irp_currency_scheme_vintage` is a raw snapshot (no `irp_id`, no unique index, delete-all + insert per sync) with `vintage` NVARCHAR(400); the scheme cache has no `is_default` (nothing consumes it). | Approved 2026-08-18, amended same day — external release landed 2026-08-19 (task T045); shapes probe-pinned 2026-08-19; tab reversed same day; template storage removed 2026-08-20 (P-11) |
 | T-08 | Suites are unordered (spec P-08): `template_suite_item` drops `position` and `portfolio_name_override`; display order is normalized by name. `analysis_template.treaty_name_pattern` is dropped with it (spec P-09). | Approved 2026-08-18 |
-| T-09 | Currency scheme + vintage are **required NOT NULL** on `analysis_template` (spec P-10 as reversed 2026-08-19 — T-07's NOT NULL columns stand; no pair CHECK exists or is needed). No "Default" state and no default logic at submit time: Iteration 7 submits the stored values as-is (`asOfDate` derived from the stored vintage's effective date — the submission API never defaults either; a full currency block is always sent). Builder: currency, scheme, and vintage all required; the vintage is pre-selected to the chosen scheme's latest by effective date (changeable, via an HTMX vintage-options fragment); a scheme with zero vintages blocks save naming the scheme. All pick lists substring-filter the local cache — no live Risk Modeler queries from dropdowns. Currency-in-scheme membership deliberately unvalidated (deferred; trusted admin). | Approved 2026-08-19 — reversed same day from an optional pair |
+| T-10 | Currency comes off `analysis_template` (spec P-11, design note 17 D4 — replaces T-09, whose required-NOT-NULL design is recorded in research.md R13): drop `currency_code`, `currency_scheme_code`, and `currency_vintage` from the migration and schema mirror; delete `_validate_currency`, `vintage_options()`, and the currency unresolved flags from `template_service`; remove the `vintage-options` route/partial and the builder's three currency selects; flip the sqlserver NOT-NULL assertions to absence assertions and drop the currency cases from the unit tests. The cache tables, gateway reads, sync worker, and metadata tabs are untouched. | Approved 2026-08-20 |
+| T-11 | Duplicate-and-edit (spec P-12/FR-021): `duplicate_template(id)` and `duplicate_suite(id)` in `template_service` copy the row plus its tag/membership rows in one transaction, compute `<name> (copy)` / `<name> (copy N)` against live names (base truncated to fit NVARCHAR(200); the filtered-unique index still guards the race), and return the new id; `POST /templates/analysis-templates/{id}/duplicate` and `POST /templates/suites/{id}/duplicate` (`_require_admin`, CSRF) redirect to the copy's detail/edit page; Duplicate button on both detail pages. No schema change. | Approved 2026-08-20 |
 **Constitution check** (v3.1.0) — no violations; the articles that shaped the design:
 
 - **Article 11**: `reference_data.get_*` calls are reads, not job polling, but they run
@@ -94,9 +108,9 @@ the scheme/vintage pick lists or any remaining task.
   + dispatch is the only request-path action. (The EDM-sync precedent's inline-read latitude was
   considered and not needed — R5.) The T-06 validation utility is pure (no I/O), so importing it
   from `template_service` on the request path touches no IRP interface Article 11 governs.
-- **Article 2**: templates store profile/scheme/currency/vintage **names/codes**, resolved live by Risk Modeler
-  at submit time (Iteration 7); the cache exists for pick lists and validation, never as a typed
-  handle registry.
+- **Article 2**: templates store profile/scheme **names** (and no currency values, P-11),
+  resolved live by Risk Modeler at submit time (Iteration 7); the cache exists for pick lists and
+  validation, never as a typed handle registry.
 - **Article 3**: the two new boolean settings are API parameters, not categoricals — no kind
   tables; the DLM/HD half of the marker is derived, never stored, and `is_accumulation` records
   which endpoint returned the row (a source fact, not an app-defined category). The one new
@@ -171,7 +185,7 @@ infra/scripts/seed_db.py              # +sync_irp_metadata kind row
 docs/ui_previews/                     # metadata + builder previews (UI-first)
 docs/DATA_MODEL.md                    # reconcile §7 deltas (tag_name, occupancy column, created_by,
                                       #   dropped auto_name_pattern/region_label/peril_code/
-                                      #   treaty_name_pattern, currency scheme+vintage columns,
+                                      #   treaty_name_pattern, NO currency columns (P-11),
                                       #   unordered suite items) + §10 columns incl.
                                       #   irp_currency_scheme + irp_currency_scheme_vintage
 tests/iteration1_mirror.py            # +ITERATION4_SCHEMA, drift lists

@@ -2,13 +2,15 @@
 
 **Input**: Design documents from `specs/009-template-suites/`
 
-**Prerequisites**: plan.md, spec.md, research.md (R1–R14), data-model.md, contracts/routes.md, quickstart.md
+**Prerequisites**: plan.md, spec.md, research.md (R1–R15), data-model.md, contracts/routes.md, quickstart.md
 
 **Tests**: Included — the plan mandates the three-tier test strategy (Article 12): unit tests for worker/routes/validation/gating, sqlserver migration assertions, and an `--run-irp` shape test.
 
 **Organization**: Tasks are grouped by user story. One story is implemented end-to-end per pass (docs/UI_WORKFLOW.md); each story phase ends at a checkpoint for the approver to click the running slice.
 
 **2026-08-19 revision**: task descriptions updated to the amended spec (P-07 currency schemes/vintages, P-08 unordered suites, P-09 treaty-pattern drop, P-10 currency pair). A task whose requirements changed is unchecked, even where an earlier version was built — the note on each says what stands. The former rework tasks T045–T050 were folded back into the tasks they extended; only T045 (external release tracking, done) keeps its ID in Phase 1, and T046 was re-cut in Phase 4 as the deferred Excel/seed code removal. **Later the same day P-10 was reversed**: currency scheme + vintage are required NOT NULL (no pair CHECK, no "Default" display, no submit-time default logic); the affected task descriptions below are re-worded in place.
+
+**2026-08-20 revision (design note 17)**: currency comes off templates entirely (P-11 — reverses P-10; history in research.md R13), duplicate-and-edit is added (P-12/FR-021), and the event-rate options must populate on profile selection (O17-9). The checked-off T021–T031 records below describe the pre-note-17 build they produced; the new tasks T047–T050 (IDs re-cut — the former T047–T050 were folded away in the 2026-08-19 revision) amend that build rather than rewriting the done records.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -71,7 +73,7 @@
 
 ## Phase 4: User Story 2 — Create and administer templates and suites (Priority: P2)
 
-**Goal**: Admin builds analysis templates (cached pick lists, DLM-requires-scheme, P-10 required currency scheme + vintage, R8 defaults, tags) and composes unordered suites (no duplicates); everything global, mutations admin-gated, unresolved references flagged. Nothing is seeded — setup is manual (spec P-02).
+**Goal**: Admin builds analysis templates (cached pick lists, DLM-requires-scheme, R8 defaults, tags — no currency fields, P-11) and composes unordered suites (no duplicate members); duplicate-and-edit for both (P-12); everything global, mutations admin-gated, unresolved references flagged. Nothing is seeded — setup is manual (spec P-02).
 
 **Independent Test**: As admin: create a DLM template (save blocked without a scheme), an HD template (saves without one), a template save missing the currency scheme or vintage (rejected naming the field), a mixed suite; deleting a referenced template is blocked naming the suite; as non-admin: everything visible, no mutation controls, direct POSTs rejected (quickstart US2).
 
@@ -92,9 +94,16 @@
 
 - [X] T046 [US2] Remove the deferred Excel/seed code built before the cancellation: the workbook parse + import-apply in `app/services/template_service.py`, the starter-seed import wiring in `infra/scripts/seed_db.py` (the `sync_irp_metadata` kind row from T006 stays), `infra/scripts/starter_suites.xlsx`, and the tests `tests/unit/test_starter_seed.py` + `tests/unit/test_template_workbook_import.py`. *Done 2026-08-19: workbook parse/import + `WorkbookError`/`ImportResult` removed from `template_service.py` (along with the now-unused `openpyxl` import), `_seed_starter_suites` and its call site removed from `seed_db.py`, both test files deleted. **`infra/scripts/starter_suites.xlsx` intentionally left in place** — it's currently modified in the working tree with a `~$` Excel lock file present (someone has it open); left for the user to remove once confirmed safe, rather than discarding what may be in-progress work.*
 
-**Checkpoint**: T021–T031 built and unit-green (958 unit tests). Quickstart US2's live walkthrough
-against the dev stack has not been run in this pass (no DB tier available). **STOP** — approver
-clicks the running slice before Polish.
+### Design-session-17 amendments (2026-08-20 — note 17; spec P-11/P-12/FR-021)
+
+- [ ] T047 [US2] [P-11] Remove the currency columns from the schema: drop `currency_code`, `currency_scheme_code`, and `currency_vintage` from `analysis_template` in `alembic/versions/0001_initial.py`; mirror the drop in `tests/iteration1_mirror.py` (`ITERATION4_SCHEMA`); flip `tests/sqlserver/test_template_suite_schema.py`'s currency NOT-NULL assertions to absence assertions
+- [ ] T048 [US2] [P-11] Currency removal sweep over code (T-10): the three fields out of `TemplateValues`, `_validate_currency`, `vintage_options()`, and the `currency_scheme_unresolved`/`currency_vintage_unresolved` flags out of `app/services/template_service.py`; the `vintage-options` route and currency form parsing out of `app/routers/templates.py`; `app/templates/partials/vintage_options.html` deleted; the currency/scheme/vintage selects out of `analysis_template_form.html`; the Currency column out of `templates_table.html`; the currency cases out of `tests/unit/test_template_service.py` and `tests/unit/test_templates_routes.py`. The sync worker, gateway reads, and all five metadata tabs stay untouched
+- [ ] T049 [US2] [P-12/FR-021] Duplicate-and-edit (T-11): `duplicate_template(id)` + `duplicate_suite(id)` in `template_service.py` (copy row + tag/membership rows in one transaction; `<name> (copy)` with collision counter, base truncated to fit NVARCHAR(200)); `POST /templates/analysis-templates/{id}/duplicate` + `POST /templates/suites/{id}/duplicate` in `templates.py` (`_require_admin`, CSRF, redirect to the copy's detail page); Duplicate button on both detail pages (admin-only); unit tests — copy fidelity (fields, tags, membership), collision naming, truncation, non-admin rejected
+- [ ] T050 [US2] [FR-007/O17-9] Event-rate scheme options must populate on model-profile selection: reproduce the blank-until-typed behavior from the 8/20 demo against current code (the T028 fragment may already cover it — the demoed build may predate it); fix the trigger if real; route test asserting the scheme options render on profile change with no filter input
+
+**Checkpoint**: T021–T031 built and unit-green (958 unit tests) under the pre-note-17 design;
+T047–T050 amend that build. Quickstart US2's live walkthrough against the dev stack has not been
+run. **STOP** — approver clicks the running slice before Polish.
 
 ---
 
@@ -109,7 +118,7 @@ nice-to-have enhancement.
 
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T041 [P] Reconcile `docs/DATA_MODEL.md`: §7 deltas (`analysis_template_tag.tag_name` replaces `irp_tag_id`; `treat_construction_occupancy_as_unknown` added; `auto_name_pattern`/`region_label`/`peril_code`/`treaty_name_pattern` dropped (O15-6); `currency_scheme_code` + `currency_vintage` join `currency_code`, all NOT NULL (O15-2, P-07/P-10 as reversed); `template_suite_item` loses `position`/`portfolio_name_override` — suites unordered; authorship = `inserted_by`, no separate `created_by`) and §10 cache-table columns per data-model.md, including `irp_currency_scheme` and `irp_currency_scheme_vintage` alongside `irp_currency`
+- [ ] T041 [P] Reconcile `docs/DATA_MODEL.md`: §7 deltas (`analysis_template_tag.tag_name` replaces `irp_tag_id`; `treat_construction_occupancy_as_unknown` added; `auto_name_pattern`/`region_label`/`peril_code`/`treaty_name_pattern` dropped (O15-6); **no currency columns** — `currency_code` removed per P-11/O17-2, currency is a submit-time parameter in Iteration 7; `template_suite_item` loses `position`/`portfolio_name_override` — suites unordered; UNIQUE names on `analysis_template`/`template_suite` (O17-5); authorship = `inserted_by`, no separate `created_by`) and §10 cache-table columns per data-model.md, including `irp_currency_scheme` and `irp_currency_scheme_vintage` alongside `irp_currency` (O17-1)
 - [ ] T042 Run the full three-tier suite and fix any drift: `uv run pytest tests/unit`, `make test-sql` (or `make wsl-test-sql`), and `make shell` → `uv run pytest tests/irp --run-irp`
 - [ ] T043 Run the complete `specs/009-template-suites/quickstart.md` walkthrough (US1–US2) including the sync-refusal double-click check
 
@@ -143,6 +152,7 @@ FR-001/FR-004's three-way promise. Deferred work, in order:
 
 - US1: T011 → {T012, T013} → T014; T015 (preview approved) → T016 → T017 → T019; T020 anytime after T011
 - US2: T021 → T022 → T024; T025 (preview approved) → T026 → T027 → T028 → T029 → T030 → T031; T046 anytime
+- Note-17 amendments: T047 → T048 (schema before code sweep); T049 and T050 independent of both and of each other
 
 ### Parallel Opportunities
 
@@ -164,11 +174,17 @@ layer (T021–T024), the reworked preview (T025), the suites/templates administr
 tabs (T026), the template builder with cascading scheme/vintage selects (T027–T028), the unordered
 suite builder with a filterable template picker (T029), admin gating (T030), and route/gating
 tests (T031). The workbook import and seed wiring that were built pre-deferral are out of scope
-(spec P-02) and came out via T046. The remaining work:
+(spec P-02) and came out via T046.
 
-1. **US1 sandbox validation**: T020 against a live tenant (`make shell` → `uv run pytest tests/irp --run-irp`) + the quickstart US1 walkthrough; the T015 preview still wants the user's informal 👍
-2. **US2 live click-through**: quickstart US2 against the dev stack (`make dev-up` / WSL2) — not yet run in this pass, DB-tier setup wasn't available; unit-level coverage (route rendering + service validation) is green
-3. **Polish**: T041–T043 after US2
+The 2026-08-20 design session (note 17) then amended the spec: currency comes off templates
+entirely (P-11 — T047/T048 undo the built currency columns, validation, and builder fields;
+the cache and metadata tabs stay), duplicate-and-edit is added (P-12/FR-021 — T049), and the
+event-rate options must populate on profile selection (O17-9 — T050). The remaining work:
+
+1. **Note-17 amendments**: T047 → T048, then T049 and T050 (order free)
+2. **US1 sandbox validation**: T020 against a live tenant (`make shell` → `uv run pytest tests/irp --run-irp`) + the quickstart US1 walkthrough; the T015 preview still wants the user's informal 👍
+3. **US2 live click-through**: quickstart US2 against the dev stack (`make dev-up` / WSL2) — not yet run in this pass, DB-tier setup wasn't available; unit-level coverage (route rendering + service validation) is green
+4. **Polish**: T041–T043 after US2
 
 ### Incremental Delivery
 
