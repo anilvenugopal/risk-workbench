@@ -25,19 +25,21 @@ from db import execute
 
 
 def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
-                    irp_edm_id, irp_rdm_id,
+                    irp_edm_id, irp_rdm_id, irp_portfolio_id, irp_analysis_id,
                     irp_job_type: str, irp_id: str | None, status: str,
                     payload: dict | None, response: dict | None,
+                    request_params: dict | None,
                     attempt_count: int, actor_id, now: datetime) -> None:
     conn.execute(text(
         """
         INSERT INTO irp_job (id, requested_from_submission_id, irp_edm_id,
-            irp_rdm_id, irp_job_type,
+            irp_rdm_id, irp_portfolio_id, irp_analysis_id, irp_job_type,
             irp_id, status, correlation_id, last_submission_payload,
-            last_submission_response, submission_attempt_count, submitted_at,
-            inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :submission, :edm, :rdm, :jt, :irp_id, :status, :cid, :payload,
-            :response, :attempts, :now, :now, :now, :by, :by)
+            last_submission_response, request_params, submission_attempt_count,
+            submitted_at, inserted_at, updated_at, inserted_by, updated_by)
+        VALUES (:id, :submission, :edm, :rdm, :portfolio, :analysis, :jt, :irp_id,
+            :status, :cid, :payload, :response, :params, :attempts, :now, :now,
+            :now, :by, :by)
         """
     ), {
         "id": job_id,
@@ -45,6 +47,8 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
                        if requested_from_submission_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
         "rdm": (str(irp_rdm_id) if irp_rdm_id is not None else None),
+        "portfolio": (str(irp_portfolio_id) if irp_portfolio_id is not None else None),
+        "analysis": (str(irp_analysis_id) if irp_analysis_id is not None else None),
         "jt": irp_job_type,
         "irp_id": irp_id,
         "status": status,
@@ -53,6 +57,7 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         "cid": log_context.correlation_id(),
         "payload": _json(payload),
         "response": _json(response),
+        "params": _json(request_params),
         "attempts": attempt_count,
         "now": now,
         "by": (str(actor_id) if actor_id is not None else None),
@@ -62,22 +67,29 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
 def record_submitted_irp_job(
     *, irp_job_type: str, requested_from_submission_id: Any | None = None,
     irp_edm_id: Any | None = None, irp_rdm_id: Any | None = None,
+    irp_portfolio_id: Any | None = None, irp_analysis_id: Any | None = None,
     irp_id: str, resource_uri: str | None = None,
     payload: dict | None = None, response: dict | None = None,
+    request_params: dict | None = None,
     actor_id: Any | None = None, conn=None,
 ) -> str:
     """Worker-side: write the ``irp_job`` (status ``QUEUED``, ``irp_id`` set) plus
     any ``irp_job_resource`` (the ``resource_uri`` captured at submit — the
-    completion response omits it, R1). Returns the new ``irp_job`` id."""
+    completion response omits it, R1). ``irp_portfolio_id``/``irp_analysis_id``/
+    ``request_params`` are the spec-010 analysis-execution linkage columns —
+    ``request_params`` is the submit kwargs snapshot the submission_retry batch
+    resubmits from verbatim. Returns the new ``irp_job`` id."""
     job_id = str(uuid.uuid4())
     now = _utcnow()
     with _txn(conn) as c:
         _insert_irp_job(
             c, job_id=job_id,
             requested_from_submission_id=requested_from_submission_id,
-            irp_edm_id=irp_edm_id,
-            irp_rdm_id=irp_rdm_id, irp_job_type=irp_job_type, irp_id=irp_id,
+            irp_edm_id=irp_edm_id, irp_rdm_id=irp_rdm_id,
+            irp_portfolio_id=irp_portfolio_id, irp_analysis_id=irp_analysis_id,
+            irp_job_type=irp_job_type, irp_id=irp_id,
             status="QUEUED", payload=payload, response=response,
+            request_params=request_params,
             attempt_count=0, actor_id=actor_id, now=now)
         if resource_uri is not None:
             c.execute(text(
@@ -137,27 +149,31 @@ def update_tracking(conn, *, irp_job_id: Any, status: str,
 def record_submission_failure(
     *, irp_job_type: str, requested_from_submission_id: Any | None = None,
     irp_edm_id: Any | None = None, irp_rdm_id: Any | None = None,
-    payload: dict | None = None, actor_id: Any | None = None, conn=None,
+    irp_portfolio_id: Any | None = None, irp_analysis_id: Any | None = None,
+    payload: dict | None = None, request_params: dict | None = None,
+    actor_id: Any | None = None, conn=None,
 ) -> str:
     """Worker-side: the submit never reached Risk Modeler — write the ``irp_job``
     as terminal ``SUBMISSION FAILED`` with ``irp_id=NULL`` (distinct from an RM-side
-    ``FAILED``, FR-029). The poller's ``submission_retry`` batch re-attempts it.
+    ``FAILED``, FR-029). The poller's ``submission_retry`` batch re-attempts it,
+    resubmitting from ``request_params`` (the spec-010 linkage columns) verbatim.
 
     NOTE (review item 5): this inserts a **new** row per failure, so an entity that
     fails to submit N times accumulates N ``SUBMISSION FAILED`` rows for the same
-    (entity, type). The US6 ``submission_retry`` batch (descoped this iteration — the
-    poller stub is a no-op) MUST therefore select/retry per **entity**, not per row —
-    a per-row scan would re-submit the same head once per accumulated failure. Dedup
-    is left to that consumer (not enforced here) since nothing reads these rows yet."""
+    (entity, type). ``submission_retry`` (spec 010, T-09) therefore selects/retries
+    per **entity** (``irp_analysis_id``), not per row — a per-row scan would
+    re-submit the same head once per accumulated failure."""
     job_id = str(uuid.uuid4())
     now = _utcnow()
     with _txn(conn) as c:
         _insert_irp_job(
             c, job_id=job_id,
             requested_from_submission_id=requested_from_submission_id,
-            irp_edm_id=irp_edm_id,
-            irp_rdm_id=irp_rdm_id, irp_job_type=irp_job_type, irp_id=None,
+            irp_edm_id=irp_edm_id, irp_rdm_id=irp_rdm_id,
+            irp_portfolio_id=irp_portfolio_id, irp_analysis_id=irp_analysis_id,
+            irp_job_type=irp_job_type, irp_id=None,
             status="SUBMISSION FAILED", payload=payload, response=None,
+            request_params=request_params,
             attempt_count=1, actor_id=actor_id, now=now)
     return job_id
 

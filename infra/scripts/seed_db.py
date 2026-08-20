@@ -132,6 +132,8 @@ def main() -> int:
                     ('upload_rdm',                'Upload RDM',                20),
                     ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
                     ('backfill_edm_detail',       'Backfill EDM Detail',       27),
+                    ('execute_analysis_batch',    'Execute Analysis Batch',    28),
+                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),

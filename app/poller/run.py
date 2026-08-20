@@ -258,12 +258,8 @@ def _dispatch_pending() -> None:
 
 
 def _submission_retry() -> None:
-    """Re-attempt submit-side failures. Scaffold: with no ``IRP_SUBMISSION_MAX_RETRIES``
-    configured there is nothing to do (FR-029); the full batch lands in US6 (T053)."""
-    if settings.irp_submission_max_retries is None:
-        logger.debug("submission_retry: IRP_SUBMISSION_MAX_RETRIES unset — skipping")
-        return
-    logger.debug("submission_retry: no-op scaffold (implemented in US6)")
+    """Re-attempt submit-side failures (FR-029). Scaffold — implemented in spec 010 T-09."""
+    logger.debug("submission_retry: no-op scaffold")
 
 
 def poll_once() -> None:

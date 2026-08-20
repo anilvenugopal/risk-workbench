@@ -37,6 +37,16 @@ _DATABRIDGE_SQL_DIR = Path(__file__).resolve().parents[2] / "sql" / "databridge"
 # the stored summary (8/4 D15 — lines of business is the known case).
 _FREE_TEXT_STORAGE_CAP = 500
 
+# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
+# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
+# raises this on any submit failure (spec 010, contracts/irp-gateway.md); the
+# fallback keeps this module importable without the wheel installed.
+try:
+    from irp_integration.exceptions import IRPIntegrationError
+except ImportError:  # pragma: no cover — the wheel is always installed in dev/CI
+    class IRPIntegrationError(Exception):
+        """Fallback used only when irp-integration isn't installed."""
+
 
 # ── Result value objects (gateway-owned; independent of the wheel's shapes) ──────
 
@@ -89,9 +99,11 @@ class EdmCatalogEntry:
 
 @dataclass(frozen=True)
 class AnalysisHit:
-    """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
-    Moody's ``analysisId`` as a string. The source names are echoed back so the
-    backfill worker can persist lineage on ``irp_analysis``.
+    """One analysis — a broker analysis returned by ``search_analyses`` (D2), or
+    an own-executed analysis resolved by exact name via ``get_analysis_by_name``
+    (spec 010, worker-only). ``analysis_id`` is Moody's ``analysisId`` as a
+    string. The source names are echoed back so the backfill worker can persist
+    lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -247,6 +259,21 @@ class IRPGateway(Protocol):
     def list_currency_schemes(self) -> list[CurrencySchemeEntry]: ...
 
     def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]: ...
+
+    # ── spec-010 analysis execution (worker-only; submit/status/backfill) ───────
+
+    def submit_portfolio_analysis(
+        self, *, edm_name: str, portfolio_name: str, job_name: str,
+        analysis_profile_name: str, output_profile_name: str,
+        event_rate_scheme_name: str | None, treaty_names: list[str],
+        tag_names: list[str], currency: dict,
+        min_loss_threshold: float, num_max_loss_event: int,
+        franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+    ) -> tuple[str, dict]: ...
+
+    def get_analysis_job(self, irp_id: str) -> JobStatus: ...
+
+    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -475,6 +502,53 @@ class _RealGateway:
     def get_import_job(self, irp_id: str) -> JobStatus:
         data = self._client().import_job.get_import_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
+
+    # ── spec-010 analysis execution (worker-only) ─────────────────────────────
+
+    def submit_portfolio_analysis(
+        self, *, edm_name: str, portfolio_name: str, job_name: str,
+        analysis_profile_name: str, output_profile_name: str,
+        event_rate_scheme_name: str | None, treaty_names: list[str],
+        tag_names: list[str], currency: dict,
+        min_loss_threshold: float, num_max_loss_event: int,
+        franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+    ) -> tuple[str, dict]:
+        # skip_duplicate_check=True: the workbench is the only writer of its own
+        # EDMs' analyses (no-backwards-compatibility rule); the local name-claim
+        # (uq_irp_analysis_live_edm_name) is the real collision guard (T-05),
+        # avoiding one RM search per submitted item.
+        job_id, request_body = self._client().analysis.submit_portfolio_analysis_job(
+            edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
+            analysis_profile_name=analysis_profile_name,
+            output_profile_name=output_profile_name,
+            event_rate_scheme_name=event_rate_scheme_name,
+            treaty_names=treaty_names, tag_names=tag_names, currency=currency,
+            skip_duplicate_check=True,
+            franchise_deductible=franchise_deductible,
+            min_loss_threshold=min_loss_threshold,
+            treat_construction_occupancy_as_unknown=(
+                treat_construction_occupancy_as_unknown),
+            num_max_loss_event=num_max_loss_event,
+        )
+        return str(job_id), request_body
+
+    def get_analysis_job(self, irp_id: str) -> JobStatus:
+        data = self._client().analysis.get_analysis_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
+        # Raises IRPIntegrationError (IRPAPIError) on 0 or >1 matches — Article 2
+        # name-based coupling; the caller resolves an own-executed analysis by
+        # the exact ≤64-char name it submitted.
+        r = self._client().analysis.get_analysis_by_name(analysis_name, edm_name)
+        return AnalysisHit(
+            analysis_id=str(r["analysisId"]),
+            name=r.get("analysisName"),
+            source_rdm_name=r.get("sourceRdmName"),
+            exposure_name=r.get("exposureName"),
+            exposure_resource_id=(str(r["exposureResourceId"])
+                                  if r.get("exposureResourceId") is not None else None),
+            exposure_resource_type=r.get("exposureResourceType"))
 
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
@@ -709,6 +783,37 @@ def list_currency_scheme_vintages() -> list[CurrencySchemeVintageEntry]:
     return _active().list_currency_scheme_vintages()
 
 
+# ── spec-010 analysis execution (worker-only) ─────────────────────────────────
+
+def submit_portfolio_analysis(
+    *, edm_name: str, portfolio_name: str, job_name: str,
+    analysis_profile_name: str, output_profile_name: str,
+    event_rate_scheme_name: str | None, treaty_names: list[str],
+    tag_names: list[str], currency: dict,
+    min_loss_threshold: float, num_max_loss_event: int,
+    franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+) -> tuple[str, dict]:
+    return _active().submit_portfolio_analysis(
+        edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
+        analysis_profile_name=analysis_profile_name,
+        output_profile_name=output_profile_name,
+        event_rate_scheme_name=event_rate_scheme_name,
+        treaty_names=treaty_names, tag_names=tag_names, currency=currency,
+        min_loss_threshold=min_loss_threshold,
+        num_max_loss_event=num_max_loss_event,
+        franchise_deductible=franchise_deductible,
+        treat_construction_occupancy_as_unknown=treat_construction_occupancy_as_unknown,
+    )
+
+
+def get_analysis_job(irp_id: str) -> JobStatus:
+    return _active().get_analysis_job(irp_id)
+
+
+def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
+    return _active().get_analysis_by_name(analysis_name, edm_name)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
@@ -721,4 +826,6 @@ __all__ = [
     "search_treaties", "get_analysis_metadata", "list_model_profiles",
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
+    "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
+    "IRPIntegrationError",
 ]

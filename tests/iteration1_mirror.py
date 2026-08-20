@@ -102,12 +102,14 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE irp_analysis_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    # irp_portfolio_id / irp_analysis_id / request_params (spec 010, data-model §2).
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
-        irp_edm_id TEXT, irp_rdm_id TEXT,
+        irp_edm_id TEXT, irp_rdm_id TEXT, irp_portfolio_id TEXT, irp_analysis_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
-        last_completion_result TEXT, submission_attempt_count INTEGER,
+        last_completion_result TEXT, request_params TEXT,
+        submission_attempt_count INTEGER,
         submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
@@ -129,14 +131,20 @@ ITERATION2_SCHEMA = [
     )""",
     # irp_analysis (D2) — captured broker analyses for delete-enumeration (§6a).
     # UNIQUE(rdm_id, edm_id, irp_id) is kept — the backfill idempotency backbone is
-    # exercised on the unit tier. Iteration 3 (spec 004): settings_metadata /
-    # is_group / exposure_resource_id detail columns (data-model §4).
+    # exercised on the unit tier (both rdm_id/irp_id are NULL for own-executed
+    # rows, which SQLite — like SQL Server's filtered index — never treats as
+    # colliding). Iteration 3 (spec 004): settings_metadata / is_group /
+    # exposure_resource_id detail columns (data-model §4). Spec 010: rdm_id/irp_id/
+    # source_rdm_name are no longer required (own-executed rows have none);
+    # full_name/irp_portfolio_id/analysis_template_id/execution_id/failure_reason
+    # are new (data-model §1).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
-        irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
-        created_by_irp_job_irp_id TEXT,
+        irp_id TEXT, name TEXT, full_name TEXT, source_rdm_name TEXT,
+        status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
-        deleted_at TEXT,
+        irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
+        failure_reason TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",
@@ -238,6 +246,8 @@ IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
 RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
+                     ("execute_analysis_batch", "Execute Analysis Batch", 28),  # spec 010
+                     ("backfill_analysis_detail", "Backfill Analysis Detail", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),

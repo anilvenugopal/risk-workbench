@@ -266,16 +266,24 @@ erDiagram
   irp_analysis ||--o{ irp_analysis : "group members (self-ref)"
   irp_analysis_status_kind ||--o{ irp_analysis : states
 
+  irp_portfolio |o--o{ irp_analysis : "own analyses run against (nullable)"
+  analysis_template |o--o{ irp_analysis : "own analyses submitted from (nullable)"
+
   irp_analysis {
     uniqueidentifier id PK
-    uniqueidentifier edm_id FK "nullable; null for broker analyses. CHECK: edm_id or rdm_id set"
+    uniqueidentifier edm_id FK "nullable; null for broker analyses. CHECK ck_irp_analysis_origin: edm_id or rdm_id set"
     uniqueidentifier rdm_id FK "nullable; set → broker, null → own"
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
-    string name "IRP analysis name"
+    string name "≤64-char name, exact string sent to RM (own); IRP analysis name (broker)"
+    string full_name "nullable; untruncated portfolio+template name incl. rerun suffix — own analyses only (spec 010 T-04)"
     int irp_id "nullable; resolves only after FINISHED"
     bool is_group "true → this row IS a group"
     string status_code FK "irp_analysis_status_kind"
     string created_by_irp_job_irp_id "nullable; the creating job"
+    uniqueidentifier irp_portfolio_id FK "nullable; own analyses only — the portfolio it ran against"
+    uniqueidentifier analysis_template_id FK "nullable; own analyses only — survives template soft-delete"
+    uniqueidentifier execution_id "nullable; own analyses only — the execute_analysis_batch run's requestor_id"
+    string failure_reason "nullable; RM run-failure message or submit exception message"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
@@ -291,12 +299,13 @@ erDiagram
   }
 ```
 
-- **`edm_id` and `rdm_id` are both nullable, with a CHECK that at least one is set.** Own analyses have `edm_id` set and `rdm_id` null. Broker analyses have `rdm_id` set and `edm_id` null. Broker enumeration filters `search_analyses` by `sourceRdmName` only.
+- **`edm_id` and `rdm_id` are both nullable, enforced by CHECK `ck_irp_analysis_origin` that at least one is set.** Own analyses have `edm_id` set and `rdm_id` null. Broker analyses have `rdm_id` set and `edm_id` null. Broker enumeration filters `search_analyses` by `sourceRdmName` only.
 - **Own vs. broker is derived from `rdm_id`** (`null` → own, set → broker), computed in the view layer — no stored `origin` column.
-- **Broker analysis identity is (`rdm_id`, `irp_id`).** Each Risk Modeler analysis
+- **Broker analysis identity is (`rdm_id`, `irp_id`)**, backed by a filtered unique index (`uq_irp_analysis_rdm_irp`, `WHERE rdm_id IS NOT NULL AND irp_id IS NOT NULL`) rather than a plain UNIQUE constraint — a plain constraint would treat the many own-analysis rows' NULLs as colliding. Each Risk Modeler analysis
   is captured once for its source RDM. Names are not keys because Risk Modeler
   permits duplicates and edits. Successful enumeration prunes missing analyses by
   `rdm_id`.
+- **Own analysis identity is (`edm_id`, `name`) among live rows**, backed by a second filtered unique index (`uq_irp_analysis_live_edm_name`, `WHERE edm_id IS NOT NULL AND deleted_at IS NULL`) — the local rerun-collision check spec 010 T-05 relies on; the run submits with `skip_duplicate_check=True` on the RM side.
 - **`status_code` is a kind table** (app-defined vocabulary), unlike the plain-string EDM/RDM `status`.
 
 ---
@@ -372,6 +381,7 @@ erDiagram
   irp_edm |o--o{ irp_job : "entity lineage (nullable)"
   irp_portfolio ||--o{ irp_job : "entity lineage (nullable)"
   irp_rdm |o--o{ irp_job : "entity lineage (nullable)"
+  irp_analysis |o--o{ irp_job : "entity lineage (nullable; spec 010)"
   irp_job_type_kind ||--o{ irp_job : types
   irp_job ||--o{ irp_job_resource : "submits resource(s)"
   irp_job_resource_type_kind ||--o{ irp_job_resource : types
@@ -386,12 +396,14 @@ erDiagram
     uniqueidentifier irp_edm_id FK "nullable; entity lineage"
     uniqueidentifier irp_portfolio_id FK "nullable; entity lineage"
     uniqueidentifier irp_rdm_id FK "nullable; entity lineage"
+    uniqueidentifier irp_analysis_id FK "nullable; entity lineage + retry key (spec 010)"
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
     string last_submission_payload "JSON; latest submit request"
     string last_submission_response "JSON; RM's response to that submit"
     string last_completion_result "JSON; terminal poll response (FINISHED or FAILED)"
+    string request_params "JSON; submit kwargs snapshot — submission_retry resubmits from it verbatim (spec 010)"
     int submission_attempt_count "default 0"
     datetime submitted_at "nullable"
     datetime completed_at "nullable"
@@ -466,7 +478,11 @@ erDiagram
 **`irp_job`:**
 - **Grain is one IRP operation against one physical resource.** EDM import sets
   `irp_edm_id`. RDM import sets `irp_rdm_id` and leaves `irp_edm_id` null.
-  Portfolio/GeoHaz sets `irp_portfolio_id` and `irp_edm_id`.
+  Portfolio/GeoHaz sets `irp_portfolio_id` and `irp_edm_id`. An own analysis
+  submission (`irp_job_type='analysis'`, spec 010) sets `irp_analysis_id`,
+  `irp_portfolio_id`, and `irp_edm_id`, and carries the submit kwargs snapshot in
+  `request_params` — the `submission_retry` batch resubmits from it verbatim,
+  never recomposed from live template/suite rows.
   `requested_from_submission_id` records which contextual action started the job;
   polling, retry, and worker dispatch never depend on it.
 - **`irp_job_type` is a kind table** (closed, app-defined) but **`status` is a plain string** — RM can add status values at any time, and an unknown value must not crash the poller.
@@ -483,6 +499,8 @@ erDiagram
 | `upload_rdm` | Submit one standalone `import_rdm` for one RDM | `backfill_rdm_analyses` on FINISHED |
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
 | `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | — |
+| `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
+| `backfill_analysis_detail` | Resolve one own analysis by name after FINISHED; write `irp_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
 | `retrieve_analysis_results` | `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` | `download_export_file` |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |
@@ -728,7 +746,7 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_edm_detail`, `backfill_rdm_analyses`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_edm_detail`, `backfill_rdm_analyses`, `execute_analysis_batch`, `backfill_analysis_detail`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
 | `delivery_kind` | `file`, `sql`. |
 | `validation_run_status_kind` *(deferred)* | `running`, `complete`, `error`. |

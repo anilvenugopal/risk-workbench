@@ -75,10 +75,11 @@ class Settings(BaseSettings):
     # non-terminal irp_job per pass; never poll_*_to_completion.
     poll_interval_secs: int = 15
 
-    # Submit-side retry ceiling for the submission_retry batch (FR-029). There is
-    # deliberately NO fixed default — it is a deployment decision; None means "not
-    # configured", and the batch parks SUBMISSION FAILED rows until it is set.
-    irp_submission_max_retries: int | None = None
+    # Submit-side retry ceiling for the submission_retry batch (FR-029), and the
+    # exponential-backoff base it uses: eligible when
+    # now > completed_at + irp_submission_retry_base_secs * 2**attempts.
+    irp_submission_max_retries: int = 3
+    irp_submission_retry_base_secs: int = 60
 
     # TTL for the in-process Risk Modeler name-collision cache (issue #11) — shared
     # by the as-you-type check endpoints and the save-time blocking check.
