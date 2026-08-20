@@ -473,6 +473,11 @@ def upgrade() -> None:
         # The run's UUID (spec 010) — equals the execute_analysis_batch row's
         # requestor_id; NULL for broker rows.
         sa.Column("execution_id", sa.Uuid, nullable=True),
+        # The plan item's ordinal within the run (spec 010). Cross-suite dedup is
+        # dropped (P-02 amended), so (execution_id, irp_portfolio_id, template) can
+        # repeat — (execution_id, irp_portfolio_id, execution_item_no) is the
+        # worker's exact resume key. NULL for broker rows.
+        sa.Column("execution_item_no", sa.Integer, nullable=True),
         # RM's run-failure message (poller) or the submit exception message
         # (worker); NULL for broker rows.
         sa.Column("failure_reason", sa.NVARCHAR(None), nullable=True),

@@ -136,15 +136,15 @@ ITERATION2_SCHEMA = [
     # colliding). Iteration 3 (spec 004): settings_metadata / is_group /
     # exposure_resource_id detail columns (data-model §4). Spec 010: rdm_id/irp_id/
     # source_rdm_name are no longer required (own-executed rows have none);
-    # full_name/irp_portfolio_id/analysis_template_id/execution_id/failure_reason
-    # are new (data-model §1).
+    # full_name/irp_portfolio_id/analysis_template_id/execution_id/
+    # execution_item_no/failure_reason are new (data-model §1).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
         irp_id TEXT, name TEXT, full_name TEXT, source_rdm_name TEXT,
         status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
-        failure_reason TEXT, deleted_at TEXT,
+        execution_item_no INTEGER, failure_reason TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",

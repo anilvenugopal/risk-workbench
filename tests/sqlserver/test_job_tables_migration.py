@@ -128,7 +128,7 @@ class TestJobTablesMigration:
         assert "package_id" not in cols
         assert {"rdm_id", "edm_id", "irp_id", "source_rdm_name", "deleted_at",
                 "full_name", "irp_portfolio_id", "analysis_template_id",
-                "execution_id", "failure_reason"} <= cols
+                "execution_id", "execution_item_no", "failure_reason"} <= cols
 
     def test_irp_analysis_own_row_columns_nullable(self):
         # spec 010: rdm_id/source_rdm_name/irp_id must accept NULL for own-executed
