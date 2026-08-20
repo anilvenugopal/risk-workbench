@@ -105,7 +105,6 @@ def test_irp_job_writers_persist_geohaz_portfolio_and_params(iteration2_db):
     }
 
     submitted_id = irp_job_service.record_submitted_irp_job(
-        package_id=None,
         irp_job_type="geohaz",
         irp_portfolio_id=portfolio_id,
         irp_id="700",
@@ -115,7 +114,6 @@ def test_irp_job_writers_persist_geohaz_portfolio_and_params(iteration2_db):
         actor_id=iteration2_db.user_a,
     )
     failed_id = irp_job_service.record_submission_failure(
-        package_id=None,
         irp_job_type="geohaz",
         irp_portfolio_id=portfolio_id,
         payload={"error": "submit failed"},

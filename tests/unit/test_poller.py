@@ -15,12 +15,9 @@ import re
 
 from app.poller import run as poller
 from app.services import edm_service, irp_job_service
-from app.services import package_sync_service as sync
-from app.workers import package_jobs
+from app.workers import entity_jobs
 from db import execute, execute_command, execute_one
 from tests.unit.test_geohaz_service import _edm_with_portfolios
-
-MS = sync.MemberSpec
 
 
 def test_geohaz_uses_single_status_getter_and_metadata_refresh():
@@ -46,7 +43,7 @@ def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
         edm_exposure_id="90001", irp_id="101", name="Portfolio 1",
         exposure={"hazardVersion": "23.0,25.0", "totalLocations": 142})
     job_id = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_id="25234199",
+        irp_job_type="geohaz", irp_id="25234199",
         irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
     result = {
         "status": "FINISHED",
@@ -76,7 +73,7 @@ def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str,
     """Import an EDM then run its upload_edm worker body → returns (edm_id, irp_id)."""
     res = edm_service.import_edm(name=name, source_file_path=str(drive / fname),
                                  actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")  # submits → irp_job(import_edm, QUEUED)
+    entity_jobs.run_pending(worker_id="w1")  # submits → irp_job(import_edm, QUEUED)
     row = execute_one(
         "SELECT irp_id FROM irp_job WHERE irp_edm_id=:e AND irp_job_type='import_edm'",
         {"e": res.entity_id}, connection="WORKBENCH")
@@ -121,7 +118,7 @@ def test_submission_failed_is_not_tracked_and_distinct_from_failed(
     res = edm_service.import_edm(name="EDM", source_file_path=str(drive / "edm1.bak"),
                                  actor_id=iteration2_db.user_a)
     fake_irp.raise_on_submit = True
-    package_jobs.run_pending(worker_id="w1")
+    entity_jobs.run_pending(worker_id="w1")
     job = execute_one("SELECT status, irp_id FROM irp_job WHERE irp_edm_id=:e",
                       {"e": res.entity_id}, connection="WORKBENCH")
     assert job["status"] == "SUBMISSION FAILED"
@@ -143,52 +140,15 @@ def _rwb_jobs_of(rwb_job_type: str) -> list[dict]:
         {"t": rwb_job_type}, connection="WORKBENCH")
 
 
-def test_finished_enqueues_both_upload_rdm_and_backfill_edm_detail(
-        iteration2_db, fake_irp, drive):
-    """A package member's import_edm FINISHED enqueues BOTH heads — the existing
-    upload_rdm fan-out AND the new backfill_edm_detail — as distinct rows under
-    UNIQUE(requestor_type, requestor_id, rwb_job_type); a re-poll re-inserts
-    neither (worker-poller.md §3)."""
-    actor = iteration2_db.user_a
-    pid = sync.save_package(
-        package_id=None, name="P",
-        members=[MS(kind="edm", name="EDM", source_file_path=str(drive / "edm1.bak")),
-                 MS(kind="rdm", name="RDM", source_file_path=str(drive / "rdm1.mdf"))],
-        actor_id=actor).package_id
-    sync.save_and_sync(package_id=pid, actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")  # submit import_edm
-    job = execute_one(
-        "SELECT id, irp_id, irp_edm_id FROM irp_job WHERE irp_job_type='import_edm'",
-        {}, connection="WORKBENCH")
-    fake_irp.finish(str(job["irp_id"]))
-    poller.poll_once()
-
-    uploads = _rwb_jobs_of("upload_rdm")
-    backfills = _rwb_jobs_of("backfill_edm_detail")
-    assert len(uploads) == 1
-    assert len(backfills) == 1
-    # both keyed on the SAME finished irp_job (distinct rwb_job_type admits both)
-    assert uploads[0]["requestor_type"] == "irp_job"
-    assert backfills[0]["requestor_type"] == "irp_job"
-    assert uploads[0]["requestor_id"] == backfills[0]["requestor_id"] == str(job["id"])
-    assert str(job["irp_edm_id"]) in backfills[0]["input_data"]
-
-    poller.poll_once()  # re-poll: idempotent — no double backfill
-    assert len(_rwb_jobs_of("upload_rdm")) == 1
-    assert len(_rwb_jobs_of("backfill_edm_detail")) == 1
-
-
 def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
         iteration2_db, fake_irp, drive):
-    """A standalone import (no package, no RDMs) gets its detail backfilled too —
-    the enqueue is independent of package_id and sits before the RDM guard."""
+    """A standalone import gets its detail backfilled after completion."""
     edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
     fake_irp.finish(irp_id)
     poller.poll_once()
     backfills = _rwb_jobs_of("backfill_edm_detail")
     assert len(backfills) == 1
     assert edm_id in backfills[0]["input_data"]
-    assert _rwb_jobs_of("upload_rdm") == []  # nothing to apply
 
 
 def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, drive):
@@ -199,7 +159,6 @@ def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, driv
     poller.poll_once()
     assert edm_service.get_edm(edm_id).status == edm_service.ERROR
     assert _rwb_jobs_of("backfill_edm_detail") == []
-    assert _rwb_jobs_of("upload_rdm") == []
 
 
 # ── poller business-level logging (#28 follow-up, PR #31) ────────────────────────
@@ -237,57 +196,3 @@ def test_every_status_check_logged_at_debug(iteration2_db, fake_irp, drive, capl
     assert len(checks) == 1
     assert any("tracking 1 in-flight irp_job(s)" in r.getMessage()
                for r in caplog.records)
-
-
-def _import_edm_into_package(drive, actor, name="EDM", fname="edm1.bak"):
-    """Build an EDM-only package, sync it, and drive its import to ``ready`` with a
-    backfilled exposureId. Returns (package_id, edm_id)."""
-    pid = sync.save_package(
-        package_id=None, name="P",
-        members=[MS(kind="edm", name=name, source_file_path=str(drive / fname))],
-        actor_id=actor).package_id
-    sync.save_and_sync(package_id=pid, actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")  # submit import_edm → irp_job QUEUED
-    import_irp = execute_one(
-        "SELECT irp_id FROM irp_job WHERE irp_job_type='import_edm'",
-        {}, connection="WORKBENCH")["irp_id"]
-    fake_edm_id = execute_one("SELECT id FROM irp_edm WHERE package_id=:p",
-                              {"p": pid}, connection="WORKBENCH")["id"]
-    return pid, str(fake_edm_id), str(import_irp)
-
-
-def test_failed_delete_edm_preserves_irp_id_and_can_resubmit(
-        iteration2_db, fake_irp, drive):
-    """A delete_edm that reaches a non-FINISHED terminal must flip the EDM to ``error``
-    WITHOUT nulling its exposureId (irp_id) — otherwise a re-triggered delete takes the
-    "never imported" inline branch and the RM exposure is orphaned (HIGH review item 1)."""
-    actor = iteration2_db.user_a
-    pid, edm_id, import_irp = _import_edm_into_package(drive, actor)
-    fake_irp.finish(import_irp)
-    poller.poll_once()  # EDM → ready, exposureId backfilled as irp_id
-    edm = edm_service.get_edm(edm_id)
-    assert edm.status == edm_service.READY and edm.irp_id is not None
-    exposure_id = edm.irp_id
-
-    # Delete the (EDM-only) package → the worker submits delete_edm against the exposure.
-    sync.delete_package(package_id=pid, actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")
-    delete_irp = execute_one(
-        "SELECT irp_id FROM irp_job WHERE irp_job_type='delete_edm'",
-        {}, connection="WORKBENCH")["irp_id"]
-    assert len([s for s in fake_irp.submits if s["kind"] == "delete_edm"]) == 1
-
-    # The delete job fails on the RM side.
-    fake_irp.fail(str(delete_irp))
-    poller.poll_once()
-
-    edm = edm_service.get_edm(edm_id)
-    assert edm.status == edm_service.ERROR
-    assert edm.irp_id is not None            # exposureId preserved, not nulled
-    assert edm.irp_id == exposure_id
-
-    # A re-triggered delete must actually re-submit delete_edm (real exposure removal),
-    # not silently inline-delete + finalize because irp_id was wiped.
-    sync.delete_package(package_id=pid, actor_id=actor)
-    package_jobs.run_pending(worker_id="w1")
-    assert len([s for s in fake_irp.submits if s["kind"] == "delete_edm"]) == 2

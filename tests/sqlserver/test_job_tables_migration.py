@@ -45,6 +45,14 @@ class TestJobTablesMigration:
     def test_job_table_exists(self, name):
         assert _table_exists(name) == 1
 
+    def test_irp_job_columns(self):
+        cols = {r["COLUMN_NAME"] for r in execute(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_job'", {}, connection="WORKBENCH")}
+        assert {"irp_edm_id", "irp_portfolio_id", "irp_rdm_id",
+                "requested_from_submission_id", "status"} <= cols
+        assert "package_id" not in cols
+
     def test_no_scope_column_on_job_tables(self):
         for table in ("irp_job", "rwb_job"):
             cols = {r["COLUMN_NAME"] for r in execute(
@@ -52,17 +60,19 @@ class TestJobTablesMigration:
                 "WHERE TABLE_NAME = :t", {"t": table}, connection="WORKBENCH")}
             assert "customer_id" not in cols  # Article 6
 
-    def test_irp_job_type_kind_seeds_have_no_delete_rdm(self):
+    def test_irp_job_type_kind_seeds_have_no_entity_deletes(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM irp_job_type_kind", {}, connection="WORKBENCH")}
-        assert {"import_edm", "import_rdm", "delete_edm"} <= codes
-        assert "delete_rdm" not in codes  # RDM delete is synchronous (R6)
+        assert {"import_edm", "import_rdm"} <= codes
+        assert "delete_edm" not in codes
+        assert "delete_rdm" not in codes
 
     def test_rwb_job_type_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
-        assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses", "delete_rdm",
-                "delete_edm", "notify_analyst"} <= codes  # backfill new this iter (D2)
+        assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses",
+                "notify_analyst"} <= codes
+        assert {"delete_edm", "delete_rdm"}.isdisjoint(codes)
 
     def test_irp_analysis_status_kind_seeds(self):
         codes = {r["code"] for r in execute(
@@ -72,7 +82,7 @@ class TestJobTablesMigration:
     def test_irp_analysis_unique_constraint_present(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.key_constraints "
-            "WHERE name = 'uq_irp_analysis_pair' "
+            "WHERE name = 'uq_irp_analysis_rdm_irp' "
             "AND parent_object_id = OBJECT_ID('dbo.irp_analysis')",
             {}, connection="WORKBENCH")
         assert n == 1  # UNIQUE(rdm_id, edm_id, irp_id) — backfill idempotency (§6a)
@@ -82,13 +92,14 @@ class TestJobTablesMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.irp_analysis')",
             {}, connection="WORKBENCH")
-        assert n >= 4  # rdm_id, edm_id, package_id, status_code (+ user FKs)
+        assert n >= 3  # rdm_id, edm_id, status_code (+ user FKs)
 
     def test_irp_analysis_no_scope_column(self):
         cols = {r["COLUMN_NAME"] for r in execute(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_NAME = 'irp_analysis'", {}, connection="WORKBENCH")}
         assert "customer_id" not in cols  # Article 6
+        assert "package_id" not in cols
         assert {"rdm_id", "edm_id", "irp_id", "source_rdm_name", "deleted_at"} <= cols
 
     def test_rwb_job_requestor_and_status_seeds(self):
@@ -119,7 +130,7 @@ class TestJobTablesMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.irp_job')",
             {}, connection="WORKBENCH")
-        assert n >= 4  # package, irp_edm, irp_rdm, irp_job_type (+ user FKs)
+        assert n >= 4  # submission, irp_edm, irp_rdm, irp_job_type (+ user FKs)
 
 
 # ── behavioral: atomic claim + idempotent chained insert ──────────────────────

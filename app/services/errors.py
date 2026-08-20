@@ -1,4 +1,4 @@
-"""Typed service-layer errors for the submission & package domain.
+"""Typed service-layer errors for submission and entity operations.
 
 These are raised by `app/services/*_service.py` and mapped to HTTP responses by
 the routers (contracts/data-access.md):
@@ -10,7 +10,6 @@ the routers (contracts/data-access.md):
 - ``SelfLinkError``        — links_to_submission_id == id (R9/FR-007) → 422.
 - ``UnknownLinkError``     — links_to_submission_id names no submission (FR-007)
                              → 422.
-- ``EmptyPackageError``    — a package would have zero members (R5/FR-024).
 - ``InvalidSourceFile``    — a browse selection is outside SHARED_DRIVE_ROOT,
                              missing, or not a file (FR-008/FR-009) → 422.
 - ``InvalidMemberName``    — an EDM/RDM name has disallowed characters or is too
@@ -46,6 +45,14 @@ class ConcurrencyConflict(ServiceError):
     someone else wrote the row first. The write is refused, never applied."""
 
 
+class NoteConflict(ConcurrencyConflict):
+    """Raised when a note changed after the analyst opened the editor."""
+
+    def __init__(self, current_note: str | None):
+        super().__init__("The note changed while you were editing it.")
+        self.current_note = current_note
+
+
 class SelfLinkError(ServiceError):
     """Raised when a submission would name itself as its own linked submission."""
 
@@ -56,10 +63,6 @@ class UnknownLinkError(ServiceError):
     stale page, a deleted target, or a hand-built request. The column is a foreign
     key to submission.id, so writing it would raise a driver error the route can
     only render as a 500."""
-
-
-class EmptyPackageError(ServiceError):
-    """Raised when a package would be persisted with zero members."""
 
 
 class InvalidSourceFile(ServiceError):
@@ -99,9 +102,9 @@ __all__ = [
     "ServiceError",
     "SubmissionClosed",
     "ConcurrencyConflict",
+    "NoteConflict",
     "SelfLinkError",
     "UnknownLinkError",
-    "EmptyPackageError",
     "InvalidSourceFile",
     "InvalidMemberName",
     "JobSubmitError",

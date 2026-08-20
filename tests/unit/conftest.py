@@ -22,37 +22,3 @@ def _clear_name_check_cache():
     name_check.clear_cache()
     yield
     name_check.clear_cache()
-
-
-@pytest.fixture()
-def fake_irp():
-    """Inject an in-memory fake Risk Modeler as the active irp_gateway (Article 12).
-
-    The fake implements the ``IRPGateway`` protocol; the poller/worker code under
-    test reaches it through the gateway free functions. Reset after each test so no
-    implementation leaks across tests."""
-    from app.services import irp_gateway
-    from tests.unit.fakes.fake_irp import FakeIRP
-
-    fake = FakeIRP()
-    irp_gateway.configure(fake)
-    yield fake
-    irp_gateway.reset()
-
-
-@pytest.fixture()
-def drive(tmp_path, monkeypatch):
-    """A real on-disk shared-drive root with a few exposure files and a nested
-    ``deals/zephyr`` folder, wired into ``settings.shared_drive_root`` so
-    ``shared_drive.validate_selection`` (and thus ``import_edm``/``import_rdm``) accept
-    selections within it, and ``validate_directory`` accepts the folders. Returns the
-    root ``Path``; build a source path with ``str(drive / 'edm1.bak')``."""
-    from app.config import settings
-
-    root = tmp_path / "share"
-    root.mkdir()
-    for fname in ("edm1.bak", "edm2.bak", "rdm1.mdf", "rdm2.mdf"):
-        (root / fname).write_text("x")
-    (root / "deals" / "zephyr").mkdir(parents=True)
-    monkeypatch.setattr(settings, "shared_drive_root", str(root))
-    return root

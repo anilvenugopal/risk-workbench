@@ -10,6 +10,16 @@
 .synced__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--c-green-500); }
 .synced__dot--warn { background: var(--c-amber-500); }
 
+.detail-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-5); }
+.edm-picker, .rdm-picker { display: flex; flex-direction: column; gap: var(--space-1); min-width: 260px; }
+.edm-picker label, .rdm-picker label { font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em; color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.edm-picker .wf-field__input, .rdm-picker .wf-field__input { min-width: 260px; }
+
+@media (max-width: 900px) {
+  .detail-head-row { display: block; }
+  .edm-picker, .rdm-picker { margin-top: var(--space-3); }
+}
+
 /* ── collapsible section (native <details>, default OPEN — ui.md §1.2) ───── */
 details.sec { margin-bottom: var(--space-6); }
 details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-2); margin-bottom: 10px; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-faint); }
@@ -135,3 +145,22 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
   .portfolio-detail-columns { grid-template-columns: 1fr; }
   .geohaz-details { padding: var(--space-3) 0 0; border-left: 0; border-top: 1px solid var(--border-faint); }
 }
+
+.entity-note { margin: var(--space-4) 0 var(--space-5); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--surface-panel); }
+.entity-note__head { display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3); margin-bottom: var(--space-2); }
+.entity-note__head h2 { margin: 0; font-size: var(--fs-body); }
+.entity-note__text { margin: 0; color: var(--text-secondary); white-space: pre-wrap;
+  overflow-wrap: anywhere; }
+.entity-note__input { width: 100%; resize: vertical; }
+.entity-note__footer { display: flex; justify-content: flex-end; align-items: center;
+  gap: var(--space-2); margin-top: var(--space-2); }
+.entity-note__count { margin-right: auto; color: var(--text-tertiary);
+  font-size: var(--fs-caption); }
+.entity-note__newer { display: block; margin: var(--space-1) 0; white-space: pre-wrap;
+  color: var(--text-primary); }
+.detail-note-toggle { border: 0; padding: 0; background: transparent;
+  color: var(--color-brand); font: inherit; cursor: pointer; }
+.detail-note-toggle:hover { text-decoration: underline; }

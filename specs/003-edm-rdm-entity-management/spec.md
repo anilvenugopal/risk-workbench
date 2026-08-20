@@ -1,5 +1,9 @@
 # Feature Specification: EDM & RDM Entity Management (incl. Packages) (Iteration 2)
 
+> **Superseded in part:** `specs/006-package-retirement/` removes Package behavior,
+> replaces membership with direct Submission associations, and replaces per-EDM
+> RDM apply work with one standalone RDM import.
+
 **Feature Branch**: `003-edm-rdm-entity-management`
 
 **Created**: 2026-07-13

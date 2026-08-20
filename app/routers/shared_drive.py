@@ -2,7 +2,7 @@
 
 ``GET /browse`` returns the ``shared_drive_browse.html`` fragment: subfolders are
 navigation links (``hx-get`` back into this endpoint) and files carry multi-select
-checkboxes the import/package modals collect. ``dirs_only=1`` drops the files and
+checkboxes the import forms collect. ``dirs_only=1`` drops the files and
 adds a "Use this folder" button — the submission form's directory picker. Read-only
 — no state change, so no CSRF (Article 13 applies to mutations only). Authentication
 is enforced globally by SessionMiddleware.

@@ -90,7 +90,7 @@ def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
     blocked = portfolio_ids[1]
     if blocker == "irp_job":
         irp_job_service.record_submitted_irp_job(
-            package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+            irp_job_type="geohaz", irp_edm_id=edm_id,
             irp_portfolio_id=blocked, irp_id="901")
     else:
         rwb_job_service.ensure_pending_rwb_job(
@@ -178,22 +178,22 @@ def test_lookup_states_show_live_status_then_stored_hazard_version(
         requestor_type="analyst_request", requestor_id=submitting,
         rwb_job_type="run_geohaz", input_data={})
     irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=submitted, irp_id="909", status="SUBMITTED")
     live_job = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=live, irp_id="910")
     execute_command(
         "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
         {"id": live_job}, connection="WORKBENCH")
     finished_job = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=succeeded, irp_id="911")
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED' WHERE id = :id",
         {"id": finished_job}, connection="WORKBENCH")
     failed_job = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=failed, irp_id="912")
     execute_command(
         "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
@@ -224,7 +224,7 @@ def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     for irp_id, status in (("920", "FINISHED"), ("921", "FAILED")):
         job_id = irp_job_service.record_submitted_irp_job(
-            package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+            irp_job_type="geohaz", irp_edm_id=edm_id,
             irp_portfolio_id=portfolio_id, irp_id=irp_id)
         execute_command(
             "UPDATE irp_job SET status = :status WHERE id = :id",
@@ -245,7 +245,7 @@ def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
 def test_latest_lookup_returns_only_newest_run(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     first = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="930",
         request_params={
             "data_version": "24.0", "model_family": "DLM",
@@ -253,7 +253,7 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
             "override_user_def": False,
         }, actor_id=iteration2_db.user_a)
     second = irp_job_service.record_submission_failure(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id,
         request_params={
             "data_version": "25.0", "model_family": "DLM",
@@ -283,16 +283,16 @@ def test_latest_lookups_returns_newest_run_per_portfolio(iteration2_db):
     edm_id, [single_run, two_runs] = _edm_with_portfolios(2)
     other_edm_id, [foreign] = _edm_with_portfolios(1)
     irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=single_run, irp_id="960")
     older = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=two_runs, irp_id="961")
     newer = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=two_runs, irp_id="962")
     irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=other_edm_id,
+        irp_job_type="geohaz", irp_edm_id=other_edm_id,
         irp_portfolio_id=foreign, irp_id="963")
     execute_command(
         "UPDATE irp_job SET inserted_at = '2026-08-12' WHERE id = :id",

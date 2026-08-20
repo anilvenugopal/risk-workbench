@@ -21,7 +21,7 @@ def _form(portfolio_ids: list[str]) -> dict:
 def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
     irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[1], irp_id="801")
 
     body = _client().get(f"/edms/{edm_id}").text
@@ -60,7 +60,7 @@ def test_launch_post_rejects_bad_csrf_without_enqueuing(iteration2_db):
 def test_launch_post_reports_conflict_without_enqueuing(iteration2_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[0], irp_id="803")
     conflict = _client().post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids),
@@ -132,7 +132,7 @@ def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(iteration2_db
 def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     job_id = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="940",
         request_params={
             "data_version": "25.0", "model_family": "DLM",
@@ -192,12 +192,12 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
 def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     with_summary = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="950",
         request_params={"perils": ["earthquake", "windstorm"]},
         actor_id=iteration2_db.user_a)
     without_summary = irp_job_service.record_submitted_irp_job(
-        package_id=None, irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="951",
         request_params={
             "data_version": "25.0", "model_family": "DLM",

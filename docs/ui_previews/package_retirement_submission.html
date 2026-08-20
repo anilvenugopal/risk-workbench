@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Submission detail · Package retirement preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../app/static/css/app.css">
+  <style>
+    /* Proposed rules are limited to the replacement EDM/RDM tables and preview states. */
+    .entity-table-wrap{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-panel)}
+    .entity-table .count-col{text-align:right;width:170px;font-variant-numeric:tabular-nums}
+    .entity-table .rm-col{width:150px}.entity-table .action-col{width:90px;text-align:right}
+    .entity-table .entity-name{color:var(--color-brand);font-weight:var(--fw-medium)}
+    .entity-table .rm-link{color:var(--color-brand)}
+    .entity-table .rm-link::after{content:" ↗"}
+    .entity-table-state{padding:var(--space-6);text-align:center;color:var(--text-tertiary);font-size:var(--fs-label)}
+    .entity-table-state strong{display:block;color:var(--text-secondary);margin-bottom:var(--space-1)}
+    .preview-states{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);margin-top:var(--space-3)}
+    .preview-state{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow:hidden;background:var(--surface-panel)}
+    .preview-state__label{padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-bottom:1px solid var(--border-default);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+    .preview-state .state-box{margin:var(--space-3)}
+    .preview-spinner{width:18px;height:18px;border:2px solid var(--color-brand-border);border-top-color:var(--color-brand);border-radius:50%;margin:0 auto var(--space-2);animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media(max-width:800px){.preview-states{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <nav class="shell__rail">
+    <a class="shell__railbtn" href="#" title="Home"><img src="../../app/static/icons/home.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn is-active" href="#" title="Submissions"><img src="../../app/static/icons/submissions.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Workflows"><img src="../../app/static/icons/workflows.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Moody's IRP"><img src="../../app/static/icons/moodys.svg" width="24" height="24" alt=""></a>
+    <a class="shell__railbtn" href="#" title="Results"><img src="../../app/static/icons/results.svg" width="24" height="24" alt=""></a>
+    <div class="rail__spacer"></div>
+    <a class="shell__railbtn" href="#" title="Account"><img src="../../app/static/icons/user.svg" width="24" height="24" alt=""></a>
+  </nav>
+
+  <div class="shell__col">
+    <header class="shell__topbar">
+      <img class="topbar__appname" src="../../app/static/icons/rwb.svg" alt="Risk Workbench">
+      <button class="topbar__search"><span class="topbar__search-ico">⚲</span><span class="topbar__search-hint">Search</span><span class="topbar__kbd">Ctrl J</span></button>
+      <a class="topbar__help" href="#">Help</a>
+    </header>
+
+    <div class="shell__body">
+      <aside class="shell__sidebar"><div class="mk-sidehdr">Submissions</div><div class="sidebar__nav"><a class="nav-item is-active" href="#">List</a></div></aside>
+      <main class="shell__main">
+        <div class="mk-pagehdr"><div class="topbar__crumbs"><a class="crumb" href="#">Submissions</a><span class="crumb__sep">/</span><span class="crumb crumb--current">Meridian Property Cat XoL 2026</span></div><div class="pagehdr__actions"><button class="btn-sm">Edit</button></div></div>
+        <div class="page-pad">
+          <div class="detail-head">
+            <h1>Meridian Property Cat XoL 2026 <span class="status-chip status-chip--active">Active</span></h1>
+            <div class="deal-head__created">Created <time>2026-06-30 14:22</time><span class="crumb__sep">·</span><span class="mono">\\share\deals\meridian\2026</span></div>
+            <div class="deal-facts">
+              <span class="deal-fact"><span class="deal-fact__label">Cedant:</span><span class="deal-fact__value">Meridian Re</span></span>
+              <span class="deal-fact"><span class="deal-fact__label">Treaty type:</span><span class="deal-fact__value">Property Cat XoL</span></span>
+              <span class="deal-fact"><span class="deal-fact__label">Treaty year:</span><span class="deal-fact__value">2026</span></span>
+              <span class="deal-fact"><span class="deal-fact__label">Inception:</span><span class="deal-fact__value">2026-01-01</span></span>
+            </div>
+            <div class="detail-band"><div class="detail-band__group"><span class="detail-band__label">Owner</span><form class="reassign-form"><select class="wf-field__input"><option>B. Bailey</option></select><button class="btn-sm">Reassign</button></form></div></div>
+            <div class="detail-band"><div class="detail-band__group"><span class="detail-band__label">CRM</span><div class="crm-tags"><span class="crm-tag">SF-88213 <button class="crm-tag__del">×</button></span><span class="crm-tag">GC-4471 <button class="crm-tag__del">×</button></span><span class="crm-add"><input class="crm-add__input" placeholder="Add CRM ID"><button class="btn-sm">Add</button></span></div></div></div>
+          </div>
+
+          <div class="section-head"><h2>Status</h2></div>
+          <div class="status-controls"><button class="btn-sm">Mark complete</button><input class="status-form__reason" placeholder="reason (optional)"><button class="btn-sm btn-sm--danger">Cancel deal</button></div>
+          <ul class="status-history"><li class="status-history__item"><span class="status-chip status-chip--active">Active</span><span class="status-history__at">2026-06-30 14:22</span><span class="status-history__by">by B. Bailey</span></li></ul>
+
+          <div class="section-head" style="margin-top:24px"><h2>EDMs</h2><button class="btn-sm btn-sm--primary">Add EDM</button></div>
+          <div class="entity-table-wrap"><table class="mk-table entity-table"><thead><tr><th>Name</th><th class="count-col">Portfolio count</th><th class="rm-col">Risk Modeler</th><th class="action-col"></th></tr></thead><tbody>
+            <tr><td><a class="entity-name" href="#">meridian_edm_2026</a></td><td class="count-col">3</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">napa_property_2026</a></td><td class="count-col">4</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">socal_commercial_2026</a></td><td class="count-col">2</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">gulf_coast_property_2026</a></td><td class="count-col">3</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">florida_residential_2026</a></td><td class="count-col na">Pending</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+          </tbody></table></div>
+
+          <div class="section-head" style="margin-top:24px"><h2>RDMs</h2><button class="btn-sm btn-sm--primary">Add RDM</button></div>
+          <div class="entity-table-wrap"><table class="mk-table entity-table"><thead><tr><th>Name</th><th class="count-col">Analysis count</th><th class="rm-col">Risk Modeler</th><th class="action-col"></th></tr></thead><tbody>
+            <tr><td><a class="entity-name" href="#">meridian_q4_results</a></td><td class="count-col">18</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">worldwide_q4_results</a></td><td class="count-col">60</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+            <tr><td><a class="entity-name" href="#">retro_2025_view</a></td><td class="count-col">45</td><td><a class="rm-link" href="#">Open</a></td><td class="action-col"><button class="btn-sm btn-sm--danger">Remove</button></td></tr>
+          </tbody></table></div>
+
+          <div class="section-head" style="margin-top:24px"><h2>Preview states</h2></div>
+          <div class="preview-states">
+            <div class="preview-state"><div class="preview-state__label">Empty table</div><div class="entity-table-state"><strong>No EDMs added</strong>Add a new EDM or select one already in the workbench.</div></div>
+            <div class="preview-state"><div class="preview-state__label">Loading table</div><div class="entity-table-state"><div class="preview-spinner"></div>Loading RDMs…</div></div>
+            <div class="preview-state"><div class="preview-state__label">Failed table</div><div class="state-box state-box--warn"><strong>RDMs could not be loaded.</strong><br><a class="open-link" href="#">Try again</a></div></div>
+          </div>
+        </div>
+      </main>
+    </div>
+    <footer class="shell__statusbar"><div class="statusbar__left"><span class="statusbar__env statusbar__env--local">DEVELOPMENT</span><span class="statusbar__user">B. Bailey · Analyst</span></div><div></div><div></div></footer>
+  </div>
+</div>
+</body>
+</html>

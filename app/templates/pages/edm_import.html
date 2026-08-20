@@ -16,9 +16,9 @@
   </div>
   {% endif %}
 
-  {# Source file first: picking a file auto-populates the name (packageModal
-     parity); Import stays disabled until file + name are set and the collision
-     check has come back clear (importForm in app.js — issue #17 UX). #}
+  {# Source file first: picking a file auto-populates the name; Import stays
+     disabled until file + name are set and the collision check has come back
+     clear (importForm in app.js — issue #17 UX). #}
   <form method="post" action="/edms/import" class="entity-import-form"
         x-data="importForm" @change="onChange($event)"
         @htmx:after-swap="onSwap()"

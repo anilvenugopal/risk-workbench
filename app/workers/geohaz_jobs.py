@@ -50,7 +50,6 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
             context["irp_portfolio_id"], exc,
         )
         irp_job_id = irp_job_service.record_submission_failure(
-            package_id=None,
             irp_job_type="geohaz",
             irp_edm_id=context["irp_edm_id"],
             irp_portfolio_id=context["irp_portfolio_id"],
@@ -65,7 +64,6 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
         )
 
     irp_job_id = irp_job_service.record_submitted_irp_job(
-        package_id=None,
         irp_job_type="geohaz",
         irp_edm_id=context["irp_edm_id"],
         irp_portfolio_id=context["irp_portfolio_id"],

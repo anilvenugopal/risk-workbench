@@ -126,5 +126,4 @@ sequenceDiagram
   in practice.
 - **Nothing here enqueues work or reaches Risk Modeler.** A submission's own lifecycle is pure
   workbench state; the background machinery only ever engages through
-  [packages](../packages/save_and_sync_package.md) and
   [entity imports](../entities/import_edm.md).

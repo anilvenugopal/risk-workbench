@@ -74,8 +74,7 @@ sequenceDiagram
 - **A submission exists only in our world.** Risk Modeler has no such concept: it will only
   ever see the *names of the EDMs and RDMs* the analyst later attaches. Something had to own
   "these imports belong to one deal", and this is it — which is why the submission is the
-  anchor the [package flow](../packages/save_and_sync_package.md) attaches to rather than
-  anything RM-side.
+  association rows rather than anything in Risk Modeler.
 - **The cedant list is derived, not curated.** There is no cedant table; the typeahead is a
   `DISTINCT` over what's already been typed. Cheap and self-maintaining, at the cost of
   propagating a typo until someone fixes it.
@@ -85,4 +84,4 @@ sequenceDiagram
   the "My submissions" filter and nothing else — every authenticated analyst can act on every
   submission (Article 6). See [find submissions](find_submissions.md).
 - **Nothing is enqueued.** Registering a deal starts no background work; the first job appears
-  only when an EDM/RDM or a package is synced.
+  only when an EDM or RDM import begins.

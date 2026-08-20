@@ -41,7 +41,6 @@ from app.services import (
     geohaz_service,
     irp_gateway,
     irp_job_service,
-    package_sync_service,
     portfolio_service,
     rdm_service,
     rwb_job_service,
@@ -55,7 +54,6 @@ logger = logging.getLogger(__name__)
 _GETTERS = {
     "import_edm": irp_gateway.get_import_job,
     "import_rdm": irp_gateway.get_import_job,
-    "delete_edm": irp_gateway.get_delete_edm_job,
     "geohaz": irp_gateway.get_geohaz_job,
 }
 
@@ -64,12 +62,7 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     """FINISHED → EDM ``ready`` + backfill the RM ``exposureId`` (the durable entity id,
     resolved by name into ``resolved['edm_exposure_id']``) as ``irp_id`` and the import
     job id as ``created_by_irp_job_irp_id``; then idempotently enqueue the
-    ``backfill_edm_detail`` head (spec 004 — independent of ``package_id``, so a
-    standalone/EDM-only import backfills its detail too) and, for a package member,
-    the ``upload_rdm`` head that fans out to one apply per RDM of THIS just-finished
-    EDM (per-pair, FR-015/FR-043). The two heads share the requestor key but carry
-    distinct ``rwb_job_type``s, so ``UNIQUE(requestor_type, requestor_id,
-    rwb_job_type)`` admits both. Any other terminal → ``error`` and NO backfill."""
+    ``backfill_edm_detail`` head. Any other terminal marks the EDM as ``error``."""
     if status == "FINISHED":
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.READY,
@@ -84,37 +77,20 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
     else:
         edm_service.backfill_on_terminal(
             conn, edm_id=job["irp_edm_id"], status=edm_service.ERROR, irp_id=None)
-    if status != "FINISHED" or not job.get("package_id"):
-        return
-    rdm_rows = conn.execute(text(
-        "SELECT id FROM irp_rdm WHERE package_id = :p AND deleted_at IS NULL"
-    ), {"p": str(job["package_id"])}).mappings().all()
-    rdm_ids = [str(r["id"]) for r in rdm_rows]
-    if not rdm_ids:
-        return  # EDM-only package — nothing to apply
-    jid = rwb_job_service.enqueue_rwb_job(
-        requestor_type="irp_job", requestor_id=job["id"], rwb_job_type="upload_rdm",
-        input_data={"rdm_ids": rdm_ids, "edm_ids": [str(job["irp_edm_id"])],
-                    "package_id": str(job["package_id"])},
-        conn=conn,
-    )
-    if jid:
-        logger.info("chained upload_rdm head (%d rdm(s) to apply)", len(rdm_ids))
 
 
 def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
-    """On ``FINISHED`` idempotently enqueue this apply's ``backfill_rdm_analyses`` head
-    (D2) — the worker captures the pair's ``irp_analysis`` rows AND rolls ``irp_rdm.status``
-    up to ``ready`` once every apply is ``FINISHED`` (worker-poller.md §2/§3). The poller
-    itself must NOT flip the RDM to ``ready``. Any other terminal → ``error`` here."""
+    """On ``FINISHED``, enqueue one RDM-wide analysis backfill.
+
+    The worker marks the RDM ready after capture. Other terminal statuses mark
+    the RDM as error.
+    """
     if status == "FINISHED":
         jid = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
             input_data={
                 "rdm_id": (str(job["irp_rdm_id"]) if job["irp_rdm_id"] else None),
-                "edm_id": (str(job["irp_edm_id"]) if job["irp_edm_id"] else None),
-                "package_id": (str(job["package_id"]) if job["package_id"] else None),
                 "apply_irp_id": job["irp_id"]},
             conn=conn,
         )
@@ -123,21 +99,6 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
     else:
         rdm_service.rollup_on_terminal(
             conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)
-
-
-def _handle_delete_edm_terminal(conn, job: dict, status: str, resolved: dict) -> None:
-    """FINISHED → mark the EDM ``deleted`` and run the idempotent package-finalize
-    fan-in (soft-delete the package + members once no live member remains, FR-021).
-    Any other terminal → flip the EDM to ``error`` for analyst recovery, PRESERVING
-    ``irp_id`` (the exposureId) so a re-triggered delete re-submits rather than taking
-    the "never imported" inline branch and orphaning the exposure."""
-    if status == "FINISHED":
-        edm_service.set_deleted(conn, edm_id=job["irp_edm_id"])
-        if job.get("package_id"):
-            package_sync_service.finalize_package(package_id=job["package_id"],
-                                                  conn=conn)
-    else:
-        edm_service.mark_delete_error(conn, edm_id=job["irp_edm_id"])
 
 
 def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
@@ -151,7 +112,6 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
 _TERMINAL_HANDLERS = {
     "import_edm": _handle_import_edm_terminal,
     "import_rdm": _handle_import_rdm_terminal,
-    "delete_edm": _handle_delete_edm_terminal,
     "geohaz": _handle_geohaz_terminal,
 }
 
