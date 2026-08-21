@@ -106,7 +106,7 @@ def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
     ``NAME_MAX_LEN``, the suffix re-clipping the base so it always fits."""
     if attempt == 0:
         return full_name, full_name[:NAME_MAX_LEN]
-    suffix = f" ({attempt})"
+    suffix = f" - {attempt}"
     return (full_name + suffix,
             full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 

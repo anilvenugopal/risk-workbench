@@ -36,7 +36,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   tag at submit. Workbench-side the association is the existing
   `requested_from_submission_id` + plan `submission_id` — no new column.
 - Naming: `irp_analysis.name` = the ≤64-char name sent to RM, new `full_name` = the
-  untruncated name; local collision check + `" (n)"` suffix, `skip_duplicate_check=True`
+  untruncated name; local collision check + `" - n"` suffix, `skip_duplicate_check=True`
   (T-04/T-05).
 - `irp_analysis` reshaped for own analyses: `rdm_id`/`source_rdm_name`/`irp_id` become
   nullable, origin CHECK added, new `full_name`, `irp_portfolio_id`,

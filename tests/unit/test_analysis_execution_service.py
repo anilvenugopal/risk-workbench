@@ -96,15 +96,15 @@ def test_name_attempt_zero_has_no_suffix_and_clips_at_64():
 def test_name_attempt_suffix_re_clips_base_so_it_still_fits_64():
     full = "x" * 80
     full_name, name = svc.name_attempt(full, 1)
-    assert full_name == full + " (1)"
-    assert name == full[:64 - len(" (1)")] + " (1)"
+    assert full_name == full + " - 1"
+    assert name == full[:64 - len(" - 1")] + " - 1"
     assert len(name) == 64
 
 
 def test_name_attempt_suffix_survives_on_a_short_name():
     full_name, name = svc.name_attempt("Short Name", 2)
-    assert full_name == "Short Name (2)"
-    assert name == "Short Name (2)"
+    assert full_name == "Short Name - 2"
+    assert name == "Short Name - 2"
 
 
 # ── plan composition ─────────────────────────────────────────────────────────────

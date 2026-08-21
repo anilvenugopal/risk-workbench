@@ -155,10 +155,10 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
     assert len(rows) == 2
     names = sorted(r["name"] for r in rows)
     assert names == ["Portfolio A Shared Template",
-                     "Portfolio A Shared Template (1)"]
+                     "Portfolio A Shared Template - 1"]
     submits = {s["job_name"]: s["currency"] for s in fake_irp.analysis_submits}
     assert submits["Portfolio A Shared Template"]["scheme"] == "RMS"
-    assert submits["Portfolio A Shared Template (1)"]["scheme"] == "DT"
+    assert submits["Portfolio A Shared Template - 1"]["scheme"] == "DT"
     assert _rwb_job_of(execution_id)["status_code"] == "succeeded"
 
 
