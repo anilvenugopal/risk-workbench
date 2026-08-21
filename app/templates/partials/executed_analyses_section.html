@@ -1,0 +1,44 @@
+{# The EDM detail page's user-executed Analyses section (US2, spec 010,
+   FR-013) — every analysis the workbench itself submitted against this EDM;
+   no RDM grouping. Its own self-poll unit, separate from the rest of
+   edm_detail_body.html (T-11 refinement): swapping only this fragment means
+   an in-flight execution never collapses a portfolio/treaty/broker-analysis
+   row the analyst has expanded elsewhere on the page.
+
+   ``execution-submitted`` (fired by the execute modal's POST, HX-Trigger
+   header) refetches right away plus twice more at a delay, since the newly
+   enqueued ``execute_analysis_batch`` job hasn't necessarily written its
+   first ``irp_analysis`` row by the time the immediate refetch lands (the
+   submit happens worker-side, Article 5) — once a row shows up pending/
+   running, the regular ``live`` poll below takes over until it's terminal. #}
+{% set live = edm.executed_analyses|selectattr('is_live')|list|length > 0 %}
+{% set analyses_url = analyses_table_url|default('/edms/' ~ edm.id ~ '/analyses') %}
+<details class="sec" open id="edm-executed-analyses"
+  hx-get="{{ analyses_url }}"
+  hx-trigger="execution-submitted from:body, execution-submitted from:body delay:2s, execution-submitted from:body delay:5s{% if live %}, every 3s{% endif %}"
+  hx-target="this" hx-swap="outerHTML">
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">Analyses</span>
+    {% if edm.executed_analyses %}
+    <span class="badge badge--neutral">{{ edm.executed_analyses | length }}</span>
+    {% endif %}
+    <span class="sec__spacer"></span>
+    <span class="sec__note">Submitted from this EDM &middot; no RDM grouping</span>
+  </summary>
+  {% if edm.executed_analyses %}
+  <div class="dtable-shell">
+    <div class="dtable" style="--cols:minmax(220px,1.6fr) minmax(150px,1fr) minmax(200px,1.4fr);min-width:700px">
+      <div class="dtable__head">
+        <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Status</span>
+      </div>
+      {% for a in edm.executed_analyses %}
+      {% include "partials/executed_analysis_row.html" %}
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="state-box">No analyses executed against this EDM yet. Select portfolios above and
+    choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.</div>
+  {% endif %}
+</details>

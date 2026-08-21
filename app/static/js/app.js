@@ -827,6 +827,18 @@ document.addEventListener('rwb:toast', (e) => {
   showToast(d.message || 'Something needs your attention.', d.type || 'warning');
 });
 
+// Analysis execution submit (spec 010): the execute modal's POST fires this
+// alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
+// section refetches on its own (executed_analyses_section.html) — this only
+// clears the portfolio picks that were just submitted, so Execute Suite /
+// Execute Template disable again (portfolioPicks() reads checked boxes off
+// the DOM, so a real 'change' event is what makes it recompute).
+document.addEventListener('execution-submitted', () => {
+  const checked = document.querySelectorAll('input[name="portfolio_ids"]:checked');
+  checked.forEach((box) => { box.checked = false; });
+  if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
+});
+
 // Pull a human message out of an error response — our partials carry the reason in a
 // .form-banner--error / .drive-browse__error element; otherwise fall back to status.
 function messageFromResponse(xhr) {

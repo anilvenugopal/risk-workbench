@@ -13,6 +13,7 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -41,6 +42,16 @@ from app.services.errors import (
 router = APIRouter()
 
 _NAV_KEY = "irp.edm_library"  # list / import / detail all activate this node (T060)
+
+# Fired on the execute modal's successful POST: the Analyses section refetches
+# itself (executed_analyses_section.html's own hx-trigger) and app.js clears the
+# submitted portfolio picks; rwb:toast surfaces the existing toast pattern.
+_EXECUTION_SUBMITTED_HEADERS = {
+    "HX-Trigger": json.dumps({
+        "execution-submitted": True,
+        "rwb:toast": {"message": "Analysis submission started.", "type": "success"},
+    }),
+}
 
 
 def _templates(request: Request):
@@ -268,6 +279,7 @@ def _contextual_template_context(
         "detail_body_url": f"{base_url}/body",
         "detail_sync_url": f"{base_url}/sync",
         "detail_notes_url": f"{base_url}/notes",
+        "analyses_table_url": f"{base_url}/analyses",
     }
 
 
@@ -310,6 +322,27 @@ def contextual_detail(request: Request, submission_id: str, edm_id: str):
 def contextual_detail_body(request: Request, submission_id: str, edm_id: str):
     return _contextual_body_partial(
         request, submission_id, edm_id, poll=True)
+
+
+@router.get(
+    "/submissions/{submission_id}/edms/{edm_id}/analyses",
+    response_class=HTMLResponse,
+)
+def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str):
+    """Contextual variant of ``detail_analyses`` — the Analyses section's own
+    polling fragment. No writes, no Risk Modeler call (Article 11)."""
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return HTMLResponse(
+            '<details class="sec" open id="edm-executed-analyses">'
+            '<summary><span class="sec__title">Analyses</span></summary>'
+            '<div class="state-box state-box--warn">'
+            'This EDM is no longer related to the submission.</div></details>')
+    return _partial(
+        request, "partials/executed_analyses_section.html",
+        {"edm": context.edm,
+         "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/sync")
@@ -416,7 +449,7 @@ async def contextual_execute_submit(request: Request, submission_id: str, edm_id
             request, edm_id=edm_id, action_url=f"{url}/execute",
             kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
             errors=exc.errors)
-    return Response(status_code=204, headers={"HX-Trigger": "execution-submitted"})
+    return Response(status_code=204, headers=_EXECUTION_SUBMITTED_HEADERS)
 
 
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
@@ -539,7 +572,30 @@ async def execute_submit(request: Request, edm_id: str):
             request, edm_id=edm_id, action_url=f"/edms/{edm_id}/execute",
             kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
             errors=exc.errors)
-    return Response(status_code=204, headers={"HX-Trigger": "execution-submitted"})
+    return Response(status_code=204, headers=_EXECUTION_SUBMITTED_HEADERS)
+
+
+def _analyses_section_partial(request: Request, edm_id: str):
+    """The Analyses section's own fragment (executed_analyses_section.html) —
+    its polling unit, separate from the rest of the detail body (T-11
+    refinement) so an in-flight execution never re-swaps rows the analyst has
+    expanded elsewhere on the page."""
+    edm = edm_service.get_edm_detail(edm_id)
+    if edm is None:
+        # EDM hard-gone mid-poll: a terminal notice with no trigger ends polling.
+        return HTMLResponse(
+            '<details class="sec" open id="edm-executed-analyses">'
+            '<summary><span class="sec__title">Analyses</span></summary>'
+            '<div class="state-box state-box--warn">This EDM no longer exists.'
+            '</div></details>')
+    return _partial(request, "partials/executed_analyses_section.html", {"edm": edm})
+
+
+@router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
+def detail_analyses(request: Request, edm_id: str):
+    """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
+    Modeler call (Article 11)."""
+    return _analyses_section_partial(request, edm_id)
 
 
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
