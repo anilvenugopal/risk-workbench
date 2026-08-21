@@ -13,6 +13,7 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
+import json
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -22,10 +23,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import save_notes
-from app.services import analysis_service, edm_service
+from app.services import analysis_service, edm_service, geohaz_service
 from app.services.errors import (
     ConcurrencyConflict,
     EdmCatalogUnavailable,
+    GeohazLaunchConflict,
+    InvalidGeohazLaunch,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
@@ -224,7 +227,9 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
     # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
                    {"edm": edm,
-                    "nc_unchecked": request.query_params.get("nc") == "unchecked"},
+                    "nc_unchecked": request.query_params.get("nc") == "unchecked",
+                    "geohaz_queued": request.query_params.get("geohaz") == "queued",
+                    "geohaz_error": request.query_params.get("geohaz_error")},
                    status_code=status_code)
 
 
@@ -358,6 +363,73 @@ def contextual_rdm_analyses(
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
 def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
+
+
+def _toast_header(message: str, kind: str) -> str:
+    return json.dumps({"rwb:toast": {"message": message, "type": kind}})
+
+
+@router.post("/edms/{edm_id}/geohaz")
+def geohaz_launch(
+    request: Request,
+    edm_id: str,
+    csrf_token: Annotated[str, Form()],
+    portfolio_ids: Annotated[list[str] | None, Form()] = None,
+):
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+
+    selected = portfolio_ids or []
+    try:
+        result = geohaz_service.launch(
+            edm_id=edm_id,
+            portfolio_ids=selected,
+            actor_id=request.state.user.id,
+        )
+    except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:
+        if not is_htmx:
+            query = urlencode({"geohaz_error": str(exc)})
+            return RedirectResponse(f"/edms/{edm_id}?{query}", status_code=303)
+        response = _body_partial(request, edm_id)
+        response.headers["HX-Trigger"] = _toast_header(str(exc), "error")
+        return response
+
+    if not is_htmx:
+        return RedirectResponse(f"/edms/{edm_id}?geohaz=queued", status_code=303)
+    response = _body_partial(request, edm_id)
+    message = (
+        f"Hazard lookup queued for {len(result.portfolio_ids)} "
+        f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
+    )
+    response.headers["HX-Trigger"] = _toast_header(message, "success")
+    return response
+
+
+@router.get(
+    "/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell",
+    response_class=HTMLResponse,
+)
+def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
+    # 200 always: htmx never swaps a non-2xx response, so a 404 here would leave
+    # a deleted portfolio's cell polling forever. The terminal fragment carries
+    # no hx-* attributes, and the swap itself ends the poll — the same pattern
+    # as _body_partial's EDM-gone terminal notice.
+    state = geohaz_service.cell_state(portfolio_id, edm_id=edm_id)
+    return _partial(
+        request,
+        "partials/geohaz_cell.html",
+        {
+            "edm_id": edm_id,
+            "state": state,
+            "latest": (
+                geohaz_service.latest_lookup(portfolio_id) if state else None
+            ),
+            "refresh_details": True,
+        },
+    )
 
 
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):

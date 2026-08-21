@@ -45,14 +45,12 @@ class TestJobTablesMigration:
     def test_job_table_exists(self, name):
         assert _table_exists(name) == 1
 
-    def test_irp_job_has_no_portfolio_fk_column(self):
-        # irp_portfolio does not exist yet — irp_job is created WITHOUT it (§2 note).
+    def test_irp_job_columns(self):
         cols = {r["COLUMN_NAME"] for r in execute(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_NAME = 'irp_job'", {}, connection="WORKBENCH")}
-        assert "irp_portfolio_id" not in cols
-        assert {"irp_edm_id", "irp_rdm_id", "requested_from_submission_id",
-                "status"} <= cols
+        assert {"irp_edm_id", "irp_portfolio_id", "irp_rdm_id",
+                "requested_from_submission_id", "status"} <= cols
         assert "package_id" not in cols
 
     def test_no_scope_column_on_job_tables(self):

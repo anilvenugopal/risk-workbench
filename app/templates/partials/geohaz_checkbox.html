@@ -1,0 +1,8 @@
+<span class="geohaz-pick" id="geohaz-pick-{{ portfolio_id }}"
+      {%- if oob|default(false) %} hx-swap-oob="outerHTML"{% endif %}>
+  <input type="checkbox" name="portfolio_ids" value="{{ portfolio_id }}"
+         aria-label="Select {{ portfolio_name }} for hazard lookup"
+         {% if not eligible %}disabled
+         title="A hazard lookup is already in progress for this portfolio"{% endif %}
+         @click.stop>
+</span>

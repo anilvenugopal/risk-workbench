@@ -136,6 +136,37 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Hazard-lookup portfolio picker. A MutationObserver (not @change, unlike
+  // syncPicks below) because the geohaz-cell poll disables/enables a checkbox by
+  // OOB-swapping its whole <span> on job completion — a DOM replacement fires no
+  // native change event.
+  Alpine.data('geohazSelection', () => ({
+    count: 0,
+    total: 0,
+    observer: null,
+    init() {
+      this.refresh();
+      this.observer = new MutationObserver(() => this.refresh());
+      this.observer.observe(this.$root, { childList: true, subtree: true });
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
+    boxes() {
+      return this.$root.querySelectorAll(
+        'input[name="portfolio_ids"]:not(:disabled)');
+    },
+    refresh() {
+      const boxes = this.boxes();
+      this.total = boxes.length;
+      this.count = Array.from(boxes).filter((box) => box.checked).length;
+      this.$refs.selectAll.checked = this.total > 0 && this.count === this.total;
+      this.$refs.selectAll.indeterminate = this.count > 0 && this.count < this.total;
+    },
+    all(checked) {
+      this.boxes().forEach((box) => { box.checked = checked; });
+      this.refresh();
+    },
+  }));
+
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
   // auto-populates the name; Import stays disabled until a
   // file is picked, a name is present, and the collision check has come back
