@@ -10,7 +10,9 @@ reclaim a dead worker's row.
 
 from __future__ import annotations
 
+import json
 import logging
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -23,9 +25,23 @@ from app import log_context
 from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _utcnow
-from db import get_connection
+from db import execute_one, get_connection
 
 logger = logging.getLogger(__name__)
+
+
+def worker_id(module: str) -> str:
+    """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
+    return f"{socket.gethostname()}:{module}"
+
+
+def load_input(rwb_job_id: Any) -> dict:
+    row = execute_one(
+        "SELECT input_data FROM rwb_job WHERE id = :id",
+        {"id": str(rwb_job_id)}, connection="WORKBENCH")
+    if row is None or not row["input_data"]:
+        return {}
+    return json.loads(row["input_data"])
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────

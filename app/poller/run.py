@@ -168,6 +168,11 @@ _TERMINAL_RESOLVERS = {
     "geohaz": _resolve_geohaz_metadata,
 }
 
+# Per-type completion-summary extractor, applied on every tracking write.
+_SUMMARIZERS = {
+    "geohaz": geohaz_service.completion_summary,
+}
+
 
 def _fmt_elapsed(submitted_at) -> str:
     """``4m22s``-style elapsed time since a naive-UTC stamp — a ``datetime`` from
@@ -234,12 +239,12 @@ def _track_irp_jobs() -> None:
             try:
                 with get_connection("WORKBENCH") as conn:
                     with conn.begin():
+                        summarizer = _SUMMARIZERS.get(job["irp_job_type"])
                         irp_job_service.update_tracking(
                             conn, irp_job_id=job["id"], status=result.status,
                             result=result.result,
                             completion_summary=(
-                                geohaz_service.completion_summary(result.result)
-                                if job["irp_job_type"] == "geohaz" else None),
+                                summarizer(result.result) if summarizer else None),
                         )
                         if result.status in irp_job_service.TERMINAL:
                             handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])

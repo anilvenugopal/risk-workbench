@@ -2,36 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import socket
 from typing import Any
 
 import dramatiq
 
 from app.services import irp_gateway, irp_job_service
 from app.workers import broker, runtime
-from db import execute_one
 
 logger = logging.getLogger(__name__)
 _ = broker.redis_broker
 
 
-def _worker_id() -> str:
-    return f"{socket.gethostname()}:{__name__}"
-
-
-def _load_input(rwb_job_id: Any) -> dict:
-    row = execute_one(
-        "SELECT input_data FROM rwb_job WHERE id = :id",
-        {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
-
-
 def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
-    context = _load_input(rwb_job_id)
+    context = runtime.load_input(rwb_job_id)
     params = context["params"]
     payload = {
         "edm_name": context["edm_name"],
@@ -85,7 +69,7 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
 def run_geohaz(rwb_job_id: str) -> None:
     runtime.run_job(
         rwb_job_id=rwb_job_id,
-        worker_id=_worker_id(),
+        worker_id=runtime.worker_id(__name__),
         body=lambda: _run_geohaz_body(rwb_job_id),
     )
 
