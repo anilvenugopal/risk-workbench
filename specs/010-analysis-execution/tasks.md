@@ -90,14 +90,14 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ### UI Preview for User Story 2 🎨
 
-- [ ] T025 [US2] Rendered HTML preview of the user-executed section in `docs/ui_previews/executed_analyses_section.html` (from `_scaffold.html`, modeled on the broker-analysis sections, no RDM grouping, portfolio column, status chips including "Failed to submit · attempt n/max", one expanded row with settings grid) — approved before building the partials
+- [X] T025 [US2] Rendered HTML preview of the user-executed section in `docs/ui_previews/executed_analyses_section.html` (from `_scaffold.html`, modeled on the broker-analysis sections, no RDM grouping, portfolio column, status chips including "Failed to submit · attempt n/max", one expanded row with settings grid) — approved before building the partials
 
 ### Implementation for User Story 2
 
-- [ ] T026 [US2] User-executed read model in `app/services/analysis_service.py`: per-EDM list of executed `irp_analysis` rows joined to the latest `irp_job` per analysis (T-07), status-chip derivation (`SUBMISSION FAILED` → "Failed to submit · attempt n/max"), failure reason, settings availability
-- [ ] T027 [US2] New `app/templates/partials/executed_analysis_row.html` (modeled on `broker_analysis_row.html`): `full_name`, portfolio name, status chip, `failure_reason` when failed; expanded settings grid once `settings_metadata` is backfilled (FR-013)
-- [ ] T028 [US2] User-executed section in `app/templates/partials/edm_detail_body.html` + section context in the body routes of `app/routers/edms.py`; extend the server-computed `live` flag with "any executed analysis non-terminal or `pending`/`running`" so the 3s self-poll keeps running (FR-014, T-11)
-- [ ] T029 [P] [US2] Unit tests for the read model, status-chip derivation, and the extended `live` flag in `tests/unit/test_analysis_service.py`
+- [X] T026 [US2] User-executed read model in `app/services/analysis_service.py`: per-EDM list of executed `irp_analysis` rows joined to the latest `irp_job` per analysis (T-07), status-chip derivation (`SUBMISSION FAILED` → "Failed to submit · attempt n/max"), failure reason, settings availability
+- [X] T027 [US2] New `app/templates/partials/executed_analysis_row.html` (modeled on `broker_analysis_row.html`): `full_name`, portfolio name, status chip, `failure_reason` when failed; expanded settings grid once `settings_metadata` is backfilled (FR-013)
+- [X] T028 [US2] User-executed section in `app/templates/partials/edm_detail_body.html` + section context in the body routes of `app/routers/edms.py`; extend the server-computed `live` flag with "any executed analysis non-terminal or `pending`/`running`" so the 3s self-poll keeps running (FR-014, T-11)
+- [X] T029 [P] [US2] Unit tests for the read model, status-chip derivation, and the extended `live` flag in `tests/unit/test_analysis_service.py`
 
 **Checkpoint**: Delivery phase 1 (US1 + US2) complete — quickstart Phase 1 runs end-to-end. **STOP** for approver click-through.
 

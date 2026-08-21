@@ -1,0 +1,38 @@
+{# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013) —
+   modeled on broker_analysis_row.html: the identical settings-grid expansion
+   (shared partials/_analysis_metadata_fields.html / _analysis_rate_detail.html,
+   so the two views can't drift), a Portfolio column in place of
+   EDM/type/peril/currency/..., and no RDM grouping. Context: `a` —
+   analysis_service.ExecutedAnalysis. The failure reason (when present) is
+   shown inline in the collapsed row — visible without expanding (FR-011). #}
+{%- set d = a.display -%}
+<details class="drow">
+  <summary>
+    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+      <span class="dt-namecol">
+        <span class="dt-title">{{ a.full_name or a.name }}</span>
+      </span></span></span>
+    <span class="l">{{ a.portfolio_name or '—' }}</span>
+    <span class="l">
+      <span class="status-chip status-chip--{{ a.status_chip }}">{{ a.status_label }}</span>
+      {% if a.failure_reason %}<span class="exec-reason">{{ a.failure_reason }}</span>{% endif %}
+    </span>
+  </summary>
+  <div class="drow__body">
+    {% if a.settings %}
+    <dl class="settings-grid">
+      {% include "partials/_analysis_metadata_fields.html" %}
+    </dl>
+    {% if d.has_rate_detail %}
+    <details class="drill">
+      <summary>▾ Rate / event-rate detail</summary>
+      <div class="drill__body">
+        {% include "partials/_analysis_rate_detail.html" %}
+      </div>
+    </details>
+    {% endif %}
+    {% else %}
+    <p class="tag-empty" style="margin:0">Settings appear once this analysis finishes running.</p>
+    {% endif %}
+  </div>
+</details>

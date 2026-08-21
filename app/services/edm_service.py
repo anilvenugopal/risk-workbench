@@ -50,7 +50,7 @@ from app.services._common import (
     _uid,
     _utcnow,
 )
-from app.services.analysis_service import BrokerAnalysisGroup
+from app.services.analysis_service import BrokerAnalysisGroup, ExecutedAnalysis
 from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
 from app.services.portfolio_service import PortfolioRow
@@ -387,6 +387,9 @@ class EdmDetail:
     # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
     # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
+    # Spec 010 US2 (FR-013): every analysis the workbench itself submitted
+    # against this EDM, live-status-derived. No RDM grouping.
+    executed_analyses: list[ExecutedAnalysis] = field(default_factory=list)
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -502,6 +505,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
+    executed_analyses = analysis_service.list_executed_analyses(edm_id=eid)
     job_status = latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
@@ -521,6 +525,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
+        executed_analyses=executed_analyses,
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),

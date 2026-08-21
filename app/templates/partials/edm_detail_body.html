@@ -13,7 +13,8 @@
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
 {% set live = edm.sync_running
      or edm.status in ('pending_import', 'importing')
-     or submission_rdms|default([])|selectattr('sync_running')|list|length > 0 %}
+     or submission_rdms|default([])|selectattr('sync_running')|list|length > 0
+     or edm.executed_analyses|selectattr('is_live')|list|length > 0 %}
 {% set body_url = detail_body_url|default('/edms/' ~ edm.id ~ '/body') %}
 {% set sync_url = detail_sync_url|default('/edms/' ~ edm.id ~ '/sync') %}
 {% set base_url = detail_base_url|default('/edms/' ~ edm.id) %}
@@ -241,6 +242,36 @@
     {% else %}
     <div class="state-box"><strong>Detail not available.</strong><br>
       Imported before exposure backfill shipped.</div>
+    {% endif %}
+  </details>
+
+  {# ── Analyses (US2, spec 010) — every analysis the workbench itself
+     submitted against this EDM; no RDM grouping (FR-013). Status and
+     backfilled settings update live via this page's 3s self-poll (T-11). ── #}
+  <details class="sec" open id="edm-executed-analyses">
+    <summary>
+      <span class="sec__caret">▸</span>
+      <span class="sec__title">Analyses</span>
+      {% if edm.executed_analyses %}
+      <span class="badge badge--neutral">{{ edm.executed_analyses | length }}</span>
+      {% endif %}
+      <span class="sec__spacer"></span>
+      <span class="sec__note">Submitted from this EDM &middot; no RDM grouping</span>
+    </summary>
+    {% if edm.executed_analyses %}
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:minmax(220px,1.6fr) minmax(150px,1fr) minmax(200px,1.4fr);min-width:700px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Status</span>
+        </div>
+        {% for a in edm.executed_analyses %}
+        {% include "partials/executed_analysis_row.html" %}
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="state-box">No analyses executed against this EDM yet. Select portfolios above and
+      choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.</div>
     {% endif %}
   </details>
 

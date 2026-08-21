@@ -351,6 +351,10 @@
 .status-chip--error,
 .status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700);
   border-color: var(--c-red-200); }
+/* Failure reason shown inline in the collapsed executed-analysis row (spec 010
+   US2, FR-011) — visible without expanding the row. */
+.exec-reason { display: block; margin-top: 2px; font-size: var(--fs-caption);
+  color: var(--color-negative); white-space: normal; }
 
 .browse-trigger { display: inline-flex; align-items: center; gap: var(--space-2);
   padding: var(--space-2) var(--space-4); border: 1px solid var(--border-strong);
