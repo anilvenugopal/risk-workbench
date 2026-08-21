@@ -298,6 +298,48 @@
 .entity-modal-footer { margin: var(--space-4) calc(-1 * var(--space-4))
   calc(-1 * var(--space-3)); }
 
+/* Execute Suite / Execute Template modal (spec 010) — reuses .submission-entity-
+   modal/.entity-candidate-*/.wf-field*/.ta* above verbatim. The only genuinely new
+   rules are the expandable suite row (.exec-row, whose body a <fieldset> so an
+   unchecked suite's inputs never submit) and the thin .exec-currency wrapper. */
+.exec-picked { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3); background: var(--surface-recessed);
+  border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--text-secondary); }
+.exec-picked b { color: var(--text-primary); }
+.exec-section-label { font-size: var(--fs-caption); color: var(--text-tertiary);
+  font-weight: var(--fw-medium); text-transform: uppercase; letter-spacing: .04em;
+  margin-bottom: var(--space-1); }
+.exec-list { border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  max-height: 320px; overflow-y: auto; }
+.exec-row { border-bottom: 1px solid var(--border-faint); }
+.exec-row:last-child { border-bottom: 0; }
+.exec-row__head { display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); cursor: pointer; }
+.exec-row__head:hover { background: var(--surface-hover); }
+.exec-row__caret { font-size: 11px; color: var(--text-tertiary); width: 12px;
+  transition: transform var(--dur-fast) ease; display: inline-block; }
+.exec-row[open] .exec-row__caret { transform: rotate(90deg); }
+.exec-row__name { flex: 1; font-size: var(--fs-label); color: var(--text-primary); }
+.exec-row__count { font-size: var(--fs-caption); color: var(--text-tertiary); }
+/* .exec-row__body is a <fieldset> (its :disabled state is what keeps an
+   unchecked suite's templates/currency out of the POST) — reset the browser
+   default border/margin/padding before applying the real ones. */
+.exec-row__body { padding: var(--space-2) var(--space-3) var(--space-3) 40px;
+  display: flex; flex-direction: column; gap: var(--space-3); margin: 0;
+  border: 0; border-top: 1px solid var(--border-faint); }
+.exec-row__body:disabled { opacity: .55; }
+.exec-tpl-list { display: flex; flex-direction: column; gap: 2px; }
+.exec-tpl { display: flex; align-items: center; gap: var(--space-2); padding: 6px 0;
+  font-size: var(--fs-label); }
+.exec-tpl__name { flex: 1; color: var(--text-secondary); }
+.exec-tpl--off .exec-tpl__name { color: var(--text-disabled); text-decoration: line-through; }
+.exec-currency { background: var(--surface-recessed); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.exec-currency__warn { margin-top: var(--space-1); font-size: var(--fs-caption);
+  color: var(--color-warning); }
+.exec-summary { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.exec-summary b { color: var(--text-primary); font-weight: var(--fw-semibold); }
+
 .status-chip--pending_import,
 .status-chip--importing { background: var(--c-navy-050); color: var(--c-navy-600);
   border-color: var(--c-navy-200); }

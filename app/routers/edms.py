@@ -22,7 +22,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import save_notes
-from app.services import analysis_service, edm_service
+from app.services import (
+    analysis_execution_service,
+    analysis_service,
+    edm_service,
+    portfolio_service,
+    template_service,
+    treaty_service,
+)
 from app.services.errors import (
     ConcurrencyConflict,
     EdmCatalogUnavailable,
@@ -176,6 +183,17 @@ def name_check(request: Request):
     return _partial(request, "partials/name_collision.html",
                     {"check": edm_service.check_name_collision(name),
                      "name": name, "kind": "EDM"})
+
+
+@router.get("/edms/execute/vintage-options", response_class=HTMLResponse)
+def execute_vintage_options(request: Request):
+    """The scheme→vintage cascade for the execute-analysis modal's currency
+    block (FR-019): the vintage select re-GETs its ``<option>`` list scoped to
+    whichever scheme was just chosen."""
+    scheme = (request.query_params.get("scheme") or "").strip()
+    options = analysis_execution_service.vintage_options(scheme) if scheme else []
+    return _partial(request, "partials/currency_vintage_options.html",
+                    {"vintage_options": options})
 
 
 @router.post("/edms/import")
@@ -355,9 +373,173 @@ def contextual_rdm_analyses(
         {"analyses": analyses, "rdm": rdm})
 
 
+@router.get(
+    "/submissions/{submission_id}/edms/{edm_id}/execute",
+    response_class=HTMLResponse,
+)
+def contextual_execute_modal(request: Request, submission_id: str, edm_id: str):
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    edm = edm_service.get_edm(edm_id)
+    portfolios = portfolio_service.list_portfolios(edm_id=edm_id)
+    ctx = _execute_context(
+        edm=edm, portfolios_all=portfolios,
+        kind=request.query_params.get("kind", "suite"),
+        portfolio_ids=request.query_params.getlist("portfolio_ids"))
+    ctx["action_url"] = f"/submissions/{submission_id}/edms/{edm_id}/execute"
+    return _partial(request, "partials/execute_analysis_modal.html",
+                    {**ctx, "errors": []})
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/execute")
+async def contextual_execute_submit(request: Request, submission_id: str, edm_id: str):
+    form = await request.form()
+    url = f"/submissions/{submission_id}/edms/{edm_id}"
+    if not validate_csrf_token(form.get("csrf_token")):
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(url, status_code=303)
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    parsed = _parse_execute_form(form)
+    try:
+        analysis_execution_service.request_execution(
+            edm_id=edm_id, actor_id=request.state.user.id,
+            submission_id=submission_id, submission_name=context.submission.name,
+            **parsed)
+    except analysis_execution_service.ExecutionGateError as exc:
+        return _execute_error_response(
+            request, edm_id=edm_id, action_url=f"{url}/execute",
+            kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
+            errors=exc.errors)
+    return Response(status_code=204, headers={"HX-Trigger": "execution-submitted"})
+
+
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
 def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
+
+
+# ── Execute Suite / Execute Template modal (spec 010) ────────────────────────────
+
+def _execute_context(
+    *, edm, portfolios_all: list, kind: str, portfolio_ids: list[str],
+) -> dict:
+    """Shared GET/POST-error context: the blocking message, or every reference
+    list the modal fragment needs (contracts/routes.md — GET .../execute)."""
+    kind = kind if kind in ("suite", "template") else "suite"
+    picked_ids = set(portfolio_ids)
+    picked = [p for p in portfolios_all if p.id in picked_ids]
+    blocking = None
+    if edm is None or edm.status != edm_service.READY:
+        blocking = "This EDM is not ready for execution."
+    elif not picked:
+        blocking = "Select at least one portfolio before executing an analysis."
+    elif kind == "suite" and not template_service.list_suites():
+        blocking = ("No template suites exist yet. Create one under Templates & "
+                    "Suites before running an execution.")
+    elif kind == "template" and not template_service.list_templates():
+        blocking = ("No analysis templates exist yet. Create one under Templates "
+                    "& Suites before running an execution.")
+    ctx: dict = {"edm": edm, "kind": kind, "portfolios": picked, "blocking": blocking}
+    if blocking:
+        return ctx
+    defaults = analysis_execution_service.currency_defaults()
+    ctx.update({
+        "treaties": treaty_service.list_treaties(edm_id=edm.id),
+        "currency_defaults": defaults,
+        "currency_options": analysis_execution_service.currency_options(),
+        "scheme_options": analysis_execution_service.currency_scheme_options(),
+        "default_vintage_options": analysis_execution_service.vintage_options(
+            defaults["scheme"]),
+    })
+    if kind == "suite":
+        ctx["suites"] = template_service.list_suites()
+    else:
+        ctx["templates"] = template_service.list_templates()
+    return ctx
+
+
+def _parse_execute_form(form) -> dict:
+    """Dynamic per-suite field names (``templates_{suite_id}``,
+    ``currency_*_{suite_id}``) can't be declared as static ``Form(...)``
+    parameters — the route reads the raw form and this parses it."""
+    kind = form.get("kind", "suite")
+    parsed: dict = {
+        "kind": kind,
+        "portfolio_ids": form.getlist("portfolio_ids"),
+        "treaty_names": form.getlist("treaty_names"),
+        "suite_picks": None, "template_ids": None,
+        "currency_code": "", "currency_scheme": "", "currency_vintage": "",
+    }
+    if kind == "suite":
+        parsed["suite_picks"] = [
+            analysis_execution_service.SuitePick(
+                suite_id=suite_id,
+                template_ids=form.getlist(f"templates_{suite_id}"),
+                currency_code=form.get(f"currency_code_{suite_id}", ""),
+                currency_scheme=form.get(f"currency_scheme_{suite_id}", ""),
+                currency_vintage=form.get(f"currency_vintage_{suite_id}", ""))
+            for suite_id in form.getlist("chosen_suite_ids")
+        ]
+    else:
+        parsed["template_ids"] = form.getlist("template_ids")
+        parsed["currency_code"] = form.get("currency_code", "")
+        parsed["currency_scheme"] = form.get("currency_scheme", "")
+        parsed["currency_vintage"] = form.get("currency_vintage", "")
+    return parsed
+
+
+def _execute_error_response(request: Request, *, edm_id: str, action_url: str,
+                            kind: str, portfolio_ids: list[str],
+                            errors: list[str]):
+    edm = edm_service.get_edm(edm_id)
+    portfolios = portfolio_service.list_portfolios(edm_id=edm_id) if edm else []
+    ctx = _execute_context(edm=edm, portfolios_all=portfolios, kind=kind,
+                           portfolio_ids=portfolio_ids)
+    ctx["action_url"] = action_url
+    response = _partial(request, "partials/execute_analysis_modal.html",
+                        {**ctx, "errors": errors}, status_code=422)
+    if request.headers.get("HX-Request") == "true":
+        response.headers["HX-Retarget"] = "#execute-modal"
+        response.headers["HX-Reswap"] = "innerHTML"
+    return response
+
+
+@router.get("/edms/{edm_id}/execute", response_class=HTMLResponse)
+def execute_modal(request: Request, edm_id: str):
+    edm = edm_service.get_edm(edm_id)
+    portfolios = portfolio_service.list_portfolios(edm_id=edm_id) if edm else []
+    ctx = _execute_context(
+        edm=edm, portfolios_all=portfolios,
+        kind=request.query_params.get("kind", "suite"),
+        portfolio_ids=request.query_params.getlist("portfolio_ids"))
+    ctx["action_url"] = f"/edms/{edm_id}/execute"
+    return _partial(request, "partials/execute_analysis_modal.html",
+                    {**ctx, "errors": []})
+
+
+@router.post("/edms/{edm_id}/execute")
+async def execute_submit(request: Request, edm_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+    parsed = _parse_execute_form(form)
+    try:
+        analysis_execution_service.request_execution(
+            edm_id=edm_id, actor_id=request.state.user.id, **parsed)
+    except analysis_execution_service.ExecutionGateError as exc:
+        return _execute_error_response(
+            request, edm_id=edm_id, action_url=f"/edms/{edm_id}/execute",
+            kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
+            errors=exc.errors)
+    return Response(status_code=204, headers={"HX-Trigger": "execution-submitted"})
 
 
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):

@@ -120,7 +120,7 @@
   {% endif %}
 
   {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
-  <details class="sec" open>
+  <details class="sec" open x-data="portfolioPicks()">
     <summary>
       <span class="sec__caret">▸</span>
       <span class="sec__title">Portfolios</span>
@@ -128,6 +128,14 @@
       <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
       {% endif %}
       <span class="sec__spacer"></span>
+      {% if edm.status == 'ready' and edm.portfolio_count > 0 %}
+      <button class="btn-sm" type="button" :disabled="!count" onclick="event.stopPropagation()"
+              hx-get="{{ base_url }}/execute?kind=suite" hx-include="[name='portfolio_ids']"
+              hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
+      <button class="btn-sm" type="button" :disabled="!count" onclick="event.stopPropagation()"
+              hx-get="{{ base_url }}/execute?kind=template" hx-include="[name='portfolio_ids']"
+              hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
+      {% endif %}
       <span class="sec__note">Read-only snapshot · split / breakout arrive Iteration 4</span>
     </summary>
 

@@ -8,4 +8,8 @@
 {% block main %}
 {% include "partials/nc_unchecked_notice.html" %}
 {% include "partials/edm_detail_body.html" %}
+{# Outside the self-polling #edm-detail wrapper — same reason
+   submission_detail.html keeps #submission-entity-modal outside its polled
+   sections: an open modal must never be wiped by the 3s poll. #}
+<div id="execute-modal"></div>
 {% endblock %}

@@ -28,7 +28,9 @@
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
   <span class="l">
-    <span class="dt-name"><span class="dt-caret">▸</span>
+    <span class="dt-name">
+      <input type="checkbox" name="portfolio_ids" value="{{ p.id }}" onclick="event.stopPropagation()" @change="onChange()">
+      <span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
         {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}

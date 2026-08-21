@@ -59,28 +59,67 @@ h1,h2,h3{margin:0}
 .btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
 .btn-sm:disabled{opacity:.5;cursor:not-allowed}
 .modal-overlay{position:fixed;inset:0;background:rgba(15,22,41,0.45);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:1000}
-.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:720px;max-width:calc(100vw - 40px);max-height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden}
+.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:380px;max-width:calc(100vw - 40px);display:flex;flex-direction:column;overflow:hidden}
 .modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
-.modal-title{flex:1;font-size:var(--fs-h3);font-weight:var(--fw-semibold);color:var(--text-primary)}
-.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-3);overflow-y:auto}
+.modal-title{flex:1;font-size:var(--fs-label);font-weight:var(--fw-semibold);color:var(--text-primary)}
+.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-1)}
 .modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
 .modal-footer{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
 .modal-btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:0}
 .modal-btn:disabled{opacity:.5;cursor:not-allowed}
 .modal-btn--secondary{color:var(--text-secondary);border:1px solid var(--border-default);background:transparent}
 .modal-btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg);border:1px solid transparent}
-.wf-field{display:flex;flex-direction:column;gap:var(--space-1)}
+/* submissions.css — the wide/scrollable modal variant, reused verbatim: this is
+   the SAME class submission_entity_add_modal.html uses, so the execute modal
+   gets the same tall-content behavior (bounded height, scrolling body) with no
+   new modal-shell CSS. */
+.submission-entity-modal{width:720px;max-height:calc(100vh - 40px)}
+.submission-entity-modal .modal-body{overflow-y:auto;gap:var(--space-3)}
+/* app.css — .wf-field/.wf-fields, VERBATIM (the real rule: a 120px/1fr grid,
+   label left of its control — every other form field in the app looks like
+   this; the previous draft of this preview had the scaffold's simplified
+   flex-column approximation, which doesn't match). */
+.wf-fields{display:flex;flex-direction:column;gap:10px}
+.wf-field{display:grid;grid-template-columns:120px 1fr;align-items:center}
 .wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
-.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);width:100%}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:0;width:100%}
+.wf-field__input--empty{border-color:var(--color-warning-border);background:var(--color-warning-wash)}
+.wf-field__hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
 .tag-empty{color:var(--text-tertiary)}
+/* .ta / .ta__* — submissions.css, VERBATIM: the searchable-select enhancement
+   already used for Model Profile / Event Rate Scheme / Output Profile on the
+   analysis template form (its own comment names currency/scheme/vintage as
+   future users of this exact component) — reused here, not reinvented. */
+.ta{position:relative;grid-column:2}
+.ta > input.wf-field__input{width:100%}
+.ta__menu{position:absolute;z-index:20;top:calc(100% + 3px);left:0;right:0;background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);max-height:240px;overflow:auto;padding:var(--space-1);display:flex;flex-direction:column;gap:1px}
+.ta__opt{display:block;width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:6px var(--space-2);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);color:var(--text-primary)}
+.ta__opt:hover,.ta__opt.is-active{background:var(--color-brand-faint)}
+.ta__empty{padding:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+/* entity-candidate-* — submissions.css, verbatim. This is the SAME bounded,
+   independently-scrolling checkbox list already used for "add existing
+   EDM/RDM" candidates; reused here for the treaty picker and the flat
+   template list (kind=template) with NO new classes. */
+.entity-candidate-search{margin-bottom:var(--space-3)}
 .entity-candidate-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:280px;overflow-y:auto}
+.entity-candidate{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);cursor:pointer}
+.entity-candidate:last-child{border-bottom:0}
+.entity-candidate:hover{background:var(--surface-hover)}
+.entity-candidate > span:nth-child(2){flex:1}
 .entity-candidate-empty{padding:var(--space-5);text-align:center;color:var(--text-tertiary)}
 .state-box{padding:var(--space-5);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-recessed);color:var(--text-secondary)}
 .state-box--warn{background:var(--color-warning-wash);border-color:var(--color-warning-border);color:var(--color-warning)}
 
 /* ============================================================================
-   PROPOSED — net-new classes for the execution modal (T011/T014). Nothing
-   below exists in packages.css/submissions.css yet.
+   NET-NEW — the only genuinely new rules. Everything else on this page
+   (modal shell, search field, candidate list/rows/empty state, footer, the
+   three currency selects themselves) is the existing .modal-*/
+   .entity-candidate-*/.wf-field*/.ta* CSS, verbatim, reused as-is. What's new
+   is just the EXPANDABLE suite row — .entity-candidate-list has no
+   equivalent, since its rows are flat <label> checkboxes, and a suite needs
+   to disclose its templates and its own currency block. .exec-currency is
+   only a thin recessed wrapper around three ordinary .wf-field rows — no new
+   grid, no new form control.
    ============================================================================ */
 .pv-wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
 .pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
@@ -91,42 +130,56 @@ h1,h2,h3{margin:0}
 .pv-stage{position:static;background:transparent;display:block;padding:0;margin-bottom:var(--space-6)}
 .pv-stage .modal-card{margin:0}
 
-.exec-search{margin-bottom:0}
-.exec-list{display:flex;flex-direction:column;gap:var(--space-1)}
-.exec-row{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+/* .exec-list takes the IDENTICAL bounded-scroll treatment as
+   .entity-candidate-list (same border/radius/max-height/overflow-y) — a long
+   suite or template list scrolls in its own box, independent of the search
+   field above and the treaty picker / currency blocks below, exactly like
+   the existing "add existing EDM" candidate list already does for the same
+   long-list problem. .exec-row reuses .entity-candidate's row chrome
+   (border-bottom separator, hover) rather than inventing a bordered card. */
+.exec-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:320px;overflow-y:auto}
+.exec-row{border-bottom:1px solid var(--border-faint)}
+.exec-row:last-child{border-bottom:0}
 .exec-row__head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);cursor:pointer}
 .exec-row__head:hover{background:var(--surface-hover)}
 .exec-row__caret{font-size:11px;color:var(--text-tertiary);width:12px;transition:transform var(--dur-fast) ease}
 .exec-row[open] .exec-row__caret{transform:rotate(90deg)}
 .exec-row__name{flex:1;font-size:var(--fs-label);color:var(--text-primary)}
 .exec-row__count{font-size:var(--fs-caption);color:var(--text-tertiary)}
-.exec-row__body{padding:var(--space-1) var(--space-3) var(--space-3) 40px;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--border-faint)}
+.exec-row__body{padding:var(--space-2) var(--space-3) var(--space-3) 40px;display:flex;flex-direction:column;gap:var(--space-3);border-top:1px solid var(--border-faint)}
+.exec-tpl-list{display:flex;flex-direction:column;gap:2px}
 .exec-tpl{display:flex;align-items:center;gap:var(--space-2);padding:6px 0;font-size:var(--fs-label)}
 .exec-tpl__name{flex:1;color:var(--text-secondary)}
 .exec-tpl--off .exec-tpl__name{color:var(--text-disabled);text-decoration:line-through}
 .exec-section-label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:.04em;margin-bottom:var(--space-1)}
 .exec-picked{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-radius:var(--radius-md);font-size:var(--fs-label);color:var(--text-secondary)}
 .exec-picked b{color:var(--text-primary)}
-.exec-treaty-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:140px;overflow-y:auto}
-.exec-treaty{display:flex;align-items:center;gap:var(--space-2);padding:6px var(--space-3);border-bottom:1px solid var(--border-faint);font-size:var(--fs-label)}
-.exec-treaty:last-child{border-bottom:0}
-.exec-treaty:hover{background:var(--surface-hover)}
 .exec-summary{font-size:var(--fs-caption);color:var(--text-tertiary)}
 .exec-summary b{color:var(--text-primary);font-weight:var(--fw-semibold)}
+.exec-currency{background:var(--surface-recessed);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)}
+.exec-currency__warn{margin-top:var(--space-1);font-size:var(--fs-caption);color:var(--color-warning)}
 </style>
 </head>
 <body>
 <div class="pv-wrap">
 
   <div class="pv-hero">Execute Suite / Execute Template modal</div>
-  <div class="pv-sub">Opens from the Portfolios header once &ge;1 portfolio is checked. Same fragment for both entry points — <code>kind=suite</code> shows suites (expandable to their templates, deselectable); <code>kind=template</code> shows templates directly, no suites. Built on the existing <code>.modal-*</code> / <code>.entity-candidate-*</code> classes; the <b>exec-*</b> rules are net-new (T014).</div>
+  <div class="pv-sub">Opens from the Portfolios header once &ge;1 portfolio is checked. Same fragment for both entry points — <code>kind=suite</code> shows suites (expandable to their templates, deselectable, each with its own currency block); <code>kind=template</code> shows templates directly plus one currency block for the whole execution.</div>
+
+  <p class="pv-cap"><b>Revision 2, addressing review feedback:</b></p>
+  <p class="pv-cap">1) <b>Long lists</b> — <code>.exec-list</code> gets the identical bounded/scrolling treatment as <code>.entity-candidate-list</code> (border, 320px max-height, its own scrollbar): a suite/template/treaty list of any length scrolls in place while the search field, currency blocks, and the Execute/Cancel footer stay fixed — the same answer the app already gives for a long "add existing EDM" candidate list.</p>
+  <p class="pv-cap">2) <b>Reusing existing styling</b> — the previous draft got two things wrong and one thing genuinely new right:
+  the modal shell is <code>.modal-card.submission-entity-modal</code>, the exact class <code>submission_entity_add_modal.html</code> already uses for a wide/scrollable modal;
+  the treaty picker and the flat template list are the real <code>.entity-candidate-list</code>/<code>.entity-candidate</code> rows;
+  every field (search, currency) is now the REAL <code>.wf-field</code> grid from <code>app.css</code> (label left, control right — the previous draft used the UI-preview scaffold's simplified stacked version, which isn't what the app actually renders);
+  and the three currency pickers are the searchable <code>.ta</code> component (<code>selectSearch()</code> in <code>app.js</code>) &mdash; the same widget already driving Model Profile / Event Rate Scheme / Output Profile on the analysis template form, whose own code comment names currency/scheme/vintage as a planned future user. Genuinely new: only the suite's expandable row (<code>.exec-row</code>) and the thin <code>.exec-currency</code> wrapper around three ordinary fields.</p>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 1 · kind=suite — one suite expanded, two templates deselected</div>
-  <p class="pv-cap">Search re-GETs the row list (300ms debounce, same pattern as <code>submission_entity_candidates</code>). Every suite's templates are checked by default (FR-003); this suite has 5, with 2 unticked. Selected portfolios are read-only, carried as hidden inputs. Submit is enabled: &ge;1 suite chosen and &ge;1 template remains overall.</p>
+  <div class="pv-eyebrow">State 1 · kind=suite — one suite expanded, two templates deselected, currency pre-filled from defaults</div>
+  <p class="pv-cap">Search re-GETs the row list (300ms debounce, same pattern as <code>submission_entity_candidates</code>). Every suite's templates are checked by default (FR-003); this suite has 5, with 2 unticked. Checking a suite opens it and reveals its own currency block (FR-019), pre-filled from the <code>DEFAULT_ANALYSIS_CURRENCY_*</code> settings (FR-020) — the vintage select is scoped to the chosen scheme. Selected portfolios are read-only, carried as hidden inputs. Submit is enabled: &ge;1 suite chosen, &ge;1 template remains, and the currency block is complete.</p>
 
   <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card">
+    <div class="modal-card submission-entity-modal">
       <div class="modal-header">
         <span class="modal-title">Execute Suite &middot; 2 portfolios selected</span>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
@@ -134,7 +187,7 @@ h1,h2,h3{margin:0}
       <div class="modal-body">
         <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind, US Gulf Coast Property</div>
 
-        <div class="wf-field exec-search">
+        <div class="wf-field entity-candidate-search">
           <label for="s1">SEARCH SUITES</label>
           <input class="wf-field__input" id="s1" type="text" placeholder="Search by name" value="hurricane">
         </div>
@@ -150,11 +203,32 @@ h1,h2,h3{margin:0}
                 <span class="exec-row__count">5 templates &middot; 3 selected</span>
               </summary>
               <div class="exec-row__body">
-                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU DLM v23</span></label>
-                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU HD v23</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
-                <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU Accumulation</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+                <div class="exec-tpl-list">
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU DLM v23</span></label>
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU HD v23</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU Accumulation</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+                </div>
+                <div class="exec-currency">
+                  <div class="exec-section-label">Currency for this suite <span class="tag-empty">(searchable — same widget as Model Profile on the template form)</span></div>
+                  <div class="wf-fields">
+                    <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
+                    <div class="wf-field"><label>CURRENCY SCHEME</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
+                    <div class="wf-field"><label>SCHEME VINTAGE</label>
+                      <div class="ta">
+                        <input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)">
+                        <div class="ta__menu" style="display:flex">
+                          <button type="button" class="ta__opt is-active">RL25 (effective 2025-05-28)</button>
+                          <button type="button" class="ta__opt">RL23 (effective 2023-05-28)</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="wf-field__hint" style="margin-top:var(--space-1)">Dropdown shown open here for illustration — closed by default, same as every other field on this page.</div>
+                </div>
               </div>
             </details>
             <details class="exec-row">
@@ -178,10 +252,10 @@ h1,h2,h3{margin:0}
 
         <div>
           <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
-          <div class="exec-treaty-list">
-            <label class="exec-treaty"><input type="checkbox" checked><span>Cat XoL Layer 1</span></label>
-            <label class="exec-treaty"><input type="checkbox"><span>Cat XoL Layer 2</span></label>
-            <label class="exec-treaty"><input type="checkbox"><span>Quota Share 20%</span></label>
+          <div class="entity-candidate-list">
+            <label class="entity-candidate"><input type="checkbox" checked><span>Cat XoL Layer 1</span></label>
+            <label class="entity-candidate"><input type="checkbox"><span>Cat XoL Layer 2</span></label>
+            <label class="entity-candidate"><input type="checkbox"><span>Quota Share 20%</span></label>
           </div>
         </div>
 
@@ -195,20 +269,107 @@ h1,h2,h3{margin:0}
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 2 · every template deselected — Submit disabled</div>
-  <p class="pv-cap">Edge case from the spec: a suite is chosen but every one of its templates was unticked. Submit disables even though a suite row is checked (FR-002).</p>
+  <div class="pv-eyebrow">State 2 · two suites chosen — one currency overridden, one vintage cleared — Submit disabled</div>
+  <p class="pv-cap">A second suite is chosen and its currency block overridden to EUR / Deterministic Scheme / RL24 (the analyst's own choice, distinct from the suite in State 1). A third suite is chosen whose pinned default vintage isn't in the synced cache — FR-020: an unset or cache-absent default pre-selects nothing, so that picker stays empty and Submit disables until every visible currency block is complete, even though &ge;1 suite is chosen and templates remain selected.</p>
 
   <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card">
+    <div class="modal-card submission-entity-modal">
       <div class="modal-header">
         <span class="modal-title">Execute Suite &middot; 2 portfolios selected</span>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind, US Gulf Coast Property</div>
-        <div class="wf-field exec-search">
+        <div class="wf-field entity-candidate-search">
           <label for="s2">SEARCH SUITES</label>
           <input class="wf-field__input" id="s2" type="text" placeholder="Search by name">
+        </div>
+        <div>
+          <div class="exec-section-label">Suites</div>
+          <div class="exec-list">
+            <details class="exec-row">
+              <summary class="exec-row__head">
+                <input type="checkbox" checked onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">US Hurricane — Extended Suite</span>
+                <span class="exec-row__count">8 templates &middot; 8 selected</span>
+              </summary>
+              <div class="exec-row__body">
+                <div class="exec-tpl-list">
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">US HU DLM v23</span></label>
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">&hellip; 7 more</span></label>
+                </div>
+                <div class="exec-currency">
+                  <div class="exec-section-label">Currency for this suite <span class="tag-empty">(overridden)</span></div>
+                  <div class="wf-fields">
+                    <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="EUR"></div></div>
+                    <div class="wf-field"><label>CURRENCY SCHEME</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="Deterministic Scheme"></div></div>
+                    <div class="wf-field"><label>SCHEME VINTAGE</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="RL24 (effective 2024-05-28)"></div></div>
+                  </div>
+                </div>
+              </div>
+            </details>
+            <details class="exec-row" open>
+              <summary class="exec-row__head">
+                <input type="checkbox" checked onclick="event.stopPropagation()">
+                <span class="exec-row__caret">&#9656;</span>
+                <span class="exec-row__name">Coastal Flood — HD Only</span>
+                <span class="exec-row__count">2 templates &middot; 2 selected</span>
+              </summary>
+              <div class="exec-row__body">
+                <div class="exec-tpl-list">
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">Coastal Flood HD v3</span></label>
+                  <label class="exec-tpl"><input type="checkbox" checked><span class="exec-tpl__name">Coastal Flood HD v3 — Deterministic</span></label>
+                </div>
+                <div class="exec-currency">
+                  <div class="exec-section-label">Currency for this suite</div>
+                  <div class="wf-fields">
+                    <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
+                    <div class="wf-field"><label>CURRENCY SCHEME</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
+                    <div class="wf-field"><label>SCHEME VINTAGE</label>
+                      <div class="ta"><input class="wf-field__input wf-field__input--empty" type="text" placeholder="Search vintages…" value=""></div></div>
+                  </div>
+                  <div class="exec-currency__warn">Default vintage isn't in the synced cache — choose one to continue.</div>
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+        <div>
+          <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
+          <div class="entity-candidate-list">
+            <label class="entity-candidate"><input type="checkbox"><span>Cat XoL Layer 1</span></label>
+          </div>
+        </div>
+        <div class="exec-summary">Every currency block must be complete before this can submit.</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
+        <button class="modal-btn modal-btn--primary" type="button" disabled>Execute</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">State 3 · every template deselected — Submit disabled</div>
+  <p class="pv-cap">Edge case from the spec: a suite is chosen but every one of its templates was unticked. Submit disables even though a suite row is checked and its currency block is complete (FR-002).</p>
+
+  <div class="pv-stage modal-overlay" style="position:static">
+    <div class="modal-card submission-entity-modal">
+      <div class="modal-header">
+        <span class="modal-title">Execute Suite &middot; 2 portfolios selected</span>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind, US Gulf Coast Property</div>
+        <div class="wf-field entity-candidate-search">
+          <label for="s3">SEARCH SUITES</label>
+          <input class="wf-field__input" id="s3" type="text" placeholder="Search by name">
         </div>
         <div>
           <div class="exec-section-label">Suites</div>
@@ -221,19 +382,32 @@ h1,h2,h3{margin:0}
                 <span class="exec-row__count">5 templates &middot; 0 selected</span>
               </summary>
               <div class="exec-row__body">
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v23</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU HD v23</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Accumulation</span></label>
-                <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+                <div class="exec-tpl-list">
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v23</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU HD v23</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU DLM v22 (legacy)</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Accumulation</span></label>
+                  <label class="exec-tpl exec-tpl--off"><input type="checkbox"><span class="exec-tpl__name">US HU Deterministic — Cat 5</span></label>
+                </div>
+                <div class="exec-currency">
+                  <div class="exec-section-label">Currency for this suite</div>
+                  <div class="wf-fields">
+                    <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
+                    <div class="wf-field"><label>CURRENCY SCHEME</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
+                    <div class="wf-field"><label>SCHEME VINTAGE</label>
+                      <div class="ta"><input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)"></div></div>
+                  </div>
+                </div>
               </div>
             </details>
           </div>
         </div>
         <div>
           <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
-          <div class="exec-treaty-list">
-            <label class="exec-treaty"><input type="checkbox"><span>Cat XoL Layer 1</span></label>
+          <div class="entity-candidate-list">
+            <label class="entity-candidate"><input type="checkbox"><span>Cat XoL Layer 1</span></label>
           </div>
         </div>
         <div class="exec-summary">No templates remain selected — nothing would submit.</div>
@@ -246,39 +420,60 @@ h1,h2,h3{margin:0}
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 3 · kind=template — flat list, no suites, search with no matches</div>
-  <p class="pv-cap">Execute Template shows templates directly (no expand, no suite union). Submit disabled until one is chosen. Search with no hits shows the same empty state as <code>submission_entity_candidates</code>.</p>
+  <div class="pv-eyebrow">State 4 · kind=template — flat list, no suites, one currency block for the whole run</div>
+  <p class="pv-cap">Execute Template shows templates directly (no expand, no suite union) and a single currency block for the entire execution (FR-019). Submit disabled until &ge;1 template is chosen and the currency block is complete.</p>
 
   <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card">
+    <div class="modal-card submission-entity-modal">
       <div class="modal-header">
         <span class="modal-title">Execute Template &middot; 1 portfolio selected</span>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="exec-picked"><b>Portfolios:</b> US Southeast Wind</div>
-        <div class="wf-field exec-search">
-          <label for="s3">SEARCH TEMPLATES</label>
-          <input class="wf-field__input" id="s3" type="text" placeholder="Search by name" value="zzz-no-match">
+        <div class="wf-field entity-candidate-search">
+          <label for="s4">SEARCH TEMPLATES</label>
+          <input class="wf-field__input" id="s4" type="text" placeholder="Search by name">
         </div>
         <div>
           <div class="exec-section-label">Templates</div>
-          <div class="entity-candidate-empty">No live templates match this search.</div>
+          <div class="entity-candidate-list">
+            <label class="entity-candidate"><input type="checkbox" checked><span>US HU DLM v23</span></label>
+            <label class="entity-candidate"><input type="checkbox"><span>US HU HD v23</span></label>
+          </div>
         </div>
+        <div class="exec-currency">
+          <div class="exec-section-label">Currency for this execution</div>
+          <div class="wf-fields">
+            <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+              <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
+            <div class="wf-field"><label>CURRENCY SCHEME</label>
+              <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
+            <div class="wf-field"><label>SCHEME VINTAGE</label>
+              <div class="ta"><input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)"></div></div>
+          </div>
+        </div>
+        <div>
+          <div class="exec-section-label">Treaties <span class="tag-empty">(optional — none selected runs gross)</span></div>
+          <div class="entity-candidate-list">
+            <label class="entity-candidate"><input type="checkbox"><span>Cat XoL Layer 1</span></label>
+          </div>
+        </div>
+        <div class="exec-summary">Will submit <b>1 portfolio &times; 1 template = 1 analysis</b>.</div>
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
-        <button class="modal-btn modal-btn--primary" type="button" disabled>Execute</button>
+        <button class="modal-btn modal-btn--primary" type="button">Execute</button>
       </div>
     </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 4 · blocking message — prerequisite gate</div>
+  <div class="pv-eyebrow">State 5 · blocking message — prerequisite gate</div>
   <p class="pv-cap">EDM not <code>ready</code>, no portfolios exist, or there are zero live suites/templates to offer — the fragment renders a blocking message in place of the form rather than an empty form (FR-001).</p>
 
   <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card">
+    <div class="modal-card submission-entity-modal">
       <div class="modal-header">
         <span class="modal-title">Execute Suite</span>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>

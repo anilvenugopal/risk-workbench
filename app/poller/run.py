@@ -28,8 +28,10 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import text
 
@@ -52,6 +54,7 @@ logger = logging.getLogger(__name__)
 _GETTERS = {
     "import_edm": irp_gateway.get_import_job,
     "import_rdm": irp_gateway.get_import_job,
+    "analysis": irp_gateway.get_analysis_job,
 }
 
 
@@ -98,10 +101,44 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
             conn, rdm_id=job["irp_rdm_id"], rm_status=status, irp_id=None)
 
 
+def _analysis_failure_reason(result: dict | None) -> str:
+    """The message extracted from a terminal analysis completion body, falling
+    back to the raw summary (FR-011) — field names are read defensively since
+    the wheel's failure-completion shape is undocumented."""
+    if not isinstance(result, dict):
+        return "Risk Modeler reported no failure detail"
+    for key in ("errorMessage", "failureReason", "statusMessage", "message", "reason"):
+        value = result.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return f"Risk Modeler status: {result.get('status', 'unknown')}"
+
+
+def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    """FINISHED → enqueue the completion backfill (only success path — US4-4: no
+    retrieval for failures). FAILED/CANCELLED → the analysis moves to ``error``
+    with RM's failure reason (CANCELLED counts as a failure — edge case list)."""
+    if status == "FINISHED":
+        rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_job", requestor_id=job["id"],
+            rwb_job_type="backfill_analysis_detail",
+            input_data={"analysis_id": str(job["irp_analysis_id"])},
+            conn=conn,
+        )
+    else:
+        conn.execute(text(
+            "UPDATE irp_analysis SET status_code = 'error', failure_reason = :r, "
+            "updated_at = :now WHERE id = :id"
+        ), {"r": _analysis_failure_reason(resolved.get("result")),
+            "now": datetime.now(timezone.utc).replace(tzinfo=None),
+            "id": job["irp_analysis_id"]})
+
+
 # terminal irp_job.status → handler (extended per user story).
 _TERMINAL_HANDLERS = {
     "import_edm": _handle_import_edm_terminal,
     "import_rdm": _handle_import_rdm_terminal,
+    "analysis": _handle_analysis_terminal,
 }
 
 
@@ -193,12 +230,15 @@ def _track_irp_jobs() -> None:
             logger.debug("irp_job status check: %s", result.status)
             # Resolve any terminal-time entity ids needing a Risk Modeler lookup BEFORE
             # opening the DB transaction (Article 11 — never hold a txn across HTTP).
-            resolved: dict = {}
+            # The raw completion body always rides along too (no RM call needed for
+            # it — it's already in `result`) so a handler can extract a failure reason
+            # without its own resolver (e.g. the "analysis" job type).
+            resolved: dict = {"result": result.result}
             if result.status in irp_job_service.TERMINAL:
                 resolver = _TERMINAL_RESOLVERS.get(job["irp_job_type"])
                 if resolver is not None:
                     try:
-                        resolved = resolver(job, result) or {}
+                        resolved.update(resolver(job, result) or {})
                     except Exception:
                         logger.exception("terminal resolver failed for irp_job=%s",
                                          job["id"])
@@ -257,9 +297,107 @@ def _dispatch_pending() -> None:
             log_context.clear(token)
 
 
+def _retry_submission(row: dict) -> None:
+    """Resubmit one ``SUBMISSION FAILED`` row verbatim from ``request_params``
+    (the approved-plans rule — never recomposed from live rows) and update it
+    IN PLACE (T-09: ``record_submission_failure``'s insert-per-failure design
+    makes per-row attempt counting meaningless)."""
+    params = json.loads(row["request_params"]) if row["request_params"] else None
+    if not params:
+        logger.warning(
+            "submission_retry: irp_job %s has no request_params to resubmit",
+            row["id"])
+        return
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        irp_id, request_body = irp_gateway.submit_portfolio_analysis(**params)
+    except Exception as exc:  # noqa: BLE001 — stays SUBMISSION FAILED, retried again later
+        attempts = row["submission_attempt_count"] + 1
+        exhausted = attempts >= settings.irp_submission_max_retries
+        with get_connection("WORKBENCH") as conn, conn.begin():
+            conn.execute(text(
+                "UPDATE irp_job SET submission_attempt_count = :n, "
+                "last_submission_response = :r, completed_at = :now, updated_at = :now "
+                "WHERE id = :id"
+            ), {"n": attempts, "r": json.dumps({"error": str(exc)}),
+                "now": now, "id": row["id"]})
+            conn.execute(text(
+                "UPDATE irp_analysis SET failure_reason = :r, updated_at = :now"
+                + (", status_code = 'error'" if exhausted else "")
+                + " WHERE id = :id"
+            ), {"r": str(exc), "now": now, "id": row["irp_analysis_id"]})
+        logger.warning("submission_retry: attempt %d failed for irp_job=%s%s",
+                       attempts, row["id"], " (exhausted)" if exhausted else "")
+        return
+
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        conn.execute(text(
+            "UPDATE irp_job SET irp_id = :irp, status = 'QUEUED', "
+            "submission_attempt_count = submission_attempt_count + 1, "
+            "last_submission_response = :resp, updated_at = :now WHERE id = :id"
+        ), {"irp": irp_id, "resp": json.dumps(request_body), "now": now,
+            "id": row["id"]})
+        resource_uri = request_body.get("resourceUri")
+        if resource_uri:
+            conn.execute(text(
+                "INSERT INTO irp_job_resource (id, irp_job_id, resource_type, "
+                "resource_uri, inserted_at) "
+                "VALUES (:id, :jid, 'portfolio', :uri, :now)"
+            ), {"id": str(uuid.uuid4()), "jid": row["id"], "uri": resource_uri,
+                "now": now})
+        conn.execute(text(
+            "UPDATE irp_analysis SET status_code = 'running', failure_reason = NULL, "
+            "updated_at = :now WHERE id = :id"
+        ), {"now": now, "id": row["irp_analysis_id"]})
+    logger.info("submission_retry: resubmitted irp_job=%s -> irp_id=%s",
+               row["id"], irp_id)
+
+
 def _submission_retry() -> None:
-    """Re-attempt submit-side failures (FR-029). Scaffold — implemented in spec 010 T-09."""
-    logger.debug("submission_retry: no-op scaffold")
+    """Re-attempt ``SUBMISSION FAILED`` analysis submits under the configured max,
+    with exponential backoff (FR-029/FR-010, T-09). A single-threaded poller batch,
+    not an actor — each analyst-request-driven analysis has already claimed its name;
+    retrying only redoes the Risk Modeler submit."""
+    candidates = execute(
+        """
+        SELECT j.id, j.irp_analysis_id, j.request_params,
+               j.submission_attempt_count, j.completed_at
+        FROM irp_job j
+        WHERE j.irp_job_type = 'analysis' AND j.status = 'SUBMISSION FAILED'
+          AND j.irp_analysis_id IS NOT NULL
+          AND j.submission_attempt_count < :max_retries
+          AND j.inserted_at = (
+            SELECT MAX(j2.inserted_at) FROM irp_job j2
+            WHERE j2.irp_analysis_id = j.irp_analysis_id
+              AND j2.irp_job_type = 'analysis' AND j2.status = 'SUBMISSION FAILED'
+          )
+        """,
+        {"max_retries": settings.irp_submission_max_retries},
+        connection="WORKBENCH",
+    )
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for row in candidates:
+        completed_at = row["completed_at"]
+        if isinstance(completed_at, str):
+            try:
+                completed_at = datetime.fromisoformat(completed_at)
+            except ValueError:
+                completed_at = None
+        if completed_at is None:
+            continue  # no failure timestamp to back off from yet
+        eligible_at = completed_at + timedelta(
+            seconds=settings.irp_submission_retry_base_secs
+                    * (2 ** row["submission_attempt_count"]))
+        if now < eligible_at:
+            continue
+        token = log_context.bind(irp_job_id=str(row["id"]),
+                                 irp_analysis_id=str(row["irp_analysis_id"]))
+        try:
+            _retry_submission(row)
+        except Exception:
+            logger.exception("submission_retry failed for irp_job=%s", row["id"])
+        finally:
+            log_context.clear(token)
 
 
 def poll_once() -> None:

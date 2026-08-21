@@ -678,6 +678,78 @@ document.addEventListener('alpine:init', () => {
       this.onChange();
     },
   }));
+
+  // Portfolio multi-select on the EDM detail page (spec 010) — counts ticked
+  // portfolios so the Execute Suite/Execute Template buttons enable; the boxes
+  // themselves are read straight off the DOM by hx-include at click time.
+  Alpine.data('portfolioPicks', () => ({
+    count: 0,
+    init() { this.onChange(); },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="portfolio_ids"]:checked').length;
+    },
+  }));
+
+  // Execute Suite / Execute Template modal (spec 010). All state lives in the DOM
+  // (checkboxes, selects) — this component only reads it, matching syncPicks: no
+  // duplicated selection state to drift out of sync with the real form.
+  Alpine.data('executeModal', () => ({
+    canSubmit: false,
+    init() { this.recompute(); },
+    onSearch(e) {
+      const term = e.target.value.trim().toLowerCase();
+      const scope = this.$root.querySelector('#exec-candidates');
+      if (!scope) return;
+      scope.querySelectorAll('[data-exec-name]').forEach((row) => {
+        row.hidden = !!term && !(row.dataset.execName || '').includes(term);
+      });
+    },
+    onChange(e) {
+      const target = e.target;
+      if (target.name === 'chosen_suite_ids') {
+        const details = target.closest('details');
+        const fieldset = details && details.querySelector('.exec-row__body');
+        if (details) details.open = target.checked;
+        if (fieldset) fieldset.disabled = !target.checked;
+      }
+      const tpl = target.closest('.exec-tpl');
+      if (tpl) tpl.classList.toggle('exec-tpl--off', !target.checked);
+      const row = target.closest('.exec-row');
+      if (row && target.closest('.exec-tpl-list')) {
+        const counter = row.querySelector('.exec-row__count-n');
+        if (counter) {
+          counter.textContent = row.querySelectorAll(
+            '.exec-tpl-list input[type="checkbox"]:checked').length;
+        }
+      }
+      this.recompute();
+    },
+    currencyComplete(scope) {
+      const block = scope.querySelector('.exec-currency');
+      if (!block) return true;
+      return Array.from(block.querySelectorAll('select'))
+        .every((select) => select.value !== '');
+    },
+    recompute() {
+      const root = this.$root;
+      if (root.dataset.kind === 'suite') {
+        let ok = false;
+        root.querySelectorAll('.exec-row').forEach((row) => {
+          const chosen = row.querySelector('input[name="chosen_suite_ids"]');
+          if (!chosen || !chosen.checked) return;
+          const hasTemplates = row.querySelectorAll(
+            '.exec-tpl-list input[type="checkbox"]:checked').length > 0;
+          if (hasTemplates && this.currencyComplete(row)) ok = true;
+        });
+        this.canSubmit = ok;
+      } else {
+        const hasTemplates = root.querySelectorAll(
+          '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
+        this.canSubmit = hasTemplates && this.currencyComplete(root);
+      }
+    },
+  }));
 });
 
 // ── Row click → open the submission (D17) ─────────────────────────────────────

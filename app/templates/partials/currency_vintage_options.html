@@ -1,0 +1,4 @@
+<option value="">Choose a vintage…</option>
+{% for v in vintage_options %}
+<option value="{{ v.vintage }}">{{ v.vintage }} (effective {{ v.effective_date[:10] }})</option>
+{% endfor %}

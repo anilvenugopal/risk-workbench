@@ -36,10 +36,10 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
             irp_rdm_id, irp_portfolio_id, irp_analysis_id, irp_job_type,
             irp_id, status, correlation_id, last_submission_payload,
             last_submission_response, request_params, submission_attempt_count,
-            submitted_at, inserted_at, updated_at, inserted_by, updated_by)
+            submitted_at, completed_at, inserted_at, updated_at, inserted_by, updated_by)
         VALUES (:id, :submission, :edm, :rdm, :portfolio, :analysis, :jt, :irp_id,
-            :status, :cid, :payload, :response, :params, :attempts, :now, :now,
-            :now, :by, :by)
+            :status, :cid, :payload, :response, :params, :attempts, :now, :completed,
+            :now, :now, :by, :by)
         """
     ), {
         "id": job_id,
@@ -60,6 +60,10 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         "params": _json(request_params),
         "attempts": attempt_count,
         "now": now,
+        # SUBMISSION FAILED is written terminal at insert (never tracked by the
+        # poller's update_tracking) — its completed_at must be stamped here or
+        # the submission_retry batch's backoff has nothing to compute from.
+        "completed": (now if status in TERMINAL else None),
         "by": (str(actor_id) if actor_id is not None else None),
     })
 
@@ -114,6 +118,7 @@ def list_non_terminal() -> list[dict]:
     rows = execute(
         f"""
         SELECT id, irp_id, irp_job_type, irp_edm_id, irp_rdm_id,
+               irp_portfolio_id, irp_analysis_id,
                requested_from_submission_id,
                status, correlation_id, submitted_at
         FROM irp_job
