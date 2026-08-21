@@ -136,7 +136,6 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         "skip_prev_hazard": False,
         "override_user_def": True,
     }
-    assert result.request_params == expected_params
     for row in rows:
         input_data = json.loads(row["input_data"])
         assert input_data["params"] == expected_params

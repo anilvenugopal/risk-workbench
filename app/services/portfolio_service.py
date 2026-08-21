@@ -47,7 +47,6 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
-    geohaz_eligible: bool = False
     geohaz_state: CellState | None = None
     geohaz_latest: LatestLookup | None = None
 

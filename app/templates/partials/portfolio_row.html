@@ -27,7 +27,7 @@
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
   {% with portfolio_id=p.id, portfolio_name=p.name,
-          eligible=p.geohaz_eligible %}
+          eligible=not p.geohaz_state.live %}
     {% include "partials/geohaz_checkbox.html" %}
   {% endwith %}
   <span class="l">

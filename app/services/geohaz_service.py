@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.config import settings
-from app.services import rwb_job_service
+from app.services import irp_job_service, rwb_job_service
 from app.services._common import _parse_json_dict, _uid
 from app.services.errors import GeohazLaunchConflict, InvalidGeohazLaunch
 from app.workers import dispatch
@@ -17,7 +17,6 @@ from db import execute, execute_one
 class LaunchResult:
     rwb_job_ids: list[str]
     portfolio_ids: list[str]
-    request_params: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -25,8 +24,11 @@ class CellState:
     portfolio_id: str
     portfolio_name: str
     label: str
-    kind: str
     live: bool
+
+    @property
+    def kind(self) -> str:
+        return "live" if self.live else "version"
 
 
 @dataclass(frozen=True)
@@ -38,7 +40,7 @@ class LatestLookup:
 
     @property
     def failed(self) -> bool:
-        return self.status in ("FAILED", "CANCELLED", "SUBMISSION FAILED")
+        return self.status != "FINISHED" and self.status in irp_job_service.TERMINAL
 
 
 def _scope_clause(*, portfolio_col: str, edm_col: str,
@@ -59,16 +61,17 @@ def _read_states(*, edm_id: Any | None = None,
     where, params = _scope_clause(
         portfolio_col="p.id", edm_col="p.edm_id",
         edm_id=edm_id, portfolio_id=portfolio_id)
+    terminal = {f"t{i}": s for i, s in enumerate(sorted(irp_job_service.TERMINAL))}
+    terminal_in = ", ".join(f":{k}" for k in terminal)
+    params |= terminal
     rows = execute(
         f"""
         WITH job_state AS (
             SELECT irp_portfolio_id,
-                   MAX(CASE WHEN status NOT IN (
-                       'FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED'
-                   ) THEN 1 ELSE 0 END) AS has_live_job,
-                   MAX(CASE WHEN status NOT IN (
-                       'FINISHED', 'FAILED', 'CANCELLED', 'SUBMISSION FAILED'
-                   ) THEN status ELSE NULL END) AS live_status
+                   MAX(CASE WHEN status NOT IN ({terminal_in})
+                       THEN 1 ELSE 0 END) AS has_live_job,
+                   MAX(CASE WHEN status NOT IN ({terminal_in})
+                       THEN status ELSE NULL END) AS live_status
             FROM irp_job
             WHERE irp_job_type = 'geohaz'
             GROUP BY irp_portfolio_id
@@ -101,12 +104,12 @@ def _read_states(*, edm_id: Any | None = None,
         hazard_version = metrics.get("hazardVersion")
         label = hazard_version if isinstance(hazard_version, str) else ""
         if row["has_live_head"] and not row["has_live_job"]:
-            state = CellState(pid, row["name"], "SUBMITTING", "live", True)
+            state = CellState(pid, row["name"], "SUBMITTING", True)
         elif row["has_live_job"]:
             state = CellState(
-                pid, row["name"], row["live_status"] or "SUBMITTED", "live", True)
+                pid, row["name"], row["live_status"] or "SUBMITTED", True)
         else:
-            state = CellState(pid, row["name"], label, "version", False)
+            state = CellState(pid, row["name"], label, False)
         states[pid] = state
     return states
 
@@ -242,11 +245,7 @@ def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchRes
         if job_id is not None:
             job_ids.append(job_id)
         dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="run_geohaz")
-    return LaunchResult(
-        rwb_job_ids=job_ids,
-        portfolio_ids=selected_ids,
-        request_params=request_params,
-    )
+    return LaunchResult(rwb_job_ids=job_ids, portfolio_ids=selected_ids)
 
 
 __all__ = [
