@@ -148,7 +148,7 @@ at a checkpoint for the approver to click the running feature before the next be
 
 **Purpose**: The `/workflows/irp-jobs` stub becomes a minimal read-only listing so analysis jobs are visible. Deliberately last per the amended P-09 phasing.
 
-- [ ] T045 [US2] `/workflows/irp-jobs` listing: read-only `irp_job` table (type, entity/analysis name, status chip, submitted-by, submitted at, attempts; newest first, capped) in `app/routers/shell.py`, `app/templates/pages/workflows_irp_jobs.html`, `app/templates/partials/irp_jobs_table.html`, 3s fragment self-poll; verify per quickstart Phase 4
+- [X] T045 [US2] `/workflows/irp-jobs` listing: read-only `irp_job` table (type, entity/analysis name, status chip, submitted-by, submitted at, attempts; newest first, capped) in `app/routers/shell.py`, `app/templates/pages/workflows_irp_jobs.html`, `app/templates/partials/irp_jobs_table.html`, 3s fragment self-poll; verify per quickstart Phase 4
 
 ---
 

@@ -21,7 +21,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.services._common import _json, _txn, _utcnow
-from db import execute
+from db import execute, row_limit
 
 
 def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
@@ -183,7 +183,37 @@ def record_submission_failure(
     return job_id
 
 
+# Rows shown on the /workflows/irp-jobs monitor (T-12) — matches submission_service's
+# PAGE_SIZE convention for a capped read.
+RECENT_LIMIT = 50
+
+
+def list_recent(limit: int = RECENT_LIMIT) -> list[dict]:
+    """Newest-first ``irp_job`` rows for the read-only job monitor: job type label,
+    the most specific linked entity's name (analysis over portfolio over RDM over
+    EDM — an ``analysis``-type job has all three of analysis/portfolio/EDM set),
+    status, submitter, submission time, and attempt count. No filters, no writes."""
+    rows = execute(
+        """
+        SELECT j.id, j.irp_job_type, k.label AS type_label, j.status,
+               j.submission_attempt_count AS attempts, j.submitted_at,
+               u.display_name AS submitted_by,
+               COALESCE(a.name, p.name, r.name, e.name) AS entity_name
+        FROM irp_job j
+        LEFT JOIN irp_job_type_kind k ON k.code = j.irp_job_type
+        LEFT JOIN app_user u ON u.id = j.inserted_by
+        LEFT JOIN irp_analysis a ON a.id = j.irp_analysis_id
+        LEFT JOIN irp_portfolio p ON p.id = j.irp_portfolio_id
+        LEFT JOIN irp_rdm r ON r.id = j.irp_rdm_id
+        LEFT JOIN irp_edm e ON e.id = j.irp_edm_id
+        ORDER BY j.inserted_at DESC
+        """ + row_limit(limit),
+        connection="WORKBENCH",
+    )
+    return [dict(r) for r in rows]
+
+
 __all__ = [
     "record_submitted_irp_job", "record_submission_failure",
-    "TERMINAL", "list_non_terminal", "update_tracking",
+    "TERMINAL", "list_non_terminal", "update_tracking", "list_recent",
 ]
