@@ -298,10 +298,8 @@
 .entity-modal-footer { margin: var(--space-4) calc(-1 * var(--space-4))
   calc(-1 * var(--space-3)); }
 
-/* Execute Suite / Execute Template modal (spec 010) — reuses .submission-entity-
-   modal/.entity-candidate-*/.wf-field*/.ta* above verbatim. The only genuinely new
-   rules are the expandable suite row (.exec-row, whose body a <fieldset> so an
-   unchecked suite's inputs never submit) and the thin .exec-currency wrapper. */
+/* Execute Suite / Execute Template modal (spec 010) — reuses
+   .submission-entity-modal, .entity-candidate, .wf-field, and .ta. */
 .exec-picked { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2);
   padding: var(--space-2) var(--space-3); background: var(--surface-recessed);
   border-radius: var(--radius-md); font-size: var(--fs-label); color: var(--text-secondary); }
