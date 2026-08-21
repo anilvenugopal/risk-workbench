@@ -47,10 +47,11 @@ def currency_scheme_options() -> list[dict]:
 def vintage_options(scheme_code: str) -> list[dict]:
     if not scheme_code:
         return []
-    return execute(
+    rows = execute(
         "SELECT vintage, effective_date FROM irp_currency_scheme_vintage "
         "WHERE currency_scheme_code = :s ORDER BY effective_date DESC",
         {"s": scheme_code}, connection="WORKBENCH")
+    return [{**row, "effective_date": str(row["effective_date"])[:10]} for row in rows]
 
 
 def currency_defaults() -> dict:

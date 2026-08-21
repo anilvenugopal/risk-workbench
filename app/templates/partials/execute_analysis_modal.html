@@ -36,7 +36,7 @@
         <select class="wf-field__input{% if not vintage_val %} wf-field__input--empty{% endif %}" name="{{ vintage_name }}" id="curr-vintage-{{ scope_id }}" x-ref="select" x-show="false" @htmx:after-swap="sync(); recompute()">
           <option value=""{% if not vintage_val %} selected{% endif %}>Choose a vintage…</option>
           {% for v in vintage_options %}
-          <option value="{{ v.vintage }}"{% if v.vintage == vintage_val %} selected{% endif %}>{{ v.vintage }} (effective {{ v.effective_date[:10] }})</option>
+          <option value="{{ v.vintage }}"{% if v.vintage == vintage_val %} selected{% endif %}>{{ v.vintage }} (effective {{ v.effective_date }})</option>
           {% endfor %}
         </select>
         {{ forms.typeahead_controls(required=false) }}
