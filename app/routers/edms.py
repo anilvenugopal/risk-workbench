@@ -415,8 +415,8 @@ def geohaz_launch(
 def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
     # 200 always: htmx never swaps a non-2xx response, so a 404 here would leave
     # a deleted portfolio's cell polling forever. The terminal fragment carries
-    # no hx-* attributes, and the swap itself ends the poll (edms.py:314-319
-    # precedent).
+    # no hx-* attributes, and the swap itself ends the poll — the same pattern
+    # as _body_partial's EDM-gone terminal notice.
     state = geohaz_service.cell_state(portfolio_id, edm_id=edm_id)
     return _partial(
         request,

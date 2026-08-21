@@ -50,6 +50,9 @@ kind row mirrored.
    render.
 4. While a job is non-terminal, its portfolio cannot be selected for another
    launch (P-06).
+   With a mix of live and eligible portfolios, click the header select-all
+   checkbox: only eligible rows get checked; live rows stay unchecked and
+   disabled (FR-024 — client-side Alpine, not covered by any test tier).
 5. On completion: cells display the refreshed raw `hazardVersion`; expand each row — the right-hand
    column shows the most recent run's Data Version, Model Family, Hazard Layers,
    Skip locations with previous hazard lookup, Overwrite user-defined hazard

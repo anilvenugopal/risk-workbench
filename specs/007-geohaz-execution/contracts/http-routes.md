@@ -32,8 +32,9 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
   `hx-get … hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"` **only
   while** the portfolio has a non-terminal lookup; on terminal render the
   attributes are omitted and polling stops (FR-012, T-01).
-- 200 with a terminal empty cell (no `hx-trigger`) if the portfolio is gone —
-  the swap ends the poll instead of leaving it running against a 404.
+- 200 with a terminal cell rendering an em-dash (`<span class="na">—</span>`,
+  no `hx-*` attributes) if the portfolio is gone — the swap ends the poll
+  instead of leaving it running against a 404.
 
 ## Existing routes touched
 
