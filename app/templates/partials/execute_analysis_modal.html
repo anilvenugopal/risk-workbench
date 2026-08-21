@@ -95,12 +95,14 @@
                   &middot; <span class="exec-row__count-n">{{ live_items|length }}</span> selected</span>
               </summary>
               <fieldset class="exec-row__body" disabled>
-                <div class="exec-tpl-list">
-                  {% for item in live_items %}
-                  <label class="exec-tpl"><input type="checkbox" name="templates_{{ suite.id }}" value="{{ item.template_id }}" checked><span class="exec-tpl__name">{{ item.template_name }}</span></label>
-                  {% endfor %}
+                <div class="exec-row__body-inner">
+                  <div class="exec-tpl-list">
+                    {% for item in live_items %}
+                    <label class="exec-tpl"><input type="checkbox" name="templates_{{ suite.id }}" value="{{ item.template_id }}" checked><span class="exec-tpl__name">{{ item.template_name }}</span></label>
+                    {% endfor %}
+                  </div>
+                  {{ currency_block(suite.id, 'for this suite', 'currency_code_' ~ suite.id, 'currency_scheme_' ~ suite.id, 'currency_vintage_' ~ suite.id, currency_defaults.code, currency_defaults.scheme, currency_defaults.vintage, default_vintage_options) }}
                 </div>
-                {{ currency_block(suite.id, 'for this suite', 'currency_code_' ~ suite.id, 'currency_scheme_' ~ suite.id, 'currency_vintage_' ~ suite.id, currency_defaults.code, currency_defaults.scheme, currency_defaults.vintage, default_vintage_options) }}
               </fieldset>
             </details>
             {% endfor %}
