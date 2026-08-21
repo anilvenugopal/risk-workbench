@@ -839,6 +839,44 @@ document.addEventListener('execution-submitted', () => {
   if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
 });
 
+// The freshly-enqueued execute_analysis_batch job writes its first pending
+// irp_analysis row worker-side, moments after the request above returns
+// (Article 5) — the section's own immediate refetch can land before that
+// write happens. Re-fire the event a few times until a row shows up as
+// pending/running (the section's hx-trigger then carries "every 3s" and
+// keeps itself current from there) or we give up.
+document.addEventListener('execution-submitted', () => {
+  let attempts = 0;
+  const poll = window.setInterval(() => {
+    attempts += 1;
+    const section = document.getElementById('edm-executed-analyses');
+    const live = section && (section.getAttribute('hx-trigger') || '').includes('every 3s');
+    if (live || !section || attempts >= 10) { window.clearInterval(poll); return; }
+    htmx.trigger(document.body, 'execution-submitted');
+  }, 2000);
+});
+
+// Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
+// from scratch, so an expanded row's <details open> would otherwise reset —
+// losing the analyst's place mid-inspection. Remember which analysis rows
+// were open just before the swap and reopen those same rows once the fresh
+// content lands (picking up whatever changed in them along the way).
+let _analysesReopenIds = null;
+document.addEventListener('htmx:beforeSwap', (e) => {
+  if (e.detail.target.id !== 'edm-executed-analyses') return;
+  _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
+    .map((row) => row.id).filter(Boolean);
+});
+document.addEventListener('htmx:afterSwap', () => {
+  if (!_analysesReopenIds || !_analysesReopenIds.length) { _analysesReopenIds = null; return; }
+  const section = document.getElementById('edm-executed-analyses');
+  _analysesReopenIds.forEach((id) => {
+    const row = section && document.getElementById(id);
+    if (row) row.open = true;
+  });
+  _analysesReopenIds = null;
+});
+
 // Pull a human message out of an error response — our partials carry the reason in a
 // .form-banner--error / .drive-browse__error element; otherwise fall back to status.
 function messageFromResponse(xhr) {

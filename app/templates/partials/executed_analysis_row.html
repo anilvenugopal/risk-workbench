@@ -6,7 +6,7 @@
    analysis_service.ExecutedAnalysis. The failure reason (when present) is
    shown inline in the collapsed row — visible without expanding (FR-011). #}
 {%- set d = a.display -%}
-<details class="drow">
+<details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
     <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">

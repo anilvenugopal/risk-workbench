@@ -6,16 +6,16 @@
    row the analyst has expanded elsewhere on the page.
 
    ``execution-submitted`` (fired by the execute modal's POST, HX-Trigger
-   header) refetches right away plus twice more at a delay, since the newly
-   enqueued ``execute_analysis_batch`` job hasn't necessarily written its
-   first ``irp_analysis`` row by the time the immediate refetch lands (the
-   submit happens worker-side, Article 5) — once a row shows up pending/
-   running, the regular ``live`` poll below takes over until it's terminal. #}
+   header) refetches right away; app.js re-fires it a few more times on a
+   delay so a row that lands after the immediate refetch (submit happens
+   worker-side, Article 5) is still caught, and reopens any row the analyst
+   had expanded before this swap. Once a row shows up pending/running, the
+   ``live`` poll below takes over until it's terminal. #}
 {% set live = edm.executed_analyses|selectattr('is_live')|list|length > 0 %}
 {% set analyses_url = analyses_table_url|default('/edms/' ~ edm.id ~ '/analyses') %}
 <details class="sec" open id="edm-executed-analyses"
   hx-get="{{ analyses_url }}"
-  hx-trigger="execution-submitted from:body, execution-submitted from:body delay:2s, execution-submitted from:body delay:5s{% if live %}, every 3s{% endif %}"
+  hx-trigger="execution-submitted from:body{% if live %}, every 3s{% endif %}"
   hx-target="this" hx-swap="outerHTML">
   <summary>
     <span class="sec__caret">▸</span>
