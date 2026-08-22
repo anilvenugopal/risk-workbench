@@ -213,4 +213,4 @@ then print `root`.
   server.
 
 Next: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) to install project
-dependencies (Python 3.12, Redis, the ODBC driver, nginx, build tools).
+dependencies (Python 3.14, Redis, the ODBC driver, nginx, build tools).

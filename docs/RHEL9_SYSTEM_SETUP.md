@@ -1,8 +1,8 @@
 # RHEL9 System Setup
 
 Installs the system-level packages Risk Workbench needs to run: git, Python
-3.12, the Microsoft ODBC Driver 18 for SQL Server, Redis, nginx, and build
-tools.
+3.14, the Microsoft ODBC Driver 18 for SQL Server, Valkey (Redis), nginx,
+build tools, and `rsync`.
 
 Each step is tagged:
 
@@ -18,9 +18,36 @@ registered RHEL9 distro, `dev-user` created with sudo, locale fixed.
 This covers system packages only. For `uv` and running the app for
 development, see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
 
+**Everything below is automated.** Running each command by hand is how this
+was originally verified — the actual, current way to do this is:
+
+```bash
+DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9-setup.sh
+```
+
+[infra/scripts/rhel9-setup.sh](../infra/scripts/rhel9-setup.sh) does every
+step below, idempotently (safe to re-run — checks state before acting).
+Verify it worked with:
+
+```bash
+APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 \
+    bash infra/scripts/rhel9-check-prereqs.sh
+```
+
+[infra/scripts/rhel9-check-prereqs.sh](../infra/scripts/rhel9-check-prereqs.sh)
+checks every package, command, permission, and (once `infra/.env` exists)
+network reachability this document describes — read-only, safe to run
+repeatedly, from the server or a pipeline.
+
+The manual commands below stay as the explanation of *why* each step
+exists and what to expect — useful for understanding or troubleshooting,
+not the normal way to run this anymore.
+
 ---
 
 ## git
+
+*Automated by rhel9-setup.sh section 2 ("System packages").*
 
 Needed to get the code onto the box at all — a genuine system-level
 prerequisite, not a dev-setup nicety.
@@ -41,18 +68,56 @@ git --version
 
 ### Production considerations
 
-Confirm with infra how the production server actually receives code —
-`git clone`/`git pull` directly against GitHub assumes outbound internet
-access and GitHub credentials configured on the server, which many
-corporate RHEL9 servers won't have. A CI/CD pipeline that pushes a built
-artifact to the server (rather than the server pulling from GitHub itself)
-may not need `git` installed on the production server at all — this is a
-[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) decision, not something to assume
-either way.
+**Decided**: this project's deploy mechanism is push-based —
+[rhel9-ssh-deploy.sh](../infra/scripts/rhel9-ssh-deploy.sh) pushes code to
+the server via `rsync` over SSH; the server never runs `git clone`/`git
+pull` against GitHub, and never needs outbound internet access or GitHub
+credentials. `git` is still installed on the server (for the separate,
+manual/local `rhel9-pull-code.sh` flow, and general troubleshooting
+convenience), but production deploys do not depend on it being there.
+
+---
+
+## rsync
+
+*Automated by rhel9-setup.sh section 2 ("System packages").*
+
+Needed on the **RHEL9 server itself**, not just the machine pushing code.
+Confirmed directly: the very first real deploy attempt (`rhel9-ssh-deploy.sh`
+run from Ubuntu, which already had `rsync` installed) failed with `bash:
+line 1: rsync: command not found` — this happened because `rsync` over
+SSH is a client-*and*-server tool even for a single transfer: the local
+`rsync` command connects over SSH and launches a matching `rsync` process
+on the remote end to actually negotiate what's changed. Ubuntu having
+`rsync` was never the problem; RHEL9 not having it was.
+
+### [WSL: do yourself] / [Prod: request from infra]
+
+```bash
+sudo dnf install -y rsync
+```
+
+Direct AppStream package, no surprises expected.
+
+### Verify
+
+```bash
+rsync --version
+```
+
+### Production considerations
+
+The request to infra is for the RHEL9 server's own `rsync` — the CI
+runner or dev machine doing the pushing is a separate machine, not covered
+by this request; confirm it separately has `rsync` available (true by
+default on most Linux CI images, but verify rather than assume for a
+Windows-based runner).
 
 ---
 
 ## Application directory and ownership (`/opt/risk-workbench`)
+
+*Automated by rhel9-setup.sh section 5 ("Application directory").*
 
 Where the application code and its data actually live, and who owns it —
 easy to do ad hoc and forget to write down, so captured here explicitly.
@@ -90,64 +155,79 @@ The request needs:
 
 ---
 
-## Python 3.12
+## Python 3.14
 
-**Why 3.12 specifically:** `pyproject.toml` pins `requires-python = ">=3.12"`
-— a hard requirement, not a preference. RHEL9's own default Python is 3.9.
+*Automated by rhel9-setup.sh section 2 ("System packages").*
+
+**Why 3.14 specifically:** `pyproject.toml` pins `requires-python = ">=3.12"`
+— that's the floor, not a pin to one exact version. 3.14 was chosen to
+match the actual Python version already running in this project's Ubuntu
+dev environment (`uv sync` there resolved to 3.14 with nothing pinning it
+lower) — matching the real dev environment exactly, not just satisfying the
+minimum, is what avoids version drift between machines. This project
+initially installed 3.12 on RHEL9 (which does satisfy the `>=3.12` floor)
+before this mismatch was caught and corrected — see
+[RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md) if a `.python-version` file or a
+stricter pin gets added later to prevent this drift happening again.
+RHEL9's own default Python is 3.9, unrelated to either choice.
 
 **Finding it:** RHEL9 dropped the module-stream approach RHEL8 used for
-alternate Python versions. As of RHEL9.8, `python3.12` is a plain, direct
-package in the AppStream repo — no EPEL, no module enablement needed.
-Confirmed by listing what's actually available before installing anything:
+alternate Python versions. As of RHEL9.8, several versions — including
+3.11, 3.12, and 3.14 — are plain, direct packages in the AppStream repo, no
+EPEL or module enablement needed. Confirmed by listing what's actually
+available before installing anything:
 
 ```bash
 sudo dnf list available 'python3.1*'
 ```
 
-This showed `python3.11`, `python3.12`, and even `python3.14` all available
+This showed `python3.11`, `python3.12`, and `python3.14` all available
 directly, alongside the system default 3.9.
 
 ### [WSL: do yourself] / [Prod: request from infra] — install the interpreter
 
 ```bash
-sudo dnf install -y python3.12 python3.12-devel
+sudo dnf install -y python3.14 python3.14-devel
 ```
 
-- `python3.12` — the interpreter itself, installed as `/usr/bin/python3.12`
+- `python3.14` — the interpreter itself, installed as `/usr/bin/python3.14`
   (does not replace or alias the system's default `python3` → 3.9; both
   coexist).
-- `python3.12-devel` — headers and build files needed at compile time by
+- `python3.14-devel` — headers and build files needed at compile time by
   Python packages with C extensions — this project needs it for `pyodbc`
   (SQL Server connectivity).
 
 Pulled in automatically as dependencies: `libnsl2`, `libtirpc`, `mpdecimal`,
-`pkgconf` and related packages, `python3.12-libs`.
+`pkgconf` and related packages, `python3.14-libs`.
 
 ### [WSL: do yourself] / [Prod: request from infra] — install pip
 
-`python3.12` does **not** pull in `pip` automatically — RHEL splits it into
+`python3.14` does **not** pull in `pip` automatically — RHEL splits it into
 its own package:
 
 ```bash
-sudo dnf install -y python3.12-pip
+sudo dnf install -y python3.14-pip
 ```
 
-Pulls in `python3.12-setuptools` as a dependency.
+Pulls in `python3.14-setuptools` as a dependency.
 
 `venv` needs no separate install — it ships as a standard-library module
-inside the `python3.12` package itself.
+inside the `python3.14` package itself.
 
 ### Verify
 
 ```bash
-python3.12 --version          # Python 3.12.13
-python3.12 -m pip --version   # pip 23.2.1 from .../python3.12/site-packages/pip
-python3.12 -m venv --help     # prints venv's usage text
+python3.14 --version
+python3.14 -m pip --version
+python3.14 -m venv --help     # prints venv's usage text
 ```
+
+The exact patch version and pip version printed weren't captured when this
+was verified — confirm them live rather than trusting a number written here.
 
 ### A note on `python3` / `python` aliasing — do not do this
 
-It might seem natural to make `python3` (or a bare `python`) point at 3.12
+It might seem natural to make `python3` (or a bare `python`) point at 3.14
 system-wide via `alternatives`/`update-alternatives`. **Don't** — this project
 uses `uv` (see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md)) to manage its virtual
 environment, which finds or downloads the exact Python version a project
@@ -167,16 +247,16 @@ the project's dependency management.
   Subscription. The production server will be registered separately — likely
   against a corporate Red Hat account or an internal Satellite server, not
   your individual subscription. Confirm with infra how the server is
-  registered before assuming `dnf install` will resolve `python3.12` the same
+  registered before assuming `dnf install` will resolve `python3.14` the same
   way; if the server draws from a mirrored/internal repo rather than Red
-  Hat's public CDN directly, `python3.12` needs to be present in whatever
+  Hat's public CDN directly, `python3.14` needs to be present in whatever
   repo set infra mirrors.
 - The request to infra should be the **exact command**
-  (`dnf install -y python3.12 python3.12-devel python3.12-pip`), not just
-  "install Python 3.12" — the package names, and the fact that `pip` and
+  (`dnf install -y python3.14 python3.14-devel python3.14-pip`), not just
+  "install Python 3.14" — the package names, and the fact that `pip` and
   `devel` are separate packages RHEL doesn't bundle automatically, are easy
   to lose in translation through a ticket.
-- Confirm with infra whether `python3.12` is already present on the target
+- Confirm with infra whether `python3.14` is already present on the target
   server (some golden images pre-install multiple Python versions) before
   filing a request — don't assume it's missing just because RHEL9's default
   is 3.9.
@@ -196,6 +276,11 @@ and is never installed on the production server. See
 ---
 
 ## Microsoft ODBC Driver 18 for SQL Server
+
+*Automated by rhel9-setup.sh sections 1 ("Microsoft's package repository")
+and 3 ("Microsoft ODBC Driver 18"). Section 1 registers the repo before
+section 2's package install runs — see that section's own comments for why
+the ordering matters (`unixODBC-devel` needs the repo registered first).*
 
 ### [WSL: do yourself] / [Prod: request from infra] — register Microsoft's repo
 
@@ -289,6 +374,12 @@ it too.
 ---
 
 ## Redis (Valkey)
+
+*Package install automated by rhel9-setup.sh section 2 ("System
+packages") — it installs `valkey`, per the decision below. Starting it
+with the right flags (AOF, a writable `--dir`) is NOT yet scripted for
+RHEL9 — see "This is already solved" further down for Ubuntu's existing
+script and what an RHEL9 equivalent still needs.*
 
 ### Which one, and why
 
@@ -388,8 +479,7 @@ machine, and WSL2 is running in **mirrored networking mode**, all WSL2
 distros share one IP address and one port space with each other and the
 Windows host — confirmed live: `ip addr show eth0` printed the identical
 address on both RHEL9 and Ubuntu-26.04. This means Ubuntu's existing
-`redis-server` (started by the project's `make wsl-start` on the Ubuntu
-side) will already hold port 6379 by the time you try to start Valkey on
+`redis-server` will already hold port 6379 by the time you try to start Valkey on
 RHEL9, and Valkey's startup fails with "Address already in use."
 
 This is a WSL2/Windows networking property, not anything specific to Redis,
@@ -436,11 +526,7 @@ under `sudo`; piping through `sudo tee` runs the write itself as root.)
 
 **Installing `valkey`/`redis` via `dnf` (or `apt` on Ubuntu) only installs the
 binary.** No systemd unit is enabled, no AOF, no data directory is
-configured by the package itself on either distro. Ubuntu's SCAFFOLDING.md
-`apt-get install redis-server` step looks like it "just works" — it doesn't;
-the actual AOF/directory/idempotency logic lives entirely in
-[infra/scripts/wsl-start.sh](../infra/scripts/wsl-start.sh), run via
-`make wsl-start`:
+configured by the package itself on either distro. :
 
 ```bash
 redis-server \
@@ -481,7 +567,9 @@ Can't open or create append-only dir appendonlydir: Permission denied
 
 Also confirmed: `dir` is a **protected config** — `CONFIG SET dir ...` on an
 already-running server is rejected (`can't set protected config`), so this
-can't be patched around after the fact. It must be set at launch:
+can't be patched around after the fact. It must be set at launch. This was
+first proven with a quick, throwaway directory under `dev-user`'s home
+folder, exactly as run at the time:
 
 ```bash
 mkdir -p ~/valkey-data   # any directory dev-user (or the service account) owns
@@ -498,6 +586,15 @@ valkey-cli CONFIG GET dir          # /home/dev-user/valkey-data
 valkey-cli CONFIG GET appendonly   # yes
 ls -la /home/dev-user/valkey-data/ # appendonlydir present
 ```
+
+**Corrected since**: a personal home directory is the wrong permanent
+location — it ties Valkey's data to one specific account rather than the
+service account that should own it. `rhel9-setup.sh` section 7 now creates
+`/var/lib/risk-workbench/valkey` instead (`/var/lib` is the standard Linux
+location for a service's own persistent data), and
+[RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md) reflects that path. The
+`~/valkey-data` commands above are kept as the historical proof of the
+`dir`/AOF finding, not as instructions to follow today.
 
 This is the gap SCAFFOLDING.md's Ubuntu instructions don't mention at all —
 Ubuntu's `redis-server` package likely pre-configures a writable data
@@ -525,6 +622,11 @@ manually (no systemd unit yet) exposes it directly.
 ---
 
 ## nginx
+
+*Automated by rhel9-setup.sh section 2 ("System packages," installs
+`nginx` and `gettext`) and section 6 ("nginx as a systemd service" —
+enables/starts the service and grants the narrow, passwordless
+`systemctl reload nginx` permission described below).*
 
 ### Install
 
@@ -570,6 +672,8 @@ automatically with `APP_ROOT=/workspace`.
 ---
 
 ## Build tools (gcc, g++)
+
+*Automated by rhel9-setup.sh section 2 ("System packages").*
 
 ### [WSL: do yourself] / [Prod: request from infra]
 
