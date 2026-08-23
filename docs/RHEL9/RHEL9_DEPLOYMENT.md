@@ -1,7 +1,7 @@
 # RHEL9 Deployment Runbook
 
 Deploys Risk Workbench on a RHEL9 server without `uv` — matching production,
-where `uv` is a developer tool only (see [AGENTS.md](../AGENTS.md)).
+where `uv` is a developer tool only (see [AGENTS.md](../../AGENTS.md)).
 
 Prerequisite: [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md) completed — git,
 Python 3.14, ODBC Driver 18, Redis/Valkey, nginx, gcc/g++/make, rsync all
@@ -47,7 +47,7 @@ APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9-check-prereqs.sh
 ```
 
-[infra/scripts/rhel9-check-prereqs.sh](../infra/scripts/rhel9-check-prereqs.sh)
+[infra/scripts/rhel9-check-prereqs.sh](../../infra/scripts/rhel9-check-prereqs.sh)
 confirms [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md)'s one-time setup
 (packages, `/opt/risk-workbench` created and owned correctly, nginx
 running with the reload permission granted) actually happened — read-only,
@@ -60,7 +60,7 @@ APP_DIR=/opt/risk-workbench BRANCH=<branch-or-tag-to-deploy> \
     bash infra/scripts/rhel9-pull-code.sh
 ```
 
-[infra/scripts/rhel9-pull-code.sh](../infra/scripts/rhel9-pull-code.sh)
+[infra/scripts/rhel9-pull-code.sh](../../infra/scripts/rhel9-pull-code.sh)
 handles both a fresh clone (first deployment) and updating an existing
 checkout (`git fetch`/checkout/pull). Refuses by default if it finds
 local modifications to tracked files or untracked files sitting in the
@@ -97,10 +97,10 @@ mapped to localhost).
 PYTHON_BIN=python3.14 bash infra/scripts/rhel9-app-install.sh
 ```
 
-[infra/scripts/rhel9-app-install.sh](../infra/scripts/rhel9-app-install.sh)
+[infra/scripts/rhel9-app-install.sh](../../infra/scripts/rhel9-app-install.sh)
 builds/updates `.venv`, installs from `requirements.txt` (committed to git
 by developers — see
-[infra/scripts/generate-requirements.sh](../infra/scripts/generate-requirements.sh)
+[infra/scripts/generate-requirements.sh](../../infra/scripts/generate-requirements.sh)
 — never generated or transferred by hand), and runs `alembic upgrade
 head`. No `uv` involved at any point on the server.
 
@@ -136,7 +136,7 @@ valkey-server \
 changed on a running server (`CONFIG SET dir` is rejected as a protected
 config), so get this right at launch. `/var/lib/risk-workbench/valkey` is
 created and owned correctly by
-[rhel9-setup.sh](../infra/scripts/rhel9-setup.sh) section 7 — `/var/lib` is
+[rhel9-setup.sh](../../infra/scripts/rhel9-setup.sh) section 7 — `/var/lib` is
 the standard Linux location for a service's own persistent data, not a
 personal user's home directory (early manual testing used
 `/home/dev-user/valkey-data`; corrected here since a home directory ties
@@ -220,7 +220,7 @@ bash infra/scripts/rhel9-ssh-deploy.sh
 See [RHEL9_SSH_KEY_SETUP.md](RHEL9_SSH_KEY_SETUP.md) for generating and
 installing the key this script authenticates with.
 
-[infra/scripts/rhel9-ssh-deploy.sh](../infra/scripts/rhel9-ssh-deploy.sh)
+[infra/scripts/rhel9-ssh-deploy.sh](../../infra/scripts/rhel9-ssh-deploy.sh)
 does, over SSH:
 
 1. Runs `rhel9-check-prereqs.sh` **remotely** on RHEL9 — stops here if

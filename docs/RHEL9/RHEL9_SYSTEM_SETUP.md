@@ -25,7 +25,7 @@ was originally verified — the actual, current way to do this is:
 DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9-setup.sh
 ```
 
-[infra/scripts/rhel9-setup.sh](../infra/scripts/rhel9-setup.sh) does every
+[infra/scripts/rhel9-setup.sh](../../infra/scripts/rhel9-setup.sh) does every
 step below, idempotently (safe to re-run — checks state before acting).
 Verify it worked with:
 
@@ -34,7 +34,7 @@ APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 \
     bash infra/scripts/rhel9-check-prereqs.sh
 ```
 
-[infra/scripts/rhel9-check-prereqs.sh](../infra/scripts/rhel9-check-prereqs.sh)
+[infra/scripts/rhel9-check-prereqs.sh](../../infra/scripts/rhel9-check-prereqs.sh)
 checks every package, command, permission, and (once `infra/.env` exists)
 network reachability this document describes — read-only, safe to run
 repeatedly, from the server or a pipeline.
@@ -69,7 +69,7 @@ git --version
 ### Production considerations
 
 **Decided**: this project's deploy mechanism is push-based —
-[rhel9-ssh-deploy.sh](../infra/scripts/rhel9-ssh-deploy.sh) pushes code to
+[rhel9-ssh-deploy.sh](../../infra/scripts/rhel9-ssh-deploy.sh) pushes code to
 the server via `rsync` over SSH; the server never runs `git clone`/`git
 pull` against GitHub, and never needs outbound internet access or GitHub
 credentials. `git` is still installed on the server (for the separate,
@@ -266,7 +266,7 @@ the project's dependency management.
 `uv` is a dependency *installer*, not a runtime dependency. Once a `.venv/`
 has been built, the running application only needs `.venv/bin/python` — a
 self-sufficient interpreter with everything already installed into it. Per
-[AGENTS.md](../AGENTS.md) and [SCAFFOLDING.md](SCAFFOLDING.md), production
+[AGENTS.md](../../AGENTS.md) and [SCAFFOLDING.md](SCAFFOLDING.md), production
 runs plain Python with a virtual environment; `uv` is a developer tool only
 and is never installed on the production server. See
 [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md) for `uv` installation and
@@ -438,7 +438,7 @@ sounds alarming until you look at what they actually are:
 - **Everything else is prose** — markdown docs, specs, and code comments
   describing the *architectural role* Redis/Valkey plays (a low-latency
   wake-up signal for the `rwb_job` queue, per
-  [app/workers/broker.py](../app/workers/broker.py)'s own module docstring:
+  [app/workers/broker.py](../../app/workers/broker.py)'s own module docstring:
   "the `rwb_job` SQL table is the queue *of record*... a lost or duplicated
   Redis message can never double-execute or lose work — the row is
   authoritative"). This is why a wrong guess here carries little downside:
@@ -541,7 +541,7 @@ redis-server \
 Note `--dir /tmp` — the script sidesteps the exact permission problem
 documented below by using a world-writable directory, rather than something
 under `/opt` or another restricted path. This is the same pattern
-[infra/scripts/start-all.sh](../infra/scripts/start-all.sh) uses for the
+[infra/scripts/start-all.sh](../../infra/scripts/start-all.sh) uses for the
 Docker/production-mirroring path (`--dir "$LOG_DIR"` instead of `/tmp`).
 
 **For RHEL9 development, the equivalent script is the answer**, not manual
@@ -638,7 +638,7 @@ sudo dnf install -y nginx gettext
 
 ### The static-file path problem — fixed
 
-[deploy/nginx/nginx.conf](../deploy/nginx/nginx.conf) used to hardcode
+[deploy/nginx/nginx.conf](../../deploy/nginx/nginx.conf) used to hardcode
 `alias /workspace/app/static/;` — `/workspace` only exists inside the Docker
 container. On any real checkout (RHEL9, Ubuntu native, or the production
 server), that folder doesn't exist, so nginx can't find the app's CSS/JS/
@@ -731,3 +731,96 @@ account (not a personal developer account) — e.g. a dedicated account such as
 `rwb-svc`, matching whatever account the systemd units will run as. The exact
 account name and full directory layout (config, logs, variable data) is
 formalized in [RHEL9_DEPLOYMENT.md](RHEL9_DEPLOYMENT.md).
+
+---
+
+## Optional: Podman + local SQL Server
+
+Local dev/testing convenience only. Production's SQL Server is a separate,
+already-existing instance outside this box, never containerized as part of
+deployment. Not part of `rhel9-setup.sh` — three standalone scripts, run
+only if you want RHEL9 to have its own SQL Server instead of reaching
+across to Ubuntu's.
+
+Same port (1433) as Ubuntu's Docker SQL Server, so `infra/.env` never needs
+environment-specific values. Consequence: only one of the two can be
+reachable at a time (same shared-IP conflict as Redis/Valkey above) — stop
+one before starting the other. Diagnose with
+[infra/scripts/check-port.sh](../../infra/scripts/check-port.sh).
+
+### Order of operations
+
+```bash
+bash infra/scripts/rhel9-setup.sh                    # once
+cp <your .env> infra/.env                             # once
+bash infra/scripts/rhel9-setup-podman-mssql.sh         # once, if wanted
+bash infra/scripts/rhel9-start.sh                      # every session
+bash infra/scripts/rhel9-start-podman-mssql.sh         # every session, if wanted
+```
+
+`rhel9-setup-podman-mssql.sh` installs Podman and creates the SQL Server
+container — it does not start it. `rhel9-start-podman-mssql.sh` starts it
+and waits for it to accept connections; exits without error if Podman
+isn't installed. `rhel9-stop-podman-mssql.sh` stops it the same way.
+
+Podman is RHEL9's own container tool — ships directly in AppStream, no
+daemon process, runs containers as your own user rather than root
+("rootless"). Rootless mode needs a range of subordinate user/group IDs
+(subuid/subgid) reserved for your account; `rhel9-setup-podman-mssql.sh`
+checks for this and assigns it if missing.
+
+**Confirmed**: this is normally already done for you. RHEL9's
+`/etc/login.defs` sets `SUB_UID_COUNT`/`SUB_GID_COUNT`, so `useradd`
+assigns every new account a subuid/subgid range automatically — see
+[RHEL9_WSL_INSTALL.md](RHEL9_WSL_INSTALL.md) — no project script does this.
+
+### `podman create` vs `podman start` vs `podman run`
+
+- `podman create` builds a container (filesystem, network, config) without
+  starting it.
+- `podman start` starts an already-created container.
+- `podman run` does both in one step — not used here, deliberately, so
+  setup and start stay separate actions.
+
+### Data directory
+
+SQL Server's data lives at `/var/lib/risk-workbench/mssql`, bind-mounted
+into the container — not a Podman-managed named volume (which would
+default to `~/.local/share/containers/storage/volumes/...` under
+`dev-user`'s home directory). Same reasoning as Valkey's data directory
+above: not tied to one personal account, survives `dev-user` being
+replaced by a real service account later. Stopping or removing the
+container never touches this directory.
+
+### Directory ownership for the container's internal user
+
+SQL Server's container runs internally as UID `10001`, GID `0` (fixed by
+the image, same on every machine). Rootless Podman maps that internal UID
+to a host UID from `dev-user`'s own subuid range (confirmed:
+`165536 + 10001 - 1 = 175536` on this machine) — not to `dev-user`'s real
+UID. A plain `dev-user`-owned directory is invisible to the container for
+writing until this is fixed:
+
+```bash
+podman unshare chown -R 10001:0 /var/lib/risk-workbench/mssql
+```
+
+`podman unshare` runs the command inside the same UID mapping rootless
+containers use, so `chown 10001:0` resolves to the correct real host UID
+regardless of what `dev-user`'s actual subuid range happens to be — the
+`10001:0` numbers never need to change per machine.
+`rhel9-setup-podman-mssql.sh` runs this automatically.
+
+### Stopping does not shut down cleanly — known image limitation
+
+This container's own entrypoint script
+(`/opt/mssql/bin/launch_sqlservr.sh`, confirmed by reading it directly)
+starts `sqlservr` as a background process and waits on it, with no signal
+handler to forward SIGTERM down to it. `podman stop` always ends up
+forcing a SIGKILL after its timeout, regardless of how long that timeout
+is set to — this is a gap in the container image itself, not something a
+longer wait or a different Podman flag fixes.
+
+Accepted as-is for this local dev/testing convenience: SQL Server's own
+crash-recovery journaling protects data through an unexpected stop, the
+same mechanism that protects against a real power loss.

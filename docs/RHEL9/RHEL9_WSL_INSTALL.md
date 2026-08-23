@@ -188,6 +188,11 @@ sudo usermod -aG wheel dev-user
 - `usermod -aG wheel dev-user` — adds the account to `wheel`, the RHEL/Fedora
   group that grants `sudo` (the RHEL equivalent of Ubuntu's `sudo` group).
 
+`useradd` also assigns `dev-user` a subuid/subgid range (visible in `/etc/subuid`/`/etc/subgid`) —
+the ID range rootless Podman needs. RHEL9's `/etc/login.defs` sets
+`SUB_UID_COUNT`/`SUB_GID_COUNT` to auto-assign this to every new account.
+See [RHEL9_SYSTEM_SETUP.md](RHEL9_SYSTEM_SETUP.md#optional-podman--local-sql-server) for where this matters.
+
 Verify:
 
 ```powershell
