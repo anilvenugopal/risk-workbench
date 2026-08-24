@@ -164,10 +164,20 @@ if ! sudo grep -qF "$SUDOERS_LINE" "$SUDOERS_FILE" 2>/dev/null; then
     # can write to it, nobody can execute it" — sudoers files are sensitive
     # and RHEL9 requires this specific restrictive permission.
     sudo chmod 440 "$SUDOERS_FILE"
-    # visudo -c checks the file for syntax mistakes BEFORE it's trusted —
-    # a broken sudoers file can lock out sudo entirely, so this is a real
-    # safety check, not a formality.
+    # visudo -c -f checks THIS FILE ALONE for syntax mistakes — catches a
+    # typo before anything is trusted. It does NOT check for conflicts with
+    # the rest of the real sudoers configuration (rules in /etc/sudoers or
+    # other files under sudoers.d that might contradict this one) — for
+    # that, "visudo -c" with no file argument validates everything actually
+    # in effect, together. Both checks matter; neither alone is enough. If
+    # the full-context check fails, remove the file rather than leave a
+    # rule that passed in isolation but conflicts in practice.
     sudo visudo -c -f "$SUDOERS_FILE"
+    if ! sudo visudo -c > /dev/null; then
+        echo "ERROR: $SUDOERS_FILE conflicts with existing sudoers rules." >&2
+        sudo rm -f "$SUDOERS_FILE"
+        exit 1
+    fi
     echo "  Granted $DEPLOY_USER passwordless 'systemctl reload nginx'."
 else
     echo "  nginx reload permission already granted."
@@ -184,7 +194,15 @@ CONF_SUDOERS_LINE="$DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/tee $NGINX_CONF_PA
 if ! sudo grep -qF "$CONF_SUDOERS_LINE" "$CONF_SUDOERS_FILE" 2>/dev/null; then
     echo "$CONF_SUDOERS_LINE" | sudo tee "$CONF_SUDOERS_FILE" > /dev/null
     sudo chmod 440 "$CONF_SUDOERS_FILE"
+    # See the reload rule above for why both checks are needed: -f alone
+    # only validates this file in isolation, not against the rest of the
+    # real sudoers configuration.
     sudo visudo -c -f "$CONF_SUDOERS_FILE"
+    if ! sudo visudo -c > /dev/null; then
+        echo "ERROR: $CONF_SUDOERS_FILE conflicts with existing sudoers rules." >&2
+        sudo rm -f "$CONF_SUDOERS_FILE"
+        exit 1
+    fi
     echo "  Granted $DEPLOY_USER passwordless 'tee $NGINX_CONF_PATH'."
 else
     echo "  nginx config write permission already granted."
