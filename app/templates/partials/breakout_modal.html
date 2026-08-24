@@ -32,8 +32,9 @@
 {{ d.values|length }} {% if d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}{% if d.dimension == 'lob' %}line{% elif d.dimension == 'peril' %}peril{% else %}state{% endif %}{{ '' if d.values|length == 1 else 's' }}{% endif %} present
 {%- endmacro -%}
 <div class="modal" id="breakout-modal" x-data>
+  {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
   {% if confirmable %}
-  <form class="bo-modal" method="post" action="{{ base_url }}"
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}"
         hx-post="{{ base_url }}" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         @htmx:after-request="if ($event.target === $el && $event.detail.successful && $event.detail.xhr.status < 300) $el.closest('.modal').remove()">
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -44,7 +45,7 @@
      group-preview route (server-composed row appended to the cart); the
      submit posts the carted group JSONs to the cart confirm. n counts the
      cart rows — a tiny Alpine sliver; the server re-validates everything. #}
-  <form class="bo-modal" method="post" action="{{ base_url }}/groups"
+  <form class="{{ modal_class }}" method="post" action="{{ base_url }}/groups"
         hx-post="{{ base_url }}/groups" hx-target="#breakout-modal-mount" hx-swap="innerHTML"
         x-data="{ n: 0, recount() { this.n = $el.querySelectorAll('.bo-cart-row').length } }"
         @htmx:after-settle="recount()"
@@ -52,7 +53,7 @@
     <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
     <input type="hidden" name="summary_as_of" value="{{ gate.summary_as_of or '' }}">
   {% else %}
-  <div class="bo-modal">
+  <div class="{{ modal_class }}">
   {% endif %}
 
     <div class="bo-modal__header">
@@ -106,7 +107,8 @@
          until the as-you-type check comes back usable — 'ok', or 'unchecked'
          when Risk Modeler was unreachable (fail-open; the Add-time re-check
          in the group-preview route is the backstop). #}
-      <div x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
+      <div class="bo-custom"
+           x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
                      resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
                        ({ name: c.name, v: c.value, shown: c.dataset.display,
                           d: c.closest('.bo-checks').dataset.dimlabel })) },
