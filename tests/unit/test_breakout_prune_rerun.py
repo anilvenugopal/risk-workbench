@@ -9,7 +9,7 @@ resurrect-by-name revived the dead ghosts, violating
 ``uq_irp_portfolio_breakout`` inside ``prune_missing`` and failing every
 subsequent sync of the EDM.
 
-The fix has two halves, both exercised here: ``_write_generated`` reclaims the
+The fix has two halves, both exercised here: ``save_generated_portfolio`` reclaims the
 soft-deleted lineage row in place, and ``prune_missing``'s resurrect-by-name
 skips generated rows (irp_id match still resurrects them).
 
@@ -142,7 +142,7 @@ def test_resurrect_by_name_skips_generated_rows(iteration2_db):
     # filter), so the enumeration lands somewhere visible.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
-    write = portfolio_service.insert_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
         source_portfolio_id=source_id, dimension_code="state", value="FL",
         actor_id=None)
@@ -173,7 +173,7 @@ def test_resurrect_by_irp_id_still_revives_generated_rows(iteration2_db):
     # reappears under its own id (enumeration transient healed) resurrects.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
-    write = portfolio_service.insert_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
         source_portfolio_id=source_id, dimension_code="state", value="FL",
         actor_id=None)

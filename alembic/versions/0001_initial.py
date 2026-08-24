@@ -509,7 +509,7 @@ def upgrade() -> None:
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
         # Breakout lineage (Iteration 4, spec 005 data-model §1): all three NULL
         # for broker-arrived portfolios, set together by portfolio_service
-        # insert_generated/adopt_generated. source_portfolio_id records the
+        # save_generated_portfolio. source_portfolio_id records the
         # IMMEDIATE source only (chained lineage walks the chain). The self-FK
         # stays ondelete NO ACTION — SQL Server rejects a cascading self-reference.
         sa.Column("source_portfolio_id", sa.Uuid, nullable=True),

@@ -143,7 +143,7 @@ def _execute_entry(entry: breakout_service.SubPortfolioPlan, *,
 
     # d. RM call first, row second — upserted IMMEDIATELY per entry so the
     #    page's self-poll shows generated portfolios as they land
-    write = portfolio_service.insert_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm.id, name=entry.name, irp_id=created.portfolio_irp_id,
         source_portfolio_id=source["id"], dimension_code=dimension,
         value=entry.value, actor_id=actor_id, group_id=group_id)
@@ -189,7 +189,7 @@ def _adopt_entry(entry: breakout_service.SubPortfolioPlan, *, edm,
             portfolio_irp_id=hit.irp_id, account_ids=account_ids)
     except Exception as exc:  # noqa: BLE001 — per-entry isolation
         return fail(f"populate on adoption failed: {exc}")
-    write = portfolio_service.adopt_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm.id, name=(hit.name or entry.name), irp_id=hit.irp_id,
         source_portfolio_id=source["id"], dimension_code=dimension,
         value=entry.value, actor_id=actor_id, group_id=group_id)
@@ -277,7 +277,7 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     # 4. the per-entry loop. The guard is here, around the whole entry, rather
     #    than only around the calls inside it: the lineage write raises on a
     #    portfolio Risk Modeler already holds under another breakout key
-    #    (portfolio_service._write_generated), and an entry that took the job
+    #    (portfolio_service.save_generated_portfolio), and an entry that took the job
     #    down with it would lose every outcome the loop had accumulated —
     #    after its sub-portfolios were created in Risk Modeler.
     #    The description carries the source portfolio name, dimension, and

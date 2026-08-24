@@ -94,7 +94,7 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
         with conn.begin():
             _seed_row(conn, edm_id=edm_id, irp="1", name="usfl_commercial")
     source = portfolio_service.list_portfolios(edm_id=edm_id)[0]
-    portfolio_service.insert_generated(
+    portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - TX", irp_id="431",
         source_portfolio_id=source.id, dimension_code="state", value="TX",
         actor_id=None)
@@ -137,7 +137,7 @@ def test_list_resolves_the_display_label_from_the_source_summary(
             {"value": "010", "label": "St Croix", "accounts": 74},
             {"value": "200", "label": "Puerto Rico", "accounts": 2437},
         ]}}}, as_of=_utcnow())
-    portfolio_service.insert_generated(
+    portfolio_service.save_generated_portfolio(
         edm_id, name="cbhu - Puerto Rico", irp_id="431",
         source_portfolio_id=source.id, dimension_code="state", value="200",
         actor_id=None)
@@ -146,7 +146,7 @@ def test_list_resolves_the_display_label_from_the_source_summary(
     generated = next(r for r in rows if r.breakout_value == "200")
     assert generated.breakout_value_label == "Puerto Rico"
     # a value the rewritten summary no longer carries resolves to None
-    portfolio_service.insert_generated(
+    portfolio_service.save_generated_portfolio(
         edm_id, name="cbhu - 030", irp_id="432",
         source_portfolio_id=source.id, dimension_code="state", value="030",
         actor_id=None)

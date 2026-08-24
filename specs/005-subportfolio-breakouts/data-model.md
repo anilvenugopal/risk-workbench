@@ -37,7 +37,7 @@ The entity stays the thin identity record of DATA_MODEL §5, plus the spec-004 s
   ```
 
   One live generated portfolio per (source, dimension, value). Re-runs and double-submits hit this as a constraint, not a convention. (SQLite unit tier: SQLAlchemy emits the same filtered/partial unique index — supported since SQLite 3.8; the fixture engine qualifies.)
-- **Integrity rule (service-enforced, not a CHECK):** the three lineage columns are set together or not at all; `source_portfolio_id` must reference a portfolio in the **same EDM**. Enforced in `portfolio_service.insert_generated/adopt_generated` (one write path), asserted in unit tests.
+- **Integrity rule (service-enforced, not a CHECK):** the three lineage columns are set together or not at all; `source_portfolio_id` must reference a portfolio in the **same EDM**. Enforced in `portfolio_service.save_generated_portfolio` (one write path), asserted in unit tests.
 
 **Non-changes (deliberate):**
 

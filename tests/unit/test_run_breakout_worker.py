@@ -229,7 +229,7 @@ def test_per_entry_isolation_one_failure_never_stops_the_loop(
 def test_a_failing_lineage_write_fails_only_that_entry(
         iteration2_db, fake_irp):
     # The lineage write refuses to move a Risk Modeler portfolio between
-    # breakout keys (portfolio_service._write_generated). That raise must fail
+    # breakout keys (portfolio_service.save_generated_portfolio). That raise must fail
     # ONE sub-portfolio: before the loop guard covered the write, it aborted the
     # whole job after the RM portfolios had been created, and output_data was
     # lost with it.

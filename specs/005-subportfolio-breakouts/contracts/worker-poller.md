@@ -44,7 +44,7 @@ input_data: {edm_id, portfolio_id, dimension, actor_id, plan}     (data-model §
         - duplicate-name error from the create step →
             hits = gateway.find_portfolio_by_number(exposure, entry.number)
             exactly 1 → gateway.populate_sub_portfolio(...) +                # adopt-then-
-                        portfolio_service.adopt_generated(...)               #  populate (R7)
+                        portfolio_service.save_generated_portfolio(...)      #  populate (R7)
                         outcome 'adopted' ('skipped_existing' if the write   #  heals a
                         lost the UNIQUE race)                                #  create-then-
             0 or >1  → outcome 'failed' (no findable owner / ambiguous       #  crash empty
@@ -52,7 +52,7 @@ input_data: {edm_id, portfolio_id, dimension, actor_id, plan}     (data-model §
         - other errors → outcome 'failed'; continue                          #  safe per W-9
         The adoption branch runs AFTER the duplicate-name handler returns, never inside it:
         an exception raised inside a handler is not caught by that handler's siblings.
-     d. success → portfolio_service.insert_generated(..., irp_id=result.portfolio_irp_id)
+     d. success → portfolio_service.save_generated_portfolio(..., irp_id=result.portfolio_irp_id)
         — row upserted IMMEDIATELY per entry (fetch-then-persist; no transaction across a
           round-trip), so the page's self-poll shows generated portfolios as they land;
           result.account_count recorded in the outcome

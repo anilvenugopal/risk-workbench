@@ -130,10 +130,9 @@ def summarize_outcomes(outcomes: list[SubPortfolioOutcome]) -> dict   # → rwb_
 ## 2. `portfolio_service` — lineage writes & reads (R3)
 
 ```python
-def insert_generated(edm_id, *, name, irp_id, source_portfolio_id,
-                     dimension_code, value, actor_id) -> UUID
-def adopt_generated(edm_id, *, name, irp_id, source_portfolio_id,
-                    dimension_code, value, actor_id) -> UUID    # same write, 'adopted' logging
+def save_generated_portfolio(edm_id, *, name, irp_id, source_portfolio_id,
+                             dimension_code, value, actor_id) -> UUID
+    # one write for both worker branches (create and adopt); the worker logs the outcome
 def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   # live rows only
 ```
 
@@ -204,6 +203,6 @@ The gateway's per-portfolio summary builder gains `breakout_values` (per dimensi
 - `load_approved_plan` — executes what was persisted: a plan whose names no longer match what a recompute would produce still runs verbatim; empty/unparseable plan fails the job.
 - `test_breakout_page_state.py` — the FR-012 read model derived from job rows: live-flight progress, per-entry error lines, the job-level fallback line when the run failed before its loop, both dimensions of one portfolio accumulating, per-portfolio keying, the banner from the newest terminal run, `filling_in` from the pending follow-up, a settled successful run showing no banner, and unparseable `output_data` degrading to no lines.
 - `test_snapshot_upsert.py` / `test_edm_detail_rollup.py` (EDIT) — lineage-aware list read model; generated portfolios with NULL `exposure_detail` render the pending state.
-- `insert_generated`/`adopt_generated` integrity rules + constraint-race handling, including the refusal to move a row from one `(source, dimension, value)` to another and the re-adoption of the key it already holds.
+- `save_generated_portfolio` integrity rules + constraint-race handling, including the refusal to move a row from one `(source, dimension, value)` to another and the re-adoption of the key it already holds.
 - `test_irp_gateway.py` — the read-back comparison: a short membership, an over-populated adopted portfolio, and a member-count read returning no rows all raise, so `test_run_breakout_worker.py` sees the entry fail with no lineage row. Plus the summary builder mapping both coverage scripts.
 - `test_architecture_guards.py` — every seeded `breakout_dimension_kind` code carries a number letter, a noun, a selection script, and a coverage script, and every registered script file exists.

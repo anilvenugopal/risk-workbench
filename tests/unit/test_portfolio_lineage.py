@@ -38,10 +38,10 @@ def test_get_edm_detail_lineage_rows_pending_state_and_immediate_source(
     portfolio_service.upsert_portfolio_detail(
         edm_id=edm_id, irp_id="1", name="A", exposure_detail=SNAP_A, as_of=now)
     a = portfolio_service.list_portfolios(edm_id=edm_id)[0]
-    b = portfolio_service.insert_generated(
+    b = portfolio_service.save_generated_portfolio(
         edm_id, name="A - X", irp_id="11", source_portfolio_id=a.id,
         dimension_code="lob", value="X", actor_id=None)
-    portfolio_service.insert_generated(
+    portfolio_service.save_generated_portfolio(
         edm_id, name="A - X - TX", irp_id="12",
         source_portfolio_id=b.portfolio_id, dimension_code="state",
         value="TX", actor_id=None)
@@ -71,20 +71,20 @@ def _setup_source(edm_name: str = "EDM") -> tuple[str, object]:
     return edm_id, portfolio_service.list_portfolios(edm_id=edm_id)[0]
 
 
-def test_insert_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
+def test_save_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
     # T-16 (demo bug): breakout → sub-portfolio deleted in RM → sync prunes →
     # re-breakout writes the same (source, dimension, value) under a NEW RM
     # identity. The write must reuse the soft-deleted row — cleared deleted_at,
     # new irp_id/name — never insert a second row for the triple.
     edm_id, a = _setup_source()
-    first = portfolio_service.insert_generated(
+    first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
         dimension_code="state", value="FL", actor_id=iteration2_db.user_a)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
-    write = portfolio_service.insert_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="21", source_portfolio_id=a.id,
         dimension_code="state", value="FL", actor_id=iteration2_db.user_b)
 
@@ -108,7 +108,7 @@ def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
     # still that breakout's record — adopting 11 under another value refuses
     # rather than silently moving the portfolio between breakout keys.
     edm_id, a = _setup_source()
-    first = portfolio_service.insert_generated(
+    first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
         dimension_code="state", value="FL", actor_id=None)
     execute_command(
@@ -116,7 +116,7 @@ def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
     with pytest.raises(ValueError, match="already the state=FL breakout"):
-        portfolio_service.adopt_generated(
+        portfolio_service.save_generated_portfolio(
             edm_id, name="A - TX", irp_id="11", source_portfolio_id=a.id,
             dimension_code="state", value="TX", actor_id=None)
     row = execute_one(
@@ -125,19 +125,19 @@ def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
     assert row["deleted_at"] is not None             # left exactly as it was
 
 
-def test_adopt_generated_revives_soft_deleted_rm_id_match(iteration2_db):
+def test_save_generated_revives_soft_deleted_rm_id_match_on_adoption(iteration2_db):
     # The (edm_id, irp_id) pre-check sees soft-deleted rows: adopting an RM
     # portfolio whose row the prune killed revives that row and stamps the
     # lineage, instead of violating uq_irp_portfolio_edm_irp on insert.
     edm_id, a = _setup_source()
-    first = portfolio_service.insert_generated(
+    first = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
         dimension_code="state", value="FL", actor_id=None)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
-    write = portfolio_service.adopt_generated(
+    write = portfolio_service.save_generated_portfolio(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
         dimension_code="state", value="FL", actor_id=None)
 

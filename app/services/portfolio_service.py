@@ -16,7 +16,6 @@ UUIDs bound as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,8 +32,6 @@ from app.services._common import (
     _utcnow,
 )
 from db import execute, execute_one, get_connection, is_unique_violation
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -144,7 +141,7 @@ def prune_missing(*, edm_id: Any, seen: list[tuple[str | None, str]],
 
 @dataclass(frozen=True)
 class GeneratedWrite:
-    """Outcome of ``insert_generated``/``adopt_generated``. ``created=False``
+    """Outcome of ``save_generated_portfolio``. ``created=False``
     means a concurrent writer already owns the lineage key — the worker records
     that entry as ``skipped_existing``."""
     portfolio_id: str
@@ -205,9 +202,18 @@ def find_generated(source_portfolio_id: Any, dimension_code: str,
     return row
 
 
-def _write_generated(edm_id: Any, *, name: str, irp_id: str,
-                     source_portfolio_id: Any, dimension_code: str, value: str,
-                     actor_id: Any, group_id: Any = None) -> GeneratedWrite:
+def save_generated_portfolio(
+        edm_id: Any, *, name: str, irp_id: str, source_portfolio_id: Any,
+        dimension_code: str, value: str, actor_id: Any,
+        group_id: Any = None) -> GeneratedWrite:
+    """Persist a sub-portfolio with its lineage (FR-009) — the one write for
+    both worker branches: a freshly created RM portfolio and an adoption of one
+    Risk Modeler already holds (resolved by ``portfolioNumber`` — R7/T-07).
+    Called immediately after the RM call returns — RM call first, row second
+    (worker-poller.md ordering). Claims an existing (edm_id, irp_id) or
+    lineage-triple row in place (``_claim_existing``). ``group_id`` links a
+    custom-group portfolio to its ``breakout_group`` row (T-12); its
+    ``breakout_value`` is the group_key."""
     if not (source_portfolio_id and dimension_code and value):
         raise ValueError(
             "breakout lineage integrity: source portfolio, dimension, and value "
@@ -300,42 +306,6 @@ def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
     return None
 
 
-def insert_generated(edm_id: Any, *, name: str, irp_id: str,
-                     source_portfolio_id: Any, dimension_code: str, value: str,
-                     actor_id: Any, group_id: Any = None) -> GeneratedWrite:
-    """Persist a freshly created sub-portfolio with its lineage (FR-009). Called
-    by the breakout worker immediately after ``create_sub_portfolio`` returns —
-    RM call first, row second (worker-poller.md ordering). ``group_id`` links a
-    custom-group portfolio to its ``breakout_group`` row (T-12); its
-    ``breakout_value`` is the group_key."""
-    result = _write_generated(edm_id, name=name, irp_id=irp_id,
-                              source_portfolio_id=source_portfolio_id,
-                              dimension_code=dimension_code, value=value,
-                              actor_id=actor_id, group_id=group_id)
-    logger.info("generated portfolio %s (%s=%s) recorded for source %s%s",
-                name, dimension_code, value, source_portfolio_id,
-                "" if result.created else " (already present — skipped)")
-    return result
-
-
-def adopt_generated(edm_id: Any, *, name: str, irp_id: str,
-                    source_portfolio_id: Any, dimension_code: str, value: str,
-                    actor_id: Any, group_id: Any = None) -> GeneratedWrite:
-    """Same write as ``insert_generated`` for a sub-portfolio Risk Modeler
-    already holds (resolved by ``portfolioNumber`` — R7/T-07): claims the
-    existing (edm_id, irp_id) row in place when a backfill already captured it,
-    inserts otherwise. Logged as an adoption."""
-    result = _write_generated(edm_id, name=name, irp_id=irp_id,
-                              source_portfolio_id=source_portfolio_id,
-                              dimension_code=dimension_code, value=value,
-                              actor_id=actor_id, group_id=group_id)
-    logger.info("existing RM portfolio %s (irp_id=%s, %s=%s) adopted for "
-                "source %s%s", name, irp_id, dimension_code, value,
-                source_portfolio_id,
-                "" if result.created else " (already present — skipped)")
-    return result
-
-
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty) and its breakout lineage
@@ -407,5 +377,5 @@ def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
 
 
 __all__ = ["PortfolioRow", "GeneratedWrite", "upsert_portfolio_detail",
-           "prune_missing", "list_portfolios", "insert_generated",
-           "adopt_generated", "find_generated"]
+           "prune_missing", "list_portfolios", "save_generated_portfolio",
+           "find_generated"]
