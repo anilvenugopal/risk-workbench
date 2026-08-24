@@ -324,14 +324,14 @@ def upgrade() -> None:
                       server_default=sa.text("GETUTCDATE()")),
         )
 
-    # ── irp_job (one tracked Risk Modeler asynchronous operation) ────────────────
-    # NOTE: created WITHOUT irp_portfolio_id — irp_portfolio does not exist until a
-    # later iteration (data-model §2 note / research R13); the FK is added with it.
+    # ── irp_job (one tracked Risk Modeler asynchronous operation; data-model §2) ─
+    # irp_portfolio_id's FK is added after irp_portfolio is created below.
     op.create_table(
         "irp_job",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requested_from_submission_id", sa.Uuid, nullable=True),
         sa.Column("irp_edm_id", sa.Uuid, nullable=True),
+        sa.Column("irp_portfolio_id", sa.Uuid, nullable=True),
         sa.Column("irp_rdm_id", sa.Uuid, nullable=True),
         sa.Column("irp_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # IRP int id as string
@@ -341,6 +341,8 @@ def upgrade() -> None:
         # Operational log-trace id inherited from the rwb_job whose worker
         # submitted this op (issue #28). Provenance only — never a predicate.
         sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
+        sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
+        sa.Column("completion_summary", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
@@ -367,6 +369,7 @@ def upgrade() -> None:
     op.create_index("ix_irp_job_status", "irp_job", ["status"])
     op.create_index("ix_irp_job_requested_from_submission_id", "irp_job",
                     ["requested_from_submission_id"])
+    op.create_index("ix_irp_job_irp_portfolio_id", "irp_job", ["irp_portfolio_id"])
 
     # ── irp_job_resource (typed submit payload — the resource URI; §3) ──────────
     op.create_table(
@@ -594,6 +597,13 @@ def upgrade() -> None:
                   sa.Column("breakout_group_id", sa.Uuid, nullable=True))
     op.create_foreign_key("fk_irp_portfolio_breakout_group", "irp_portfolio",
                           "breakout_group", ["breakout_group_id"], ["id"])
+    op.create_foreign_key(
+        "fk_irp_job_irp_portfolio_id",
+        "irp_job",
+        "irp_portfolio",
+        ["irp_portfolio_id"],
+        ["id"],
+    )
 
     # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
     op.create_table(
@@ -642,6 +652,7 @@ def upgrade() -> None:
         "('upload_rdm', 'Upload RDM', 20), "
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
+        "('run_geohaz', 'Run GeoHaz', 28), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
@@ -720,6 +731,8 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
+    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job",
+                       type_="foreignkey")
     # breakout_group and irp_portfolio reference each other — drop the
     # irp_portfolio-side FK/column first, then the group table.
     op.drop_constraint("fk_irp_portfolio_breakout_group", "irp_portfolio",
@@ -742,6 +755,7 @@ def downgrade() -> None:
     op.drop_table("rwb_job")
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
+    op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
     op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")
     op.drop_index("ix_irp_job_status", table_name="irp_job")
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")

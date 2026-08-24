@@ -32,6 +32,7 @@ from urllib.parse import quote
 from app.services import (
     analysis_service,
     breakout_service,
+    geohaz_service,
     irp_gateway,
     name_check,
     portfolio_service,
@@ -515,6 +516,11 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     if row is None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    geohaz_states = geohaz_service.lookup_states(eid)
+    geohaz_latest = geohaz_service.latest_lookups(eid)
+    for portfolio in portfolios:
+        portfolio.geohaz_state = geohaz_states[portfolio.id]
+        portfolio.geohaz_latest = geohaz_latest.get(portfolio.id)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     # Spec 005: in-flight indicator, completion banner, and durable per-row

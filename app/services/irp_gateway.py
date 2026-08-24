@@ -243,10 +243,17 @@ class IRPGateway(Protocol):
     def submit_rdm_import(self, *, name: str,
                           source_file_path: str) -> SubmitResult: ...
 
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult: ...
+
     def search_analyses(self, *, source_rdm_name: str,
                         exposure_name: str | None = None) -> list[AnalysisHit]: ...
 
     def get_import_job(self, irp_id: str) -> JobStatus: ...
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus: ...
 
     def search_edms(self, name: str) -> list[EntityHit]: ...
 
@@ -344,6 +351,31 @@ class _RealGateway:
         )
         return SubmitResult(irp_id=str(job_id),
                             resource_uri=body.get("resourceUri"), payload=body)
+
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult:
+        layers = [
+            {
+                "type": "hazard",
+                "name": peril,
+                "engineType": "RL",
+                "version": version,
+                "layerOptions": {
+                    "overrideUserDef": override_user_def,
+                    "skipPrevHazard": skip_prev_hazard,
+                },
+            }
+            for peril in perils
+        ]
+        job_id, body = self._client().portfolio.submit_geohaz_job(
+            portfolio_name, edm_name, layers)
+        return SubmitResult(
+            irp_id=str(job_id),
+            resource_uri=body["resourceUri"],
+            payload=body,
+        )
 
     def search_analyses(self, *, source_rdm_name: str,
                         exposure_name: str | None = None) -> list[AnalysisHit]:
@@ -848,6 +880,10 @@ class _RealGateway:
         data = self._client().import_job.get_import_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
+        data = self._client().portfolio.get_geohaz_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
@@ -926,6 +962,19 @@ def submit_rdm_import(*, name: str, source_file_path: str) -> SubmitResult:
         name=name, source_file_path=source_file_path)
 
 
+def submit_geohaz(*, edm_name: str, portfolio_name: str, version: str,
+                  perils: list[str], skip_prev_hazard: bool,
+                  override_user_def: bool) -> SubmitResult:
+    return _active().submit_geohaz(
+        edm_name=edm_name,
+        portfolio_name=portfolio_name,
+        version=version,
+        perils=perils,
+        skip_prev_hazard=skip_prev_hazard,
+        override_user_def=override_user_def,
+    )
+
+
 def search_analyses(*, source_rdm_name: str,
                     exposure_name: str | None = None) -> list[AnalysisHit]:
     return _active().search_analyses(source_rdm_name=source_rdm_name,
@@ -934,6 +983,10 @@ def search_analyses(*, source_rdm_name: str,
 
 def get_import_job(irp_id: str) -> JobStatus:
     return _active().get_import_job(irp_id)
+
+
+def get_geohaz_job(irp_id: str) -> JobStatus:
+    return _active().get_geohaz_job(irp_id)
 
 
 def search_edms(name: str) -> list[EntityHit]:
@@ -1028,7 +1081,8 @@ __all__ = [
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
     "BreakoutSelection", "SubPortfolioResult", "DuplicatePortfolioNameError",
     "IRPGateway", "configure", "reset",
-    "submit_edm_import", "submit_rdm_import", "search_analyses", "get_import_job",
+    "submit_edm_import", "submit_rdm_import", "submit_geohaz",
+    "search_analyses", "get_import_job", "get_geohaz_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
     "search_treaties", "get_analysis_metadata", "fetch_portfolio_stamp",

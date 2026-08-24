@@ -29,13 +29,14 @@ class _InjectUser(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         from app.services.auth_service import CurrentUser
         request.state.user = CurrentUser(
-            id="analyst-1", email="analyst@example.com", display_name="Analyst",
+            id=request.app.state.test_user_id,
+            email="analyst@example.com", display_name="Analyst",
             session_id="s", role_codes=["analyst"], is_admin=False,
             must_change_password=False, entra_oid=None, is_active=True)
         return await call_next(request)
 
 
-def _client() -> TestClient:
+def _client(user_id: str = "analyst-1") -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import edms
@@ -49,6 +50,7 @@ def _client() -> TestClient:
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     templates.env.filters["breakout_display"] = display_value
     app.state.templates = templates
+    app.state.test_user_id = user_id
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
     return TestClient(app, follow_redirects=False)

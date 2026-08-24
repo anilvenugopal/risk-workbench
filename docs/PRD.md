@@ -1505,6 +1505,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **O6-1/O6-2 — commercial-policy geographic split — resolved by product direction (2026-07-29, §10A.5).** Risk Modeler assigns whole accounts on a geographic split; the geography breakout ships with that behavior accepted and disclosed (the preview quantifies the overlap per portfolio — spec 005 FR-007), and no location-level toggle is awaited. The complement split remains a fast-follow.
 - **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
 - **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
+- **O8-1 — geocode/hazard version-stamp origin.** Confirm with Moody's where RM's geocode/hazard stamp comes from and what it gates; the workbench neither displays nor reads it (§10B.4). Cheryl / team.
+- **O8-3 — hazard-execution lineage detail.** What execution detail the workbench records and displays per hazard lookup, given a naive stamp read is insufficient (§10B.4). Ben; settled at Iteration 5 spec time.
 - **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
 - **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).

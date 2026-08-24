@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
@@ -35,6 +35,9 @@ from app.services._common import (
 from db import execute, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.services.geohaz_service import CellState, LatestLookup
 
 
 @dataclass
@@ -73,6 +76,8 @@ class PortfolioRow:
     # the parsed member-filter dict the criteria line renders.
     breakout_group_label: str | None = None
     breakout_group_filters: dict | None = None
+    geohaz_state: CellState | None = None
+    geohaz_latest: LatestLookup | None = None
 
 
 # The two in-place overwrite paths of the idempotent upsert. The irp_id match is
@@ -336,6 +341,21 @@ def adopt_generated(edm_id: Any, *, name: str, irp_id: str,
     return result
 
 
+def update_exposure_metrics(conn, *, portfolio_id: Any, metrics: dict) -> None:
+    """Replace Risk Modeler's portfolio metadata while retaining its summary."""
+    row = conn.execute(text(
+        "SELECT exposure_detail FROM irp_portfolio WHERE id = :id"
+    ), {"id": str(portfolio_id)}).mappings().first()
+    if row is None:
+        return
+    current = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
+    snapshot = {"metrics": metrics, "summary": current.get("summary")}
+    conn.execute(text(
+        "UPDATE irp_portfolio SET exposure_detail = :detail, updated_at = :now "
+        "WHERE id = :id"
+    ), {"detail": _json(snapshot), "now": _utcnow(), "id": str(portfolio_id)})
+
+
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty) and its breakout lineage
@@ -407,5 +427,6 @@ def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
 
 
 __all__ = ["PortfolioRow", "GeneratedWrite", "upsert_portfolio_detail",
-           "prune_missing", "list_portfolios", "insert_generated",
+           "update_exposure_metrics", "prune_missing", "list_portfolios",
+           "insert_generated",
            "adopt_generated", "find_generated"]

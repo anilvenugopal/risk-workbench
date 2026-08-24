@@ -53,6 +53,17 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dtable__head > :first-child, .drow > summary > :first-child, .drow-static > :first-child { position: sticky; left: 0; z-index: 1; background: var(--surface-panel); box-shadow: 1px 0 0 var(--border-default); }
 .dtable__head > :first-child { z-index: 7; background: var(--surface-recessed); }
 .drow > summary:hover > :first-child { background: var(--surface-recessed); }
+/* Portfolio selection adds a narrow pinned checkbox before the pinned name. */
+.dtable--selectable .dtable__head > :nth-child(2),
+.dtable--selectable .drow > summary > :nth-child(2) {
+  position: sticky; left: 42px; z-index: 1; background: var(--surface-panel);
+  box-shadow: 1px 0 0 var(--border-default);
+}
+.dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
+.dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
+.dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
+.geohaz-pick { display: flex; justify-content: center; align-items: center; }
+.geohaz-pick input { margin: 0; }
 /* name cell (caret + title + sub) */
 .dt-name { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .dt-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
@@ -120,6 +131,24 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .state-box--warn { border-color: var(--color-warning-border); background: var(--color-warning-bg); color: var(--color-warning); }
 .state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
 .state-box--warn strong { color: var(--color-warning); }
+
+/* GeoHaz status column and most recent lookup details. */
+.geohaz-cell { font-weight: var(--fw-semibold); }
+.geohaz-cell--live { color: var(--color-info); }
+.geohaz-cell--version, .geohaz-cell--missing { font-weight: var(--fw-regular); }
+.portfolio-detail-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 1fr); gap: var(--space-5); align-items: start; }
+.geohaz-details { padding-left: var(--space-5); border-left: 1px solid var(--border-faint); }
+.geohaz-details h3 { margin: 0 0 var(--space-2); font-size: var(--fs-label); }
+.geohaz-details__list { display: grid; gap: var(--space-2); margin: 0; }
+.geohaz-details__list dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.geohaz-details__list dd { margin: 2px 0 0; font-size: var(--fs-label); white-space: normal; }
+.geohaz-details__result { padding-top: var(--space-2); border-top: 1px solid var(--border-faint); }
+.geohaz-details__failed { color: var(--color-danger); font-weight: var(--fw-semibold); }
+@media (max-width: 760px) {
+  .portfolio-detail-columns { grid-template-columns: 1fr; }
+  .geohaz-details { padding: var(--space-3) 0 0; border-left: 0; border-top: 1px solid var(--border-faint); }
+}
+
 .entity-note { margin: var(--space-4) 0 var(--space-5); padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border-default); border-radius: var(--radius-md);
   background: var(--surface-panel); }

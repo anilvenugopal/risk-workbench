@@ -40,6 +40,10 @@
 {%- set curr = s.get('currencies') or [] -%}
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
+  {% with portfolio_id=p.id, portfolio_name=p.name,
+          eligible=not p.geohaz_state.live %}
+    {% include "partials/geohaz_checkbox.html" %}
+  {% endwith %}
   <span class="l">
     <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
@@ -98,8 +102,13 @@
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
+  {% with state=p.geohaz_state, edm_id=p.edm_id %}
+  {% include "partials/geohaz_cell.html" %}
+  {% endwith %}
   </summary>
   <div class="drow__body drow__body--recessed">
+    <div class="portfolio-detail-columns">
+      <div>
     {# spec 005 US3 (FR-014 as revised 2026-08-11): lineage renders here, in
        the expanded panel of a generated row only — the IMMEDIATE source, never
        a rendered chain, plus the breakout criteria in the Risk Modeler
@@ -140,6 +149,11 @@
     <p class="tag-empty" style="margin:0">No value lists available — the
       DataBridge summary hasn't been stored for this portfolio.</p>
     {% endif %}
+      </div>
+      {% with portfolio_id=p.id, latest=p.geohaz_latest %}
+        {% include "partials/geohaz_details.html" %}
+      {% endwith %}
+    </div>
   </div>
 </details>
 {# spec 005 (FR-012): durable per-row failure lines from the LATEST terminal
