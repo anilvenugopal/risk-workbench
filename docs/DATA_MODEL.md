@@ -553,7 +553,10 @@ erDiagram
 
 ## 10. IRP reference cache
 
-Populated by the "Sync IRP Metadata" action; the app never writes to these tables otherwise.
+Populated by the "Sync IRP Metadata" action; the app never writes to these tables otherwise,
+with one exception: `irp_event_rate_scheme.workbench_is_active` (spec 009 P-13/FR-022) is a
+Workbench-owned curation flag admins toggle on the analysis-metadata screen — Workbench state
+about the scheme, not an edit to the synced values, and the sync never writes it.
 
 ```mermaid
 erDiagram
@@ -581,6 +584,7 @@ erDiagram
     string name
     string peril_code "nullable"
     string model_region_code "nullable"
+    bit workbench_is_active "Workbench-owned; default 1; sync never writes it"
     datetime as_of
     datetime inserted_at
     datetime updated_at

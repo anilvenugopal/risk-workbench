@@ -288,3 +288,27 @@ copy exists → edit); deep-copying a suite's templates (templates are shared ac
 "swap in an updated model" use case is served by duplicating the *template* and swapping the copy
 into the suite); the Excel seed/import itself (still deferred, design retained in
 `contracts/transfer-workbook.md` — R6).
+
+## R16 — Event-rate-scheme curation flag lives as a column, not a side table (design session 2026-08-21, note 18 D1/D2/D3; user-decided 2026-08-23)
+
+Risk Modeler narrows its scheme dropdown by a model-version mapping Moody's publishes **only as
+a downloadable Excel sheet** — no API attribute — so the Workbench's peril/region filter
+over-lists (note 18 §2.1, closes note 17 O17-11). The fix is a manually curated
+`workbench_is_active` flag: every scheme stays synced and listed on the metadata screen; only
+the template builder's pick list filters to active schemes (P-13/FR-022).
+
+**Decision (user, 2026-08-23)**: a `workbench_is_active BIT NOT NULL DEFAULT 1` column on
+`irp_event_rate_scheme`. Verified safe against the sync: `_sync_table`'s UPDATE assigns only its
+explicit `columns` tuple, and `test_resync_preserves_workbench_scheme_visibility` guards that a
+rewrite of the sync (e.g. to delete-and-recreate) cannot silently wipe curation.
+
+**Rejected**:
+- A side table (`event_rate_scheme_visibility` keyed on `irp_id` — note 18 O18-1's preference).
+  Foregone benefits, accepted knowingly: curation would survive a scheme dropping out of the API
+  and returning (the column resets to active because the vanished row is hard-deleted), and it
+  would carry `updated_by`/`updated_at` (irp_* cache tables have no actor columns; the column
+  deliberately does not stamp `updated_at`, which the metadata page reads as "last synced").
+- Ingesting the Moody's Excel model-version mapping as a data source (note 18 §2.2) — a
+  manually refreshed external dependency; remains the fallback if manual curation proves
+  unworkable.
+- Extending the flag to model profiles or currencies — declined by CIC (note 18 D3).

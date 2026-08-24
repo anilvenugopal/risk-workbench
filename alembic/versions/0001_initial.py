@@ -583,6 +583,11 @@ def upgrade() -> None:
         sa.Column("model_region_code", sa.NVARCHAR(20), nullable=True),
         sa.Column("model_version_code", sa.NVARCHAR(50), nullable=True),
         sa.Column("is_hd", sa.Boolean, nullable=False, server_default="0"),
+        # Workbench-owned curation flag (design note 18 D1/D3): gates the scheme
+        # pickers only. Distinct from Risk Modeler's own isActive; the metadata
+        # sync never writes it (its UPDATE lists columns explicitly).
+        sa.Column("workbench_is_active", sa.Boolean, nullable=False,
+                  server_default="1"),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,

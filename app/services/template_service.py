@@ -636,6 +636,7 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
             SELECT name, peril_code, model_region_code, model_version_code, is_hd
             FROM irp_event_rate_scheme
             WHERE peril_code = :peril AND model_region_code = :region
+              AND workbench_is_active = 1
             ORDER BY name
         """, {
             "peril": profile["peril_code"],
@@ -645,6 +646,19 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
         for option in options:
             option["selected"] = selected
         return options
+
+
+def set_scheme_visibility(irp_id: int, is_active: bool, *, conn=None) -> None:
+    """Curation flag only — never stamps updated_at, which means "last synced"
+    on the metadata page (see _metadata_context's fallback)."""
+    with _txn(conn) as working:
+        result = working.execute(text("""
+            UPDATE irp_event_rate_scheme
+            SET workbench_is_active = :active
+            WHERE irp_id = :irp_id
+        """), {"active": 1 if is_active else 0, "irp_id": irp_id})
+        if result.rowcount == 0:
+            raise TemplateServiceError("Event rate scheme was not found")
 
 
 def reference_options(*, conn=None) -> dict[str, list[dict]]:
@@ -685,4 +699,5 @@ __all__ = [
     "save_suite",
     "save_template",
     "scheme_options",
+    "set_scheme_visibility",
 ]

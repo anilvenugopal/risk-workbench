@@ -180,6 +180,7 @@ ITERATION4_SCHEMA = [
         id TEXT PRIMARY KEY, irp_id INTEGER, name TEXT, peril_code TEXT,
         model_region_code TEXT, model_version_code TEXT,
         is_hd INTEGER NOT NULL DEFAULT 0,
+        workbench_is_active INTEGER NOT NULL DEFAULT 1,
         inserted_at TEXT, updated_at TEXT,
         UNIQUE (irp_id)
     )""",

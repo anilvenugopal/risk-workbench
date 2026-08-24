@@ -26,14 +26,14 @@ router = APIRouter()
 _METADATA_SYNC_REQUESTOR_ID = "00000000-0000-0000-0000-000000000009"
 # rm_path is the tenant-relative path of this tab's Risk Modeler settings screen
 # (joined to `_rm_ui_root()`, same tenant-subdomain rule as the EDM deep links
-# in edm_service.py); None where RM has no equivalent screen (event-rate schemes).
+# in edm_service.py).
 _METADATA_TABS = (
     {"key": "model-profiles", "label": "Model Profiles", "count_key": "model_profiles",
      "rm_path": "riskmodeler/datasources/model-settings/profiles"},
     {"key": "output-profiles", "label": "Output Profiles", "count_key": "output_profiles",
      "rm_path": "riskmodeler/datasources/model-settings/output"},
     {"key": "event-rate-schemes", "label": "Event Rate Schemes", "count_key": "event_rate_schemes",
-     "rm_path": None},
+     "rm_path": "riskmodeler/modelcomposer#event-rate-schemes"},
     {"key": "currencies", "label": "Currencies", "count_key": "currencies",
      "rm_path": "home/reference-data/currencies/currency"},
     {"key": "currency-schemes", "label": "Currency Schemes", "count_key": "currency_schemes",
@@ -75,7 +75,7 @@ def _metadata_rows(tab: str, q: str) -> list[dict]:
         return execute(
             """
             SELECT irp_id, name, peril_code, model_region_code,
-                   model_version_code, is_hd
+                   model_version_code, is_hd, workbench_is_active
             FROM irp_event_rate_scheme
             WHERE LOWER(name) LIKE :q
                OR LOWER(COALESCE(peril_code, '')) LIKE :q
@@ -381,7 +381,9 @@ def metadata_page(request: Request):
 
 @router.get("/templates/metadata/table", response_class=HTMLResponse)
 def metadata_table(request: Request):
-    return _page(request, "partials/metadata_table.html", _metadata_context(request))
+    context = _metadata_context(request)
+    context["current_user"] = request.state.user
+    return _page(request, "partials/metadata_table.html", context)
 
 
 @router.post("/templates/metadata/sync")
@@ -402,6 +404,31 @@ def sync_metadata(
             "/templates/metadata?sync=already-running", status_code=303)
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="sync_irp_metadata")
     return RedirectResponse("/templates/metadata?sync=queued", status_code=303)
+
+
+@router.post("/templates/metadata/event-rate-schemes/{irp_id}/visibility")
+def set_scheme_visibility_route(
+    request: Request,
+    irp_id: int,
+    csrf_token: Annotated[str, Form()],
+    is_active: Annotated[str | None, Form()] = None,
+):
+    _current_user, redirect = _require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(
+            "/templates/metadata?tab=event-rate-schemes", status_code=303)
+    try:
+        template_service.set_scheme_visibility(irp_id, is_active is not None)
+    except TemplateServiceError:
+        pass  # row vanished on a re-sync; the re-render below reflects it
+    if request.headers.get("HX-Request"):
+        context = _metadata_context(request)
+        context["current_user"] = request.state.user
+        return _page(request, "partials/metadata_table.html", context)
+    return RedirectResponse(
+        "/templates/metadata?tab=event-rate-schemes", status_code=303)
 
 
 # ── Analysis template builder (US2) ────────────────────────────────────────────

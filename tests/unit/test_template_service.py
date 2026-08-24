@@ -190,6 +190,50 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
     assert not any(row["selected"] for row in multiple)
 
 
+def test_scheme_options_exclude_workbench_inactive_schemes(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql("""
+            INSERT INTO irp_event_rate_scheme
+                (id, irp_id, name, peril_code, model_region_code, is_hd,
+                 inserted_at, updated_at)
+            VALUES
+                ('second-ws', 22, 'RMS WS Alternate', 'WS', 'NAWS', 0,
+                 '2026-08-18', '2026-08-18')
+        """)
+    assert len(template_service.scheme_options("RMS Default RL25")) == 2
+
+    template_service.set_scheme_visibility(22, False)
+
+    # Hiding one leaves a single active match, so the auto-prefill applies.
+    options = template_service.scheme_options("RMS Default RL25")
+    assert [(row["name"], row["selected"]) for row in options] == [
+        ("RMS WS", True)]
+
+    template_service.set_scheme_visibility(22, True)
+    assert len(template_service.scheme_options("RMS Default RL25")) == 2
+
+
+def test_set_scheme_visibility_rejects_unknown_scheme(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    with pytest.raises(template_service.TemplateServiceError):
+        template_service.set_scheme_visibility(999, False)
+
+
+def test_hidden_scheme_keeps_existing_template_saveable(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values())
+
+    template_service.set_scheme_visibility(20, False)
+
+    # Pairing validation ignores the flag — re-saving the template still works.
+    template_service.save_template(
+        _values(name="US Wind DLM renamed"), template_id=template_id)
+
+
 def test_suite_items_are_unordered_and_display_sorts_by_template_name(
     iteration2_db, fake_irp,
 ):
