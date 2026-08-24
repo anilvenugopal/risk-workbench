@@ -1184,6 +1184,34 @@ def check_group_name(edm_id: Any, name: str) -> CollisionCheck:
         exposure_irp_id=str(edm["irp_id"]), name=trimmed)
 
 
+def compose_group_preview(edm_id: Any, portfolio_id: Any, *,
+                          carted: Sequence[dict],
+                          new_group: dict) -> GroupPlan:
+    """One cart-row Add, decided entirely here (FR-018/P-23): evaluate the
+    gate, compose the posted group against the stored summary and the
+    already-carted groups, then the two Add-time refusals — a taken portfolio
+    name (P-25; the Risk Modeler leg, fail-open — compose covered the
+    workbench rows and the cart; an adopted member set is exempt, since its
+    own already-created portfolio may carry the very name being re-confirmed
+    and the run's duplicate-name handling backstops) and a group no account
+    matches (P-29 — ``group_matches_no_accounts``, fail-open). Raises
+    ``GateRefused`` on every refusal; no writes. Callers run the whole call in
+    a threadpool: the match count queries DataBridge over the whole portfolio
+    and must not hold the event loop while the page's 3-second polls wait."""
+    gate = evaluate_gate(edm_id, portfolio_id)
+    plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=portfolio_id,
+                               groups=[*carted, new_group])
+    plan = plans[-1]
+    if not plan.adopted and check_group_name(edm_id, plan.name).collides:
+        raise GateRefused(f"a portfolio named {plan.name!r} already "
+                          "exists in this EDM — choose a different name")
+    if group_matches_no_accounts(gate, plan.filters):
+        raise GateRefused(
+            "no account matches every filter of this breakout — it would "
+            "create nothing. Change the values and add it again")
+    return plan
+
+
 _INSERT_GROUP = """
     INSERT INTO breakout_group (id, source_portfolio_id, group_key, label,
         filters, name, number, cart_id, inserted_at, updated_at, inserted_by,

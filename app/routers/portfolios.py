@@ -202,32 +202,12 @@ async def breakout_group_preview(request: Request, edm_id: str,
                for key in form if key.startswith("values:")}
     new_group = {"label": str(form.get("group_label") or ""),
                  "filters": filters}
-    gate = breakout_service.evaluate_gate(edm_id, portfolio_id)
     try:
-        plans = breakout_service.compose_group_cart(
-            gate, edm_id=edm_id, portfolio_id=portfolio_id,
-            groups=[*_carted_groups(form), new_group])
-        plan = plans[-1]
-        # The Add is where a duplicate name blocks (P-25): compose covered the
-        # workbench rows and the cart; this is the Risk Modeler leg, fail-open
-        # (an unreachable RM never blocks the Add). An adopted member set is
-        # exempt — its own already-created portfolio may carry the very name
-        # being re-confirmed; the run's duplicate-name handling backstops.
-        if not plan.adopted and breakout_service.check_group_name(
-                edm_id, plan.name).collides:
-            raise GateRefused(f"a portfolio named {plan.name!r} already "
-                              "exists in this EDM — choose a different name")
-        # The emptiness check (P-29): two values that each have accounts can
-        # still share none, and the stored summary cannot see that. Runs in a
-        # threadpool because it queries DataBridge over the whole portfolio —
-        # unlike the name check above, which answers from a cache or one RM
-        # search, this must not hold the event loop while the page's 3-second
-        # polls wait. Fails open inside the service.
-        if await run_in_threadpool(breakout_service.group_matches_no_accounts,
-                                   gate, plan.filters):
-            raise GateRefused(
-                "no account matches every filter of this breakout — it would "
-                "create nothing. Change the values and add it again")
+        # The whole Add decision lives in the service; the threadpool covers
+        # its DataBridge match count, which must not hold the event loop.
+        plan = await run_in_threadpool(
+            breakout_service.compose_group_preview, edm_id, portfolio_id,
+            carted=_carted_groups(form), new_group=new_group)
     except GateRefused as exc:
         response = _partial(request, "partials/breakout_cart_row.html",
                             {"error": exc.reason}, status_code=409)
