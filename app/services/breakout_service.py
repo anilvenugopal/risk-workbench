@@ -907,43 +907,60 @@ class BreakoutRequested:
     planned: int
 
 
-def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
-                     summary_as_of: str | None,
-                     actor_id: Any) -> BreakoutRequested | None:
-    """Five steps, in order; each gates the next, and **no rwb_job row exists
-    until all five pass** (contracts/data-access.md §1): gate re-check →
-    summary-unchanged check (FR-002b) → freshness check (FR-002a) → build and
-    persist the approved plan → idempotent enqueue. Returns the job id with the
-    plan size, or ``None`` when a live job already exists (UI: "already
-    running")."""
-    # 1. Gate re-check.
+def _confirm_preconditions(edm_id: Any, portfolio_id: Any,
+                           summary_as_of: str | None,
+                           shape_check) -> BreakoutGate | None:
+    """The ordered refusals both confirms share, and **no rwb_job row exists
+    until all pass** (contracts/data-access.md §1): gate re-check → in-flight →
+    the caller's ``shape_check(gate)`` (quick: the dimension is eligible; cart:
+    not empty) → summary-unchanged (FR-002b) → freshness (FR-002a). Returns the
+    gate the caller composes its plan from — every row value it reads was
+    loaded by the gate re-check, so the confirm decides from one instant's view
+    of the two rows — or ``None`` when a breakout episode is already live on
+    the portfolio (the caller's "already running" 409)."""
     gate = evaluate_gate(edm_id, portfolio_id)
     if not gate.portfolio_eligible:
         raise GateRefused(gate.reason or "breakout is not available")
     if gate.in_flight is not None:
-        return None  # already running — the router renders the 409 variant
-    eligibility = next((d for d in gate.dimensions if d.dimension == dimension),
-                       None)
-    if eligibility is None:
-        raise GateRefused(f"unknown breakout dimension {dimension!r}")
-    if not eligibility.eligible:
-        raise GateRefused(eligibility.reason or "dimension is not eligible")
+        return None
+    shape_check(gate)
 
-    # 2. Summary-unchanged check (FR-002b): the stored summary must be the one
-    # the preview rendered from. A detail refresh that landed mid-preview
-    # changes the value set the analyst judged from, and FR-002a cannot see it
-    # (an untouched RM portfolio writes back an equal stampDate).
+    # Summary-unchanged (FR-002b): the stored summary must be the one the
+    # preview rendered from. A detail refresh that landed mid-preview changes
+    # the value set the analyst judged from, and FR-002a cannot see it (an
+    # untouched RM portfolio writes back an equal stampDate).
     if gate.summary_as_of != (str(summary_as_of) if summary_as_of else None):
         raise SummaryRewritten(
             "This EDM was synced while you were reviewing — here is the "
             "current breakout.")
 
-    # 3. Freshness check (FR-002a): the flow's one web-layer RM call. Every row
-    # value below comes off the gate, which read them at step 1 — the confirm
-    # decides from one instant's view of the two rows, not two.
+    # Freshness (FR-002a): the flow's one web-layer RM call.
     _verify_freshness(gate, portfolio_id)
+    return gate
 
-    # 4. Build and persist the approved plan — composed ONCE, here; from this
+
+def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
+                     summary_as_of: str | None,
+                     actor_id: Any) -> BreakoutRequested | None:
+    """The quick confirm: the shared preconditions
+    (``_confirm_preconditions``) with the dimension-eligibility shape check,
+    then build and persist the approved plan and enqueue idempotently. Returns
+    the job id with the plan size, or ``None`` when a live job already exists
+    (UI: "already running")."""
+    def _dimension_eligible(gate: BreakoutGate) -> None:
+        eligibility = next(
+            (d for d in gate.dimensions if d.dimension == dimension), None)
+        if eligibility is None:
+            raise GateRefused(f"unknown breakout dimension {dimension!r}")
+        if not eligibility.eligible:
+            raise GateRefused(eligibility.reason or "dimension is not eligible")
+
+    gate = _confirm_preconditions(edm_id, portfolio_id, summary_as_of,
+                                  _dimension_eligible)
+    if gate is None:
+        return None  # already running — the router renders the 409 variant
+
+    # Build and persist the approved plan — composed ONCE, here; from this
     # point the plan is authoritative and the worker executes it verbatim
     # (AGENTS.md rule 8 / R10 / P-14).
     plan = compose_plan(gate, edm_id=edm_id, portfolio_id=portfolio_id,
@@ -957,7 +974,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                   "number": p.number, "accounts": p.accounts} for p in plan],
     }
 
-    # 5. Idempotent enqueue — one live-job slot per (portfolio, dimension).
+    # Idempotent enqueue — one live-job slot per (portfolio, dimension).
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=str(portfolio_id),
         rwb_job_type=f"run_breakout_{dimension}", input_data=input_data,
@@ -1227,18 +1244,14 @@ def request_group_breakout(edm_id: Any, portfolio_id: Any,
     ``None`` when a breakout episode is already live on the portfolio (one
     episode per portfolio, either direction). No job row exists on any
     refusal."""
-    gate = evaluate_gate(edm_id, portfolio_id)
-    if not gate.portfolio_eligible:
-        raise GateRefused(gate.reason or "breakout is not available")
-    if gate.in_flight is not None:
+    def _cart_not_empty(_gate: BreakoutGate) -> None:
+        if not groups:
+            raise GateRefused("the cart is empty — add at least one breakout")
+
+    gate = _confirm_preconditions(edm_id, portfolio_id, summary_as_of,
+                                  _cart_not_empty)
+    if gate is None:
         return None
-    if not groups:
-        raise GateRefused("the cart is empty — add at least one breakout")
-    if gate.summary_as_of != (str(summary_as_of) if summary_as_of else None):
-        raise SummaryRewritten(
-            "This EDM was synced while you were reviewing — here is the "
-            "current breakout.")
-    _verify_freshness(gate, portfolio_id)
 
     # The approved plan, composed once (AGENTS.md rule 8): the group rows and
     # each job's input_data are what the worker executes verbatim.
