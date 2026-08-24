@@ -368,20 +368,20 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | Treaties are selected by name or pattern. | Not implemented |  |
 | DLM requires an event-rate scheme. | Not implemented | Determined by the model profile, not the file. |
 | HD makes the event-rate scheme optional. | Not implemented | Determined by the model profile, not the file. |
-| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Not implemented | **Added 8/14.** A dedicated analysis-metadata screen; same pattern as EDM data — selected, not owned. |
-| Event-rate schemes are selected, never authored. | Not implemented | **Added 8/14.** CIC does not create custom event rates. |
+| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Implemented | **Added 8/14.** A dedicated analysis-metadata screen; same pattern as EDM data — selected, not owned. |
+| Event-rate schemes are selected, never authored. | Implemented | **Added 8/14.** CIC does not create custom event rates. Admins can hide schemes from the pickers (spec 009 P-13). |
 
 **Templates & suites**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme + currency, plus optional additional settings. | Not implemented | **Changed 8/14.** "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD. Supersedes the "big three" phrasing. |
-| A suite is an ordered set of templates. | Not implemented | **Changed 8/14.** e.g. "Global 2026 Q1." |
-| A suite is defined primarily by region and output level. | Not implemented | **Added 8/14.** The other settings are standardized within the suite. |
-| Suites are predefined, not freeform user-built. | Not implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Exceptions drop to the long list or Risk Modeler. |
-| Suites and templates are maintained on an administration page. | Not implemented | **Added 8/14.** Models and countries change. Starter set: US, Canada, US+Canada, global — ~10 templates each; the heavy country-by-country setup is CIC's. |
-| Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Added 8/14.** Moves suites built in one environment into another instead of rebuilding by hand. |
-| A suite may mix DLM, HD, and accumulation templates. | Not implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
+| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme, plus optional additional settings. | Implemented | **Changed 8/14; currency removed 8/20 (spec 009 P-11)** — analysis currency, scheme, and vintage are chosen at submit time, never stored. "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD. Supersedes the "big three" phrasing. |
+| A suite is an unordered set of templates. | Implemented | **Changed 8/14; unordered per spec 009 P-08** — no item order, no per-item settings. e.g. "Global 2026 Q1." |
+| A suite is defined primarily by region and output level. | Implemented | **Added 8/14.** The other settings are standardized within the suite. A naming/usage convention — region is not a stored attribute (spec 009 P-03). |
+| Suites are predefined, not freeform user-built. | Implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Exceptions drop to the long list or Risk Modeler. |
+| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Starter suites are built manually on this page (seeding deferred, spec 009 P-02); duplicate-and-edit (P-12) is the fast path. |
+| Suites and templates can be exported and imported as CSV/Excel. | Deferred | **Added 8/14; deferred 8/19 (spec 009 P-02).** The worked Excel design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`. |
+| A suite may mix DLM, HD, and accumulation templates. | Implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
 | Line of business is a further suite axis carrying different settings. | Not implemented | **Added 8/14.** Property / auto / workers comp; handled via tags or naming convention (O14-8). |
 | Applying a suite generates all its analyses at once. | Not implemented | Ready to review and adjust before submitting. |
 | Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. |
