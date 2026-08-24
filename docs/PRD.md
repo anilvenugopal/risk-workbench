@@ -660,7 +660,7 @@ Validation categories (initial set, extensible):
 In the deferred Phase A vision the analyst runs exposure modification operations via DataBridge:
 - ~~Create sub-portfolios~~ — **moved to §10A** and reimplemented as the **synchronous IRP `create_portfolio()`** path; it is *not* a DataBridge operation. (This resolves the earlier §1.3/§10.3-vs-§14.3/§15.5 contradiction in favor of the IRP path.)
 - Modify data elements (e.g., construction class mapping, currency normalization) — **out of MVP** (FR §3).
-- ~~Create peril-specific portfolios~~ — **out of MVP**: "we don't have to split it up by peril" (FR §3; verify separately whether RM adds a *missing* peril).
+- ~~Create peril-specific portfolios~~ — **out of MVP**: "we don't have to split it up by peril" (FR §3; verify separately whether RM adds a *missing* peril). *(Superseded 2026-08-12, spec 005 P-19 rev.: peril shipped as a quick breakout dimension.)*
 
 The remaining (deferred) operations would run as DataBridge SQL commands via `client.databridge.execute_command(query, params, ...)`, logged in the audit log.
 
@@ -672,7 +672,7 @@ After validation passes, the analyst would push pre-aggregated exposure summarie
 
 ## 10A. Feature: Portfolio management (sub-portfolios & breakouts) — **IN MVP**
 
-> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits, peril splits, and merge/combine are out of MVP.
+> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits, peril splits, and merge/combine are out of MVP. *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril splits shipped as a quick breakout dimension.)*
 
 ### 10A.1 What this is
 
@@ -714,7 +714,7 @@ Sub-portfolio creation is enabled once an EDM with **≥1 portfolio** exists (po
 
 ### 10A.7 Out of scope (FR §3)
 
-Data-element modification (construction/currency normalization); peril-specific portfolios ("we don't have to split it up by peril" — verify separately whether RM adds a *missing* peril); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); finer-than-state/country granularity as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested).
+Data-element modification (construction/currency normalization); peril-specific portfolios ("we don't have to split it up by peril" — verify separately whether RM adds a *missing* peril); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); finer-than-state/country granularity as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested). *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril-specific portfolios shipped as a quick breakout dimension, so peril-grain — finer than state/country — is in.)*
 
 ---
 
@@ -1315,15 +1315,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New (2026-07-21).** Portfolio work previously appeared only as the word "portfolio" in the old Iteration 6 exit line and had no scoped iteration. Full §-body: **§10A**. Reconciled to FR §3 — "modification" is dropped (data-element edits and merge/combine are out of MVP); the capability is **filtered sub-portfolio creation + one-click breakouts**.
 
-> **Narrowed (2026-07-29, spec 005).** The iteration ships the **two one-click breakouts** — by line of business and by geography at state/state-equivalent grain — with preview/confirm, lineage, and the prerequisite gate. The **filtered sub-portfolio builder (§10A.4) and the complement split are fast-follows**; the current-split view is already served by spec 004's per-portfolio table.
+> **Narrowed (2026-07-29, spec 005).** The iteration ships the **two one-click breakouts** — by line of business and by geography at state/state-equivalent grain — with preview/confirm, lineage, and the prerequisite gate. The **filtered sub-portfolio builder (§10A.4) and the complement split are fast-follows**; the current-split view is already served by spec 004's per-portfolio table. *(Superseded 2026-08-12, spec 005 P-19 rev.: four quick dimensions shipped — LOB, state, country, peril — plus custom groups.)*
 
 **In:** **one-click breakouts** (app-side loop: select the source portfolio's matching account ids → synchronous `create_portfolio()` → account add) by **line of business** and by **geography (state/state-equivalent)**, each previewed and confirmed with the quantified overlap and blank-value disclosures; breakout lineage (source portfolio, dimension, value) stored on `irp_portfolio` and shown in the portfolio list; automatic exposure-detail refresh for generated portfolios; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
 
-**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7).
+**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7). *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril-specific portfolios shipped as a quick breakout dimension.)*
 
 > **Resolved sub-item — geography breakout unblocked (2026-07-29).** O6-1/O6-2 closed by product direction: Risk Modeler assigns whole accounts, the overlap that produces is accepted and disclosed (quantified per portfolio in the preview), and no location-level toggle is awaited (§10A.5). The geography breakout ships in this iteration alongside LOB.
 
-**Exit:** from the EDM detail page, run a one-click LOB or state breakout that produces one sub-portfolio per distinct value, together covering the source, with the measured overlap disclosed before confirm; generated portfolios appear in the list with lineage and acquire figures automatically; the prerequisite gate enables/disables the op correctly from entity state.
+**Exit:** from the EDM detail page, run a one-click LOB or state breakout that produces one sub-portfolio per distinct value, together covering the source, with the measured overlap disclosed before confirm; generated portfolios appear in the list with lineage and acquire figures automatically; the prerequisite gate enables/disables the op correctly from entity state. *(Superseded 2026-08-12, spec 005 P-19 rev.: the shipped quick dimensions are LOB, state, country, and peril, plus custom groups.)*
 
 ### Iteration 5 — GeoHaz (hazard lookup)
 
