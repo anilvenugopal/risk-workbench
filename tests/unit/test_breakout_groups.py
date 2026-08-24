@@ -422,15 +422,15 @@ def test_group_worker_empty_intersection_fails_with_nothing_created(
     assert _generated_rows(pid) == []
 
 
-def test_group_worker_selection_error_fails_the_job(iteration2_db, fake_irp):
-    fake_irp.selection_by_value = {"EQ Comm": [2]}
-    fake_irp.selection_errors = {"TX": "IRPAPIError: boom"}
+def test_group_worker_selection_read_failure_fails_the_job(
+        iteration2_db, fake_irp):
+    fake_irp.raise_on_selection_read = True
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
 
     job = _run(jid)
 
     assert job["status_code"] == "failed"
-    assert "selection read failed for state=TX" in job["error_detail"]
+    assert "account selection failed for lob" in job["error_detail"]
     assert fake_irp.created_sub_portfolios == []
     assert _generated_rows(pid) == []
 

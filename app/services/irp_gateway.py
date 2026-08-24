@@ -209,19 +209,6 @@ class TreatyDetail:
 # ── Breakout value objects (spec 005 — contracts/data-access.md §3) ─────────────
 
 @dataclass(frozen=True)
-class BreakoutSelection:
-    """The resolved account ids per breakout value, one call per run. The real
-    gateway resolves every value from ONE set-based DataBridge query (R1,
-    revised 2026-08-05), so its failure raises and fails the whole job with
-    nothing created; ``errors_by_value`` stays on the seam for implementations
-    that can fail per value — the worker fails such an entry with no create
-    call (W-14). A value with no matching accounts is an EMPTY list, which the
-    worker turns into a zero-match failure with no create call (FR-008)."""
-    accounts_by_value: dict[str, list[int]]
-    errors_by_value: dict[str, str]
-
-
-@dataclass(frozen=True)
 class SubPortfolioResult:
     """One composed sub-portfolio: RM's portfolioId from the create step, and
     the member count READ BACK from Risk Modeler — never the ``completed``
@@ -286,9 +273,10 @@ class IRPGateway(Protocol):
 
     # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
 
-    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
-                                 source_portfolio_irp_id: str, dimension: str,
-                                 values: Sequence[str]) -> BreakoutSelection: ...
+    def select_breakout_accounts(
+            self, *, edm_name: str, exposure_irp_id: str,
+            source_portfolio_irp_id: str, dimension: str,
+            values: Sequence[str]) -> dict[str, list[int]]: ...
 
     def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str,
@@ -429,9 +417,10 @@ class _RealGateway:
                 edm_name=edm_name, edm_irp_id=int(exposure_irp_id))
         return self._database_names[key]
 
-    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
-                                 source_portfolio_irp_id: str, dimension: str,
-                                 values: Sequence[str]) -> BreakoutSelection:
+    def select_breakout_accounts(
+            self, *, edm_name: str, exposure_irp_id: str,
+            source_portfolio_irp_id: str, dimension: str,
+            values: Sequence[str]) -> dict[str, list[int]]:
         # One set-based DataBridge query resolves EVERY value at once (R1,
         # revised 2026-08-05): the REST selection — paginated account
         # enumeration plus a chunked accountId-IN policy scan — cannot complete
@@ -442,7 +431,10 @@ class _RealGateway:
         # script's joins, so the values filtered here are byte-identical to
         # the stored summary the plan was approved from; ACCGRPID is the id
         # RM's account operations accept as accountId. Any failure RAISES —
-        # the worker fails the job before anything is created.
+        # the worker fails the job before anything is created (W-14: never
+        # proceed on an id list the query cannot prove complete). A value the
+        # query returned no rows for maps to an EMPTY list, which the worker
+        # turns into a zero-match failure with no create call (FR-008).
         script = _SELECTION_SCRIPTS.get(dimension)
         if script is None:
             raise ValueError(
@@ -461,10 +453,7 @@ class _RealGateway:
             if value is None or account_id is None:
                 continue
             by_value.setdefault(coerce(value), set()).add(int(account_id))
-        return BreakoutSelection(
-            accounts_by_value={v: sorted(by_value.get(v, set()))
-                               for v in values},
-            errors_by_value={})
+        return {v: sorted(by_value.get(v, set())) for v in values}
 
     def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str,
@@ -992,7 +981,7 @@ def fetch_portfolio_stamp(*, exposure_irp_id: str,
 
 def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str, dimension: str,
-                             values: Sequence[str]) -> BreakoutSelection:
+                             values: Sequence[str]) -> dict[str, list[int]]:
     return _active().select_breakout_accounts(
         edm_name=edm_name, exposure_irp_id=exposure_irp_id,
         source_portfolio_irp_id=source_portfolio_irp_id,
@@ -1038,7 +1027,7 @@ def find_portfolio_by_name(*, exposure_irp_id: str,
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
-    "BreakoutSelection", "SubPortfolioResult", "DuplicatePortfolioNameError",
+    "SubPortfolioResult", "DuplicatePortfolioNameError",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "search_analyses", "get_import_job",
     "search_edms", "search_rdms",

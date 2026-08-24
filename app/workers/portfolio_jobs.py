@@ -78,7 +78,7 @@ def _failed(entry: breakout_service.SubPortfolioPlan, *, source_id: Any,
 def _execute_entry(entry: breakout_service.SubPortfolioPlan, *,
                    edm, source: dict, dimension: str,
                    description: str, actor_id: str | None,
-                   selection: irp_gateway.BreakoutSelection,
+                   selection: dict[str, list[int]],
                    group_id: str | None = None,
                    ) -> breakout_service.SubPortfolioOutcome:
     """One plan entry, per-item isolated (the ``_backfill_edm_detail_body`` /
@@ -101,13 +101,10 @@ def _execute_entry(entry: breakout_service.SubPortfolioPlan, *,
                     actor_id)
         return _outcome(entry, "skipped_existing", irp_id=existing["irp_id"])
 
-    # b. a failed or empty selection fails the entry with NO create call —
-    #    never proceed on a short id list (W-14); no empty portfolio reaches
-    #    Risk Modeler (FR-008)
-    if entry.value in selection.errors_by_value:
-        return fail("selection read failed: "
-                    f"{selection.errors_by_value[entry.value]}")
-    account_ids = selection.accounts_by_value.get(entry.value) or []
+    # b. an empty selection fails the entry with NO create call — never proceed
+    #    on a short id list (W-14); no empty portfolio reaches Risk Modeler
+    #    (FR-008)
+    account_ids = selection.get(entry.value) or []
     if not account_ids:
         return fail("selection returned zero accounts — the stored summary has "
                     "drifted from Risk Modeler; Sync the EDM and retry")
@@ -287,9 +284,8 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
                        portfolio_id, exc)
         return runtime.JobResult.fail(f"account selection failed: {exc}")
     logger.info("breakout selection resolved %d account ids across %d values "
-                "for portfolio %s",
-                sum(len(v) for v in selection.accounts_by_value.values()),
-                len(selection.accounts_by_value), portfolio_id)
+                "for portfolio %s", sum(len(v) for v in selection.values()),
+                len(selection), portfolio_id)
 
     # 4. the per-entry loop. The guard is here, around the whole entry, rather
     #    than only around the calls inside it: the lineage write raises on a
@@ -370,14 +366,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
                            portfolio_id, dim, exc)
             return runtime.JobResult.fail(
                 f"account selection failed for {dim}: {exc}")
-        failed_value = next((v for v in values
-                             if v in selection.errors_by_value), None)
-        if failed_value is not None:
-            return runtime.JobResult.fail(
-                f"selection read failed for {dim}={failed_value}: "
-                f"{selection.errors_by_value[failed_value]}")
-        union = set().union(*(selection.accounts_by_value.get(v) or ()
-                              for v in values))
+        union = set().union(*(selection.get(v) or () for v in values))
         ids = union if ids is None else ids & union
 
     # The RM description lists the full filter set untruncated (FR-010
@@ -396,13 +385,11 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
                             error="no account matches every filter of this "
                                   "breakout — nothing was created")]
     else:
-        selection = irp_gateway.BreakoutSelection(
-            accounts_by_value={group.key: sorted(ids)}, errors_by_value={})
         try:
             outcomes = [_execute_entry(
                 entry, edm=edm, source=source, dimension="custom",
                 description=description, actor_id=actor_id,
-                selection=selection, group_id=group.id)]
+                selection={group.key: sorted(ids)}, group_id=group.id)]
         except Exception as exc:  # noqa: BLE001 — the entry guard, as in the quick loop
             outcomes = [_failed(entry, source_id=source["id"],
                                 actor_id=actor_id, error=str(exc))]

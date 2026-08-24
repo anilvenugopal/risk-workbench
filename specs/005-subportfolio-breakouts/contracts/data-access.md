@@ -149,14 +149,10 @@ def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   #
 Selection is **hoisted out of the per-sub-portfolio loop**: one portfolio-scoped DataBridge query per run resolves every value at once (R1, revised 2026-08-05 — the paginated REST selection could not complete on a 248,000-account portfolio, W-20). The script mirrors the summary script's joins, so the values filtered are byte-identical to the stored summary the plan was approved from; `ACCGRPID` is the id `manage_portfolio_accounts` accepts as `accountId`. The gateway resolves and caches the EDM's physical `databaseName`, which is why the seam takes `edm_name`.
 
 ```python
-@dataclass(frozen=True)
-class BreakoutSelection:
-    accounts_by_value: dict[str, list[int]]   # value → source account ids matching it
-    errors_by_value: dict[str, str]           # value → reason, for reads that failed on their own
-
+# value → source account ids matching it, one entry per requested value
 def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
-                             source_portfolio_irp_id: str,
-                             dimension: str, values: Sequence[str]) -> BreakoutSelection
+                             source_portfolio_irp_id: str, dimension: str,
+                             values: Sequence[str]) -> dict[str, list[int]]
 
 @dataclass(frozen=True)
 class SubPortfolioResult:
@@ -177,7 +173,7 @@ def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
 ```
 
 - `select_breakout_accounts` runs one parameterized DataBridge query — no filter grammar and no URL chunking, both of which belonged to the REST selection W-20 retired on 2026-08-05. It resolves and caches the EDM's `databaseName`, substitutes `{{ portfolio_id }}`, and maps the `Value`/`AccountId` rows into per-value id lists. A wrong column name returns a plausible empty result rather than an error (W-15) — unit-tested against recorded rows.
-- **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). `errors_by_value` stays on the seam for implementations that can fail per value — the worker fails such an entry with no create call.
+- **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). One query has one outcome, so there is no per-value error channel.
 - **A value with an empty id list is returned as empty**, not as an error; the worker turns it into a zero-match failure (FR-008) with no create call made, so no empty portfolio reaches Risk Modeler.
 - `create_sub_portfolio` composes create + add + verify: `create_portfolio(edm_name, name, number, description)` (synchronous 201) → `manage_portfolio_accounts(accounts_to_add=chunk)` per 1,000-id chunk (synchronous 200) → a DataBridge member count compared against `account_ids` (the paginated REST read-back cannot verify past 100,000 accounts, W-20). `add_filtered_accounts` is deliberately not used — it returns `{}` (irp-library.md).
 - **`portfolio_number` is always passed explicitly.** Omitting it makes RM default the number to the name, which then overruns the number's own 20-character cap (W-13).

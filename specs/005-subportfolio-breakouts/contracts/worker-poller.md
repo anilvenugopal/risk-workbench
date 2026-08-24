@@ -27,17 +27,14 @@ input_data: {edm_id, portfolio_id, dimension, actor_id, plan}     (data-model §
    — hoisted out of the loop: ONE portfolio-scoped DataBridge query resolves every
      value at once (R1, revised 2026-08-05 — the REST selection could not complete
      on a 248,000-account portfolio, W-20). All-or-nothing: its failure →
-     JobResult.fail; nothing has been written to RM at this point. errors_by_value
-     stays on the seam for per-value-capable implementations.
+     JobResult.fail; nothing has been written to RM at this point.
 4. FOR EACH entry IN plan, inside a try/except that records an escaping exception as that
    entry's 'failed' outcome and moves to the next:      # per-item isolation — the
      a. find_generated(source, dimension, value) live?  #   _backfill_edm_detail_body /
         → outcome 'skipped_existing'; continue          #   _upload_rdm_body precedents
-     b. selection.errors_by_value[value]  → outcome 'failed' (read error recorded, W-14);
-                                             continue — never proceed on a short id list
-        selection.accounts_by_value[value] empty
-                                          → outcome 'failed' (zero-match, FR-008);
-                                             continue — NO create call, no empty portfolio
+     b. selection[value] empty          → outcome 'failed' (zero-match, FR-008);
+                                             continue — NO create call, no empty portfolio,
+                                             never proceed on a short id list (W-14)
      c. gateway.create_sub_portfolio(name=entry.name, number=entry.number,
                                      description=<full, untruncated: source · dimension ·
                                      value>, account_ids=…)  # create → add → read back
@@ -95,7 +92,6 @@ Both RM writes are synchronous and probe-confirmed: `create_portfolio` returns 2
 - per-item isolation: entry k fails → k−1 rows persist, job `succeeded`, outcome `failed` recorded — including when the failure is the **lineage write** raising on a portfolio Risk Modeler already holds under another breakout key, which the entry-level guard is there for.
 - zero accounts selected for a value: outcome `failed` with reason, **no create call made**, loop continues.
 - selection read failure (the single DataBridge query raising): the job fails with nothing created.
-- a per-value error seeded in `errors_by_value`: that entry fails, the rest run.
 - `completed 0` from the add on a re-run is read as success, not failure (W-9).
 - idempotent re-run: existing lineage rows `skipped_existing`; only missing ones created; names identical across runs.
 - adopt-by-number: fake raises duplicate-name → one hit adopts (row carries the found `irp_id`, `populate_sub_portfolio` invoked); zero hits and multiple hits both fail that entry.

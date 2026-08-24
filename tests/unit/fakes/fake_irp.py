@@ -20,7 +20,6 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
-    BreakoutSelection,
     DuplicatePortfolioNameError,
     EdmCatalogEntry,
     EntityHit,
@@ -90,11 +89,10 @@ class FakeIRP:
         # confirm-time freshness read (FR-002a): recorded calls + failure knob
         self.stamp_reads: list[str] = []
         self.raise_on_fetch_stamp = False
-        # selection: value → account ids; value → per-value read error (W-14);
-        # the selection read raising fails the whole job (the real gateway's
-        # single DataBridge query is all-or-nothing — R1, revised 2026-08-05)
+        # selection: value → account ids. The selection read raising fails the
+        # whole job — the real gateway's single DataBridge query is
+        # all-or-nothing (R1, revised 2026-08-05)
         self.selection_by_value: dict[str, list[int]] = {}
-        self.selection_errors: dict[str, str] = {}
         self.raise_on_selection_read = False
         self.selection_calls: list[dict] = []
         # Add-time match count (P-29): whatever the test says. The default is
@@ -350,7 +348,7 @@ class FakeIRP:
 
     def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,
-                                 values) -> BreakoutSelection:
+                                 values) -> dict[str, list[int]]:
         # The selection read is the input to EVERY value — its failure raises
         # and the worker fails the job before anything is created.
         if self.raise_on_selection_read:
@@ -359,11 +357,7 @@ class FakeIRP:
             "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
             "source_portfolio_irp_id": str(source_portfolio_irp_id),
             "dimension": dimension, "values": list(values)})
-        return BreakoutSelection(
-            accounts_by_value={v: list(self.selection_by_value.get(v, []))
-                               for v in values if v not in self.selection_errors},
-            errors_by_value={v: self.selection_errors[v]
-                             for v in values if v in self.selection_errors})
+        return {v: list(self.selection_by_value.get(v, [])) for v in values}
 
     def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str, filters) -> int:

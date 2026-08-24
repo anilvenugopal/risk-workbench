@@ -283,26 +283,6 @@ def test_zero_account_selection_fails_entry_with_no_create_call(
         "usfl_commercial - A"]
 
 
-def test_per_value_selection_read_error_fails_one_entry(
-        iteration2_db, fake_irp):
-    edm_id = _mk_edm()
-    source_id = _mk_source(edm_id)
-    fake_irp.selection_by_value = {"A": [1]}
-    fake_irp.selection_errors = {"B": "IRPAPIError: repeated page fingerprint"}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
-                  [_plan_entry("A"), _plan_entry("B")])
-
-    job = _run(jid)
-
-    assert job["status_code"] == "succeeded"
-    out = json.loads(job["output_data"])
-    failed = next(o for o in out["sub_portfolios"] if o["outcome"] == "failed")
-    assert failed["value"] == "B"
-    assert "selection read failed" in failed["error"]
-    assert [c["name"] for c in fake_irp.created_sub_portfolios] == [
-        "usfl_commercial - A"]                   # never proceed on a short list
-
-
 def test_short_membership_read_back_fails_the_entry_with_no_lineage_row(
         iteration2_db, fake_irp):
     # The add landed partially: the read-back count is 1 where 3 accounts were

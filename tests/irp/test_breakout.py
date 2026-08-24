@@ -74,7 +74,7 @@ def sandbox() -> dict:
 
 
 def _select(sandbox: dict, dimension: str,
-            values: list[str]) -> irp_gateway.BreakoutSelection:
+            values: list[str]) -> dict[str, list[int]]:
     return irp_gateway.select_breakout_accounts(
         edm_name=EDM_NAME, exposure_irp_id=sandbox["exposure_id"],
         source_portfolio_irp_id=str(PORTFOLIO_ID), dimension=dimension,
@@ -110,9 +110,8 @@ def test_selection_vocabulary_matches_the_stored_summary(sandbox):
         if not values:
             continue
         selection = _select(sandbox, dimension, [v["value"] for v in values])
-        assert selection.errors_by_value == {}
         for v in values:
-            got = len(selection.accounts_by_value[v["value"]])
+            got = len(selection[v["value"]])
             assert got == v["accounts"], (
                 f"{dimension} {v['value']!r}: selection returned {got} "
                 f"accounts, the stored summary says {v['accounts']}")
@@ -125,7 +124,7 @@ def test_whole_account_bucketing_and_blank_value_gap(sandbox):
     # the blank-value exposure the preview disclosure names (FR-007).
     values = sandbox["summary"]["breakout_values"]["lob"]
     selection = _select(sandbox, "lob", [v["value"] for v in values])
-    per_value = list(selection.accounts_by_value.values())
+    per_value = list(selection.values())
     union = set().union(*per_value) if per_value else set()
     summed = sum(len(ids) for ids in per_value)
     assert summed >= len(union)
@@ -157,7 +156,7 @@ def test_create_add_readback_chunking_and_idempotent_readd(sandbox):
     # failure reads as a short add rather than as a stale count.
     values = sandbox["summary"]["breakout_values"]["lob"]
     selection = _select(sandbox, "lob", [v["value"] for v in values])
-    ids = sorted(set().union(*selection.accounts_by_value.values()))
+    ids = sorted(set().union(*selection.values()))
     assert ids, "fixture portfolio selected no accounts"
 
     result = _compose_or_adopt(sandbox, name="rwbt union",
@@ -181,11 +180,9 @@ def test_two_dimension_group_round_trip(sandbox):
     if not states or not lobs:
         pytest.skip("fixture portfolio lacks state or lob values")
     state_union = set().union(*(
-        _select(sandbox, "state", states).accounts_by_value.get(v) or []
-        for v in states))
+        _select(sandbox, "state", states).get(v) or [] for v in states))
     lob_union = set().union(*(
-        _select(sandbox, "lob", lobs).accounts_by_value.get(v) or []
-        for v in lobs))
+        _select(sandbox, "lob", lobs).get(v) or [] for v in lobs))
     ids = sorted(state_union & lob_union)
     if not ids:
         pytest.skip("fixture intersection is empty — pick other values")
@@ -232,7 +229,7 @@ def test_state_fanout_over_40_divisions_lands_every_entry(sandbox):
     selection = _select(sandbox, "state", [p.value for p in plan])
     outcomes: dict[str, int] = {}
     for entry in plan:
-        ids = selection.accounts_by_value.get(entry.value) or []
+        ids = selection.get(entry.value) or []
         assert ids, f"state {entry.value!r} selected no accounts"
         result = _compose_or_adopt(sandbox, name=entry.name, number=entry.number,
                                    account_ids=ids)
