@@ -325,7 +325,7 @@ def upgrade() -> None:
         )
 
     # ── irp_job (one tracked Risk Modeler asynchronous operation; data-model §2) ─
-    # irp_portfolio_id's FK is added after irp_portfolio is created below.
+    # The portfolio and analysis FKs are added after their target tables exist.
     op.create_table(
         "irp_job",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
@@ -341,11 +341,13 @@ def upgrade() -> None:
         # Operational log-trace id inherited from the rwb_job whose worker
         # submitted this op (issue #28). Provenance only — never a predicate.
         sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
-        sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
         sa.Column("completion_summary", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
+        # JSON snapshot of the submit kwargs (spec 010, data-model §2) — the
+        # submission_retry batch resubmits from this verbatim, never recomposed.
+        sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
         sa.Column("submission_attempt_count", sa.Integer, nullable=False,
                   server_default="0"),
         sa.Column("submitted_at", DATETIME2, nullable=True),
@@ -438,20 +440,28 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["rwb_job_id"], ["rwb_job.id"]),
     )
 
-    # ── irp_analysis (captured broker analyses; §6a + spec-004 detail cols) ──────
-    # Populated by backfill_rdm_analyses after import_rdm finishes.
+    # ── irp_analysis (broker capture + own-executed analyses; §6a/§6 + spec-004) ──
+    # Broker rows: populated by backfill_rdm_analyses after import_rdm finishes.
     # Iteration 3 (spec 004, data-model §4): settings_metadata (JSON snapshot, R2),
     # is_group (FR-035), exposure_resource_id (the RM portfolio pointer, R9 —
     # resolved to irp_portfolio at READ time, never a stored FK). group_parent_id
     # stays DEFERRED — RM does not expose group membership, nothing populates it.
+    # Spec 010: own-executed rows (edm_id set, rdm_id NULL) submitted by the
+    # workbench itself via Execute Suite/Template — rdm_id/source_rdm_name/irp_id
+    # become nullable and full_name/execution_id/failure_reason are added here;
+    # irp_portfolio_id/analysis_template_id are added by ALTER below (their
+    # target tables don't exist yet at this point in the script).
     op.create_table(
         "irp_analysis",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
-        sa.Column("rdm_id", sa.Uuid, nullable=False),
+        sa.Column("rdm_id", sa.Uuid, nullable=True),
         sa.Column("edm_id", sa.Uuid, nullable=True),
-        sa.Column("irp_id", sa.NVARCHAR(64), nullable=False),  # Moody's analysisId
+        sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # Moody's analysisId
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
-        sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=False),
+        # Untruncated "portfolio + template" (+ rerun suffix) for own-executed rows
+        # (T-04); NULL for broker rows.
+        sa.Column("full_name", sa.NVARCHAR(256), nullable=True),
+        sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=True),
         # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
         sa.Column("created_by_irp_job_irp_id", sa.NVARCHAR(64), nullable=True),
@@ -461,6 +471,17 @@ def upgrade() -> None:
         # RM exposureResourceId as string — set ONLY when exposureResourceType ==
         # 'PORTFOLIO' (R9/FR-036); no index — the resolve join keys on edm_id.
         sa.Column("exposure_resource_id", sa.NVARCHAR(64), nullable=True),
+        # The run's UUID (spec 010) — equals the execute_analysis_batch row's
+        # requestor_id; NULL for broker rows.
+        sa.Column("execution_id", sa.Uuid, nullable=True),
+        # The plan item's ordinal within the run (spec 010). Cross-suite dedup is
+        # dropped (P-02 amended), so (execution_id, irp_portfolio_id, template) can
+        # repeat — (execution_id, irp_portfolio_id, execution_item_no) is the
+        # worker's exact resume key. NULL for broker rows.
+        sa.Column("execution_item_no", sa.Integer, nullable=True),
+        # RM's run-failure message (poller) or the submit exception message
+        # (worker); NULL for broker rows.
+        sa.Column("failure_reason", sa.NVARCHAR(None), nullable=True),
         # Stamped when a successful analysis refresh no longer returns the row.
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
@@ -474,12 +495,36 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["status_code"], ["irp_analysis_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
-        # Idempotent backfill backbone — a duplicate search never double-inserts.
-        sa.UniqueConstraint("rdm_id", "irp_id",
-                            name="uq_irp_analysis_rdm_irp"),
+        # Every row is either a broker capture (rdm_id) or own-executed (edm_id) —
+        # spec 010, data-model §1.
+        sa.CheckConstraint(
+            "edm_id IS NOT NULL OR rdm_id IS NOT NULL",
+            name="ck_irp_analysis_origin",
+        ),
         # No scope/customer column (Article 6).
     )
     op.create_index("ix_irp_analysis_rdm_id", "irp_analysis", ["rdm_id"])
+    op.create_index("ix_irp_analysis_edm_id", "irp_analysis", ["edm_id"])
+    # Idempotent backfill backbone for broker rows — a duplicate search never
+    # double-inserts. Filtered (not a plain UNIQUE constraint) because the many
+    # own-executed rows share NULL rdm_id/irp_id, which a plain UNIQUE would
+    # collide on in SQL Server.
+    irp_analysis_rdm_irp = sa.text("rdm_id IS NOT NULL AND irp_id IS NOT NULL")
+    op.create_index(
+        "uq_irp_analysis_rdm_irp", "irp_analysis", ["rdm_id", "irp_id"],
+        unique=True, mssql_where=irp_analysis_rdm_irp,
+        sqlite_where=irp_analysis_rdm_irp,
+    )
+    # Local rerun-collision check + name-claim backbone for own-executed rows
+    # (T-05) — live rows only, one EDM's names never collide.
+    irp_analysis_live_edm_name = sa.text(
+        "edm_id IS NOT NULL AND rdm_id IS NULL AND deleted_at IS NULL"
+    )
+    op.create_index(
+        "uq_irp_analysis_live_edm_name", "irp_analysis", ["edm_id", "name"],
+        unique=True, mssql_where=irp_analysis_live_edm_name,
+        sqlite_where=irp_analysis_live_edm_name,
+    )
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
@@ -604,6 +649,22 @@ def upgrade() -> None:
         ["irp_portfolio_id"],
         ["id"],
     )
+
+    # ── spec-010 FKs deferred until irp_portfolio exists (irp_analysis already
+    #    does — created above) ────────────────────────────────────────────────
+    op.add_column("irp_analysis",
+                  sa.Column("irp_portfolio_id", sa.Uuid, nullable=True))
+    op.create_foreign_key(
+        "fk_irp_analysis_irp_portfolio_id", "irp_analysis", "irp_portfolio",
+        ["irp_portfolio_id"], ["id"],
+    )
+    op.add_column("irp_job",
+                  sa.Column("irp_analysis_id", sa.Uuid, nullable=True))
+    op.create_foreign_key(
+        "fk_irp_job_irp_analysis_id", "irp_job", "irp_analysis",
+        ["irp_analysis_id"], ["id"],
+    )
+    op.create_index("ix_irp_job_irp_analysis_id", "irp_job", ["irp_analysis_id"])
 
     # ── irp_treaty (reinsurance coded on an EDM — read/cache record) ─────────────
     op.create_table(
@@ -769,6 +830,14 @@ def upgrade() -> None:
         sqlite_where=live_analysis_template,
     )
 
+    # ── spec-010 FK deferred until analysis_template exists ─────────────────────
+    op.add_column("irp_analysis",
+                  sa.Column("analysis_template_id", sa.Uuid, nullable=True))
+    op.create_foreign_key(
+        "fk_irp_analysis_analysis_template_id", "irp_analysis", "analysis_template",
+        ["analysis_template_id"], ["id"],
+    )
+
     op.create_table(
         "analysis_template_tag",
         sa.Column("template_id", sa.Uuid, nullable=False),
@@ -842,6 +911,8 @@ def upgrade() -> None:
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
         "('run_geohaz', 'Run GeoHaz', 28), "
+        "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
+        "('backfill_analysis_detail', 'Backfill Analysis Detail', 30), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
@@ -916,6 +987,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Drop the spec-010 cross-references first (irp_job <-> irp_portfolio/
+    # irp_analysis, irp_analysis <-> irp_portfolio/analysis_template) — added by
+    # ALTER after their target tables existed, so the table drops below would
+    # otherwise hit a live FK regardless of ordering.
+    op.drop_constraint("fk_irp_job_irp_analysis_id", "irp_job", type_="foreignkey")
+    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job", type_="foreignkey")
+    op.drop_constraint("fk_irp_analysis_analysis_template_id", "irp_analysis",
+                       type_="foreignkey")
+    op.drop_constraint("fk_irp_analysis_irp_portfolio_id", "irp_analysis",
+                       type_="foreignkey")
+
     op.drop_table("template_suite_item")
     op.drop_index("uq_template_suite_live_name", table_name="template_suite")
     op.drop_table("template_suite")
@@ -940,8 +1022,6 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
-    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job",
-                       type_="foreignkey")
     # breakout_group and irp_portfolio reference each other — drop the
     # irp_portfolio-side FK/column first, then the group table.
     op.drop_constraint("fk_irp_portfolio_breakout_group", "irp_portfolio",
@@ -956,6 +1036,9 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
+    op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_rdm_id", table_name="irp_analysis")
     op.drop_table("irp_analysis")
     op.drop_table("rwb_job_heartbeat")
@@ -965,6 +1048,7 @@ def downgrade() -> None:
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
     op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
+    op.drop_index("ix_irp_job_irp_analysis_id", table_name="irp_job")
     op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")
     op.drop_index("ix_irp_job_status", table_name="irp_job")
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")

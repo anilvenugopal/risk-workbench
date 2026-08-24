@@ -8,6 +8,13 @@ Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
     ``is_group`` (FR-035).
   • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
     submission RDM context and therefore returns no groups.
+  • ``list_executed_analyses(edm_id)`` — the EDM detail page's user-executed
+    section (spec 010 US2, FR-013): every analysis the workbench itself
+    submitted against this EDM (``execution_id`` set), with live status
+    derived from the latest tracked ``irp_job`` per analysis (T-07) and the
+    same curated ``AnalysisSettings`` view once ``settings_metadata`` is
+    backfilled. No RDM grouping — this is exactly the portfolio the trust
+    rule (8/4 D8) exempts, since the workbench submitted these itself.
 
 **No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
 way to tie an RDM analysis to an EDM portfolio, and every analysis here is
@@ -29,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config import settings
 from app.services._common import _parse_json_dict, _uid
 from db import execute
 
@@ -96,6 +104,52 @@ class BrokerAnalysisGroup:
     def edm_count(self) -> int:
         return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
+
+@dataclass
+class ExecutedAnalysis:
+    """One workbench-submitted analysis for the EDM detail page's user-executed
+    section (spec 010 US2, FR-013). Status is derived from the latest tracked
+    ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
+    status_code`` keeps only the four coarse lifecycle codes."""
+    id: str
+    name: str | None            # the ≤64-char name submitted to Risk Modeler
+    full_name: str | None       # untruncated portfolio + template (+ suffix)
+    portfolio_name: str | None
+    status_code: str            # pending | running | ready | error
+    failure_reason: str | None
+    settings: dict | None = None
+    display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    job_status: str | None = None       # latest irp_job.status; None before submit
+    submission_attempt_count: int = 0
+
+    @property
+    def is_live(self) -> bool:
+        """Drives the EDM page's 3s self-poll (T-11): still moving toward a
+        terminal outcome. Equivalent to "joined job non-terminal" — status_code
+        only reaches ready/error once the job (or the exhausted retry batch)
+        already has."""
+        return self.status_code in ("pending", "running")
+
+    @property
+    def status_label(self) -> str:
+        if self.job_status is None:
+            return "Submitting…"
+        if self.job_status == "SUBMISSION FAILED":
+            return (f"Failed to submit · attempt {self.submission_attempt_count}/"
+                    f"{settings.irp_submission_max_retries}")
+        return self.job_status.capitalize()
+
+    @property
+    def status_chip(self) -> str:
+        """One of the existing import-status chip variants (submissions.css) —
+        no new CSS, keyed off the derived label rather than a stored status."""
+        if self.job_status in (None, "QUEUED", "RUNNING"):
+            return "importing"
+        if self.job_status == "FINISHED":
+            return "ready"
+        if self.job_status == "SUBMISSION FAILED":
+            return "submission-failed"
+        return "error"  # FAILED, CANCELLED
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -231,6 +285,49 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     return []
 
 
+_EXECUTED_SELECT = """
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, p.name AS portfolio_name
+    FROM irp_analysis a
+    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
+    ORDER BY a.inserted_at DESC
+"""
+
+
+def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
+    """The EDM detail page's user-executed section (FR-013): every analysis the
+    workbench submitted against this EDM, newest first, each with its live
+    status derived from its latest tracked ``irp_job`` (T-07)."""
+    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+    analyses = []
+    for r in rows:
+        parsed = _parse_settings(r["settings_metadata"])
+        analyses.append(ExecutedAnalysis(
+            id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
+            portfolio_name=r["portfolio_name"], status_code=r["status_code"],
+            failure_reason=r["failure_reason"], settings=parsed,
+            display=_to_display(parsed)))
+    if not analyses:
+        return analyses
+    params = {f"a{i}": a.id for i, a in enumerate(analyses)}
+    placeholders = ", ".join(f":a{i}" for i in range(len(analyses)))
+    jobs = execute(
+        f"SELECT irp_analysis_id, status, submission_attempt_count "
+        f"FROM irp_job WHERE irp_analysis_id IN ({placeholders}) "
+        "ORDER BY inserted_at DESC",
+        params, connection="WORKBENCH")
+    latest_job: dict[str, dict] = {}
+    for job in jobs:
+        latest_job.setdefault(_uid(job["irp_analysis_id"]), job)
+    for a in analyses:
+        job = latest_job.get(a.id)
+        if job is not None:
+            a.job_status = job["status"]
+            a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
+    return analyses
+
+
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
     """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
@@ -275,7 +372,7 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
-    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
-    "list_broker_analyses", "list_edm_analyses", "list_submission_rdms",
-    "list_submission_rdm_analyses",
+    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "ExecutedAnalysis",
+    "list_broker_analyses", "list_edm_analyses", "list_executed_analyses",
+    "list_submission_rdms", "list_submission_rdm_analyses",
 ]

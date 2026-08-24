@@ -21,4 +21,8 @@
    non-2xx bodies by default — and mutes the generic error toast for them. #}
 <div id="breakout-modal-mount"
      hx-on::before-swap="if (event.detail.xhr.status === 404 || event.detail.xhr.status === 409) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
+{# Outside the self-polling #edm-detail wrapper — same reason
+   submission_detail.html keeps #submission-entity-modal outside its polled
+   sections: an open modal must never be wiped by the 3s poll. #}
+<div id="execute-modal"></div>
 {% endblock %}

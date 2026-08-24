@@ -45,31 +45,13 @@
       <div><dt>Group</dt>
         <dd class="blank">combines multiple analyses; member breakdown not available</dd></div>
       {% endif %}
-      {% for label, val in [
-        ('Engine / model version', d.engine_version),
-        ('Engine type', d.engine_type),
-        ('Analysis type / mode', d.analysis_type ~ (' · ' ~ d.analysis_mode if d.analysis_mode else '') if d.analysis_type else d.analysis_mode),
-        ('Peril (primary)', d.peril),
-        ('Peril (secondary)', d.peril_secondary),
-        ('Region', d.region),
-        ('Currency', d.currency),
-        ('Construction', d.construction),
-        ('Line of business', d.line_of_business),
-        ('Term', d.term),
-        ('Loss amplification (PLA)', d.pla),
-      ] %}
-      {% if val %}<div><dt>{{ label }}</dt><dd>{{ val }}</dd></div>
-      {% else %}<div><dt>{{ label }}</dt><dd class="blank">not provided</dd></div>
-      {% endif %}
-      {% endfor %}
+      {% include "partials/_analysis_metadata_fields.html" %}
     </dl>
     {% if d.has_rate_detail %}
     <details class="drill">
       <summary>▾ Rate / event-rate detail</summary>
       <div class="drill__body">
-        <span><span class="k">Event-rate scheme</span>{{ d.event_rate_scheme or '—' }}</span>
-        <span><span class="k">Rate vintage</span>{{ d.rate_vintage or '—' }}</span>
-        <span><span class="k">Time-dependency</span>{{ d.term or '—' }}</span>
+        {% include "partials/_analysis_rate_detail.html" %}
       </div>
     </details>
     {% endif %}

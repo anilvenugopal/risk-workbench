@@ -152,7 +152,7 @@ document.addEventListener('alpine:init', () => {
     destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
       return this.$root.querySelectorAll(
-        'input[name="portfolio_ids"]:not(:disabled)');
+        'input[name="portfolio_ids"]:not(.analysis-pick):not(:disabled)');
     },
     refresh() {
       const boxes = this.boxes();
@@ -708,6 +708,78 @@ document.addEventListener('alpine:init', () => {
       this.onChange();
     },
   }));
+
+  // Portfolio multi-select on the EDM detail page (spec 010) — counts ticked
+  // portfolios so the Execute Suite/Execute Template buttons enable; the boxes
+  // themselves are read straight off the DOM by hx-include at click time.
+  Alpine.data('portfolioPicks', () => ({
+    count: 0,
+    init() { this.onChange(); },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input.analysis-pick[name="portfolio_ids"]:checked').length;
+    },
+  }));
+
+  // Execute Suite / Execute Template modal (spec 010). All state lives in the DOM
+  // (checkboxes, selects) — this component only reads it, matching syncPicks: no
+  // duplicated selection state to drift out of sync with the real form.
+  Alpine.data('executeModal', () => ({
+    canSubmit: false,
+    init() { this.recompute(); },
+    onSearch(e) {
+      const term = e.target.value.trim().toLowerCase();
+      const scope = this.$root.querySelector('#exec-candidates');
+      if (!scope) return;
+      scope.querySelectorAll('[data-exec-name]').forEach((row) => {
+        row.hidden = !!term && !(row.dataset.execName || '').includes(term);
+      });
+    },
+    onChange(e) {
+      const target = e.target;
+      if (target.name === 'chosen_suite_ids') {
+        const details = target.closest('details');
+        const fieldset = details && details.querySelector('.exec-row__body');
+        if (details) details.open = target.checked;
+        if (fieldset) fieldset.disabled = !target.checked;
+      }
+      const tpl = target.closest('.exec-tpl');
+      if (tpl) tpl.classList.toggle('exec-tpl--off', !target.checked);
+      const row = target.closest('.exec-row');
+      if (row && target.closest('.exec-tpl-list')) {
+        const counter = row.querySelector('.exec-row__count-n');
+        if (counter) {
+          counter.textContent = row.querySelectorAll(
+            '.exec-tpl-list input[type="checkbox"]:checked').length;
+        }
+      }
+      this.recompute();
+    },
+    currencyComplete(scope) {
+      const block = scope.querySelector('.exec-currency');
+      if (!block) return true;
+      return Array.from(block.querySelectorAll('select'))
+        .every((select) => select.value !== '');
+    },
+    recompute() {
+      const root = this.$root;
+      if (root.dataset.kind === 'suite') {
+        let ok = false;
+        root.querySelectorAll('.exec-row').forEach((row) => {
+          const chosen = row.querySelector('input[name="chosen_suite_ids"]');
+          if (!chosen || !chosen.checked) return;
+          const hasTemplates = row.querySelectorAll(
+            '.exec-tpl-list input[type="checkbox"]:checked').length > 0;
+          if (hasTemplates && this.currencyComplete(row)) ok = true;
+        });
+        this.canSubmit = ok;
+      } else {
+        const hasTemplates = root.querySelectorAll(
+          '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
+        this.canSubmit = hasTemplates && this.currencyComplete(root);
+      }
+    },
+  }));
 });
 
 // ── Row click → open the submission (D17) ─────────────────────────────────────
@@ -842,6 +914,57 @@ window.showToast = showToast;
 document.addEventListener('rwb:toast', (e) => {
   const d = e.detail || {};
   showToast(d.message || 'Something needs your attention.', d.type || 'warning');
+});
+
+// Analysis execution submit (spec 010): the execute modal's POST fires this
+// alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
+// section refetches on its own (executed_analyses_section.html) — this only
+// clears the portfolio picks that were just submitted, so Execute Suite /
+// Execute Template disable again (portfolioPicks() reads checked boxes off
+// the DOM, so a real 'change' event is what makes it recompute).
+document.addEventListener('execution-submitted', () => {
+  const checked = document.querySelectorAll(
+    'input.analysis-pick[name="portfolio_ids"]:checked');
+  checked.forEach((box) => { box.checked = false; });
+  if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
+});
+
+// The freshly-enqueued execute_analysis_batch job writes its first pending
+// irp_analysis row worker-side, moments after the request above returns
+// (Article 5) — the section's own immediate refetch can land before that
+// write happens. Re-fire the event a few times until a row shows up as
+// pending/running (the section's hx-trigger then carries "every 3s" and
+// keeps itself current from there) or we give up.
+document.addEventListener('execution-submitted', () => {
+  let attempts = 0;
+  const poll = window.setInterval(() => {
+    attempts += 1;
+    const section = document.getElementById('edm-executed-analyses');
+    const live = section && (section.getAttribute('hx-trigger') || '').includes('every 3s');
+    if (live || !section || attempts >= 10) { window.clearInterval(poll); return; }
+    htmx.trigger(document.body, 'execution-submitted');
+  }, 2000);
+});
+
+// Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
+// from scratch, so an expanded row's <details open> would otherwise reset —
+// losing the analyst's place mid-inspection. Remember which analysis rows
+// were open just before the swap and reopen those same rows once the fresh
+// content lands (picking up whatever changed in them along the way).
+let _analysesReopenIds = null;
+document.addEventListener('htmx:beforeSwap', (e) => {
+  if (e.detail.target.id !== 'edm-executed-analyses') return;
+  _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
+    .map((row) => row.id).filter(Boolean);
+});
+document.addEventListener('htmx:afterSwap', () => {
+  if (!_analysesReopenIds || !_analysesReopenIds.length) { _analysesReopenIds = null; return; }
+  const section = document.getElementById('edm-executed-analyses');
+  _analysesReopenIds.forEach((id) => {
+    const row = section && document.getElementById(id);
+    if (row) row.open = true;
+  });
+  _analysesReopenIds = null;
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

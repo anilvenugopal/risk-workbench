@@ -16,9 +16,11 @@
 {# The poll render (edm_portfolios_live.html) has no contextual `sync_url`
    in scope, hence the default. #}
 {% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
+{% set base_url = base_url | default('/edms/' ~ edm.id) %}
 {% set bo_live = edm.breakout_running
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
+  x-data="portfolioPicks()" @change="onChange()"
   {%- if bo_live %}
   hx-get="/edms/{{ edm.id }}/portfolios-section" hx-trigger="every 3s"
   hx-target="this" hx-swap="outerHTML"
@@ -30,6 +32,18 @@
     <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
     {% endif %}
     <span class="sec__spacer"></span>
+    {% if edm.status == 'ready' and edm.portfolio_count > 0 %}
+    <button class="btn-sm" type="button" :disabled="!count"
+            onclick="event.stopPropagation()"
+            hx-get="{{ base_url }}/execute?kind=suite"
+            hx-include=".analysis-pick:checked"
+            hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
+    <button class="btn-sm" type="button" :disabled="!count"
+            onclick="event.stopPropagation()"
+            hx-get="{{ base_url }}/execute?kind=template"
+            hx-include=".analysis-pick:checked"
+            hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
+    {% endif %}
     <span class="sec__note">Break out creates one sub-portfolio per line of business, state, or country</span>
   </summary>
 
@@ -45,6 +59,7 @@
   {% endif %}
 
   {% if edm.detail_state == 'populated' %}
+  <form id="analysis-picker-{{ edm.id }}"></form>
   <form method="post" action="/edms/{{ edm.id }}/geohaz"
         hx-post="/edms/{{ edm.id }}/geohaz"
         hx-target="#edm-detail" hx-swap="outerHTML"
