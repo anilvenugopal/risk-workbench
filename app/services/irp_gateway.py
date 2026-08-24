@@ -579,9 +579,9 @@ class _RealGateway:
         ) for row in rows]
 
     def list_currency_schemes(self) -> list[CurrencySchemeEntry]:
-        # Only active schemes are cached (data-model.md) — like event-rate
-        # schemes, but here the filter is an explicit where_clause rather than
-        # baked into the wheel method (R13).
+        # Only active schemes are cached (data-model.md);
+        # search_currency_schemes returns inactive schemes too, so the
+        # isActive filter is passed explicitly.
         rows = self._reference_rows(
             self._client().reference_data.search_currency_schemes(
                 where_clause="isActive=True"), "currency schemes")
