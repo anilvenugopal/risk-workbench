@@ -37,8 +37,8 @@ _MAX_ENTRIES = 512
 _NAME_MAX = 50
 _NAME_RE = re.compile(r"[A-Za-z0-9_-]+")
 
-# (kind, trimmed name) -> (monotonic expiry, colliding names)
-_cache: dict[tuple[str, str], tuple[float, tuple[str, ...]]] = {}
+# (kind, exposure irp id, trimmed name) -> (monotonic expiry, colliding names)
+_cache: dict[tuple[str, str | None, str], tuple[float, tuple[str, ...]]] = {}
 _lock = threading.Lock()
 
 
@@ -75,7 +75,7 @@ def check_portfolio_name(*, exposure_irp_id: str, name: str) -> CollisionCheck:
     """Portfolio-name check scoped to one EDM (spec 005 P-25): a breakout
     group's name is blocked when any portfolio in the exposure already carries
     it. Cached per (exposure, name), same TTL as the EDM/RDM checks."""
-    return _check(f"portfolio:{exposure_irp_id}", name)
+    return _check("portfolio", name, exposure_irp_id=exposure_irp_id)
 
 
 def clear_cache() -> None:
@@ -84,12 +84,13 @@ def clear_cache() -> None:
         _cache.clear()
 
 
-def _check(kind: str, name: str) -> CollisionCheck:
+def _check(kind: str, name: str, *,
+           exposure_irp_id: str | None = None) -> CollisionCheck:
     trimmed = (name or "").strip()
     if not trimmed:
         return CollisionCheck()
 
-    key = (kind, trimmed)
+    key = (kind, exposure_irp_id, trimmed)
     now = time.monotonic()
     with _lock:
         entry = _cache.get(key)
@@ -97,7 +98,8 @@ def _check(kind: str, name: str) -> CollisionCheck:
             return CollisionCheck(names=entry[1])
 
     try:
-        names = tuple(hit.name for hit in _search(kind, trimmed))
+        names = tuple(hit.name for hit in
+                      _search(kind, trimmed, exposure_irp_id))
     except Exception:  # noqa: BLE001 — fail open; the worker submit is the backstop
         logger.warning("%s name-collision check unavailable (gateway error)",
                        kind.upper(), exc_info=True)
@@ -110,13 +112,15 @@ def _check(kind: str, name: str) -> CollisionCheck:
     return CollisionCheck(names=names)
 
 
-def _search(kind: str, name: str):
+def _search(kind: str, name: str, exposure_irp_id: str | None):
     if kind == "edm":
         return irp_gateway.search_edms(name)
     if kind == "rdm":
         return irp_gateway.search_rdms(name)
-    return irp_gateway.find_portfolio_by_name(
-        exposure_irp_id=kind.removeprefix("portfolio:"), name=name)
+    if kind == "portfolio":
+        return irp_gateway.find_portfolio_by_name(
+            exposure_irp_id=exposure_irp_id, name=name)
+    raise ValueError(f"unknown name-check kind {kind!r}")
 
 
 def _evict(now: float) -> None:

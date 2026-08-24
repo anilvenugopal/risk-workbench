@@ -195,6 +195,69 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // The breakout modal's custom-groups pane (spec 005 FR-018). Pills toggle
+  // x-show, so switching dimensions loses no ticked state (T-15), and the chips
+  // are derived from the checkboxes, so clearing the boxes clears them. Add
+  // breakout is gated the way Import is: disabled until the as-you-type check
+  // comes back usable — 'ok', or 'unchecked' when Risk Modeler was unreachable
+  // (the group-preview route re-checks at Add either way).
+  Alpine.data('breakoutCustom', (opts = {}) => ({
+    dim: opts.dim || '',
+    nameVal: '',
+    nameState: 'pending',
+    sel: [],
+    get checking() {
+      return !!this.nameVal.trim() && this.nameState === 'pending';
+    },
+    get nameCleared() {
+      return !!this.nameVal.trim() && ncCleared(this.nameState);
+    },
+    resel() {
+      this.sel = [...this.$root.querySelectorAll('.bo-checks input:checked')]
+        .map((c) => ({
+          name: c.name,
+          v: c.value,
+          shown: c.dataset.display,
+          d: c.closest('.bo-checks').dataset.dimlabel,
+        }));
+    },
+    onChange() {
+      this.resel();
+      boClearCartError(this.$root);
+    },
+    onName(e) {
+      this.nameVal = e.target.value;
+      this.nameState = 'pending';
+      ncReset(this.$root.querySelector('.name-collision'));
+      boClearCartError(this.$root);
+    },
+    unpick(s) {
+      this.$root.querySelectorAll('.bo-checks input:checked').forEach((c) => {
+        if (c.name === s.name && c.value === s.v) c.checked = false;
+      });
+      this.resel();
+    },
+    onSwap() {
+      this.nameState = ncState(this.$root.querySelector('.name-collision'));
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap();
+    },
+    // Keyed on the status: the mount clears isError for a 409 refusal, which
+    // also makes htmx report the refusal as successful.
+    onAdded(e) {
+      if (e.detail.xhr.status !== 200) return;
+      this.$root.querySelectorAll('.bo-checks input:checked')
+        .forEach((c) => { c.checked = false; });
+      this.$root.querySelector('[name=group_label]').value = '';
+      boClearCartError(this.$root);
+      ncReset(this.$root.querySelector('.name-collision'));
+      this.nameVal = '';
+      this.nameState = 'pending';
+      this.resel();
+    },
+  }));
+
   // Typeahead menu shared by the submission form's CEDANT field and its "links
   // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
   // open/close, the keyboard, and committing a pick.

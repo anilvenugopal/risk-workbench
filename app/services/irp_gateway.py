@@ -371,22 +371,32 @@ class _RealGateway:
 
     # ── spec-004 detail reads (worker-only; single-item, loop app-side — R1) ──────
 
-    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
-        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios (paginated so a
-        # 25-portfolio EDM enumerates completely). Field names read defensively —
-        # the wheel is pre-release (R1).
-        rows = self._client().portfolio.search_portfolios_paginated(edm_irp_id)
+    def _search_portfolios(self, exposure_irp_id: Any, *,
+                           rm_filter: str | None = None,
+                           name_fallback: str | None = None,
+                           ) -> list[PortfolioHit]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios, paginated
+        # so a portfolio past the first page never reads as absent. Field names
+        # read defensively — the wheel is pre-release (R1). ``name_fallback``
+        # None drops a row RM returned without a name; a string keeps the row
+        # under that name.
+        rows = self._client().portfolio.search_portfolios_paginated(
+            int(exposure_irp_id),
+            **({"filter": rm_filter} if rm_filter is not None else {}))
         hits: list[PortfolioHit] = []
         for r in rows:
             pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            name = r.get("name") or r.get("portfolioName")
-            if pid is None or not name:
+            name = r.get("name") or r.get("portfolioName") or name_fallback
+            if pid is None or name is None:
                 continue
             stamp = r.get("stampDate")
             hits.append(PortfolioHit(
                 irp_id=str(pid), name=str(name),
                 stamp=(str(stamp) if stamp is not None else None)))
         return hits
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
+        return self._search_portfolios(edm_irp_id)
 
     def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None:
@@ -511,16 +521,12 @@ class _RealGateway:
     def _portfolio_name_taken(self, exposure_irp_id: str, name: str) -> bool:
         # W-10: IRPValidationError alone is not "the name is taken" — it also
         # covers the two length violations. Verify against RM before treating
-        # the failure as the adoption signal. Paginated, like every other
-        # portfolio lookup here: a name held by a portfolio past the first page
-        # would otherwise read as free and the entry would fail instead of
-        # adopting.
+        # the failure as the adoption signal.
         try:
-            hits = self._client().portfolio.search_portfolios_paginated(
-                int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
+            return bool(self.find_portfolio_by_name(
+                exposure_irp_id=exposure_irp_id, name=name))
         except Exception:  # noqa: BLE001 — unverifiable → let the original error stand
             return False
-        return len(hits) > 0
 
     def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                              name: str, number: str, description: str,
@@ -578,19 +584,9 @@ class _RealGateway:
         # number fails that sub-portfolio rather than adopting an arbitrary
         # one (FR-011). Numbers are unique only within an exposure; the
         # exposure-scoped search covers that (W-17).
-        rows = self._client().portfolio.search_portfolios_paginated(
-            int(exposure_irp_id), filter=f"portfolioNumber={json.dumps(number)}")
-        hits: list[PortfolioHit] = []
-        for r in rows:
-            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            if pid is None:
-                continue
-            stamp = r.get("stampDate")
-            hits.append(PortfolioHit(
-                irp_id=str(pid), name=str(r.get("name") or
-                                          r.get("portfolioName") or ""),
-                stamp=(str(stamp) if stamp is not None else None)))
-        return hits
+        return self._search_portfolios(
+            exposure_irp_id, name_fallback="",
+            rm_filter=f"portfolioNumber={json.dumps(number)}")
 
     def find_portfolio_by_name(self, *, exposure_irp_id: str,
                                name: str) -> list[PortfolioHit]:
@@ -599,19 +595,9 @@ class _RealGateway:
         # Every hit counts — the check blocks, it never adopts, so ambiguity
         # is fine here. Request-path-legal: the submit-time pattern of
         # constitution Art. 2, like fetch_portfolio_stamp above.
-        rows = self._client().portfolio.search_portfolios_paginated(
-            int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
-        hits: list[PortfolioHit] = []
-        for r in rows:
-            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            if pid is None:
-                continue
-            stamp = r.get("stampDate")
-            hits.append(PortfolioHit(
-                irp_id=str(pid),
-                name=str(r.get("name") or r.get("portfolioName") or name),
-                stamp=(str(stamp) if stamp is not None else None)))
-        return hits
+        return self._search_portfolios(
+            exposure_irp_id, name_fallback=name,
+            rm_filter=f"portfolioName={json.dumps(name)}")
 
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail:

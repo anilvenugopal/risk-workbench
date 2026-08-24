@@ -103,21 +103,12 @@
 
       {% if custom_mode %}
       {% if cart_ready %}
-      {# Add breakout is gated the way Import is (importForm pattern): disabled
-         until the as-you-type check comes back usable — 'ok', or 'unchecked'
-         when Risk Modeler was unreachable (fail-open; the Add-time re-check
-         in the group-preview route is the backstop). #}
       <div class="bo-custom"
-           x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
-                     resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
-                       ({ name: c.name, v: c.value, shown: c.dataset.display,
-                          d: c.closest('.bo-checks').dataset.dimlabel })) },
-                     get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
-                     get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
-           @change="resel(); boClearCartError($el)"
-           @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
-           @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
-           @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
+           x-data="breakoutCustom({ dim: '{{ groupable[0].dimension }}' })"
+           @change="onChange()"
+           @htmx:after-swap="onSwap()"
+           @htmx:response-error="onCheckError($event)"
+           @htmx:send-error="onCheckError($event)">
         <div class="bo-custom__cols">
           <div class="bo-custom__opts">
             <div class="bo-pills">
@@ -158,9 +149,7 @@
             <div class="bo-picked__chips" x-show="sel.length" x-cloak>
               <template x-for="s in sel" :key="s.name + '|' + s.v">
                 <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
-                        @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
-                                  .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
-                                resel()">
+                        @click="unpick(s)">
                   <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
                 </button>
               </template>
@@ -173,9 +162,7 @@
         <div class="bo-addrow">
           <input type="text" name="group_label" maxlength="{{ name_max }}"
                  placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
-                 @input="nameVal = $el.value; nameState = 'pending';
-                         ncReset($el.closest('form').querySelector('.name-collision'));
-                         boClearCartError($el)"
+                 @input="onName($event)"
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"
                  hx-target="next .name-collision" hx-swap="outerHTML">
@@ -183,16 +170,7 @@
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
-                  {# Keyed on the status: the mount clears isError for a 409
-                     refusal, which also makes htmx report it as successful. #}
-                  @htmx:after-request="if ($event.detail.xhr.status === 200) {
-                    const f = $el.closest('form');
-                    f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
-                    f.querySelector('[name=group_label]').value = '';
-                    boClearCartError($el);
-                    ncReset(f.querySelector('.name-collision'));
-                    nameVal = ''; nameState = 'pending'; resel();
-                  }">Add breakout</button>
+                  @htmx:after-request="onAdded($event)">Add breakout</button>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
