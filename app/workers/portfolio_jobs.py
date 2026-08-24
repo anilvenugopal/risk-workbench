@@ -216,6 +216,32 @@ def _load_edm_and_source(ctx: dict) -> tuple[Any, dict | None, str | None]:
     return edm, dict(source, id=_uid(source["id"])), None
 
 
+def _complete_breakout(rwb_job_id: Any, *, edm_id: Any, outcomes: list,
+                       zero_success_error: str) -> runtime.JobResult:
+    """The completion both breakout bodies share: summarize the outcomes and,
+    when ≥ 1 entry succeeded, idempotently enqueue+dispatch the FR-013
+    follow-up ``backfill_edm_detail``. The head is keyed on THIS breakout job
+    row — distinct from the poller's import-keyed enqueue and the analyst
+    Sync's EDM-keyed one (``rwb_job_service.backfill_edm_detail_rows`` resolves
+    all three keys) — and revives a terminal head so a re-run refreshes figures
+    again. Zero successes fail the job with ``zero_success_error``."""
+    output = breakout_service.summarize_outcomes(outcomes)
+    succeeded = output["created"] + output["adopted"] + output["skipped_existing"]
+    output["backfill_enqueued"] = False
+    if succeeded:
+        backfill_id = rwb_job_service.ensure_pending_rwb_job(
+            requestor_type="rwb_job", requestor_id=str(rwb_job_id),
+            rwb_job_type="backfill_edm_detail",
+            input_data={"edm_id": str(edm_id)})
+        if backfill_id is not None:
+            dispatch.dispatch(rwb_job_id=backfill_id,
+                              rwb_job_type="backfill_edm_detail")
+        output["backfill_enqueued"] = True
+    if succeeded == 0:
+        return runtime.JobResult.fail(zero_success_error, **output)
+    return runtime.JobResult(status="succeeded", output=output)
+
+
 def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     """Execute the approved plan persisted at confirm (data-model §4). The job
     succeeds when ≥ 1 entry is created/adopted/skipped-existing (partial
@@ -291,29 +317,15 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
                                     actor_id=actor_id, error=str(exc)))
 
     # 5–7. outcomes + completion enqueue + terminal status
-    output = breakout_service.summarize_outcomes(outcomes)
-    succeeded = output["created"] + output["adopted"] + output["skipped_existing"]
-    output["backfill_enqueued"] = False
-    if succeeded:
-        # Keyed on THIS breakout job row — distinct from the poller's
-        # import-keyed enqueue and the analyst Sync's EDM-keyed one; revives a
-        # terminal head so a re-run refreshes figures again (FR-013).
-        backfill_id = rwb_job_service.ensure_pending_rwb_job(
-            requestor_type="rwb_job", requestor_id=str(rwb_job_id),
-            rwb_job_type="backfill_edm_detail",
-            input_data={"edm_id": str(edm_id)})
-        if backfill_id is not None:
-            dispatch.dispatch(rwb_job_id=backfill_id,
-                              rwb_job_type="backfill_edm_detail")
-        output["backfill_enqueued"] = True
+    result = _complete_breakout(rwb_job_id, edm_id=edm_id, outcomes=outcomes,
+                                zero_success_error="no sub-portfolio succeeded")
+    output = result.output
     logger.info("breakout %s completed for portfolio %s by analyst %s: "
                 "%d created, %d adopted, %d skipped, %d failed of %d planned",
                 dimension, portfolio_id, actor_id, output["created"],
                 output["adopted"], output["skipped_existing"],
                 output["failed"], output["planned"])
-    if succeeded == 0:
-        return runtime.JobResult.fail("no sub-portfolio succeeded", **output)
-    return runtime.JobResult(status="succeeded", output=output)
+    return result
 
 
 def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
@@ -395,25 +407,13 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
             outcomes = [_failed(entry, source_id=source["id"],
                                 actor_id=actor_id, error=str(exc))]
 
-    output = breakout_service.summarize_outcomes(outcomes)
-    succeeded = output["created"] + output["adopted"] + output["skipped_existing"]
-    output["backfill_enqueued"] = False
-    if succeeded:
-        backfill_id = rwb_job_service.ensure_pending_rwb_job(
-            requestor_type="rwb_job", requestor_id=str(rwb_job_id),
-            rwb_job_type="backfill_edm_detail",
-            input_data={"edm_id": str(ctx.get("edm_id"))})
-        if backfill_id is not None:
-            dispatch.dispatch(rwb_job_id=backfill_id,
-                              rwb_job_type="backfill_edm_detail")
-        output["backfill_enqueued"] = True
+    result = _complete_breakout(
+        rwb_job_id, edm_id=ctx.get("edm_id"), outcomes=outcomes,
+        zero_success_error=outcomes[0].error or "the breakout failed")
     logger.info("custom-group breakout completed for portfolio %s by analyst "
                 "%s: group %s → %s", portfolio_id, actor_id, group.label,
                 outcomes[0].outcome)
-    if succeeded == 0:
-        return runtime.JobResult.fail(
-            outcomes[0].error or "the breakout failed", **output)
-    return runtime.JobResult(status="succeeded", output=output)
+    return result
 
 
 # Dramatiq's default actor time limit is 10 minutes — a large fan-out (the add
