@@ -13,69 +13,49 @@ superseded by its next terminal run rather than accumulating.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timedelta
 
 from app.services.breakout_service import page_state
 from db import execute_command
+from tests.unit.breakout_rows import (
+    mk_breakout_job,
+    mk_edm,
+    mk_generated_portfolio,
+    mk_portfolio,
+)
 
 NOW = datetime(2026, 8, 5, 12, 0, 0)
-
-
-def _mk_edm(*, name: str = "night_edm") -> str:
-    edm_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_edm (id, name, irp_id, status, inserted_at, updated_at) "
-        "VALUES (:i, :n, 90001, 'ready', :now, :now)",
-        {"i": edm_id, "n": name, "now": NOW}, connection="WORKBENCH")
-    return edm_id
 
 
 _next_irp_id = iter(range(1000, 9999))
 
 
+def _mk_edm(*, name: str = "night_edm") -> str:
+    return mk_edm(name=name, now=NOW)
+
+
 def _mk_portfolio(edm_id: str, *, name: str = "usfl_commercial") -> str:
     # irp_id is UNIQUE per EDM (uq_irp_portfolio_edm_irp), so every portfolio
     # this module makes takes the next one.
-    pid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, inserted_at, "
-        "updated_at) VALUES (:i, :e, :n, :irp, :now, :now)",
-        {"i": pid, "e": edm_id, "n": name, "irp": str(next(_next_irp_id)),
-         "now": NOW}, connection="WORKBENCH")
-    return pid
+    return mk_portfolio(edm_id, name=name, irp_id=str(next(_next_irp_id)),
+                        detail=None, as_of=None, now=NOW)
 
 
 def _mk_generated(edm_id: str, source_id: str, *, dimension: str,
                   value: str) -> None:
-    execute_command(
-        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, "
-        "source_portfolio_id, breakout_dimension_code, breakout_value, "
-        "inserted_at, updated_at) VALUES (:i, :e, :n, :irp, :s, :d, :v, "
-        ":now, :now)",
-        {"i": str(uuid.uuid4()), "e": edm_id, "n": f"generated - {value}",
-         "irp": str(next(_next_irp_id)), "s": source_id,
-         "d": dimension, "v": value, "now": NOW}, connection="WORKBENCH")
+    mk_generated_portfolio(edm_id, source_id, dimension=dimension, value=value,
+                           irp_id=str(next(_next_irp_id)), now=NOW)
 
 
 def _mk_job(portfolio_id: str, *, dimension: str = "lob",
             status: str = "succeeded", plan: list[str] = (),
             output: dict | str | None = None, error: str | None = None,
             updated: datetime = NOW) -> str:
-    jid = str(uuid.uuid4())
-    input_data = {"plan": [{"value": v, "name": f"p - {v}"} for v in plan]}
-    execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
-        "status_code, input_data, output_data, error_detail, attempt_count, "
-        "inserted_at, updated_at) VALUES (:i, 'analyst_request', :r, :t, :s, "
-        ":in, :out, :err, 1, :now, :upd)",
-        {"i": jid, "r": portfolio_id, "t": f"run_breakout_{dimension}",
-         "s": status, "in": json.dumps(input_data),
-         "out": (output if isinstance(output, str) or output is None
-                 else json.dumps(output)),
-         "err": error, "now": NOW, "upd": updated}, connection="WORKBENCH")
-    return jid
+    return mk_breakout_job(
+        portfolio_id, dimension=dimension, status=status,
+        input_data={"plan": [{"value": v, "name": f"p - {v}"} for v in plan]},
+        output=output, error=error, now=NOW, updated=updated)
 
 
 def _mk_follow_up(breakout_job_id: str, *, status: str) -> None:

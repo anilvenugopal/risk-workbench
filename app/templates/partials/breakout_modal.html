@@ -183,11 +183,8 @@
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
-                  {# Keyed on the status, not detail.successful: the mount's
-                     before-swap handler clears isError for a 409 so the refusal
-                     renders without an error toast, which also makes htmx report
-                     the refusal as successful. Clearing on that wiped the ticked
-                     values and the refusal itself. #}
+                  {# Keyed on the status: the mount clears isError for a 409
+                     refusal, which also makes htmx report it as successful. #}
                   @htmx:after-request="if ($event.detail.xhr.status === 200) {
                     const f = $el.closest('form');
                     f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);

@@ -261,24 +261,14 @@ def save_generated_portfolio(
 
 
 def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
-    """Resolve the write onto a row the table already holds, live OR
+    """Resolve the write onto a row the table already holds, live or
     soft-deleted — the (edm_id, irp_id) identity first, the lineage triple
-    second. Runs before the insert and again as the unique-violation recovery.
+    second. ``None`` means no row holds either identity: the caller inserts.
 
-    A (edm_id, irp_id) match may exist WITHOUT lineage (a backfill enumerated
-    the RM portfolio before this run recorded it) or soft-deleted (the prune
-    saw it gone; the same RM portfolio is now being adopted again): both are
-    stamped and revived in place. A match carrying a DIFFERENT lineage is
-    never reassigned — live or dead, the breakout that owns it keeps it and
-    this write fails, so a generated portfolio cannot silently move between
-    breakout keys.
-
-    A soft-deleted lineage-triple match is RECLAIMED — deleted_at cleared and
-    the new RM identity stamped onto the same row (T-16: breakout → delete in
-    RM → sync prunes → re-breakout reuses the row; a second row would be a
-    ghost the next sync could revive into a duplicate live lineage key). A
-    live triple match is the concurrent-duplicate skip (created=False).
-    ``None`` means no row holds either identity — the caller inserts."""
+    A match carrying a different lineage raises rather than being reassigned,
+    so a generated portfolio cannot move between breakout keys. A soft-deleted
+    lineage-triple match is reclaimed in place (T-16) — a second row would be a
+    ghost the next sync could revive into a duplicate live lineage key."""
     existing = conn.execute(text(_SELECT_BY_EDM_IRP), params).mappings().first()
     if existing is not None:
         held_source, held_dim, held_val = (

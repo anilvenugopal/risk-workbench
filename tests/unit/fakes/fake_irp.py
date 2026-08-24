@@ -344,7 +344,7 @@ class FakeIRP:
                     is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
 
-    # ── spec-005 breakout composition (mirrors the gateway seam) ────────────────
+    # ── spec-005 breakout composition (mirrors the gateway) ─────────────────────
 
     def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,

@@ -252,7 +252,6 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     dimension = ctx.get("dimension")
     actor_id = ctx.get("actor_id")
 
-    # 1. minimal invariants — rows live, EDM has its exposureId
     edm, source, error = _load_edm_and_source(ctx)
     if error is not None:
         return runtime.JobResult.fail(error)
@@ -260,7 +259,6 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.fail("the dimension is missing — nothing "
                                       "created")
 
-    # 2. the approved plan, read verbatim from input_data (T-10)
     try:
         plan = breakout_service.load_approved_plan(ctx)
     except ValueError as exc:
@@ -269,9 +267,6 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
                 "%d sub-portfolios (analyst %s)", dimension, portfolio_id,
                 len(plan), actor_id)
 
-    # 3. account ids for every planned value, ONCE, before the loop (R1): one
-    #    set-based DataBridge query. Its failure is the input to every value →
-    #    fail; nothing has been written to Risk Modeler at this point.
     logger.info("breakout selection read started for portfolio %s (%d values)",
                 portfolio_id, len(plan))
     try:
@@ -287,16 +282,6 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
                 "for portfolio %s", sum(len(v) for v in selection.values()),
                 len(selection), portfolio_id)
 
-    # 4. the per-entry loop. The guard is here, around the whole entry, rather
-    #    than only around the calls inside it: the lineage write raises on a
-    #    portfolio Risk Modeler already holds under another breakout key
-    #    (portfolio_service.save_generated_portfolio), and an entry that took the job
-    #    down with it would lose every outcome the loop had accumulated —
-    #    after its sub-portfolios were created in Risk Modeler.
-    #    The description carries the source portfolio name, dimension, and
-    #    value IN FULL AND UNTRUNCATED — it is what carries the lineage the
-    #    40-character name loses (FR-010); the display label rides along when
-    #    the plan carries one (P-12) so both stay searchable in Risk Modeler.
     dimension_label = _dimension_label(dimension)
     outcomes: list[breakout_service.SubPortfolioOutcome] = []
     for entry in plan:
@@ -312,7 +297,6 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
             outcomes.append(_failed(entry, source_id=source["id"],
                                     actor_id=actor_id, error=str(exc)))
 
-    # 5–7. outcomes + completion enqueue + terminal status
     result = _complete_breakout(rwb_job_id, edm_id=edm_id, outcomes=outcomes,
                                 zero_success_error="no sub-portfolio succeeded")
     output = result.output
@@ -443,11 +427,13 @@ def run_breakout_custom(rwb_job_id: str) -> None:
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
 _BODIES: dict[str, Callable[[Any], runtime.JobResult]] = {
-    "run_breakout_lob": _run_breakout_body,
-    "run_breakout_state": _run_breakout_body,
-    "run_breakout_country": _run_breakout_body,
-    "run_breakout_peril": _run_breakout_body,
-    "run_breakout_custom": _run_breakout_group_body,
+    actor.actor_name: body for actor, body in (
+        (run_breakout_lob, _run_breakout_body),
+        (run_breakout_state, _run_breakout_body),
+        (run_breakout_country, _run_breakout_body),
+        (run_breakout_peril, _run_breakout_body),
+        (run_breakout_custom, _run_breakout_group_body),
+    )
 }
 
 

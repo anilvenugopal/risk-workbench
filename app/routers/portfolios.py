@@ -29,8 +29,6 @@ from app.services.breakout_service import (
 
 router = APIRouter()
 
-_NAV_KEY = "irp.edm_library"  # documented owner; the modal renders no nav
-
 
 def _templates(request: Request):
     return request.app.state.templates
@@ -61,11 +59,23 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
         "missing_summary_reason": breakout_service.MISSING_SUMMARY_REASON,
         "name_max": breakout_service.PORTFOLIO_NAME_MAX,
     }
-    if modal is None:
-        return _partial(request, "partials/breakout_modal.html", ctx,
-                        status_code=404)
     return _partial(request, "partials/breakout_modal.html", ctx,
-                    status_code=status_code)
+                    status_code=404 if modal is None else status_code)
+
+
+def _breakout_started(request: Request, edm_id: str, count: int):
+    """The success response both confirms share: the EDM body partial
+    retargeted at ``#edm-detail`` (the form targets the modal mount, so the
+    modal closes on 2xx) plus the "Breakout started" toast."""
+    edm = edm_service.get_edm_detail(edm_id)
+    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
+    response.headers["HX-Retarget"] = "#edm-detail"
+    response.headers["HX-Reswap"] = "outerHTML"
+    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
+        "message": f"Breakout started — {count} sub-portfolio"
+                   f"{'' if count == 1 else 's'}",
+        "type": "success"}})
+    return response
 
 
 @router.get("/edms/{edm_id}/portfolios/{portfolio_id}/breakout",
@@ -117,49 +127,28 @@ def breakout_confirm(
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
+    def refused(error: str | None = None, error_kind: str | None = None):
+        if not is_htmx:
+            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+        return _modal(request, edm_id, portfolio_id, dimension,
+                      status_code=409, error=error, error_kind=error_kind)
+
     try:
         requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
             request.state.user.id)
     except SummaryRewritten as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="rewritten")
+        return refused(exc.reason, "rewritten")
     except StaleSummary as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="stale")
+        return refused(exc.reason, "stale")
     except GateRefused as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="gate")
-
+        return refused(exc.reason, "gate")
     if requested is None:
-        # Idempotent enqueue found a live run — the re-rendered modal shows
-        # its in-flight state (409, no new job row).
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error_kind="running")
+        return refused(error_kind="running")
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    # Success: swap the whole #edm-detail wrapper (its self-poll then shows
-    # sub-portfolios as the worker creates them). The form targets the modal
-    # mount, so the response retargets — and the modal closes on 2xx.
-    edm = edm_service.get_edm_detail(edm_id)
-    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
-    response.headers["HX-Retarget"] = "#edm-detail"
-    response.headers["HX-Reswap"] = "outerHTML"
-    n = requested.planned
-    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": f"Breakout started — {n} sub-portfolio"
-                   f"{'' if n == 1 else 's'}",
-        "type": "success"}})
-    return response
+    return _breakout_started(request, edm_id, requested.planned)
 
 
 def _carted_groups(form) -> list[dict]:
@@ -259,16 +248,7 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    edm = edm_service.get_edm_detail(edm_id)
-    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
-    response.headers["HX-Retarget"] = "#edm-detail"
-    response.headers["HX-Reswap"] = "outerHTML"
-    n = len(job_ids)
-    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": f"Breakout started — {n} sub-portfolio"
-                   f"{'' if n == 1 else 's'}",
-        "type": "success"}})
-    return response
+    return _breakout_started(request, edm_id, len(job_ids))
 
 
 __all__ = ["router"]

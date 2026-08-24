@@ -271,7 +271,7 @@ class IRPGateway(Protocol):
     def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None: ...
 
-    # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
+    # ── spec-005 breakout composition (worker-only RM writes) ───────────────────
 
     def select_breakout_accounts(
             self, *, edm_name: str, exposure_irp_id: str,
@@ -548,22 +548,8 @@ class _RealGateway:
     def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
                                account_ids: Sequence[int]) -> SubPortfolioResult:
-        # The add step + read-back verification, shared by the create path and
-        # the adopt-then-populate heal (R7). Re-adding already-member accounts
-        # is safe and returns completed 0 (W-9), so the heal runs
-        # unconditionally; success is decided by reading the portfolio back,
-        # never by the add call's completed/total counts. The read-back is a
-        # DataBridge count (R1, revised 2026-08-05) — the paginated REST
-        # enumeration cannot verify a portfolio past 100,000 accounts (W-20).
-        # A count that does not equal the ids sent RAISES: FR-008 asks for
-        # exactly the selected accounts, so an under- or over-populated
-        # portfolio fails that sub-portfolio and writes no lineage row. The RM
-        # portfolio stays (P-07 — nothing is deleted); the re-run adopts it on
-        # its number and re-adds, which heals a partial add. It cannot heal an
-        # OVER-populated one: re-adding never removes a member, so an adopted
-        # portfolio holding accounts outside the selection fails on every run
-        # until someone removes them in Risk Modeler — which is what the message
-        # says, since the app deletes nothing.
+        # A healthy re-run reports completed 0, so the DataBridge read-back
+        # count decides success, never the add response counts (W-9).
         pm = self._client().portfolio
         ids = [int(i) for i in account_ids]
         chunks = range(0, len(ids), _ADD_CHUNK_SIZE)

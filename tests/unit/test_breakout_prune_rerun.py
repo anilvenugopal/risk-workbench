@@ -25,29 +25,15 @@ from datetime import datetime
 
 from app.services import portfolio_service
 from app.services._common import _utcnow
-from app.workers import portfolio_jobs
 from db import execute, execute_command, execute_one
+from tests.unit.breakout_rows import (
+    mk_edm,
+    mk_portfolio,
+    rerun_breakout_job,
+    run_breakout_job,
+)
 
 SOURCE_SEEN = ("1", "usfl_commercial")   # the source portfolio survives in RM
-
-
-def _mk_edm() -> str:
-    edm_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_edm (id, name, irp_id, status, inserted_at, updated_at) "
-        "VALUES (:i, 'EDM', 90001, 'ready', :now, :now)",
-        {"i": edm_id, "now": datetime.utcnow()}, connection="WORKBENCH")
-    return edm_id
-
-
-def _mk_source(edm_id: str) -> str:
-    pid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, inserted_at, "
-        "updated_at) VALUES (:i, :e, 'usfl_commercial', '1', :now, :now)",
-        {"i": pid, "e": edm_id, "now": datetime.utcnow()},
-        connection="WORKBENCH")
-    return pid
 
 
 def _mk_job(edm_id: str, portfolio_id: str, actor_id) -> str:
@@ -67,23 +53,6 @@ def _mk_job(edm_id: str, portfolio_id: str, actor_id) -> str:
     return jid
 
 
-def _run(jid: str) -> dict:
-    assert portfolio_jobs.run_one(rwb_job_id=jid,
-                                  rwb_job_type="run_breakout_state",
-                                  worker_id="w1")
-    return execute_one(
-        "SELECT status_code, output_data FROM rwb_job WHERE id = :i",
-        {"i": jid}, connection="WORKBENCH")
-
-
-def _rerun(jid: str) -> dict:
-    execute_command(
-        "UPDATE rwb_job SET status_code = 'pending', claimed_by = NULL, "
-        "output_data = NULL, error_detail = NULL WHERE id = :i",
-        {"i": jid}, connection="WORKBENCH")
-    return _run(jid)
-
-
 def _generated_rows(source_id: str) -> list[dict]:
     """Every row of the source's lineage keys — INCLUDING soft-deleted."""
     return execute(
@@ -95,13 +64,13 @@ def _generated_rows(source_id: str) -> list[dict]:
 
 def test_demo_sequence_reclaims_rows_and_next_sync_stays_healthy(
         iteration2_db, fake_irp):
-    edm_id = _mk_edm()
-    source_id = _mk_source(edm_id)
+    edm_id = mk_edm(name="EDM")
+    source_id = mk_portfolio(edm_id)
     fake_irp.selection_by_value = {"FL": [1], "GA": [2]}
     jid = _mk_job(edm_id, source_id, iteration2_db.user_a)
 
     # 1. breakout — two generated rows, RM ids 431/432
-    assert _run(jid)["status_code"] == "succeeded"
+    assert run_breakout_job(jid, "state")["status_code"] == "succeeded"
     first = _generated_rows(source_id)
     assert [(r["irp_id"], r["deleted_at"] is None) for r in first] == [
         ("431", True), ("432", True)]
@@ -114,7 +83,7 @@ def test_demo_sequence_reclaims_rows_and_next_sync_stays_healthy(
 
     # 3. re-breakout — same plan, same names, NEW RM portfolios (433/434);
     #    each write reclaims its soft-deleted row: one row per triple
-    job = _rerun(jid)
+    job = rerun_breakout_job(jid, "state")
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
     assert (out["created"], out["failed"]) == (2, 0)
@@ -140,8 +109,8 @@ def test_resurrect_by_name_skips_generated_rows(iteration2_db):
     # only (T-16). The upsert then inserts a fresh live row for the new
     # portfolio instead of stamping the dead one (the _UPDATE_BY_NAME live
     # filter), so the enumeration lands somewhere visible.
-    edm_id = _mk_edm()
-    source_id = _mk_source(edm_id)
+    edm_id = mk_edm(name="EDM")
+    source_id = mk_portfolio(edm_id)
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
         source_portfolio_id=source_id, dimension_code="state", value="FL",
@@ -171,8 +140,8 @@ def test_resurrect_by_name_skips_generated_rows(iteration2_db):
 def test_resurrect_by_irp_id_still_revives_generated_rows(iteration2_db):
     # Only the NAME leg is restricted: a generated row whose RM portfolio
     # reappears under its own id (enumeration transient healed) resurrects.
-    edm_id = _mk_edm()
-    source_id = _mk_source(edm_id)
+    edm_id = mk_edm(name="EDM")
+    source_id = mk_portfolio(edm_id)
     write = portfolio_service.save_generated_portfolio(
         edm_id, name="usfl_commercial - FL", irp_id="431",
         source_portfolio_id=source_id, dimension_code="state", value="FL",

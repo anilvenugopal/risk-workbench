@@ -642,11 +642,8 @@ document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 // keeps its offset. Elements the response added (a generated portfolio row) are
 // absent from the record and render at their server-rendered default.
 //
-// Keyed by the target element, not held in one slot: the Portfolios section
-// poll swaps the section and out-of-band-swaps two more elements, and an
-// analyst opening the breakout modal mid-poll adds a fourth request. With one
-// slot, beforeSwap B overwrote A's record and afterSettle A consumed B's — so
-// A restored B's open rows and B restored nothing at all.
+// Keyed by the target element: up to four swaps are in flight at once during a
+// breakout episode, and each afterSettle must read its own record.
 const swapState = new WeakMap();
 
 function detailsOpenState(root) {

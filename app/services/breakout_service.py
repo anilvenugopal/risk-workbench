@@ -89,16 +89,6 @@ def display_value(value: str, dimension: str) -> str:
 
 
 def _dimension_letter(dimension: str) -> str:
-    """The dimension's letter inside the generated ``portfolio_number`` (R4).
-
-    Raises on a code ``_DIMENSION_LETTER`` does not carry rather than deriving a
-    letter from the code. The number is the identity adoption resolves on
-    (P-11/FR-011), so a derived letter would silently change the numbering
-    scheme for a dimension seeded into ``breakout_dimension_kind`` without being
-    added here — and two codes sharing a first letter would compose one number
-    for two different breakouts of the same value.
-    ``tests/unit/test_architecture_guards.py`` asserts every seeded code has an
-    entry, so this raise is unreachable in a correctly seeded database."""
     try:
         return _DIMENSION_LETTER[dimension]
     except KeyError:
@@ -220,11 +210,9 @@ def _stored_stamp(exposure_detail_raw: Any) -> str | None:
 
 def _parse_breakout_values(summary: dict | None,
                            dimension: str) -> list[BreakoutValue] | None:
-    """The stored summary's values for one dimension. ``None`` means ABSENT —
-    no summary, no ``breakout_values`` key (every pre-005 summary), or a
-    malformed container/entry; the gate points at Sync and there is NO fallback
-    to the mixed-vocabulary ``states`` list (P-12/R11). A present container
-    whose dimension key is missing or empty reads as zero values, not absent."""
+    """``None`` means absent — no summary, no ``breakout_values`` key, or a
+    malformed container/entry. A present container whose dimension key is
+    missing or empty reads as zero values, not absent."""
     if not isinstance(summary, dict):
         return None
     container = summary.get("breakout_values")
@@ -506,17 +494,10 @@ class Overlap:
 def compute_overlap(values: Sequence[BreakoutValue],
                     account_total: int | None,
                     coverage: DimensionCoverage | None = None) -> Overlap:
-    """The two FR-007 figures, read from the coverage the summary measured per
-    account. ``summed`` is kept as what it is — the membership total across the
-    sub-portfolios, always ≥ ``covered`` — and is never used to derive either
-    figure: an account carrying three values adds three memberships, and an
-    account carrying none is in ``account_total`` but in no value's count, so
-    the two errors cancel and ``summed − account_total`` can report a clean
-    partition for a portfolio where most accounts land nowhere.
-
-    Absent coverage yields ``repeats=None`` and the preview falls back to the
-    qualitative disclosure alone (data-model §6) — the same degrade an absent
-    ``account_total`` already gets."""
+    """The two FR-007 figures, read from the per-account coverage the summary
+    measured — never derived from ``summed``, which is the membership total
+    (R11). Absent coverage yields ``repeats=None`` and the preview degrades to
+    the qualitative disclosure alone."""
     summed = sum(v.accounts for v in values)
     if coverage is None:
         return Overlap(account_total=account_total, summed=summed, covered=None,
@@ -1081,18 +1062,12 @@ def _group_rows(portfolio_id: Any) -> dict[str, dict]:
 def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                        groups: Sequence[dict]) -> list[GroupPlan]:
     """Validate and compose a whole cart in submission order. Each element of
-    ``groups`` is ``{"label": str, "filters": {dim: [values]}}`` (the modal's
-    hidden-input JSON). The name is the label exactly as typed (P-24) and its
-    number is the name truncated to 20 characters (P-26); a name already
-    carried by a live portfolio in the EDM or an earlier cart row is refused,
-    never suffixed (P-25) — except an adopted row's own stored name, which IS
-    its portfolio (the re-confirm heal path). A member set that already has a
-    ``breakout_group`` row adopts the row (P-22): no second row, no second
-    portfolio; the confirm writes the newest label/name/number onto it. A
-    member set appearing twice in one cart is refused. The overlap note is a may-overlap heuristic
-    (P-18 — warn, never block): two groups sharing a selected value in some
-    dimension can share accounts; disjoint filters can too (a multi-value
-    account), which is why the copy says "may"."""
+    ``groups`` is ``{"label": str, "filters": {dim: [values]}}`` — the modal's
+    hidden-input JSON. Raises ``GateRefused`` on a malformed breakout, a name
+    already carried by a live portfolio or an earlier cart row, or a member set
+    appearing twice in one cart. A member set that already has a
+    ``breakout_group`` row adopts that row (P-22) and the confirm writes the
+    newest label, name, and number onto it."""
     if gate.source_name is None or gate.source_irp_id is None:
         raise GateRefused("the source portfolio has no Risk Modeler id — "
                           "Sync the EDM, then retry")

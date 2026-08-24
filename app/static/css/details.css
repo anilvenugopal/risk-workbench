@@ -142,8 +142,6 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* ── portfolio breakout (spec 005) — modal, in-flight, banner, error lines ──
    Markup fixed by docs/ui_previews/breakout_modal.html (approved 2026-08-04);
    tokens only (Article 9). */
-/* .modal moved here from packages.css when package retirement (006) deleted
-   that file — the breakout modal is now its only user. */
 .modal {
   position: fixed;
   inset: 0;

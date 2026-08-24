@@ -23,7 +23,6 @@ from datetime import datetime
 import pytest
 
 from app.services import breakout_service, portfolio_service
-from app.services.name_check import CollisionCheck
 from app.services.breakout_service import (
     GateRefused,
     StaleSummary,
@@ -34,14 +33,16 @@ from app.services.breakout_service import (
     load_approved_group,
     request_group_breakout,
 )
-from app.workers import portfolio_jobs
+from app.services.name_check import CollisionCheck
 from db import execute, execute_command, execute_one
-from tests.unit.test_breakout_gate import (
+from tests.unit.breakout_rows import (
     AS_OF,
     RM_STAMP,
     SUMMARY,
-    _mk_edm,
-    _mk_portfolio,
+    mk_edm,
+    mk_portfolio,
+    rerun_breakout_job,
+    run_breakout_job,
 )
 
 # The gate-test summary plus two peril codes (P-19/W-21: numeric, label null).
@@ -52,8 +53,8 @@ GROUP_SUMMARY = dict(SUMMARY, breakout_values=dict(
 
 
 def _eligible_pair(fake_irp) -> tuple[str, str]:
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     return edm_id, pid
@@ -99,8 +100,8 @@ def test_group_key_is_canonical_order_insensitive_and_deterministic():
 # ── cart composition ──────────────────────────────────────────────────────────────
 
 def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     gate = evaluate_gate(edm_id, pid)
     plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=pid, groups=[
         _group("Coastal", {"state": ["TX", "CA"], "lob": ["EQ Comm"]}),
@@ -124,8 +125,8 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
 
 
 def test_compose_group_cart_refuses_bad_input(iteration2_db):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     gate = evaluate_gate(edm_id, pid)
 
     def refuse(groups, match):
@@ -147,8 +148,8 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
 def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
     """P-25: a name already carried by a live portfolio in the EDM or an
     earlier cart row refuses — case-insensitive, never suffixed."""
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)   # live "usfl_commercial"
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)   # live "usfl_commercial"
     gate = evaluate_gate(edm_id, pid)
 
     def refuse(groups, match):
@@ -279,7 +280,7 @@ def test_reconfirm_created_breakout_under_its_own_name(
     re-confirm heal path (FR-011/FR-019)."""
     fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
-    assert _run(jid)["status_code"] == "succeeded"   # "Coastal" is now live
+    assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"   # "Coastal" is now live
     # drain the auto-fired backfill head (FR-013) — while pending it blocks
     # the gate, exactly as a quick breakout's does
     execute_command(
@@ -339,23 +340,6 @@ def _confirmed_group(fake_irp, iteration2_db,
     return edm_id, pid, job_ids[0]
 
 
-def _run(jid: str) -> dict:
-    assert portfolio_jobs.run_one(rwb_job_id=jid,
-                                  rwb_job_type="run_breakout_custom",
-                                  worker_id="w1")
-    return execute_one(
-        "SELECT status_code, output_data, error_detail FROM rwb_job "
-        "WHERE id = :i", {"i": jid}, connection="WORKBENCH")
-
-
-def _rerun(jid: str) -> dict:
-    execute_command(
-        "UPDATE rwb_job SET status_code = 'pending', claimed_by = NULL, "
-        "output_data = NULL, error_detail = NULL WHERE id = :i",
-        {"i": jid}, connection="WORKBENCH")
-    return _run(jid)
-
-
 def test_group_worker_unions_within_and_intersects_across(
         iteration2_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1, 2, 3], "CA": [7],
@@ -364,7 +348,7 @@ def test_group_worker_unions_within_and_intersects_across(
         fake_irp, iteration2_db,
         filters={"state": ["TX", "CA"], "lob": ["EQ Comm"]})
 
-    job = _run(jid)
+    job = run_breakout_job(jid, "custom")
 
     assert job["status_code"] == "succeeded"
     out = json.loads(job["output_data"])
@@ -398,7 +382,7 @@ def test_group_description_names_perils_by_mnemonic(iteration2_db, fake_irp):
     edm_id, pid, jid = _confirmed_group(
         fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
 
-    assert _run(jid)["status_code"] == "succeeded"
+    assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
 
     assert fake_irp.created_sub_portfolios[0]["description"] == (
         "Custom breakout Coastal of portfolio usfl_commercial: "
@@ -412,7 +396,7 @@ def test_group_worker_empty_intersection_fails_with_nothing_created(
     fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
 
-    job = _run(jid)
+    job = run_breakout_job(jid, "custom")
 
     assert job["status_code"] == "failed"
     assert "no account matches every filter" in job["error_detail"]
@@ -427,7 +411,7 @@ def test_group_worker_selection_read_failure_fails_the_job(
     fake_irp.raise_on_selection_read = True
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
 
-    job = _run(jid)
+    job = run_breakout_job(jid, "custom")
 
     assert job["status_code"] == "failed"
     assert "account selection failed for lob" in job["error_detail"]
@@ -439,18 +423,18 @@ def test_group_worker_rerun_skips_then_reclaims_after_prune(
         iteration2_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
-    assert _run(jid)["status_code"] == "succeeded"
+    assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
     first = _generated_rows(pid)[0]
 
     # idempotent re-run: the live lineage row skips (FR-011)
-    job = _rerun(jid)
+    job = rerun_breakout_job(jid, "custom")
     assert json.loads(job["output_data"])["skipped_existing"] == 1
 
     # deleted in RM → prune → re-run reclaims the row in place (T-16)
     fake_irp.taken_portfolio_names.clear()
     portfolio_service.prune_missing(
         edm_id=edm_id, seen=[("1", "usfl_commercial")], now=datetime.utcnow())
-    job = _rerun(jid)
+    job = rerun_breakout_job(jid, "custom")
     assert json.loads(job["output_data"])["created"] == 1
     rows = _generated_rows(pid)
     assert len(rows) == 1
@@ -462,8 +446,8 @@ def test_group_worker_rerun_skips_then_reclaims_after_prune(
 
 def test_group_worker_unusable_group_fails_with_nothing(
         iteration2_db, fake_irp):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     jid = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
@@ -474,7 +458,7 @@ def test_group_worker_unusable_group_fails_with_nothing(
          "d": json.dumps({"edm_id": edm_id, "portfolio_id": pid,
                           "dimension": "custom", "group": {"id": "x"}}),
          "now": datetime.utcnow()}, connection="WORKBENCH")
-    job = _run(jid)
+    job = run_breakout_job(jid, "custom")
     assert job["status_code"] == "failed"
     assert "approved breakout unusable" in job["error_detail"]
     assert _generated_rows(pid) == []
@@ -516,14 +500,14 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
     assert (flight.dimension, flight.planned, flight.done) == ("custom", 2, 0)
 
     # run the first → 1 of 2 done
-    assert _run(job_ids[0])["status_code"] == "succeeded"
+    assert run_breakout_job(job_ids[0], "custom")["status_code"] == "succeeded"
     flight = breakout_service.page_state(edm_id).flights[pid]
     assert (flight.planned, flight.done) == (2, 1)
 
     # run the second with an empty selection → failed; both terminal now:
     # the banner aggregates the CART (1 created + 1 failed), errors render
     fake_irp.selection_by_value = {"TX": [1]}
-    job = _run(job_ids[1])
+    job = run_breakout_job(job_ids[1], "custom")
     assert job["status_code"] == "failed"
     state = breakout_service.page_state(edm_id)
     assert state.flights == {}
@@ -545,7 +529,7 @@ def test_list_portfolios_resolves_group_label_and_filters(
     fake_irp.selection_by_value = {"TX": [1, 2], "2": [1, 2]}
     edm_id, pid, jid = _confirmed_group(
         fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
-    assert _run(jid)["status_code"] == "succeeded"
+    assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
 
     rows = portfolio_service.list_portfolios(edm_id=edm_id)
     generated = next(r for r in rows if r.breakout_dimension_code == "custom")
