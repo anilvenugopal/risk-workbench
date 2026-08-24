@@ -120,7 +120,7 @@
               {%- endfor -%}
             {%- else -%}{{ p.breakout_group_label or p.breakout_value }}{%- endif -%}
           {%- else -%}
-            {{ p.breakout_dimension_label or p.breakout_dimension_code }} IN ({{ p.breakout_value_label or p.breakout_value }})
+            {{ p.breakout_dimension_label or p.breakout_dimension_code }} IN ({{ p.breakout_value_label or (p.breakout_value | breakout_display(p.breakout_dimension_code)) }})
           {%- endif -%}
         </dd>
       </div>

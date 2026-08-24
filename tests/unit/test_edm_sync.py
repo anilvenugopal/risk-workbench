@@ -519,6 +519,11 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                          breakout_dimension_code="lob",
                          breakout_dimension_label="Line of business",
                          breakout_value="Homeowners", **common)
+    quick_peril = PortfolioRow(id="p3", name="cbhu - WS", irp_id="4",
+                               source_portfolio_id="p0", source_name="cbhu",
+                               breakout_dimension_code="peril",
+                               breakout_dimension_label="Peril",
+                               breakout_value="2", **common)
     custom = PortfolioRow(id="p2", name="Coastal HU", irp_id="3",
                           source_portfolio_id="p0", source_name="cbhu",
                           breakout_dimension_code="custom",
@@ -530,15 +535,17 @@ def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
                           **common)
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(
-                            detail_state="populated", portfolio_count=3,
-                            portfolios=[base, quick, custom],
+                            detail_state="populated", portfolio_count=4,
+                            portfolios=[base, quick, quick_peril, custom],
                             as_of="2026-08-11 10:00:00"))
     html = _client().get("/edms/edm-1/portfolios-section").text
-    assert html.count("dt-frommark") == 2      # the two generated rows only
+    assert html.count("dt-frommark") == 3      # the three generated rows only
     assert "Line of business IN (Homeowners)" in html
-    # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4)
+    # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4) —
+    # on the quick row and inside the custom filter set alike
+    assert "Peril IN (WS)" in html
     assert "lob IN (Homeowners) AND peril IN (WS) AND state IN (FL, GA)" in html
-    assert html.count("Base portfolio") == 2
+    assert html.count("Base portfolio") == 3
 
 
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):
