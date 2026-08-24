@@ -98,6 +98,20 @@ def test_analysis_template_defaults():
     assert defaults["treat_construction_occupancy_as_unknown"].strip("()'") == "1"
 
 
+def test_event_rate_scheme_workbench_is_active_column():
+    rows = execute(
+        "SELECT DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT "
+        "FROM INFORMATION_SCHEMA.COLUMNS "
+        "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'irp_event_rate_scheme' "
+        "AND COLUMN_NAME = 'workbench_is_active'",
+        connection="WORKBENCH",
+    )
+    assert len(rows) == 1
+    assert rows[0]["DATA_TYPE"] == "bit"
+    assert rows[0]["IS_NULLABLE"] == "NO"
+    assert rows[0]["COLUMN_DEFAULT"].strip("()'") == "1"
+
+
 @pytest.mark.parametrize("table,column", [
     ("analysis_template", "treaty_name_pattern"),
     ("analysis_template", "currency_code"),
