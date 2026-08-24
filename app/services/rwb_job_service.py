@@ -24,7 +24,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.services._common import _json, _utcnow
-from db import execute_command, execute_one, get_connection, is_unique_violation
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
@@ -218,6 +218,51 @@ def reconcile_stale_rwb_jobs(*, stale_secs: int, now: datetime | None = None) ->
             return result.rowcount
 
 
+def backfill_edm_detail_rows(
+    edm_ids: list[Any], *, statuses: tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Every ``backfill_edm_detail`` queue row belonging to the given EDMs,
+    newest ``updated_at`` first, as ``{edm_id, status_code}`` — the one owner
+    of the membership predicate across the THREE enqueue keys: the poller's
+    head keys on the finished ``import_edm`` irp_job, the manual Sync's on
+    ``(analyst_request, edm_id)``, and a completed breakout's auto-fired head
+    on its ``run_breakout_*`` job row (spec 005 FR-013). A quick breakout job's
+    requestor IS the source portfolio; a custom group's is the
+    ``breakout_group`` row, whose ``source_portfolio_id`` resolves the EDM.
+    ``statuses`` narrows the read (the in-flight checks pass
+    ``('pending', 'running')``)."""
+    if not edm_ids:
+        return []
+    params: dict[str, Any] = {f"e{i}": str(e) for i, e in enumerate(edm_ids)}
+    edms = ", ".join(f":e{i}" for i in range(len(edm_ids)))
+    status_clause = ""
+    if statuses:
+        params.update({f"s{i}": s for i, s in enumerate(statuses)})
+        codes = ", ".join(f":s{i}" for i in range(len(statuses)))
+        status_clause = f"AND rj.status_code IN ({codes}) "
+    return execute(
+        "SELECT rj.status_code, "
+        "COALESCE(ij.irp_edm_id, p.edm_id, rj.requestor_id) AS edm_id "
+        "FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "LEFT JOIN rwb_job bj ON rj.requestor_type = 'rwb_job' "
+        "AND rj.requestor_id = bj.id "
+        "AND bj.rwb_job_type LIKE 'run_breakout_%' "
+        "LEFT JOIN breakout_group bg ON bj.requestor_type = 'breakout_group' "
+        "AND bj.requestor_id = bg.id "
+        "LEFT JOIN irp_portfolio p "
+        "ON p.id = COALESCE(bg.source_portfolio_id, bj.requestor_id) "
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
+        f"AND (ij.irp_edm_id IN ({edms}) "
+        "     OR (rj.requestor_type = 'analyst_request' "
+        f"         AND rj.requestor_id IN ({edms})) "
+        f"     OR p.edm_id IN ({edms})) "
+        + status_clause +
+        "ORDER BY rj.updated_at DESC",
+        params, connection="WORKBENCH")
+
+
 __all__ = [
     "enqueue_rwb_job",
     "ensure_pending_rwb_job",
@@ -225,4 +270,5 @@ __all__ = [
     "get_rwb_job",
     "complete_rwb_job",
     "reconcile_stale_rwb_jobs",
+    "backfill_edm_detail_rows",
 ]

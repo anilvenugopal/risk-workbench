@@ -415,28 +415,12 @@ class ContextualEdmDetail:
 
 def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across its
-    THREE enqueue sources: the poller's heads key on the finished ``import_edm``
-    irp_job (hence the join), the manual Sync's key on ``(analyst_request,
-    edm_id)`` directly, and a completed breakout's auto-fired head keys on the
-    ``run_breakout_*`` job row whose portfolio belongs to this EDM (spec 005
-    FR-013). Newest ``updated_at`` wins — a revived (re-synced) row keeps its
-    ``inserted_at``, so insert order would lie. ``None`` when detail backfill
-    never ran — the pre-capability / forward-only state."""
-    row = execute_one(
-        "SELECT rj.status_code FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e) "
-        "     OR (rj.requestor_type = 'rwb_job' AND rj.requestor_id IN ("
-        "         SELECT bj.id FROM rwb_job bj "
-        "         JOIN irp_portfolio p ON bj.requestor_id = p.id "
-        "         WHERE bj.rwb_job_type LIKE 'run_breakout_%' "
-        "         AND p.edm_id = :e))) "
-        "ORDER BY rj.updated_at DESC",
-        {"e": edm_id}, connection="WORKBENCH")
-    return row["status_code"] if row is not None else None
+    three enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
+    membership predicate. Newest ``updated_at`` wins — a revived (re-synced)
+    row keeps its ``inserted_at``, so insert order would lie. ``None`` when
+    detail backfill never ran — the pre-capability / forward-only state."""
+    rows = rwb_job_service.backfill_edm_detail_rows([edm_id])
+    return rows[0]["status_code"] if rows else None
 
 
 def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
@@ -444,23 +428,7 @@ def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
     newest ``updated_at`` per EDM reduced app-side. Every requested id gets a
     key; EDMs whose detail backfill never ran map to ``None``."""
     statuses: dict[str, str | None] = {str(e): None for e in edm_ids}
-    if not statuses:
-        return statuses
-    params = {f"e{i}": value for i, value in enumerate(statuses)}
-    placeholders = ", ".join(f":e{i}" for i in range(len(statuses)))
-    rows = execute(
-        "SELECT rj.status_code, "
-        "COALESCE(ij.irp_edm_id, rj.requestor_id) AS edm_id "
-        "FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        f"AND (ij.irp_edm_id IN ({placeholders}) "
-        "     OR (rj.requestor_type = 'analyst_request' "
-        f"         AND rj.requestor_id IN ({placeholders}))) "
-        "ORDER BY rj.updated_at DESC",
-        params, connection="WORKBENCH")
-    for row in rows:
+    for row in rwb_job_service.backfill_edm_detail_rows(list(statuses)):
         key = str(row["edm_id"])
         if statuses.get(key) is None:
             statuses[key] = row["status_code"]

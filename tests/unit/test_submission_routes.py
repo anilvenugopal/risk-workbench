@@ -388,6 +388,38 @@ def test_submission_entity_table_polls_until_backfill_is_terminal(
     assert "every 3s" not in terminal.text
 
 
+def test_edm_table_polls_while_a_breakout_fired_backfill_is_queued(client):
+    # The breakout worker keys its auto-fired backfill head on its own
+    # run_breakout_* job row (FR-013) — the EDM table must keep polling
+    # through that key exactly like the analyst- and poller-keyed heads.
+    created = client.post("/submissions", data=_payload(name="Backfill breakout"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status) "
+        "VALUES (:id, 'BreakoutEDM', 'ready')",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    portfolio_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, inserted_at, "
+        "updated_at) VALUES (:i, :e, 'src', '901', '2026-08-24', '2026-08-24')",
+        {"i": portfolio_id, "e": edm_id}, connection="WORKBENCH")
+    breakout_job = rwb_job_service.enqueue_rwb_job(
+        requestor_type="analyst_request", requestor_id=portfolio_id,
+        rwb_job_type="run_breakout_lob")
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="rwb_job", requestor_id=breakout_job,
+        rwb_job_type="backfill_edm_detail", input_data={"edm_id": edm_id})
+
+    live = client.get(f"/submissions/{submission_id}/edms/table")
+
+    assert live.status_code == 200
+    assert 'hx-trigger="every 3s ' in live.text
+
+
 @pytest.mark.parametrize(
     ("kind", "table", "association_table", "entity_column", "available_name", "related_name"),
     [

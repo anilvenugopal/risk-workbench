@@ -280,6 +280,12 @@ def test_reconfirm_created_breakout_under_its_own_name(
     fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
     edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
     assert _run(jid)["status_code"] == "succeeded"   # "Coastal" is now live
+    # drain the auto-fired backfill head (FR-013) — while pending it blocks
+    # the gate, exactly as a quick breakout's does
+    execute_command(
+        "UPDATE rwb_job SET status_code = 'succeeded' "
+        "WHERE rwb_job_type = 'backfill_edm_detail'",
+        {}, connection="WORKBENCH")
 
     second = request_group_breakout(
         edm_id, pid,

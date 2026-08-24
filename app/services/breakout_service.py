@@ -272,26 +272,12 @@ def _live_breakout_dimension(portfolio_id: Any) -> str | None:
 
 
 def _backfill_in_flight(edm_id: Any) -> bool:
-    """True while a ``backfill_edm_detail`` for this EDM is pending|running,
-    under ANY of its three enqueue keys — the poller's import-keyed head (joins
-    through irp_job), the manual Sync's EDM-keyed head, and a completed
-    breakout's auto-fired head keyed on the ``run_breakout_*`` job row (FR-013)
-    — the same condition ``edm_service.sync_detail`` applies to itself (P-16)."""
-    row = execute_one(
-        "SELECT rj.id FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        "AND rj.status_code IN ('pending', 'running') "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e) "
-        "     OR (rj.requestor_type = 'rwb_job' AND rj.requestor_id IN ("
-        "         SELECT bj.id FROM rwb_job bj "
-        "         JOIN irp_portfolio p ON bj.requestor_id = p.id "
-        "         WHERE bj.rwb_job_type LIKE 'run_breakout_%' "
-        "         AND p.edm_id = :e)))",
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    return row is not None
+    """True while a ``backfill_edm_detail`` for this EDM is pending|running
+    under any of its three enqueue keys — ``rwb_job_service.
+    backfill_edm_detail_rows`` owns the membership predicate — the same
+    condition ``edm_service.sync_detail`` applies to itself (P-16)."""
+    return bool(rwb_job_service.backfill_edm_detail_rows(
+        [edm_id], statuses=("pending", "running")))
 
 
 def _dimension_rows() -> list[dict]:
