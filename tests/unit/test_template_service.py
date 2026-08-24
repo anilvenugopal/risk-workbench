@@ -264,6 +264,20 @@ def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
         template_service.save_suite("US", [template_id, template_id])
 
 
+def test_list_suites_includes_empty_suites_with_zero_counts(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values())
+    template_service.save_suite("Full", [template_id])
+    template_service.save_suite("Empty", [])
+
+    suites = {suite["name"]: suite for suite in template_service.list_suites()}
+
+    assert suites["Empty"]["item_count"] == 0
+    assert suites["Empty"]["unresolved"] is False
+    assert suites["Empty"]["items"] == []
+    assert [item["template_id"] for item in suites["Full"]["items"]] == [template_id]
+
+
 def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(

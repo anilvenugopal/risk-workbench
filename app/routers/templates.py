@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._guards import require_admin
 from app.services import rwb_job_service, template_service
 from app.services._common import _rm_ui_root
 from app.services.template_service import (
@@ -23,7 +24,11 @@ from db import execute, execute_one
 
 router = APIRouter()
 
+# Metadata sync has no entity row to key its rwb_job to, so a fixed arbitrary
+# requestor_id makes UNIQUE(requestor_type, requestor_id, rwb_job_type) treat
+# every sync request as the same job head — at most one pending/running sync.
 _METADATA_SYNC_REQUESTOR_ID = "00000000-0000-0000-0000-000000000009"
+
 # rm_path is the tenant-relative path of this tab's Risk Modeler settings screen
 # (joined to `_rm_ui_root()`, same tenant-subdomain rule as the EDM deep links
 # in edm_service.py).
@@ -48,14 +53,6 @@ def _templates(request: Request):
 def _page(request: Request, template: str, context: dict, *, status_code: int = 200):
     return _templates(request).TemplateResponse(
         request, template, context, status_code=status_code)
-
-
-def _require_admin(request: Request):
-    """Return (current_user, None) if admin, else (None, redirect-to-home)."""
-    user = getattr(request.state, "user", None)
-    if not user or not user.is_admin:
-        return None, RedirectResponse("/", status_code=302)
-    return user, None
 
 
 # ── Analysis Metadata (US1) ────────────────────────────────────────────────────
@@ -144,8 +141,6 @@ def _metadata_rm_url(tab: str) -> str | None:
     rm_path = next(
         metadata_tab["rm_path"] for metadata_tab in _METADATA_TABS
         if metadata_tab["key"] == tab)
-    if rm_path is None:
-        return None
     base = _rm_ui_root()
     return f"{base}/{rm_path}" if base else None
 
@@ -245,6 +240,29 @@ def _select_options(rows: list[dict], key: str, current_value: str | None) -> li
     return [{key: current_value, "unresolved": True, "selected": True}] + options
 
 
+def _scheme_select_options(rows: list[dict], current_value: str | None) -> list[dict]:
+    """_select_options for the event-rate-scheme select, reclassifying its
+    synthetic stored-value option: the generic label says "not found in Risk
+    Modeler", but a stored scheme can be absent from the live list while still
+    cached — hidden by an admin (workbench_is_active = 0, FR-022) or belonging
+    to another peril/region. Tag the hidden case; give the off-profile case its
+    real peril/region so it renders like any resolved option."""
+    options = _select_options(rows, "name", current_value)
+    if not options or not options[0].get("unresolved"):
+        return options
+    cached = template_service.scheme_lookup(options[0]["name"])
+    if cached is None:
+        return options
+    synthetic = options[0]
+    del synthetic["unresolved"]
+    if cached["workbench_is_active"]:
+        synthetic["peril_code"] = cached["peril_code"]
+        synthetic["model_region_code"] = cached["model_region_code"]
+    else:
+        synthetic["hidden"] = True
+    return options
+
+
 def _template_values_from_dict(values: dict) -> dict:
     """Normalize a `get_template()` row or a submitted form dict into the
     shape both the form template and `_template_form_context` expect —
@@ -285,8 +303,8 @@ def _template_form_context(
         "errors": list(errors),
         "model_profile_options": _select_options(
             reference["model_profiles"], "name", values.get("analysis_profile_name")),
-        "event_rate_scheme_options": _select_options(
-            event_scheme_rows, "name", values.get("event_rate_scheme_name")),
+        "event_rate_scheme_options": _scheme_select_options(
+            event_scheme_rows, values.get("event_rate_scheme_name")),
         "output_profile_options": _select_options(
             reference["output_profiles"], "name", values.get("output_profile_name")),
         "tag_names": template_service.list_tag_names(),
@@ -413,7 +431,7 @@ def set_scheme_visibility_route(
     csrf_token: Annotated[str, Form()],
     is_active: Annotated[str | None, Form()] = None,
 ):
-    _current_user, redirect = _require_admin(request)
+    _current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -435,7 +453,7 @@ def set_scheme_visibility_route(
 
 @router.get("/templates/analysis-templates/new", response_class=HTMLResponse)
 def new_template_form(request: Request):
-    _current_user, redirect = _require_admin(request)
+    _current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     context = _template_form_context(
@@ -481,7 +499,7 @@ def create_template_route(
     csrf_token: Annotated[str, Form()],
     form: Annotated[dict, Depends(_template_form)],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -521,7 +539,7 @@ def update_template_route(
     csrf_token: Annotated[str, Form()],
     form: Annotated[dict, Depends(_template_form)],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -554,7 +572,7 @@ def delete_template_route(
     template_id: str,
     csrf_token: Annotated[str, Form()],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -579,7 +597,7 @@ def duplicate_template_route(
     template_id: str,
     csrf_token: Annotated[str, Form()],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -588,6 +606,15 @@ def duplicate_template_route(
     try:
         new_id = template_service.duplicate_template(
             template_id, actor_id=current_user.id)
+    except TemplateValidationError as exc:
+        # Reference data drifted since the original was saved (e.g. its profile
+        # re-synced as DLM with no stored scheme) — name the rule instead of
+        # bouncing to the list with no copy and no message.
+        template = template_service.get_template(template_id)
+        context = _template_form_context(
+            request, mode="edit", template=template, form=None,
+            errors=list(exc.errors))
+        return _page(request, "pages/analysis_template_form.html", context)
     except TemplateServiceError:
         return RedirectResponse("/templates?tab=templates", status_code=303)
     return RedirectResponse(f"/templates/analysis-templates/{new_id}", status_code=303)
@@ -597,7 +624,7 @@ def duplicate_template_route(
 
 @router.get("/templates/suites/new", response_class=HTMLResponse)
 def new_suite_form(request: Request):
-    _current_user, redirect = _require_admin(request)
+    _current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     context = _suite_form_context(
@@ -612,7 +639,7 @@ def create_suite_route(
     name: Annotated[str, Form()] = "",
     template_ids: Annotated[list[str] | None, Form()] = None,
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -648,7 +675,7 @@ def update_suite_route(
     name: Annotated[str, Form()] = "",
     template_ids: Annotated[list[str] | None, Form()] = None,
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -675,7 +702,7 @@ def delete_suite_route(
     suite_id: str,
     csrf_token: Annotated[str, Form()],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -693,13 +720,19 @@ def duplicate_suite_route(
     suite_id: str,
     csrf_token: Annotated[str, Form()],
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
         return RedirectResponse(f"/templates/suites/{suite_id}", status_code=303)
     try:
         new_id = template_service.duplicate_suite(suite_id, actor_id=current_user.id)
+    except TemplateValidationError as exc:
+        suite = template_service.get_suite(suite_id)
+        context = _suite_form_context(
+            request, mode="edit", suite=suite, form=None,
+            errors=list(exc.errors))
+        return _page(request, "pages/suite_form.html", context)
     except TemplateServiceError:
         return RedirectResponse("/templates?tab=suites", status_code=303)
     return RedirectResponse(f"/templates/suites/{new_id}", status_code=303)

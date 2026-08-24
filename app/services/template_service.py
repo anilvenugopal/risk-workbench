@@ -179,6 +179,24 @@ def _replace_tags(conn, template_id: str, tags: Iterable[str], actor_id: str | N
         )
 
 
+def _live_name_exists(
+    conn, table: str, name: str, exclude_id: str | None = None,
+) -> bool:
+    sql = (
+        f"SELECT id FROM {table} "
+        "WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL"
+    )
+    params = {"name": name}
+    if exclude_id is not None:
+        sql += " AND id <> :id"
+        params["id"] = exclude_id
+    return _row(conn, sql, params) is not None
+
+
+def _duplicate_name_message(noun: str, name: str) -> str:
+    return f'{noun} named "{name}" already exists'
+
+
 def save_template(
     values: TemplateValues,
     *,
@@ -193,18 +211,11 @@ def save_template(
         if errors:
             raise TemplateValidationError(errors)
 
-        duplicate_sql = """
-            SELECT id FROM analysis_template
-            WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL
-        """
-        duplicate_params = {"name": params["name"]}
-        if template_id is not None:
-            duplicate_sql += " AND id <> :id"
-            duplicate_params["id"] = template_id
-        duplicate = _row(working, duplicate_sql, duplicate_params)
-        if duplicate:
+        if _live_name_exists(
+            working, "analysis_template", params["name"], exclude_id=template_id,
+        ):
             raise TemplateValidationError([
-                f'An analysis template named "{params["name"]}" already exists'
+                _duplicate_name_message("An analysis template", params["name"])
             ])
 
         now = _utcnow()
@@ -252,7 +263,7 @@ def save_template(
         except Exception as exc:
             if is_unique_violation(exc):
                 raise TemplateValidationError([
-                    f'An analysis template named "{params["name"]}" already exists'
+                    _duplicate_name_message("An analysis template", params["name"])
                 ]) from exc
             raise
         _replace_tags(working, saved_id, tags, actor_id)
@@ -407,12 +418,7 @@ def duplicate_template(
         ]
 
         def _name_taken(name: str) -> bool:
-            return _row(
-                working,
-                "SELECT id FROM analysis_template "
-                "WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL",
-                {"name": name},
-            ) is not None
+            return _live_name_exists(working, "analysis_template", name)
 
         values = TemplateValues(
             name=_duplicate_name(_name_taken, row["name"]),
@@ -465,18 +471,11 @@ def save_suite(
     clean_name = name.strip()
     with _txn(conn) as working:
         _validate_suite(working, clean_name, id_list)
-        duplicate_sql = """
-            SELECT id FROM template_suite
-            WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL
-        """
-        duplicate_params = {"name": clean_name}
-        if suite_id is not None:
-            duplicate_sql += " AND id <> :id"
-            duplicate_params["id"] = suite_id
-        duplicate = _row(working, duplicate_sql, duplicate_params)
-        if duplicate:
+        if _live_name_exists(
+            working, "template_suite", clean_name, exclude_id=suite_id,
+        ):
             raise TemplateValidationError([
-                f'A template suite named "{clean_name}" already exists'
+                _duplicate_name_message("A template suite", clean_name)
             ])
 
         now = _utcnow()
@@ -503,7 +502,7 @@ def save_suite(
         except Exception as exc:
             if is_unique_violation(exc):
                 raise TemplateValidationError([
-                    f'A template suite named "{clean_name}" already exists'
+                    _duplicate_name_message("A template suite", clean_name)
                 ]) from exc
             raise
 
@@ -526,57 +525,90 @@ def save_suite(
         return saved_id
 
 
+_SUITE_HEADER_SELECT = """
+    SELECT s.*, u.display_name AS author_name
+    FROM template_suite s
+    LEFT JOIN app_user u ON u.id = s.inserted_by
+"""
+
+_SUITE_ITEM_SELECT = """
+    SELECT i.suite_id, i.id, i.template_id,
+           t.name AS template_name, t.deleted_at AS template_deleted_at,
+           mp.id AS model_profile_id, op.id AS output_profile_id,
+           ers.id AS event_rate_scheme_id,
+           t.event_rate_scheme_name
+    FROM template_suite_item i
+    LEFT JOIN analysis_template t ON t.id = i.template_id
+    LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
+    LEFT JOIN irp_output_profile op ON op.name = t.output_profile_name
+    LEFT JOIN irp_event_rate_scheme ers ON ers.name = t.event_rate_scheme_name
+"""
+
+
+def _decorate_suite_item(item: dict) -> dict:
+    item.pop("suite_id")
+    item["id"] = _uid(item["id"])
+    item["template_id"] = _uid(item["template_id"])
+    item["unresolved"] = (
+        item["template_name"] is None
+        or item["template_deleted_at"] is not None
+        or item["model_profile_id"] is None
+        or item["output_profile_id"] is None
+        or (
+            bool(item["event_rate_scheme_name"])
+            and item["event_rate_scheme_id"] is None
+        )
+    )
+    return item
+
+
+def _decorate_suite(suite: dict, items: list[dict]) -> dict:
+    suite["id"] = _uid(suite["id"])
+    suite["items"] = items
+    suite["item_count"] = len(items)
+    suite["unresolved"] = any(item["unresolved"] for item in items)
+    return suite
+
+
 def get_suite(suite_id: str, *, conn=None) -> dict | None:
     with _txn(conn) as working:
-        suite = _row(working, """
-            SELECT s.*, u.display_name AS author_name
-            FROM template_suite s
-            LEFT JOIN app_user u ON u.id = s.inserted_by
-            WHERE s.id = :id AND s.deleted_at IS NULL
-        """, {"id": suite_id})
+        suite = _row(
+            working,
+            _SUITE_HEADER_SELECT + " WHERE s.id = :id AND s.deleted_at IS NULL",
+            {"id": suite_id},
+        )
         if suite is None:
             return None
-        suite["id"] = _uid(suite["id"])
-        items = _rows(working, """
-            SELECT i.id, i.template_id,
-                   t.name AS template_name, t.deleted_at AS template_deleted_at,
-                   mp.id AS model_profile_id, op.id AS output_profile_id,
-                   ers.id AS event_rate_scheme_id,
-                   t.event_rate_scheme_name
-            FROM template_suite_item i
-            LEFT JOIN analysis_template t ON t.id = i.template_id
-            LEFT JOIN irp_model_profile mp ON mp.name = t.analysis_profile_name
-            LEFT JOIN irp_output_profile op ON op.name = t.output_profile_name
-            LEFT JOIN irp_event_rate_scheme ers ON ers.name = t.event_rate_scheme_name
-            WHERE i.suite_id = :id
-            ORDER BY t.name
-        """, {"id": suite_id})
-        for item in items:
-            item["id"] = _uid(item["id"])
-            item["template_id"] = _uid(item["template_id"])
-            item["unresolved"] = (
-                item["template_name"] is None
-                or item["template_deleted_at"] is not None
-                or item["model_profile_id"] is None
-                or item["output_profile_id"] is None
-                or (
-                    bool(item["event_rate_scheme_name"])
-                    and item["event_rate_scheme_id"] is None
-                )
+        items = [
+            _decorate_suite_item(item)
+            for item in _rows(
+                working,
+                _SUITE_ITEM_SELECT + " WHERE i.suite_id = :id ORDER BY t.name",
+                {"id": suite_id},
             )
-        suite["items"] = items
-        suite["item_count"] = len(items)
-        suite["unresolved"] = any(item["unresolved"] for item in items)
-        return suite
+        ]
+        return _decorate_suite(suite, items)
 
 
 def list_suites(*, conn=None) -> list[dict]:
     with _txn(conn) as working:
-        ids = _rows(working, """
-            SELECT id FROM template_suite
-            WHERE deleted_at IS NULL ORDER BY name
-        """)
-        return [get_suite(_uid(row["id"]), conn=working) for row in ids]
+        suites = _rows(
+            working,
+            _SUITE_HEADER_SELECT + " WHERE s.deleted_at IS NULL ORDER BY s.name",
+        )
+        items_by_suite: dict[str, list[dict]] = {}
+        for item in _rows(working, _SUITE_ITEM_SELECT + """
+            JOIN template_suite s ON s.id = i.suite_id
+            WHERE s.deleted_at IS NULL
+            ORDER BY t.name
+        """):
+            suite_key = _uid(item["suite_id"])
+            items_by_suite.setdefault(suite_key, []).append(
+                _decorate_suite_item(item))
+        return [
+            _decorate_suite(suite, items_by_suite.get(_uid(suite["id"]), []))
+            for suite in suites
+        ]
 
 
 def delete_suite(
@@ -612,12 +644,7 @@ def duplicate_suite(
         ]
 
         def _name_taken(name: str) -> bool:
-            return _row(
-                working,
-                "SELECT id FROM template_suite "
-                "WHERE LOWER(name) = LOWER(:name) AND deleted_at IS NULL",
-                {"name": name},
-            ) is not None
+            return _live_name_exists(working, "template_suite", name)
 
         new_name = _duplicate_name(_name_taken, row["name"])
         return save_suite(new_name, template_ids, actor_id=actor_id, conn=working)
@@ -646,6 +673,18 @@ def scheme_options(profile_name: str, *, conn=None) -> list[dict]:
         for option in options:
             option["selected"] = selected
         return options
+
+
+def scheme_lookup(name: str, *, conn=None) -> dict | None:
+    """The cached event-rate-scheme row for a stored name, active or not —
+    lets the builder tell an admin-hidden scheme apart from one missing from
+    the cache (`scheme_options` filters to active, profile-matched rows)."""
+    with _txn(conn) as working:
+        return _row(working, """
+            SELECT name, peril_code, model_region_code, workbench_is_active
+            FROM irp_event_rate_scheme
+            WHERE name = :name
+        """, {"name": name})
 
 
 def set_scheme_visibility(irp_id: int, is_active: bool, *, conn=None) -> None:
@@ -698,6 +737,7 @@ __all__ = [
     "reference_options",
     "save_suite",
     "save_template",
+    "scheme_lookup",
     "scheme_options",
     "set_scheme_visibility",
 ]
