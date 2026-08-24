@@ -129,11 +129,11 @@ Given that feature description, do this:
          - No reasonable default exists
        - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
        - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
-    4. Fill User Scenarios & Testing section
+    4. Fill User Stories section (2–4 stories, P1 first, each independently shippable)
        If no clear user flow: ERROR "Cannot determine user scenarios"
     5. Generate Functional Requirements
        Each requirement must be testable
-       Use reasonable defaults for unspecified details (document assumptions in Assumptions section)
+       Use reasonable defaults for unspecified details (record each as an `Assumed` row in the Open product decisions table)
     6. Define Success Criteria
        Create measurable, technology-agnostic outcomes
        Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
@@ -298,7 +298,7 @@ Report completion to the user with:
 When creating this spec from a user prompt:
 
 1. **Make informed guesses**: Use context, industry standards, and common patterns to fill gaps
-2. **Document assumptions**: Record reasonable defaults in the Assumptions section
+2. **Document assumptions**: Record reasonable defaults as `Assumed` rows in the Open product decisions table — there is no separate Assumptions section
 3. **Limit clarifications**: Maximum 3 [NEEDS CLARIFICATION] markers - use only for critical decisions that:
    - Significantly impact feature scope or user experience
    - Have multiple reasonable interpretations with different implications

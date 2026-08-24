@@ -39,6 +39,7 @@ def _client() -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import edms
+    from app.services.breakout_service import display_value
 
     app = FastAPI()
     templates = Jinja2Templates(directory="app/templates")
@@ -46,6 +47,7 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.filters["breakout_display"] = display_value
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -185,6 +187,136 @@ def test_body_poll_partial_when_edm_gone(monkeypatch):
     assert r.status_code == 200
     assert "no longer exists" in r.text
     assert "every 3s" not in r.text
+
+
+# ── The breakout-episode poll: the Portfolios section, not the whole body (T-11) ──
+#
+# #edm-detail is the page's scrolling element (.shell is height:100vh, overflow
+# hidden), so the spec-005 whole-body swap threw the analyst back to the top of
+# the page every 3 seconds. A breakout changes only the Portfolios section, so
+# that section polls GET /edms/{id}/portfolios-section and the body stays quiet.
+
+def _banner(**over):
+    from app.services.breakout_service import BreakoutBanner
+    base = dict(source_name="cbhu", noun="line of business", created=3,
+                adopted=0, skipped_existing=0, failed=0, ok=True,
+                filling_in=True, error=None)
+    base.update(over)
+    return BreakoutBanner(**base)
+
+
+def test_breakout_run_polls_the_section_not_the_body(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", breakout_running=True,
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1/body").text
+    assert 'hx-get="/edms/edm-1/portfolios-section"' in html
+    assert 'hx-get="/edms/edm-1/body"' not in html   # the scroller is not swapped
+
+
+def test_body_poll_204_while_a_breakout_fills_figures_in(monkeypatch):
+    # The FR-013 follow-up backfill sets sync_running, so the body poll is live
+    # again — it must still answer 204 on a populated page. The section poll is
+    # what shows the figures landing.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", sync_running=True,
+                            breakout_banner=_banner(),
+                            as_of="2026-08-05 10:00:00"))
+    assert _client().get("/edms/edm-1/body").status_code == 204
+
+
+def test_section_poll_emits_trigger_and_oob_fragments_while_running(monkeypatch):
+    # The poll response is the section plus one out-of-band swap: the header
+    # meta line carries a portfolio count that moves as the worker creates
+    # sub-portfolios.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            breakout_running=True,
+                            as_of="2026-08-05 10:00:00"))
+    r = _client().get("/edms/edm-1/portfolios-section")
+    assert r.status_code == 200
+    assert 'id="edm-portfolios"' in r.text and "every 3s" in r.text
+    assert 'id="edm-detail-meta" hx-swap-oob="true"' in r.text
+    assert "4 portfolios" in r.text
+    assert 'id="edm-detail"' not in r.text     # never the scrolling wrapper
+    assert "</html>" not in r.text             # a fragment — no shell
+
+
+def test_section_poll_stops_when_the_breakout_episode_is_terminal(monkeypatch):
+    # Run terminal and the follow-up backfill landed: the trigger disappears,
+    # so the section's poll self-terminates (the body-poll precedent).
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            breakout_banner=_banner(filling_in=False, failed=1,
+                                                    ok=False),
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1/portfolios-section").text
+    assert "every 3s" not in html
+    assert "1 failed" in html                  # the durable partial-run banner
+
+
+def test_section_poll_when_edm_gone(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda edm_id: None)
+    r = _client().get("/edms/edm-1/portfolios-section")
+    assert r.status_code == 200
+    assert "no longer exists" in r.text
+    assert "every 3s" not in r.text
+
+
+def test_page_render_carries_the_section_and_oob_targets_without_oob_attrs(
+        monkeypatch):
+    # The ids exist on the full page render (they are the OOB targets), but
+    # hx-swap-oob appears only in the poll response — on a page load it would
+    # be inert markup, and on a body swap a nested one is ignored.
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=4,
+                            as_of="2026-08-05 10:00:00"))
+    html = _client().get("/edms/edm-1").text
+    for anchor in ('id="edm-portfolios"', 'id="edm-detail-meta"',
+                   'id="edm-treaties"'):
+        assert anchor in html
+    assert "hx-swap-oob" not in html
+
+
+def test_expanded_row_lineage_on_generated_rows_only(monkeypatch):
+    # FR-014 as revised 2026-08-11: the collapsed table row carries only the
+    # Breakout marker; expanding a generated row shows the base portfolio and
+    # the breakout criteria in the Risk Modeler description format — the
+    # dimension label + display value for a quick breakout, the AND-joined
+    # filter set for a custom group. Base rows render neither.
+    from app.services.portfolio_service import PortfolioRow
+    common = dict(edm_id="edm-1", exposure_detail=None, as_of=None)
+    base = PortfolioRow(id="p0", name="cbhu", irp_id="1", **common)
+    quick = PortfolioRow(id="p1", name="cbhu - Homeowners", irp_id="2",
+                         source_portfolio_id="p0", source_name="cbhu",
+                         breakout_dimension_code="lob",
+                         breakout_dimension_label="Line of business",
+                         breakout_value="Homeowners", **common)
+    custom = PortfolioRow(id="p2", name="Coastal HU", irp_id="3",
+                          source_portfolio_id="p0", source_name="cbhu",
+                          breakout_dimension_code="custom",
+                          breakout_value="a1b2c3",
+                          breakout_group_label="Coastal HU",
+                          breakout_group_filters={"state": ["FL", "GA"],
+                                                  "lob": ["Homeowners"],
+                                                  "peril": ["2"]},
+                          **common)
+    monkeypatch.setattr(edm_service, "get_edm_detail",
+                        lambda edm_id: _detail_obj(
+                            detail_state="populated", portfolio_count=3,
+                            portfolios=[base, quick, custom],
+                            as_of="2026-08-11 10:00:00"))
+    html = _client().get("/edms/edm-1/portfolios-section").text
+    assert html.count("dt-frommark") == 2      # the two generated rows only
+    assert "Line of business IN (Homeowners)" in html
+    # peril reads as its mnemonic, not the stored loccvg.PERIL code (D4)
+    assert "lob IN (Homeowners) AND peril IN (WS) AND state IN (FL, GA)" in html
+    assert html.count("Base portfolio") == 2
 
 
 def test_treaties_header_holds_export_and_rm_link(monkeypatch):

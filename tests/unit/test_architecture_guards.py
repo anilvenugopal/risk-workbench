@@ -83,3 +83,109 @@ def test_no_scope_construct_on_async_entities():
             if token in text:
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
     assert offenders == [], f"row-level-security constructs present (Article 6/FR-041): {offenders}"
+
+
+# ── Spec 005 (T042): the breakout request path ────────────────────────────────────
+# Article 11 as applied to the confirm flow (contracts/http-routes.md): the web
+# layer performs NO IRP call itself — routers never touch irp_gateway — and the
+# ONE Risk Modeler read on the request path is breakout_service's confirm-time
+# freshness check, fetch_portfolio_stamp (the Article 2 submit-time pattern,
+# deliberately not named get_*). DataBridge is worker-side only.
+
+_BREAKOUT_SERVICE = _APP / "services" / "breakout_service.py"
+_IRP_GATEWAY_CALL = re.compile(r"irp_gateway\.(\w+)")
+
+
+def test_routers_never_touch_irp_gateway():
+    """No router imports or calls irp_gateway — every RM interaction on a
+    request path is mediated by a service."""
+    offenders = _offenders((_APP / "routers").rglob("*.py"),
+                           re.compile(r"irp_gateway"))
+    assert offenders == [], f"routers must not touch irp_gateway: {offenders}"
+
+
+def test_breakout_request_path_reads_only_its_two_permitted_gateway_calls():
+    """breakout_service calls exactly two gateway functions — the FR-002a
+    freshness read at confirm and the P-29 emptiness count at Add — and never a
+    web-layer get_*. Both are named exceptions: the Article 2 submit-time
+    pattern and Article 11's request-path exception (v3.2.0, bounded single-row
+    read, fail-open). Value enumeration still comes off the stored summary."""
+    text = _strip_line_comments(_BREAKOUT_SERVICE.read_text(encoding="utf-8"))
+    calls = set(_IRP_GATEWAY_CALL.findall(text))
+    assert calls <= {"fetch_portfolio_stamp", "count_breakout_match"}, (
+        "breakout_service may only call irp_gateway.fetch_portfolio_stamp and "
+        f"count_breakout_match on the request path (Article 11): {sorted(calls)}")
+
+
+def test_every_seeded_breakout_dimension_has_its_vocabulary():
+    """Per-dimension registration lockstep. Every value dimension (lob, state,
+    country, peril) needs the ``portfolio_number`` letter, the noun, both
+    DataBridge scripts (selection + coverage), the ``run_breakout_{code}``
+    job-type seed, and the worker body — a missing entry composes a wrong
+    number, renders a missing noun, or fails the run."""
+    from app.services import breakout_service, irp_gateway
+    from app.workers import portfolio_jobs
+    migration = _MIGRATION.read_text(encoding="utf-8")
+    dimension_seed = re.search(
+        r"INSERT INTO breakout_dimension_kind .*?(?=\n\s*\)\))",
+        migration,
+        re.DOTALL,
+    )
+    job_type_seed = re.search(
+        r"INSERT INTO rwb_job_type_kind .*?(?=\n\s*\)\))",
+        migration,
+        re.DOTALL,
+    )
+    assert dimension_seed is not None
+    assert job_type_seed is not None
+    seeded = set(re.findall(r"\('([^']+)'", dimension_seed.group()))
+    values = seeded - {"custom"}
+    assert values == {"lob", "state", "country", "peril"}
+
+    job_types = set(re.findall(r"\('([^']+)'", job_type_seed.group()))
+    for code in values:
+        assert code in breakout_service._DIMENSION_NOUN, code
+        assert code in breakout_service._DIMENSION_LETTER, code
+        assert code in irp_gateway._SELECTION_SCRIPTS, code
+        assert code in irp_gateway._COVERAGE_SCRIPTS, code
+        # A value dimension with no clause in breakout_match_count.sql would
+        # have its filter dropped, and the Add-time count would then include
+        # accounts the breakout excludes (P-29).
+        assert code in irp_gateway._MATCH_COUNT_PARAMS, code
+        assert f"run_breakout_{code}" in job_types, code
+        assert f"run_breakout_{code}" in portfolio_jobs._BODIES, code
+    # custom (T-12): the grouping lineage code — the job type and the group
+    # worker body, but NO number letter (P-26: a group's number is its name
+    # truncated to 20); selections run through the value dimensions' scripts,
+    # so it must never gain scripts of its own.
+    assert "custom" not in breakout_service._DIMENSION_LETTER
+    assert "custom" in breakout_service._DIMENSION_NOUN
+    assert "run_breakout_custom" in job_types
+    assert "run_breakout_custom" in portfolio_jobs._BODIES
+    assert "custom" not in irp_gateway._SELECTION_SCRIPTS
+    assert "custom" not in irp_gateway._COVERAGE_SCRIPTS
+    assert "custom" not in irp_gateway._MATCH_COUNT_PARAMS
+
+    sql_dir = _REPO_ROOT / "sql" / "databridge"
+    absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,
+                                     irp_gateway._COVERAGE_SCRIPTS,
+                                     {"match": irp_gateway._MATCH_COUNT_SCRIPT})
+              for script in scripts.values()
+              if not (sql_dir / script).is_file()]
+    assert absent == [], f"registered script missing from sql/databridge: {absent}"
+
+
+def test_no_databridge_on_request_path():
+    """The web layer never opens a DataBridge connection itself and never runs a
+    trusted script: the summary the modal renders is the STORED one, and the one
+    permitted request-path read goes through ``irp_gateway`` and a repo-owned SQL
+    file (Article 11, request-path exception v3.2.0)."""
+    paths = [*(_APP / "routers").rglob("*.py"), _BREAKOUT_SERVICE]
+    offenders = []
+    for path in paths:
+        text = _strip_line_comments(path.read_text(encoding="utf-8"))
+        for token in ("DATABRIDGE", "execute_script_file"):
+            if token in text:
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
+    assert offenders == [], (
+        f"DataBridge access is worker-side only (Article 11): {offenders}")

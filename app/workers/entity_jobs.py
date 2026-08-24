@@ -426,9 +426,14 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
         # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
         # never a stale prior, so the row's as_of can't overstate its freshness).
+        # "stamp_date" is the portfolio's RM stampDate from the enumeration —
+        # read BEFORE the DataBridge summary read, so the stored stamp is
+        # conservative — the FR-002a freshness anchor the breakout confirm
+        # compares against (spec 005).
         portfolio_service.upsert_portfolio_detail(
             edm_id=edm_id, irp_id=p.irp_id, name=p.name,
-            exposure_detail={"metrics": exposure.payload, "summary": summary},
+            exposure_detail={"metrics": exposure.payload, "summary": summary,
+                             "stamp_date": p.stamp},
             as_of=now)
         stored += 1
 

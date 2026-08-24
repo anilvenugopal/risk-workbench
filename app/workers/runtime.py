@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from dramatiq.middleware import TimeLimitExceeded
 from sqlalchemy import text
 
 from app import log_context
@@ -154,6 +155,20 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
                         correlation_id=row.get("correlation_id")):
             try:
                 result = body()
+            except TimeLimitExceeded:
+                # Dramatiq killed the actor thread at its time limit. Mark the
+                # row failed HERE: TimeLimitExceeded is a BaseException the
+                # generic handler below never sees, and a row left 'running'
+                # would be reset to pending by the reconciler and re-dispatched
+                # into the same kill, forever. Re-raise so dramatiq finishes
+                # its interrupt handling.
+                logger.error("rwb_job %s exceeded the actor time limit",
+                             rwb_job_id)
+                rwb_job_service.complete_rwb_job(
+                    rwb_job_id=rwb_job_id, status="failed",
+                    error_detail="the run exceeded the worker time limit")
+                _finished("failed")
+                raise
             except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
                 logger.exception("rwb_job %s body failed", rwb_job_id)
                 rwb_job_service.complete_rwb_job(
