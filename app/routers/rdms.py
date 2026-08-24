@@ -1,10 +1,10 @@
-"""RDM routes — import (applied to ≥1 EDM), detail, recovery, name check (US2).
+"""RDM routes — standalone import, detail, recovery, and name check.
 
-Mirrors ``edms.py``. The import body carries ``applied_edm_ids`` — **≥1 required**;
-every apply targets an EDM (review-only import is deferred, D3/FR-016). CSRF on every
-POST (Article 13). Risk Modeler *submits* stay worker-side; the one RM call on a
-request path is the name-collision **read** (permitted by Article 11, cached per
-``name_check``). No row scoping (Article 6). Literal paths precede ``/rdms/{rdm_id}``.
+Mirrors ``edms.py``. An RDM imports once against its own exposure set — no EDM
+pairing (FR-018). CSRF on every POST (Article 13). Risk Modeler *submits* stay
+worker-side; the one RM call on a request path is the name-collision **read**
+(permitted by Article 11, cached per ``name_check``). No row scoping
+(Article 6). Literal paths precede ``/rdms/{rdm_id}``.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._entity_notes import save_notes
 from app.services import edm_service, rdm_service
 from app.services.errors import (
     ConcurrencyConflict,
-    EmptyPackageError,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
@@ -32,9 +32,10 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _render(request: Request, template: str, extra: dict, status_code: int = 200):
+def _render(request: Request, template: str, extra: dict, status_code: int = 200,
+            nav_key: str = _NAV_KEY):
     current_user = request.state.user
-    nav = get_nav_context(current_user, _NAV_KEY)
+    nav = get_nav_context(current_user, nav_key)
     return _templates(request).TemplateResponse(
         request, template,
         {"current_user": current_user, "nav": nav, **extra},
@@ -110,33 +111,25 @@ def create_import(
     request: Request,
     name: str = Form(...),
     source_paths: list[str] = Form(default=[]),
-    applied_edm_ids: list[str] = Form(default=[]),
     csrf_token: str = Form(...),
 ):
     if not validate_csrf_token(csrf_token):
         return RedirectResponse("/rdms/import", status_code=303)
 
     source = source_paths[0] if source_paths else ""
-    edm_ids = [e for e in applied_edm_ids if e]
     form = {"name": name}
     if not name.strip() or not source:
         return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
+            "form": form,
             "errors": ["A name and a source file selection are required."],
-            "check": None}, status_code=422)
-    if not edm_ids:
-        return _render(request, "pages/rdm_import.html", {
-            "form": form, "edms": edm_service.list_edms(),
-            "errors": ["Select at least one EDM to apply the RDM to."],
             "check": None}, status_code=422)
     try:
         result = rdm_service.import_rdm(
             name=name.strip(), source_file_path=source,
-            applied_edm_ids=edm_ids, actor_id=request.state.user.id)
-    except (InvalidSourceFile, EmptyPackageError, InvalidMemberName,
-            NameCollisionError) as exc:
+            actor_id=request.state.user.id)
+    except (InvalidSourceFile, InvalidMemberName, NameCollisionError) as exc:
         return _render(request, "pages/rdm_import.html",
-                       {"form": form, "edms": edm_service.list_edms(),
+                       {"form": form,
                         "errors": [str(exc)], "check": None}, status_code=422)
     # Fail-open marker (issue #17): the collision check couldn't reach Risk
     # Modeler — the detail page shows a warning banner once, via the query flag.
@@ -159,12 +152,110 @@ def _detail(request: Request, rdm_id: str, status_code: int = 200):
     return _render(request, "pages/rdm_detail.html", ctx, status_code=status_code)
 
 
+def _contextual_not_found(request: Request):
+    return _render(
+        request, "base/error.html",
+        {"status_code": 404, "title": "Not found",
+         "detail": "That RDM is not related to the named submission."},
+        status_code=404, nav_key="submissions.detail")
+
+
+def _contextual_template_context(context: dict) -> dict:
+    submission = context["source_submission"]
+    rdm = context["rdm"]
+    base_url = f"/submissions/{submission.id}/rdms/{rdm.id}"
+    return {
+        **context,
+        "detail_base_url": base_url,
+        "detail_body_url": f"{base_url}/body",
+        "detail_sync_url": f"{base_url}/sync",
+        "detail_notes_url": f"{base_url}/notes",
+    }
+
+
+def _contextual_body_partial(
+    request: Request, submission_id: str, rdm_id: str, *, poll: bool = False,
+):
+    context = rdm_service.get_contextual_rdm_detail(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if context is None:
+        return HTMLResponse(
+            '<div class="page-pad" id="rdm-detail">'
+            '<div class="state-box state-box--warn">'
+            'This RDM is no longer related to the submission.</div></div>')
+    if (poll and context["sync_running"]
+            and any(group.analyses for group in context["analyses"])):
+        return Response(status_code=204)
+    return _partial(
+        request, "partials/rdm_detail_body.html",
+        _contextual_template_context(context))
+
+
+@router.get(
+    "/submissions/{submission_id}/rdms/{rdm_id}",
+    response_class=HTMLResponse,
+)
+def contextual_detail(request: Request, submission_id: str, rdm_id: str):
+    context = rdm_service.get_contextual_rdm_detail(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    return _render(
+        request, "pages/rdm_detail.html",
+        {**_contextual_template_context(context), "nc_unchecked": False},
+        nav_key="submissions.detail")
+
+
+@router.get(
+    "/submissions/{submission_id}/rdms/{rdm_id}/body",
+    response_class=HTMLResponse,
+)
+def contextual_detail_body(request: Request, submission_id: str, rdm_id: str):
+    return _contextual_body_partial(request, submission_id, rdm_id, poll=True)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/sync")
+def contextual_sync(
+    request: Request, submission_id: str, rdm_id: str,
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(url, status_code=303)
+    if rdm_service.get_contextual_rdm_detail(
+            submission_id=submission_id, rdm_id=rdm_id) is None:
+        return _contextual_not_found(request)
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=request.state.user.id)
+    if is_htmx:
+        return _contextual_body_partial(request, submission_id, rdm_id)
+    return RedirectResponse(url, status_code=303)
+
+
+@router.post("/submissions/{submission_id}/rdms/{rdm_id}/notes")
+def contextual_notes(
+    request: Request, submission_id: str, rdm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/rdms/{rdm_id}"
+    if rdm_service.get_contextual_rdm_detail(
+            submission_id=submission_id, rdm_id=rdm_id) is None:
+        return _contextual_not_found(request)
+    return save_notes(
+        request, kind="rdm", entity_id=rdm_id, action=f"{url}/notes",
+        return_url=url, notes=notes, original_notes=original_notes,
+        csrf_token=csrf_token, get_entity=rdm_service.get_rdm)
+
+
 def _body_partial(request: Request, rdm_id: str, *, poll: bool = False):
     """The shell-less #rdm-detail wrapper — the HTMX swap/poll unit."""
     ctx = rdm_service.get_rdm_detail(rdm_id)
     if ctx is None:
-        # RDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (package-card precedent).
+        # RDM hard-gone mid-poll: return a terminal notice with no trigger,
+        # so the every-3s poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="rdm-detail">'
             '<div class="state-box state-box--warn">This RDM no longer exists.'
@@ -242,6 +333,18 @@ def replace_file(
     except ConcurrencyConflict:
         return _detail(request, rdm_id, status_code=409)
     return _detail(request, rdm_id)
+
+
+@router.post("/rdms/{rdm_id}/notes")
+def notes(
+    request: Request, rdm_id: str, notes: str = Form(default=""),
+    original_notes: str = Form(default=""), csrf_token: str = Form(...),
+):
+    return save_notes(
+        request, kind="rdm", entity_id=rdm_id,
+        action=f"/rdms/{rdm_id}/notes", return_url=f"/rdms/{rdm_id}",
+        notes=notes, original_notes=original_notes, csrf_token=csrf_token,
+        get_entity=rdm_service.get_rdm)
 
 
 __all__ = ["router"]

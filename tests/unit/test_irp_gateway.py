@@ -51,6 +51,24 @@ def _meta(payload) -> irp_gateway.AnalysisMetadata:
     return gw.get_analysis_metadata(analysis_id=1)
 
 
+def test_submit_rdm_import_uses_standalone_exposure_set_name():
+    calls = []
+
+    def submit_rdm_import_job(**kwargs):
+        calls.append(kwargs)
+        return 42, {"name": kwargs["rdm_name"]}
+
+    gw = _gw(rdm=SimpleNamespace(submit_rdm_import_job=submit_rdm_import_job))
+    result = gw.submit_rdm_import(name="BrokerRDM", source_file_path="/share/broker.mdf")
+
+    assert result.irp_id == "42"
+    assert calls == [{
+        "rdm_name": "BrokerRDM",
+        "rdm_file_path": "/share/broker.mdf",
+        "exposure_set_name": "BrokerRDM",
+    }]
+
+
 def test_first_class_isgroup_boolean_is_authoritative():
     m = _meta({"isGroup": True, "groupType": "GRP"})
     assert m.is_group is True

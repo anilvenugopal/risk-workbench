@@ -80,7 +80,7 @@ Six shell pages are **empty stubs** — a single "… will appear here" paragrap
 | Route | Status |
 |---|---|
 | `/workflows/active`, `/workflows/review`, `/workflows/exceptions` | stub |
-| `/workflows/irp-jobs`, `/workflows/rwb-jobs` | stub — and the [package cards](../submissions/view_submission.md) deep-link to `irp-jobs` with `?package=…&status=…` query params that nothing reads |
+| `/workflows/irp-jobs`, `/workflows/rwb-jobs` | stub |
 | `/results`, `/templates` | stub |
 
 They exist because the manifest owns the nav tree and the nodes were created in 001; the pages

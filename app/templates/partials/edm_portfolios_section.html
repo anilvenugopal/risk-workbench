@@ -13,6 +13,9 @@
    line and the rollup strip — the two places outside this section that carry a
    portfolio count. app.js reapplies the open/closed state of every <details>
    here after the swap, so an expanded row stays expanded. #}
+{# The poll render (edm_portfolios_live.html) has no contextual `sync_url`
+   in scope, hence the default. #}
+{% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
 {% set bo_live = edm.breakout_running
      or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
 <details class="sec" open id="edm-portfolios"
@@ -67,7 +70,7 @@
   <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
     The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
     {% if edm.status == 'ready' %}
-    {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+    {% with sync_url=sync_url, sync_target='#edm-detail',
             sync_label='Sync now', sync_primary=true, sync_boxed=true %}
     {% include "partials/sync_form.html" %}
     {% endwith %}
@@ -80,7 +83,7 @@
     Imported before exposure backfill shipped.
     {% if edm.status == 'ready' %}
     Sync now to fetch its per-portfolio detail from Risk Modeler.
-    {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+    {% with sync_url=sync_url, sync_target='#edm-detail',
             sync_label='Sync now', sync_primary=true, sync_boxed=true %}
     {% include "partials/sync_form.html" %}
     {% endwith %}

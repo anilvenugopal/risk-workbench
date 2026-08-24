@@ -28,14 +28,6 @@ def test_blank_name_short_circuits(fake_irp):
     assert fake_irp.search_calls == []  # no gateway call for a blank name
 
 
-def test_kind_dispatch(fake_irp):
-    fake_irp.add_rdm_name("R1")
-    assert name_check.check_member_name("rdm", "R1").collides
-    assert not name_check.check_member_name("edm", "R1").collides
-    assert ("rdm", "R1") in fake_irp.search_calls
-    assert ("edm", "R1") in fake_irp.search_calls
-
-
 def test_gateway_failure_fails_open(fake_irp):
     fake_irp.raise_on_search = True
     down = name_check.check_edm_name("Anything")

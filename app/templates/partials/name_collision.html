@@ -8,11 +8,11 @@
      (absent)   nothing checked yet (first paint, or an empty name) — pending
 
    No fixed id: the swap target is positional (hx-target="next .name-collision"),
-   so the same fragment serves the standalone import pages, each package-modal
-   row, and the breakout modal's breakout-name check (kind='portfolio', which also
-   switches scope to "this EDM" and the blocked verb to `action`). `check` is
-   None on first paint; `name` is the value that was checked — an empty one
-   comes back clear but must not claim the name is available. #}
+   so the same fragment serves the EDM and RDM import pages and the breakout
+   modal's breakout-name check (kind='portfolio', which also switches scope to
+   "this EDM" and the blocked verb to `action`). `check` is None on first
+   paint; `name` is the value that was checked — an empty one comes back clear
+   but must not claim the name is available. #}
 {% set nc = 'blocked' if (check and check.names)
        else ('unchecked' if (check and not check.checked)
        else ('ok' if (check and (name or '')|trim) else '')) %}

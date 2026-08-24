@@ -9,10 +9,10 @@ different entity type):
 * **Filters**: ``name=`` narrows by case-insensitive substring; ``status=`` narrows
   to the exact import status; the two combine with AND; blank / ``None`` filters are
   no-ops (return all).
-* **Owning-submission attach** over the M:N ``submission_package`` join: a standalone
-  entity (``package_id IS NULL``) carries an empty list; a package attached to one
-  submission carries a single ``SubmissionRef``; a package attached to ≥2 submissions
-  carries all refs **oldest-first** (``submission.inserted_at``).
+* **Owning-submission attach** over the direct association tables: a standalone
+  entity carries an empty list; an entity attached to one submission carries one
+  ``SubmissionRef``; an entity attached to two submissions carries both refs in
+  ``submission.inserted_at`` order.
 
 Runs on the SQLite unit mirror (``iteration2_db``).
 """
@@ -25,7 +25,7 @@ from types import SimpleNamespace as NS
 import pytest
 from fastapi.templating import Jinja2Templates
 
-from app.services import edm_service, package_service, rdm_service
+from app.services import edm_service, rdm_service
 from db import execute_command
 from tests.unit.test_name_check_routes import _client
 
@@ -38,14 +38,14 @@ def _list(mod, **kwargs):
     return mod.list_edms(**kwargs) if mod is edm_service else mod.list_rdms(**kwargs)
 
 
-def _entity(table, *, name, status="ready", package_id=None, deleted=False,
+def _entity(table, *, name, status="ready", deleted=False,
             inserted_at="2026-01-01 00:00:00") -> str:
     eid = str(uuid.uuid4())
     execute_command(
-        f"INSERT INTO {table} (id, package_id, source_file_path, name, status, "
+        f"INSERT INTO {table} (id, source_file_path, name, status, "
         f"deleted_at, inserted_at, updated_at) "
-        f"VALUES (:id, :pkg, :src, :name, :status, :del, :now, :now)",
-        {"id": eid, "pkg": package_id, "src": r"\\share\intake\x.bak", "name": name,
+        f"VALUES (:id, :src, :name, :status, :del, :now, :now)",
+        {"id": eid, "src": r"\\share\intake\x.bak", "name": name,
          "status": status, "del": ("2026-02-02 00:00:00" if deleted else None),
          "now": inserted_at},
         connection="WORKBENCH",
@@ -53,29 +53,25 @@ def _entity(table, *, name, status="ready", package_id=None, deleted=False,
     return eid
 
 
-def _package(inserted_at="2026-01-01 00:00:00") -> str:
-    pid = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO package (id, name, inserted_at, updated_at) "
-        "VALUES (:id, :name, :now, :now)",
-        {"id": pid, "name": "pkg", "now": inserted_at}, connection="WORKBENCH")
-    return pid
-
 
 def _submission(*, name, inserted_at) -> str:
     sid = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO submission (id, name, status_code, inserted_at, updated_at) "
-        "VALUES (:id, :name, 'ACTIVE', :now, :now)",
+        "INSERT INTO submission (id, assigned_analyst_id, name, cedant_name, "
+        "treaty_type_code, inception_date, status_code, inserted_at, updated_at) "
+        "SELECT :id, id, :name, 'Cedant', 'cat_xol', '2026-01-01', "
+        "'ACTIVE', :now, :now FROM app_user LIMIT 1",
         {"id": sid, "name": name, "now": inserted_at}, connection="WORKBENCH")
     return sid
 
 
-def _attach(submission_id, package_id) -> None:
+def _attach(submission_id, table, entity_id) -> None:
+    association = "submission_edm" if table == "irp_edm" else "submission_rdm"
+    column = "edm_id" if table == "irp_edm" else "rdm_id"
     execute_command(
-        "INSERT INTO submission_package (submission_id, package_id, inserted_at) "
-        "VALUES (:s, :p, :now)",
-        {"s": submission_id, "p": package_id, "now": "2026-01-01 00:00:00"},
+        f"INSERT INTO {association} (submission_id, {column}, inserted_at) "
+        f"VALUES (:s, :e, :now)",
+        {"s": submission_id, "e": entity_id, "now": "2026-01-01 00:00:00"},
         connection="WORKBENCH")
 
 
@@ -130,11 +126,11 @@ def test_blank_filters_are_noops(iteration2_db, mod, table):
     assert len(_list(mod, name="", status="")) == 2
 
 
-# ── Owning-submission attach over submission_package (M:N) ───────────────────────
+# ── Submission association reads (M:N) ──────────────────────────────────────
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
 def test_standalone_entity_has_no_submissions(iteration2_db, mod, table):
-    _entity(table, name="Solo", package_id=None)
+    _entity(table, name="Solo")
     row = _by_name(mod, "Solo")
     assert row is not None
     assert row.submissions == []
@@ -142,29 +138,24 @@ def test_standalone_entity_has_no_submissions(iteration2_db, mod, table):
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
 def test_single_submission_attach(iteration2_db, mod, table):
-    pid = _package()
-    _entity(table, name="One", package_id=pid)
+    entity_id = _entity(table, name="One")
     sid = _submission(name="Deal One", inserted_at="2026-03-01 00:00:00")
-    _attach(sid, pid)
+    _attach(sid, table, entity_id)
     row = _by_name(mod, "One")
     assert [(s.id, s.name) for s in row.submissions] == [(sid, "Deal One")]
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
 def test_multi_submission_attach_oldest_first(iteration2_db, mod, table):
-    pid = _package()
-    _entity(table, name="Shared", package_id=pid)
+    entity_id = _entity(table, name="Shared")
     newer = _submission(name="Newer", inserted_at="2026-05-01 00:00:00")
     older = _submission(name="Older", inserted_at="2026-02-01 00:00:00")
-    _attach(newer, pid)
-    _attach(older, pid)
+    _attach(newer, table, entity_id)
+    _attach(older, table, entity_id)
     row = _by_name(mod, "Shared")
-    # ordered oldest-first by submission.inserted_at, independent of attach order
-    assert [s.name for s in row.submissions] == ["Older", "Newer"]
+    assert [submission.name for submission in row.submissions] == ["Older", "Newer"]
 
 
-def test_submission_refs_for_packages_empty_input(iteration2_db):
-    assert package_service.submission_refs_for_packages([]) == {}
 
 
 # ── Live list: self-terminating poll trigger ─────────────────────────────────────
@@ -190,12 +181,11 @@ def _render_table(*, statuses, filters=None):
 def test_list_polls_while_a_row_is_in_flight():
     assert _render_table(statuses=["pending_import"])[0] is True
     assert _render_table(statuses=["importing"])[0] is True
-    assert _render_table(statuses=["delete_pending"])[0] is True
     assert _render_table(statuses=["ready", "importing"])[0] is True  # one is enough
 
 
 def test_list_stops_polling_when_every_row_is_terminal():
-    assert _render_table(statuses=["ready", "error", "deleted"])[0] is False
+    assert _render_table(statuses=["ready", "error"])[0] is False
     assert _render_table(statuses=[])[0] is False  # empty list never polls
 
 

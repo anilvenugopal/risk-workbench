@@ -3,7 +3,7 @@
 
 {# The body lives in partials/edm_detail_body.html so the Sync button can swap
    it in place over HTMX and the wrapper can self-poll while a backfill or
-   import is in flight (GET /edms/{id}/body — package-card live pattern). #}
+   import is in flight (GET /edms/{id}/body). #}
 
 {% block main %}
 {% include "partials/nc_unchecked_notice.html" %}

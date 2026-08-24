@@ -7,7 +7,7 @@
      entity_label   — "EDM" | "RDM" (empty-state copy)
      list_route     — the unfiltered list route (clear-filters target)
 
-   Live list (package-card / detail-body pattern): while any row is still moving
+   Live list: while any row is still moving
    under a worker (`live`), this wrapper polls its own render every 3s and swaps
    itself, so a pending → importing → ready row updates without a reload. The
    filters stay outside the wrapper, so a swap never disturbs what's typed; their

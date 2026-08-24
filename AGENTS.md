@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/005-subportfolio-breakouts/plan.md` for the current
+When present, read `specs/006-package-retirement/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 

@@ -274,3 +274,19 @@ def test_a_bad_csrf_token_on_the_htmx_path_forces_a_reload(iteration2_db, fake_i
     # Never swap a redirect-followed page into the DOM — reload to mint tokens.
     assert response.status_code == 204
     assert response.headers["HX-Refresh"] == "true"
+
+
+def test_contextual_sync_preserves_submission_in_redirect(monkeypatch):
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        edm_service, "sync_contextual_detail",
+        lambda **kwargs: calls.append(kwargs) or True)
+
+    response = _client().post(
+        "/submissions/submission-a/edms/edm-1/sync",
+        data={"csrf_token": _csrf()})
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/submissions/submission-a/edms/edm-1"
+    assert calls == [{"submission_id": "submission-a", "edm_id": "edm-1",
+                      "actor_id": "analyst-1"}]

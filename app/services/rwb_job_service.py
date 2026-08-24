@@ -8,7 +8,7 @@ poller's **reconciler** (``reconcile_stale_rwb_jobs``) reclaims rows whose worke
 died mid-flight — its logic lives here as queue maintenance; the poller only
 invokes it each pass.
 
-Portability (matches ``package_service`` / ``submission_service``): app-side
+Portability: app-side
 UUIDs bound as ``str``, app-supplied UTC timestamps, JSON columns serialized with
 ``json.dumps``, and no dialect-only SQL — the same statements run on the SQLite
 unit tier and SQL Server.

@@ -7,9 +7,9 @@ introspect *exactly* the same mirror it validates against the real migration, so
 the two can never silently diverge.
 
 Types are collapsed to TEXT/INTEGER (SQLite affinity is loose and the services
-bind ids/dates/timestamps as strings/ISO text) and FKs are omitted (SQLite does
-not enforce them by default and the services never rely on that). Only the column
-*shape* matters here.
+bind ids/dates/timestamps as strings/ISO text). Association-table foreign keys
+are retained because detach behavior depends on them. Only the column shape
+matters elsewhere.
 """
 
 from __future__ import annotations
@@ -27,10 +27,6 @@ ITERATION1_SCHEMA = [
     """CREATE TABLE submission_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
-    """CREATE TABLE package (
-        id TEXT PRIMARY KEY, name TEXT, deleted_at TEXT,
-        inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
-    )""",
     """CREATE TABLE submission (
         id TEXT PRIMARY KEY, assigned_analyst_id TEXT, name TEXT,
         cedant_name TEXT, treaty_type_code TEXT, inception_date TEXT,
@@ -46,24 +42,34 @@ ITERATION1_SCHEMA = [
         id TEXT PRIMARY KEY, submission_id TEXT, status_code TEXT, reason TEXT,
         at TEXT, inserted_by TEXT
     )""",
-    """CREATE TABLE submission_package (
-        submission_id TEXT, package_id TEXT, inserted_at TEXT, inserted_by TEXT,
-        PRIMARY KEY (submission_id, package_id)
-    )""",
     # irp_edm / irp_rdm carry their full §5 shape from Iteration 1; this iteration
     # EXERCISES the previously-inert columns (§6). The mirror is a subset of the
     # real table (SUBSET_TABLES), so it lists every column a service now touches.
     """CREATE TABLE irp_edm (
-        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        id TEXT PRIMARY KEY, source_file_path TEXT, name TEXT,
         irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
-        server_name TEXT, status TEXT, deleted_at TEXT,
+        server_name TEXT, notes NVARCHAR(250), status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
     """CREATE TABLE irp_rdm (
-        id TEXT PRIMARY KEY, package_id TEXT, source_file_path TEXT, name TEXT,
+        id TEXT PRIMARY KEY, source_file_path TEXT, name TEXT,
         irp_id INTEGER, created_by_irp_job_irp_id TEXT, as_of TEXT,
-        status TEXT, deleted_at TEXT,
+        notes NVARCHAR(250), status TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
+    )""",
+    """CREATE TABLE submission_edm (
+        submission_id TEXT, edm_id TEXT, inserted_at TEXT, inserted_by TEXT,
+        PRIMARY KEY (submission_id, edm_id),
+        FOREIGN KEY (submission_id) REFERENCES submission(id),
+        FOREIGN KEY (edm_id) REFERENCES irp_edm(id),
+        FOREIGN KEY (inserted_by) REFERENCES app_user(id)
+    )""",
+    """CREATE TABLE submission_rdm (
+        submission_id TEXT, rdm_id TEXT, inserted_at TEXT, inserted_by TEXT,
+        PRIMARY KEY (submission_id, rdm_id),
+        FOREIGN KEY (submission_id) REFERENCES submission(id),
+        FOREIGN KEY (rdm_id) REFERENCES irp_rdm(id),
+        FOREIGN KEY (inserted_by) REFERENCES app_user(id)
     )""",
 ]
 
@@ -97,7 +103,8 @@ ITERATION2_SCHEMA = [
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
     """CREATE TABLE irp_job (
-        id TEXT PRIMARY KEY, package_id TEXT, irp_edm_id TEXT, irp_rdm_id TEXT,
+        id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
+        irp_edm_id TEXT, irp_rdm_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
         last_completion_result TEXT, submission_attempt_count INTEGER,
@@ -125,13 +132,13 @@ ITERATION2_SCHEMA = [
     # exercised on the unit tier. Iteration 3 (spec 004): settings_metadata /
     # is_group / exposure_resource_id detail columns (data-model §4).
     """CREATE TABLE irp_analysis (
-        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT, package_id TEXT,
+        id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
         irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
         created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
-        UNIQUE (rdm_id, edm_id, irp_id)
+        UNIQUE (rdm_id, irp_id)
     )""",
 ]
 
@@ -177,7 +184,7 @@ ITERATION3_SCHEMA = [
 ]
 
 IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RDM", 20),
-                     ("delete_edm", "Delete EDM", 30), ("geohaz", "Geohazard", 40),
+                     ("geohaz", "Geohazard", 40),
                      ("analysis", "Analysis", 50), ("grouping", "Grouping", 60),
                      ("export", "Export", 70)]
 IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
@@ -188,7 +195,6 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
-                     ("delete_rdm", "Delete RDM", 70), ("delete_edm", "Delete EDM", 80),
                      ("run_breakout_lob", "Portfolio breakout by line of business", 90),  # spec 005
                      ("run_breakout_state", "Portfolio breakout by geography (state)", 100),
                      ("run_breakout_country", "Portfolio breakout by country", 105),
@@ -212,8 +218,9 @@ BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-mod
 # Tables whose mirror must match the real migrated schema column-for-column. A new
 # migration column here MUST be added to the mirror above or the guard fails.
 EXACT_MATCH_TABLES = (
-    "treaty_type_kind", "submission_status_kind", "package", "submission",
-    "submission_crm_id", "submission_status_event", "submission_package",
+    "treaty_type_kind", "submission_status_kind", "submission",
+    "submission_crm_id", "submission_status_event", "submission_edm",
+    "submission_rdm",
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
     "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
@@ -225,7 +232,7 @@ EXACT_MATCH_TABLES = (
     "breakout_dimension_kind", "breakout_group",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
-# package service touches; the real tables carry extra Iteration-2 IRP columns
+# unit services touch; the real tables carry extra Iteration-2 IRP columns
 # (source_file_path, irp_id, as_of, status, server_name, ...). For these the
 # invariant is mirror ⊆ real: every mirrored column must exist, extras are fine.
 SUBSET_TABLES = ("irp_edm", "irp_rdm")

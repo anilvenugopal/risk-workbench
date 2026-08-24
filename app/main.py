@@ -9,7 +9,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -76,8 +75,16 @@ app.state.templates = templates
 
 # ── Routers ────────────────────────────────────────────────────────────────
 from app.routers import (  # noqa: E402
-    auth, shell, health, admin, submissions, shared_drive, edms, rdms, packages,
-    portfolios, treaties,
+    admin,
+    auth,
+    edms,
+    health,
+    portfolios,
+    rdms,
+    shared_drive,
+    shell,
+    submissions,
+    treaties,
 )
 
 app.include_router(health.router)
@@ -89,7 +96,6 @@ app.include_router(edms.router)
 app.include_router(portfolios.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
-app.include_router(packages.router)
 app.include_router(shell.router)
 
 

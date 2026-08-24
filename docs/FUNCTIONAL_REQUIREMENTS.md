@@ -28,11 +28,12 @@ Plain statements of what the workbench is and does, organized by workflow area. 
 
 ## 1. Data Organization
 
-Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM set, bottom level).
+The **Submission** is the deal and the only user-facing container for EDMs and
+RDMs. EDMs and RDMs are global Risk Modeler resources that can each relate to
+several Submissions without being copied or re-imported.
 
-> **Open question — Submission vs. Project:** whether the top-level object is a "submission" (mirrors the directory structure) or a more flexible "project," or whether these attributes just live on the package with no object above it. Deferred to wireframes; the requirements below apply either way. (Design note 03 §2–§4, OQ-1/OQ-2.) **8/4:** the demo used Submission throughout and CIC worked with it fluently without raising the alternative — settled in practice, not formally closed.
-
-> **Open question — does "Package" survive?** The 7/14 review flagged that "package" is not CIC terminology and may add too much organizational overhead; EDMs/RDMs could attach directly to the Submission instead. Held as the working baseline because the import flow works either way. **8/4 partially resolves this:** the *mechanism* is confirmed — a Package points at one physical copy of the data and attaches to many Submissions without duplicating it ("OK, got it") — but the *vocabulary* is not. "Packages" is new terminology for CIC, and the "big package discussion" plus terminology onboarding was deferred for time. (Design note 04 §9, 03 OQ-1, 08 O8-5.)
+The August 12 review retained Submission as the top-level deal and removed the
+intermediate grouping concept. Design note 12 records the decision.
 
 **Submission**
 
@@ -44,7 +45,7 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | A Submission has a name of its own, distinct from the cedant name. | Implemented | **Added 8/4.** The name on the contract is often not the name of the submission — an MGA writing on behalf of an insurer puts both names in the submission name but only one on the contract: "I think it's right to keep them separate." Today the name is a copy/paste from CRM. |
 | A Submission is displayed by its name plus cedant name + treaty type + inception date. | Implemented | Readable identifiers analysts recognize at a glance. |
 | A Submission has these attributes: name, cedant name, treaty type, inception date, treaty year, directory path, CRM ID(s). | Implemented | Directory path = the deal's shared-drive folder. |
-| A Submission has exactly one treaty type. | Implemented | **Added 8/4.** Multi-select was floated and rejected: one submission carries one treaty type. Treaty-type multiplicity lives at the *data* level — the same data serving a cat treaty and a per-risk treaty is handled by a shared Package, not a multi-valued field. |
+| A Submission has exactly one treaty type. | Implemented | **Added 8/4.** Multi-select was floated and rejected: one submission carries one treaty type. The same EDM or RDM can relate to submissions with different treaty types. |
 | Treaty year defaults to the inception year and stays editable. | Implemented | **Changed 8/5.** The 8/4 wording was "derived from the inception date… never free-text entry." Picking an inception date fills the treaty year, and the server fills it on save when the field is left blank, so nobody types it in the normal case. Reverses design note 08 §2.1 D4, which carries the reason and the open re-confirmation with CIC. |
 | The cedant field is workbench-side only; it is not linked to the Moody's/EDM cedant field. | Implemented | **Added 8/4.** There is no exposure data at submission-creation time to link against — cedant arrives *with* the exposure. "Totally fine, I just wanted to make sure." The label needs disambiguating: "cedent" is also a specific EDM field. |
 | The cedant field is a typeahead over existing cedants. | Implemented | A keyboard-navigable menu (arrows, Enter, Escape) replacing the `<datalist>` the 8/4 session rejected as "not what you think in terms of an auto populate drop down type of deal." Matches anywhere in the name, so "fam" finds "American Family Mutual"; free text is still accepted, since there is no cedant registry. Both this menu and the "links to" typeahead wait for the second character (`submission_service.MIN_SUGGEST_TERM`). |
@@ -70,19 +71,17 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 
 > **Parked — CRM integration.** A future phase, not MVP. CRM holds the submission name, company/cedant name, inception date, and CRM ID: "especially based on that CRM ID, we could pull a lot of data in." Today the submission name is copy/pasted from CRM by hand. (8/4)
 
-**Package**
+**Submission data relationships**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A Package associates a set of EDMs with the RDMs that go with them. | Implemented | "This EDM goes with these RDMs." Mostly a creation-time grouping; not displayed constantly through the app. |
-| A Package can be any combination of EDMs and RDMs. | Implemented | One or many EDMs, one or many RDMs, EDM-only, or RDM-only. e.g. 4 EDMs + 1 RDM is valid. |
-| A Package requires at least one EDM or RDM. | Implemented |  |
-| A Submission has one or more Packages. | Implemented |  |
-| A Package can be shared across Submissions. | Implemented | Same exposure and results reused across deals. |
-| A Package points to one physical copy of the EDM/RDM data. | Implemented | **Confirmed 8/4.** Attaching a Package to another Submission does **not** duplicate the data — "same, same underlying data is the idea." This is the mechanism that serves CIC's real case of "one set of data that goes with multiple submissions." |
-| An existing Package can be attached to an additional Submission after creation. | Not implemented | "Add existing package" — demoed as a concept 8/4, not yet built. |
-| A Package is unique in its own right, not owned by any single Submission. | Implemented | Its EDM/RDM names are likewise unique. |
-| Work against a shared Package propagates to every Submission that shares it. | Implemented | Analyses are hard-coupled to the EDM in Risk Modeler. Accepted and often preferred. **Confirmed 8/4** (was provisional — design note 03 §5). |
+| A Submission can relate directly to any number of EDMs and RDMs. | Not implemented | The submission page shows separate EDM and RDM tables. |
+| An EDM can relate to several Submissions. | Not implemented | Every association points to the same workbench and Risk Modeler EDM. |
+| An RDM can relate to several Submissions. | Not implemented | Every association points to the same workbench RDM and its captured broker analyses. |
+| Relating an existing EDM or RDM to another Submission does not copy or re-import it. | Not implemented | Only the association is inserted. |
+| Removing an EDM or RDM from a Submission deletes only the association. | Not implemented | Physical deletion from Risk Modeler is outside the MVP. |
+| Completed and Cancelled Submissions reject EDM/RDM association changes. | Not implemented | Reopen the Submission to Active before adding or removing data. |
+| A Submission does not assert an EDM-to-RDM relationship. | Not implemented | Naming conventions identify the intended business relationship. |
 | No duplicate EDMs are created just for tracking. | Implemented | If isolation is genuinely needed, add a new portfolio within one EDM. |
 | Multi-select of EDMs/RDMs is supported. | Implemented | Select several at once to move or import them together. |
 
@@ -96,11 +95,13 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | An EDM/RDM name must be unique in Risk Modeler (global). | Implemented |  |
 | An EDM/RDM name must be unique on the on-prem SQL server. | Implemented |  |
 | The workbench checks name uniqueness before import and surfaces an error on collision. | Implemented |  |
-| A Risk Modeler name collision blocks the Package until the user renames. | Implemented | Checked against Risk Modeler by API at package creation — a block, not a warning (8/4). |
+| A Risk Modeler name collision blocks import until the user renames. | Implemented | Checked against Risk Modeler by API before import. |
 | Naming convention: `TY{YY}{MM}_{Cedant}_{InforceDate}_{Version}_{EDM\|RDM}`. | Implemented | Add a distinguisher (business unit, region, treaty type) when databases would otherwise collide. |
 | The name is auto-populated from the chosen import file name. | Implemented |  |
 | The name is editable in place before import. | Implemented | On collision, the user adds a suffix. |
 | An EDM/RDM has a status: Pending, Uploading, Ready, Upload Failed. | Implemented |  |
+| An EDM/RDM has one optional plain-text note of at most 250 characters. | Implemented | The note is shared wherever the EDM/RDM appears. |
+| EDM/RDM notes can be edited in place in the Submission EDM and RDM tables. | Implemented | Double-click the note or select Edit; Enter saves, Shift+Enter inserts a line break, and Escape cancels. |
 | Rename-on-reattach is supported (~15% of the time). | Not implemented | e.g. mid-deal M&A — reattach/rename exposure for the acquiring company; also keeping test versions (v1 vs v2) separate. |
 | On duplicate-and-rename, the workbench offers to auto-delete the old copy. | Not implemented |  |
 
@@ -113,17 +114,17 @@ Two objects: **Submission** (the deal, top level) and **Package** (an EDM/RDM se
 | Submissions can be filtered by cedant name, treaty type, inception date, owner, and CRM ID. | Implemented | The list carries eight filters: name search, cedant, CRM ID, owner, status, treaty type, inception, treaty year. The cedant filter matches a fragment of the name rather than the whole value. **Added 8/9 (D16):** status, treaty type and owner each take several values, picked as chips from a menu that stays open, and treaty year takes several years typed one at a time. Values OR within a filter and AND across filters; twenty values per filter is the cap. Owner still defaults to the signed-in analyst and its menu narrows in place as the analyst types. |
 | Submissions can be sorted. | Implemented | **Added 8/9 (D15):** Name, Cedant, Inception and Year are click-to-sort headers carrying a caret; clicking the sorted column flips it. One column at a time. The default is inception date descending. Applied filters and the page survive a sort, and the order rides in the URL. |
 | Multi-term search uses AND semantics, not OR. | Implemented | **Added 8/4.** "There must be 1000 companies that have American in the name" — typing "American Family" must not return every company containing "American." Applies to the name search, the cedant filter, and the "links to" picker: each typed word must appear, matched as a substring and no fuzzier than that. |
-| Global search runs across Submissions, Packages (EDMs, RDMs), analyses, jobs, and results. | Not implemented |  |
+| Global search runs across Submissions, EDMs, RDMs, analyses, jobs, and results. | Not implemented |  |
 | Search, sort, and filter are available on every list section. | Not implemented | 7/14: wanted on portfolios, treaties, analyses, and results — not just the submissions list. |
 
 **Navigation & drill-down**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Navigation is three-tier: Submission → Package → EDM. | Implemented | The actual work happens at the EDM level (7/14). |
+| Navigation from a Submission goes directly to its EDMs and RDMs. | Not implemented | The actual work happens at the EDM level (7/14). |
 | An EDM drills down to its portfolios. | Implemented | Analyses run against a portfolio, not a whole EDM. |
-| The effective navigation depth is Submission → Package → EDM → Portfolio. | Implemented | The portfolio drill-down is also the entry point for kicking off analyses. |
-| An EDM page shows its parent Package and Submission as clickable links. | Implemented | **Added 8/4.** Upward navigation context — "I don't know where I am" without it. Lets the analyst hop back to the Package and into another EDM "without starting all over again from the top," which matters because a Submission can hold any combination (one EDM and three RDMs, three EDMs and one RDM). Every owning submission renders as a link, oldest first. |
+| The effective contextual navigation depth is Submission → EDM → Portfolio. | Not implemented | The portfolio drill-down is also the entry point for kicking off analyses. |
+| An EDM opened from a Submission links back to that Submission and offers the Submission's other EDMs. | Not implemented | The contextual URL names the Submission; the direct EDM Library URL has no Submission context. |
 
 ---
 
@@ -135,11 +136,11 @@ Getting a deal's data into the workbench and seeing what's in it.
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| The user can create a Submission. | Implemented | A Submission can exist without a Package. |
-| The user can create a Package. | Implemented |  |
-| A Package is created by choosing its EDM/RDM combination. | Implemented |  |
-| A Package is created by choosing the Submission(s) it lives in. | Implemented |  |
-| The new-package flow opens to name the package and browse for files. | Implemented | The package name does not default to the submission name (7/14). |
+| The user can create a Submission. | Implemented | A Submission can exist without EDMs or RDMs. |
+| An Active Submission can import a new EDM or RDM. | Not implemented | The new entity and its Submission association are saved before background import begins. |
+| An Active Submission can add an existing EDM or RDM. | Not implemented | Every live resource not already related to the Submission is eligible. The empty state distinguishes no available resources before a search from no search matches. |
+| Adding an existing EDM or RDM creates no Risk Modeler job. | Not implemented | The action inserts only `submission_edm` or `submission_rdm`. |
+| A Submission shows separate, always-visible EDM and RDM tables. | Implemented | Each table has its own empty state and add action. Name, Status, and count are sortable independently; the selected orders remain during polling. These short tables do not have search. Risk Modeler links appear only for ready EDMs/RDMs. A table refreshes while a listed import or subsequent detail backfill is pending or running. |
 | The analyst browses network shares and selects file(s). | Implemented |  |
 | File browsing is restricted to network drives — never the local machine. | Implemented | Both the analysts' machines and the app are connected to the shares. |
 | Two network locations are supported: a working drive and an archive drive. | Partial | e.g. M = client/working drive, L = archive/BAK drive; the archive is not organized the same way and may split into in-force / projected subfolders. |
@@ -152,14 +153,11 @@ Getting a deal's data into the workbench and seeing what's in it.
 | The inferred EDM/RDM classification can be flipped in place. | Implemented | Corrects the type when the name isn't reliable. |
 | The name is auto-populated from the file and editable before import. | Implemented |  |
 | An error is shown if the name is not unique in Risk Modeler or on-prem SQL. | Implemented | The analyst adds a suffix. |
-| The analyst can Save a Package without syncing to Risk Modeler. | Implemented | Stages the selection while still gathering files across directories. |
-| The analyst can Save & Sync to import the Package into Risk Modeler (DataBridge). | Implemented |  |
 | Imports run in the background. | Implemented | The analyst can leave the page and keep working — avoids Risk Modeler's slow, blocking upload. |
 | All selected files can be submitted for import at once. | Partial | The system runs ~10 concurrently and auto-dequeues the rest as slots free up; chunking gives no benefit (7/14). |
 | A delete-after-transfer checkbox removes the temporary BAK file once imported. | Not implemented | Otherwise temp files accumulate on the share forever. |
 | Import status is tracked per EDM/RDM. | Implemented |  |
-| Import status is tracked per Package. | Partial | Package-level status tells us when it is ready to work on. |
-| An EDM already in Risk Modeler can be linked to a Submission without re-importing. | Partial | Two steps: **Moody's IRP › Sync from Risk Modeler** lists the EDMs with no `irp_edm` row and creates one for each the analyst ticks (pulling its portfolios, exposure figures, and treaties), then the package modal attaches it. The package modal selects existing `irp_edm` rows, so an EDM the workbench has never seen is not offered there until it is synced. RDMs have no equivalent — `search_analyses` keys on `source_rdm_name`, so adopting one is a separate feature. |
+| An EDM already in Risk Modeler can be linked to a Submission without re-importing. | Partial | **Moody's IRP › Sync from Risk Modeler** first creates the workbench EDM row; the Submission add-existing action then inserts only the association. |
 | All EDMs are browsable in an EDM Library. | Implemented | Includes workbench-created and orphaned. |
 | All RDMs are browsable in an RDM Library. | Implemented | Includes workbench-created and orphaned. |
 
@@ -174,13 +172,16 @@ Risk Modeler's two upload routes are not equivalent, and the difference was demo
 | The captured analysis attributes are saved to the workbench database. | Not implemented | **Added 8/5.** |
 | The RDM is imported from DataBridge into Risk Modeler after the SQL capture. | Not implemented | **Added 8/5.** So results appear in the Results tab. In the RM UI the path is Results → the caret beside "Results" → Import from DataBridge. |
 | The RDM is deleted from DataBridge once it is in Risk Modeler. | Not implemented | **Added 8/5.** RDMs run larger than EDMs and keeping both copies wastes space: "you can always export everything back out to an RDM, so… I don't think we need to keep it in two places." Losing the DataBridge EDM↔RDM association costs nothing — that link is already untrustworthy (§2.2 trust rule). |
-| The four import steps run behind one user action. | Not implemented | **Added 8/5.** The analyst creates a package and uploads an RDM; the two-step orchestration is not exposed. |
+| The four import steps run behind one user action. | Not implemented | **Added 8/5.** The analyst imports an RDM from a Submission or the RDM Library; the orchestration is not exposed. |
 | The workbench database is the source of truth for analysis attributes Risk Modeler does not retain. | Not implemented | **Added 8/5.** Exposure name, currency scheme/vintage, event rate scheme/name, minimum loss threshold, franchise deductible, construction, LOB term. The event rate scheme matters most — "that's just key information we're going to want to know." |
 | Attributes read from DataBridge SQL are shown even though SQL fields are editable by anyone. | Not implemented | **Added 8/5.** Acknowledged and accepted: the capture happens **before** the data reaches Risk Modeler, and "if it's there, we want to use it, want to return it to the user." |
 
 > **Open — which attributes actually survive the DataBridge step.** Event rate scheme is validated. Minimum loss threshold, franchise deductible, construction, LOB term, currency scheme/vintage, and exposure name are assumed and unconfirmed. Ben to validate. (Design note 09, O9-3.)
 
-> **Open — RDM lifecycle inside a Package.** A replacement RDM arriving weeks later ("you need to get rid of the old stuff and put the new one in"), data arriving in stages, and the variant where CIC reads an RDM without ever importing it into Risk Modeler. No design yet. (Design note 09, O9-5.)
+> **Open — RDM replacement lifecycle.** A replacement RDM arriving weeks later
+> ("you need to get rid of the old stuff and put the new one in"), data arriving
+> in stages, and the variant where CIC reads an RDM without ever importing it
+> into Risk Modeler have no design yet. (Design note 09, O9-5.)
 
 > **Open — ask Moody's what the intended workflow is.** Why the two upload routes differ, and why the certified UI will not populate attributes that exist in the underlying data. This broker workflow — receive results, use some, run others, combine at the end — is "a very common workflow," and CIC wants to confirm it is not missing an intended path. (Design note 09, O9-2.)
 
@@ -198,7 +199,7 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 |---|---|---|
 | A map is not needed. | Implemented | A fast textual snapshot is what's wanted. |
 | The existing Power BI exposure dashboards are not rebuilt. | Implemented |  |
-| No EDM-level aggregate roll-up is shown. | Implemented | **Reversed 8/4.** The aggregate counts double-count: "you can have the same locations duplicated for wind and for severe convective storm… saying that I've got double the amount of locations isn't really double the amount of locations… I don't think that that summary gives me much." `partials/edm_aggregate_strip.html`, `portfolio_service.aggregate_exposure`, and the per-EDM aggregate line on the submission page's package card (spec 004 FR-041 — same double-counted figure) are removed; the package card keeps analysis counts and the Open EDM link. Voids spec 004 US4 / FR-040 / FR-041 / FR-042 / FR-043. |
+| No EDM-level aggregate roll-up is shown. | Implemented | **Reversed 8/4.** The aggregate counts double-count: "you can have the same locations duplicated for wind and for severe convective storm… saying that I've got double the amount of locations isn't really double the amount of locations… I don't think that that summary gives me much." `partials/edm_aggregate_strip.html` and `portfolio_service.aggregate_exposure` are removed. Voids spec 004 US4 / FR-040 / FR-041 / FR-042 / FR-043. |
 | Figures are shown per portfolio, inside a specific EDM. | Implemented | Analyses run on a portfolio, not the EDM (7/14). The per-portfolio table is the valuable part — "having just the list of portfolios and… some information about them is really great in one place because you can't do that today in RiskLink." |
 
 > **Trust rule (8/4) — metadata originating outside CIC's environment cannot be trusted.** There is no reliable way to tie an RDM analysis to a specific EDM portfolio: "there actually is no way to tie an RDM analysis to a specific EDM portfolio that you can trust." A false link was demoed live — a US EQ analysis attributed to a USFL portfolio ("clearly they're wrong… it's not possible"). Attribution is defensible only when the EDMs/RDMs never left CIC's environment. Analyses from a linked RDM may be **listed** on the EDM page, never **attributed to a portfolio**. This narrows spec 004 FR-036 / PRD §21 Iteration 3 — see §7.
@@ -209,9 +210,10 @@ Rolled up so the analyst doesn't click through Risk Modeler — a fast textual s
 |---|---|---|
 | The EDM header shows name, status, source path on the share, Risk Modeler ID, and job ID. | Implemented |  |
 | The number of portfolios in the EDM is shown. | Implemented | Sometimes 1 portfolio, sometimes 25. |
-| The EDM header shows its parent Package and Submission as clickable links. | Implemented | **Added 8/4.** See §1 Navigation & drill-down. Every owning submission is a link (a package attaches to several — 8/4 D7); the package link anchors its card on the oldest owning submission's page, since no standalone package page exists. |
+| An EDM opened from a Submission shows that Submission as its only context link. | Not implemented | See §1 Navigation & drill-down. Other Submission associations do not appear in the navigation trail. |
 | The EDM header shows the as-of / last-synced timestamp. | Implemented |  |
 | A manual Sync action re-reads the EDM from Risk Modeler. | Implemented |  |
+| An EDM and RDM each have one optional shared note, editable from the detail page by any authenticated analyst. | Implemented | The note is limited to 250 characters. Blank input clears it. Submission tables show the complete wrapped note; library tables do not show notes. A stale editor identifies the newer note and requires a second save to replace it. Detail polling pauses while the editor is open. |
 
 **Per-portfolio figures**
 
@@ -300,9 +302,9 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Every RDM in a Package is displayed on every EDM detail page in that Package. | Implemented | **Added 8/5.** `list_edm_analyses` is package-scoped: two EDMs and two RDMs means each EDM page shows both RDMs, and an RDM with no analyses still appears with an empty group (the paired-book check is "were the same analyses run"). A packageless EDM falls back to the analyses applied against it. |
-| Each RDM section on the EDM page expands and collapses individually. | Implemented | **Added 8/5.** Each RDM group is its own expander (default open) inside the Broker analyses section — both expanded for the whole picture, or collapse one to concentrate on the other. |
-| Displaying an RDM against an EDM does not assert a link between them. | Implemented | Membership in the same Submission is the only relationship: "EDM 1 isn't related to EDM 2 other than they're related to the same submission." Consistent with the §2.2 trust rule. |
+| An EDM opened from a Submission lists every RDM related to the same Submission. | Not implemented | An RDM with no captured analyses still appears with an empty group. The direct EDM Library page does not infer a Submission or show Submission-scoped RDMs. |
+| Each RDM section on the contextual EDM page loads its stored analyses when expanded. | Not implemented | The initial response renders the RDM identity and count only; no Risk Modeler read runs in the web process. |
+| Displaying an RDM beside an EDM does not assert a link between them. | Not implemented | Membership in the same Submission is the only relationship: "EDM 1 isn't related to EDM 2 other than they're related to the same submission." Consistent with the §2.2 trust rule. |
 
 > **Why every RDM on every EDM.** Wendy's case is a paired book — an in-force and a projected EDM with an in-force and a projected RDM: "I like to see the landscape to say, were the same analyses run, because… if you have 12 analyses in one, you have 12 analyses in the other." No two-EDM/two-RDM example exists in the app yet, so the layout is unreviewed.
 
@@ -426,7 +428,7 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | Accumulation analyses can be run. | Not implemented | In scope, with accumulation-specific settings; output detail in §7. |
 | Job status is tracked live and auto-refreshed, per deal and overall. | Not implemented | Only progress useful to the modeler is shown. |
 | Two job classes are tracked: IRP jobs and workbench jobs. | Not implemented | **Added 8/4.** IRP jobs are submitted to Moody's and polled for state; workbench jobs cover uploads and other wrapping/independent work. |
-| Jobs are associated with a parent Submission, Package, or EDM. | Not implemented | **Added 8/4.** Not one flat global list — Moody's "just stacks everything up," and "there's no point in replicating it exactly like" that. |
+| Jobs target an EDM, RDM, portfolio, or analysis and may record the requesting Submission. | Not implemented | The requesting Submission is provenance only and never selects or duplicates the execution target. |
 | Heavy work never runs on the request path. | Not implemented | The user is never blocked on an upload. |
 | An activity indicator distinguishes actively-running from stuck. | Not implemented | **Added 8/4.** Status text alone gives too little insight: "as an analyst… we are antsy… we just want to get things moving through and we're going to want to see, oh, is it stuck? Is it happening? Is anything going on?" |
 | The jobs view shows which Submission each job belongs to. | Not implemented | **Added 8/5.** So that when "we see something failed, we know which submission was that for." |
@@ -468,7 +470,7 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Results are displayed grouped under the RDM that produced them. | Not implemented | Matches the current workflow; the EDM↔RDM relationship is already implied by the package. |
+| Results are displayed grouped under the RDM that produced them. | Not implemented | No EDM-to-RDM relationship is inferred from sharing a Submission. |
 | Broker results are deduped by RDM. | Not implemented | (`rdm_id`.) |
 | Portfolio↔analysis linking is not solved. | Implemented | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 surfaces by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3) — **now narrowed, see the next row.** |
 | The resolved exposure pointer is trusted only for analyses CIC ran itself. | Partial | **Narrowed 8/4.** For imported/broker RDMs the pointer is untrustworthy: "there actually is no way to tie an RDM analysis to a specific EDM portfolio that you can trust," and a false link was demoed live (a US EQ analysis attributed to a USFL portfolio). Trustworthy only if the EDMs/RDMs never left CIC's environment; not displayed as a link otherwise. See the §2.2 trust rule. |
