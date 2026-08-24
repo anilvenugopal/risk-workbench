@@ -88,6 +88,17 @@ _COVERAGE_SCRIPTS = {
 _FREE_TEXT_STORAGE_CAP = 500
 
 
+def _peril_code(value: Any) -> str:
+    """The one owner of peril value stringification. ``loccvg.PERIL`` is a
+    smallint, but pandas may hand it back as a float (3 → "3.0") — the
+    canonical form everywhere (stored summary, selection keys, match-count
+    filters) is the integer string."""
+    try:
+        return str(int(float(value)))
+    except (TypeError, ValueError):
+        return str(value)
+
+
 class DuplicatePortfolioNameError(Exception):
     """``create_portfolio`` refused because the name is already taken in the
     EDM — the adopt-an-existing-sub-portfolio signal (FR-011). A DISTINCT type
@@ -443,12 +454,13 @@ class _RealGateway:
             params={"portfolio_id": int(source_portfolio_irp_id)},
             database=database)
         rows = frames[0].to_dict("records") if frames else []
+        coerce = _peril_code if dimension == "peril" else str
         by_value: dict[str, set[int]] = {}
         for row in rows:
             value, account_id = row.get("Value"), row.get("AccountId")
             if value is None or account_id is None:
                 continue
-            by_value.setdefault(str(value), set()).add(int(account_id))
+            by_value.setdefault(coerce(value), set()).add(int(account_id))
         return BreakoutSelection(
             accounts_by_value={v: sorted(by_value.get(v, set()))
                                for v in values},
@@ -756,13 +768,13 @@ class _RealGateway:
                 "value": value, "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_perils.sql"):
-            # spec 005 follow-on (P-19): peril breakout values, for custom
-            # grouping only. The value is loccvg.PERIL — a numeric RMS peril
-            # code with no in-EDM code→name lookup (W-21) — so the code is its
-            # own display and the label is never synthesized (P-12).
+            # spec 005 (P-19 rev. 2026-08-12): peril breakout values. The value
+            # is loccvg.PERIL — a numeric RMS peril code with no in-EDM
+            # code→name lookup (W-21) — so the code is its own display and the
+            # label is never synthesized (P-12); _peril_code canonicalizes it.
             count = row.get("AccountCount")
             entry(row)["breakout_values"].setdefault("peril", []).append({
-                "value": str(row["Peril"]), "label": None,
+                "value": _peril_code(row["Peril"]), "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for dimension, script in _COVERAGE_SCRIPTS.items():
             # spec 005 FR-007 as revised 2026-08-05: `covered` is the account
