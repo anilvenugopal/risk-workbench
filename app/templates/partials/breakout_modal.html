@@ -118,46 +118,54 @@
            @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
            @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
-        <div class="bo-pills">
-          {% for d in gate.dimensions %}
-          {% if d.eligible %}
-          <button type="button" class="bo-pill" :aria-pressed="dim === '{{ d.dimension }}'"
-                  @click="dim = '{{ d.dimension }}'">{{ d.label }}
-            <span class="bo-pill__meta">· {{ d.values|length }}</span></button>
-          {% else %}
-          <button type="button" class="bo-pill" disabled
-                  title="{{ d.reason }}">{{ d.label }}</button>
-          {% endif %}
-          {% endfor %}
-        </div>
-        {% for d in groupable %}
-        <div class="bo-checks" x-show="dim === '{{ d.dimension }}'"
-             data-dimlabel="{{ d.label }}"
-             {% if not loop.first %}style="display:none"{% endif %}>
-          {% for v in d.values %}
-          {%- set shown = v.value | breakout_display(d.dimension) -%}
-          <label class="bo-check">
-            <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}"
-                   data-display="{{ shown }}">
-            <span>{{ shown }}</span>
-            {% if v.label %}<span class="bo-check__label">{{ v.label }}</span>{% endif %}
-            <span class="bo-check__accounts">{{ '{:,}'.format(v.accounts) }}</span>
-          </label>
-          {% endfor %}
-        </div>
-        {% endfor %}
-        {# Ticked values across every dimension, as chips — derived from the
-           checkboxes, so it clears with them when Add breakout succeeds.
-           Clicking a chip unticks the box. #}
-        <div class="bo-picked" x-show="sel.length" x-cloak>
-          <template x-for="s in sel" :key="s.name + '|' + s.v">
-            <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
-                    @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
-                              .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
-                            resel()">
-              <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
-            </button>
-          </template>
+        <div class="bo-custom__cols">
+          <div class="bo-custom__opts">
+            <div class="bo-pills">
+              {% for d in gate.dimensions %}
+              {% if d.eligible %}
+              <button type="button" class="bo-pill" :aria-pressed="dim === '{{ d.dimension }}'"
+                      @click="dim = '{{ d.dimension }}'">{{ d.label }}
+                <span class="bo-pill__meta">· {{ d.values|length }}</span></button>
+              {% else %}
+              <button type="button" class="bo-pill" disabled
+                      title="{{ d.reason }}">{{ d.label }}</button>
+              {% endif %}
+              {% endfor %}
+            </div>
+            {% for d in groupable %}
+            <div class="bo-checks" x-show="dim === '{{ d.dimension }}'"
+                 data-dimlabel="{{ d.label }}"
+                 {% if not loop.first %}style="display:none"{% endif %}>
+              {% for v in d.values %}
+              {%- set shown = v.value | breakout_display(d.dimension) -%}
+              <label class="bo-check">
+                <input type="checkbox" name="values:{{ d.dimension }}" value="{{ v.value }}"
+                       data-display="{{ shown }}">
+                <span>{{ shown }}</span>
+                {% if v.label %}<span class="bo-check__label">{{ v.label }}</span>{% endif %}
+                <span class="bo-check__accounts">{{ '{:,}'.format(v.accounts) }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            {% endfor %}
+          </div>
+          {# Ticked values across every dimension, as chips — derived from the
+             checkboxes, so it clears with them when Add breakout succeeds.
+             Clicking a chip unticks the box. #}
+          <div class="bo-picked">
+            <div class="bo-picked__empty" x-show="!sel.length">Nothing selected
+              — tick values on the left.</div>
+            <div class="bo-picked__chips" x-show="sel.length" x-cloak>
+              <template x-for="s in sel" :key="s.name + '|' + s.v">
+                <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
+                        @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
+                                  .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
+                                resel()">
+                  <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
+                </button>
+              </template>
+            </div>
+          </div>
         </div>
         {# The name is the sub-portfolio name, exactly as typed (P-24); the
            as-you-type check and the Add-time block refuse a name already

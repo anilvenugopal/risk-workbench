@@ -217,12 +217,16 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .bo-pill__meta { font-weight: var(--fw-regular); color: var(--text-tertiary); }
 .bo-custom { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .bo-custom > * { flex-shrink: 0; }
+.bo-custom__cols { display: flex; gap: var(--space-3); flex: 1 1 auto; min-height: 0; }
+.bo-custom__opts { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
 .bo-checks { border: 1px solid var(--border-default); border-radius: var(--radius-md); flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-1) var(--space-2); }
 .bo-check { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-label); padding: 2px var(--space-1); }
 .bo-check input { margin: 0; }
 .bo-check__label { color: var(--text-tertiary); font-size: var(--fs-caption); }
 .bo-check__accounts { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-tertiary); font-size: var(--fs-caption); }
-.bo-picked { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+.bo-picked { flex: 0 0 38%; display: flex; flex-direction: column; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2); overflow-y: auto; }
+.bo-picked__empty { margin: auto; font-size: var(--fs-caption); color: var(--text-tertiary); text-align: center; }
+.bo-picked__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); align-content: flex-start; }
 .bo-picked__chip { display: inline-flex; align-items: center; gap: var(--space-1); font: inherit; font-size: var(--fs-caption); border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: 1px var(--space-2); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
 .bo-picked__chip:hover { border-color: var(--color-danger); color: var(--color-danger); }
 .bo-picked__dim { color: var(--text-tertiary); }
