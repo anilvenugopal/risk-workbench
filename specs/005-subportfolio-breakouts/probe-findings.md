@@ -729,6 +729,95 @@ Consequence (R14): the breakout value is the peril code as a string
 exists to read, the mnemonics analysts see are maintained in
 `breakout_service._PERIL_MNEMONIC` (P-30, closing O-02).
 
+## W-22 A portfolio's (country, state, peril) combinations number in the dozens
+
+*(Probe run 2026-08-14 — read-only DataBridge, `breakout_triple_probe.sql` in
+this directory, against `night_edm` and the client-provided
+`TY2607_SampleCo_0726_25EDM_4`. Run for O12-1, the sign-off blocker: the
+custom-breakout option lists must filter in place so a selection cannot offer a
+value nothing matches.)*
+
+Country, state and peril all hang off `Property`: country and state through
+`Address.ADDRESSID`, peril through `loccvg.LOCID`. The three therefore co-occur
+at **location** grain, and one stored set of distinct
+`(country, Admin1Code, PERIL)` triples answers every combination of them. LOB is
+the exception — `policy.ACCGRPID` shares only the account with the other three
+(Part 1's sibling diagram), so no location-grain relationship exists to store.
+
+The question was whether that triple set is small enough to hold in the stored
+summary. It is, on both EDMs:
+
+| EDM | portfolio | accounts | locations | triples | countries | states | perils |
+|---|---|---|---|---|---|---|---|
+| `night_edm` | `usfl_other` | 248,732 | 248,732 | **53** | 2 | 53 | 1 |
+| `night_edm` | `useq` | 516,777 | 516,777 | **50** | 1 | 50 | 1 |
+| `night_edm` | `usfl_commercial` | 1,728 | 11,983 | **48** | 1 | 48 | 1 |
+| `TY2607_SampleCo` | `WS_JP_COM` | 816 | 10,835 | **48** | 1 | 48 | 1 |
+| `TY2607_SampleCo` | `WS_BENLUX_COM` | 41,051 | 69,407 | **26** | 3 | 20 | 1 |
+| `TY2607_SampleCo` | `EQ_NZ_COM` | 25,163 | 35,630 | **16** | 1 | 16 | 1 |
+| `TY2607_SampleCo` | `WS_SK_RES` | 96,766 | 96,766 | **8** | 1 | 8 | 1 |
+
+53 triples against 516,777 locations — roughly 1:10,000. The full scan across
+every portfolio in an EDM took 4 seconds, which is a Sync-time worker cost.
+
+The caveat is the peril axis. Every portfolio in both EDMs carries exactly one
+peril, exactly as W-21 found, so nothing here measures a multi-peril book. The
+bound is (states × perils × countries) present rather than anything derived from
+account count, so even a pessimistic 3,000-state, 7-peril global book lands near
+21,000 rows — held and scanned server-side without difficulty.
+
+**Do:** write the triples into `exposure_detail` at Sync alongside
+`breakout_values`, and compute country/state/peril availability from that set in
+the web layer. Nothing reaches the request path, so Article 11 needs no
+amendment and the modal still renders stored data. LOB availability stays
+account-grain, and the P-29 count at Add remains the backstop for the LOB ×
+geography intersections the triples cannot answer. → P-32.
+
+## W-23 `Admin1Code` is unique only within its country
+
+*(Q2 of the same 2026-08-14 probe.)*
+
+Moody's numbers subdivisions per country, so the same code means different places
+in different countries. Resolved against `Admin1Name`:
+
+| `Admin1Code` | country | `Admin1Name` |
+|---|---|---|
+| `01` | LU | Diekirch |
+| `01` | NZ | Northland |
+| `01` | SK | Banskobystricky |
+| `11` | BE | Antwerpen |
+| `11` | NL | Groningen |
+| `23` | BE | Hainaut |
+| `23` | NL | Overijssel |
+
+US is the exception — it uses abbreviations (`TN`), which is why W-8, W-18 and
+every earlier US-only book showed no collision. Numeric per-country sequences are
+the general case.
+
+BE, NL and LU appear only in `WS_BENLUX_COM`, the one multi-country portfolio in
+either EDM, so four of these collisions fall **inside a single source
+portfolio**: `11` and `23` and `24` (BE/NL), `03` (BE/LU).
+
+P-12 stores the bare code as `breakout_value`, and
+`uq_irp_portfolio_breakout` is unique on
+`(source_portfolio_id, breakout_dimension_code, breakout_value)`. So a state
+breakout of `WS_BENLUX_COM` today offers 20 codes for at least 24 provinces and
+creates one sub-portfolio labelled `11` holding Antwerpen and Groningen accounts
+together — and the schema cannot represent them separately even if the selection
+did. Quick mode and custom groups are affected identically, and the selection
+reads match the same way: `breakout_state_accounts.sql` and the state clause of
+`breakout_match_count.sql` both test the code alone.
+
+Separately, `usfl_other` reports two countries because
+`COALESCE(NULLIF(CountryCode, ''), CountryRMSCode)` yields both `US` and `USA`
+where the two columns disagree. That portfolio is hand-built test data, so it is
+not evidence about client books — but the expression can produce two breakout
+values for one country whenever `CountryCode` is blank on some addresses and not
+others.
+
+**Do:** carry the country alongside `Admin1Code` as the state filter value, the
+stored `breakout_value`, the number token and the display. → P-31.
+
 ---
 
 # Part 4 — Design record: why sub-portfolios, and why the overlap is accepted
