@@ -76,7 +76,10 @@ stop_and_verify() {
     fi
 
     if [ -n "$port" ]; then
-        if ss -tln 2>/dev/null | grep -q ":$port[[:space:]]"; then
+        # Same parsing as rhel9-start.sh's require_port_free — see there
+        # for why the local-address column is extracted and matched at
+        # end-of-field rather than assuming a trailing space.
+        if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -q ":$port$"; then
             echo "[$name] WARNING: port $port is STILL in use after stopping."
             echo "         Run: bash infra/scripts/check-port.sh $port"
         else

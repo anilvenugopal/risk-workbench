@@ -23,7 +23,12 @@ cd "$APP_DIR"
 require_port_free() {
     local port="$1"
     local what="$2"
-    if ss -tln 2>/dev/null | grep -q ":$port[[:space:]]"; then
+    # "-H" suppresses ss's header row. "awk '{print $4}'" extracts just the
+    # local-address column (e.g. "0.0.0.0:8000" or "*:1433") regardless of
+    # how many spaces separate columns. Matching ":$port$" (end of field)
+    # instead of assuming a trailing space after the port avoids depending
+    # on ss's exact column spacing.
+    if ss -tlnH 2>/dev/null | awk '{print $4}' | grep -q ":$port$"; then
         echo "ERROR: port $port is already in use — needed for $what." >&2
         echo "       Diagnose with: bash infra/scripts/check-port.sh $port" >&2
         exit 1
