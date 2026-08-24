@@ -9,7 +9,7 @@ success response, and the 404 fragment.
 
 Harness: unlike the monkeypatch-based route suites, these tests need the DB —
 TestClient dispatches handlers on a worker thread against the connection pool
-created by the SQL Server tier's ``iteration2_db`` fixture.
+created by the SQL Server tier's ``workbench_db`` fixture.
 """
 
 from __future__ import annotations
@@ -36,8 +36,8 @@ from tests.sqlserver.test_breakout_gate import (
 )
 
 @pytest.fixture()
-def routes_db(iteration2_db):
-    return iteration2_db
+def routes_db(workbench_db):
+    return workbench_db
 
 
 class _InjectUser(BaseHTTPMiddleware):

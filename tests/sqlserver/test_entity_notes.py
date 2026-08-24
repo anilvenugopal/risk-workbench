@@ -18,13 +18,13 @@ from db import execute_command, execute_one
         ("irp_rdm", "rdm"),
     ],
 )
-def test_notes_save_replace_clear_and_read(iteration1_db, table, kind):
+def test_notes_save_replace_clear_and_read(workbench_db, table, kind):
     entity_id = str(uuid.uuid4())
     execute_command(
         f"INSERT INTO {table} (id, name, status) VALUES (:id, 'Shared', 'ready')",
         {"id": entity_id}, connection="WORKBENCH")
     args = {"kind": kind, "entity_id": entity_id,
-            "actor_id": iteration1_db.user_a}
+            "actor_id": workbench_db.user_a}
 
     first_note = "x" * 250
     assert entity_note_service.update_notes(
@@ -45,7 +45,7 @@ def test_notes_save_replace_clear_and_read(iteration1_db, table, kind):
     ],
 )
 def test_note_conflict_preserves_input_and_second_save_replaces(
-    iteration1_db, table, kind,
+    workbench_db, table, kind,
 ):
     entity_id = str(uuid.uuid4())
     execute_command(
@@ -53,7 +53,7 @@ def test_note_conflict_preserves_input_and_second_save_replaces(
         "VALUES (:id, 'Shared', 'ready', 'Newer note')",
         {"id": entity_id}, connection="WORKBENCH")
     args = {"kind": kind, "entity_id": entity_id,
-            "actor_id": iteration1_db.user_a}
+            "actor_id": workbench_db.user_a}
 
     with pytest.raises(NoteConflict) as conflict:
         entity_note_service.update_notes(
@@ -70,7 +70,7 @@ def test_note_conflict_preserves_input_and_second_save_replaces(
         ("irp_rdm", "rdm"),
     ],
 )
-def test_note_rejects_more_than_250_characters(iteration1_db, table, kind):
+def test_note_rejects_more_than_250_characters(workbench_db, table, kind):
     entity_id = str(uuid.uuid4())
     execute_command(
         f"INSERT INTO {table} (id, name, status) VALUES (:id, 'Shared', 'ready')",
@@ -78,10 +78,10 @@ def test_note_rejects_more_than_250_characters(iteration1_db, table, kind):
     with pytest.raises(ValueError, match="250"):
         entity_note_service.update_notes(
             kind=kind, entity_id=entity_id, notes="x" * 251, original_notes="",
-            actor_id=iteration1_db.user_a)
+            actor_id=workbench_db.user_a)
 
 
-def test_note_columns_are_nullable_nvarchar_250(iteration1_db):
+def test_note_columns_are_nullable_nvarchar_250(workbench_db):
     for table in ("irp_edm", "irp_rdm"):
         note = execute_one(
             "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "

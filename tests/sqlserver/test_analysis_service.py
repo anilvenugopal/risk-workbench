@@ -74,7 +74,7 @@ def _job(*, analysis_id: str, status: str, attempts: int = 0, inserted_at=None) 
 
 # ── read model ────────────────────────────────────────────────────────────────
 
-def test_only_own_executed_rows_of_this_edm(iteration2_db):
+def test_only_own_executed_rows_of_this_edm(workbench_db):
     edm, other_edm, rdm = _edm("E1"), _edm("E2"), _mk("irp_rdm", name="R", status="ready")
     mine = _executed(edm_id=edm)
     _executed(edm_id=other_edm)          # a different EDM's own-executed row
@@ -84,7 +84,7 @@ def test_only_own_executed_rows_of_this_edm(iteration2_db):
     assert [a.id for a in rows] == [mine.lower()]
 
 
-def test_deleted_rows_excluded(iteration2_db):
+def test_deleted_rows_excluded(workbench_db):
     edm = _edm()
     deleted = _executed(edm_id=edm)
     execute_command("UPDATE irp_analysis SET deleted_at = :n WHERE id = :i",
@@ -93,7 +93,7 @@ def test_deleted_rows_excluded(iteration2_db):
     assert analysis_service.list_executed_analyses(edm_id=edm) == []
 
 
-def test_portfolio_name_joined(iteration2_db):
+def test_portfolio_name_joined(workbench_db):
     edm = _edm()
     portfolio = _portfolio(edm, name="US Southeast Wind")
     _executed(edm_id=edm, portfolio_id=portfolio)
@@ -102,7 +102,7 @@ def test_portfolio_name_joined(iteration2_db):
     assert row.portfolio_name == "US Southeast Wind"
 
 
-def test_settings_parsed_or_blank_never_error(iteration2_db):
+def test_settings_parsed_or_blank_never_error(workbench_db):
     edm = _edm()
     _executed(edm_id=edm, name="A", full_name="A", settings=SETTINGS_FULL)
     _executed(edm_id=edm, name="B", full_name="B", settings=None)  # not yet backfilled
@@ -116,7 +116,7 @@ def test_settings_parsed_or_blank_never_error(iteration2_db):
 
 # ── status derivation (T-07) ─────────────────────────────────────────────────
 
-def test_no_job_yet_reads_submitting(iteration2_db):
+def test_no_job_yet_reads_submitting(workbench_db):
     edm = _edm()
     _executed(edm_id=edm, status_code="pending")
 
@@ -127,7 +127,7 @@ def test_no_job_yet_reads_submitting(iteration2_db):
     assert row.is_live is True
 
 
-def test_queued_and_running_are_live_importing(iteration2_db):
+def test_queued_and_running_are_live_importing(workbench_db):
     edm = _edm()
     queued = _executed(edm_id=edm, status_code="running")
     _job(analysis_id=queued, status="QUEUED")
@@ -142,7 +142,7 @@ def test_queued_and_running_are_live_importing(iteration2_db):
         assert row.is_live is True
 
 
-def test_finished_reads_ready_and_not_live(iteration2_db):
+def test_finished_reads_ready_and_not_live(workbench_db):
     edm = _edm()
     analysis = _executed(edm_id=edm, status_code="ready")
     _job(analysis_id=analysis, status="FINISHED")
@@ -153,7 +153,7 @@ def test_finished_reads_ready_and_not_live(iteration2_db):
     assert row.is_live is False
 
 
-def test_failed_and_cancelled_read_error_with_reason(iteration2_db):
+def test_failed_and_cancelled_read_error_with_reason(workbench_db):
     edm = _edm()
     failed = _executed(edm_id=edm, status_code="error",
                        failure_reason="No locations match the criteria")
@@ -170,7 +170,7 @@ def test_failed_and_cancelled_read_error_with_reason(iteration2_db):
     assert rows[cancelled.lower()].is_live is False
 
 
-def test_submission_failed_shows_attempt_count_and_stays_live_while_retrying(iteration2_db):
+def test_submission_failed_shows_attempt_count_and_stays_live_while_retrying(workbench_db):
     edm = _edm()
     analysis = _executed(edm_id=edm, status_code="pending",
                          failure_reason="Risk Modeler unreachable")
@@ -183,7 +183,7 @@ def test_submission_failed_shows_attempt_count_and_stays_live_while_retrying(ite
     assert row.is_live is True  # status_code stays pending while retries remain
 
 
-def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_db):
+def test_submission_failed_exhausted_flips_error_but_label_unchanged(workbench_db):
     edm = _edm()
     max_retries = app_settings.irp_submission_max_retries
     analysis = _executed(edm_id=edm, status_code="error",
@@ -195,7 +195,7 @@ def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_
     assert row.is_live is False
 
 
-def test_latest_job_wins_when_more_than_one_row(iteration2_db):
+def test_latest_job_wins_when_more_than_one_row(workbench_db):
     edm = _edm()
     analysis = _executed(edm_id=edm, status_code="running")
     older = _utcnow() - timedelta(minutes=5)

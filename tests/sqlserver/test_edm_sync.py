@@ -67,8 +67,8 @@ def _analyst_heads(edm_id: str) -> list[dict]:
 
 # ── sync_detail: enqueue, dispatch, revive, guards ────────────────────────────────
 
-def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+def test_sync_enqueues_analyst_head_and_dispatches(workbench_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")  # drain the poller head → succeeded
 
     sent: list[tuple[str, str]] = []
@@ -76,7 +76,7 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
         (rwb_job_id, rwb_job_type)))
     try:
         job_id = edm_service.sync_detail(edm_id=edm_id,
-                                         actor_id=iteration2_db.user_a)
+                                         actor_id=workbench_db.user_a)
     finally:
         dispatch.reset()
 
@@ -88,53 +88,53 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
 
 
 def test_sync_revives_terminal_head_with_attempt_and_actor(
-        iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+        workbench_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
-    first = edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    first = edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")  # analyst head → succeeded
 
-    again = edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_b)
+    again = edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_b)
     assert again == first  # the SAME row revived, not a duplicate
     heads = _analyst_heads(edm_id)
     assert len(heads) == 1
     assert heads[0]["status_code"] == "pending"
     assert heads[0]["attempt_count"] == 1
-    assert str(heads[0]["updated_by"]).lower() == str(iteration2_db.user_b).lower()
+    assert str(heads[0]["updated_by"]).lower() == str(workbench_db.user_b).lower()
 
 
 def test_sync_skips_while_backfill_in_flight_either_key(
-        iteration2_db, fake_irp, drive):
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+        workbench_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, workbench_db.user_a)
     # The poller-enqueued (irp_job-keyed) head is still pending — Sync must not
     # stack a second concurrent run on top of it.
     assert edm_service.sync_detail(edm_id=edm_id,
-                                   actor_id=iteration2_db.user_a) is None
+                                   actor_id=workbench_db.user_a) is None
     assert _analyst_heads(edm_id) == []
 
     entity_jobs.run_pending(worker_id="w1")
     assert edm_service.sync_detail(edm_id=edm_id,
-                                   actor_id=iteration2_db.user_a) is not None
+                                   actor_id=workbench_db.user_a) is not None
     # ... and an in-flight analyst head blocks a re-click the same way.
     assert edm_service.sync_detail(edm_id=edm_id,
-                                   actor_id=iteration2_db.user_a) is None
+                                   actor_id=workbench_db.user_a) is None
     assert len(_analyst_heads(edm_id)) == 1
 
 
-def test_sync_noop_when_edm_importing_or_missing(iteration2_db, fake_irp, drive):
+def test_sync_noop_when_edm_importing_or_missing(workbench_db, fake_irp, drive):
     res = edm_service.import_edm(name="EDM", source_file_path=str(drive / "edm1.bak"),
-                                 actor_id=iteration2_db.user_a)  # pending_import
+                                 actor_id=workbench_db.user_a)  # pending_import
     assert edm_service.sync_detail(edm_id=res.entity_id,
-                                   actor_id=iteration2_db.user_a) is None
+                                   actor_id=workbench_db.user_a) is None
     assert _analyst_heads(res.entity_id) == []
     assert edm_service.sync_detail(edm_id=str(uuid.uuid4()),
-                                   actor_id=iteration2_db.user_a) is None
+                                   actor_id=workbench_db.user_a) is None
 
 
 # ── detail_state visibility through the analyst-keyed head ────────────────────────
 
 def test_sync_populates_pre_capability_edm_with_visible_states(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     edm_id = _legacy_edm(irp_id=77001)
     fake_irp.add_portfolio(edm_exposure_id=77001, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
@@ -143,7 +143,7 @@ def test_sync_populates_pre_capability_edm_with_visible_states(
     assert detail.detail_state == "unavailable"
     assert detail.sync_running is False
 
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     detail = edm_service.get_edm_detail(edm_id)
     assert detail.detail_state == "pending"  # analyst-keyed head IS visible
     assert detail.sync_running is True
@@ -156,12 +156,12 @@ def test_sync_populates_pre_capability_edm_with_visible_states(
 
 
 def test_sync_failure_shows_failed_state_and_is_recoverable(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     edm_id = _legacy_edm(irp_id=77002)
     fake_irp.add_portfolio(edm_exposure_id=77002, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
     fake_irp.raise_on_list_portfolios = True
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
 
     detail = edm_service.get_edm_detail(edm_id)
@@ -169,20 +169,20 @@ def test_sync_failure_shows_failed_state_and_is_recoverable(
     assert detail.status == edm_service.READY  # FR-005 — never reverted
 
     fake_irp.raise_on_list_portfolios = False
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
     assert edm_service.get_edm_detail(edm_id).detail_state == "populated"
 
 
 def test_detail_state_prefers_most_recently_updated_head(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     # Poller head succeeded (zero-portfolio EDM → "empty"), then a newer manual
     # sync goes pending — the page must say "pending", not stale "empty".
-    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    edm_id = _edm_ready(drive, fake_irp, workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
     assert edm_service.get_edm_detail(edm_id).detail_state == "empty"
 
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     detail = edm_service.get_edm_detail(edm_id)
     assert detail.detail_state == "pending"
     assert detail.sync_running is True
@@ -190,7 +190,7 @@ def test_detail_state_prefers_most_recently_updated_head(
 
 # ── the Risk Modeler treaties deep link (Treaties polish, 2026-07-24) ─────────────
 
-def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
+def test_detail_carries_rm_treaties_deep_link(workbench_db, monkeypatch):
     # https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
     # <edm-name>/treaties — the RM web UI lives on the TENANT subdomain of the
     # API base URL's domain (rms-ppe.com in the sandbox, rms.com in prod), NOT
@@ -209,14 +209,14 @@ def test_detail_carries_rm_treaties_deep_link(iteration2_db, monkeypatch):
 
 # ── worker: pre-capability EDMs without an exposureId (name resolution) ───────────
 
-def test_sync_resolves_missing_exposure_id_by_name(iteration2_db, fake_irp, drive):
+def test_sync_resolves_missing_exposure_id_by_name(workbench_db, fake_irp, drive):
     fake_irp.add_edm_name("legacy_named")
     xid = fake_irp.search_edms("legacy_named")[0].irp_id
     fake_irp.add_portfolio(edm_exposure_id=xid, irp_id="501",
                            name="Primary 2026", exposure=EXPOSURE_A)
     edm_id = _legacy_edm(name="legacy_named", irp_id=None)
 
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
 
     detail = edm_service.get_edm_detail(edm_id)
@@ -227,9 +227,9 @@ def test_sync_resolves_missing_exposure_id_by_name(iteration2_db, fake_irp, driv
 
 
 def test_sync_skips_gracefully_when_name_unresolvable(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     edm_id = _legacy_edm(name="unknown_edm", irp_id=None)  # not in RM at all
-    edm_service.sync_detail(edm_id=edm_id, actor_id=iteration2_db.user_a)
+    edm_service.sync_detail(edm_id=edm_id, actor_id=workbench_db.user_a)
     entity_jobs.run_pending(worker_id="w1")
 
     detail = edm_service.get_edm_detail(edm_id)

@@ -162,7 +162,7 @@ def _mk_backfill_job(edm_id: str, *, status: str = "pending",
 
 # ── the gate truth table (T018) ───────────────────────────────────────────────────
 
-def test_gate_eligible_happy_path(iteration2_db):
+def test_gate_eligible_happy_path(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)
     gate = evaluate_gate(edm_id, pid)
@@ -180,7 +180,7 @@ def test_gate_eligible_happy_path(iteration2_db):
 
 @pytest.mark.parametrize("status", ["pending_import", "importing", "error",
                                     "delete_pending"])
-def test_gate_requires_ready_edm(iteration2_db, status):
+def test_gate_requires_ready_edm(workbench_db, status):
     edm_id = _mk_edm(status)
     pid = _mk_portfolio(edm_id)
     gate = evaluate_gate(edm_id, pid)
@@ -188,7 +188,7 @@ def test_gate_requires_ready_edm(iteration2_db, status):
     assert gate.reason == "the EDM is not ready"
 
 
-def test_gate_deleted_edm_and_missing_portfolio(iteration2_db):
+def test_gate_deleted_edm_and_missing_portfolio(workbench_db):
     edm_id = _mk_edm(deleted=True)
     pid = _mk_portfolio(edm_id)
     assert evaluate_gate(edm_id, pid).reason == "EDM not found"
@@ -202,7 +202,7 @@ def test_gate_deleted_edm_and_missing_portfolio(iteration2_db):
     assert evaluate_gate(edm_id, pid).reason == "portfolio not found"
 
 
-def test_gate_no_snapshot_reads_as_missing_summary(iteration2_db):
+def test_gate_no_snapshot_reads_as_missing_summary(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, detail=None, as_of=None)
     gate = evaluate_gate(edm_id, pid)
@@ -214,7 +214,7 @@ def test_gate_no_snapshot_reads_as_missing_summary(iteration2_db):
 
 
 def test_gate_pre_iteration_summary_reads_as_absent_never_states_fallback(
-        iteration2_db):
+        workbench_db):
     # Every pre-005 summary lacks breakout_values, and its states list is a
     # mixed name/code vocabulary that MUST NOT be offered as filter values.
     edm_id = _mk_edm()
@@ -232,7 +232,7 @@ def test_gate_pre_iteration_summary_reads_as_absent_never_states_fallback(
     {"state": [{"label": "TEXAS"}], "lob": []},        # entry missing value
     {"state": [["TX"]], "lob": []},                    # entry not an object
 ])
-def test_gate_malformed_breakout_values_reads_as_absent(iteration2_db, container):
+def test_gate_malformed_breakout_values_reads_as_absent(workbench_db, container):
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values=container)
     pid = _mk_portfolio(edm_id, summary=summary)
@@ -241,7 +241,7 @@ def test_gate_malformed_breakout_values_reads_as_absent(iteration2_db, container
     assert state.reason == MISSING_SUMMARY_REASON
 
 
-def test_gate_zero_and_one_value_dimensions_disable_with_reason(iteration2_db):
+def test_gate_zero_and_one_value_dimensions_disable_with_reason(workbench_db):
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}]})
@@ -255,7 +255,7 @@ def test_gate_zero_and_one_value_dimensions_disable_with_reason(iteration2_db):
     assert state.reason == "no state values present"
 
 
-def test_peril_breaks_out_one_sub_portfolio_per_code(iteration2_db, fake_irp):
+def test_peril_breaks_out_one_sub_portfolio_per_code(workbench_db, fake_irp):
     # D3 (replacing P-19): peril runs in quick mode like the other value
     # dimensions — the plan names by mnemonic (P-30) while the stored plan
     # value and the number token stay the numeric code.
@@ -272,7 +272,7 @@ def test_peril_breaks_out_one_sub_portfolio_per_code(iteration2_db, fake_irp):
     assert peril.eligible is True
     assert peril.noun == "peril"
 
-    job_id = request_breakout(edm_id, pid, "peril", AS_OF, iteration2_db.user_a)
+    job_id = request_breakout(edm_id, pid, "peril", AS_OF, workbench_db.user_a)
     assert job_id is not None
     job = _breakout_jobs()[0]
     assert job["rwb_job_type"] == "run_breakout_peril"
@@ -282,7 +282,7 @@ def test_peril_breaks_out_one_sub_portfolio_per_code(iteration2_db, fake_irp):
         ("2", "WS", "usfl_commercial - WS", "P1-P-2")]
 
 
-def test_country_is_eligible_when_the_summary_carries_values(iteration2_db):
+def test_country_is_eligible_when_the_summary_carries_values(workbench_db):
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values=dict(
         SUMMARY["breakout_values"],
@@ -296,7 +296,7 @@ def test_country_is_eligible_when_the_summary_carries_values(iteration2_db):
 
 
 def test_modal_selects_peril_when_it_is_the_only_eligible_dimension(
-        iteration2_db):
+        workbench_db):
     # lob/state each carry one value; peril carries two.
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values={
@@ -311,7 +311,7 @@ def test_modal_selects_peril_when_it_is_the_only_eligible_dimension(
                                             "usfl_commercial - WS"]
 
 
-def test_gate_reports_in_flight_breakout_dimension(iteration2_db):
+def test_gate_reports_in_flight_breakout_dimension(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)
     _mk_breakout_job(pid, "lob", status="running")
@@ -324,7 +324,7 @@ def test_gate_reports_in_flight_breakout_dimension(iteration2_db):
 
 
 @pytest.mark.parametrize("via_irp_job", [False, True])
-def test_gate_disables_while_detail_refresh_in_flight(iteration2_db, via_irp_job):
+def test_gate_disables_while_detail_refresh_in_flight(workbench_db, via_irp_job):
     # P-16: a pending|running backfill_edm_detail rewrites the summary the
     # preview reads — disabled-with-reason under EITHER enqueue key.
     edm_id = _mk_edm()
@@ -336,7 +336,7 @@ def test_gate_disables_while_detail_refresh_in_flight(iteration2_db, via_irp_job
     assert gate.reason == breakout_service.REFRESH_IN_FLIGHT_REASON
 
 
-def test_gate_terminal_backfill_does_not_disable(iteration2_db):
+def test_gate_terminal_backfill_does_not_disable(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id)
     _mk_backfill_job(edm_id, status="succeeded")
@@ -348,10 +348,10 @@ def test_gate_terminal_backfill_does_not_disable(iteration2_db):
 # ── the confirm path (T025) ───────────────────────────────────────────────────────
 
 def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_id = request_breakout(edm_id, pid, "lob", AS_OF,
-                              iteration2_db.user_a)
+                              workbench_db.user_a)
     assert job_id is not None
     jobs = _breakout_jobs()
     assert len(jobs) == 1
@@ -363,7 +363,7 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert data["edm_id"] == edm_id
     assert data["portfolio_id"] == pid
     assert data["dimension"] == "lob"
-    assert data["actor_id"] == iteration2_db.user_a
+    assert data["actor_id"] == workbench_db.user_a
     # the persisted plan is the approved list: value, label, name, number, AND
     # the previewed account count (FR-006a/FR-006b)
     assert [{k: v for k, v in e.items() if k != "number"}
@@ -380,77 +380,77 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     assert len(set(numbers)) == 2
 
 
-def test_confirm_double_post_yields_one_job(iteration2_db, fake_irp):
+def test_confirm_double_post_yields_one_job(workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
-    first = request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
-    second = request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+    first = request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
+    second = request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert first is not None
     assert second is None                      # already running (in_flight gate)
     assert len(_breakout_jobs()) == 1
 
 
-def test_confirm_each_dimension_gets_its_own_job_slot(iteration2_db, fake_irp):
+def test_confirm_each_dimension_gets_its_own_job_slot(workbench_db, fake_irp):
     # Two job types — a LOB and a state breakout on the same portfolio don't
     # collide on UNIQUE(requestor_type, requestor_id, rwb_job_type)... but a
     # LIVE run of either dimension blocks a new confirm (the modal's in-flight
     # state covers the whole action).
     edm_id, pid = _eligible_pair(fake_irp)
     assert request_breakout(edm_id, pid, "lob", AS_OF,
-                            iteration2_db.user_a) is not None
+                            workbench_db.user_a) is not None
     assert request_breakout(edm_id, pid, "state", AS_OF,
-                            iteration2_db.user_a) is None
+                            workbench_db.user_a) is None
     # once the LOB run is terminal, the state dimension enqueues its own row
     execute_command(
         "UPDATE rwb_job SET status_code = 'succeeded' "
         "WHERE rwb_job_type = 'run_breakout_lob'", {}, connection="WORKBENCH")
     assert request_breakout(edm_id, pid, "state", AS_OF,
-                            iteration2_db.user_a) is not None
+                            workbench_db.user_a) is not None
     assert {j["rwb_job_type"] for j in _breakout_jobs()} == {
         "run_breakout_lob", "run_breakout_state"}
 
 
-def test_confirm_stale_stamp_refuses_with_no_job_row(iteration2_db, fake_irp):
+def test_confirm_stale_stamp_refuses_with_no_job_row(workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     fake_irp.set_portfolio_stamp(edm_exposure_id="90001", irp_id="1",
                                  stamp="2026-08-04T08:00:00.000Z")  # RM moved
     with pytest.raises(StaleSummary, match="Sync the EDM, then retry"):
-        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert _breakout_jobs() == []
 
 
 def test_confirm_missing_stored_stamp_refuses_with_no_job_row(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, stamp=None)    # backfilled before spec 005
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     with pytest.raises(StaleSummary):
-        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert _breakout_jobs() == []
 
 
-def test_confirm_gateway_error_refuses_with_no_job_row(iteration2_db, fake_irp):
+def test_confirm_gateway_error_refuses_with_no_job_row(workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     fake_irp.raise_on_fetch_stamp = True
     with pytest.raises(StaleSummary, match="couldn't verify freshness"):
-        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert _breakout_jobs() == []
 
 
 def test_confirm_without_a_risk_modeler_id_refuses_with_no_job_row(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # No portfolioId means the stamp cannot be read and no portfolio_number can
     # be composed — the freshness check refuses rather than proceeding.
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, irp_id=None)
     with pytest.raises(StaleSummary, match="couldn't verify freshness"):
-        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert _breakout_jobs() == []
     assert fake_irp.stamp_reads == []
 
 
 def test_confirm_rewritten_summary_refuses_even_when_stamp_matches(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # FR-002b — the case FR-002a cannot see: a re-backfill that left the RM
     # portfolio untouched wrote back an EQUAL stamp but a NEW summary. The
     # confirm carries the preview's as_of; a mismatch refuses before the stamp
@@ -458,26 +458,26 @@ def test_confirm_rewritten_summary_refuses_even_when_stamp_matches(
     edm_id, pid = _eligible_pair(fake_irp)
     with pytest.raises(SummaryRewritten, match="synced while you were reviewing"):
         request_breakout(edm_id, pid, "lob", "2026-08-02 09:00:00",
-                         iteration2_db.user_a)
+                         workbench_db.user_a)
     assert _breakout_jobs() == []
     assert fake_irp.stamp_reads == []          # refused before the RM read
 
 
-def test_confirm_gate_refusal_writes_no_job_row(iteration2_db, fake_irp):
+def test_confirm_gate_refusal_writes_no_job_row(workbench_db, fake_irp):
     edm_id = _mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}],
         "state": SUMMARY["breakout_values"]["state"]})
     pid = _mk_portfolio(edm_id, summary=summary)
     with pytest.raises(GateRefused, match="only one line of business"):
-        request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     with pytest.raises(GateRefused, match="unknown breakout dimension"):
-        request_breakout(edm_id, pid, "zip", AS_OF, iteration2_db.user_a)
+        request_breakout(edm_id, pid, "zip", AS_OF, workbench_db.user_a)
     assert _breakout_jobs() == []
 
 
 def test_confirm_plan_matches_preview_except_collision_suffix(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # FR-006b/P-14: a portfolio created in the EDM between preview and confirm
     # may move a collision suffix; the value, label, account count, number, and
     # the set of entries MUST NOT differ — the number, not the name, is the
@@ -490,7 +490,7 @@ def test_confirm_plan_matches_preview_except_collision_suffix(
     # someone creates a portfolio named like the first previewed entry
     _mk_portfolio(edm_id, name=preview[0].name, irp_id="77", summary=None)
 
-    request_breakout(edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+    request_breakout(edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     persisted = json.loads(_breakout_jobs()[0]["input_data"])["plan"]
 
     assert [(e["value"], e["label"], e["accounts"], e["number"])

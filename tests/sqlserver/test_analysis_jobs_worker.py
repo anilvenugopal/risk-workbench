@@ -103,14 +103,14 @@ def _run_execution(*, edm_id, portfolio_id, kind="template", suite_picks=None,
 
 # ── happy path + naming ───────────────────────────────────────────────────────
 
-def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
+def test_batch_worker_submits_and_records_job(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
     execution_id = _run_execution(
         edm_id=edm_id, portfolio_id=portfolio_id, template_ids=[template_id],
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
 
     n = analysis_jobs.run_pending(worker_id="w1")
     assert n == 1
@@ -134,7 +134,7 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
 
 
 def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_currency(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     _seed_currency(scheme="RMS", vintage="RL25", effective_date="2025-05-28")
     _seed_currency(scheme="DT", vintage="RL24", effective_date="2024-05-28")
     edm_id = _seed_edm()
@@ -152,7 +152,7 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
             svc.SuitePick(suite_id=suite2, template_ids=[template_id],
                          currency_code="USD", currency_scheme="DT",
                          currency_vintage="RL24"),
-        ], actor_id=iteration2_db.user_a)
+        ], actor_id=workbench_db.user_a)
 
     analysis_jobs.run_pending(worker_id="w1")
 
@@ -169,7 +169,7 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
 
 # ── per-item isolation + submission failure ──────────────────────────────────────
 
-def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp):
+def test_one_item_failing_to_submit_never_stops_the_loop(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm()
     p1 = _seed_portfolio(edm_id, "Portfolio A")
@@ -180,7 +180,7 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[p1, p2], treaty_names=[],
         template_ids=[template_id], currency_code="USD", currency_scheme="RMS",
-        currency_vintage="RL25", actor_id=iteration2_db.user_a)
+        currency_vintage="RL25", actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
 
     job = _rwb_job_of(execution_id)
@@ -202,7 +202,7 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     assert failed_job["submission_attempt_count"] == 1
 
 
-def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp):
+def test_every_item_failing_to_submit_fails_the_rwb_job(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -212,7 +212,7 @@ def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp)
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id], treaty_names=[],
         template_ids=[template_id], currency_code="USD", currency_scheme="RMS",
-        currency_vintage="RL25", actor_id=iteration2_db.user_a)
+        currency_vintage="RL25", actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
 
     job = _rwb_job_of(execution_id)
@@ -221,14 +221,14 @@ def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp)
 
 # ── resume after reclaim ─────────────────────────────────────────────────────────
 
-def test_resume_skips_item_whose_analysis_already_has_a_job(iteration2_db, fake_irp):
+def test_resume_skips_item_whose_analysis_already_has_a_job(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
     execution_id = _run_execution(
         edm_id=edm_id, portfolio_id=portfolio_id, template_ids=[template_id],
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     assert len(fake_irp.analysis_submits) == 1
 
@@ -242,14 +242,14 @@ def test_resume_skips_item_whose_analysis_already_has_a_job(iteration2_db, fake_
     assert len(_analyses_for(edm_id)) == 1
 
 
-def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fake_irp):
+def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
     plan = {
         "execution_id": str(uuid.uuid4()), "edm_id": edm_id, "edm_name": "EDM One",
-        "submission_id": None, "actor_id": iteration2_db.user_a, "treaty_names": [],
+        "submission_id": None, "actor_id": workbench_db.user_a, "treaty_names": [],
         "portfolios": [{"id": portfolio_id, "name": "Portfolio A"}],
         "items": [{
             "item_no": 0, "suite_id": None, "suite_name": None,
@@ -267,7 +267,7 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
     # exists yet (the worker died before step 4).
     claimed = analysis_jobs._claim_analysis(
         edm_id=edm_id, portfolio=plan["portfolios"][0], item=plan["items"][0],
-        execution_id=plan["execution_id"], actor_id=iteration2_db.user_a)
+        execution_id=plan["execution_id"], actor_id=workbench_db.user_a)
     job_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
@@ -288,13 +288,13 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
 
 # ── backfill_analysis_detail ──────────────────────────────────────────────────────
 
-def test_backfill_resolves_by_exact_submitted_name(iteration2_db, fake_irp):
+def test_backfill_resolves_by_exact_submitted_name(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm("EDM One")
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
     _run_execution(edm_id=edm_id, portfolio_id=portfolio_id,
-                  template_ids=[template_id], actor_id=iteration2_db.user_a)
+                  template_ids=[template_id], actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     analysis = _analyses_for(edm_id)[0]
 
@@ -324,13 +324,13 @@ def test_backfill_resolves_by_exact_submitted_name(iteration2_db, fake_irp):
     assert updated["exposure_resource_id"] == f"/irp/analysis/1"
 
 
-def test_backfill_resolve_failure_fails_the_rwb_job(iteration2_db, fake_irp):
+def test_backfill_resolve_failure_fails_the_rwb_job(workbench_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm("EDM One")
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
     _run_execution(edm_id=edm_id, portfolio_id=portfolio_id,
-                  template_ids=[template_id], actor_id=iteration2_db.user_a)
+                  template_ids=[template_id], actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     analysis = _analyses_for(edm_id)[0]
     # no add_own_analysis seeded -> get_analysis_by_name raises

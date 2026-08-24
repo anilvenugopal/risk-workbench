@@ -38,8 +38,8 @@ def _analysis(rdm_id: str, irp_id: str, name: str) -> None:
 
 
 def test_submission_rdm_list_has_counts_but_not_analysis_rows(
-        iteration2_db, monkeypatch):
-    submission_id = _submission(iteration2_db, "Context A")
+        workbench_db, monkeypatch):
+    submission_id = _submission(workbench_db, "Context A")
     included = _rdm("Included RDM", 1001)
     excluded = _rdm("Excluded RDM", 1002)
     execute_command(
@@ -57,9 +57,9 @@ def test_submission_rdm_list_has_counts_but_not_analysis_rows(
             for group in groups] == [(included, 1, [])]
 
 
-def test_one_submission_rdm_loads_only_its_stored_analyses(iteration2_db):
-    first = _submission(iteration2_db, "Context A")
-    second = _submission(iteration2_db, "Context B")
+def test_one_submission_rdm_loads_only_its_stored_analyses(workbench_db):
+    first = _submission(workbench_db, "Context A")
+    second = _submission(workbench_db, "Context B")
     first_rdm = _rdm("First RDM", 1001)
     second_rdm = _rdm("Second RDM", 1002)
     for submission_id, rdm_id in ((first, first_rdm), (second, second_rdm)):

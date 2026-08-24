@@ -6,7 +6,7 @@ breakout is never rendered as a chain. A generated row carries no
 ``exposure_detail`` until the follow-up ``backfill_edm_detail`` fills it in, and
 that pending state renders gracefully, never as an error.
 
-Runs on the SQL Server test database (``iteration2_db``).
+Runs on the SQL Server test database (``workbench_db``).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ SNAP_A = {
 
 
 def test_get_edm_detail_lineage_rows_pending_state_and_immediate_source(
-        iteration2_db):
+        workbench_db):
     edm_id = str(uuid.uuid4())
     now = _utcnow()
     execute_command(
@@ -71,7 +71,7 @@ def _setup_source(edm_name: str = "EDM") -> tuple[str, object]:
     return edm_id, portfolio_service.list_portfolios(edm_id=edm_id)[0]
 
 
-def test_insert_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
+def test_insert_generated_reclaims_soft_deleted_lineage_row(workbench_db):
     # T-16 (demo bug): breakout → sub-portfolio deleted in RM → sync prunes →
     # re-breakout writes the same (source, dimension, value) under a NEW RM
     # identity. The write must reuse the soft-deleted row — cleared deleted_at,
@@ -79,14 +79,14 @@ def test_insert_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
     edm_id, a = _setup_source()
     first = portfolio_service.insert_generated(
         edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=iteration2_db.user_a)
+        dimension_code="state", value="FL", actor_id=workbench_db.user_a)
     execute_command(
         "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
         {"now": _utcnow(), "i": first.portfolio_id}, connection="WORKBENCH")
 
     write = portfolio_service.insert_generated(
         edm_id, name="A - FL", irp_id="21", source_portfolio_id=a.id,
-        dimension_code="state", value="FL", actor_id=iteration2_db.user_b)
+        dimension_code="state", value="FL", actor_id=workbench_db.user_b)
 
     assert write.created is True
     assert write.portfolio_id == first.portfolio_id
@@ -99,11 +99,11 @@ def test_insert_generated_reclaims_soft_deleted_lineage_row(iteration2_db):
     row = rows[0]
     assert row["deleted_at"] is None
     assert (row["irp_id"], row["name"]) == ("21", "A - FL")
-    assert row["inserted_by"].lower() == iteration2_db.user_a  # first confirmer kept
-    assert row["updated_by"].lower() == iteration2_db.user_b
+    assert row["inserted_by"].lower() == workbench_db.user_a  # first confirmer kept
+    assert row["updated_by"].lower() == workbench_db.user_b
 
 
-def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
+def test_dead_row_with_conflicting_lineage_still_refuses(workbench_db):
     # A soft-deleted row holding RM portfolio 11 as the state=FL breakout is
     # still that breakout's record — adopting 11 under another value refuses
     # rather than silently moving the portfolio between breakout keys.
@@ -125,7 +125,7 @@ def test_dead_row_with_conflicting_lineage_still_refuses(iteration2_db):
     assert row["deleted_at"] is not None             # left exactly as it was
 
 
-def test_adopt_generated_revives_soft_deleted_rm_id_match(iteration2_db):
+def test_adopt_generated_revives_soft_deleted_rm_id_match(workbench_db):
     # The (edm_id, irp_id) pre-check sees soft-deleted rows: adopting an RM
     # portfolio whose row the prune killed revives that row and stamps the
     # lineage, instead of violating uq_irp_portfolio_edm_irp on insert.

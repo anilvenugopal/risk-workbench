@@ -31,11 +31,11 @@ def _analyst_heads(rdm_id: str) -> list[dict]:
         {"r": rdm_id}, connection="WORKBENCH")
 
 
-def _rdm_ready(iteration2_db, fake_irp, drive, *, name="R", src="rdm1.mdf") -> str:
+def _rdm_ready(workbench_db, fake_irp, drive, *, name="R", src="rdm1.mdf") -> str:
     """Import an RDM and run its import and analysis capture."""
     res = rdm_service.import_rdm(
         name=name, source_file_path=str(drive / src),
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     entity_jobs.run_pending()
     _finish_all(fake_irp, "import_rdm")
     poller.poll_once()
@@ -46,9 +46,9 @@ def _rdm_ready(iteration2_db, fake_irp, drive, *, name="R", src="rdm1.mdf") -> s
 
 # ── sync_detail: enqueue, dispatch, revive, guards ────────────────────────────────
 
-def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+def test_sync_enqueues_analyst_head_and_dispatches(workbench_db, fake_irp, drive):
+    a = workbench_db.user_a
+    rdm_id = _rdm_ready(workbench_db, fake_irp, drive)
 
     sent: list[tuple[str, str]] = []
     dispatch.configure(lambda *, rwb_job_id, rwb_job_type: sent.append(
@@ -70,24 +70,24 @@ def test_sync_enqueues_analyst_head_and_dispatches(iteration2_db, fake_irp, driv
 
 
 def test_sync_revives_terminal_head_with_attempt_and_actor(
-        iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+        workbench_db, fake_irp, drive):
+    a = workbench_db.user_a
+    rdm_id = _rdm_ready(workbench_db, fake_irp, drive)
     first = rdm_service.sync_detail(rdm_id=rdm_id, actor_id=a)
     entity_jobs.run_pending()  # analyst head → succeeded
 
-    again = rdm_service.sync_detail(rdm_id=rdm_id, actor_id=iteration2_db.user_b)
+    again = rdm_service.sync_detail(rdm_id=rdm_id, actor_id=workbench_db.user_b)
     assert again == first  # the SAME row revived, not a duplicate
     heads = _analyst_heads(rdm_id)
     assert len(heads) == 1
     assert heads[0]["status_code"] == "pending"
     assert heads[0]["attempt_count"] == 1
-    assert str(heads[0]["updated_by"]).lower() == str(iteration2_db.user_b).lower()
+    assert str(heads[0]["updated_by"]).lower() == str(workbench_db.user_b).lower()
 
 
 def test_sync_skips_while_backfill_in_flight_either_key(
-        iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
+        workbench_db, fake_irp, drive):
+    a = workbench_db.user_a
     res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
                                  actor_id=a)
     entity_jobs.run_pending()
@@ -104,8 +104,8 @@ def test_sync_skips_while_backfill_in_flight_either_key(
     assert len(_analyst_heads(res.entity_id)) == 1
 
 
-def test_sync_noop_when_rdm_importing_or_missing(iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
+def test_sync_noop_when_rdm_importing_or_missing(workbench_db, fake_irp, drive):
+    a = workbench_db.user_a
     res = rdm_service.import_rdm(name="R", source_file_path=str(drive / "rdm1.mdf"),
                                  actor_id=a)  # pending_import
     assert rdm_service.sync_detail(rdm_id=res.entity_id, actor_id=a) is None
@@ -115,8 +115,8 @@ def test_sync_noop_when_rdm_importing_or_missing(iteration2_db, fake_irp, drive)
 
 # ── worker: the analyst head re-captures the RDM ───────────────────────────
 
-def test_sync_recaptures_rdm_wide_settings(iteration2_db, fake_irp, drive):
-    a = iteration2_db.user_a
+def test_sync_recaptures_rdm_wide_settings(workbench_db, fake_irp, drive):
+    a = workbench_db.user_a
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
                           analysis_id="900", name="AEP",
                           metadata={"engineType": "DLM"},
@@ -125,7 +125,7 @@ def test_sync_recaptures_rdm_wide_settings(iteration2_db, fake_irp, drive):
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E2",
                           analysis_id="901", name="NT",
                           metadata={"engineType": "HD"})
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    rdm_id = _rdm_ready(workbench_db, fake_irp, drive)
 
     # Simulate the pre-capability vintage: what spec-003 captured (names only).
     execute_command(
@@ -150,11 +150,11 @@ def test_sync_recaptures_rdm_wide_settings(iteration2_db, fake_irp, drive):
     assert _analyst_heads(rdm_id)[0]["status_code"] == "succeeded"
 
 
-def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, drive):
+def test_sync_captures_analyses_added_since_import(workbench_db, fake_irp, drive):
     # An analysis that appeared in RM after the import (or was missed) is
     # captured by the sync — the insert-if-absent path, not just the overwrite.
-    a = iteration2_db.user_a
-    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    a = workbench_db.user_a
+    rdm_id = _rdm_ready(workbench_db, fake_irp, drive)
     assert execute_scalar("SELECT COUNT(*) FROM irp_analysis WHERE rdm_id=:r",
                           {"r": rdm_id}, connection="WORKBENCH") == 0
     fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",

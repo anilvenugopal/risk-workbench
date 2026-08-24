@@ -5,7 +5,7 @@ queue — an **atomic claim** (rowcount 1 then 0), a **heartbeat** (one row per 
 and a **reconciler** that reclaims a dead worker's stale ``running`` row. Also
 covers the idempotent enqueue (the A21 dedup backbone) and in-place completion.
 
-Runs on the SQL Server test database (``iteration2_db``).
+Runs on the SQL Server test database (``workbench_db``).
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _utcnow() -> datetime:
 
 # ── idempotent enqueue (A21 dedup key) ────────────────────────────────────────
 
-def test_enqueue_is_idempotent_on_composite_key(iteration2_db):
+def test_enqueue_is_idempotent_on_composite_key(workbench_db):
     rid = str(uuid.uuid4())
     first = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
                             rwb_job_type="upload_edm", input_data={"n": 1})
@@ -45,7 +45,7 @@ def test_enqueue_is_idempotent_on_composite_key(iteration2_db):
     assert n == 1
 
 
-def test_enqueue_distinct_type_not_deduped(iteration2_db):
+def test_enqueue_distinct_type_not_deduped(workbench_db):
     rid = str(uuid.uuid4())
     a = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
                         rwb_job_type="upload_edm")
@@ -64,7 +64,7 @@ def _plain_insert_sql() -> str:
     return rwb_job_service._INSERT_IF_ABSENT.split("WHERE NOT EXISTS")[0]
 
 
-def test_enqueue_absorbs_unique_violation_request_path(iteration2_db, monkeypatch):
+def test_enqueue_absorbs_unique_violation_request_path(workbench_db, monkeypatch):
     from app.services import rwb_job_service
     rid = str(uuid.uuid4())
     assert enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
@@ -79,7 +79,7 @@ def test_enqueue_absorbs_unique_violation_request_path(iteration2_db, monkeypatc
                           {"r": rid}, connection="WORKBENCH") == 1
 
 
-def test_enqueue_absorbs_unique_violation_conn_path(iteration2_db, monkeypatch):
+def test_enqueue_absorbs_unique_violation_conn_path(workbench_db, monkeypatch):
     from app.services import rwb_job_service
     from db import get_connection
     rid = str(uuid.uuid4())
@@ -100,7 +100,7 @@ def test_enqueue_absorbs_unique_violation_conn_path(iteration2_db, monkeypatch):
 
 # ── atomic claim (rowcount 1 → 0) ─────────────────────────────────────────────
 
-def test_atomic_claim_wins_once_then_loses(iteration2_db):
+def test_atomic_claim_wins_once_then_loses(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
@@ -113,7 +113,7 @@ def test_atomic_claim_wins_once_then_loses(iteration2_db):
 
 # ── heartbeat upsert (one row per job) ────────────────────────────────────────
 
-def test_heartbeat_upsert_keeps_one_row_per_job(iteration2_db):
+def test_heartbeat_upsert_keeps_one_row_per_job(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
@@ -126,7 +126,7 @@ def test_heartbeat_upsert_keeps_one_row_per_job(iteration2_db):
 
 # ── reconciler (reclaim stale running rows) ───────────────────────────────────
 
-def test_reconciler_reclaims_stale_running_row(iteration2_db):
+def test_reconciler_reclaims_stale_running_row(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
@@ -141,7 +141,7 @@ def test_reconciler_reclaims_stale_running_row(iteration2_db):
     assert row["claimed_by"] is None
 
 
-def test_reconciler_leaves_fresh_running_row(iteration2_db):
+def test_reconciler_leaves_fresh_running_row(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
@@ -152,7 +152,7 @@ def test_reconciler_leaves_fresh_running_row(iteration2_db):
     assert status == "running"
 
 
-def test_reconciler_reclaims_running_row_with_no_heartbeat(iteration2_db):
+def test_reconciler_reclaims_running_row_with_no_heartbeat(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
@@ -164,7 +164,7 @@ def test_reconciler_reclaims_running_row_with_no_heartbeat(iteration2_db):
 
 # ── in-place completion ───────────────────────────────────────────────────────
 
-def test_complete_sets_terminal_status_and_payload(iteration2_db):
+def test_complete_sets_terminal_status_and_payload(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
@@ -186,7 +186,7 @@ def _correlation_of(job_id: str) -> str | None:
                           {"id": job_id}, connection="WORKBENCH")
 
 
-def test_enqueue_stamps_bound_context_correlation(iteration2_db):
+def test_enqueue_stamps_bound_context_correlation(workbench_db):
     token = log_context.bind(correlation_id="chain-1")
     try:
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
@@ -197,7 +197,7 @@ def test_enqueue_stamps_bound_context_correlation(iteration2_db):
     assert _correlation_of(job_id) == "chain-1"
 
 
-def test_enqueue_explicit_correlation_wins_over_context(iteration2_db):
+def test_enqueue_explicit_correlation_wins_over_context(workbench_db):
     token = log_context.bind(correlation_id="context-id")
     try:
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
@@ -209,14 +209,14 @@ def test_enqueue_explicit_correlation_wins_over_context(iteration2_db):
     assert _correlation_of(job_id) == "explicit-id"
 
 
-def test_enqueue_without_context_leaves_null(iteration2_db):
+def test_enqueue_without_context_leaves_null(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
                              rwb_job_type="upload_edm")
     assert _correlation_of(job_id) is None
 
 
-def test_ensure_pending_restamps_on_retry(iteration2_db):
+def test_ensure_pending_restamps_on_retry(workbench_db):
     # An analyst retry is a NEW causal chain — the revived row is re-stamped.
     rid = str(uuid.uuid4())
     token = log_context.bind(correlation_id="first-request")
@@ -238,7 +238,7 @@ def test_ensure_pending_restamps_on_retry(iteration2_db):
     assert _correlation_of(job_id) == "retry-request"
 
 
-def test_ensure_pending_in_flight_skip_keeps_original_chain(iteration2_db):
+def test_ensure_pending_in_flight_skip_keeps_original_chain(workbench_db):
     rid = str(uuid.uuid4())
     token = log_context.bind(correlation_id="original")
     try:
@@ -256,7 +256,7 @@ def test_ensure_pending_in_flight_skip_keeps_original_chain(iteration2_db):
     assert _correlation_of(job_id) == "original"
 
 
-def test_get_rwb_job_returns_row_or_none(iteration2_db):
+def test_get_rwb_job_returns_row_or_none(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
                              rwb_job_type="upload_edm", correlation_id="c-9")
@@ -267,7 +267,7 @@ def test_get_rwb_job_returns_row_or_none(iteration2_db):
     assert get_rwb_job(rwb_job_id=str(uuid.uuid4())) is None
 
 
-def test_reconciler_preserves_original_chain(iteration2_db):
+def test_reconciler_preserves_original_chain(workbench_db):
     # A reclaimed row is the SAME causal chain retrying — never re-stamped.
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),

@@ -30,20 +30,20 @@ def _values(**changes) -> TemplateValues:
     return TemplateValues(**values)
 
 
-def test_dlm_requires_event_rate_scheme(iteration2_db, fake_irp):
+def test_dlm_requires_event_rate_scheme(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     with pytest.raises(TemplateValidationError) as exc:
         template_service.save_template(
-            _values(event_rate_scheme_name=None), actor_id=iteration2_db.user_a
+            _values(event_rate_scheme_name=None), actor_id=workbench_db.user_a
         )
 
     assert "Event rate scheme is required for DLM analyses" in exc.value.errors
 
 
-def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
+def test_hd_and_accumulation_can_save_without_scheme(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_model_profile
                 (id, irp_id, name, is_accumulation, inserted_at, updated_at)
@@ -71,7 +71,7 @@ def test_hd_and_accumulation_can_save_without_scheme(iteration2_db, fake_irp):
     assert template_service.get_template(accumulation_id)["profile_family"] == "Accumulation"
 
 
-def test_hd_can_save_with_matching_scheme(iteration2_db, fake_irp):
+def test_hd_can_save_with_matching_scheme(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     template_id = template_service.save_template(_values(
@@ -83,10 +83,10 @@ def test_hd_can_save_with_matching_scheme(iteration2_db, fake_irp):
 
 
 def test_mismatched_scheme_is_rejected_when_both_cache_rows_resolve(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_event_rate_scheme
                 (id, irp_id, name, peril_code, model_region_code, is_hd,
@@ -104,7 +104,7 @@ def test_mismatched_scheme_is_rejected_when_both_cache_rows_resolve(
 
 
 def test_pairing_check_skips_when_scheme_or_profile_is_absent(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
 
@@ -122,7 +122,7 @@ def test_pairing_check_skips_when_scheme_or_profile_is_absent(
     assert template_service.get_template(absent_profile_id)["unresolved"] is True
 
 
-def test_live_template_and_suite_names_are_unique(iteration2_db, fake_irp):
+def test_live_template_and_suite_names_are_unique(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
     template_service.save_suite("US", [template_id])
@@ -133,7 +133,7 @@ def test_live_template_and_suite_names_are_unique(iteration2_db, fake_irp):
         template_service.save_suite("us", [])
 
 
-def test_template_delete_guard_names_live_suites(iteration2_db, fake_irp):
+def test_template_delete_guard_names_live_suites(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
     template_service.save_suite("US", [template_id])
@@ -145,18 +145,18 @@ def test_template_delete_guard_names_live_suites(iteration2_db, fake_irp):
     assert exc.value.suite_names == ("Global", "US")
 
 
-def test_unresolved_flag_tracks_cache_removal_and_return(iteration2_db, fake_irp):
+def test_unresolved_flag_tracks_cache_removal_and_return(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
     assert template_service.get_template(template_id)["unresolved"] is False
 
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             "DELETE FROM irp_model_profile WHERE name = 'RMS Default RL25'"
         )
     assert template_service.get_template(template_id)["model_profile_unresolved"] is True
 
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_model_profile
                 (id, irp_id, name, is_accumulation, software_version_code,
@@ -168,7 +168,7 @@ def test_unresolved_flag_tracks_cache_removal_and_return(iteration2_db, fake_irp
     assert template_service.get_template(template_id)["unresolved"] is False
 
 
-def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
+def test_scheme_prefill_requires_exactly_one_match(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     one = template_service.scheme_options("RMS Default RL25")
     zero = template_service.scheme_options("Open profile")
@@ -176,7 +176,7 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
     assert [(row["name"], row["selected"]) for row in one] == [("RMS WS", True)]
     assert zero == []
 
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_event_rate_scheme
                 (id, irp_id, name, peril_code, model_region_code, is_hd,
@@ -191,10 +191,10 @@ def test_scheme_prefill_requires_exactly_one_match(iteration2_db, fake_irp):
 
 
 def test_scheme_options_exclude_workbench_inactive_schemes(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql("""
             INSERT INTO irp_event_rate_scheme
                 (id, irp_id, name, peril_code, model_region_code, is_hd,
@@ -216,14 +216,14 @@ def test_scheme_options_exclude_workbench_inactive_schemes(
     assert len(template_service.scheme_options("RMS Default RL25")) == 2
 
 
-def test_set_scheme_visibility_rejects_unknown_scheme(iteration2_db, fake_irp):
+def test_set_scheme_visibility_rejects_unknown_scheme(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     with pytest.raises(template_service.TemplateServiceError):
         template_service.set_scheme_visibility(999, False)
 
 
-def test_hidden_scheme_keeps_existing_template_saveable(iteration2_db, fake_irp):
+def test_hidden_scheme_keeps_existing_template_saveable(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
 
@@ -235,7 +235,7 @@ def test_hidden_scheme_keeps_existing_template_saveable(iteration2_db, fake_irp)
 
 
 def test_suite_items_are_unordered_and_display_sorts_by_template_name(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     first = template_service.save_template(_values(name="Zebra Template"))
@@ -256,7 +256,7 @@ def test_suite_items_are_unordered_and_display_sorts_by_template_name(
     assert all("portfolio_name_override" not in item for item in suite["items"])
 
 
-def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
+def test_suite_rejects_same_template_twice(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
 
@@ -264,7 +264,7 @@ def test_suite_rejects_same_template_twice(iteration2_db, fake_irp):
         template_service.save_suite("US", [template_id, template_id])
 
 
-def test_list_suites_includes_empty_suites_with_zero_counts(iteration2_db, fake_irp):
+def test_list_suites_includes_empty_suites_with_zero_counts(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
     template_service.save_suite("Full", [template_id])
@@ -278,14 +278,14 @@ def test_list_suites_includes_empty_suites_with_zero_counts(iteration2_db, fake_
     assert [item["template_id"] for item in suites["Full"]["items"]] == [template_id]
 
 
-def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
+def test_duplicate_template_copies_fields_and_tags(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(
-        _values(), tags=["US", "Wind"], actor_id=iteration2_db.user_a,
+        _values(), tags=["US", "Wind"], actor_id=workbench_db.user_a,
     )
 
     copy_id = template_service.duplicate_template(
-        template_id, actor_id=iteration2_db.user_a,
+        template_id, actor_id=workbench_db.user_a,
     )
 
     original = template_service.get_template(template_id)
@@ -298,7 +298,7 @@ def test_duplicate_template_copies_fields_and_tags(iteration2_db, fake_irp):
     assert copy["tags"] == ["US", "Wind"]
 
 
-def test_duplicate_template_name_collision_gets_a_counter(iteration2_db, fake_irp):
+def test_duplicate_template_name_collision_gets_a_counter(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
 
@@ -309,7 +309,7 @@ def test_duplicate_template_name_collision_gets_a_counter(iteration2_db, fake_ir
     assert template_service.get_template(second_copy)["name"] == "US Wind DLM (copy 2)"
 
 
-def test_duplicate_template_truncates_base_to_fit_name_column(iteration2_db, fake_irp):
+def test_duplicate_template_truncates_base_to_fit_name_column(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     long_name = "A" * 200
     template_id = template_service.save_template(_values(name=long_name))
@@ -321,7 +321,7 @@ def test_duplicate_template_truncates_base_to_fit_name_column(iteration2_db, fak
     assert len(copy_name) == 200
 
 
-def test_duplicate_suite_copies_membership_not_templates(iteration2_db, fake_irp):
+def test_duplicate_suite_copies_membership_not_templates(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values())
     suite_id = template_service.save_suite("US", [template_id])

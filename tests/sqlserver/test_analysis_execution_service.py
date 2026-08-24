@@ -115,7 +115,7 @@ def test_name_attempt_suffix_survives_on_a_short_name():
 # ── plan composition ─────────────────────────────────────────────────────────────
 
 def test_request_execution_composes_plan_with_per_suite_currency_and_tags(
-        iteration2_db):
+        workbench_db):
     _seed_currency(scheme="RMS", vintage="RL25", effective_date="2025-05-28")
     _seed_currency(scheme="DT", vintage="RL24", effective_date="2024-05-28")
     edm_id = _seed_edm()
@@ -136,7 +136,7 @@ def test_request_execution_composes_plan_with_per_suite_currency_and_tags(
                          currency_code="USD", currency_scheme="DT",
                          currency_vintage="RL24"),
         ],
-        actor_id=iteration2_db.user_a, submission_id=str(uuid.uuid4()),
+        actor_id=workbench_db.user_a, submission_id=str(uuid.uuid4()),
         submission_name="Deal ABC")
 
     row = execute_one(
@@ -157,7 +157,7 @@ def test_request_execution_composes_plan_with_per_suite_currency_and_tags(
     assert by_suite[suite2]["tag_names"] == ["Deal ABC"]
 
 
-def test_request_execution_template_kind_uses_single_currency_block(iteration2_db):
+def test_request_execution_template_kind_uses_single_currency_block(workbench_db):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -167,7 +167,7 @@ def test_request_execution_template_kind_uses_single_currency_block(iteration2_d
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
         currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
 
     row = execute_one(
         "SELECT input_data FROM rwb_job WHERE requestor_id = :id",
@@ -183,7 +183,7 @@ def test_request_execution_template_kind_uses_single_currency_block(iteration2_d
 
 # ── gate ──────────────────────────────────────────────────────────────────────────
 
-def test_gate_rejects_incomplete_currency_block(iteration2_db):
+def test_gate_rejects_incomplete_currency_block(workbench_db):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -194,13 +194,13 @@ def test_gate_rejects_incomplete_currency_block(iteration2_db):
             edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="", currency_vintage="",
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
         raise AssertionError("expected ExecutionGateError")
     except svc.ExecutionGateError as exc:
         assert any("currency" in e.lower() for e in exc.errors)
 
 
-def test_gate_rejects_cache_invalid_vintage(iteration2_db):
+def test_gate_rejects_cache_invalid_vintage(workbench_db):
     _seed_currency()  # RMS/RL25 only
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -212,13 +212,13 @@ def test_gate_rejects_cache_invalid_vintage(iteration2_db):
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="RMS",
             currency_vintage="NOT-A-REAL-VINTAGE",
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
         raise AssertionError("expected ExecutionGateError")
     except svc.ExecutionGateError as exc:
         assert any("vintage" in e.lower() for e in exc.errors)
 
 
-def test_gate_rejects_edm_not_ready(iteration2_db):
+def test_gate_rejects_edm_not_ready(workbench_db):
     _seed_currency()
     edm_id = _seed_edm(status="pending_import")
     portfolio_id = _seed_portfolio(edm_id)
@@ -229,13 +229,13 @@ def test_gate_rejects_edm_not_ready(iteration2_db):
             edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
         raise AssertionError("expected ExecutionGateError")
     except svc.ExecutionGateError:
         pass
 
 
-def test_gate_rejects_suite_kind_with_zero_templates_selected(iteration2_db):
+def test_gate_rejects_suite_kind_with_zero_templates_selected(workbench_db):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -249,13 +249,13 @@ def test_gate_rejects_suite_kind_with_zero_templates_selected(iteration2_db):
             suite_picks=[svc.SuitePick(
                 suite_id=suite_id, template_ids=[],  # every template deselected
                 currency_code="USD", currency_scheme="RMS", currency_vintage="RL25")],
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
         raise AssertionError("expected ExecutionGateError")
     except svc.ExecutionGateError as exc:
         assert any("suite" in e.lower() for e in exc.errors)
 
 
-def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
+def test_gate_rejects_template_foreign_to_its_suite(workbench_db):
     _seed_currency()
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
@@ -270,7 +270,7 @@ def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
             suite_picks=[svc.SuitePick(
                 suite_id=suite_id, template_ids=[t2],
                 currency_code="USD", currency_scheme="RMS", currency_vintage="RL25")],
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
         raise AssertionError("expected ExecutionGateError")
     except svc.ExecutionGateError as exc:
         assert any("belong" in e.lower() for e in exc.errors)

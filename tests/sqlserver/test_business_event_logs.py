@@ -12,10 +12,10 @@ def _messages(caplog, logger_name: str) -> list[str]:
     return [r.getMessage() for r in caplog.records if r.name == logger_name]
 
 
-def test_submit_success_logged_with_irp_id(iteration2_db, fake_irp, drive, caplog):
+def test_submit_success_logged_with_irp_id(workbench_db, fake_irp, drive, caplog):
     edm_service.import_edm(
         name="E1", source_file_path=str(drive / "edm1.bak"),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     with caplog.at_level(logging.INFO, logger="app.workers.entity_jobs"):
         entity_jobs.run_pending()
@@ -25,7 +25,7 @@ def test_submit_success_logged_with_irp_id(iteration2_db, fake_irp, drive, caplo
 
 
 def test_breakout_request_and_run_emit_business_events(
-        iteration2_db, fake_irp, caplog):
+        workbench_db, fake_irp, caplog):
     # Spec 005 US3 (T052/T054 — FR-015/P-08): the confirm logs the analyst
     # request with the sub-portfolio count; the worker logs each
     # sub-portfolio's created/adopted/failed line and the completion summary,
@@ -44,7 +44,7 @@ def test_breakout_request_and_run_emit_business_events(
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     fake_irp.selection_by_value = {"EQ Comm": [1]}   # FLD Comm → zero-match
-    a = iteration2_db.user_a
+    a = workbench_db.user_a
 
     with caplog.at_level(logging.INFO, logger="app.services.breakout_service"):
         jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF, a)

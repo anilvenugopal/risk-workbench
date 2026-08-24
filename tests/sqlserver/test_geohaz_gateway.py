@@ -95,7 +95,7 @@ def test_fake_irp_implements_geohaz_gateway_methods():
     assert fake.get_geohaz_job(submitted.irp_id).status == "FINISHED"
 
 
-def test_irp_job_writers_persist_geohaz_portfolio_and_params(iteration2_db):
+def test_irp_job_writers_persist_geohaz_portfolio_and_params(workbench_db):
     _, portfolio_ids = _edm_with_portfolios(1)
     portfolio_id = portfolio_ids[0]
     params = {
@@ -113,14 +113,14 @@ def test_irp_job_writers_persist_geohaz_portfolio_and_params(iteration2_db):
         resource_uri="/platform/portfolios/44",
         payload={"resourceUri": "/platform/portfolios/44"},
         request_params=params,
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     failed_id = irp_job_service.record_submission_failure(
         irp_job_type="geohaz",
         irp_portfolio_id=portfolio_id,
         payload={"error": "submit failed"},
         request_params=params,
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
 
     rows = execute(

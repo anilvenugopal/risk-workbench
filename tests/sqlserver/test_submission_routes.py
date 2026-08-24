@@ -36,7 +36,7 @@ from db import execute, execute_command, execute_scalar
 
 
 @pytest.fixture()
-def client(iteration2_db) -> TestClient:
+def client(workbench_db) -> TestClient:
     """Router under test, with the fixture's Analyst A as the logged-in user."""
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
@@ -44,7 +44,7 @@ def client(iteration2_db) -> TestClient:
     from app.services.auth_service import CurrentUser
 
     user = CurrentUser(
-        id=iteration2_db.user_a, email="analyst.a@example.com",
+        id=workbench_db.user_a, email="analyst.a@example.com",
         display_name="Analyst A", session_id="s", role_codes=["analyst"],
         is_admin=False, must_change_password=False, entra_oid=None,
         is_active=True)
@@ -64,7 +64,7 @@ def client(iteration2_db) -> TestClient:
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
     test_client = TestClient(app, follow_redirects=False)
-    test_client.db = iteration2_db
+    test_client.db = workbench_db
     return test_client
 
 

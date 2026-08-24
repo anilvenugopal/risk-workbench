@@ -48,7 +48,7 @@ def _backfill_heads(edm_id: str) -> list[dict]:
 
 # ── the diff predicate ────────────────────────────────────────────────────────────
 
-def test_lists_every_rm_edm_the_workbench_does_not_have(iteration2_db, fake_irp):
+def test_lists_every_rm_edm_the_workbench_does_not_have(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
 
@@ -57,7 +57,7 @@ def test_lists_every_rm_edm_the_workbench_does_not_have(iteration2_db, fake_irp)
     assert [(r.name, r.irp_id) for r in rows] == [("alpha", 501), ("beta", 502)]
 
 
-def test_carries_the_display_fields_from_risk_modeler(iteration2_db, fake_irp):
+def test_carries_the_display_fields_from_risk_modeler(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(
         name="alpha", irp_id=501, status="READY", server_name="databridge-2",
         portfolio_count=4, treaty_count=2, updated_at="2026-08-01T00:00:00Z")
@@ -70,7 +70,7 @@ def test_carries_the_display_fields_from_risk_modeler(iteration2_db, fake_irp):
 
 
 def test_links_each_row_to_its_risk_modeler_portfolios_screen(
-        iteration2_db, fake_irp, monkeypatch):
+        workbench_db, fake_irp, monkeypatch):
     monkeypatch.setattr(settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com")
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "acme")
@@ -82,7 +82,7 @@ def test_links_each_row_to_its_risk_modeler_portfolios_screen(
 
 
 def test_excludes_an_edm_whose_exposure_id_a_local_row_holds(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
     _local_edm(name="alpha", status=edm_service.READY, irp_id=501)
@@ -91,7 +91,7 @@ def test_excludes_an_edm_whose_exposure_id_a_local_row_holds(
 
 
 def test_excludes_an_edm_matching_an_in_flight_import_by_name(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # pending_import / importing rows have irp_id NULL until the poller
     # backfills the exposureId, so only the name arm can hide them.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -103,7 +103,7 @@ def test_excludes_an_edm_matching_an_in_flight_import_by_name(
 
 
 def test_excludes_a_ready_row_whose_exposure_id_resolution_missed(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The poller passes resolved.get("edm_exposure_id"), which can be None while
     # the status still goes ready — the row exists, it just has no exposureId.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -113,7 +113,7 @@ def test_excludes_a_ready_row_whose_exposure_id_resolution_missed(
 
 
 def test_includes_an_edm_whose_only_local_row_failed_to_import(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # A failed import created nothing in Risk Modeler, so an EDM there under the
     # same name is a different one and stays adoptable.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -123,7 +123,7 @@ def test_includes_an_edm_whose_only_local_row_failed_to_import(
 
 
 def test_includes_an_edm_whose_only_local_row_is_soft_deleted(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     _local_edm(name="alpha", status=edm_service.READY, irp_id=501,
                deleted_at="2026-02-01")
@@ -132,7 +132,7 @@ def test_includes_an_edm_whose_only_local_row_is_soft_deleted(
 
 
 def test_a_duplicate_rm_name_stays_adoptable_once_its_twin_is_adopted(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # EDM names are not unique in Risk Modeler. The name arm applies only to rows
     # with no exposureId, so adopting one "alpha" must not hide the other.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -143,7 +143,7 @@ def test_a_duplicate_rm_name_stays_adoptable_once_its_twin_is_adopted(
         ("alpha", 502)]
 
 
-def test_a_gateway_failure_lists_none_not_an_empty_page(iteration2_db, fake_irp):
+def test_a_gateway_failure_lists_none_not_an_empty_page(workbench_db, fake_irp):
     # None is what the page renders as "Risk Modeler unavailable". An empty page
     # would read as "everything is already synced".
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
@@ -160,7 +160,7 @@ def _seed_catalog(fake, count: int) -> None:
 
 
 def test_first_page_holds_page_size_rows_and_reports_the_full_total(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     _seed_catalog(fake_irp, edm_service.ADOPTABLE_PAGE_SIZE + 10)
 
     result = edm_service.list_adoptable_edms()
@@ -174,7 +174,7 @@ def test_first_page_holds_page_size_rows_and_reports_the_full_total(
 
 
 def test_last_page_holds_the_remainder_and_ends_the_pager(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     _seed_catalog(fake_irp, edm_service.ADOPTABLE_PAGE_SIZE + 10)
 
     result = edm_service.list_adoptable_edms(page=2)
@@ -185,7 +185,7 @@ def test_last_page_holds_the_remainder_and_ends_the_pager(
 
 
 def test_a_page_past_the_end_reads_the_last_page_with_rows(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # Another analyst syncing the tail of the list must not leave the analyst on
     # page 2 staring at an empty table.
     _seed_catalog(fake_irp, edm_service.ADOPTABLE_PAGE_SIZE + 10)
@@ -196,7 +196,7 @@ def test_a_page_past_the_end_reads_the_last_page_with_rows(
     assert len(result.rows) == 10
 
 
-def test_a_page_below_one_reads_the_first_page(iteration2_db, fake_irp):
+def test_a_page_below_one_reads_the_first_page(workbench_db, fake_irp):
     # A hand-typed ?page=0 must not slice from a negative offset.
     _seed_catalog(fake_irp, 3)
 
@@ -205,7 +205,7 @@ def test_a_page_below_one_reads_the_first_page(iteration2_db, fake_irp):
 
 
 def test_the_name_search_narrows_the_list_before_it_is_paged(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="Coastal_Wind_Study", irp_id=501)
     fake_irp.add_catalog_edm(name="Midwest_Hail_2025", irp_id=502)
     fake_irp.add_catalog_edm(name="coastal_flood", irp_id=503)
@@ -222,10 +222,10 @@ def test_the_name_search_narrows_the_list_before_it_is_paged(
 # ── adopt_edms ───────────────────────────────────────────────────────────────────
 
 def test_adopt_inserts_a_ready_row_with_no_source_file(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501, server_name="databridge-2")
 
-    result = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
+    result = edm_service.adopt_edms(irp_ids=[501], actor_id=workbench_db.user_a)
 
     assert len(result.adopted) == 1
     row = execute_one(
@@ -240,11 +240,11 @@ def test_adopt_inserts_a_ready_row_with_no_source_file(
     # backfill_edm_detail stamps as_of; there is no creating import job.
     assert row["as_of"] is None
     assert row["created_by_irp_job_irp_id"] is None
-    assert str(row["inserted_by"]).lower() == str(iteration2_db.user_a).lower()
+    assert str(row["inserted_by"]).lower() == str(workbench_db.user_a).lower()
 
 
 def test_adopt_enqueues_and_dispatches_one_backfill_head_per_edm(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
 
@@ -253,7 +253,7 @@ def test_adopt_enqueues_and_dispatches_one_backfill_head_per_edm(
         (rwb_job_id, rwb_job_type)))
     try:
         result = edm_service.adopt_edms(irp_ids=[501, 502],
-                                        actor_id=iteration2_db.user_a)
+                                        actor_id=workbench_db.user_a)
     finally:
         dispatch.reset()
 
@@ -266,11 +266,11 @@ def test_adopt_enqueues_and_dispatches_one_backfill_head_per_edm(
 
 
 def test_adopting_the_same_exposure_id_twice_creates_one_row(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
 
-    first = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
-    second = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_b)
+    first = edm_service.adopt_edms(irp_ids=[501], actor_id=workbench_db.user_a)
+    second = edm_service.adopt_edms(irp_ids=[501], actor_id=workbench_db.user_b)
 
     assert len(first.adopted) == 1
     assert second.adopted == []
@@ -281,7 +281,7 @@ def test_adopting_the_same_exposure_id_twice_creates_one_row(
 
 
 def test_adopt_treats_a_unique_race_as_skipped(
-        iteration2_db, fake_irp, monkeypatch):
+        workbench_db, fake_irp, monkeypatch):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     execute_real = edm_service.execute_command
 
@@ -293,21 +293,21 @@ def test_adopt_treats_a_unique_race_as_skipped(
     monkeypatch.setattr(edm_service, "execute_command", lose_insert)
 
     result = edm_service.adopt_edms(
-        irp_ids=[501], actor_id=iteration2_db.user_a)
+        irp_ids=[501], actor_id=workbench_db.user_a)
 
     assert result.adopted == []
     assert result.skipped == [501]
 
 
 def test_adopt_skips_an_edm_an_in_flight_import_already_covers(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The list hides this EDM by name, but a page loaded before the import started
     # can still POST it. Without the name arm on the insert guard the workbench
     # ends up with two rows for exposureId 501 once the poller resolves the id.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     _local_edm(name="alpha", status=edm_service.IMPORTING)
 
-    result = edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
+    result = edm_service.adopt_edms(irp_ids=[501], actor_id=workbench_db.user_a)
 
     assert (result.adopted, result.skipped) == ([], [501])
     rows = execute("SELECT id FROM irp_edm WHERE name = 'alpha'",
@@ -316,20 +316,20 @@ def test_adopt_skips_an_edm_an_in_flight_import_already_covers(
 
 
 def test_adopt_skips_an_exposure_id_risk_modeler_no_longer_lists(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
 
     result = edm_service.adopt_edms(irp_ids=[501, 999],
-                                    actor_id=iteration2_db.user_a)
+                                    actor_id=workbench_db.user_a)
 
     assert len(result.adopted) == 1
     assert result.skipped == [999]
 
 
-def test_an_adopted_edm_drops_off_the_adoptable_list(iteration2_db, fake_irp):
+def test_an_adopted_edm_drops_off_the_adoptable_list(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
 
-    edm_service.adopt_edms(irp_ids=[501], actor_id=iteration2_db.user_a)
+    edm_service.adopt_edms(irp_ids=[501], actor_id=workbench_db.user_a)
 
     assert _adoptable_names(fake_irp) == ["beta"]

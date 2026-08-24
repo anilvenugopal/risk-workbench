@@ -50,7 +50,7 @@ def _job_count() -> int:
     ],
 )
 def test_launch_validation_rejects_the_whole_selection(
-    iteration2_db, change, error,
+    workbench_db, change, error,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios()
     selected = list(portfolio_ids)
@@ -65,27 +65,27 @@ def test_launch_validation_rejects_the_whole_selection(
         geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=selected,
-            actor_id=iteration2_db.user_a,
+            actor_id=workbench_db.user_a,
         )
 
     assert _job_count() == 0
 
 
-def test_gate_rejects_missing_edm_and_edm_without_portfolios(iteration2_db):
+def test_gate_rejects_missing_edm_and_edm_without_portfolios(workbench_db):
     with pytest.raises(InvalidGeohazLaunch, match="no longer exists"):
         geohaz_service.launch(
             edm_id=str(uuid.uuid4()), portfolio_ids=[],
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
 
     edm_id, _ = _edm_with_portfolios(0)
     with pytest.raises(InvalidGeohazLaunch, match="at least one portfolio"):
         geohaz_service.launch(
-            edm_id=edm_id, portfolio_ids=[], actor_id=iteration2_db.user_a)
+            edm_id=edm_id, portfolio_ids=[], actor_id=workbench_db.user_a)
     assert _job_count() == 0
 
 
 @pytest.mark.parametrize("blocker", ["irp_job", "rwb_job"])
-def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
+def test_ineligible_portfolio_rejects_all_jobs(workbench_db, blocker):
     edm_id, portfolio_ids = _edm_with_portfolios()
     blocked = portfolio_ids[1]
     if blocker == "irp_job":
@@ -101,12 +101,12 @@ def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
     with pytest.raises(GeohazLaunchConflict, match="Portfolio 2"):
         geohaz_service.launch(
             edm_id=edm_id, portfolio_ids=portfolio_ids,
-            actor_id=iteration2_db.user_a)
+            actor_id=workbench_db.user_a)
     assert _job_count() == before
 
 
 def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
-    iteration2_db, monkeypatch,
+    workbench_db, monkeypatch,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios()
     monkeypatch.setattr(geohaz_service.settings, "hazard_data_version", "25.0")
@@ -117,7 +117,7 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         result = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=portfolio_ids,
-            actor_id=iteration2_db.user_a,
+            actor_id=workbench_db.user_a,
         )
     finally:
         dispatch.reset()
@@ -141,13 +141,13 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         assert input_data["params"] == expected_params
         assert input_data["irp_edm_id"] == edm_id
         assert input_data["irp_portfolio_id"] == str(row["requestor_id"]).lower()
-        assert input_data["requested_by_user_id"] == iteration2_db.user_a
-        assert str(row["inserted_by"]).lower() == iteration2_db.user_a
+        assert input_data["requested_by_user_id"] == workbench_db.user_a
+        assert str(row["inserted_by"]).lower() == workbench_db.user_a
         assert row["status_code"] == "pending"
     assert set(sent) == {(job_id, "run_geohaz") for job_id in result.rwb_job_ids}
 
 
-def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
+def test_launch_normalizes_sql_server_uuid_casing(workbench_db, monkeypatch):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     original_execute = geohaz_service.execute
 
@@ -162,14 +162,14 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
     result = geohaz_service.launch(
         edm_id=edm_id,
         portfolio_ids=portfolio_ids,
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
 
     assert result.portfolio_ids == portfolio_ids
 
 
 def test_lookup_states_show_live_status_then_stored_hazard_version(
-    iteration2_db,
+    workbench_db,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(6)
     submitting, submitted, live, succeeded, failed, never = portfolio_ids
@@ -219,7 +219,7 @@ def test_lookup_states_show_live_status_then_stored_hazard_version(
     assert states[never].label == "" and states[never].live is False
 
 
-def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
+def test_lookup_state_uses_stored_version_after_a_later_failure(workbench_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     for irp_id, status in (("920", "FINISHED"), ("921", "FAILED")):
         job_id = irp_job_service.record_submitted_irp_job(
@@ -241,7 +241,7 @@ def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
     assert state.live is False
 
 
-def test_latest_lookup_returns_only_newest_run(iteration2_db):
+def test_latest_lookup_returns_only_newest_run(workbench_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     first = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -250,7 +250,7 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
             "data_version": "24.0", "model_family": "DLM",
             "perils": ["earthquake"], "skip_prev_hazard": True,
             "override_user_def": False,
-        }, actor_id=iteration2_db.user_a)
+        }, actor_id=workbench_db.user_a)
     second = irp_job_service.record_submission_failure(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id,
@@ -258,7 +258,7 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
             "data_version": "25.0", "model_family": "DLM",
             "perils": ["windstorm"], "skip_prev_hazard": False,
             "override_user_def": True,
-        }, actor_id=iteration2_db.user_b)
+        }, actor_id=workbench_db.user_b)
     execute_command(
         "UPDATE irp_job SET inserted_at = '2026-08-12', "
         "submitted_at = '2026-08-12' WHERE id = :id",
@@ -278,7 +278,7 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
     assert latest.failed is True
 
 
-def test_latest_lookups_returns_newest_run_per_portfolio(iteration2_db):
+def test_latest_lookups_returns_newest_run_per_portfolio(workbench_db):
     edm_id, [single_run, two_runs] = _edm_with_portfolios(2)
     other_edm_id, [foreign] = _edm_with_portfolios(1)
     irp_job_service.record_submitted_irp_job(

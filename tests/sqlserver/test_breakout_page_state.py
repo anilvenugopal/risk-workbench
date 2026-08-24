@@ -107,7 +107,7 @@ def _bad(value: str, error: str) -> dict:
 
 # ── in-flight (FR-012 progress) ──────────────────────────────────────────────────
 
-def test_a_live_job_reports_progress_and_keeps_the_poll_alive(iteration2_db):
+def test_a_live_job_reports_progress_and_keeps_the_poll_alive(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, status="running", plan=["A", "B", "C"])
@@ -125,7 +125,7 @@ def test_a_live_job_reports_progress_and_keeps_the_poll_alive(iteration2_db):
     assert (flight.planned, flight.done) == (3, 2)
 
 
-def test_no_breakout_jobs_reports_nothing(iteration2_db):
+def test_no_breakout_jobs_reports_nothing(workbench_db):
     edm_id = _mk_edm()
     _mk_portfolio(edm_id)
 
@@ -135,7 +135,7 @@ def test_no_breakout_jobs_reports_nothing(iteration2_db):
         False, None, {}, {})
 
 
-def test_a_terminal_job_stops_the_poll(iteration2_db):
+def test_a_terminal_job_stops_the_poll(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, status="succeeded", output=_outcomes(_ok("A")))
@@ -148,7 +148,7 @@ def test_a_terminal_job_stops_the_poll(iteration2_db):
 
 # ── durable error lines (FR-012) ─────────────────────────────────────────────────
 
-def test_failed_entries_become_error_lines_on_the_source_row(iteration2_db):
+def test_failed_entries_become_error_lines_on_the_source_row(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, output=_outcomes(
@@ -163,7 +163,7 @@ def test_failed_entries_become_error_lines_on_the_source_row(iteration2_db):
 
 
 def test_a_job_that_failed_before_its_loop_reports_the_job_error(
-        iteration2_db):
+        workbench_db):
     # No per-entry outcomes exist — the selection read failed, or the plan was
     # unusable — so the line carries the job's own error with no value/name.
     edm_id = _mk_edm()
@@ -178,7 +178,7 @@ def test_a_job_that_failed_before_its_loop_reports_the_job_error(
 
 
 def test_a_failed_job_with_entry_outcomes_reports_the_entries_not_the_job(
-        iteration2_db):
+        workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, status="failed",
@@ -190,7 +190,7 @@ def test_a_failed_job_with_entry_outcomes_reports_the_entries_not_the_job(
     assert [line.error for line in lines] == ["RM 500", "RM 503"]
 
 
-def test_a_successful_run_leaves_no_error_line(iteration2_db):
+def test_a_successful_run_leaves_no_error_line(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, output=_outcomes(_ok("A"), _ok("B")))
@@ -199,7 +199,7 @@ def test_a_successful_run_leaves_no_error_line(iteration2_db):
 
 
 def test_both_dimensions_of_one_portfolio_accumulate_into_one_list(
-        iteration2_db):
+        workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, dimension="lob", output=_outcomes(_bad("A", "lob boom")))
@@ -212,7 +212,7 @@ def test_both_dimensions_of_one_portfolio_accumulate_into_one_list(
         ("lob", "lob boom"), ("state", "state boom")}
 
 
-def test_error_lines_are_keyed_per_portfolio(iteration2_db):
+def test_error_lines_are_keyed_per_portfolio(workbench_db):
     edm_id = _mk_edm()
     first = _mk_portfolio(edm_id, name="book_one")
     second = _mk_portfolio(edm_id, name="book_two")
@@ -225,7 +225,7 @@ def test_error_lines_are_keyed_per_portfolio(iteration2_db):
     assert [line.error for line in errors[second]] == ["second boom"]
 
 
-def test_another_edms_breakout_is_not_read(iteration2_db):
+def test_another_edms_breakout_is_not_read(workbench_db):
     edm_id = _mk_edm()
     other_edm = _mk_edm(name="other_edm")
     _mk_job(_mk_portfolio(other_edm), output=_outcomes(_bad("A", "not mine")))
@@ -236,7 +236,7 @@ def test_another_edms_breakout_is_not_read(iteration2_db):
     assert (state.errors, state.banner) == ({}, None)
 
 
-def test_unparseable_output_data_degrades_to_no_lines(iteration2_db):
+def test_unparseable_output_data_degrades_to_no_lines(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, status="succeeded", output="{not json")
@@ -250,7 +250,7 @@ def test_unparseable_output_data_degrades_to_no_lines(iteration2_db):
 # ── the completion banner (FR-013) ───────────────────────────────────────────────
 
 def test_the_banner_shows_figures_filling_in_while_the_follow_up_runs(
-        iteration2_db):
+        workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     jid = _mk_job(source_id, output=dict(_outcomes(_ok("A"), _ok("B")),
@@ -266,7 +266,7 @@ def test_the_banner_shows_figures_filling_in_while_the_follow_up_runs(
     assert (banner.ok, banner.filling_in, banner.error) == (True, True, None)
 
 
-def test_a_settled_successful_run_shows_no_banner(iteration2_db):
+def test_a_settled_successful_run_shows_no_banner(workbench_db):
     # The figures have landed and nothing failed — there is nothing left to say.
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
@@ -276,7 +276,7 @@ def test_a_settled_successful_run_shows_no_banner(iteration2_db):
     assert page_state(edm_id).banner is None
 
 
-def test_a_partial_failure_banner_survives_the_follow_up(iteration2_db):
+def test_a_partial_failure_banner_survives_the_follow_up(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     jid = _mk_job(source_id, output=dict(
@@ -290,7 +290,7 @@ def test_a_partial_failure_banner_survives_the_follow_up(iteration2_db):
     assert banner.filling_in is False
 
 
-def test_a_job_level_failure_banner_carries_the_job_error(iteration2_db):
+def test_a_job_level_failure_banner_carries_the_job_error(workbench_db):
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)
     _mk_job(source_id, status="failed", output=None,
@@ -303,7 +303,7 @@ def test_a_job_level_failure_banner_carries_the_job_error(iteration2_db):
     assert banner.error == "EDM missing or has no exposureId — nothing created"
 
 
-def test_the_banner_is_the_newest_terminal_run_of_the_edm(iteration2_db):
+def test_the_banner_is_the_newest_terminal_run_of_the_edm(workbench_db):
     edm_id = _mk_edm()
     older = _mk_portfolio(edm_id, name="older_book")
     newer = _mk_portfolio(edm_id, name="newer_book")
@@ -320,7 +320,7 @@ def test_the_banner_is_the_newest_terminal_run_of_the_edm(iteration2_db):
     assert set(state.errors) == {older, newer}
 
 
-def test_the_skipped_existing_count_reaches_the_banner(iteration2_db):
+def test_the_skipped_existing_count_reaches_the_banner(workbench_db):
     # An idempotent re-run: nothing new created, one entry still failing.
     edm_id = _mk_edm()
     source_id = _mk_portfolio(edm_id)

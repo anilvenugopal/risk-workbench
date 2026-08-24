@@ -8,7 +8,7 @@ open with ``collision_unchecked``. Recovery helpers (``retry_import`` /
 ``replace_source_file``) are idempotent and concurrency-checked. No function applies
 row scoping (SC-009).
 
-Runs on the SQL Server test database (``iteration2_db``) with the fake IRP.
+Runs on the SQL Server test database (``workbench_db``) with the fake IRP.
 """
 
 from __future__ import annotations
@@ -44,8 +44,8 @@ def _import(drive, actor, name="Alpha_EDM", fname="edm1.bak"):
 
 # ── import: entity + one enqueue, no gateway call ─────────────────────────────────
 
-def test_import_creates_pending_edm_and_one_upload_head(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)
+def test_import_creates_pending_edm_and_one_upload_head(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)
     edm = edm_service.get_edm(res.entity_id)
     assert edm is not None
     assert edm.status == edm_service.PENDING
@@ -58,26 +58,26 @@ def test_import_creates_pending_edm_and_one_upload_head(iteration2_db, fake_irp,
     assert fake_irp.submits == []  # NO Risk Modeler call on the request path (FR-042)
 
 
-def test_import_rejects_source_outside_root(iteration2_db, fake_irp, drive):
+def test_import_rejects_source_outside_root(workbench_db, fake_irp, drive):
     with pytest.raises(InvalidSourceFile):
         edm_service.import_edm(name="X", source_file_path="/etc/passwd",
-                               actor_id=iteration2_db.user_a)
+                               actor_id=workbench_db.user_a)
 
 
 @pytest.mark.parametrize("bad_name", ['Alpha EDM', 'a"; DROP--', "x" * 51, "  "])
-def test_import_rejects_disallowed_name(iteration2_db, fake_irp, drive, bad_name):
+def test_import_rejects_disallowed_name(workbench_db, fake_irp, drive, bad_name):
     # Standalone import enforces the entity-name rule ([A-Za-z0-9_-]+,
     # ≤50) so a name with a quote/space can't reach Risk Modeler or a search filter.
     with pytest.raises(InvalidMemberName):
         edm_service.import_edm(name=bad_name, source_file_path=str(drive / "edm1.bak"),
-                               actor_id=iteration2_db.user_a)
+                               actor_id=workbench_db.user_a)
     # rejected before any entity/head is created
     assert execute_scalar("SELECT COUNT(*) FROM irp_edm", {},
                           connection="WORKBENCH") == 0
 
 
-def test_import_is_idempotent_on_re_enqueue(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)
+def test_import_is_idempotent_on_re_enqueue(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)
     # The head already exists; a second head for the same edm dedups (UNIQUE key).
     dup = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=res.entity_id,
@@ -87,7 +87,7 @@ def test_import_is_idempotent_on_re_enqueue(iteration2_db, fake_irp, drive):
 
 # ── name collision (blocking, issue #17) ─────────────────────────────────────────
 
-def test_check_name_collision_shapes(iteration2_db, fake_irp, drive):
+def test_check_name_collision_shapes(workbench_db, fake_irp, drive):
     fake_irp.add_edm_name("Dupe")
     hit = edm_service.check_name_collision("Dupe")
     assert hit.collides and hit.names == ("Dupe",) and hit.checked
@@ -98,11 +98,11 @@ def test_check_name_collision_shapes(iteration2_db, fake_irp, drive):
     assert not down.collides and not down.checked  # fail open, never raises
 
 
-def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
+def test_import_blocks_on_collision(workbench_db, fake_irp, drive):
     fake_irp.add_edm_name("Dupe")
     with pytest.raises(NameCollisionError):
         edm_service.import_edm(name="Dupe", source_file_path=str(drive / "edm1.bak"),
-                               actor_id=iteration2_db.user_a)
+                               actor_id=workbench_db.user_a)
     # blocked BEFORE persisting anything — no entity, no upload head
     assert execute_scalar("SELECT COUNT(*) FROM irp_edm", {},
                           connection="WORKBENCH") == 0
@@ -110,21 +110,21 @@ def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
                           connection="WORKBENCH") == 0
 
 
-def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
+def test_import_fails_open_when_gateway_down(workbench_db, fake_irp, drive):
     fake_irp.raise_on_search = True
-    res = _import(drive, iteration2_db.user_a)
+    res = _import(drive, workbench_db.user_a)
     assert res.collision_unchecked is True
     assert edm_service.get_edm(res.entity_id) is not None  # save proceeded
 
 
 # ── backstop surfacing (issue #17 Slice 3) ────────────────────────────────────────
 
-def test_latest_import_error_surfaces_submit_failure(iteration2_db, fake_irp, drive):
+def test_latest_import_error_surfaces_submit_failure(workbench_db, fake_irp, drive):
     """The worker backstop's specific reason reaches the detail read: the failed
     ``upload_edm`` head's message, worker framing stripped — this is where the
     wheel's "already exist(s)" collision text lands when a fail-open save races
     a real duplicate."""
-    res = _import(drive, iteration2_db.user_a)
+    res = _import(drive, workbench_db.user_a)
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending()
     assert edm_service.get_edm(res.entity_id).status == edm_service.ERROR
@@ -134,31 +134,31 @@ def test_latest_import_error_surfaces_submit_failure(iteration2_db, fake_irp, dr
             == "fake IRP: forced submit failure")
 
 
-def test_latest_import_error_none_without_failed_head(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)   # head still pending
+def test_latest_import_error_none_without_failed_head(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)   # head still pending
     assert edm_service.latest_import_error(res.entity_id) is None
     assert edm_service.get_edm_detail(res.entity_id).import_error is None
 
 
 # ── list: no row scoping ─────────────────────────────────────────────────────────
 
-def test_list_edms_applies_no_scoping(iteration2_db, fake_irp, drive):
-    _import(drive, iteration2_db.user_a, name="A", fname="edm1.bak")
-    _import(drive, iteration2_db.user_b, name="B", fname="edm2.bak")
+def test_list_edms_applies_no_scoping(workbench_db, fake_irp, drive):
+    _import(drive, workbench_db.user_a, name="A", fname="edm1.bak")
+    _import(drive, workbench_db.user_b, name="B", fname="edm2.bak")
     names = {e.name for e in edm_service.list_edms()}
     assert {"A", "B"} <= names  # every EDM visible regardless of actor (SC-009)
 
 
 def test_contextual_detail_validates_association_and_lists_submission_edms(
-        iteration2_db):
+        workbench_db):
     first = submission_service.create_submission(
         name="First submission", cedant_name="First", treaty_type_code="cat_xol",
         inception_date="2026-01-01", treaty_year=2026,
-        actor_id=iteration2_db.user_a, confirmed=True).submission_id
+        actor_id=workbench_db.user_a, confirmed=True).submission_id
     second = submission_service.create_submission(
         name="Second submission", cedant_name="Second", treaty_type_code="cat_xol",
         inception_date="2026-01-01", treaty_year=2026,
-        actor_id=iteration2_db.user_a, confirmed=True).submission_id
+        actor_id=workbench_db.user_a, confirmed=True).submission_id
     shared = str(uuid.uuid4())
     other = str(uuid.uuid4())
     for edm_id, name in ((shared, "Shared EDM"), (other, "Other EDM")):
@@ -226,30 +226,30 @@ def _fail_head(edm_id):
                     {"id": edm_id}, connection="WORKBENCH")
 
 
-def test_retry_import_noop_when_in_flight(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)  # head pending, edm pending_import
-    edm_service.retry_import(edm_id=res.entity_id, actor_id=iteration2_db.user_a)
+def test_retry_import_noop_when_in_flight(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)  # head pending, edm pending_import
+    edm_service.retry_import(edm_id=res.entity_id, actor_id=workbench_db.user_a)
     row = execute_one("SELECT status_code FROM rwb_job WHERE requestor_id=:r",
                       {"r": res.entity_id}, connection="WORKBENCH")
     assert row["status_code"] == "pending"  # unchanged — still one in-flight head
 
 
-def test_retry_import_resets_failed_head(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)
+def test_retry_import_resets_failed_head(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)
     _fail_head(res.entity_id)
-    edm_service.retry_import(edm_id=res.entity_id, actor_id=iteration2_db.user_a)
+    edm_service.retry_import(edm_id=res.entity_id, actor_id=workbench_db.user_a)
     row = execute_one("SELECT status_code FROM rwb_job WHERE requestor_id=:r",
                       {"r": res.entity_id}, connection="WORKBENCH")
     assert row["status_code"] == "pending"  # failed → reset to pending for a re-run
 
 
-def test_replace_source_file_updates_path_and_reenqueues(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)
+def test_replace_source_file_updates_path_and_reenqueues(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)
     _fail_head(res.entity_id)
     edm = edm_service.get_edm(res.entity_id)
     edm_service.replace_source_file(
         edm_id=res.entity_id, new_source_file_path=str(drive / "edm2.bak"),
-        expected_updated_at=edm.updated_at, actor_id=iteration2_db.user_a)
+        expected_updated_at=edm.updated_at, actor_id=workbench_db.user_a)
     refreshed = edm_service.get_edm(res.entity_id)
     assert refreshed.source_file_path.endswith("edm2.bak")
     assert refreshed.status == edm_service.PENDING
@@ -258,9 +258,9 @@ def test_replace_source_file_updates_path_and_reenqueues(iteration2_db, fake_irp
     assert row["status_code"] == "pending"
 
 
-def test_replace_source_file_stale_marker_conflicts(iteration2_db, fake_irp, drive):
-    res = _import(drive, iteration2_db.user_a)
+def test_replace_source_file_stale_marker_conflicts(workbench_db, fake_irp, drive):
+    res = _import(drive, workbench_db.user_a)
     with pytest.raises(ConcurrencyConflict):
         edm_service.replace_source_file(
             edm_id=res.entity_id, new_source_file_path=str(drive / "edm2.bak"),
-            expected_updated_at="1999-01-01 00:00:00", actor_id=iteration2_db.user_a)
+            expected_updated_at="1999-01-01 00:00:00", actor_id=workbench_db.user_a)

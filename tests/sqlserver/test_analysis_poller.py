@@ -61,7 +61,7 @@ def _seed_template(name="Template A") -> str:
     return template_id
 
 
-def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
+def _submitted_analysis(workbench_db, fake_irp, edm_name="EDM One") -> dict:
     """Drive one analysis through a real submit so its irp_job/irp_analysis rows
     are realistic, and return the analysis row."""
     _seed_currency()
@@ -72,7 +72,7 @@ def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
         currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     analysis = execute_one(
         "SELECT id, name FROM irp_analysis WHERE edm_id = :e",
@@ -86,8 +86,8 @@ def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
 
 # ── terminal handler ──────────────────────────────────────────────────────────────
 
-def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
-    a = _submitted_analysis(iteration2_db, fake_irp)
+def test_finished_enqueues_backfill_analysis_detail(workbench_db, fake_irp):
+    a = _submitted_analysis(workbench_db, fake_irp)
     fake_irp.finish(a["irp_id"])
 
     poller.poll_once()
@@ -102,8 +102,8 @@ def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
     assert status["status_code"] == "running"  # untouched — backfill flips it to ready
 
 
-def test_failed_extracts_reason_and_flips_analysis_to_error(iteration2_db, fake_irp):
-    a = _submitted_analysis(iteration2_db, fake_irp)
+def test_failed_extracts_reason_and_flips_analysis_to_error(workbench_db, fake_irp):
+    a = _submitted_analysis(workbench_db, fake_irp)
     fake_irp.fail(a["irp_id"], result={"errorMessage": "model version unsupported"})
 
     poller.poll_once()
@@ -117,8 +117,8 @@ def test_failed_extracts_reason_and_flips_analysis_to_error(iteration2_db, fake_
                   {}, connection="WORKBENCH") == []
 
 
-def test_cancelled_is_treated_as_a_failure(iteration2_db, fake_irp):
-    a = _submitted_analysis(iteration2_db, fake_irp)
+def test_cancelled_is_treated_as_a_failure(workbench_db, fake_irp):
+    a = _submitted_analysis(workbench_db, fake_irp)
     fake_irp.jobs[a["irp_id"]] = "CANCELLED"
     fake_irp.results[a["irp_id"]] = {}
 
@@ -132,7 +132,7 @@ def test_cancelled_is_treated_as_a_failure(iteration2_db, fake_irp):
 
 # ── submission_retry batch (T-09) ────────────────────────────────────────────────
 
-def _submission_failed_row(iteration2_db, fake_irp) -> dict:
+def _submission_failed_row(workbench_db, fake_irp) -> dict:
     """One analysis whose submit was forced to fail — a SUBMISSION FAILED irp_job
     with request_params ready for the retry batch."""
     _seed_currency()
@@ -144,7 +144,7 @@ def _submission_failed_row(iteration2_db, fake_irp) -> dict:
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
         currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     analysis = execute_one("SELECT id, name FROM irp_analysis WHERE edm_id = :e",
                           {"e": edm_id}, connection="WORKBENCH")
@@ -163,8 +163,8 @@ def _age_completed_at(job_id: str, seconds_ago: int) -> None:
         {"t": then, "id": job_id}, connection="WORKBENCH")
 
 
-def test_retry_not_yet_eligible_within_the_backoff_window(iteration2_db, fake_irp):
-    row = _submission_failed_row(iteration2_db, fake_irp)
+def test_retry_not_yet_eligible_within_the_backoff_window(workbench_db, fake_irp):
+    row = _submission_failed_row(workbench_db, fake_irp)
     _age_completed_at(row["job_id"], seconds_ago=1)  # far under the base backoff
 
     poller._submission_retry()
@@ -176,8 +176,8 @@ def test_retry_not_yet_eligible_within_the_backoff_window(iteration2_db, fake_ir
     assert len(fake_irp.analysis_submits) == 1  # no resubmit attempted
 
 
-def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
-    row = _submission_failed_row(iteration2_db, fake_irp)
+def test_retry_success_updates_the_row_in_place(workbench_db, fake_irp):
+    row = _submission_failed_row(workbench_db, fake_irp)
     _age_completed_at(row["job_id"], seconds_ago=(
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
@@ -202,8 +202,8 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     assert analysis["failure_reason"] is None
 
 
-def test_retry_failure_increments_attempts_without_reaching_max(iteration2_db, fake_irp):
-    row = _submission_failed_row(iteration2_db, fake_irp)
+def test_retry_failure_increments_attempts_without_reaching_max(workbench_db, fake_irp):
+    row = _submission_failed_row(workbench_db, fake_irp)
     _age_completed_at(row["job_id"], seconds_ago=(
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
@@ -220,8 +220,8 @@ def test_retry_failure_increments_attempts_without_reaching_max(iteration2_db, f
     assert analysis["status_code"] == "pending"  # not yet exhausted
 
 
-def test_retry_exhaustion_flips_analysis_to_error(iteration2_db, fake_irp):
-    row = _submission_failed_row(iteration2_db, fake_irp)
+def test_retry_exhaustion_flips_analysis_to_error(workbench_db, fake_irp):
+    row = _submission_failed_row(workbench_db, fake_irp)
     # Pre-set the attempt count to one below the max so this pass exhausts it.
     execute_command(
         "UPDATE irp_job SET submission_attempt_count = :n WHERE id = :id",
@@ -241,8 +241,8 @@ def test_retry_exhaustion_flips_analysis_to_error(iteration2_db, fake_irp):
     assert analysis["status_code"] == "error"
 
 
-def test_retry_ignores_rows_already_at_the_max(iteration2_db, fake_irp):
-    row = _submission_failed_row(iteration2_db, fake_irp)
+def test_retry_ignores_rows_already_at_the_max(workbench_db, fake_irp):
+    row = _submission_failed_row(workbench_db, fake_irp)
     execute_command(
         "UPDATE irp_job SET submission_attempt_count = :n WHERE id = :id",
         {"n": settings.irp_submission_max_retries, "id": row["job_id"]},

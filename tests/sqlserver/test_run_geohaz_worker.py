@@ -17,12 +17,12 @@ def _run(job_id: str) -> bool:
 
 
 def test_worker_submit_success_records_geohaz_job_and_resource(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     launched = geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids,
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
 
     assert _run(launched.rwb_job_ids[0]) is True
 
@@ -32,7 +32,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     assert job["status"] == "SUBMITTED"
     assert str(job["irp_edm_id"]).lower() == edm_id
     assert str(job["irp_portfolio_id"]).lower() == portfolio_ids[0]
-    assert str(job["inserted_by"]).lower() == iteration2_db.user_a
+    assert str(job["inserted_by"]).lower() == workbench_db.user_a
     enqueued = execute_one(
         "SELECT input_data FROM rwb_job WHERE id = :id",
         {"id": launched.rwb_job_ids[0]}, connection="WORKBENCH")
@@ -57,12 +57,12 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
 
 
 def test_worker_failure_is_terminal_and_does_not_touch_sibling(
-    iteration2_db, fake_irp, monkeypatch,
+    workbench_db, fake_irp, monkeypatch,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
     geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids,
-        actor_id=iteration2_db.user_b)
+        actor_id=workbench_db.user_b)
     enqueued = execute(
         "SELECT id, requestor_id, input_data FROM rwb_job "
         "WHERE rwb_job_type = 'run_geohaz'",
@@ -99,7 +99,7 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
     assert failed["irp_id"] is None
     assert (json.loads(failed["request_params"])
             == enqueued_params[portfolio_ids[0]])
-    assert str(failed["inserted_by"]).lower() == iteration2_db.user_b
+    assert str(failed["inserted_by"]).lower() == workbench_db.user_b
     succeeded = by_portfolio[portfolio_ids[1]]
     assert succeeded["status"] == "SUBMITTED"
     assert succeeded["irp_id"] is not None

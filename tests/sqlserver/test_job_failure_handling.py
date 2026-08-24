@@ -21,10 +21,10 @@ def _rwb(requestor_id, rwb_job_type):
 
 
 def test_upload_edm_submit_failure_fails_rwb_job_and_errors_entity(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     result = edm_service.import_edm(
         name="E", source_file_path=str(drive / "edm1.bak"),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending()
@@ -38,25 +38,25 @@ def test_upload_edm_submit_failure_fails_rwb_job_and_errors_entity(
     assert job["irp_id"] is None
 
 
-def test_retry_import_resets_errored_edm_to_pending(iteration2_db, fake_irp, drive):
+def test_retry_import_resets_errored_edm_to_pending(workbench_db, fake_irp, drive):
     result = edm_service.import_edm(
         name="E", source_file_path=str(drive / "edm1.bak"),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending()
 
-    edm_service.retry_import(edm_id=result.entity_id, actor_id=iteration2_db.user_a)
+    edm_service.retry_import(edm_id=result.entity_id, actor_id=workbench_db.user_a)
 
     assert edm_service.get_edm(result.entity_id).status == edm_service.PENDING
     assert _rwb(result.entity_id, "upload_edm")["status_code"] == "pending"
 
 
 def test_upload_rdm_submit_failure_fails_rwb_job_and_errors_rdm(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     result = rdm_service.import_rdm(
         name="R", source_file_path=str(drive / "rdm1.mdf"),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending()
@@ -67,7 +67,7 @@ def test_upload_rdm_submit_failure_fails_rwb_job_and_errors_rdm(
 
 # ── dramatiq time-limit kill ─────────────────────────────────────────────────────
 
-def test_time_limit_kill_marks_the_row_failed_before_reraising(iteration2_db):
+def test_time_limit_kill_marks_the_row_failed_before_reraising(workbench_db):
     """``TimeLimitExceeded`` is a ``BaseException`` the generic handler never
     sees. ``run_job`` must mark the row ``failed`` before re-raising — a row
     left ``running`` would be reset to ``pending`` by the reconciler and

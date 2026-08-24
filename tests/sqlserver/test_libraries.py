@@ -82,7 +82,7 @@ def _by_name(mod, name, **kwargs):
 # ── No row scoping (SC-009 / FR-037) ─────────────────────────────────────────────
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_lists_all_non_deleted_no_scoping(iteration2_db, mod, table):
+def test_lists_all_non_deleted_no_scoping(workbench_db, mod, table):
     _entity(table, name="Alpha")
     _entity(table, name="Beta")
     _entity(table, name="Gone", deleted=True)
@@ -94,7 +94,7 @@ def test_lists_all_non_deleted_no_scoping(iteration2_db, mod, table):
 # ── Filters: name (substring, case-insensitive), status (exact), AND, blanks ─────
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_name_filter_case_insensitive_substring(iteration2_db, mod, table):
+def test_name_filter_case_insensitive_substring(workbench_db, mod, table):
     _entity(table, name="Meridian Property 2026")
     _entity(table, name="Coastal Re")
     assert {r.name for r in _list(mod, name="meridian")} == {"Meridian Property 2026"}
@@ -102,7 +102,7 @@ def test_name_filter_case_insensitive_substring(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_status_filter_exact(iteration2_db, mod, table):
+def test_status_filter_exact(workbench_db, mod, table):
     _entity(table, name="ReadyOne", status="ready")
     _entity(table, name="ErrOne", status="error")
     assert {r.name for r in _list(mod, status="error")} == {"ErrOne"}
@@ -110,7 +110,7 @@ def test_status_filter_exact(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_filters_combine_with_and(iteration2_db, mod, table):
+def test_filters_combine_with_and(workbench_db, mod, table):
     _entity(table, name="Meridian ready", status="ready")
     _entity(table, name="Meridian error", status="error")
     _entity(table, name="Other ready", status="ready")
@@ -119,7 +119,7 @@ def test_filters_combine_with_and(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_blank_filters_are_noops(iteration2_db, mod, table):
+def test_blank_filters_are_noops(workbench_db, mod, table):
     _entity(table, name="A")
     _entity(table, name="B")
     assert len(_list(mod, name=None, status=None)) == 2
@@ -129,7 +129,7 @@ def test_blank_filters_are_noops(iteration2_db, mod, table):
 # ── Submission association reads (M:N) ──────────────────────────────────────
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_standalone_entity_has_no_submissions(iteration2_db, mod, table):
+def test_standalone_entity_has_no_submissions(workbench_db, mod, table):
     _entity(table, name="Solo")
     row = _by_name(mod, "Solo")
     assert row is not None
@@ -137,7 +137,7 @@ def test_standalone_entity_has_no_submissions(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_single_submission_attach(iteration2_db, mod, table):
+def test_single_submission_attach(workbench_db, mod, table):
     entity_id = _entity(table, name="One")
     sid = _submission(name="Deal One", inserted_at="2026-03-01 00:00:00")
     _attach(sid, table, entity_id)
@@ -146,7 +146,7 @@ def test_single_submission_attach(iteration2_db, mod, table):
 
 
 @pytest.mark.parametrize("mod, table", LIBS, ids=["edm", "rdm"])
-def test_multi_submission_attach_oldest_first(iteration2_db, mod, table):
+def test_multi_submission_attach_oldest_first(workbench_db, mod, table):
     entity_id = _entity(table, name="Shared")
     newer = _submission(name="Newer", inserted_at="2026-05-01 00:00:00")
     older = _submission(name="Older", inserted_at="2026-02-01 00:00:00")

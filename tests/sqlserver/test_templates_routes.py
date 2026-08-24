@@ -29,7 +29,7 @@ ADMIN_ID = "00000000-0000-0000-0000-000000000102"
 
 
 @pytest.fixture(autouse=True)
-def _seed_route_users(iteration2_db):
+def _seed_route_users(workbench_db):
     for user_id, email, name in (
         (ANALYST_ID, "template.analyst@example.com", "Template Analyst"),
         (ADMIN_ID, "template.admin@example.com", "Template Admin"),
@@ -107,7 +107,7 @@ def _template_form(**overrides) -> dict:
 
 # ── Administration page: tabs keep suites and templates apart ─────────────────
 
-def test_admin_page_has_separate_suites_and_templates_tabs(iteration2_db, fake_irp):
+def test_admin_page_has_separate_suites_and_templates_tabs(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_service.save_template(
         _values_for_service(), actor_id=ADMIN_ID,
@@ -123,7 +123,7 @@ def test_admin_page_has_separate_suites_and_templates_tabs(iteration2_db, fake_i
     assert "US Wind DLM" not in body
 
 
-def test_templates_tab_shows_templates_not_suites(iteration2_db, fake_irp):
+def test_templates_tab_shows_templates_not_suites(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(
         _values_for_service(), actor_id=ADMIN_ID,
@@ -138,7 +138,7 @@ def test_templates_tab_shows_templates_not_suites(iteration2_db, fake_irp):
     assert "DLM" in body
 
 
-def test_suites_tab_shows_suites_not_templates(iteration2_db, fake_irp):
+def test_suites_tab_shows_suites_not_templates(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(
         _values_for_service(), actor_id=ADMIN_ID,
@@ -153,7 +153,7 @@ def test_suites_tab_shows_suites_not_templates(iteration2_db, fake_irp):
     assert "US Wind DLM" not in body
 
 
-def test_non_admin_sees_no_mutation_controls(iteration2_db, fake_irp):
+def test_non_admin_sees_no_mutation_controls(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client(_make_user()).get("/templates").text
@@ -183,13 +183,13 @@ def _values_for_service(**overrides):
 
 # ── Template builder: create ───────────────────────────────────────────────────
 
-def test_new_template_form_blocked_for_non_admin(iteration2_db, fake_irp):
+def test_new_template_form_blocked_for_non_admin(workbench_db, fake_irp):
     resp = _client(_make_user()).get("/templates/analysis-templates/new")
     assert resp.status_code == 302
     assert resp.headers["location"] == "/"
 
 
-def test_direct_post_create_rejected_for_non_admin(iteration2_db, fake_irp):
+def test_direct_post_create_rejected_for_non_admin(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     resp = _client(_make_user()).post(
         "/templates/analysis-templates", data=_template_form(),
@@ -199,7 +199,7 @@ def test_direct_post_create_rejected_for_non_admin(iteration2_db, fake_irp):
     assert template_service.list_templates() == []
 
 
-def test_create_template_redirects_to_templates_tab(iteration2_db, fake_irp):
+def test_create_template_redirects_to_templates_tab(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     resp = _client().post("/templates/analysis-templates", data=_template_form())
 
@@ -210,7 +210,7 @@ def test_create_template_redirects_to_templates_tab(iteration2_db, fake_irp):
     assert created["tags"] == ["US", "Wind"]
 
 
-def test_dlm_rejection_re_renders_form_naming_the_rule(iteration2_db, fake_irp):
+def test_dlm_rejection_re_renders_form_naming_the_rule(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     resp = _client().post(
         "/templates/analysis-templates",
@@ -222,7 +222,7 @@ def test_dlm_rejection_re_renders_form_naming_the_rule(iteration2_db, fake_irp):
     assert template_service.list_templates() == []
 
 
-def test_duplicate_template_name_shows_form_error(iteration2_db, fake_irp):
+def test_duplicate_template_name_shows_form_error(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_service.save_template(_values_for_service())
 
@@ -233,7 +233,7 @@ def test_duplicate_template_name_shows_form_error(iteration2_db, fake_irp):
     assert len(template_service.list_templates()) == 1
 
 
-def test_bad_csrf_on_create_does_not_save(iteration2_db, fake_irp):
+def test_bad_csrf_on_create_does_not_save(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     resp = _client().post(
         "/templates/analysis-templates", data=_template_form(csrf_token="bad"),
@@ -245,7 +245,7 @@ def test_bad_csrf_on_create_does_not_save(iteration2_db, fake_irp):
 
 # ── Template detail / edit / delete ────────────────────────────────────────────
 
-def test_template_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake_irp):
+def test_template_detail_view_for_non_admin_has_no_edit_form(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -257,7 +257,7 @@ def test_template_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake
     assert "<form" not in body
 
 
-def test_template_detail_edit_form_for_admin_prefills_values(iteration2_db, fake_irp):
+def test_template_detail_edit_form_for_admin_prefills_values(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -267,7 +267,7 @@ def test_template_detail_edit_form_for_admin_prefills_values(iteration2_db, fake
     assert '<option value="RMS Default RL25" selected>' in body
 
 
-def test_update_template_round_trip(iteration2_db, fake_irp):
+def test_update_template_round_trip(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -281,7 +281,7 @@ def test_update_template_round_trip(iteration2_db, fake_irp):
     assert template_service.get_template(template_id)["name"] == "US Wind DLM Updated"
 
 
-def test_delete_guard_names_referencing_suite(iteration2_db, fake_irp):
+def test_delete_guard_names_referencing_suite(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     template_service.save_suite("US", [template_id])
@@ -296,7 +296,7 @@ def test_delete_guard_names_referencing_suite(iteration2_db, fake_irp):
     assert template_service.get_template(template_id) is not None
 
 
-def test_delete_template_succeeds_when_unreferenced(iteration2_db, fake_irp):
+def test_delete_template_succeeds_when_unreferenced(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -309,7 +309,7 @@ def test_delete_template_succeeds_when_unreferenced(iteration2_db, fake_irp):
     assert template_service.get_template(template_id) is None
 
 
-def test_direct_delete_post_rejected_for_non_admin(iteration2_db, fake_irp):
+def test_direct_delete_post_rejected_for_non_admin(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -325,7 +325,7 @@ def test_direct_delete_post_rejected_for_non_admin(iteration2_db, fake_irp):
 # ── Duplicate-and-edit (P-12/FR-021) ────────────────────────────────────────────
 
 def test_duplicate_template_route_redirects_to_the_copys_detail_page(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
@@ -344,7 +344,7 @@ def test_duplicate_template_route_redirects_to_the_copys_detail_page(
 
 
 def test_direct_duplicate_template_post_rejected_for_non_admin(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
@@ -359,7 +359,7 @@ def test_direct_duplicate_template_post_rejected_for_non_admin(
 
 
 def test_duplicate_surfaces_drift_validation_error_on_the_form(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     # Saved while its profile was absent from the cache (pairing validation
     # short-circuits), then a sync lands the profile as DLM — the copy now
@@ -378,10 +378,10 @@ def test_duplicate_surfaces_drift_validation_error_on_the_form(
     assert len(template_service.list_templates()) == 1
 
 
-def test_unresolved_badge_renders_on_detail_and_list(iteration2_db, fake_irp):
+def test_unresolved_badge_renders_on_detail_and_list(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             "DELETE FROM irp_model_profile WHERE name = 'RMS Default RL25'"
         )
@@ -395,7 +395,7 @@ def test_unresolved_badge_renders_on_detail_and_list(iteration2_db, fake_irp):
 
 # ── Option fragments (scheme cascade, O17-9) ────────────────────────────────────
 
-def test_scheme_options_fragment_prefills_exactly_one_match(iteration2_db, fake_irp):
+def test_scheme_options_fragment_prefills_exactly_one_match(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client().get(
@@ -405,7 +405,7 @@ def test_scheme_options_fragment_prefills_exactly_one_match(iteration2_db, fake_
     assert '<option value="RMS WS" selected>' in body
 
 
-def test_scheme_options_fragment_empty_for_blank_profile(iteration2_db, fake_irp):
+def test_scheme_options_fragment_empty_for_blank_profile(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client().get(
@@ -416,7 +416,7 @@ def test_scheme_options_fragment_empty_for_blank_profile(iteration2_db, fake_irp
     assert "RMS WS" not in body
 
 
-def test_scheme_options_populate_on_profile_change_alone(iteration2_db, fake_irp):
+def test_scheme_options_populate_on_profile_change_alone(workbench_db, fake_irp):
     """O17-9: the fragment the profile select's `hx-get` calls on `change`
     must return the matching scheme with no `q`/filter param at all — the
     cascade fires from picking a profile, never from typing into a filter
@@ -433,7 +433,7 @@ def test_scheme_options_populate_on_profile_change_alone(iteration2_db, fake_irp
 
 
 def test_edit_form_prefills_scheme_options_for_the_stored_profile(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     """The builder's initial render shares the same query as the cascade
     fragment (T028), so an existing template's edit form already shows its
@@ -447,7 +447,7 @@ def test_edit_form_prefills_scheme_options_for_the_stored_profile(
 
 
 def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
@@ -460,11 +460,11 @@ def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(
 
 
 def test_edit_form_shows_off_profile_scheme_with_its_real_peril_region(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             "UPDATE irp_event_rate_scheme "
             "SET peril_code = 'EQ', model_region_code = 'NAEQ' "
@@ -478,11 +478,11 @@ def test_edit_form_shows_off_profile_scheme_with_its_real_peril_region(
 
 
 def test_edit_form_labels_scheme_missing_from_cache_as_not_found(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             "DELETE FROM irp_event_rate_scheme WHERE name = 'RMS WS'"
         )
@@ -495,7 +495,7 @@ def test_edit_form_labels_scheme_missing_from_cache_as_not_found(
 # ── Suite builder ───────────────────────────────────────────────────────────────
 
 def test_new_suite_form_has_search_box_over_the_template_picker(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_service.save_template(_values_for_service())
@@ -506,12 +506,12 @@ def test_new_suite_form_has_search_box_over_the_template_picker(
     assert "US Wind DLM" in body
 
 
-def test_new_suite_form_blocked_for_non_admin(iteration2_db, fake_irp):
+def test_new_suite_form_blocked_for_non_admin(workbench_db, fake_irp):
     resp = _client(_make_user()).get("/templates/suites/new")
     assert resp.status_code == 302
 
 
-def test_create_suite_with_items_round_trip(iteration2_db, fake_irp):
+def test_create_suite_with_items_round_trip(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -526,7 +526,7 @@ def test_create_suite_with_items_round_trip(iteration2_db, fake_irp):
     assert suite["item_count"] == 1
 
 
-def test_suite_rejects_same_template_twice_via_form(iteration2_db, fake_irp):
+def test_suite_rejects_same_template_twice_via_form(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
 
@@ -540,7 +540,7 @@ def test_suite_rejects_same_template_twice_via_form(iteration2_db, fake_irp):
     assert template_service.list_suites() == []
 
 
-def test_update_suite_item_add_and_remove_round_trip(iteration2_db, fake_irp):
+def test_update_suite_item_add_and_remove_round_trip(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     first = template_service.save_template(_values_for_service())
     second = template_service.save_template(_values_for_service(
@@ -565,7 +565,7 @@ def test_update_suite_item_add_and_remove_round_trip(iteration2_db, fake_irp):
     assert updated["items"][0]["template_id"] == second
 
 
-def test_suite_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake_irp):
+def test_suite_detail_view_for_non_admin_has_no_edit_form(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     suite_id = template_service.save_suite("US", [template_id])
@@ -576,7 +576,7 @@ def test_suite_detail_view_for_non_admin_has_no_edit_form(iteration2_db, fake_ir
     assert "<form" not in body
 
 
-def test_delete_suite_succeeds_and_redirects(iteration2_db, fake_irp):
+def test_delete_suite_succeeds_and_redirects(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     suite_id = template_service.save_suite("US", [template_id])
@@ -589,7 +589,7 @@ def test_delete_suite_succeeds_and_redirects(iteration2_db, fake_irp):
     assert template_service.get_suite(suite_id) is None
 
 
-def test_direct_suite_delete_post_rejected_for_non_admin(iteration2_db, fake_irp):
+def test_direct_suite_delete_post_rejected_for_non_admin(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     suite_id = template_service.save_suite("US", [template_id])
@@ -603,7 +603,7 @@ def test_direct_suite_delete_post_rejected_for_non_admin(iteration2_db, fake_irp
 
 
 def test_duplicate_suite_route_redirects_to_the_copys_detail_page(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
@@ -622,7 +622,7 @@ def test_duplicate_suite_route_redirects_to_the_copys_detail_page(
     assert resp.headers["location"] == f"/templates/suites/{copy['id']}"
 
 
-def test_direct_duplicate_suite_post_rejected_for_non_admin(iteration2_db, fake_irp):
+def test_direct_duplicate_suite_post_rejected_for_non_admin(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     suite_id = template_service.save_suite("US", [template_id])
@@ -637,14 +637,14 @@ def test_direct_duplicate_suite_post_rejected_for_non_admin(iteration2_db, fake_
 
 
 def test_duplicate_suite_surfaces_validation_error_on_the_form(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
     suite_id = template_service.save_suite("US", [template_id])
     # Simulate drift: the template soft-deleted out from under the suite —
     # the delete route's in-use guard normally prevents this.
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             "UPDATE analysis_template SET deleted_at = inserted_at"
         )

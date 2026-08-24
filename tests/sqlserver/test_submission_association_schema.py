@@ -42,7 +42,7 @@ def _entity(table: str, name: str) -> str:
     ],
 )
 def test_association_foreign_keys_target_submission_and_entity(
-    iteration1_db, table, entity_table, entity_column
+    workbench_db, table, entity_table, entity_column
 ):
     rows = execute(
         "SELECT parent_column.name AS parent_column, "
@@ -77,9 +77,9 @@ def test_association_foreign_keys_target_submission_and_entity(
     ],
 )
 def test_duplicate_association_is_rejected(
-    iteration1_db, association_table, entity_table, entity_column
+    workbench_db, association_table, entity_table, entity_column
 ):
-    submission_id = _submission(iteration1_db.user_a, "A")
+    submission_id = _submission(workbench_db.user_a, "A")
     entity_id = _entity(entity_table, "Resource")
     sql = (
         f"INSERT INTO {association_table} (submission_id, {entity_column}) "
@@ -106,10 +106,10 @@ def test_duplicate_association_is_rejected(
     ],
 )
 def test_detach_preserves_entity_and_other_submission(
-    iteration1_db, association_table, entity_table, entity_column
+    workbench_db, association_table, entity_table, entity_column
 ):
-    first = _submission(iteration1_db.user_a, "First")
-    second = _submission(iteration1_db.user_a, "Second")
+    first = _submission(workbench_db.user_a, "First")
+    second = _submission(workbench_db.user_a, "Second")
     entity_id = _entity(entity_table, "Shared")
     for submission_id in (first, second):
         execute_command(

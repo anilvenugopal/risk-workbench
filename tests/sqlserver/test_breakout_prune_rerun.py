@@ -94,11 +94,11 @@ def _generated_rows(source_id: str) -> list[dict]:
 
 
 def test_demo_sequence_reclaims_rows_and_next_sync_stays_healthy(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"FL": [1], "GA": [2]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a)
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a)
 
     # 1. breakout — two generated rows, RM ids 431/432
     assert _run(jid)["status_code"] == "succeeded"
@@ -134,7 +134,7 @@ def test_demo_sequence_reclaims_rows_and_next_sync_stays_healthy(
     assert [r["deleted_at"] for r in _generated_rows(source_id)] == [None, None]
 
 
-def test_resurrect_by_name_skips_generated_rows(iteration2_db):
+def test_resurrect_by_name_skips_generated_rows(workbench_db):
     # A NEW RM portfolio reusing a dead sub-portfolio's name must not revive
     # the dead row: name-match resurrection is for broker-arrived portfolios
     # only (T-16). The upsert then inserts a fresh live row for the new
@@ -168,7 +168,7 @@ def test_resurrect_by_name_skips_generated_rows(iteration2_db):
         ("431", False), ("999", True)]           # dead row untouched, new row live
 
 
-def test_resurrect_by_irp_id_still_revives_generated_rows(iteration2_db):
+def test_resurrect_by_irp_id_still_revives_generated_rows(workbench_db):
     # Only the NAME leg is restricted: a generated row whose RM portfolio
     # reappears under its own id (enumeration transient healed) resurrects.
     edm_id = _mk_edm()

@@ -98,7 +98,7 @@ def test_group_key_is_canonical_order_insensitive_and_deterministic():
 
 # ── cart composition ──────────────────────────────────────────────────────────────
 
-def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
+def test_compose_group_cart_names_bounds_and_overlap_note(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     gate = evaluate_gate(edm_id, pid)
@@ -123,7 +123,7 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
     assert not first.exists and not first.adopted
 
 
-def test_compose_group_cart_refuses_bad_input(iteration2_db):
+def test_compose_group_cart_refuses_bad_input(workbench_db):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     gate = evaluate_gate(edm_id, pid)
@@ -144,7 +144,7 @@ def test_compose_group_cart_refuses_bad_input(iteration2_db):
             _group("B", {"state": ["TX"]})], "same members")
 
 
-def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
+def test_compose_group_cart_blocks_duplicate_names(workbench_db):
     """P-25: a name already carried by a live portfolio in the EDM or an
     earlier cart row refuses — case-insensitive, never suffixed."""
     edm_id = _mk_edm()
@@ -167,7 +167,7 @@ def test_compose_group_cart_blocks_duplicate_names(iteration2_db):
 
 # ── the immediate name check (P-25) ───────────────────────────────────────────────
 
-def test_check_group_name_blocks_local_and_rm_names(iteration2_db, fake_irp):
+def test_check_group_name_blocks_local_and_rm_names(workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
 
     # a live workbench row answers without Risk Modeler
@@ -181,7 +181,7 @@ def test_check_group_name_blocks_local_and_rm_names(iteration2_db, fake_irp):
 
 
 def test_check_group_name_fails_open_when_rm_unreachable(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     fake_irp.raise_on_search = True
     check = breakout_service.check_group_name(edm_id, "Anything")
@@ -191,12 +191,12 @@ def test_check_group_name_fails_open_when_rm_unreachable(
 # ── the cart confirm ──────────────────────────────────────────────────────────────
 
 def test_request_group_breakout_writes_rows_and_jobs_per_group(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(edm_id, pid, [
         _group("Coastal HU", {"state": ["TX"], "peril": ["2"]}),
         _group("EQ book", {"lob": ["EQ Comm"]}),
-    ], AS_OF, iteration2_db.user_a)
+    ], AS_OF, workbench_db.user_a)
 
     assert job_ids is not None and len(job_ids) == 2
     rows = _group_rows(pid)
@@ -221,35 +221,35 @@ def test_request_group_breakout_writes_rows_and_jobs_per_group(
 
 
 def test_request_group_breakout_refusals_write_nothing(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     groups = [_group("G", {"state": ["TX"]})]
 
     with pytest.raises(SummaryRewritten):
         request_group_breakout(edm_id, pid, groups, "2001-01-01 00:00:00",
-                               iteration2_db.user_a)
+                               workbench_db.user_a)
     fake_irp.set_portfolio_stamp(edm_exposure_id="90001", irp_id="1",
                                  stamp="moved")
     with pytest.raises(StaleSummary):
         request_group_breakout(edm_id, pid, groups, AS_OF,
-                               iteration2_db.user_a)
+                               workbench_db.user_a)
     fake_irp.set_portfolio_stamp(edm_exposure_id="90001", irp_id="1",
                                  stamp=RM_STAMP)
     with pytest.raises(GateRefused, match="unknown state value"):
         request_group_breakout(edm_id, pid, [_group("G", {"state": ["ZZ"]})],
-                               AS_OF, iteration2_db.user_a)
+                               AS_OF, workbench_db.user_a)
     with pytest.raises(GateRefused, match="cart is empty"):
-        request_group_breakout(edm_id, pid, [], AS_OF, iteration2_db.user_a)
+        request_group_breakout(edm_id, pid, [], AS_OF, workbench_db.user_a)
 
     assert _group_rows(pid) == []                  # no rows on ANY refusal
     assert _custom_jobs() == []
 
 
-def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
+def test_reconfirm_same_members_adopts_and_dedups(workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     first = request_group_breakout(
         edm_id, pid, [_group("Coastal", {"state": ["TX"], "peril": ["2"]})],
-        AS_OF, iteration2_db.user_a)
+        AS_OF, workbench_db.user_a)
     execute_command(
         "UPDATE rwb_job SET status_code = 'succeeded' WHERE id = :i",
         {"i": first[0]}, connection="WORKBENCH")
@@ -259,7 +259,7 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
     # duplicate) and the row takes the name as typed (P-22 rev. 2026-08-10)
     second = request_group_breakout(
         edm_id, pid, [_group("Renamed!", {"peril": ["2"], "state": ["TX"]})],
-        AS_OF, iteration2_db.user_b)
+        AS_OF, workbench_db.user_b)
 
     rows = _group_rows(pid)
     assert len(rows) == 1                          # one row per member set
@@ -274,38 +274,38 @@ def test_reconfirm_same_members_adopts_and_dedups(iteration2_db, fake_irp):
 
 
 def test_reconfirm_created_breakout_under_its_own_name(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     """A breakout's own created portfolio never blocks its name — the
     re-confirm heal path (FR-011/FR-019)."""
     fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
-    edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
+    edm_id, pid, jid = _confirmed_group(fake_irp, workbench_db)
     assert _run(jid)["status_code"] == "succeeded"   # "Coastal" is now live
 
     second = request_group_breakout(
         edm_id, pid,
         [_group("Coastal", {"state": ["TX"], "lob": ["EQ Comm"]})],
-        AS_OF, iteration2_db.user_b)
+        AS_OF, workbench_db.user_b)
 
     assert second is not None
     assert _group_rows(pid)[0]["name"] == "Coastal"
 
 
 def test_one_episode_per_portfolio_blocks_both_directions(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
         edm_id, pid, [_group("G", {"state": ["TX"]})], AS_OF,
-        iteration2_db.user_a)
+        workbench_db.user_a)
     assert job_ids
 
     # a live cart blocks the quick confirm ...
     assert evaluate_gate(edm_id, pid).in_flight == "custom"
     assert breakout_service.request_breakout(
-        edm_id, pid, "lob", AS_OF, iteration2_db.user_a) is None
+        edm_id, pid, "lob", AS_OF, workbench_db.user_a) is None
     # ... and a second cart confirm
     assert request_group_breakout(
         edm_id, pid, [_group("H", {"lob": ["EQ Comm"]})], AS_OF,
-        iteration2_db.user_a) is None
+        workbench_db.user_a) is None
 
     # and a live quick job blocks a cart confirm on ANOTHER portfolio's cart
     execute_command(
@@ -313,23 +313,23 @@ def test_one_episode_per_portfolio_blocks_both_directions(
         "WHERE rwb_job_type = 'run_breakout_custom'",
         {}, connection="WORKBENCH")
     quick = breakout_service.request_breakout(
-        edm_id, pid, "lob", AS_OF, iteration2_db.user_a)
+        edm_id, pid, "lob", AS_OF, workbench_db.user_a)
     assert quick is not None
     assert request_group_breakout(
         edm_id, pid, [_group("H", {"lob": ["EQ Comm"]})], AS_OF,
-        iteration2_db.user_a) is None
+        workbench_db.user_a) is None
 
 
 # ── the group worker ──────────────────────────────────────────────────────────────
 
-def _confirmed_group(fake_irp, iteration2_db,
+def _confirmed_group(fake_irp, workbench_db,
                      filters: dict | None = None) -> tuple[str, str, str]:
     """One confirmed single-group cart → (edm_id, portfolio_id, job_id)."""
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(
         edm_id, pid,
         [_group("Coastal", filters or {"state": ["TX"], "lob": ["EQ Comm"]})],
-        AS_OF, iteration2_db.user_a)
+        AS_OF, workbench_db.user_a)
     return edm_id, pid, job_ids[0]
 
 
@@ -351,11 +351,11 @@ def _rerun(jid: str) -> dict:
 
 
 def test_group_worker_unions_within_and_intersects_across(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1, 2, 3], "CA": [7],
                                    "EQ Comm": [2, 3, 4]}
     edm_id, pid, jid = _confirmed_group(
-        fake_irp, iteration2_db,
+        fake_irp, workbench_db,
         filters={"state": ["TX", "CA"], "lob": ["EQ Comm"]})
 
     job = _run(jid)
@@ -385,12 +385,12 @@ def test_group_worker_unions_within_and_intersects_across(
         == [("lob", ["EQ Comm"]), ("state", ["CA", "TX"])]
 
 
-def test_group_description_names_perils_by_mnemonic(iteration2_db, fake_irp):
+def test_group_description_names_perils_by_mnemonic(workbench_db, fake_irp):
     # D4: the description is what an analyst reads in Risk Modeler, so the
     # peril filter shows WS — while the selection read still runs on the code.
     fake_irp.selection_by_value = {"TX": [1, 2], "2": [2, 3]}
     edm_id, pid, jid = _confirmed_group(
-        fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
+        fake_irp, workbench_db, filters={"state": ["TX"], "peril": ["2"]})
 
     assert _run(jid)["status_code"] == "succeeded"
 
@@ -402,9 +402,9 @@ def test_group_description_names_perils_by_mnemonic(iteration2_db, fake_irp):
 
 
 def test_group_worker_empty_intersection_fails_with_nothing_created(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [2]}
-    edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
+    edm_id, pid, jid = _confirmed_group(fake_irp, workbench_db)
 
     job = _run(jid)
 
@@ -416,10 +416,10 @@ def test_group_worker_empty_intersection_fails_with_nothing_created(
     assert _generated_rows(pid) == []
 
 
-def test_group_worker_selection_error_fails_the_job(iteration2_db, fake_irp):
+def test_group_worker_selection_error_fails_the_job(workbench_db, fake_irp):
     fake_irp.selection_by_value = {"EQ Comm": [2]}
     fake_irp.selection_errors = {"TX": "IRPAPIError: boom"}
-    edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
+    edm_id, pid, jid = _confirmed_group(fake_irp, workbench_db)
 
     job = _run(jid)
 
@@ -430,9 +430,9 @@ def test_group_worker_selection_error_fails_the_job(iteration2_db, fake_irp):
 
 
 def test_group_worker_rerun_skips_then_reclaims_after_prune(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1, 2], "EQ Comm": [1, 2]}
-    edm_id, pid, jid = _confirmed_group(fake_irp, iteration2_db)
+    edm_id, pid, jid = _confirmed_group(fake_irp, workbench_db)
     assert _run(jid)["status_code"] == "succeeded"
     first = _generated_rows(pid)[0]
 
@@ -455,7 +455,7 @@ def test_group_worker_rerun_skips_then_reclaims_after_prune(
 
 
 def test_group_worker_unusable_group_fails_with_nothing(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     jid = str(uuid.uuid4())
@@ -495,13 +495,13 @@ def test_load_approved_group_is_strict():
 
 # ── page state: custom flights, cart banner, error lines ─────────────────────────
 
-def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
+def test_page_state_custom_flight_and_cart_banner(workbench_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1], "EQ Comm": [1], "2": [1]}
     edm_id, pid = _eligible_pair(fake_irp)
     job_ids = request_group_breakout(edm_id, pid, [
         _group("A", {"state": ["TX"]}),
         _group("B", {"lob": ["EQ Comm"]}),
-    ], AS_OF, iteration2_db.user_a)
+    ], AS_OF, workbench_db.user_a)
 
     # both live → one flight for the portfolio: 0 of 2 done
     state = breakout_service.page_state(edm_id)
@@ -535,10 +535,10 @@ def test_page_state_custom_flight_and_cart_banner(iteration2_db, fake_irp):
 # ── list read model: the group label resolves for custom rows ────────────────────
 
 def test_list_portfolios_resolves_group_label_and_filters(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.selection_by_value = {"TX": [1, 2], "2": [1, 2]}
     edm_id, pid, jid = _confirmed_group(
-        fake_irp, iteration2_db, filters={"state": ["TX"], "peril": ["2"]})
+        fake_irp, workbench_db, filters={"state": ["TX"], "peril": ["2"]})
     assert _run(jid)["status_code"] == "succeeded"
 
     rows = portfolio_service.list_portfolios(edm_id=edm_id)

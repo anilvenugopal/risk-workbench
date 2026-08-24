@@ -19,7 +19,7 @@ def _rows(table: str, order: str) -> list[dict]:
                    connection="WORKBENCH")
 
 
-def test_sync_populates_all_six_reference_tables(iteration2_db, fake_irp):
+def test_sync_populates_all_six_reference_tables(workbench_db, fake_irp):
     result = metadata_jobs._sync_irp_metadata_body()
 
     assert result.status == "succeeded"
@@ -44,7 +44,7 @@ def test_sync_populates_all_six_reference_tables(iteration2_db, fake_irp):
     ) == [("RL23", "RMS"), ("RL24", "DT"), ("RL25", "RMS")]
 
 
-def test_resync_updates_names_and_removes_vanished_rows(iteration2_db, fake_irp):
+def test_resync_updates_names_and_removes_vanished_rows(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     original_id = _rows("irp_model_profile", "irp_id")[0]["id"]
     fake_irp.model_profiles = [
@@ -64,7 +64,7 @@ def test_resync_updates_names_and_removes_vanished_rows(iteration2_db, fake_irp)
         "RMS"]
 
 
-def test_resync_preserves_workbench_scheme_visibility(iteration2_db, fake_irp):
+def test_resync_preserves_workbench_scheme_visibility(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     set_scheme_visibility(20, False)
     fake_irp.event_rate_schemes = [
@@ -79,7 +79,7 @@ def test_resync_preserves_workbench_scheme_visibility(iteration2_db, fake_irp):
 
 
 def test_resync_replaces_currency_scheme_vintages_wholesale_including_duplicates(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     # Two duplicate (scheme, vintage) pairs — the API allows it (R13) and the
     # cache stores exactly what came back, never de-duplicated.
@@ -104,7 +104,7 @@ def test_resync_replaces_currency_scheme_vintages_wholesale_including_duplicates
 
 
 def test_sync_truncates_legacy_currency_names_to_risk_modeler_limit(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     fake_irp.currencies = [
         CurrencyEntry("LEG", "12345678901234567", "United States", "$")
@@ -126,7 +126,7 @@ _CACHE_TABLE_ORDERS = (
 )
 
 
-def test_fetch_failure_leaves_every_cached_table_unchanged(iteration2_db, fake_irp):
+def test_fetch_failure_leaves_every_cached_table_unchanged(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     before = {table: _rows(table, order) for table, order in _CACHE_TABLE_ORDERS}
     fake_irp.model_profiles = []

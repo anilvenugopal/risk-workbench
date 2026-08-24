@@ -14,11 +14,11 @@ from app.workers import entity_jobs
 from db import execute, execute_command, execute_scalar
 
 
-def _import(iteration2_db, drive, *, name: str = "R", source: str = "rdm1.mdf"):
+def _import(workbench_db, drive, *, name: str = "R", source: str = "rdm1.mdf"):
     return rdm_service.import_rdm(
         name=name,
         source_file_path=str(drive / source),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
 
 
@@ -30,8 +30,8 @@ def _finish_import(fake_irp) -> None:
         fake_irp.finish(str(row["irp_id"]))
 
 
-def _import_and_backfill(iteration2_db, fake_irp, drive) -> str:
-    result = _import(iteration2_db, drive)
+def _import_and_backfill(workbench_db, fake_irp, drive) -> str:
+    result = _import(workbench_db, drive)
     entity_jobs.run_pending()
     _finish_import(fake_irp)
     poller.poll_once()
@@ -39,8 +39,8 @@ def _import_and_backfill(iteration2_db, fake_irp, drive) -> str:
     return result.entity_id
 
 
-def test_import_submits_one_standalone_rdm(iteration2_db, fake_irp, drive):
-    result = _import(iteration2_db, drive)
+def test_import_submits_one_standalone_rdm(workbench_db, fake_irp, drive):
+    result = _import(workbench_db, drive)
 
     assert execute_scalar(
         "SELECT COUNT(*) FROM rwb_job WHERE requestor_id=:r "
@@ -63,21 +63,21 @@ def test_import_submits_one_standalone_rdm(iteration2_db, fake_irp, drive):
 
 @pytest.mark.parametrize("bad_name", ["Rev Only", 'r\"; DROP--', "r" * 51, "  "])
 def test_import_rejects_disallowed_name(
-    iteration2_db, fake_irp, drive, bad_name,
+    workbench_db, fake_irp, drive, bad_name,
 ):
     with pytest.raises(InvalidMemberName):
         rdm_service.import_rdm(
             name=bad_name,
             source_file_path=str(drive / "rdm1.mdf"),
-            actor_id=iteration2_db.user_a,
+            actor_id=workbench_db.user_a,
         )
     assert execute_scalar(
         "SELECT COUNT(*) FROM irp_rdm", {}, connection="WORKBENCH",
     ) == 0
 
 
-def test_import_worker_is_idempotent(iteration2_db, fake_irp, drive):
-    result = _import(iteration2_db, drive)
+def test_import_worker_is_idempotent(workbench_db, fake_irp, drive):
+    result = _import(workbench_db, drive)
     entity_jobs.run_pending()
     entity_jobs.run_pending()
     assert execute_scalar(
@@ -87,28 +87,28 @@ def test_import_worker_is_idempotent(iteration2_db, fake_irp, drive):
     ) == 1
 
 
-def test_import_blocks_on_collision(iteration2_db, fake_irp, drive):
+def test_import_blocks_on_collision(workbench_db, fake_irp, drive):
     fake_irp.add_rdm_name("Dupe")
     with pytest.raises(NameCollisionError):
         rdm_service.import_rdm(
             name="Dupe",
             source_file_path=str(drive / "rdm1.mdf"),
-            actor_id=iteration2_db.user_a,
+            actor_id=workbench_db.user_a,
         )
     assert execute_scalar(
         "SELECT COUNT(*) FROM irp_rdm", {}, connection="WORKBENCH",
     ) == 0
 
 
-def test_import_fails_open_when_gateway_down(iteration2_db, fake_irp, drive):
+def test_import_fails_open_when_gateway_down(workbench_db, fake_irp, drive):
     fake_irp.raise_on_search = True
-    result = _import(iteration2_db, drive)
+    result = _import(workbench_db, drive)
     assert result.collision_unchecked is True
     assert rdm_service.get_rdm(result.entity_id) is not None
 
 
-def test_submit_failure_surfaces_import_error(iteration2_db, fake_irp, drive):
-    result = _import(iteration2_db, drive)
+def test_submit_failure_surfaces_import_error(workbench_db, fake_irp, drive):
+    result = _import(workbench_db, drive)
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending()
     assert rdm_service.get_rdm(result.entity_id).status == rdm_service.ERROR
@@ -117,29 +117,29 @@ def test_submit_failure_surfaces_import_error(iteration2_db, fake_irp, drive):
     )
 
 
-def test_list_rdms_has_no_row_scope(iteration2_db, fake_irp, drive):
+def test_list_rdms_has_no_row_scope(workbench_db, fake_irp, drive):
     rdm_service.import_rdm(
         name="RA", source_file_path=str(drive / "rdm1.mdf"),
-        actor_id=iteration2_db.user_a,
+        actor_id=workbench_db.user_a,
     )
     rdm_service.import_rdm(
         name="RB", source_file_path=str(drive / "rdm2.mdf"),
-        actor_id=iteration2_db.user_b,
+        actor_id=workbench_db.user_b,
     )
     assert {row.name for row in rdm_service.list_rdms()} >= {"RA", "RB"}
 
 
 def test_contextual_detail_validates_association_and_lists_submission_rdms(
-        iteration2_db):
+        workbench_db):
     first = submission_service.create_submission(
         name="First submission", cedant_name="First",
         treaty_type_code="cat_xol", inception_date="2026-01-01",
-        treaty_year=2026, actor_id=iteration2_db.user_a,
+        treaty_year=2026, actor_id=workbench_db.user_a,
         confirmed=True).submission_id
     second = submission_service.create_submission(
         name="Second submission", cedant_name="Second",
         treaty_type_code="cat_xol", inception_date="2026-01-01",
-        treaty_year=2026, actor_id=iteration2_db.user_a,
+        treaty_year=2026, actor_id=workbench_db.user_a,
         confirmed=True).submission_id
     shared = str(uuid.uuid4())
     other = str(uuid.uuid4())
@@ -171,9 +171,9 @@ def test_contextual_detail_validates_association_and_lists_submission_rdms(
 
 
 def test_finished_import_captures_rdm_wide_analyses(
-    iteration2_db, fake_irp, drive,
+    workbench_db, fake_irp, drive,
 ):
-    result = _import(iteration2_db, drive)
+    result = _import(workbench_db, drive)
     entity_jobs.run_pending()
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900",
@@ -198,7 +198,7 @@ def test_finished_import_captures_rdm_wide_analyses(
 
 
 def test_backfill_captures_metadata_and_portfolio_pointer(
-    iteration2_db, fake_irp, drive,
+    workbench_db, fake_irp, drive,
 ):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="AEP",
@@ -209,7 +209,7 @@ def test_backfill_captures_metadata_and_portfolio_pointer(
         source_rdm_name="R", exposure_name="E2", analysis_id="901", name="Treaty",
         exposure_resource_id="1042", exposure_resource_type="TREATY",
     )
-    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    rdm_id = _import_and_backfill(workbench_db, fake_irp, drive)
 
     rows = {str(row["irp_id"]): row for row in execute(
         "SELECT irp_id, settings_metadata, exposure_resource_id "
@@ -221,13 +221,13 @@ def test_backfill_captures_metadata_and_portfolio_pointer(
     assert rows["901"]["exposure_resource_id"] is None
 
 
-def test_failed_metadata_read_keeps_analysis(iteration2_db, fake_irp, drive):
+def test_failed_metadata_read_keeps_analysis(workbench_db, fake_irp, drive):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="AEP",
         exposure_resource_id="501", exposure_resource_type="PORTFOLIO",
     )
     fake_irp.raise_on_analysis_metadata = True
-    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    rdm_id = _import_and_backfill(workbench_db, fake_irp, drive)
     row = execute(
         "SELECT settings_metadata, exposure_resource_id FROM irp_analysis "
         "WHERE rdm_id=:r", {"r": rdm_id}, connection="WORKBENCH",
@@ -236,11 +236,11 @@ def test_failed_metadata_read_keeps_analysis(iteration2_db, fake_irp, drive):
     assert row["exposure_resource_id"] == "501"
 
 
-def test_backfill_prunes_and_restores_analyses(iteration2_db, fake_irp, drive):
+def test_backfill_prunes_and_restores_analyses(workbench_db, fake_irp, drive):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="A",
     )
-    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    rdm_id = _import_and_backfill(workbench_db, fake_irp, drive)
     head = execute(
         "SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
         {}, connection="WORKBENCH",
@@ -263,12 +263,12 @@ def test_backfill_prunes_and_restores_analyses(iteration2_db, fake_irp, drive):
 
 
 def test_backfill_fails_without_pruning_on_enumeration_error(
-    iteration2_db, fake_irp, drive,
+    workbench_db, fake_irp, drive,
 ):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="A",
     )
-    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    rdm_id = _import_and_backfill(workbench_db, fake_irp, drive)
     head = execute(
         "SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
         {}, connection="WORKBENCH",
@@ -281,11 +281,11 @@ def test_backfill_fails_without_pruning_on_enumeration_error(
     assert len(analysis_service.list_broker_analyses(rdm_id=rdm_id)) == 1
 
 
-def test_backfill_is_idempotent(iteration2_db, fake_irp, drive):
+def test_backfill_is_idempotent(workbench_db, fake_irp, drive):
     fake_irp.add_analysis(
         source_rdm_name="R", exposure_name="E1", analysis_id="900", name="A",
     )
-    rdm_id = _import_and_backfill(iteration2_db, fake_irp, drive)
+    rdm_id = _import_and_backfill(workbench_db, fake_irp, drive)
     head = execute(
         "SELECT id FROM rwb_job WHERE rwb_job_type='backfill_rdm_analyses'",
         {}, connection="WORKBENCH",

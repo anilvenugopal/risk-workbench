@@ -105,10 +105,10 @@ def test_no_shared_drive_configured_still_reports_the_error(monkeypatch):
 
 # ── Submission modal seed ───────────────────────────────────────────────────
 
-def _submission(directory_path: str | None, iteration1_db) -> str:
+def _submission(directory_path: str | None, workbench_db) -> str:
     from app.services import submission_service
     return submission_service.create_submission(
         name="TY2604_Zephyr", cedant_name="Zephyr Mutual",
         treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
-        directory_path=directory_path, actor_id=iteration1_db.user_a,
+        directory_path=directory_path, actor_id=workbench_db.user_a,
         confirmed=True).submission_id

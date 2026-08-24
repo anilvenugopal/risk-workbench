@@ -20,7 +20,7 @@ from app.services.irp_gateway import PortfolioHit
 from app.workers import portfolio_jobs
 from db import execute, execute_command, execute_one
 
-ACTOR = None  # set per test from iteration2_db.user_a
+ACTOR = None  # set per test from workbench_db.user_a
 
 
 def _mk_edm(name: str = "EDM", irp_id: int | None = 90001) -> str:
@@ -102,11 +102,11 @@ def _backfill_heads() -> list[dict]:
 
 
 def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"EQ Comm": [4, 5], "FLD Comm": [1, 2, 3]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("EQ Comm"), _plan_entry("FLD Comm")])
 
     job = _run(jid)
@@ -123,7 +123,7 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
         ("usfl_commercial - EQ Comm", "EQ Comm"),
         ("usfl_commercial - FLD Comm", "FLD Comm")]
     assert all(r["breakout_dimension_code"] == "lob" for r in rows)
-    assert all(r["inserted_by"].lower() == iteration2_db.user_a
+    assert all(r["inserted_by"].lower() == workbench_db.user_a
                for r in rows)  # FR-015
     assert all(r["irp_id"] for r in rows)
 
@@ -136,7 +136,7 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
     assert fake_irp.selection_calls[0]["values"] == ["EQ Comm", "FLD Comm"]
 
 
-def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
+def test_state_dimension_shares_the_worker_body(workbench_db, fake_irp):
     # US2 (T046/FR-004): run_breakout_state runs the same body — the lineage
     # rows carry dimension 'state' with Admin1Code values (P-12), the
     # selection read is asked for the state dimension, and the RM description
@@ -146,7 +146,7 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
     fake_irp.selection_by_value = {"CA": [3], "TX": [1, 2]}
     plan = [_plan_entry("CA", number="P1-S-CA", label="CALIFORNIA"),
             _plan_entry("TX", number="P1-S-TX", label=None)]
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, plan,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, plan,
                   dimension="state")
 
     job = _run(jid, dimension="state")
@@ -164,7 +164,7 @@ def test_state_dimension_shares_the_worker_body(iteration2_db, fake_irp):
 
 
 def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The stored plan's names differ from anything a recompute would produce —
     # they run verbatim; the source portfolio row carries NO exposure_detail,
     # so any summary read would fail loudly (there is none to read).
@@ -173,7 +173,7 @@ def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(
     fake_irp.selection_by_value = {"TX": [1]}
     plan = [_plan_entry("TX", name="approved name nobody would recompute (7)",
                         number="P1-S-TX")]
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, plan,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, plan,
                   dimension="lob")
 
     job = _run(jid)
@@ -186,7 +186,7 @@ def test_worker_executes_persisted_plan_verbatim_and_reads_no_summary(
 
 
 def test_description_carries_source_dimension_and_value_untruncated(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # FR-010: the 40-character name truncates the source; the RM description
     # is where the untruncated lineage lives — composed HERE, in the worker.
     long_source = "TY2607 Meridian Cedant Commercial Book Alpha"   # 44 chars
@@ -194,7 +194,7 @@ def test_description_carries_source_dimension_and_value_untruncated(
     source_id = _mk_source(edm_id, name=long_source)
     fake_irp.selection_by_value = {"General Liability": [1]}
     truncated = "TY2607 Meridian - General Liability"
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("General Liability", name=truncated,
                                number="P1-L-GENERA1B2C3D")])
 
@@ -208,12 +208,12 @@ def test_description_carries_source_dimension_and_value_untruncated(
 
 
 def test_per_entry_isolation_one_failure_never_stops_the_loop(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1], "B": [2], "C": [3]}
     fake_irp.fail_create_for = {"usfl_commercial - B": "RM 500 mid-run"}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B"), _plan_entry("C")])
 
     job = _run(jid)
@@ -228,7 +228,7 @@ def test_per_entry_isolation_one_failure_never_stops_the_loop(
 
 
 def test_a_failing_lineage_write_fails_only_that_entry(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The lineage write refuses to move a Risk Modeler portfolio between
     # breakout keys (portfolio_service._write_generated). That raise must fail
     # ONE sub-portfolio: before the loop guard covered the write, it aborted the
@@ -247,7 +247,7 @@ def test_a_failing_lineage_write_fails_only_that_entry(
         {"i": str(uuid.uuid4()), "e": edm_id, "s": other_source,
          "now": datetime.utcnow()}, connection="WORKBENCH")
     fake_irp.selection_by_value = {"A": [1], "B": [2], "C": [3]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B"), _plan_entry("C")])
 
     job = _run(jid)
@@ -265,11 +265,11 @@ def test_a_failing_lineage_write_fails_only_that_entry(
 
 
 def test_zero_account_selection_fails_entry_with_no_create_call(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1]}     # B resolves to nothing
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
 
     job = _run(jid)
@@ -285,12 +285,12 @@ def test_zero_account_selection_fails_entry_with_no_create_call(
 
 
 def test_per_value_selection_read_error_fails_one_entry(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1]}
     fake_irp.selection_errors = {"B": "IRPAPIError: repeated page fingerprint"}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
 
     job = _run(jid)
@@ -305,7 +305,7 @@ def test_per_value_selection_read_error_fails_one_entry(
 
 
 def test_short_membership_read_back_fails_the_entry_with_no_lineage_row(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The add landed partially: the read-back count is 1 where 3 accounts were
     # selected. That entry fails (FR-008) and gets NO lineage row, so the
     # re-run adopts the created portfolio on its number and re-adds.
@@ -313,7 +313,7 @@ def test_short_membership_read_back_fails_the_entry_with_no_lineage_row(
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1], "B": [2, 3, 4]}
     fake_irp.readback_counts = {"432": 1}        # B's created portfolio id
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
 
     job = _run(jid)
@@ -328,12 +328,12 @@ def test_short_membership_read_back_fails_the_entry_with_no_lineage_row(
 
 
 def test_idempotent_rerun_skips_existing_and_creates_only_missing(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1], "B": [2]}
     fake_irp.fail_create_for = {"usfl_commercial - B": "transient RM failure"}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
     _run(jid)
     assert [r["breakout_value"] for r in _generated_rows(source_id)] == ["A"]
@@ -352,13 +352,13 @@ def test_idempotent_rerun_skips_existing_and_creates_only_missing(
         "usfl_commercial - A", "usfl_commercial - B"]  # A never re-created
 
 
-def test_full_rerun_all_skipped_reads_as_success(iteration2_db, fake_irp):
+def test_full_rerun_all_skipped_reads_as_success(workbench_db, fake_irp):
     # `completed 0` semantics (W-9): a re-run that creates nothing new is a
     # healthy outcome, never a failure.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, [_plan_entry("A")])
     _run(jid)
 
     job = _rerun(jid)
@@ -369,7 +369,7 @@ def test_full_rerun_all_skipped_reads_as_success(iteration2_db, fake_irp):
     assert out["backfill_enqueued"] is True      # figures refresh again (FR-013)
 
 
-def test_adopt_by_number_with_exactly_one_hit(iteration2_db, fake_irp):
+def test_adopt_by_number_with_exactly_one_hit(workbench_db, fake_irp):
     # RM already holds the sub-portfolio (create-then-crash) — the duplicate
     # name resolves by portfolioNumber, adopts, and re-runs the add to heal an
     # empty adoption (R7).
@@ -379,7 +379,7 @@ def test_adopt_by_number_with_exactly_one_hit(iteration2_db, fake_irp):
     fake_irp.taken_portfolio_names = {"usfl_commercial - A"}
     fake_irp.hits_by_number = {"P1-L-A": [
         PortfolioHit(irp_id="900", name="usfl_commercial - A")]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, [_plan_entry("A")])
 
     job = _run(jid)
 
@@ -394,10 +394,10 @@ def test_adopt_by_number_with_exactly_one_hit(iteration2_db, fake_irp):
         {"portfolio_irp_id": "900", "account_ids": [1, 2]}]
     rows = _generated_rows(source_id)
     assert [(r["irp_id"], r["inserted_by"].lower()) for r in rows] == [
-        ("900", iteration2_db.user_a)]
+        ("900", workbench_db.user_a)]
 
 
-def test_adopt_with_zero_or_many_hits_fails_the_entry(iteration2_db, fake_irp):
+def test_adopt_with_zero_or_many_hits_fails_the_entry(workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1], "B": [2]}
@@ -408,7 +408,7 @@ def test_adopt_with_zero_or_many_hits_fails_the_entry(iteration2_db, fake_irp):
         "P1-L-B": [PortfolioHit(irp_id="900", name="x"),
                    PortfolioHit(irp_id="901", name="y")],        # ambiguous
     }
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
 
     job = _run(jid)
@@ -424,14 +424,14 @@ def test_adopt_with_zero_or_many_hits_fails_the_entry(iteration2_db, fake_irp):
 
 
 def test_source_deleted_in_rm_fails_every_entry_with_no_rows(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # FR-012: the source was deleted in Risk Modeler between confirm and run —
     # the selection read fails, the job fails with the error recorded, and no
     # lineage row is written.
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.raise_on_selection_read = True
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, [_plan_entry("A")])
 
     job = _run(jid)
 
@@ -442,10 +442,10 @@ def test_source_deleted_in_rm_fails_every_entry_with_no_rows(
     assert _backfill_heads() == []               # nothing succeeded → no enqueue
 
 
-def test_zero_success_fails_the_job(iteration2_db, fake_irp):
+def test_zero_success_fails_the_job(workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)               # selection resolves nothing
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
 
     job = _run(jid)
@@ -458,11 +458,11 @@ def test_zero_success_fails_the_job(iteration2_db, fake_irp):
 
 
 def test_empty_or_unparseable_plan_fails_with_nothing_created(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     for i, bad_plan in enumerate(([], [{"value": "A"}], "not-a-list")):
         source_id = _mk_source(edm_id, name=f"source-{i}", irp_id=str(10 + i))
-        jid = _mk_job(edm_id, source_id, iteration2_db.user_a, bad_plan)
+        jid = _mk_job(edm_id, source_id, workbench_db.user_a, bad_plan)
         job = _run(jid)
         assert job["status_code"] == "failed"
         assert "approved plan" in job["error_detail"]
@@ -471,14 +471,14 @@ def test_empty_or_unparseable_plan_fails_with_nothing_created(
     assert fake_irp.selection_calls == []        # failed before any RM read
 
 
-def test_missing_edm_or_source_fails_gracefully(iteration2_db, fake_irp):
+def test_missing_edm_or_source_fails_gracefully(workbench_db, fake_irp):
     edm_id = _mk_edm(irp_id=None)                # EDM never got its exposureId
     source_id = _mk_source(edm_id)
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, [_plan_entry("A")])
     assert _run(jid)["status_code"] == "failed"
 
     edm_id = _mk_edm(name="EDM2")
-    jid = _mk_job(edm_id, str(uuid.uuid4()), iteration2_db.user_a,
+    jid = _mk_job(edm_id, str(uuid.uuid4()), workbench_db.user_a,
                   [_plan_entry("A")])            # portfolio row gone
     job = _run(jid)
     assert job["status_code"] == "failed"
@@ -486,14 +486,14 @@ def test_missing_edm_or_source_fails_gracefully(iteration2_db, fake_irp):
 
 
 def test_generated_portfolio_visible_to_list_before_backfill(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The page's self-poll shows generated portfolios as they land: the row is
     # upserted immediately per entry, with NULL exposure_detail until the
     # auto-fired backfill fills figures in (graceful pending state).
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1]}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a, [_plan_entry("A")])
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a, [_plan_entry("A")])
     _run(jid)
 
     rows = portfolio_service.list_portfolios(edm_id=edm_id)
@@ -503,12 +503,12 @@ def test_generated_portfolio_visible_to_list_before_backfill(
 
 
 def test_backfill_enqueue_is_idempotent_while_one_is_queued(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1], "B": [2]}
     fake_irp.fail_create_for = {"usfl_commercial - B": "transient"}
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
     _run(jid)
     assert len(_backfill_heads()) == 1
@@ -523,7 +523,7 @@ def test_backfill_enqueue_is_idempotent_while_one_is_queued(
 
 
 def test_audit_recoverable_from_job_row_and_generated_rows(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # US3 (T053/FR-015/P-08): after a partial-failure run every audited field
     # is recoverable with no audit-log table — actor from
     # input_data.actor_id, timestamp from the job row, source portfolio from
@@ -533,7 +533,7 @@ def test_audit_recoverable_from_job_row_and_generated_rows(
     edm_id = _mk_edm()
     source_id = _mk_source(edm_id)
     fake_irp.selection_by_value = {"A": [1]}     # B → zero-match failure
-    jid = _mk_job(edm_id, source_id, iteration2_db.user_a,
+    jid = _mk_job(edm_id, source_id, workbench_db.user_a,
                   [_plan_entry("A"), _plan_entry("B")])
     _run(jid)
 
@@ -542,7 +542,7 @@ def test_audit_recoverable_from_job_row_and_generated_rows(
         "updated_at FROM rwb_job WHERE id = :i",
         {"i": jid}, connection="WORKBENCH")
     assert json.loads(job["input_data"])["actor_id"] == str(
-        iteration2_db.user_a)                            # 1. actor
+        workbench_db.user_a)                            # 1. actor
     assert job["updated_at"] is not None                 # 2. timestamp
     assert job["requestor_id"].lower() == source_id      # 3. source portfolio
     assert job["rwb_job_type"] == "run_breakout_lob"     # 4. dimension
@@ -551,11 +551,11 @@ def test_audit_recoverable_from_job_row_and_generated_rows(
         "A": "created", "B": "failed"}                   # 5. outcomes
     rows = _generated_rows(source_id)
     assert [r["inserted_by"].lower() for r in rows] == [
-        iteration2_db.user_a]                            # 6. confirming analyst
+        workbench_db.user_a]                            # 6. confirming analyst
 
 
 def test_breakout_summarize_outcomes_shape_matches_data_model(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # data-model §4: output_data carries counts + per-entry detail; failures
     # carry error, successes carry irp_id + accounts.
     outcomes = [

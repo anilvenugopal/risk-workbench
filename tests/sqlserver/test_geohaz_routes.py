@@ -32,13 +32,13 @@ def _context(edm_id: str) -> edm_service.ContextualEdmDetail:
     )
 
 
-def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
+def test_detail_renders_selectable_and_ineligible_portfolios(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
     irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[1], irp_id="801")
 
-    body = _client(iteration2_db.user_a).get(f"/edms/{edm_id}").text
+    body = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
 
     assert 'x-data="geohazSelection"' in body
     assert 'x-ref="selectAll"' in body
@@ -55,12 +55,12 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     assert portfolio_head.index("Currency") < portfolio_head.index("Hazard Version")
 
 
-def test_launch_post_rejects_bad_csrf_without_enqueuing(iteration2_db):
+def test_launch_post_rejects_bad_csrf_without_enqueuing(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     data = _form(portfolio_ids)
     data["csrf_token"] = "wrong"
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=data,
         headers={"HX-Request": "true"},
     )
@@ -72,12 +72,12 @@ def test_launch_post_rejects_bad_csrf_without_enqueuing(iteration2_db):
         {}, connection="WORKBENCH") == []
 
 
-def test_launch_post_reports_conflict_without_enqueuing(iteration2_db):
+def test_launch_post_reports_conflict_without_enqueuing(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[0], irp_id="803")
-    conflict = _client(iteration2_db.user_a).post(
+    conflict = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
     )
@@ -89,23 +89,23 @@ def test_launch_post_reports_conflict_without_enqueuing(iteration2_db):
     }
 
 
-def test_launch_post_without_selection_uses_prg_and_error_banner(iteration2_db):
+def test_launch_post_without_selection_uses_prg_and_error_banner(workbench_db):
     edm_id, _ = _edm_with_portfolios(1)
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=_form([]))
 
     assert response.status_code == 303
-    page = _client(iteration2_db.user_a).get(response.headers["location"])
+    page = _client(workbench_db.user_a).get(response.headers["location"])
     assert "Select at least one portfolio." in page.text
 
 
 def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
-    iteration2_db,
+    workbench_db,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz",
         data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
@@ -134,14 +134,14 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
 
 
 def test_contextual_launch_preserves_submission_content(
-    iteration2_db, monkeypatch,
+    workbench_db, monkeypatch,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
     monkeypatch.setattr(
         edm_service, "get_contextual_edm_detail",
         lambda **kwargs: _context(edm_id),
     )
-    client = _client(iteration2_db.user_a)
+    client = _client(workbench_db.user_a)
     page = client.get(f"/submissions/submission-a/edms/{edm_id}")
 
     assert f'action="/edms/{edm_id}/geohaz"' in page.text
@@ -186,7 +186,7 @@ def test_contextual_launch_preserves_submission_content(
 
 
 def test_contextual_launch_plain_post_redirects_to_contextual_page(
-    iteration2_db, monkeypatch,
+    workbench_db, monkeypatch,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     monkeypatch.setattr(
@@ -196,19 +196,19 @@ def test_contextual_launch_plain_post_redirects_to_contextual_page(
     data = _form(portfolio_ids)
     data["submission_id"] = "submission-a"
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=data)
 
     assert response.status_code == 303
     assert response.headers["location"] == (
         f"/submissions/submission-a/edms/{edm_id}?geohaz=queued")
-    page = _client(iteration2_db.user_a).get(response.headers["location"])
+    page = _client(workbench_db.user_a).get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
     assert 'href="/submissions/submission-a"' in page.text
 
 
 def test_contextual_launch_rejects_an_unrelated_edm(
-    iteration2_db, monkeypatch,
+    workbench_db, monkeypatch,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
     monkeypatch.setattr(
@@ -216,7 +216,7 @@ def test_contextual_launch_rejects_an_unrelated_edm(
     data = _form(portfolio_ids)
     data["submission_id"] = "submission-a"
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=data)
 
     assert response.status_code == 404
@@ -225,19 +225,19 @@ def test_contextual_launch_rejects_an_unrelated_edm(
         {}, connection="WORKBENCH") == []
 
 
-def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(iteration2_db):
+def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
 
-    response = _client(iteration2_db.user_a).post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids))
 
     assert response.status_code == 303
     assert response.headers["location"] == f"/edms/{edm_id}?geohaz=queued"
-    page = _client(iteration2_db.user_a).get(response.headers["location"])
+    page = _client(workbench_db.user_a).get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
 
 
-def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
+def test_detail_and_cell_render_live_state_then_stop_polling(workbench_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     job_id = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -246,18 +246,18 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
             "data_version": "25.0", "model_family": "DLM",
             "perils": ["earthquake"], "skip_prev_hazard": False,
             "override_user_def": False,
-        }, actor_id=iteration2_db.user_a)
+        }, actor_id=workbench_db.user_a)
     execute_command(
         "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
         {"id": job_id}, connection="WORKBENCH")
 
-    page = _client(iteration2_db.user_a).get(f"/edms/{edm_id}").text
+    page = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
     cell_url = f"/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell"
     assert "Hazard Version" in page
     assert f'hx-get="{cell_url}"' in page
     assert "Earthquake" in page
 
-    live = _client(iteration2_db.user_a).get(cell_url)
+    live = _client(workbench_db.user_a).get(cell_url)
     assert live.status_code == 200
     assert "RUNNING" in live.text
     assert 'hx-trigger="every 3s"' in live.text
@@ -275,7 +275,7 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
         {"id": portfolio_id,
          "detail": '{"metrics":{"hazardVersion":"23.0,25.0"}}'},
         connection="WORKBENCH")
-    terminal = _client(iteration2_db.user_a).get(cell_url)
+    terminal = _client(workbench_db.user_a).get(cell_url)
     assert terminal.status_code == 200
     assert "23.0,25.0" in terminal.text
     assert "hx-trigger" not in terminal.text
@@ -286,10 +286,10 @@ def test_detail_and_cell_render_live_state_then_stop_polling(iteration2_db):
     assert "disabled" not in terminal_checkbox.split("</span>", 1)[0]
 
 
-def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
+def test_missing_portfolio_cell_is_terminal_empty_fragment(workbench_db):
     edm_id, _ = _edm_with_portfolios(1)
 
-    response = _client(iteration2_db.user_a).get(
+    response = _client(workbench_db.user_a).get(
         f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
 
     assert response.status_code == 200
@@ -297,13 +297,13 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
     assert "hx-trigger" not in response.text
 
 
-def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
+def test_latest_lookup_renders_requested_details_and_result(workbench_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     with_summary = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="950",
         request_params={"perils": ["earthquake", "windstorm"]},
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     without_summary = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_id, irp_id="951",
@@ -313,7 +313,7 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
             "skip_prev_hazard": True,
             "override_user_def": False,
         },
-        actor_id=iteration2_db.user_a)
+        actor_id=workbench_db.user_a)
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED', "
         "completion_summary = :summary WHERE id = :id",
@@ -324,7 +324,7 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
         "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
         {"id": without_summary}, connection="WORKBENCH")
 
-    body = _client(iteration2_db.user_a).get(f"/edms/{edm_id}").text
+    body = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
 
     assert "Most recent hazard lookup" in body
     assert "Data Version" in body

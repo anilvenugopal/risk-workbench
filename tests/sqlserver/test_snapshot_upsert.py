@@ -72,7 +72,7 @@ def _rows(edm_id: str) -> list[dict]:
         {"e": edm_id}, connection="WORKBENCH")
 
 
-def test_lost_insert_race_recovers_by_overwriting_in_place(iteration2_db):
+def test_lost_insert_race_recovers_by_overwriting_in_place(workbench_db):
     edm_id = _edm()
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
@@ -91,7 +91,7 @@ def test_lost_insert_race_recovers_by_overwriting_in_place(iteration2_db):
 
 
 def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
-        iteration2_db):
+        workbench_db):
     # US3 (T054/FR-014): the backfill's in-place overwrite touches only the
     # snapshot columns — the three lineage columns and inserted_by survive —
     # and the lineage-aware list joins the immediate source's name and the
@@ -128,7 +128,7 @@ def test_snapshot_upsert_preserves_lineage_and_the_list_reads_it(
 
 
 def test_list_resolves_the_display_label_from_the_source_summary(
-        iteration2_db):
+        workbench_db):
     # P-12 as revised 2026-08-05: the generated row's breakout_value stays the
     # Admin1Code ("200"), and the list resolves its display label ("Puerto
     # Rico") from the label stored beside that value in the SOURCE portfolio's
@@ -163,7 +163,7 @@ def test_list_resolves_the_display_label_from_the_source_summary(
 
 
 def test_unrecoverable_violation_raises_instead_of_dropping_the_row(
-        iteration2_db):
+        workbench_db):
     # The SQL Server shape: the INSERT violates but neither recovery update
     # matches (NULL irp_id ⇒ update_by_irp skipped; a different name ⇒
     # update_by_name misses). Silently returning here would drop the row and

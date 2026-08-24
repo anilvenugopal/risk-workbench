@@ -14,11 +14,9 @@ The developer databases (``rwb_workbench``, ``rwb_exposure``, ``rwb_loss``)
 are never written: ``_wipe_workbench`` refuses to run unless the connected
 database is ``rwb_workbench_tests``.
 
-Per-test isolation: the ``iteration1_db`` / ``iteration2_db`` fixtures delete
-every row from every non-kind table before seeding two analysts, so each test
-starts from the empty state the migration leaves behind. (The two names are
-aliases kept from the unit tier they were migrated out of; the schema is
-always the full Alembic head.)
+Per-test isolation: the ``workbench_db`` fixture deletes every row from every
+non-kind table before seeding two analysts, so each test starts from the empty
+state the migration leaves behind. The schema is always the full Alembic head.
 """
 
 from __future__ import annotations
@@ -125,14 +123,7 @@ def _seed_analysts() -> SimpleNamespace:
 
 
 @pytest.fixture()
-def iteration1_db() -> SimpleNamespace:
+def workbench_db() -> SimpleNamespace:
     """Empty WORKBENCH test database + two analysts (Analyst A / Analyst B)."""
-    _wipe_workbench()
-    return _seed_analysts()
-
-
-@pytest.fixture()
-def iteration2_db() -> SimpleNamespace:
-    """Alias of ``iteration1_db`` kept for the migrated job/package suites."""
     _wipe_workbench()
     return _seed_analysts()

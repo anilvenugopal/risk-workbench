@@ -36,7 +36,7 @@ def _client() -> TestClient:
     return TestClient(app)
 
 
-def test_templates_placeholder_uses_template_suites_navigation(iteration2_db):
+def test_templates_placeholder_uses_template_suites_navigation(workbench_db):
     # The Phase-2 placeholder page (this test's original subject) was reworked
     # into the Phase-4 suites/templates administration page (T026), which
     # reads the template/suite tables — needs a registered WORKBENCH engine.

@@ -23,7 +23,7 @@ ROUTE_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 
 @pytest.fixture(autouse=True)
-def _seed_route_user(iteration2_db):
+def _seed_route_user(workbench_db):
     execute_command(
         "INSERT INTO app_user (id, email, display_name, is_active, "
         "must_change_password) VALUES (:id, :email, :name, 1, 0)",
@@ -70,7 +70,7 @@ def _flat(body: str) -> str:
     return re.sub(r"\s+", " ", body)
 
 
-def test_metadata_page_renders_all_five_read_only_tabs(iteration2_db):
+def test_metadata_page_renders_all_five_read_only_tabs(workbench_db):
     body = _client().get("/templates/metadata").text
 
     assert "Model Profiles" in body
@@ -80,7 +80,7 @@ def test_metadata_page_renders_all_five_read_only_tabs(iteration2_db):
     assert "Currency Schemes" in body
 
 
-def test_no_metadata_tab_has_create_or_edit_controls(iteration2_db):
+def test_no_metadata_tab_has_create_or_edit_controls(workbench_db):
     client = _client()
     for tab in (
         "model-profiles", "output-profiles", "event-rate-schemes",
@@ -94,7 +94,7 @@ def test_no_metadata_tab_has_create_or_edit_controls(iteration2_db):
         assert 'type="checkbox"' not in body
 
 
-def test_currencies_tab_renders_synced_currencies(iteration2_db, fake_irp):
+def test_currencies_tab_renders_synced_currencies(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client().get("/templates/metadata/table?tab=currencies").text
@@ -104,7 +104,7 @@ def test_currencies_tab_renders_synced_currencies(iteration2_db, fake_irp):
     assert "United States" in body
 
 
-def test_currencies_tab_filters_by_code_name_or_country(iteration2_db, fake_irp):
+def test_currencies_tab_filters_by_code_name_or_country(workbench_db, fake_irp):
     fake_irp.currencies = [
         *fake_irp.currencies,
         CurrencyEntry("EUR", "Euro", "France", "€"),
@@ -118,7 +118,7 @@ def test_currencies_tab_filters_by_code_name_or_country(iteration2_db, fake_irp)
 
 
 def test_currency_schemes_tab_renders_schemes_with_their_vintages(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
 
@@ -136,7 +136,7 @@ def test_currency_schemes_tab_renders_schemes_with_their_vintages(
     assert "30 days" in body
 
 
-def test_currency_schemes_tab_filters_by_name_or_code(iteration2_db, fake_irp):
+def test_currency_schemes_tab_filters_by_name_or_code(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client().get(
@@ -147,8 +147,8 @@ def test_currency_schemes_tab_filters_by_name_or_code(iteration2_db, fake_irp):
     assert "RMS Scheme" not in body
 
 
-def test_currency_scheme_with_no_vintages_shows_empty_marker(iteration2_db):
-    with iteration2_db.engine.begin() as conn:
+def test_currency_scheme_with_no_vintages_shows_empty_marker(workbench_db):
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             """
             INSERT INTO irp_currency_scheme
@@ -167,7 +167,7 @@ def test_currency_scheme_with_no_vintages_shows_empty_marker(iteration2_db):
 
 
 def test_metadata_fragment_filters_and_uses_wheel_marker_derivation(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
 
@@ -185,9 +185,9 @@ def test_metadata_fragment_filters_and_uses_wheel_marker_derivation(
 
 
 def test_accumulation_marker_takes_precedence_over_version_classification(
-    iteration2_db,
+    workbench_db,
 ):
-    with iteration2_db.engine.begin() as conn:
+    with workbench_db.engine.begin() as conn:
         conn.exec_driver_sql(
             """
             INSERT INTO irp_model_profile
@@ -209,7 +209,7 @@ def test_accumulation_marker_takes_precedence_over_version_classification(
 
 
 def test_sync_enqueues_and_dispatches_once_then_refuses_second_request(
-    iteration2_db,
+    workbench_db,
 ):
     sent: list[dict] = []
     dispatch.configure(lambda **message: sent.append(message))
@@ -243,7 +243,7 @@ def test_sync_enqueues_and_dispatches_once_then_refuses_second_request(
 
 
 def test_failed_sync_reason_and_prior_snapshot_time_are_displayed(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     metadata_jobs._sync_irp_metadata_body()
     job_id = rwb_job_service.ensure_pending_rwb_job(
@@ -264,7 +264,7 @@ def test_failed_sync_reason_and_prior_snapshot_time_are_displayed(
     assert "Last synced" in body
 
 
-def test_bad_csrf_token_does_not_enqueue_sync(iteration2_db):
+def test_bad_csrf_token_does_not_enqueue_sync(workbench_db):
     response = _client().post(
         "/templates/metadata/sync", data={"csrf_token": "wrong"}
     )
@@ -277,7 +277,7 @@ def test_bad_csrf_token_does_not_enqueue_sync(iteration2_db):
 # ── Risk Modeler deep links on each metadata tab ──────────────────────────────
 
 def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
-    iteration2_db, monkeypatch,
+    workbench_db, monkeypatch,
 ):
     monkeypatch.setattr(settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com/")
@@ -324,7 +324,7 @@ def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
     )
 
 
-def test_tab_rm_links_hidden_when_tenant_not_configured(iteration2_db, monkeypatch):
+def test_tab_rm_links_hidden_when_tenant_not_configured(workbench_db, monkeypatch):
     monkeypatch.setattr(settings, "risk_modeler_tenant_name", "")
 
     body = _client().get(
@@ -347,7 +347,7 @@ def _scheme_active(irp_id: int) -> int:
     return rows[0]["workbench_is_active"]
 
 
-def test_admin_can_hide_and_show_a_scheme(iteration2_db, fake_irp):
+def test_admin_can_hide_and_show_a_scheme(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     client = _client(admin=True)
 
@@ -374,7 +374,7 @@ def test_admin_can_hide_and_show_a_scheme(iteration2_db, fake_irp):
     assert _scheme_active(20) == 1
 
 
-def test_admin_sees_visibility_checkbox_in_fragment(iteration2_db, fake_irp):
+def test_admin_sees_visibility_checkbox_in_fragment(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     body = _client(admin=True).get(
@@ -384,7 +384,7 @@ def test_admin_sees_visibility_checkbox_in_fragment(iteration2_db, fake_irp):
     assert "checked" in body
 
 
-def test_non_admin_cannot_toggle_scheme_visibility(iteration2_db, fake_irp):
+def test_non_admin_cannot_toggle_scheme_visibility(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     response = _client().post(
@@ -395,7 +395,7 @@ def test_non_admin_cannot_toggle_scheme_visibility(iteration2_db, fake_irp):
     assert _scheme_active(20) == 1
 
 
-def test_bad_csrf_token_does_not_toggle_scheme_visibility(iteration2_db, fake_irp):
+def test_bad_csrf_token_does_not_toggle_scheme_visibility(workbench_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
 
     response = _client(admin=True).post(

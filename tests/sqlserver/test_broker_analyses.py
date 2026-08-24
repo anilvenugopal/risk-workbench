@@ -78,7 +78,7 @@ def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
 
 
 def test_settings_metadata_parsed_and_missing_fields_blank_not_error(
-        iteration2_db):
+        workbench_db):
     rdm, edm = _rdm("R"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", settings=SETTINGS_FULL)
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="2", settings=SETTINGS_PARTIAL)
@@ -109,7 +109,7 @@ def test_settings_metadata_parsed_and_missing_fields_blank_not_error(
     assert empty.display.analysis_type is None
 
 
-def test_live_payload_shape_currency_object_rate_list_pla_label(iteration2_db):
+def test_live_payload_shape_currency_object_rate_list_pla_label(workbench_db):
     rdm, edm = _rdm("R"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", settings=SETTINGS_LIVE)
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="2",
@@ -128,7 +128,7 @@ def test_live_payload_shape_currency_object_rate_list_pla_label(iteration2_db):
     assert by_irp["2"].display.event_rate_scheme is None  # empty list → blank
 
 
-def test_group_analysis_surfaced_as_group(iteration2_db):
+def test_group_analysis_surfaced_as_group(workbench_db):
     rdm, edm = _rdm("R"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="9", is_group=True)
 
@@ -136,7 +136,7 @@ def test_group_analysis_surfaced_as_group(iteration2_db):
     assert g.analyses[0].is_group is True
 
 
-def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
+def test_only_broker_rows_of_this_rdm_and_no_deleted(workbench_db):
     rdm, other, edm = _rdm("R"), _rdm("R2"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
     _analysis(rdm_id=other, edm_id=edm, irp_id="2")

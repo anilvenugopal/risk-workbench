@@ -342,13 +342,13 @@ Any test that executes application SQL belongs in `tests/sqlserver/`. That
 tier provisions its own `rwb_workbench_tests` database on the configured SQL
 Server (drop, create, `alembic upgrade head` — see
 `tests/sqlserver/conftest.py`), so it never reads or writes `rwb_workbench`.
-The `iteration1_db` / `iteration2_db` fixtures wipe every non-kind table and
-seed two analysts, giving each test an empty, fully migrated database:
+The `workbench_db` fixture wipes every non-kind table and seeds two analysts,
+giving each test an empty, fully migrated database:
 
 ```python
 # tests/sqlserver/test_my_service.py
 
-def test_lists_what_i_created(iteration2_db):
+def test_lists_what_i_created(workbench_db):
     from app.services.my_service import list_things
     assert list_things() == []
 ```

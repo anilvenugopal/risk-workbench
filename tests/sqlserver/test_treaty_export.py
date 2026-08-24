@@ -43,7 +43,7 @@ def _seed_treaties(edm_id: str) -> None:
         edm_id=edm_id, irp_id="1043", name="Quota Share", attributes=QS, as_of=now)
 
 
-def test_workbook_is_valid_xlsx_with_union_of_attribute_columns(iteration2_db):
+def test_workbook_is_valid_xlsx_with_union_of_attribute_columns(workbench_db):
     edm_id = _make_edm()
     _seed_treaties(edm_id)
 
@@ -71,7 +71,7 @@ def test_workbook_is_valid_xlsx_with_union_of_attribute_columns(iteration2_db):
 
 
 def test_workbook_reads_stored_detail_only_no_gateway_call(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # Any Risk Modeler call would raise — the export must never make one
     # (contracts/http-routes.md: reads STORED detail only, Article 11).
     fake_irp.raise_on_search_treaties = True
@@ -83,7 +83,7 @@ def test_workbook_reads_stored_detail_only_no_gateway_call(
     assert load_workbook(io.BytesIO(data)).active.max_row == 3  # header + 2
 
 
-def test_workbook_for_edm_with_no_treaties_is_still_valid(iteration2_db):
+def test_workbook_for_edm_with_no_treaties_is_still_valid(workbench_db):
     edm_id = _make_edm()
     data = treaty_service.build_treaty_workbook(edm_id=edm_id)
     ws = load_workbook(io.BytesIO(data)).active
@@ -91,7 +91,7 @@ def test_workbook_for_edm_with_no_treaties_is_still_valid(iteration2_db):
     assert ws.max_row == 1  # header only
 
 
-def test_treaty_snapshot_missing_renders_identity_only(iteration2_db):
+def test_treaty_snapshot_missing_renders_identity_only(workbench_db):
     # A treaty row whose attributes snapshot is null (pre-capability) still
     # exports its identity columns — blank attributes, never an error.
     edm_id = _make_edm()
@@ -108,7 +108,7 @@ def test_treaty_snapshot_missing_renders_identity_only(iteration2_db):
 
 @pytest.mark.parametrize("missing", [True])
 def test_list_treaties_parses_snapshot_and_none_when_missing(
-        iteration2_db, missing):
+        workbench_db, missing):
     edm_id = _make_edm()
     _seed_treaties(edm_id)
     rows = treaty_service.list_treaties(edm_id=edm_id)

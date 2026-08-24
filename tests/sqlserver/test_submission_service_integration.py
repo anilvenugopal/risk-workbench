@@ -20,7 +20,7 @@ from app.services import submission_service as svc
 from app.services.errors import UnknownLinkError
 
 
-def test_string_marker_round_trips_against_datetime2(iteration1_db):
+def test_string_marker_round_trips_against_datetime2(workbench_db):
     """A form-supplied STRING marker must MATCH the DATETIME2 column (R1/FR-031).
 
     The browser never sends a ``datetime``: the detail/edit templates render
@@ -37,7 +37,7 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     the in-place UPDATE (update_submission), the event-sourced transaction
     (set_status), and reassign_owner.
     """
-    a, b = iteration1_db.user_a, iteration1_db.user_b
+    a, b = workbench_db.user_a, workbench_db.user_b
     sid = svc.create_submission(
         name=f"MarkerDeal_{uuid.uuid4().hex[:8]}", cedant_name="Marker Cedant",
         treaty_type_code="cat_xol", inception_date=date(2026, 4, 1),
@@ -74,11 +74,11 @@ def test_string_marker_round_trips_against_datetime2(iteration1_db):
     assert svc.get_submission(sid).assigned_analyst_id == b
 
 
-def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
+def test_the_suggest_queries_parse_and_cap_on_sql_server(workbench_db):
     """``SELECT DISTINCT … ORDER BY … OFFSET/FETCH``, the ``s.id <> :exclude``
     predicate and the ``uniqueidentifier`` comparison behind it: run each search
     against the real driver and check the cap holds."""
-    a = iteration1_db.user_a
+    a = workbench_db.user_a
     tag = uuid.uuid4().hex[:8]
     for index in range(4):
         svc.create_submission(
@@ -104,13 +104,13 @@ def test_the_suggest_queries_parse_and_cap_on_sql_server(iteration1_db):
         f"CapDeal{tag}", exclude_id="not-a-uuid")) == 4
 
 
-def test_an_unknown_link_target_is_refused_before_the_foreign_key(iteration1_db):
+def test_an_unknown_link_target_is_refused_before_the_foreign_key(workbench_db):
     """``links_to_submission_id`` is a FK to ``submission.id`` and the column is
     ``uniqueidentifier``. An unchecked id hits one of two driver errors: an
     integrity error for a well-formed id naming no row, and a conversion error
     for text that is not a UUID. Both must be ``UnknownLinkError`` before the
     write."""
-    a = iteration1_db.user_a
+    a = workbench_db.user_a
     tag = uuid.uuid4().hex[:8]
     sid = svc.create_submission(
         name=f"LinkDeal{tag}", cedant_name=f"LinkCedant{tag}",

@@ -65,7 +65,7 @@ def _flat(body: str) -> str:
 
 # ── GET /edms/sync ───────────────────────────────────────────────────────────────
 
-def test_the_page_lists_the_adoptable_edms(iteration2_db, fake_irp):
+def test_the_page_lists_the_adoptable_edms(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="Coastal_Wind_Study", irp_id=501,
                              portfolio_count=4, treaty_count=1)
 
@@ -77,7 +77,7 @@ def test_the_page_lists_the_adoptable_edms(iteration2_db, fake_irp):
 
 
 def test_the_literal_path_renders_and_activates_its_own_nav_node(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # /edms/{edm_id} would match "sync" as an id and 404 on the lookup, and the
     # sidebar must read "Moody's IRP › Sync from Risk Modeler", not EDM Library.
     response = _client().get("/edms/sync")
@@ -88,7 +88,7 @@ def test_the_literal_path_renders_and_activates_its_own_nav_node(
 
 
 def test_a_gateway_failure_degrades_the_page_rather_than_500ing(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.raise_on_list_edms = True
 
@@ -100,12 +100,12 @@ def test_a_gateway_failure_degrades_the_page_rather_than_500ing(
     assert "Nothing to sync" not in response.text
 
 
-def test_an_empty_diff_says_nothing_to_sync(iteration2_db, fake_irp):
+def test_an_empty_diff_says_nothing_to_sync(workbench_db, fake_irp):
     assert "Nothing to sync" in _client().get("/edms/sync").text
 
 
 def test_a_search_with_no_match_is_distinguished_from_an_empty_diff(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
 
     body = _client().get("/edms/sync?q=nomatch").text
@@ -115,7 +115,7 @@ def test_a_search_with_no_match_is_distinguished_from_an_empty_diff(
 
 
 def test_the_pager_appears_only_once_there_is_a_second_page(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     for i in range(edm_service.ADOPTABLE_PAGE_SIZE + 1):
         fake_irp.add_catalog_edm(name=f"edm_{i:03d}", irp_id=1000 + i)
 
@@ -125,7 +125,7 @@ def test_the_pager_appears_only_once_there_is_a_second_page(
     assert "Page 1" in body
 
 
-def test_the_pager_carries_the_search_term(iteration2_db, fake_irp):
+def test_the_pager_carries_the_search_term(workbench_db, fake_irp):
     for i in range(edm_service.ADOPTABLE_PAGE_SIZE + 1):
         fake_irp.add_catalog_edm(name=f"renewal_{i:03d}", irp_id=1000 + i)
 
@@ -135,7 +135,7 @@ def test_the_pager_carries_the_search_term(iteration2_db, fake_irp):
     assert "/edms/sync?q=renewal&amp;page=2" in body
 
 
-def test_the_form_posts_back_into_the_filtered_list(iteration2_db, fake_irp):
+def test_the_form_posts_back_into_the_filtered_list(workbench_db, fake_irp):
     # The POST reads the search term off its own query string, so the action must
     # carry it — otherwise syncing from a filtered list lands on the unfiltered one.
     fake_irp.add_catalog_edm(name="renewal_alpha", irp_id=501)
@@ -145,7 +145,7 @@ def test_the_form_posts_back_into_the_filtered_list(iteration2_db, fake_irp):
     assert 'action="/edms/sync?q=renewal"' in body
 
 
-def test_a_zero_count_renders_as_zero_not_a_dash(iteration2_db, fake_irp):
+def test_a_zero_count_renders_as_zero_not_a_dash(workbench_db, fake_irp):
     # An EDM with no portfolios is what an analyst most wants to spot before
     # syncing, so it must not look like a figure Risk Modeler did not return.
     fake_irp.add_catalog_edm(name="alpha", irp_id=501, portfolio_count=0,
@@ -156,7 +156,7 @@ def test_a_zero_count_renders_as_zero_not_a_dash(iteration2_db, fake_irp):
     assert body.count('<td class="sync-num">0</td>') == 2
 
 
-def test_a_mangled_page_param_reads_page_one(iteration2_db, fake_irp):
+def test_a_mangled_page_param_reads_page_one(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
 
     response = _client().get("/edms/sync?page=notanumber")
@@ -168,12 +168,12 @@ def test_a_mangled_page_param_reads_page_one(iteration2_db, fake_irp):
 # ── POST /edms/sync ──────────────────────────────────────────────────────────────
 
 def test_posting_ticked_ids_adopts_them_and_redirects_with_the_counts(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.add_catalog_edm(name="beta", irp_id=502)
     dispatch.configure(lambda **kw: None)
     try:
-        response = _client(iteration2_db.user_a).post(
+        response = _client(workbench_db.user_a).post(
             "/edms/sync", data={"irp_ids": ["501", "502"], "csrf_token": _csrf()})
     finally:
         dispatch.reset()
@@ -185,11 +185,11 @@ def test_posting_ticked_ids_adopts_them_and_redirects_with_the_counts(
 
 
 def test_the_redirect_reports_an_edm_another_analyst_already_took(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     dispatch.configure(lambda **kw: None)
     try:
-        client = _client(iteration2_db.user_a)
+        client = _client(workbench_db.user_a)
         client.post("/edms/sync", data={"irp_ids": ["501"], "csrf_token": _csrf()})
         second = client.post("/edms/sync",
                              data={"irp_ids": ["501"], "csrf_token": _csrf()})
@@ -200,7 +200,7 @@ def test_the_redirect_reports_an_edm_another_analyst_already_took(
 
 
 def test_a_post_catalog_failure_redirects_without_writing(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     fake_irp.raise_on_list_edms = True
 
@@ -213,17 +213,17 @@ def test_a_post_catalog_failure_redirects_without_writing(
 
 
 def test_the_post_failure_banner_explains_that_nothing_was_synced(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     body = _client().get("/edms/sync?sync_error=unavailable").text
 
     assert "Nothing was synced because Risk Modeler could not be reached" in body
 
 
-def test_the_redirect_keeps_the_search_term(iteration2_db, fake_irp):
+def test_the_redirect_keeps_the_search_term(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
     dispatch.configure(lambda **kw: None)
     try:
-        response = _client(iteration2_db.user_a).post("/edms/sync?q=alp",
+        response = _client(workbench_db.user_a).post("/edms/sync?q=alp",
                                   data={"irp_ids": ["501"], "csrf_token": _csrf()})
     finally:
         dispatch.reset()
@@ -231,7 +231,7 @@ def test_the_redirect_keeps_the_search_term(iteration2_db, fake_irp):
     assert response.headers["location"] == "/edms/sync?synced=1&skipped=0&q=alp"
 
 
-def test_the_banner_is_rendered_from_the_redirect_counts(iteration2_db, fake_irp):
+def test_the_banner_is_rendered_from_the_redirect_counts(workbench_db, fake_irp):
     body = _client().get("/edms/sync?synced=2&skipped=1").text
 
     assert "Syncing 2 EDMs" in _flat(body)
@@ -240,7 +240,7 @@ def test_the_banner_is_rendered_from_the_redirect_counts(iteration2_db, fake_irp
 
 
 def test_the_banner_still_reports_the_sync_when_the_reread_fails(
-        iteration2_db, fake_irp):
+        workbench_db, fake_irp):
     # The redirect's list read is a second Risk Modeler call and can fail on its
     # own. The rows were still created, so the page must not claim otherwise.
     fake_irp.raise_on_list_edms = True
@@ -251,7 +251,7 @@ def test_the_banner_still_reports_the_sync_when_the_reread_fails(
     assert "Risk Modeler is not answering" in body
 
 
-def test_posting_nothing_is_a_no_op_redirect_not_a_500(iteration2_db, fake_irp):
+def test_posting_nothing_is_a_no_op_redirect_not_a_500(workbench_db, fake_irp):
     response = _client().post("/edms/sync", data={"csrf_token": _csrf()})
 
     assert response.status_code == 303
@@ -259,7 +259,7 @@ def test_posting_nothing_is_a_no_op_redirect_not_a_500(iteration2_db, fake_irp):
     assert execute("SELECT id FROM irp_edm", connection="WORKBENCH") == []
 
 
-def test_a_bad_csrf_token_adopts_nothing(iteration2_db, fake_irp):
+def test_a_bad_csrf_token_adopts_nothing(workbench_db, fake_irp):
     fake_irp.add_catalog_edm(name="alpha", irp_id=501)
 
     response = _client().post("/edms/sync",
@@ -270,7 +270,7 @@ def test_a_bad_csrf_token_adopts_nothing(iteration2_db, fake_irp):
     assert execute("SELECT id FROM irp_edm", connection="WORKBENCH") == []
 
 
-def test_a_bad_csrf_token_on_the_htmx_path_forces_a_reload(iteration2_db, fake_irp):
+def test_a_bad_csrf_token_on_the_htmx_path_forces_a_reload(workbench_db, fake_irp):
     response = _client().post("/edms/sync",
                               data={"irp_ids": ["501"], "csrf_token": "wrong"},
                               headers={"HX-Request": "true"})

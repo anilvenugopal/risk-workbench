@@ -27,7 +27,7 @@ def test_geohaz_uses_single_status_getter_and_metadata_refresh():
 
 
 def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
-    iteration2_db, fake_irp,
+    workbench_db, fake_irp,
 ):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     execute_command(
@@ -80,8 +80,8 @@ def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str,
     return res.entity_id, str(row["irp_id"])
 
 
-def test_finished_backfills_exposure_id_and_readies_edm(iteration2_db, fake_irp, drive):
-    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a, name="EDM")
+def test_finished_backfills_exposure_id_and_readies_edm(workbench_db, fake_irp, drive):
+    edm_id, irp_id = _import_and_submit(drive, workbench_db.user_a, name="EDM")
     assert edm_service.get_edm(edm_id).status == edm_service.IMPORTING
     fake_irp.finish(irp_id)
     poller.poll_once()
@@ -103,8 +103,8 @@ def test_finished_backfills_exposure_id_and_readies_edm(iteration2_db, fake_irp,
     assert job["last_tracked_at"] is not None
 
 
-def test_failed_terminal_flips_edm_to_error(iteration2_db, fake_irp, drive):
-    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+def test_failed_terminal_flips_edm_to_error(workbench_db, fake_irp, drive):
+    edm_id, irp_id = _import_and_submit(drive, workbench_db.user_a)
     fake_irp.fail(irp_id)
     poller.poll_once()
     edm = edm_service.get_edm(edm_id)
@@ -113,10 +113,10 @@ def test_failed_terminal_flips_edm_to_error(iteration2_db, fake_irp, drive):
 
 
 def test_submission_failed_is_not_tracked_and_distinct_from_failed(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     # Force the submit to fail → the worker writes SUBMISSION FAILED (no irp_id).
     res = edm_service.import_edm(name="EDM", source_file_path=str(drive / "edm1.bak"),
-                                 actor_id=iteration2_db.user_a)
+                                 actor_id=workbench_db.user_a)
     fake_irp.raise_on_submit = True
     entity_jobs.run_pending(worker_id="w1")
     job = execute_one("SELECT status, irp_id FROM irp_job WHERE irp_edm_id=:e",
@@ -141,9 +141,9 @@ def _rwb_jobs_of(rwb_job_type: str) -> list[dict]:
 
 
 def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
-        iteration2_db, fake_irp, drive):
+        workbench_db, fake_irp, drive):
     """A standalone import gets its detail backfilled after completion."""
-    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    edm_id, irp_id = _import_and_submit(drive, workbench_db.user_a)
     fake_irp.finish(irp_id)
     poller.poll_once()
     backfills = _rwb_jobs_of("backfill_edm_detail")
@@ -151,10 +151,10 @@ def test_standalone_edm_import_still_enqueues_backfill_edm_detail(
     assert edm_id in backfills[0]["input_data"]
 
 
-def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, drive):
+def test_failed_terminal_enqueues_neither_backfill(workbench_db, fake_irp, drive):
     """A FAILED/CANCELLED terminal flips the EDM to error and enqueues no
     follow-up work — there is no detail to fetch."""
-    edm_id, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    edm_id, irp_id = _import_and_submit(drive, workbench_db.user_a)
     fake_irp.fail(irp_id)
     poller.poll_once()
     assert edm_service.get_edm(edm_id).status == edm_service.ERROR
@@ -164,11 +164,11 @@ def test_failed_terminal_enqueues_neither_backfill(iteration2_db, fake_irp, driv
 # ── poller business-level logging (#28 follow-up, PR #31) ────────────────────────
 
 def test_transition_logged_once_and_terminal_line_carries_duration(
-        iteration2_db, fake_irp, drive, caplog):
+        workbench_db, fake_irp, drive, caplog):
     """Business-level poller logs (#28 follow-up): an observed status change logs one
     INFO line, an unchanged status logs nothing at INFO, and the terminal line carries
     the elapsed time since submit."""
-    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+    _, irp_id = _import_and_submit(drive, workbench_db.user_a)
     with caplog.at_level(logging.INFO, logger="app.poller.run"):
         fake_irp.run(irp_id)
         poller.poll_once()
@@ -186,8 +186,8 @@ def test_transition_logged_once_and_terminal_line_carries_duration(
     assert re.search(r"\(after \d+[hms]", terminal[0])
 
 
-def test_every_status_check_logged_at_debug(iteration2_db, fake_irp, drive, caplog):
-    _, irp_id = _import_and_submit(drive, iteration2_db.user_a)
+def test_every_status_check_logged_at_debug(workbench_db, fake_irp, drive, caplog):
+    _, irp_id = _import_and_submit(drive, workbench_db.user_a)
     with caplog.at_level(logging.DEBUG, logger="app.poller.run"):
         poller.poll_once()
     checks = [r for r in caplog.records

@@ -31,8 +31,8 @@ def _build_and_sync(drive, actor, correlation_id: str) -> str:
     return result.entity_id
 
 
-def test_irp_job_inherits_rwb_job_correlation(iteration2_db, fake_irp, drive):
-    _build_and_sync(drive, iteration2_db.user_a, "req-123")
+def test_irp_job_inherits_rwb_job_correlation(workbench_db, fake_irp, drive):
+    _build_and_sync(drive, workbench_db.user_a, "req-123")
     entity_jobs.run_pending()  # worker claims, binds from the row, submits
     rwb = execute("SELECT correlation_id FROM rwb_job WHERE rwb_job_type='upload_edm'",
                   {}, connection="WORKBENCH")
@@ -42,8 +42,8 @@ def test_irp_job_inherits_rwb_job_correlation(iteration2_db, fake_irp, drive):
     assert irp[0]["correlation_id"] == "req-123"
 
 
-def test_submission_failure_row_is_stamped(iteration2_db, fake_irp, drive):
-    _build_and_sync(drive, iteration2_db.user_a, "req-456")
+def test_submission_failure_row_is_stamped(workbench_db, fake_irp, drive):
+    _build_and_sync(drive, workbench_db.user_a, "req-456")
     fake_irp.raise_on_submit = True  # submit never reaches Risk Modeler
     entity_jobs.run_pending()
     rows = execute("SELECT status, correlation_id FROM irp_job", {},
@@ -64,8 +64,8 @@ class _Capture(logging.Handler):
         self.records.append(record)
 
 
-def test_run_job_lifecycle_records_carry_context(iteration2_db, fake_irp, drive):
-    _build_and_sync(drive, iteration2_db.user_a, "req-789")
+def test_run_job_lifecycle_records_carry_context(workbench_db, fake_irp, drive):
+    _build_and_sync(drive, workbench_db.user_a, "req-789")
     cap = _Capture()
     runtime_logger = logging.getLogger("app.workers.runtime")
     saved_level = runtime_logger.level
