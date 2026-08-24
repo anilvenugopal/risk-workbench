@@ -62,7 +62,7 @@
       <button class="bo-btn" type="button" onclick="event.stopPropagation()"
               hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
               hx-target="#breakout-modal-mount" hx-swap="innerHTML"
-              title="One sub-portfolio per line of business, state, or country, or custom breakouts">Break out</button>
+              title="One sub-portfolio per value of the chosen dimension, or custom breakouts">Break out</button>
       {% endif %}
     </span>
   </span>

@@ -197,7 +197,7 @@ async def breakout_group_preview(request: Request, edm_id: str,
                                  portfolio_id: str):
     """Compose ONE cart row server-side (FR-018/P-23): the posted checkbox
     selections + label, validated against the stored summary and
-    name-suffixed/overlap-checked against the already-carted group JSONs
+    overlap-checked against the already-carted group JSONs
     posted along, then refused when the name is taken (P-25) or when no account
     matches every filter (P-29). No writes. Returns the cart-row fragment
     (``hx-swap beforeend``); a refusal returns 409 retargeted at

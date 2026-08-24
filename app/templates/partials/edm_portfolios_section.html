@@ -10,8 +10,8 @@
    204 meanwhile (app/routers/edms.py), because #edm-detail is the page's
    scrolling element: replacing it threw the analyst back to the top of the page
    every 3 seconds. The poll response additionally OOB-swaps the header meta
-   line and the rollup strip — the two places outside this section that carry a
-   portfolio count. app.js reapplies the open/closed state of every <details>
+   line — the one place outside this section that carries a portfolio count.
+   app.js reapplies the open/closed state of every <details>
    here after the swap, so an expanded row stays expanded. #}
 {# The poll render (edm_portfolios_live.html) has no contextual `sync_url`
    in scope, hence the default. #}
@@ -30,7 +30,7 @@
     <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
     {% endif %}
     <span class="sec__spacer"></span>
-    <span class="sec__note">Break out creates one sub-portfolio per line of business, state, or country</span>
+    <span class="sec__note">Break out creates one sub-portfolio per value of the chosen dimension</span>
   </summary>
 
   {# ── breakout completion banner (spec 005 FR-012) — the newest terminal

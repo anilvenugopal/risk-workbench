@@ -211,7 +211,7 @@ IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 2
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
                            ("state", "Geography - State", 20),
                            ("country", "Geography - Country", 25),
-                           ("peril", "Peril", 30),  # grouping-only (P-19)
+                           ("peril", "Peril", 30),
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
 
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────

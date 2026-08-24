@@ -1,6 +1,7 @@
 -- Per-portfolio account total for every portfolio in a Moody's RMS EDM — the
--- denominator of the breakout preview's overlap statement (spec 005 FR-007 /
--- P-13): repeats = (sum of per-value account counts) - AccountTotal.
+-- account_total denominator of the breakout preview's overlap statement
+-- (spec 005 FR-007); the overlap counts themselves are measured per account
+-- by the portfolio_*_coverage.sql scripts.
 -- Read-only SELECT; the target EDM database is selected at the connection
 -- level (no USE here).
 

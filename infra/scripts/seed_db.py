@@ -187,9 +187,9 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            # breakout_dimension_kind — the three quick-mode breakout
-            # dimensions (spec 005 data-model §2) plus peril, grouping-only
-            # (P-19), plus custom — the grouping lineage code (T-12).
+            # breakout_dimension_kind — the four quick-mode breakout
+            # dimensions (spec 005 data-model §2, P-19 rev. 2026-08-12)
+            # plus custom — the grouping lineage code (T-12).
             conn.execute(text("""
                 MERGE breakout_dimension_kind AS target
                 USING (VALUES
