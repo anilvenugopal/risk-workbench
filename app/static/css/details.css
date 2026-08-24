@@ -201,7 +201,6 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .bo-note strong { font-weight: var(--fw-semibold); }
 
 /* a POST-backed action rendered as an inline link (the modal's Sync pointers) */
-.bo-link { background: none; border: none; padding: 0; font: inherit; color: var(--color-brand); font-weight: var(--fw-medium); text-decoration: underline; cursor: pointer; }
 
 /* custom grouping (follow-on FR-018–021) — mode tabs, dimension pills,
    value checkboxes, and the cart */

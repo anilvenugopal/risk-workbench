@@ -5,8 +5,9 @@
    (package_modal precedent). The mount carries the hx-on::before-swap handler
    that lets the 404/409 fragments swap in. One stored-summary snapshot per
    render: switching dimension or mode re-fetches this fragment; the confirm
-   carries the snapshot's as_of (FR-002b); a Sync submitted from inside CLOSES
-   the dialog and hands progress to the page's own indicator + self-poll.
+   carries the snapshot's as_of (FR-002b). Where a stale or missing summary
+   needs a Sync, this dialog names the action and the analyst runs it from the
+   page header — the modal posts no Sync of its own.
    The custom pane renders EVERY groupable dimension's checkbox list in this
    one fetch — Alpine pills toggle x-show, so switching dimensions loses no
    ticked state (T-15); cart rows arrive server-composed from the
@@ -20,13 +21,6 @@
       and not gate.in_flight and error_kind != 'stale' -%}
 {%- set confirmable = pane_open and not custom_mode and modal.dimension -%}
 {%- set cart_ready = pane_open and custom_mode and groupable -%}
-{%- macro sync_button(label) -%}
-<button type="button" class="bo-link"
-        hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
-        hx-vals='{"csrf_token": "{{ generate_csrf_token() }}"}'
-        @htmx:after-request="$el.closest('.modal').remove()"
-        title="Runs the page's Sync and closes this dialog — Break out re-enables when the refresh finishes">{{ label }}</button>
-{%- endmacro -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
 {%- macro dim_meta(d) -%}
 {{ d.values|length }} {{ d.noun if d.values|length == 1 else d.noun_plural }} present
@@ -72,7 +66,6 @@
       {% if error %}
       <div class="bo-note bo-note--notice">
         {{ error }}{% if error_kind == 'rewritten' %} Check the values and confirm again.{% endif %}
-        {% if error_kind == 'stale' %}{{ sync_button('Sync the EDM') }}{% endif %}
       </div>
       {% endif %}
 
@@ -201,7 +194,7 @@
       {% else %}
       <div class="bo-note bo-note--plain">No dimension carries two or more
         distinct values — custom breakouts read the stored exposure summary.
-        {{ sync_button('Run Sync') }} to refresh it.</div>
+        Close this dialog and Run Sync to refresh it.</div>
       {% endif %}
       {% endif %}
 
@@ -218,7 +211,7 @@
           <span class="bo-dim__name">{{ dim_title(d) }}</span>
           <span class="bo-dim__reason">
             {%- if d.reason == missing_summary_reason -%}
-            exposure summary not available — {{ sync_button('run Sync') }}
+            exposure summary not available — run Sync
             {%- else -%}{{ d.reason }}{%- endif -%}
           </span>
         </div>

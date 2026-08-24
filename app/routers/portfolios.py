@@ -64,12 +64,20 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
 
 
 def _breakout_started(request: Request, edm_id: str, count: int):
-    """The success response both confirms share: the EDM body partial
-    retargeted at ``#edm-detail`` (the form targets the modal mount, so the
-    modal closes on 2xx) plus the "Breakout started" toast."""
+    """The success response both confirms share: the Portfolios section
+    retargeted at ``#edm-portfolios`` (the form targets the modal mount, so the
+    modal closes on 2xx) plus the "Breakout started" toast.
+
+    The section, not the whole ``#edm-detail`` body: this route carries no
+    submission id, so a body render drops ``source_submission`` and erases the
+    submission breadcrumbs, the EDM picker, and the Broker analyses section
+    from the contextual page. The section is also all a breakout changes
+    (T-11), and it comes back with its own ``every 3s`` trigger live because
+    the enqueue just made ``breakout_running`` true."""
     edm = edm_service.get_edm_detail(edm_id)
-    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
-    response.headers["HX-Retarget"] = "#edm-detail"
+    response = _partial(request, "partials/edm_portfolios_live.html",
+                        {"edm": edm})
+    response.headers["HX-Retarget"] = "#edm-portfolios"
     response.headers["HX-Reswap"] = "outerHTML"
     response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
         "message": f"Breakout started — {count} sub-portfolio"

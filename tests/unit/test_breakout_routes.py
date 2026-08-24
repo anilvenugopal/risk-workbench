@@ -335,8 +335,9 @@ def test_modal_missing_summary_disables_every_dimension_with_sync_pointer(
     assert r.status_code == 200
     assert r.text.count("bo-dim--disabled") == 4
     assert "exposure summary not available" in r.text
+    # names the action; the modal never posts a Sync of its own
     assert "run Sync" in r.text
-    assert f'hx-post="/edms/{edm_id}/sync"' in r.text
+    assert "/sync" not in r.text
     # no confirm form when nothing is selectable
     assert 'name="dimension"' not in r.text
 
@@ -397,14 +398,17 @@ def test_confirm_csrf_failure_htmx_refreshes_and_nojs_redirects(
     assert breakout_jobs() == []
 
 
-def test_confirm_success_returns_body_partial_with_toast_and_plan(
+def test_confirm_success_returns_portfolios_section_with_toast_and_plan(
         routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     r = _confirm(client, edm_id, pid)
     assert r.status_code == 200
-    # the EDM body partial, retargeted at the page wrapper
-    assert 'id="edm-detail"' in r.text
-    assert r.headers["HX-Retarget"] == "#edm-detail"
+    # the Portfolios section alone, retargeted at that section — never the
+    # whole #edm-detail body, which would erase the submission breadcrumbs
+    # and the EDM picker on the contextual page
+    assert 'id="edm-portfolios"' in r.text
+    assert 'id="edm-detail"' not in r.text
+    assert r.headers["HX-Retarget"] == "#edm-portfolios"
     assert r.headers["HX-Reswap"] == "outerHTML"
     toast = json.loads(r.headers["HX-Trigger"])["rwb:toast"]
     assert toast["message"] == "Breakout started — 2 sub-portfolios"
@@ -446,7 +450,8 @@ def test_confirm_stale_stamp_409_with_sync_pointer_and_no_job_row(
     r = _confirm(client, edm_id, pid)
     assert r.status_code == 409
     assert "Portfolio data has changed in Risk Modeler" in r.text
-    assert f'hx-post="/edms/{edm_id}/sync"' in r.text  # "Sync the EDM" action
+    assert "Sync the EDM, then retry" in r.text
+    assert "/sync" not in r.text
     # the stale refusal offers no second confirm
     assert 'name="dimension"' not in r.text
     assert breakout_jobs() == []
@@ -715,7 +720,7 @@ def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
         {"label": "B", "filters": {"lob": ["EQ Comm"], "peril": ["2"]}},
     ])
     assert r.status_code == 200
-    assert r.headers["HX-Retarget"] == "#edm-detail"
+    assert r.headers["HX-Retarget"] == "#edm-portfolios"
     toast = json.loads(r.headers["HX-Trigger"])["rwb:toast"]
     assert toast["message"] == "Breakout started — 2 sub-portfolios"
     jobs = breakout_jobs()
