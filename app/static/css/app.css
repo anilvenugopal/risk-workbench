@@ -72,6 +72,9 @@
 .data-row { cursor: pointer; }
 .data-row:hover td { background: var(--surface-hover); }
 .open-link { color: var(--color-brand); font-size: var(--fs-label); }
+.mk-table .col-actions { width: 170px; text-align: right; }
+.row-actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
+.row-actions form { margin: 0; }
 
 /* ── Home ────────────────────────────────────────────────────────────────── */
 .home { padding: 22px 26px; overflow: auto; }
@@ -118,6 +121,28 @@
 .lib-table .lib-deal a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 /* trailing "clear filters" affordance on any filtered-empty row */
 .clear-filters { color: var(--color-brand); font-size: var(--fs-label); }
+
+/* ── Analysis metadata ───────────────────────────────────────────────────── */
+.metadata-panel { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: var(--space-5); }
+.metadata-meta { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-caption); }
+.metadata-filter { max-width: 360px; margin-bottom: var(--space-4); }
+.metadata-filter label { display: block; margin-bottom: var(--space-1); color: var(--text-tertiary); font-size: var(--fs-caption); font-weight: var(--fw-medium); letter-spacing: .04em; text-transform: uppercase; }
+.metadata-filter input { width: 100%; }
+.metadata-table tbody tr:hover td { background: var(--surface-hover); }
+.metadata-table-wrap { overflow-x: auto; }
+
+@media (max-width: 760px) {
+  .metadata-panel { padding: var(--space-3); }
+  .metadata-panel .tabs { overflow-x: auto; }
+  .metadata-panel .tab { white-space: nowrap; }
+}
+
+/* ── Suite builder template picker (009) — unordered checkbox list, no
+     drag handles or position numbers (suites have no ordering, P-08) ──── */
+.picker-list { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow: auto; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2); }
+.picker-item { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-2); border-radius: var(--radius-sm); }
+.picker-item:hover { background: var(--surface-hover); }
+.picker-item label { flex: 1; cursor: pointer; }
 
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }

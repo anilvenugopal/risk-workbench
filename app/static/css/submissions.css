@@ -134,8 +134,13 @@
 }
 .dir-picker__panel, .dir-picker .wf-field__msg { flex-basis: 100%; }
 
-/* ── Typeahead (cedant names + the "links to" picker) ────────────────────── */
+/* ── Typeahead (cedant names, the "links to" picker, and searchable selects) ── */
 .ta { position: relative; grid-column: 2; }
+/* A plain <input>/<select> has no intrinsic width, unlike a grid item (which
+   auto-blockifies and stretches); without this every .ta input renders at the
+   browser's ~20-char default instead of filling the field like the rest of
+   the form's inputs and the native <select> this one replaces. */
+.ta > input.wf-field__input { width: 100%; }
 .ta__menu {
   position: absolute; z-index: 20; top: calc(100% + 3px); left: 0; right: 0;
   background: var(--surface-panel); border: 1px solid var(--border-strong);

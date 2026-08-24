@@ -1,0 +1,39 @@
+{% extends "base/shell.html" %}
+{% block title %}Analysis Metadata{% endblock %}
+
+{% block page_actions %}
+<form method="post" action="/templates/metadata/sync">
+  <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+  <button class="btn-sm btn-sm--primary" type="submit">Sync IRP Metadata</button>
+</form>
+{% endblock %}
+
+{% block main %}
+<div class="page-pad">
+  <div class="detail-head">
+    <h1>Analysis Metadata</h1>
+    <div class="detail-meta">Reference data synced from Risk Modeler. Profiles,
+      schemes, and currencies are read-only here; admins can mark event rate
+      schemes active or inactive to control which ones the scheme pickers
+      offer.</div>
+  </div>
+
+  {% if sync_message == "queued" %}
+  <div class="form-banner form-banner--ok">
+    Metadata sync queued. Refresh after the worker finishes.
+  </div>
+  {% elif sync_message == "already-running" %}
+  <div class="form-banner">Sync already in progress.</div>
+  {% endif %}
+
+  {% if latest_job and latest_job.status_code == "failed" %}
+  <div class="form-banner form-banner--error">
+    <strong>Metadata sync failed.</strong> {{ latest_job.error_detail }}
+  </div>
+  {% endif %}
+
+  <section class="metadata-panel" aria-label="Analysis metadata lists">
+    {% include "partials/metadata_table.html" %}
+  </section>
+</div>
+{% endblock %}

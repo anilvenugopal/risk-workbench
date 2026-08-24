@@ -86,6 +86,9 @@ from app.routers import (  # noqa: E402
     submissions,
     treaties,
 )
+from app.routers import (  # noqa: E402
+    templates as template_routes,
+)
 
 app.include_router(health.router)
 app.include_router(auth.router)
@@ -96,6 +99,7 @@ app.include_router(edms.router)
 app.include_router(portfolios.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
+app.include_router(template_routes.router)
 app.include_router(shell.router)
 
 

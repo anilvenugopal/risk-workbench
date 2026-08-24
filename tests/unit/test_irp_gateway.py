@@ -142,6 +142,78 @@ def test_search_treaties_keeps_idless_rows_and_stores_the_row_verbatim():
     assert hits[0].attributes == rows[0]   # the whole row IS the attribute map
 
 
+def test_reference_data_reads_map_the_sandbox_fields():
+    reference_data = SimpleNamespace(
+        get_model_profiles=lambda: {"items": [{
+            "id": 1, "name": "RL25 profile", "softwareVersionCode": "RL25",
+            "perilCode": "WS", "modelRegionCode": "NAWS", "peril": "Wind",
+            "region": "North America", "analysisType": "EP",
+        }]},
+        get_output_profiles=lambda: [{
+            "id": 2, "name": "Output", "rmsDefault": False,
+            "metricRequests": ["not cached"],
+        }],
+        get_event_rate_schemes=lambda: {"items": [{
+            "eventRateSchemeId": 3, "eventRateSchemeName": "Scheme",
+            "perilCode": "WS", "modelRegionCode": "NAWS",
+            "modelVersionCode": "25.0", "isHD": False, "isActive": True
+        }]},
+        search_currencies=lambda: {"items": [{
+            "currencyCode": "USD", "currencyName": "US Dollar",
+            "countryName": "United States", "currencySymbol": "$",
+        }]},
+    )
+    gw = _gw(reference_data=reference_data)
+
+    assert gw.list_model_profiles() == [irp_gateway.ModelProfileEntry(
+        1, "RL25 profile", "RL25", "WS", "NAWS", "Wind",
+        "North America", "EP")]
+    assert gw.list_output_profiles() == [
+        irp_gateway.OutputProfileEntry(2, "Output", False)]
+    assert gw.list_event_rate_schemes() == [irp_gateway.EventRateSchemeEntry(
+        3, "Scheme", "WS", "NAWS", "25.0", False)]
+    assert gw.list_currencies() == [
+        irp_gateway.CurrencyEntry("USD", "US Dollar", "United States", "$")]
+
+
+def test_reference_data_read_rejects_an_unexpected_container():
+    gw = _gw(reference_data=SimpleNamespace(get_model_profiles=lambda: None))
+    with pytest.raises(ValueError, match="model profiles"):
+        gw.list_model_profiles()
+
+
+def test_list_currency_schemes_filters_to_active_and_maps_sandbox_fields():
+    captured = {}
+
+    def search_currency_schemes(where_clause=""):
+        captured["where_clause"] = where_clause
+        return {"items": [{
+            "currencySchemeId": 30, "currencySchemeName": "RMS Scheme",
+            "currencySchemeCode": "RMS", "isActive": True, "isDefault": None,
+        }]}
+
+    gw = _gw(reference_data=SimpleNamespace(
+        search_currency_schemes=search_currency_schemes))
+
+    assert gw.list_currency_schemes() == [
+        irp_gateway.CurrencySchemeEntry(30, "RMS Scheme", "RMS")]
+    assert captured["where_clause"] == "isActive=True"
+
+
+def test_list_currency_scheme_vintages_maps_sandbox_fields_with_no_where_filter():
+    # No id field upstream (R13) — the dataclass has none either.
+    gw = _gw(reference_data=SimpleNamespace(
+        search_currency_scheme_vintages=lambda: {"items": [{
+            "vintage": "RL25", "currencySchemeCode": "RMS",
+            "effectiveDate": "2025-05-28T00:00:00.000Z",
+            "vintageDescription": "Reference Loss 2025",
+        }]}))
+
+    assert gw.list_currency_scheme_vintages() == [
+        irp_gateway.CurrencySchemeVintageEntry(
+            "RL25", "RMS", "2025-05-28T00:00:00.000Z")]
+
+
 # ── the DataBridge exposure summary — script-based interim implementation ─────────
 # get_edm_exposure_summary resolves the EDM's physical databaseName from RM's
 # exposures search (matched on exposureId — names collide in RM) and runs the

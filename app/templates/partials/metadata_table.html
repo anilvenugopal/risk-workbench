@@ -1,0 +1,119 @@
+{% import "partials/form_macros.html" as forms %}
+<div id="metadata-content">
+  <nav class="tabs" aria-label="Analysis metadata">
+    {% for tab in tabs %}
+    <a class="tab{% if tab.key == active_tab %} tab--active{% endif %}"
+       href="/templates/metadata?tab={{ tab.key }}"
+       hx-get="/templates/metadata/table?tab={{ tab.key }}"
+       hx-target="#metadata-content" hx-swap="outerHTML"
+       hx-push-url="/templates/metadata?tab={{ tab.key }}">
+      {{ tab.label }} <span class="badge badge--neutral">{{ counts[tab.count_key] }}</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  <div class="metadata-meta">
+    {% if latest_job %}
+      {% if latest_job.status_code in ("pending", "running") %}
+      <span class="status-chip status-chip--importing">{{ latest_job.status_code | title }}</span>
+      <span>The cached lists remain available while the job runs.</span>
+      {% elif latest_job.status_code == "failed" %}
+      <span class="status-chip status-chip--error">Failed</span>
+      {% elif latest_job.status_code == "succeeded" %}
+      <span class="status-chip status-chip--ready">Synced</span>
+      {% endif %}
+    {% endif %}
+    {% if last_synced_at %}<span>Last synced {{ last_synced_at }}</span>{% endif %}
+    {% if active_tab_rm_url %}
+    <span class="sec__spacer"></span>
+    <a class="sec__note sec__note--link" href="{{ active_tab_rm_url }}"
+       target="_blank" rel="noopener"
+       title="Open {{ active_tab_label }} in Risk Modeler (new tab)">Open in Risk Modeler ↗</a>
+    {% endif %}
+  </div>
+
+  <form class="metadata-filter" method="get" action="/templates/metadata"
+        hx-get="/templates/metadata/table" hx-trigger="input delay:300ms"
+        hx-target="#metadata-content" hx-swap="outerHTML">
+    <input type="hidden" name="tab" value="{{ active_tab }}">
+    <label for="metadata-filter">Filter {{ active_tab_label | lower }}</label>
+    <input id="metadata-filter" class="wf-field__input" type="text" name="q"
+           value="{{ q }}" autocomplete="off">
+  </form>
+
+  <div class="metadata-table-wrap">
+    <table class="mk-table metadata-table">
+      <thead>
+        {% if active_tab == "model-profiles" %}
+        <tr><th>Name</th><th>Family</th><th>Software version</th><th>Peril</th><th>Region</th><th>Analysis type</th></tr>
+        {% elif active_tab == "output-profiles" %}
+        <tr><th>Name</th><th>Risk Modeler ID</th><th>Default</th></tr>
+        {% elif active_tab == "event-rate-schemes" %}
+        <tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th><th>Active</th></tr>
+        {% elif active_tab == "currencies" %}
+        <tr><th>Code</th><th>Name</th><th>Country</th><th>Symbol</th></tr>
+        {% else %}
+        <tr><th>Name</th><th>Code</th><th>Anchor Currency</th><th>Update Interval</th><th>Vintages</th></tr>
+        {% endif %}
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          {% if active_tab == "model-profiles" %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td>{{ forms.family_badge(row.family) or '—' }}</td>
+            <td class="mono">{{ row.software_version_code or '—' }}</td>
+            <td>{{ row.peril or '—' }}</td><td>{{ row.region or '—' }}</td>
+            <td>{{ row.analysis_type or '—' }}</td>
+          </tr>
+          {% elif active_tab == "output-profiles" %}
+          <tr><td>{{ row.name }}</td><td class="mono">{{ row.irp_id }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td></tr>
+          {% elif active_tab == "event-rate-schemes" %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td class="mono">{{ row.peril_code or '—' }}</td>
+            <td class="mono">{{ row.model_region_code or '—' }}</td>
+            <td class="mono">{{ row.model_version_code or '—' }}</td>
+            <td>{{ 'Yes' if row.is_hd else 'No' }}</td>
+            <td>
+              {% if current_user and current_user.is_admin %}
+              <form hx-post="/templates/metadata/event-rate-schemes/{{ row.irp_id }}/visibility?tab={{ active_tab }}&q={{ q | urlencode }}"
+                    hx-target="#metadata-content" hx-swap="outerHTML"
+                    hx-trigger="change">
+                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+                <input type="checkbox" name="is_active" value="1"
+                       {% if row.workbench_is_active %}checked{% endif %}
+                       aria-label="Show {{ row.name }} in scheme pickers">
+              </form>
+              {% else %}
+              {{ 'Yes' if row.workbench_is_active else '—' }}
+              {% endif %}
+            </td>
+          </tr>
+          {% elif active_tab == "currencies" %}
+          <tr><td class="mono">{{ row.code }}</td><td>{{ row.name }}</td><td>{{ row.country_name or '—' }}</td><td>{{ row.symbol or '—' }}</td></tr>
+          {% else %}
+          <tr>
+            <td>{{ row.name }}</td>
+            <td class="mono">{{ row.code }}</td>
+            <td class="mono">{{ row.anchor_currency_code or '—' }}</td>
+            <td>{{ (row.update_interval_days ~ ' days') if row.update_interval_days is not none else '—' }}</td>
+            <td>
+              {% if row.vintages %}
+                {% for vintage in row.vintages %}<span class="badge badge--neutral">{{ vintage.vintage }} · {{ vintage.effective_date }}</span>{% endfor %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          {% endif %}
+        {% else %}
+        <tr><td class="empty" colspan="7">
+          {% if q %}No matches. Clear the filter to see all cached values.
+          {% else %}No {{ active_tab_label | lower }} synced. Run Sync IRP Metadata to load the Risk Modeler reference list.{% endif %}
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>

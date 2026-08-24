@@ -43,9 +43,9 @@ class _InjectUser(BaseHTTPMiddleware):
 
 
 def _make_app(user=None):
-    from app.routers import shell
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
+    from app.routers import shell
 
     app = FastAPI()
     templates = Jinja2Templates(directory="app/templates")
@@ -90,9 +90,6 @@ class TestSimpleShellRoutes:
 
     def test_results(self, client):
         assert client.get("/results").status_code == 200
-
-    def test_templates_page(self, client):
-        assert client.get("/templates").status_code == 200
 
     def test_account_page(self, client):
         assert client.get("/account").status_code == 200

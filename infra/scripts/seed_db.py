@@ -141,7 +141,8 @@ def main() -> int:
                     ('run_breakout_state', 'Portfolio breakout by geography (state)', 100),
                     ('run_breakout_country', 'Portfolio breakout by country', 105),
                     ('run_breakout_peril', 'Portfolio breakout by peril', 107),
-                    ('run_breakout_custom', 'Portfolio breakout by custom group', 110)
+                    ('run_breakout_custom', 'Portfolio breakout by custom group', 110),
+                    ('sync_irp_metadata',         'Sync IRP metadata',         90)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
