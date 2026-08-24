@@ -672,7 +672,7 @@ After validation passes, the analyst would push pre-aggregated exposure summarie
 
 ## 10A. Feature: Portfolio management (sub-portfolios & breakouts) — **IN MVP**
 
-> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits, peril splits, and merge/combine are out of MVP. *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril splits shipped as a quick breakout dimension.)*
+> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits and merge/combine are out of MVP. Peril splits are **in**, as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12).
 
 ### 10A.1 What this is
 
@@ -714,7 +714,7 @@ Sub-portfolio creation is enabled once an EDM with **≥1 portfolio** exists (po
 
 ### 10A.7 Out of scope (FR §3)
 
-Data-element modification (construction/currency normalization); peril-specific portfolios ("we don't have to split it up by peril" — verify separately whether RM adds a *missing* peril); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); finer-than-state/country granularity as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested). *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril-specific portfolios shipped as a quick breakout dimension, so peril-grain — finer than state/country — is in.)*
+Data-element modification (construction/currency normalization); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); geographic granularity finer than state/country as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested). Peril-specific portfolios are **in** (spec 005 P-19 rev., 2026-08-12) — verify separately whether RM adds a *missing* peril.
 
 ---
 
@@ -1319,7 +1319,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **In:** **one-click breakouts** (app-side loop: select the source portfolio's matching account ids → synchronous `create_portfolio()` → account add) by **line of business** and by **geography (state/state-equivalent)**, each previewed and confirmed with the quantified overlap and blank-value disclosures; breakout lineage (source portfolio, dimension, value) stored on `irp_portfolio` and shown in the portfolio list; automatic exposure-detail refresh for generated portfolios; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
 
-**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7). *(Superseded in part 2026-08-12, spec 005 P-19 rev.: peril-specific portfolios shipped as a quick breakout dimension.)*
+**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / merge-combine (out of MVP, §10A.7). Peril-specific portfolios shipped as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12).
 
 > **Resolved sub-item — geography breakout unblocked (2026-07-29).** O6-1/O6-2 closed by product direction: Risk Modeler assigns whole accounts, the overlap that produces is accepted and disclosed (quantified per portfolio in the preview), and no location-level toggle is awaited (§10A.5). The geography breakout ships in this iteration alongside LOB.
 

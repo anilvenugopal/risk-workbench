@@ -341,7 +341,9 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 > **Open question — commercial-policy geographic split (blocking for the geography breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed; a RiskLink "checkbox" recollection is not load-bearing. Output-side alternative: write losses to the state level and let the model allocate back. Ben investigating RM behavior; Cheryl polling the team for the preferred default. (Design note 06 §3, O6-1/O6-2.)
 
-**Out of scope for MVP:** peril splitting / peril-specific portfolios (no longer needed — "we don't have to split it up by peril"; verify whether RM adds a missing peril) *(superseded 2026-08-12, spec 005 P-19 rev.: peril shipped as a quick breakout dimension)*; update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
+Peril splitting ships as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12) — verify separately whether RM adds a missing peril.
+
+**Out of scope for MVP:** update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
 
 ---
 
