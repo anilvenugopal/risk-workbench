@@ -47,7 +47,8 @@ def test_breakout_request_and_run_emit_business_events(
     a = iteration2_db.user_a
 
     with caplog.at_level(logging.INFO, logger="app.services.breakout_service"):
-        jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF, a)
+        jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF,
+                                                a).job_id
     msgs = _messages(caplog, "app.services.breakout_service")
     assert any(f"breakout lob requested for portfolio {pid}" in m
                and str(a) in m and "n_sub_portfolios=2" in m for m in msgs)

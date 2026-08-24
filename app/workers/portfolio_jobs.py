@@ -23,7 +23,6 @@ lie). No rollback anywhere (P-07).
 
 from __future__ import annotations
 
-import json
 import logging
 import socket
 from typing import Any, Callable
@@ -50,14 +49,6 @@ _ = broker.redis_broker
 
 def _worker_id() -> str:
     return f"{socket.gethostname()}:{__name__}"
-
-
-def _load_input(rwb_job_id: Any) -> dict:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
-                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
 
 
 def _dimension_label(dimension: str) -> str:
@@ -232,7 +223,7 @@ def _run_breakout_body(rwb_job_id: Any) -> runtime.JobResult:
     fails only when zero succeeded. On completion including partial success,
     idempotently enqueue ``backfill_edm_detail`` so generated portfolios
     acquire figures without analyst action (FR-013)."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     portfolio_id = ctx.get("portfolio_id")
     dimension = ctx.get("dimension")
@@ -337,7 +328,7 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
     intersection fails the group with a recorded reason and creates nothing
     (FR-008 semantics); completion enqueues ``backfill_edm_detail`` exactly
     like the quick body (FR-013)."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     portfolio_id = ctx.get("portfolio_id")
     actor_id = ctx.get("actor_id")
     edm, source, error = _load_edm_and_source(ctx)

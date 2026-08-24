@@ -16,6 +16,7 @@ unit tier and SQL Server.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -193,6 +194,17 @@ def complete_rwb_job(
     )
 
 
+def load_input_data(rwb_job_id: Any) -> dict:
+    """The job's parsed ``input_data`` payload — ``{}`` when the row is missing
+    or carries none. The one queue-payload decoder: workers read their approved
+    plan and context through this."""
+    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
+                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
+    if row is None or not row["input_data"]:
+        return {}
+    return json.loads(row["input_data"])
+
+
 def reconcile_stale_rwb_jobs(*, stale_secs: int, now: datetime | None = None) -> int:
     """Reclaim rows a dead worker left ``running`` — the Article-10 reconciler,
     invoked by the poller each pass. A row is stale when its heartbeat is older
@@ -269,6 +281,7 @@ __all__ = [
     "claim_rwb_job",
     "get_rwb_job",
     "complete_rwb_job",
+    "load_input_data",
     "reconcile_stale_rwb_jobs",
     "backfill_edm_detail_rows",
 ]

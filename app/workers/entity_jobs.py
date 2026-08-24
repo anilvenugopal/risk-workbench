@@ -66,14 +66,6 @@ def _worker_id() -> str:
     return f"{socket.gethostname()}:{__name__}"
 
 
-def _load_input(rwb_job_id: Any) -> dict:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
-                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
-
-
 # ── upload_edm (US1) ────────────────────────────────────────────────────────────
 
 def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
@@ -82,7 +74,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     or reconciler re-run is a no-op (``JobResult.ok``). A submit that never reaches Risk
     Modeler records a ``SUBMISSION FAILED`` ``irp_job`` (for the poller's retry batch),
     flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     submission_id = ctx.get("requested_from_submission_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
@@ -136,7 +128,7 @@ def _rdm_import_exists(rdm_id: Any) -> bool:
 
 def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Submit one standalone RDM import and record its ``irp_job``."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     submission_id = ctx.get("requested_from_submission_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -236,7 +228,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     lookup here — resolution is read-time in ``analysis_service``.
 
     Manual RDM sync uses the same RDM-wide capture."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     apply_irp_id = ctx.get("apply_irp_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -352,7 +344,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         retry machinery) but NEVER touches the EDM's ``ready`` status (FR-005);
       • a missing EDM or one with no exposureId is a graceful skip — a
         pre-capability/never-finished EDM stays in the empty state (R7)."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:

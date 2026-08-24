@@ -26,7 +26,6 @@ from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
 from app.services.breakout_service import (
     GateRefused, StaleSummary, SummaryRewritten)
-from db import execute_one
 
 router = APIRouter()
 
@@ -97,15 +96,6 @@ def breakout_name_check(request: Request, edm_id: str, portfolio_id: str):
                      "action": "Adding"})
 
 
-def _planned_count(job_id: str) -> int:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :i",
-                      {"i": str(job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return 0
-    plan = json.loads(row["input_data"]).get("plan")
-    return len(plan) if isinstance(plan, list) else 0
-
-
 @router.post("/edms/{edm_id}/portfolios/{portfolio_id}/breakout")
 def breakout_confirm(
     request: Request,
@@ -128,7 +118,7 @@ def breakout_confirm(
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
     try:
-        job_id = breakout_service.request_breakout(
+        requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
             request.state.user.id)
     except SummaryRewritten as exc:
@@ -147,7 +137,7 @@ def breakout_confirm(
         return _modal(request, edm_id, portfolio_id, dimension,
                       status_code=409, error=exc.reason, error_kind="gate")
 
-    if job_id is None:
+    if requested is None:
         # Idempotent enqueue found a live run — the re-rendered modal shows
         # its in-flight state (409, no new job row).
         if not is_htmx:
@@ -164,7 +154,7 @@ def breakout_confirm(
     response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
     response.headers["HX-Retarget"] = "#edm-detail"
     response.headers["HX-Reswap"] = "outerHTML"
-    n = _planned_count(job_id)
+    n = requested.planned
     response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
         "message": f"Breakout started — {n} sub-portfolio"
                    f"{'' if n == 1 else 's'}",

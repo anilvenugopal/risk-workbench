@@ -899,13 +899,23 @@ def _verify_freshness(gate: BreakoutGate, portfolio_id: Any) -> None:
             "Sync the EDM, then retry.")
 
 
+@dataclass(frozen=True)
+class BreakoutRequested:
+    """A confirmed quick breakout: the enqueued job and its plan size — the
+    router's toast reads the count from here, never back off the job row."""
+    job_id: str
+    planned: int
+
+
 def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
-                     summary_as_of: str | None, actor_id: Any) -> str | None:
+                     summary_as_of: str | None,
+                     actor_id: Any) -> BreakoutRequested | None:
     """Five steps, in order; each gates the next, and **no rwb_job row exists
     until all five pass** (contracts/data-access.md §1): gate re-check →
     summary-unchanged check (FR-002b) → freshness check (FR-002a) → build and
-    persist the approved plan → idempotent enqueue. Returns the job id, or
-    ``None`` when a live job already exists (UI: "already running")."""
+    persist the approved plan → idempotent enqueue. Returns the job id with the
+    plan size, or ``None`` when a live job already exists (UI: "already
+    running")."""
     # 1. Gate re-check.
     gate = evaluate_gate(edm_id, portfolio_id)
     if not gate.portfolio_eligible:
@@ -960,7 +970,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                 len(plan))
     dispatch.dispatch(rwb_job_id=job_id,
                       rwb_job_type=f"run_breakout_{dimension}")
-    return job_id
+    return BreakoutRequested(job_id=job_id, planned=len(plan))
 
 
 # ── Custom grouping (follow-on FR-018–021, T-12/T-13) ────────────────────────────

@@ -105,7 +105,9 @@ Both figures are read from `summary.breakout_coverage[dimension]` (data-model §
 
 ```python
 def request_breakout(edm_id: UUID, portfolio_id: UUID, dimension: str,
-                     summary_as_of: str, actor_id: UUID) -> UUID | None
+                     summary_as_of: str, actor_id: UUID) -> BreakoutRequested | None
+    # BreakoutRequested carries the job id and the plan size; the router's
+    # toast reads the count from it, never back off the job row
 ```
 
 Five steps, in order; each gates the next, and **no `rwb_job` row exists until all five pass**:
