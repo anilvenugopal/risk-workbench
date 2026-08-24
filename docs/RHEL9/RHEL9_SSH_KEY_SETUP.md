@@ -249,7 +249,7 @@ steps:
   inputs:
     sshEndpoint: myServerSshConnection   # name of the SSH service connection
     runOptions: 'commands'
-    commands: 'cd /opt/risk-workbench && bash infra/scripts/rhel9-app-install.sh'
+    commands: 'cd /opt/risk-workbench && bash infra/scripts/rhel9/rhel9-app-install.sh'
 ```
 
 A sibling task, `CopyFilesOverSSH@0`, handles file transfer using the same

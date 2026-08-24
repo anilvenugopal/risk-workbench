@@ -2,7 +2,7 @@
 
 **ID:** CR-004
 **Status:** Ready to apply
-**Applies to:** `.specify/memory/constitution.md` (Article 10), `app/workers/`, `infra/scripts/start-all.sh`, `infra/scripts/stop-all.sh`, `infra/scripts/rhel9-deploy.sh`, a new systemd template unit, `infra/.env.example`, `docs/RHEL9_DEPLOYMENT.md`, `docs/SCAFFOLDING.md`, tests.
+**Applies to:** `.specify/memory/constitution.md` (Article 10), `app/workers/`, `infra/scripts/start-all.sh`, `infra/scripts/stop-all.sh`, `infra/scripts/rhel9/rhel9-deploy.sh`, a new systemd template unit, `infra/.env.example`, `docs/RHEL9_DEPLOYMENT.md`, `docs/SCAFFOLDING.md`, tests.
 
 ## 1. Summary
 
@@ -100,7 +100,7 @@ Resolves the "systemd unit files not yet written" item in `docs/RHEL9_DEPLOYMENT
 
 ### 4.7 Drain-check script (new)
 
-`infra/scripts/rhel9-drain-check.sh` (or a `queues.py` subcommand). Polls:
+`infra/scripts/rhel9/rhel9-drain-check.sh` (or a `queues.py` subcommand). Polls:
 
 ```sql
 SELECT rwb_job_type, status_code, COUNT(*) AS n
@@ -111,7 +111,7 @@ GROUP BY rwb_job_type, status_code;
 
 until it returns no rows, or a timeout is hit — then exits non-zero and lists what's still outstanding. Reads only `rwb_job`; no dependency on Dramatiq/Redis, since `rwb_job` is the queue of record.
 
-### 4.8 `infra/scripts/rhel9-deploy.sh`
+### 4.8 `infra/scripts/rhel9/rhel9-deploy.sh`
 
 Add a drain-check step before dependency install/migration; stop if it times out with work still outstanding. Replace the systemd TODO note with: stop all `rwb-worker@*` units → drain-check → deploy → start all `rwb-worker@*` units.
 
@@ -235,4 +235,4 @@ Replacement:
 - "Dramatiq queue drain before a redeploy" / "systemd unit files" (`docs/RHEL9_DEPLOYMENT.md`)
 - "same five processes" (`docs/SCAFFOLDING.md`)
 - `make logs-worker`
-- `infra/scripts/rhel9-deploy.sh`
+- `infra/scripts/rhel9/rhel9-deploy.sh`

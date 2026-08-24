@@ -45,7 +45,7 @@ echo "=== 1. Verify prerequisites (remote) ==="
 # this script. Nothing in this step touches this machine's own files.
 ssh $SSH_OPTS "$DEPLOY_HOST" \
     "APP_DIR=$DEPLOY_DIR DEPLOY_USER=\$(whoami) PYTHON_PKG=$PYTHON_PKG \
-     bash $DEPLOY_DIR/infra/scripts/rhel9-check-prereqs.sh"
+     bash $DEPLOY_DIR/infra/scripts/rhel9/rhel9-check-prereqs.sh"
 
 echo ""
 echo "=== 2. Push code (rsync, git-tracked files only) ==="
@@ -85,7 +85,7 @@ echo "=== 3. Install dependencies and run migrations (remote) ==="
 # because we always cd'd into the app directory by hand first — this
 # one-line SSH command needs to do that explicitly instead.
 ssh $SSH_OPTS "$DEPLOY_HOST" \
-    "cd $DEPLOY_DIR && PYTHON_BIN=$PYTHON_PKG bash infra/scripts/rhel9-app-install.sh"
+    "cd $DEPLOY_DIR && PYTHON_BIN=$PYTHON_PKG bash infra/scripts/rhel9/rhel9-app-install.sh"
 
 echo ""
 echo "=== 4. Reload nginx (remote, pre-authorized, no password) ==="

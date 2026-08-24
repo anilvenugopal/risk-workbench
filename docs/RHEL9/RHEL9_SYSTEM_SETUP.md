@@ -22,19 +22,19 @@ development, see [RHEL9_DEV_SETUP.md](RHEL9_DEV_SETUP.md).
 was originally verified — the actual, current way to do this is:
 
 ```bash
-DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9-setup.sh
+DEPLOY_USER=dev-user APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-setup.sh
 ```
 
-[infra/scripts/rhel9-setup.sh](../../infra/scripts/rhel9-setup.sh) does every
+[infra/scripts/rhel9/rhel9-setup.sh](../../infra/scripts/rhel9/rhel9-setup.sh) does every
 step below, idempotently (safe to re-run — checks state before acting).
 Verify it worked with:
 
 ```bash
 APP_DIR=/opt/risk-workbench DEPLOY_USER=dev-user PYTHON_PKG=python3.14 \
-    bash infra/scripts/rhel9-check-prereqs.sh
+    bash infra/scripts/rhel9/rhel9-check-prereqs.sh
 ```
 
-[infra/scripts/rhel9-check-prereqs.sh](../../infra/scripts/rhel9-check-prereqs.sh)
+[infra/scripts/rhel9/rhel9-check-prereqs.sh](../../infra/scripts/rhel9/rhel9-check-prereqs.sh)
 checks every package, command, permission, and (once `infra/.env` exists)
 network reachability this document describes — read-only, safe to run
 repeatedly, from the server or a pipeline.
@@ -69,7 +69,7 @@ git --version
 ### Production considerations
 
 **Decided**: this project's deploy mechanism is push-based —
-[rhel9-ssh-deploy.sh](../../infra/scripts/rhel9-ssh-deploy.sh) pushes code to
+[rhel9-ssh-deploy.sh](../../infra/scripts/rhel9/rhel9-ssh-deploy.sh) pushes code to
 the server via `rsync` over SSH; the server never runs `git clone`/`git
 pull` against GitHub, and never needs outbound internet access or GitHub
 credentials. `git` is still installed on the server (for the separate,
@@ -751,11 +751,11 @@ one before starting the other. Diagnose with
 ### Order of operations
 
 ```bash
-bash infra/scripts/rhel9-setup.sh                    # once
+bash infra/scripts/rhel9/rhel9-setup.sh                    # once
 cp <your .env> infra/.env                             # once
-bash infra/scripts/rhel9-setup-podman-mssql.sh         # once, if wanted
-bash infra/scripts/rhel9-start.sh                      # every session
-bash infra/scripts/rhel9-start-podman-mssql.sh         # every session, if wanted
+bash infra/scripts/rhel9/rhel9-setup-podman-mssql.sh         # once, if wanted
+bash infra/scripts/rhel9/rhel9-start.sh                      # every session
+bash infra/scripts/rhel9/rhel9-start-podman-mssql.sh         # every session, if wanted
 ```
 
 `rhel9-setup-podman-mssql.sh` installs Podman and creates the SQL Server
