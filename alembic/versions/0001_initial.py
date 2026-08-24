@@ -390,7 +390,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requestor_type", sa.NVARCHAR(50), nullable=False),
         # requestor_id has NO DB FK — its target varies by requestor_type
-        # (irp_job / analyst_request / rwb_job), data-model §4.
+        # (irp_job / analyst_request / rwb_job / breakout_group), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
         sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,

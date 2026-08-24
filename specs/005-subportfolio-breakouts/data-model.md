@@ -6,7 +6,7 @@ All relational changes are **WORKBENCH** (`rwb_workbench`) only, folded into the
 
 ---
 
-## 1. `irp_portfolio` — three new lineage columns (R3)
+## 1. `irp_portfolio` — four new lineage columns (R3)
 
 The entity stays the thin identity record of DATA_MODEL §5, plus the spec-004 snapshot column, plus **breakout lineage**:
 
@@ -21,6 +21,7 @@ The entity stays the thin identity record of DATA_MODEL §5, plus the spec-004 s
 | **`source_portfolio_id`** | UNIQUEIDENTIFIER NULL, FK → `irp_portfolio.id` | ✅ | self-reference; NULL = broker-arrived. Immediate source only — chained lineage walks the chain |
 | **`breakout_dimension_code`** | NVARCHAR(32) NULL, FK → `breakout_dimension_kind.code` | ✅ | NULL iff `source_portfolio_id` IS NULL |
 | **`breakout_value`** | NVARCHAR(256) NULL | ✅ | the value the **selection filter** uses, verbatim: `Admin1Code` for `state`, `LOBNAME` for `lob` (P-12). External exposure vocabulary → plain column per Article 3. Not a display string: the state *name* is a separate exposure attribute that is absent until geocoding and changes under the analyst's feet (R6) |
+| **`breakout_group_id`** | UNIQUEIDENTIFIER NULL, FK → `breakout_group.id` | ✅ | set iff `breakout_dimension_code` is `custom` (§9); the group row owns the label and filters the portfolio's number and name cannot carry |
 | `deleted_at` | DATETIME2 NULL | | soft delete (prune) |
 | `inserted_at` / `updated_at` | DATETIME2 NOT NULL | | |
 | `inserted_by` / `updated_by` | UNIQUEIDENTIFIER NULL, FK → `app_user.id` | | **now populated for generated rows** (the confirming analyst, carried to the worker in `input_data.actor_id`) — first writer to use these columns on this table |
@@ -37,7 +38,8 @@ The entity stays the thin identity record of DATA_MODEL §5, plus the spec-004 s
   ```
 
   One live generated portfolio per (source, dimension, value). Re-runs and double-submits hit this as a constraint, not a convention. (SQLite unit tier: SQLAlchemy emits the same filtered/partial unique index — supported since SQLite 3.8; the fixture engine qualifies.)
-- **Integrity rule (service-enforced, not a CHECK):** the three lineage columns are set together or not at all; `source_portfolio_id` must reference a portfolio in the **same EDM**. Enforced in `portfolio_service.save_generated_portfolio` (one write path), asserted in unit tests.
+- **Integrity rule (service-enforced, not a CHECK):** `source_portfolio_id`, `breakout_dimension_code`, and `breakout_value` are set together or not at all; `source_portfolio_id` must reference a portfolio in the **same EDM**; `breakout_group_id` and dimension `custom` go together and only with each other. Enforced in `portfolio_service.save_generated_portfolio` (one write path), asserted in unit tests.
+- **Known gap:** the filtered index predicate is `source_portfolio_id IS NOT NULL AND deleted_at IS NULL` and does not mention `breakout_group_id`, so the schema permits shapes the integrity rule above forbids — a `custom` row without its group, or a group id on a quick-dimension row. Accepted: `save_generated_portfolio` is the one write path and holds the invariant there.
 
 **Non-changes (deliberate):**
 
@@ -66,7 +68,7 @@ Standard kind-table shape:
 
 App code dispatches on `code` — which entry of `summary.breakout_values` to read, which selection read to run. `code` is also the key inside `breakout_values` (§5), so there is no second vocabulary to keep in step. Follow-on dimensions (complement) add rows here, not enum literals — `country` was added this way 2026-08-10, quick-mode with number letter `C` (values are the `Address` country codes, label always null — no name column in the EDM). `peril` was added 2026-08-10 for custom grouping and became quick-mode 2026-08-12 with number letter `P` (P-19: values are `loccvg.PERIL` codes stringified, label always null — W-21 — and every display and generated name reads the mnemonic, P-30); `custom` is the grouping lineage code (§9), not a value dimension — the gate never enumerates it.
 
-## 3. `rwb_job_type_kind` — two new seed rows (R2)
+## 3. `rwb_job_type_kind` — five new seed rows (R2)
 
 | code | label |
 |---|---|
@@ -172,8 +174,8 @@ Source scripts, all read-only and worker-side through `irp-integration` (Article
 `alembic/versions/0001_initial.py` (single-revision, drop-create):
 
 1. `breakout_dimension_kind` created **before** `irp_portfolio` (FK ordering); dropped after it in `downgrade()`.
-2. `irp_portfolio` create statement gains the three columns, the self-FK (`ondelete=NO ACTION` — SQL Server rejects cascading self-references), and the filtered unique index.
-3. Seed blocks: `breakout_dimension_kind` (2 rows), `rwb_job_type_kind` (+2 rows).
+2. `irp_portfolio` create statement gains the four columns, the self-FK (`ondelete=NO ACTION` — SQL Server rejects cascading self-references), and the filtered unique index.
+3. Seed blocks: `breakout_dimension_kind` (5 rows), `rwb_job_type_kind` (+5 rows), `rwb_job_requestor_type_kind` (+1 row — `breakout_group`).
 4. `infra/scripts/seed_db.py`: idempotent MERGE for both seed sets.
 5. SQL Server tier test (`tests/sqlserver/test_detail_tables_migration.py`): columns/FK/index built; a duplicate live generated portfolio rejected; a soft-deleted one does not block re-creation (filtered index).
 
@@ -190,12 +192,12 @@ One row per (source portfolio, canonical member set). The row's UUID is the grou
 | `group_key` | NVARCHAR(64) NOT NULL | `sha256(canonical filters)[:12]` — the identity (P-22) |
 | `label` | NVARCHAR(256) NOT NULL | the analyst's group name; adopt-not-rename |
 | `filters` | NVARCHAR(MAX) NOT NULL | canonical member-filter JSON: `{"state": ["FL","GA"], "peril": ["2"]}` — OR within, AND across (P-20) |
-| `name` / `number` | NVARCHAR(256) / NVARCHAR(64) NOT NULL | the approved plan values (rule 8); name = the label exactly as typed (P-24), number = the name inside 20 characters, hash-tailed on overrun (P-26). Rows approved before 2026-08-10 keep their composed `{source} - {label}` name and `P{rm id}-G-{key token}` number |
+| `name` / `number` | NVARCHAR(256) / NVARCHAR(64) NOT NULL | the approved plan values (rule 8); name = the label exactly as typed (P-24), number = the name inside 20 characters, hash-tailed on overrun (P-26) |
 | `cart_id` | UNIQUEIDENTIFIER NOT NULL | the confirm that most recently carried the group — banner aggregation (FR-020) |
 | audit | | `inserted_at`/`updated_at` NOT NULL; `inserted_by`/`updated_by` NULL FK → `app_user.id` |
 
 - `UNIQUE(source_portfolio_id, group_key)` (`uq_breakout_group_source_key`): a re-confirm of the same member set reuses the row, which dedups the job through `UNIQUE(requestor_type, requestor_id, rwb_job_type)` with no `rwb_job` change.
-- `irp_portfolio` += `breakout_group_id` (UNIQUEIDENTIFIER NULL, FK `fk_irp_portfolio_breakout_group`). A generated group portfolio stores `breakout_dimension_code='custom'` with the **group_key** as `breakout_value` — `uq_irp_portfolio_breakout` DDL unchanged; label/filters read via the join (one source of truth).
+- A generated group portfolio stores `breakout_dimension_code='custom'` with the **group_key** as `breakout_value` and links back through `irp_portfolio.breakout_group_id` (§1) — `uq_irp_portfolio_breakout` DDL unchanged; label and filters read via the join, so this row is their one source of truth.
 - New kind rows: `breakout_dimension_kind ('custom','Custom group',40)`, `rwb_job_type_kind 'run_breakout_custom'`, `rwb_job_requestor_type_kind 'breakout_group'`.
 
 **Group job `input_data`** (per group; the worker reads `group` and nothing else):
