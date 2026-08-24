@@ -46,14 +46,14 @@ fi
 if ! grep -q "^$DEPLOY_USER:" /etc/subuid 2>/dev/null; then
     sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$DEPLOY_USER"
     echo "  Assigned subuid/subgid ranges to $DEPLOY_USER."
+    # Applies the subuid/subgid assignment to Podman's internal state —
+    # only needed right after the ranges actually change; safe to re-run
+    # but only run here so its output doesn't imply reconfiguration
+    # happened on a run where nothing changed.
+    podman system migrate
 else
     echo "  subuid/subgid already assigned."
 fi
-
-# Applies the subuid/subgid assignment to Podman's internal state — needed
-# once after the ranges are assigned, before rootless containers can
-# actually use them.
-podman system migrate
 echo "  Podman rootless setup complete."
 echo "  (No port-related sysctl needed — SQL Server's port, 1433, is above"
 echo "  1024, unlike nginx's port 80, so the unprivileged-port restriction"
