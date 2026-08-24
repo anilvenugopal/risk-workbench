@@ -824,3 +824,21 @@ longer wait or a different Podman flag fixes.
 Accepted as-is for this local dev/testing convenience: SQL Server's own
 crash-recovery journaling protects data through an unexpected stop, the
 same mechanism that protects against a real power loss.
+
+### `"/" is not a shared mount` warning — known WSL2 quirk, not a failure
+
+Podman prints this on most rootless operations on this machine:
+
+```
+WARN[0000] "/" is not a shared mount, this could cause issues or missing mounts with rootless containers
+```
+
+WSL2 mounts its root filesystem with a mount-propagation mode other than
+`shared`, which some rootless container features expect. This is a
+property of how WSL2 itself boots, not something this project's scripts
+configure. Confirmed harmless in practice: every setup/start/stop run
+tonight showed this warning, and none of them actually failed because of
+it — the container starts, permissions apply correctly, and data persists
+as expected regardless. A real fix exists (`sudo mount --make-rshared /`)
+but is unverified and not applied, since the warning hasn't caused an
+actual problem.

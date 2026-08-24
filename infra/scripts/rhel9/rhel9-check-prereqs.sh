@@ -92,7 +92,15 @@ else
 fi
 # This confirms the specific narrow permission rhel9-setup.sh granted —
 # without it, a deploy can never reload nginx's config without full sudo.
-if sudo -n -l 2>/dev/null | grep -q "systemctl reload nginx"; then
+# "sudo -n -l <command>" asks sudo directly "would I be allowed to run
+# exactly this command without a password" and PRINTS BACK the command if
+# so — it does not actually execute it, so this stays read-only. Confirmed
+# directly this is the right check: reading /etc/sudoers.d/ itself (an
+# earlier version of this check tried "sudo grep" against the sudoers file
+# directly) needs broader sudo access than the narrow reload/tee grants
+# provide, and fails non-interactively even when the real permission works
+# — asking sudo about the actual command avoids that entirely.
+if sudo -n -l /usr/bin/systemctl reload nginx > /dev/null 2>&1; then
     check "$DEPLOY_USER can reload nginx without a password" "yes"
 else
     check "$DEPLOY_USER can reload nginx without a password" "no"
