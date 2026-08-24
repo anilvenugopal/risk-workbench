@@ -142,6 +142,19 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* ── portfolio breakout (spec 005) — modal, in-flight, banner, error lines ──
    Markup fixed by docs/ui_previews/breakout_modal.html (approved 2026-08-04);
    tokens only (Article 9). */
+/* .modal moved here from packages.css when package retirement (006) deleted
+   that file — the breakout modal is now its only user. */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  z-index: 50;
+  overflow-y: auto;
+}
 .bo-modal { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); width: 100%; max-width: min(900px, 94vw); display: flex; flex-direction: column; overflow: hidden; margin: auto; }
 .bo-modal__header { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-faint); }
 .bo-modal__title { font-size: var(--fs-h3); font-weight: var(--fw-semibold); }
