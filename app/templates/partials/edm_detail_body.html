@@ -137,6 +137,9 @@
           hx-target="#edm-detail" hx-swap="outerHTML"
           x-data="geohazSelection" @change="refresh()">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      {% if source_submission %}
+      <input type="hidden" name="submission_id" value="{{ source_submission.id }}">
+      {% endif %}
       <div class="section-head">
         <span class="tag-empty">Select one or more available portfolios.</span>
         <button class="btn-sm btn-sm--primary" type="submit"

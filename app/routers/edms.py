@@ -286,7 +286,12 @@ def contextual_detail(request: Request, submission_id: str, edm_id: str):
         return _contextual_not_found(request)
     return _render(
         request, "pages/edm_detail.html",
-        {**_contextual_template_context(context), "nc_unchecked": False},
+        {
+            **_contextual_template_context(context),
+            "nc_unchecked": False,
+            "geohaz_queued": request.query_params.get("geohaz") == "queued",
+            "geohaz_error": request.query_params.get("geohaz_error"),
+        },
         nav_key="submissions.detail")
 
 
@@ -375,14 +380,25 @@ def geohaz_launch(
     edm_id: str,
     csrf_token: Annotated[str, Form()],
     portfolio_ids: Annotated[list[str] | None, Form()] = None,
+    submission_id: Annotated[str | None, Form()] = None,
 ):
     is_htmx = request.headers.get("HX-Request") == "true"
+    submission_id = submission_id or None
+    return_url = (
+        f"/submissions/{submission_id}/edms/{edm_id}"
+        if submission_id else f"/edms/{edm_id}"
+    )
     if not validate_csrf_token(csrf_token):
         if is_htmx:
             return Response(status_code=204, headers={"HX-Refresh": "true"})
-        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+        return RedirectResponse(return_url, status_code=303)
+
+    if submission_id and edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
+        return _contextual_not_found(request)
 
     selected = portfolio_ids or []
+    error: str | None = None
     try:
         result = geohaz_service.launch(
             edm_id=edm_id,
@@ -390,21 +406,26 @@ def geohaz_launch(
             actor_id=request.state.user.id,
         )
     except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:
+        error = str(exc)
         if not is_htmx:
-            query = urlencode({"geohaz_error": str(exc)})
-            return RedirectResponse(f"/edms/{edm_id}?{query}", status_code=303)
-        response = _body_partial(request, edm_id)
-        response.headers["HX-Trigger"] = _toast_header(str(exc), "error")
-        return response
+            query = urlencode({"geohaz_error": error})
+            return RedirectResponse(f"{return_url}?{query}", status_code=303)
 
     if not is_htmx:
-        return RedirectResponse(f"/edms/{edm_id}?geohaz=queued", status_code=303)
-    response = _body_partial(request, edm_id)
-    message = (
-        f"Hazard lookup queued for {len(result.portfolio_ids)} "
-        f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
+        return RedirectResponse(f"{return_url}?geohaz=queued", status_code=303)
+
+    response = (
+        _contextual_body_partial(request, submission_id, edm_id)
+        if submission_id else _body_partial(request, edm_id)
     )
-    response.headers["HX-Trigger"] = _toast_header(message, "success")
+    if error is not None:
+        response.headers["HX-Trigger"] = _toast_header(error, "error")
+    else:
+        message = (
+            f"Hazard lookup queued for {len(result.portfolio_ids)} "
+            f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
+        )
+        response.headers["HX-Trigger"] = _toast_header(message, "success")
     return response
 
 

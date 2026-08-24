@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 
-from app.services import irp_job_service
+from app.services import analysis_service, edm_service, irp_job_service
+from app.services._common import SubmissionRef
 from db import execute, execute_command
 from tests.unit.test_edm_sync import _client
 from tests.unit.test_geohaz_service import _edm_with_portfolios
@@ -16,6 +17,19 @@ def _form(portfolio_ids: list[str]) -> dict:
         "portfolio_ids": portfolio_ids,
     }
     return data
+
+
+def _context(edm_id: str) -> edm_service.ContextualEdmDetail:
+    edm = edm_service.get_edm_detail(edm_id)
+    assert edm is not None
+    return edm_service.ContextualEdmDetail(
+        edm=edm,
+        submission=SubmissionRef(id="submission-a", name="Submission A"),
+        edm_choices=[SubmissionRef(id=edm_id, name=edm.name)],
+        rdms=[analysis_service.BrokerAnalysisGroup(
+            rdm_id="rdm-1", rdm_name="Submission RDM", rdm_irp_id=201,
+            analysis_count=2)],
+    )
 
 
 def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
@@ -35,6 +49,7 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
     assert "disabled" in blocked.split(">", 1)[0]
     assert f'action="/edms/{edm_id}/geohaz"' in body
     assert f'hx-post="/edms/{edm_id}/geohaz"' in body
+    assert 'name="submission_id"' not in body
     portfolio_head = body[body.index('class="dtable__head"'):]
     portfolio_head = portfolio_head[:portfolio_head.index("</div>")]
     assert portfolio_head.index("Currency") < portfolio_head.index("Hazard Version")
@@ -115,6 +130,96 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
         "message": "Hazard lookup queued for 2 portfolios.",
         "type": "success",
     }
+
+
+def test_contextual_launch_preserves_submission_content(
+    iteration2_db, monkeypatch,
+):
+    edm_id, portfolio_ids = _edm_with_portfolios(2)
+    monkeypatch.setattr(
+        edm_service, "get_contextual_edm_detail",
+        lambda **kwargs: _context(edm_id),
+    )
+    client = _client()
+    page = client.get(f"/submissions/submission-a/edms/{edm_id}")
+
+    assert f'action="/edms/{edm_id}/geohaz"' in page.text
+    assert f'hx-post="/edms/{edm_id}/geohaz"' in page.text
+    assert 'name="submission_id" value="submission-a"' in page.text
+
+    data = _form(portfolio_ids)
+    data["submission_id"] = "submission-a"
+    response = client.post(
+        f"/edms/{edm_id}/geohaz", data=data,
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 200
+    assert 'href="/submissions/submission-a"' in response.text
+    assert "EDM in Submission A" in response.text
+    assert "Broker analyses" in response.text
+    assert "Submission RDM" in response.text
+    toast = json.loads(response.headers["HX-Trigger"])["rwb:toast"]
+    assert toast == {
+        "message": "Hazard lookup queued for 2 portfolios.",
+        "type": "success",
+    }
+
+    conflict = client.post(
+        f"/edms/{edm_id}/geohaz", data=data,
+        headers={"HX-Request": "true"},
+    )
+    assert 'href="/submissions/submission-a"' in conflict.text
+    assert "Broker analyses" in conflict.text
+    toast = json.loads(conflict.headers["HX-Trigger"])["rwb:toast"]
+    assert toast["type"] == "error"
+    assert "already in progress" in toast["message"]
+
+    plain_conflict = client.post(f"/edms/{edm_id}/geohaz", data=data)
+    assert plain_conflict.status_code == 303
+    assert plain_conflict.headers["location"].startswith(
+        f"/submissions/submission-a/edms/{edm_id}?geohaz_error=")
+    error_page = client.get(plain_conflict.headers["location"])
+    assert "already in progress" in error_page.text
+    assert 'href="/submissions/submission-a"' in error_page.text
+
+
+def test_contextual_launch_plain_post_redirects_to_contextual_page(
+    iteration2_db, monkeypatch,
+):
+    edm_id, portfolio_ids = _edm_with_portfolios(1)
+    monkeypatch.setattr(
+        edm_service, "get_contextual_edm_detail",
+        lambda **kwargs: _context(edm_id),
+    )
+    data = _form(portfolio_ids)
+    data["submission_id"] = "submission-a"
+
+    response = _client().post(f"/edms/{edm_id}/geohaz", data=data)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == (
+        f"/submissions/submission-a/edms/{edm_id}?geohaz=queued")
+    page = _client().get(response.headers["location"])
+    assert "Hazard lookup queued" in page.text
+    assert 'href="/submissions/submission-a"' in page.text
+
+
+def test_contextual_launch_rejects_an_unrelated_edm(
+    iteration2_db, monkeypatch,
+):
+    edm_id, portfolio_ids = _edm_with_portfolios(1)
+    monkeypatch.setattr(
+        edm_service, "get_contextual_edm_detail", lambda **kwargs: None)
+    data = _form(portfolio_ids)
+    data["submission_id"] = "submission-a"
+
+    response = _client().post(f"/edms/{edm_id}/geohaz", data=data)
+
+    assert response.status_code == 404
+    assert execute(
+        "SELECT id FROM rwb_job WHERE rwb_job_type='run_geohaz'",
+        {}, connection="WORKBENCH") == []
 
 
 def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(iteration2_db):

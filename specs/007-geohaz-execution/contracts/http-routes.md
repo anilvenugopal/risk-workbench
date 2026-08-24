@@ -6,7 +6,9 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 
 ## `POST /edms/{edm_id}/geohaz` — launch
 
-- Form fields: `csrf_token` and `portfolio_ids` (repeated).
+- Form fields: `csrf_token`, `portfolio_ids` (repeated), and optional
+  `submission_id`. The submission-contextual EDM page supplies `submission_id`;
+  the direct EDM library page omits it.
 - The route supplies the parameter set: the configured data version
   (`settings.hazard_data_version`), DLM, earthquake + windstorm,
   `skip_prev_hazard=false`, and `override_user_def=true`.
@@ -19,6 +21,10 @@ POST is CSRF-validated. No route touches Risk Modeler (Article 11).
 - On validation failure: nothing is enqueued. HTMX receives the refreshed EDM
   body and an error toast; no-JavaScript requests redirect to the EDM page with
   an error banner. A P-06-ineligible selection is rejected, not silently skipped.
+- When `submission_id` is supplied, the route validates the `submission_edm`
+  association before enqueueing, then returns the submission-contextual body
+  fragment (HTMX) or redirects to the submission-contextual EDM page (no-JS).
+  The direct EDM library response remains unchanged when the field is absent.
 
 ## `GET /edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell` — status cell fragment
 
