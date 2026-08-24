@@ -150,7 +150,13 @@ SUDOERS_FILE=/etc/sudoers.d/risk-workbench-nginx-reload
 SUDOERS_LINE="$DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx"
 # Only write this rule if it doesn't already exist exactly as written —
 # avoids appending duplicate copies of the same line if this script re-runs.
-if [ ! -f "$SUDOERS_FILE" ] || ! sudo grep -qF "$SUDOERS_LINE" "$SUDOERS_FILE"; then
+# /etc/sudoers.d is root:root, mode 750 — a plain user
+# has no permission to even check whether a file exists inside it, so a
+# non-sudo "[ -f ... ]" always reports "not found" regardless of the real
+# state. "sudo grep" alone is enough — it fails cleanly (same as "not
+# found") if the file genuinely doesn't exist, so no separate existence
+# check is needed once everything already runs through sudo.
+if ! sudo grep -qF "$SUDOERS_LINE" "$SUDOERS_FILE" 2>/dev/null; then
     # "tee" writes text to a file. We route it through sudo because the
     # /etc/sudoers.d/ folder itself is root-only.
     echo "$SUDOERS_LINE" | sudo tee "$SUDOERS_FILE" > /dev/null
@@ -172,7 +178,10 @@ fi
 NGINX_CONF_PATH=/etc/nginx/conf.d/risk-workbench.conf
 CONF_SUDOERS_FILE=/etc/sudoers.d/risk-workbench-nginx-conf-write
 CONF_SUDOERS_LINE="$DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/tee $NGINX_CONF_PATH"
-if [ ! -f "$CONF_SUDOERS_FILE" ] || ! sudo grep -qF "$CONF_SUDOERS_LINE" "$CONF_SUDOERS_FILE"; then
+# Same /etc/sudoers.d permission issue as the reload rule above — plain
+# "[ -f ... ]" can't see inside this root-only directory; sudo grep alone
+# is sufficient.
+if ! sudo grep -qF "$CONF_SUDOERS_LINE" "$CONF_SUDOERS_FILE" 2>/dev/null; then
     echo "$CONF_SUDOERS_LINE" | sudo tee "$CONF_SUDOERS_FILE" > /dev/null
     sudo chmod 440 "$CONF_SUDOERS_FILE"
     sudo visudo -c -f "$CONF_SUDOERS_FILE"
@@ -206,6 +215,20 @@ if [ ! -d "$VALKEY_DATA_DIR" ]; then
     echo "  Created $VALKEY_DATA_DIR, owned by $DEPLOY_USER."
 else
     echo "  $VALKEY_DATA_DIR already exists."
+fi
+
+echo ""
+echo "=== 8. Memory overcommit (for Valkey background saves) ==="
+# Valkey/Redis warns on startup if this kernel setting isn't 1 — without
+# it, a background save (which AOF rewrites depend on) can fail under
+# memory pressure. "sysctl -n" reads the CURRENT live value; only touch
+# the persistent config file if it isn't already set to 1.
+if [ "$(sysctl -n vm.overcommit_memory)" != "1" ]; then
+    echo 'vm.overcommit_memory = 1' | sudo tee -a /etc/sysctl.conf > /dev/null
+    sudo sysctl -w vm.overcommit_memory=1 > /dev/null
+    echo "  Set vm.overcommit_memory=1 (persisted in /etc/sysctl.conf)."
+else
+    echo "  vm.overcommit_memory already set to 1."
 fi
 
 echo ""
