@@ -2,7 +2,8 @@
 FR-001/FR-006/FR-006c/FR-007/FR-002a/FR-002b).
 
 Owns the HTTP surface over the REAL service and a real (SQLite) WORKBENCH:
-modal states, the untruncated preview list, the three overlap forms, the
+modal states, the untruncated preview list, the three forms of each FR-007
+disclosure line (overlap and left-out), the
 FR-006c large-fan-out statement, CSRF, the four 409 refusal variants (each
 writing NO job row), the persisted plan, enqueue idempotency, the body-partial
 success response, and the 404 fragment.
@@ -236,14 +237,16 @@ def test_modal_large_fanout_untruncated_with_several_minutes_note(
     assert "several minutes" in r.text
 
 
-def test_modal_overlap_statement_three_forms(routes_db, client):
-    # The same value set against three coverage readings forces each arm
-    # (FR-007). The value counts are identical throughout — only the measured
-    # coverage moves, which is the point: Σ accounts cannot tell these apart.
+def test_modal_disclosures_in_every_form(routes_db, client):
+    # The same value set against three coverage readings forces every arm of
+    # both FR-007 lines — overlap and left-out — and P-21's cut of the
+    # explanatory prose. The value counts are identical throughout; only the
+    # measured coverage moves, which is the point: Σ accounts cannot tell
+    # these apart.
     edm_id = _mk_edm()
     values = {"lob": [{"value": "A", "label": None, "accounts": 700},
                       {"value": "B", "label": None, "accounts": 600}]}
-    heavy = dict(SUMMARY, account_total=1000, breakout_values=values,
+    heavy = dict(SUMMARY, account_total=1400, breakout_values=values,
                  breakout_coverage={"lob": {"covered": 1000,
                                             "multi_value": 300}})
     pid = _mk_portfolio(edm_id, summary=heavy)
@@ -251,9 +254,8 @@ def test_modal_overlap_statement_three_forms(routes_db, client):
     assert "Warning: overlapping accounts" in flat
     assert ("300 of 1,000 accounts match more than one line of business and "
             "are included in full in each matching sub-portfolio." in flat)
-    # P-21: the explanatory prose is cut
-    assert "inflation" not in flat
-    assert "tend to be the largest" not in flat
+    assert ("400 of 1,400 accounts carry no line of business value and are "
+            "left out." in flat)
 
     clean = dict(SUMMARY, account_total=1300, breakout_values=values,
                  breakout_coverage={"lob": {"covered": 1300,
@@ -263,14 +265,23 @@ def test_modal_overlap_statement_three_forms(routes_db, client):
     assert ("No overlapping accounts — none of the 1,300 accounts that carry "
             "a line of business matches more than one." in flat2)
     assert "Warning" not in flat2
+    assert ("None left out — every account carries a line of business value."
+            in flat2)
 
     absent = {k: v for k, v in heavy.items() if k != "breakout_coverage"}
     pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
     flat3 = " ".join(client.get(_url(edm_id, pid3)).text.split())
-    # qualitative sentence alone — no count is invented from the value totals
+    # qualitative sentences alone — no count invented from the value totals
     assert ("Accounts matching more than one line of business are included "
             "in full in each matching sub-portfolio." in flat3)
     assert "match more than one" not in flat3
+    assert "Accounts with no line of business value are left out." in flat3
+    assert "carry no line of business value" not in flat3
+
+    for rendered in (flat, flat2, flat3):
+        assert "inflation" not in rendered
+        assert "tend to be the largest" not in rendered
+        assert "commercial account" not in rendered
 
 
 def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
@@ -293,40 +304,6 @@ def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
     assert "None left out" not in flat
 
 
-def test_modal_disclosure_prose_is_cut_in_every_form(routes_db, client):
-    # P-21 (D11): the two short quantified lines replace the multi-sentence
-    # explanation — no exposure-inflation sentences, no geography paragraphs.
-    edm_id = _mk_edm()
-    # SUMMARY's state coverage is every account, none repeating → the zero arm
-    pid = _mk_portfolio(edm_id)
-    flat = " ".join(
-        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
-    assert ("No overlapping accounts — none of the 1,701 accounts that carry "
-            "a state matches more than one." in flat)
-
-    # quantified arm: measured repeats > 0
-    heavy = dict(SUMMARY, breakout_coverage={"state": {"covered": 1701,
-                                                       "multi_value": 201}})
-    pid2 = _mk_portfolio(edm_id, name="heavy", irp_id="2", summary=heavy)
-    flat2 = " ".join(
-        client.get(_url(edm_id, pid2) + "?dimension=state").text.split())
-    assert ("201 of 1,701 accounts match more than one state and are "
-            "included in full in each matching sub-portfolio." in flat2)
-
-    # qualitative arm: no breakout_coverage
-    absent = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
-    pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
-    flat3 = " ".join(
-        client.get(_url(edm_id, pid3) + "?dimension=state").text.split())
-    assert ("Accounts matching more than one state are included in full in "
-            "each matching sub-portfolio." in flat3)
-
-    for rendered in (flat, flat2, flat3):
-        assert "commercial account" not in rendered
-        assert "inflation" not in rendered
-        assert "several states" not in rendered
-
-
 def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
     # US2 (T047/FR-006c): a 43-division state fan-out renders every row —
     # values with null labels render the code alone (un-geocoded EDM) — plus
@@ -345,34 +322,6 @@ def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
     assert "43 sub-portfolios is a large run" in r.text
     assert "several minutes" in r.text
     assert "Create 43 sub-portfolios" in r.text
-
-
-def test_modal_blank_value_disclosure_states_the_measured_shortfall(
-        routes_db, client):
-    # FR-007(b): SUMMARY's lob coverage is 1,641 of 1,701 accounts, so 60 carry
-    # no line of business and land in no sub-portfolio — stated as a number.
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
-    flat = " ".join(client.get(_url(edm_id, pid)).text.split())
-    assert ("60 of 1,701 accounts carry no line of business value and are "
-            "left out." in flat)
-    # the state dimension covers every account → the positive form
-    flat_state = " ".join(
-        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
-    assert ("None left out — every account carries a state value."
-            in flat_state)
-
-
-def test_modal_blank_value_disclosure_stays_qualitative_without_coverage(
-        routes_db, client):
-    # A summary written before the 2026-08-05 revision carries no
-    # breakout_coverage: the fixed sentence, no invented number.
-    edm_id = _mk_edm()
-    no_coverage = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
-    pid = _mk_portfolio(edm_id, summary=no_coverage)
-    flat = " ".join(client.get(_url(edm_id, pid)).text.split())
-    assert ("Accounts with no line of business value are left out." in flat)
-    assert "carry no line of business value" not in flat
 
 
 def test_modal_missing_summary_disables_every_dimension_with_sync_pointer(
@@ -714,7 +663,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     # carries one from each. The stored summary cannot see that, so the Add asks
     # DataBridge for the intersection count (P-29) and refuses on zero.
     edm_id, pid = _custom_pair(fake_irp)
-    fake_irp.selection_by_value = {"TX": [1, 2], "1": [3, 4], "2": [1]}
+    fake_irp.match_count = 0
 
     empty = _add_group(client, edm_id, pid, label="TX quake",
                        selections={"state": ["TX"], "peril": ["1"]})
@@ -724,6 +673,7 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     assert _group_row_ids() == [] and _breakout_jobs() == []
 
     # the same two dimensions with a value that does share an account carts fine
+    fake_irp.match_count = 1
     ok = _add_group(client, edm_id, pid, label="TX wind",
                     selections={"state": ["TX"], "peril": ["2"]})
     assert ok.status_code == 200
@@ -735,7 +685,7 @@ def test_group_preview_skips_the_match_count_for_one_dimension(
     # A one-dimension breakout cannot be empty — its values came from the
     # summary, which only carries values accounts have. No DataBridge read.
     edm_id, pid = _custom_pair(fake_irp)
-    fake_irp.match_count_override = 0
+    fake_irp.match_count = 0
     r = _add_group(client, edm_id, pid, label="Texas",
                    selections={"state": ["TX"]})
     assert r.status_code == 200
