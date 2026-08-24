@@ -7,7 +7,7 @@
      entity_label   — "EDM" | "RDM" (empty-state copy)
      list_route     — the unfiltered list route (clear-filters target)
 
-   Live list (package-card / detail-body pattern): while any row is still moving
+   Live list: while any row is still moving
    under a worker (`live`), this wrapper polls its own render every 3s and swaps
    itself, so a pending → importing → ready row updates without a reload. The
    filters stay outside the wrapper, so a swap never disturbs what's typed; their
@@ -51,7 +51,9 @@
           {% endif %}
         </td>
         <td>{% if row.irp_id %}<span class="mono">{{ row.irp_id }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
-        <td class="lib-src"><span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span></td>
+        {# An EDM synced from Risk Modeler has no source file — the import happened
+           there, before the workbench saw it. #}
+        <td class="lib-src">{% if row.source_file_path %}<span class="mono" title="{{ row.source_file_path }}">{{ row.source_file_path }}</span>{% else %}<span class="na">—</span>{% endif %}</td>
         <td>{{ (row.inserted_at | string)[:10] if row.inserted_at else '' }}</td>
       </tr>
       {% else %}

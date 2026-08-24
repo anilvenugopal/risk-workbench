@@ -20,6 +20,7 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
+    EdmCatalogEntry,
     EntityHit,
     ExposureDetail,
     JobStatus,
@@ -30,7 +31,7 @@ from app.services.irp_gateway import (
 
 # The real RM /metrics payload shape (confirmed in sandbox 2026-07-23, data-model §2)
 # used when a seeded portfolio doesn't specify its own. Counts + a perilsExposed
-# STRING — RM returns no TIV/geography/LOB/currency here (those come from the
+# STRING — RM returns no geography/LOB/currency here (those come from the
 # DataBridge exposure summary).
 DEFAULT_EXPOSURE = {
     "totalAccounts": 10, "totalLocations": 100, "totalPolicies": 12,
@@ -49,7 +50,6 @@ class FakeIRP:
         self.results: dict[str, dict] = {}
         # recorded calls for assertions
         self.submits: list[dict] = []
-        self.deleted_analysis_ids: list[int] = []
         # seeded name-collision universe
         self._edm_names: set[str] = set()
         self._rdm_names: set[str] = set()
@@ -59,6 +59,8 @@ class FakeIRP:
         self._analyses: list[dict] = []
         # optionally force the next submit to fail (returns no irp_id)
         self.raise_on_submit = False
+        # force search_analyses to fail (prune-safety tests)
+        self.raise_on_search_analyses = False
         # force name-collision searches to fail (fail-open tests, issue #17)
         self.raise_on_search = False
         # recorded (kind, name) collision searches — cache assertions (issue #11)
@@ -81,6 +83,11 @@ class FakeIRP:
         self.summary_reads: list[str] = []
         # per-analysis metadata failure knob (US3 — blank, never error)
         self.raise_on_analysis_metadata = False
+        # ── unfiltered EDM catalog (the "sync existing EDMs" page) ───────────
+        # explicitly seeded catalog entries (a list, not a name-keyed dict —
+        # EDM names are not unique in RM and the diff must cope with that)
+        self._catalog: list[dict] = []
+        self.raise_on_list_edms = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -89,6 +96,19 @@ class FakeIRP:
 
     def add_rdm_name(self, name: str) -> None:
         self._rdm_names.add(name)
+
+    def add_catalog_edm(self, *, name: str, irp_id: str | int | None = None,
+                        **display) -> str:
+        """Seed an EDM that ``list_edms`` returns — one that exists in Risk Modeler
+        whether or not the workbench created it. ``irp_id`` defaults to the same
+        exposureId ``search_edms`` would resolve for the name; pass it explicitly to
+        seed two EDMs sharing a name (RM allows that). ``display`` sets any other
+        ``EdmCatalogEntry`` field. Returns the exposureId."""
+        exposure_id = (str(irp_id) if irp_id is not None
+                       else self._exposure_id_for(name))
+        self._edm_names.add(name)
+        self._catalog.append({"irp_id": exposure_id, "name": name, **display})
+        return exposure_id
 
     def _exposure_id_for(self, name: str) -> str:
         """Stable fake RM exposureId for an EDM name — deliberately in a different
@@ -135,7 +155,7 @@ class FakeIRP:
     def set_exposure_summary(self, edm_name: str,
                              by_portfolio: dict[str, dict]) -> None:
         """Seed the per-EDM DataBridge aggregate ``get_edm_exposure_summary``
-        returns — ``{portfolioId(str): {portfolio_name, total_tiv, states,
+        returns — ``{portfolioId(str): {portfolio_name, countries, states,
         lines_of_business, currencies}}`` (the sql/databridge/ script set).
         Unseeded EDMs return ``{}``."""
         self._summaries[edm_name] = {str(k): dict(v)
@@ -190,27 +210,24 @@ class FakeIRP:
         self._exposure_id_for(name)
         return result
 
-    def submit_rdm_import(self, *, name: str, source_file_path: str,
-                          edm_name: str | None) -> SubmitResult:
+    def submit_rdm_import(self, *, name: str,
+                          source_file_path: str) -> SubmitResult:
         return self._submit("import_rdm", name=name,
-                            source_file_path=source_file_path, edm_name=edm_name)
-
-    def submit_delete_edm(self, *, edm_irp_id: int) -> SubmitResult:
-        return self._submit("delete_edm", edm_irp_id=edm_irp_id)
-
-    def delete_analysis(self, *, analysis_id: int) -> None:
-        # Synchronous single-analysis delete — no irp_job (R6). Record the call.
-        self.deleted_analysis_ids.append(int(analysis_id))
+                            source_file_path=source_file_path,
+                            exposure_set_name=name)
 
     def search_analyses(self, *, source_rdm_name: str,
-                        exposure_name: str) -> list[AnalysisHit]:
+                        exposure_name: str | None = None) -> list[AnalysisHit]:
         # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
         # builds the filter string internally (safe json.dumps quoting), so the fake
         # matches on the pair args directly rather than parsing a filter string.
+        if self.raise_on_search_analyses:
+            raise RuntimeError("fake IRP: forced search_analyses failure")
         hits: list[AnalysisHit] = []
         for a in self._analyses:
             if (a["source_rdm_name"] == source_rdm_name
-                    and a["exposure_name"] == exposure_name):
+                    and (exposure_name is None
+                         or a["exposure_name"] == exposure_name)):
                 hits.append(AnalysisHit(
                     analysis_id=a["analysis_id"], name=a["name"],
                     source_rdm_name=a["source_rdm_name"],
@@ -268,10 +285,6 @@ class FakeIRP:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 
-    def get_delete_edm_job(self, irp_id: str) -> JobStatus:
-        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
-                         result=self.results.get(irp_id))
-
     def search_edms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("edm", name))
         if self.raise_on_search:
@@ -280,6 +293,21 @@ class FakeIRP:
         # the durable entity id the poller stores as irp_edm.irp_id.
         return ([EntityHit(irp_id=self._exposure_id_for(name), name=name)]
                 if name in self._edm_names else [])
+
+    def list_edms(self) -> list[EdmCatalogEntry]:
+        if self.raise_on_list_edms:
+            raise RuntimeError("fake IRP: forced list_edms failure")
+        entries = [EdmCatalogEntry(**c) for c in self._catalog]
+        # Every other known EDM — collision-seeded or imported through the fake —
+        # is in RM too, so it belongs in the catalog even without add_catalog_edm.
+        # A name add_catalog_edm already described is left to those entries (it may
+        # legitimately have several, since RM names are not unique).
+        described = {e.name for e in entries}
+        for name in sorted(self._edm_names - described):
+            entries.append(EdmCatalogEntry(
+                irp_id=self._exposure_id_for(name), name=name,
+                status="READY", server_name="databridge-1"))
+        return entries
 
     def search_rdms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("rdm", name))

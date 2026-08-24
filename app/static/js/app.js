@@ -51,10 +51,7 @@ function appShell() {
 }
 
 // ── Alpine components ─────────────────────────────────────────────────────────
-// Registered at page load (before Alpine starts) so they exist BEFORE any HTMX
-// swap. The package modal is injected via HTMX after load; defining its component
-// inline inside that fragment races Alpine's initializer and silently fails, so it
-// must live here and be referenced as x-data="packageModal" (no parens).
+// Registered at page load (before Alpine starts) so they exist before HTMX swaps.
 // Default an EDM/RDM name from a source filename: drop the trailing extension
 // (PORTFOLIO.BAK → PORTFOLIO) and cap at the 50-char server limit. The name field
 // still enforces the [A-Za-z0-9_-] charset via its pattern; this only sets the guess.
@@ -117,106 +114,35 @@ function whenHtmxReady(fn) {
 }
 
 document.addEventListener('alpine:init', () => {
-  Alpine.data('packageModal', () => ({
-    members: [],
-    browseOpen: true,
-    namesCleared: false,
-    get canSubmit() {
-      return this.members.length > 0 && this.namesCleared;
+  // Submission form directory field. The "Use this folder" button arrives with an
+  // htmx swap, so the click is delegated from the field wrapper.
+  Alpine.data('directoryPicker', () => ({
+    open: false,
+    selected: '',
+    init() {
+      // $nextTick: the hidden input's x-ref is registered after this init runs.
+      this.$nextTick(() => { this.selected = this.$refs.value.value; });
     },
-    onDriveChange(e) {
-      const cb = e.target;
-      if (cb.type !== 'checkbox' || cb.name !== 'source_paths') return;
-      const path = cb.value;
-      if (cb.checked) {
-        if (!this.members.some((m) => m.path === path)) {
-          const base = path.split(/[\\/]/).pop();
-          this.members.push({
-            path, kind: /rdm/i.test(base) ? 'rdm' : 'edm',
-            name: defaultMemberName(base),
-          });
-        }
-      } else {
-        this.members = this.members.filter((m) => m.path !== path);
-      }
-      // A just-added row is unchecked, so the buttons must go dark now rather
-      // than when its check lands.
-      this.$nextTick(() => this.refreshNames());
+    onPick(e) {
+      const btn = e.target.closest('[data-select-dir]');
+      if (!btn) return;
+      this.selected = btn.dataset.selectDir;
+      this.$refs.value.value = this.selected;
+      this.open = false;
     },
-    remove(i) {
-      // Untick the matching browse checkbox so the picker and member list stay in sync.
-      const removed = this.members[i];
-      if (removed) {
-        const cb = this.$root.querySelector(
-          `input[name="source_paths"][value="${CSS.escape(removed.path)}"]`);
-        if (cb) cb.checked = false;
-      }
-      this.members.splice(i, 1);
-      // The removed row may have carried the only unresolved check — re-derive
-      // after Alpine has flushed the DOM update.
-      this.$nextTick(() => this.refreshNames());
-    },
-    onSwap() {
-      // Any HTMX swap inside the modal (a row's collision fragment, browse
-      // navigation) re-derives from what is actually rendered.
-      this.refreshNames();
-    },
-    onCheckError(e) {
-      if (ncFailOpen(e)) this.refreshNames();
-    },
-    refreshNames() {
-      // Save / Save & Sync light up only once EVERY row's check has come back
-      // usable, and each row shows its own "checking…" hint meanwhile so the
-      // disabled buttons are never unexplained (issue #17, parity with
-      // importForm).
-      const rows = Array.from(this.$root.querySelectorAll('.mrow'));
-      let cleared = rows.length > 0 && rows.length === this.members.length;
-      rows.forEach((row) => {
-        const state = ncState(row.querySelector('.name-collision'));
-        if (!ncCleared(state)) cleared = false;
-        const hint = row.querySelector('.nc-checking');
-        const input = row.querySelector('.mrow__name');
-        if (hint) hint.hidden = !(input && input.value.trim() && state === 'pending');
-      });
-      this.namesCleared = cleared;
-    },
-    markPending(input) {
-      if (!input) return;
-      ncReset(input.closest('.mrow').querySelector('.name-collision'));
-      this.refreshNames();
-    },
-    initRow(row) {
-      // Alpine-cloned x-for rows are invisible to htmx (it only processes
-      // server-rendered DOM): wire the row's name-check attributes up, then kick
-      // an immediate check for the auto-populated name (issue #17).
-      if (!window.htmx) return;
-      window.htmx.process(row);
-      this.$nextTick(() => {
-        const input = row.querySelector('.mrow__name');
-        if (input) input.dispatchEvent(new Event('recheck'));
-        this.refreshNames();
-      });
-    },
-    recheck(el) {
-      // Kind flip: wait a tick so the hidden member_kind :value is flushed
-      // before htmx gathers the row's params for the check request. The old
-      // verdict was for the other kind, so it is dropped first.
-      const input = el.closest('.mrow').querySelector('.mrow__name');
-      this.markPending(input);
-      this.$nextTick(() => {
-        if (input) input.dispatchEvent(new Event('recheck'));
-      });
+    clear() {
+      this.selected = '';
+      this.$refs.value.value = '';
     },
   }));
 
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
-  // auto-populates the name (packageModal parity); Import stays disabled until a
+  // auto-populates the name; Import stays disabled until a
   // file is picked, a name is present, and the collision check has come back
   // clear. Server-side validation still backs all of this — with JS off the
   // button is simply never disabled.
   Alpine.data('importForm', (opts = {}) => ({
     sourceSelected: false,
-    appliedSelected: !opts.requireApplied,  // RDM: also needs ≥1 applied EDM
     nameVal: '',
     nameState: 'pending',
     init() {
@@ -232,7 +158,7 @@ document.addEventListener('alpine:init', () => {
       return !!this.nameVal.trim() && this.nameState === 'pending';
     },
     get canSubmit() {
-      return this.sourceSelected && this.appliedSelected
+      return this.sourceSelected
         && !!this.nameVal.trim() && ncCleared(this.nameState);
     },
     onName(e) {
@@ -257,9 +183,6 @@ document.addEventListener('alpine:init', () => {
         }
         this.sourceSelected =
           !!this.$root.querySelector('input[name="source_paths"]:checked');
-      } else if (cb.name === 'applied_edm_ids') {
-        this.appliedSelected =
-          !!this.$root.querySelector('input[name="applied_edm_ids"]:checked');
       }
     },
     onSwap() {
@@ -367,57 +290,66 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Owner filter on the submissions list. Unlike `typeahead`, the whole active-user
-  // list is already in the DOM, so typing hides rows rather than asking the server.
+  // Status, Treaty type and Owner filters on the submissions list (D16). The
+  // options are already in the DOM; clicking one toggles it and leaves the menu
+  // open, and the component writes one hidden input per picked value and
+  // dispatches `filter-picked`, which the form listens for.
   //
-  // Only a picked user filters the list: the template stops the keystroke before it
-  // reaches the form's `input` trigger, and pick() dispatches `filter-picked`, which
-  // the form also listens for. Closing without picking puts back the applied name,
-  // so a half-typed name never sits in the box next to an unfiltered list.
-  Alpine.data('ownerPicker', () => ({
+  // The data-any row clears the rest and reads as selected while nothing else is.
+  // The narrowing box (Owner only) hides options in place; it never filters the
+  // list itself.
+  const MAX_TRIGGER_CHIPS = 3;
+
+  Alpine.data('multiPicker', () => ({
     isOpen: false,
     activeIndex: -1,
     noMatch: false,
-    applied: '',
     init() {
-      this.applied = this.$refs.input.value;
+      // $nextTick: the children's x-ref are registered after this init runs.
+      this.$nextTick(() => this.render());
+    },
+    get allOptions() {
+      return Array.from(this.$refs.options.querySelectorAll('.ta__opt'));
     },
     get options() {
-      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'))
-        .filter((opt) => !opt.hidden);
+      return this.allOptions.filter((opt) => !opt.hidden);
+    },
+    get anyOption() {
+      return this.$refs.options.querySelector('.ta__opt[data-any]');
+    },
+    get chosen() {
+      return this.allOptions.filter(
+        (opt) => !opt.hasAttribute('data-any')
+          && opt.getAttribute('aria-selected') === 'true');
+    },
+    toggle() {
+      if (this.isOpen) this.close(); else this.open();
     },
     open() {
-      if (this.isOpen) return;
       this.isOpen = true;
       this.activeIndex = -1;
-      // Opening shows every user even though the box holds the applied name:
-      // filtering on it would leave a one-row menu and no way to switch owner
-      // without clearing the text first. The text is selected, so typing replaces
-      // it and filter() takes over from there.
-      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
-        opt.hidden = false;
-      });
-      this.noMatch = false;
+      if (this.$refs.search) {
+        // A term left over from the last visit would hide rows on reopening.
+        this.$refs.search.value = '';
+        this.narrow();
+        this.$nextTick(() => this.$refs.search.focus());
+      }
       this.paint();
-      this.$refs.input.select();
     },
     close() {
       this.isOpen = false;
       this.activeIndex = -1;
-      this.$refs.input.value = this.applied;
       this.paint();
     },
-    filter() {
-      const term = this.$refs.input.value.trim().toLowerCase();
-      this.isOpen = true;
+    narrow() {
+      const term = this.$refs.search.value.trim().toLowerCase();
       let matched = 0;
-      this.$refs.menu.querySelectorAll('.ta__opt').forEach((opt) => {
-        // "Any owner" carries no name and always stays: clearing the filter is
-        // one click, whatever is typed.
-        const keep = !opt.dataset.name
-          || opt.dataset.name.toLowerCase().includes(term);
+      this.allOptions.forEach((opt) => {
+        // The data-any row carries no label and always stays.
+        const keep = !opt.dataset.label
+          || opt.dataset.label.toLowerCase().includes(term);
         opt.hidden = !keep;
-        if (keep && opt.dataset.name) matched += 1;
+        if (keep && opt.dataset.label) matched += 1;
       });
       this.noMatch = matched === 0;
       this.activeIndex = -1;
@@ -425,80 +357,7 @@ document.addEventListener('alpine:init', () => {
     },
     paint() {
       this.options.forEach((opt, i) => {
-        const active = i === this.activeIndex;
-        opt.classList.toggle('is-active', active);
-        opt.setAttribute('aria-selected', active ? 'true' : 'false');
-      });
-      const active = this.options[this.activeIndex];
-      if (active) {
-        this.$refs.input.setAttribute('aria-activedescendant', active.id);
-        active.scrollIntoView({ block: 'nearest' });
-      } else {
-        this.$refs.input.removeAttribute('aria-activedescendant');
-      }
-    },
-    move(step) {
-      const count = this.options.length;
-      if (!count) return;
-      this.activeIndex = (this.activeIndex + step + count) % count;
-      this.paint();
-    },
-    onKey(e) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); this.open(); this.move(1); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); this.move(-1); }
-      else if (e.key === 'Escape') { this.close(); }
-      else if (e.key === 'Enter') {
-        // Enter commits the highlighted row, or the only remaining match. With
-        // neither, it does nothing rather than filtering on a partial name.
-        e.preventDefault();
-        const options = this.options.filter((opt) => opt.dataset.name);
-        this.pick(this.options[this.activeIndex]
-          || (options.length === 1 ? options[0] : null));
-      }
-    },
-    pick(opt) {
-      if (!opt) return;
-      // The id is what the route filters on; the name is only what the box shows.
-      this.$refs.value.value = opt.dataset.id;
-      this.applied = opt.dataset.name;
-      this.$refs.input.value = this.applied;
-      this.isOpen = false;
-      this.activeIndex = -1;
-      this.paint();
-      this.$refs.input.dispatchEvent(
-        new CustomEvent('filter-picked', { bubbles: true }));
-    },
-  }));
-
-  // Status and Treaty type filters on the submissions list. Same menu as
-  // `ownerPicker`, without the text box: both lists are short and closed, so the
-  // trigger shows the applied label and the menu is the only way to change it.
-  // The hidden input carries the code the route reads.
-  Alpine.data('codePicker', () => ({
-    isOpen: false,
-    activeIndex: -1,
-    get options() {
-      return Array.from(this.$refs.menu.querySelectorAll('.ta__opt'));
-    },
-    toggle() {
-      if (this.isOpen) this.close(); else this.open();
-    },
-    open() {
-      this.isOpen = true;
-      this.activeIndex = this.options.findIndex(
-        (opt) => opt.dataset.code === this.$refs.value.value);
-      this.paint();
-    },
-    close() {
-      this.isOpen = false;
-      this.activeIndex = -1;
-      this.paint();
-    },
-    paint() {
-      this.options.forEach((opt, i) => {
-        const active = i === this.activeIndex;
-        opt.classList.toggle('is-active', active);
-        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+        opt.classList.toggle('is-active', i === this.activeIndex);
       });
       const active = this.options[this.activeIndex];
       if (active) {
@@ -510,6 +369,7 @@ document.addEventListener('alpine:init', () => {
     },
     move(step) {
       const count = this.options.length;
+      if (!count) return;
       this.activeIndex = (this.activeIndex + step + count) % count;
       this.paint();
     },
@@ -522,21 +382,161 @@ document.addEventListener('alpine:init', () => {
         if (this.isOpen) this.move(-1); else this.open();
       } else if (e.key === 'Escape') {
         this.close();
-      } else if (e.key === 'Enter' || e.key === ' ') {
+        this.$refs.trigger.focus();
+      } else if (e.key === 'Enter'
+                 || (e.key === ' ' && e.target !== this.$refs.search)) {
         // The trigger is a button, so Enter and Space would otherwise fire the
-        // click handler and toggle the menu shut over the highlighted row.
+        // click handler and toggle the menu shut over the highlighted row. Space
+        // inside the narrowing box is a space — analysts' names have them.
         e.preventDefault();
         if (this.isOpen) this.pick(this.options[this.activeIndex]);
         else this.open();
       }
     },
+    onTrigger(e) {
+      // A chip's × sits inside the trigger button, so its click arrives here.
+      const remove = e.target.closest('.filter-chip__x');
+      if (!remove) { this.toggle(); return; }
+      const opt = this.allOptions.find(
+        (o) => o.dataset.code === remove.dataset.code);
+      if (opt) opt.setAttribute('aria-selected', 'false');
+      this.apply();
+    },
     pick(opt) {
       if (!opt) return;
-      this.$refs.value.value = opt.dataset.code;
-      this.$refs.label.textContent = opt.textContent;
-      this.close();
-      this.$refs.trigger.focus();
-      this.$refs.value.dispatchEvent(
+      if (opt.hasAttribute('data-any')) {
+        this.chosen.forEach((o) => o.setAttribute('aria-selected', 'false'));
+      } else {
+        opt.setAttribute('aria-selected',
+          opt.getAttribute('aria-selected') === 'true' ? 'false' : 'true');
+      }
+      this.apply();
+    },
+    apply() {
+      this.render();
+      this.$refs.inputs.dispatchEvent(
+        new CustomEvent('filter-picked', { bubbles: true }));
+    },
+    render() {
+      // Ticks, chips and hidden inputs all derive from the options' aria-selected,
+      // so init() paints the server-rendered selection without a list request.
+      const chosen = this.chosen;
+      const any = this.anyOption;
+      if (any) any.setAttribute('aria-selected', chosen.length ? 'false' : 'true');
+      this.allOptions.forEach((opt) => {
+        opt.querySelector('.ta__check').textContent =
+          opt.getAttribute('aria-selected') === 'true' ? '✓' : '';
+      });
+      this.renderInputs(chosen);
+      this.renderChips(chosen, any);
+    },
+    renderInputs(chosen) {
+      const name = this.$refs.inputs.dataset.name;
+      const empty = this.$refs.inputs.dataset.emptyValue;
+      const values = chosen.length
+        ? chosen.map((opt) => opt.dataset.code)
+        : (empty ? [empty] : []);
+      this.$refs.inputs.replaceChildren(...values.map((value) => {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        return input;
+      }));
+    },
+    renderChips(chosen, any) {
+      if (!chosen.length) {
+        const label = document.createElement('span');
+        label.className = 'filters__any';
+        label.textContent = any ? any.dataset.any : 'Any';
+        this.$refs.chips.replaceChildren(label);
+        return;
+      }
+      const shown = chosen.slice(0, MAX_TRIGGER_CHIPS).map((opt) => {
+        const chip = document.createElement('span');
+        chip.className = 'filter-chip';
+        chip.textContent = opt.dataset.label;
+        const remove = document.createElement('span');
+        remove.className = 'filter-chip__x';
+        remove.dataset.code = opt.dataset.code;
+        remove.textContent = '×';
+        chip.appendChild(remove);
+        return chip;
+      });
+      if (chosen.length > MAX_TRIGGER_CHIPS) {
+        const more = document.createElement('span');
+        more.className = 'filters__more';
+        more.textContent = `+${chosen.length - MAX_TRIGGER_CHIPS}`;
+        shown.push(more);
+      }
+      this.$refs.chips.replaceChildren(...shown);
+    },
+  }));
+
+  // Treaty year on the submissions list (D16). Typed, not picked — there is no list
+  // of years to offer. A year outside the range never becomes a chip, so it never
+  // reaches the query: the box shows the message and the committed chips stand.
+  Alpine.data('yearChips', (minYear, maxYear) => ({
+    error: '',
+    get years() {
+      return Array.from(this.$refs.chips.querySelectorAll('input')).map(
+        (input) => input.value);
+    },
+    onClick(e) {
+      const remove = e.target.closest('.filter-chip__x');
+      if (remove) {
+        remove.closest('.filter-chip').remove();
+        this.apply();
+      } else {
+        this.$refs.entry.focus();
+      }
+    },
+    onKey(e) {
+      if (e.key === 'Enter') {
+        // The form has a hidden submit, so Enter would otherwise reload the page
+        // around a year the analyst has not committed yet.
+        e.preventDefault();
+        this.commit();
+      } else if (e.key === 'Backspace' && !this.$refs.entry.value) {
+        const last = this.$refs.chips.lastElementChild;
+        if (!last) return;
+        e.preventDefault();
+        last.remove();
+        this.apply();
+      }
+    },
+    commit() {
+      const typed = this.$refs.entry.value.trim();
+      if (!typed) return;
+      const year = Number(typed);
+      if (!/^\d{4}$/.test(typed) || year < minYear || year > maxYear) {
+        this.error = `Enter a 4-digit year between ${minYear} and ${maxYear}.`;
+        return;
+      }
+      this.error = '';
+      this.$refs.entry.value = '';
+      if (this.years.includes(typed)) return;   // already applied — nothing changes
+      this.$refs.chips.appendChild(this.chip(typed));
+      this.apply();
+    },
+    chip(year) {
+      const chip = document.createElement('span');
+      chip.className = 'filter-chip';
+      chip.textContent = year;
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'treaty_year';
+      input.value = year;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'filter-chip__x';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', `Remove ${year}`);
+      chip.append(input, remove);
+      return chip;
+    },
+    apply() {
+      this.$refs.chips.dispatchEvent(
         new CustomEvent('filter-picked', { bubbles: true }));
     },
   }));
@@ -555,6 +555,48 @@ document.addEventListener('alpine:init', () => {
       if (/^\d{4}$/.test(year)) this.$refs.year.value = year;
     },
   }));
+
+  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
+  // makes the whole row a hit area. With JS off none of it is needed — the button
+  // stays enabled and an empty irp_ids POST is a no-op redirect.
+  Alpine.data('syncPicks', () => ({
+    count: 0,
+    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+    // zero leaves the button disabled over visibly ticked boxes.
+    init() { this.onChange(); },
+    boxes() {
+      return this.$root.querySelectorAll('input[name="irp_ids"]');
+    },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="irp_ids"]:checked').length;
+    },
+    all(checked) {
+      this.boxes().forEach((b) => { b.checked = checked; });
+      this.onChange();
+    },
+    pick(e) {
+      // A click that ends a drag-selection keeps the selection, so an exposureId
+      // can be copied out of a row without toggling it.
+      if (window.getSelection().toString()) return;
+      const box = e.currentTarget.querySelector('input[name="irp_ids"]');
+      if (!box) return;
+      box.checked = !box.checked;
+      this.onChange();
+    },
+  }));
+});
+
+// ── Row click → open the submission (D17) ─────────────────────────────────────
+// Delegated from the document: htmx replaces the whole #sub-list on every filter,
+// sort and page change, and a listener on the table would go with it. A click that
+// ends a drag-selection keeps the selection, so a CRM ID can be copied out of a row.
+document.addEventListener('click', (e) => {
+  const target = e.target instanceof Element ? e.target : null;
+  const row = target && target.closest('.data-row[data-href]');
+  if (!row || target.closest('a, button, input, label')) return;
+  if (window.getSelection().toString()) return;
+  window.location.href = row.dataset.href;
 });
 
 // ── Local-time stamps ──────────────────────────────────────────────────────────

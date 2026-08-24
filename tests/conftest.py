@@ -98,5 +98,6 @@ def drive(tmp_path, monkeypatch):
     root.mkdir()
     for fname in ("edm1.bak", "edm2.bak", "rdm1.mdf", "rdm2.mdf"):
         (root / fname).write_text("x")
+    (root / "deals" / "zephyr").mkdir(parents=True)
     monkeypatch.setattr(settings, "shared_drive_root", str(root))
     return root

@@ -51,7 +51,7 @@ def _client() -> TestClient:
 def _rdm_obj(**over) -> rdm_service.RdmRow:
     base = dict(
         id="rdm-1", name="legacy_rdm", status="ready",
-        source_file_path="/share/legacy.mdf", irp_id=88001, package_id=None,
+        source_file_path="/share/legacy.mdf", irp_id=88001,
         inserted_at="2026-01-01", updated_at="2026-01-01")
     base.update(over)
     return rdm_service.RdmRow(**base)
@@ -139,7 +139,7 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
         rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
         analyses=[analysis_service.BrokerAnalysis(
             id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
-            edm_id="e1", edm_name="E1")])
+            edm_name="E1")])
     _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
     r = _client().get("/rdms/rdm-1/body")
     assert r.status_code == 204

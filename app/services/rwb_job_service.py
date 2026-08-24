@@ -8,9 +8,8 @@ poller's **reconciler** (``reconcile_stale_rwb_jobs``) reclaims rows whose worke
 died mid-flight — its logic lives here as queue maintenance; the poller only
 invokes it each pass.
 
-Conventions (matches ``package_service`` / ``submission_service``): app-side
-UUIDs bound as ``str``, app-supplied UTC timestamps, JSON columns serialized
-with ``json.dumps``.
+App-side UUIDs are bound as ``str``. Timestamps are supplied in UTC, and JSON
+columns are serialized with ``json.dumps``.
 """
 
 from __future__ import annotations
@@ -136,8 +135,6 @@ def ensure_pending_rwb_job(
             ), {"input": _json(input_data), "now": now, "cid": correlation_id,
                 "by": (str(actor_id) if actor_id is not None else None),
                 "id": str(row["id"])})
-            # _uid, not str: uniqueidentifier reads back UPPERCASE, and every id
-            # a service hands out is lowercase (see _common._uid).
             return _uid(row["id"])
 
 

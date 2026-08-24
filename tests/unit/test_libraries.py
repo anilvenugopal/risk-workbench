@@ -13,15 +13,11 @@ from types import SimpleNamespace as NS
 import pytest
 from fastapi.templating import Jinja2Templates
 
-from app.services import edm_service, package_service, rdm_service
+from app.services import edm_service, rdm_service
 from tests.unit.test_name_check_routes import _client
 
 # (module, child table) for the two sibling libraries.
 LIBS = [(edm_service, "irp_edm"), (rdm_service, "irp_rdm")]
-
-
-def test_submission_refs_for_packages_empty_input():
-    assert package_service.submission_refs_for_packages([]) == {}
 
 
 # ── Live list: self-terminating poll trigger ─────────────────────────────────────
@@ -47,12 +43,11 @@ def _render_table(*, statuses, filters=None):
 def test_list_polls_while_a_row_is_in_flight():
     assert _render_table(statuses=["pending_import"])[0] is True
     assert _render_table(statuses=["importing"])[0] is True
-    assert _render_table(statuses=["delete_pending"])[0] is True
     assert _render_table(statuses=["ready", "importing"])[0] is True  # one is enough
 
 
 def test_list_stops_polling_when_every_row_is_terminal():
-    assert _render_table(statuses=["ready", "error", "deleted"])[0] is False
+    assert _render_table(statuses=["ready", "error"])[0] is False
     assert _render_table(statuses=[])[0] is False  # empty list never polls
 
 

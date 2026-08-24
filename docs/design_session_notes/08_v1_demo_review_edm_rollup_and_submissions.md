@@ -47,7 +47,7 @@ These recurred all session and are the reason behind several otherwise-unrelated
 
 ### 2.2 Status & lifecycle (D1)
 
-- **Three statuses only: Active, Complete, Cancelled.** Anil confirmed the set; Wendy accepted.
+- **Three statuses only: Active, Complete, Cancelled.** Anil confirmed the set; Wendy accepted. **Superseded 8/5:** a fourth status, **Hold**, was added for a submission that is parked but still in the queue (`09` §6.5).
 - **Transitions are reversible** — a cancelled submission can be reopened to active. *Not a one-way door.*
 - **Each transition records a reason**, and the trail is retained.
 - **CR9:** the trail must be **collapsible** — repeated transitions otherwise produce *"a huge block here in the submission page."*
@@ -141,7 +141,7 @@ Anil's proposal, endorsed immediately by Wendy — *"I don't know where I am. Th
 
 - **D16 — treaty create/edit stays a pass-through to Risk Modeler.** Reconfirmed from July. Ben: *"Tree[aty] creation and editing is filling out a bunch of fields… I don't want to rebuild that functionality in our UI because it's going to be exactly the same."* Cheryl: *"you don't need to spend your time trying to reinvent the wheel… It's a data entry situation."* The demoed treaty list links **directly out to the Risk Modeler treaties page**.
 - **D17 — keep a condensed treaty list in the workbench; drop most of the detail.** **This walks back the 7/14 "show every attribute" position.** Cheryl found the full grid *"a lot to look at… just a lot of information with that scrolling."* Wendy: *"I like the fact that the treaties are listed here. I don't think we need to have all of the detail, but I might in your collapsed view add like 3 fields"* — enough to notice something unexpected, e.g. *"oh, there's a quota share in there. I wasn't expecting to see a quota share."*
-  - The 7/14 intent (catch mis-coding rather than blindly trust the data) is preserved **via expand**, not via default density. **Which three fields is open** (O8-6).
+  - The 7/14 intent (catch mis-coding rather than blindly trust the data) is preserved **via expand**, not via default density. **The field set was agreed 8/5** and came out wider than three — four core fields plus context (`09` §1, closing O8-6).
 - **CR18 — clean up the grid** before condensing: **timestamps are too granular** for what Risk Modeler actually uses (*"these timestamps are ugly"*), some attributes look **duplicated**, and cryptic labels need resolving — **attachment level vs. attachment basis**, **"loc" = location**.
 - **D18 — bulk treaty creation from CSV/Excel is deprioritized.** Ben floated it as a custom value-add. Cheryl: not something they do today, and *"whether I do it in Excel or I do it in Risk Modeler, I basically have to do the same steps either way. At least there's some error checking that happens in Risk Modeler."* **Further down the list.** Whether RM even supports it is unknown and now academic (O8-7).
 
@@ -194,5 +194,5 @@ Username/password login is **development only — SSO/Entra in production**. Lef
 - **O8-3:** **Currency field enumeration** — Wendy to send the SQL listing every place currency lives in an EDM (~15 fields). *Wendy.* (§4.4)
 - **O8-4:** **What belongs on the landing page.** Currently empty. (§6.3)
 - **O8-5:** **Does "Package" survive as CIC-facing vocabulary?** D7 settles the mechanism; the terminology and onboarding discussion is deferred. Carries forward `03` OQ-1 / `04` §9. (§3)
-- **O8-6:** **Which ~3 fields go in the condensed treaty view?** Wendy's criterion is "enough to notice something unexpected" (her example: an unanticipated quota share). (§5)
+- **O8-6:** ~~Which ~3 fields go in the condensed treaty view?~~ **Closed 8/5** — the field set was worked through column by column and agreed. See `09` §1. (§5)
 - **O8-7:** Whether **Risk Modeler supports treaty creation from CSV.** Cheryl: *"I don't know in Moody's if we're able to or not."* **Academic** given D18. (§5)

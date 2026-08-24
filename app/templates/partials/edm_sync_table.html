@@ -1,0 +1,113 @@
+{# `page` is None when the Risk Modeler read failed — never an error page, just the
+   unavailable state (ui.md §5). #}
+{% if page is none %}
+<div class="state-box state-box--warn">
+  <strong>Risk Modeler is not answering.</strong>
+  The list of EDMs available to sync cannot be read right now — reload to try again.
+</div>
+{% elif page.total == 0 and not filter_values.q %}
+<div class="state-box">
+  <strong>Nothing to sync.</strong>
+  Every EDM in Risk Modeler is already in the workbench.
+</div>
+{% elif page.total == 0 %}
+<div class="state-box">
+  <strong>No match.</strong>
+  No EDM outside the workbench has “{{ filter_values.q }}” in its name.
+</div>
+{% else %}
+{% set first = (page.page - 1) * page_size + 1 %}
+{# The search term is in the action, not a hidden input: the POST reads it from the
+   query string to build the redirect back into the filtered list. #}
+<form method="post" x-data="syncPicks()" @change="onChange()"
+      action="/edms/sync{% if filter_values.q %}?q={{ filter_values.q | urlencode }}{% endif %}">
+  <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+
+  <div class="lib-intro">
+    <span class="muted">
+      {{ page.total }} EDM{{ '' if page.total == 1 else 's' }} in Risk Modeler
+      {%- if filter_values.q %} matching “{{ filter_values.q }}”{% endif %}
+      {{ 'is' if page.total == 1 else 'are' }} not in the workbench
+    </span>
+    {% if page.total > page.rows | length %}
+    <span class="muted">·</span>
+    <span class="muted">showing {{ first }}–{{ first + page.rows | length - 1 }}</span>
+    {% endif %}
+    <template x-if="count">
+      <span class="muted">· <span x-text="count"></span> selected</span>
+    </template>
+  </div>
+
+  <table class="mk-table sync-table">
+    <thead>
+      <tr>
+        <th class="sync-pick">
+          <input type="checkbox" title="Select all on this page"
+                 x-on:click.stop="all($event.target.checked)">
+        </th>
+        <th>Name</th><th>Status</th><th>Risk Modeler ID</th>
+        <th class="sync-num">Portfolios</th><th class="sync-num">Treaties</th>
+        <th>Updated</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in page.rows %}
+      {# Clicking the row toggles its box; the box and the Risk Modeler link stop the
+         event so they are not double-handled. #}
+      <tr class="data-row" x-on:click="pick($event)">
+        <td class="sync-pick">
+          <input type="checkbox" name="irp_ids" value="{{ row.irp_id }}" x-on:click.stop>
+        </td>
+        <td>{{ row.name }}</td>
+        <td>
+          {% if row.status %}
+          <span class="status-chip{{ ' status-chip--ready' if row.status == 'READY' }}">{{ row.status }}</span>
+          {% else %}<span class="na">—</span>{% endif %}
+        </td>
+        <td><span class="mono">{{ row.irp_id }}</span></td>
+        <td class="sync-num">
+          {%- if row.portfolio_count is not none %}{{ row.portfolio_count }}{% else %}<span class="na">—</span>{% endif -%}
+        </td>
+        <td class="sync-num">
+          {%- if row.treaty_count is not none %}{{ row.treaty_count }}{% else %}<span class="na">—</span>{% endif -%}
+        </td>
+        <td>{{ row.updated_at[:10] if row.updated_at else '—' }}</td>
+        <td class="sync-open">
+          {% if row.rm_url %}
+          <a href="{{ row.rm_url }}" target="_blank" rel="noopener"
+             x-on:click.stop>Risk Modeler ↗</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {# Real hrefs, not hx-get swaps: changing pages leaves this form either way, so the
+     pager must work with JS off. The search term rides along with it. #}
+  {% if page.page > 1 or page.has_next %}
+  {% set stem = '/edms/sync?' ~ (('q=' ~ (filter_values.q | urlencode) ~ '&') if filter_values.q else '') ~ 'page=' %}
+  <nav class="pager" aria-label="Adoptable EDM pages">
+    {% if page.page > 1 %}
+    <a class="btn-sm" rel="prev" href="{{ stem }}{{ page.page - 1 }}">‹ Prev</a>
+    {% endif %}
+    <span class="pager__at">Page {{ page.page }}</span>
+    {% if page.has_next %}
+    <a class="btn-sm" rel="next" href="{{ stem }}{{ page.page + 1 }}">Next ›</a>
+    {% endif %}
+    <span class="wf-field__hint">Sync before you change pages — ticks do not carry
+      across.</span>
+  </nav>
+  {% endif %}
+
+  <div class="form-actions">
+    {# With JS off the button is never disabled; an empty irp_ids POST is a no-op
+       redirect, so the server does not depend on this. #}
+    <button class="btn-sm btn-sm--primary" type="submit" x-bind:disabled="!count"
+            x-text="count ? `Sync ${count} selected` : 'Sync selected'">Sync selected</button>
+    <a class="btn-sm" href="/edms">EDM Library</a>
+    <span class="wf-field__hint">Each synced EDM starts standalone. Add it from a
+      submission afterwards.</span>
+  </div>
+</form>
+{% endif %}

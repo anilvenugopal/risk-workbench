@@ -1,31 +1,61 @@
-{# The whole EDM detail body (spec 004 US1–US4 — matches docs/ui_previews/
+{# The whole EDM detail body (spec 004 US1–US3 — matches docs/ui_previews/
    edm_detail.html rev 7 + ui.md §2): minimal header (FR-011 — NO cedant/LOB),
-   inline read-only per-portfolio table as the PRIMARY content, aggregate strip
-   (US4), treaties (US2), broker analyses (US3). Read-only — no create/edit/
-   split/filter control, no map (FR-014/FR-016); every unavailable state renders
-   gracefully (ui.md §5), never an error. #}
-{# Live body (package-card pattern): while the backfill head is in flight — or
+   inline read-only per-portfolio table as the PRIMARY content, treaties (US2),
+   broker analyses (US3). The EDM-level aggregate strip is gone (8/4 D12 — its
+   counts double-count). Read-only — no create/edit/split/filter control, no map
+   (FR-014/FR-016); every unavailable state renders gracefully (ui.md §5),
+   never an error. #}
+{# Live body (entity detail pattern): while the backfill head is in flight — or
    the import itself still is — the wrapper polls its own read-only render every
    3s and swaps itself, so the page updates on its own when the rwb job lands.
    The server stops emitting the trigger once the work is terminal, so polling
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
    changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
 {% set live = edm.sync_running
-     or edm.status in ('pending_import', 'importing', 'delete_pending') %}
+     or edm.status in ('pending_import', 'importing')
+     or submission_rdms|default([])|selectattr('sync_running')|list|length > 0 %}
+{% set body_url = detail_body_url|default('/edms/' ~ edm.id ~ '/body') %}
+{% set sync_url = detail_sync_url|default('/edms/' ~ edm.id ~ '/sync') %}
+{% set base_url = detail_base_url|default('/edms/' ~ edm.id) %}
+{% set entity_notes = edm.notes %}
+{% set note_action = detail_notes_url|default('/edms/' ~ edm.id ~ '/notes') %}
+{% set note_value = note_value|default(edm.notes or '') %}
+{% set note_original = note_original|default(edm.notes or '') %}
+{% set note_editing = note_editing|default(false) %}
+{% set note_error = note_error|default(none) %}
+{% set note_conflict = note_conflict|default(none) %}
+{% set note_conflict_active = note_conflict_active|default(false) %}
 <div class="page-pad" id="edm-detail"
+  x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
+  x-bind:class="{ 'edm-notes-open': notesOpen }"
+  x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="/edms/{{ edm.id }}/body" hx-trigger="every 3s"
+  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#edm-detail .entity-note--editing') && !document.querySelector('#edm-detail.edm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
 
   {# ── minimal header (FR-011) — name, status, source, identifiers, count, as_of ── #}
   <div class="detail-head">
+    {% if source_submission %}
+    <nav class="detail-crumbs" aria-label="Submission context">
+      <a class="crumb" href="/submissions/{{ source_submission.id }}">{{ source_submission.name }}</a>
+      <span class="crumb__sep">&rsaquo;</span>
+      <span class="crumb crumb--current">{{ edm.name }}</span>
+    </nav>
+    {% endif %}
+    <div class="detail-head-row">
+    <div>
     <h1>{{ edm.name }}
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
+      <span class="crumb__sep">&middot;</span>
+      <button class="detail-note-toggle" type="button" aria-controls="entity-note"
+              x-bind:aria-expanded="notesOpen"
+              x-on:click="notesOpen = !notesOpen"
+              x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
       {% if edm.irp_id %}
       <span class="crumb__sep">·</span>
       <span>RM EDM #{{ edm.irp_id }}</span>
@@ -53,26 +83,41 @@
       {% if edm.sync_running %}
       <button class="btn-sm" type="button" disabled>Syncing…</button>
       {% else %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
       {% endif %}
       {% endif %}
     </div>
+    </div>
+    {% if source_submission %}
+    <div class="edm-picker">
+      <label for="edm-picker">EDM in {{ source_submission.name }}</label>
+      <select id="edm-picker" class="wf-field__input"
+              x-on:change="window.location.href = $event.target.value">
+        {% for choice in edm_choices %}
+        <option value="/submissions/{{ source_submission.id }}/edms/{{ choice.id }}"
+                {% if choice.id == edm.id %}selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    </div>
+  </div>
+
+  <div x-show="notesOpen" x-cloak>
+    {% include "partials/entity_note.html" %}
   </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if edm.status == 'error' %}
   {% with rec_lead='This import failed in Risk Modeler',
-          rec_error=edm.import_error, rec_base='/edms/' ~ edm.id,
+          rec_error=edm.import_error, rec_base=base_url,
           rec_updated_at=edm.updated_at %}
   {% include "partials/entity_recovery.html" %}
   {% endwith %}
   {% endif %}
-
-  {# ── compact 3-domain rollup strip (US4 — FR-040/FR-042/FR-043) ── #}
-  {% include "partials/edm_aggregate_strip.html" %}
 
   {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
   <details class="sec" open>
@@ -88,11 +133,11 @@
 
     {% if edm.detail_state == 'populated' %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 92px 84px 84px 130px 170px minmax(150px,1fr) 120px 92px 200px;min-width:1352px">
+      <div class="dtable" style="--cols:230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px;min-width:1185px">
         <div class="dtable__head">
           <span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span>
-          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Geography</span>
-          <span class="l">Currency</span><span>TIV</span><span class="l">Analyses</span>
+          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
+          <span class="l">States</span><span class="l">Currency</span>
         </div>
         {% for p in edm.portfolios %}
         {% include "partials/portfolio_row.html" %}
@@ -101,9 +146,7 @@
     </div>
     <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
       Name column stays pinned while you scroll sideways. Perils shown are the
-      perils <em>present</em> per portfolio; absence isn't inferred as a defect.
-      A portfolio expands to the analyses linked to it; full settings for every
-      analysis are in the Broker analyses section below.</p>
+      perils <em>present</em> per portfolio; absence isn't inferred as a defect.</p>
     {% elif edm.detail_state == 'importing' %}
     <div class="state-box">Per-portfolio detail appears within ~1 minute of the
       import finishing.</div>
@@ -114,7 +157,7 @@
     <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
       The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
       {% if edm.status == 'ready' %}
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -127,7 +170,7 @@
       Imported before exposure backfill shipped.
       {% if edm.status == 'ready' %}
       Sync now to fetch its per-portfolio detail from Risk Modeler.
-      {% with sync_url='/edms/' ~ edm.id ~ '/sync', sync_target='#edm-detail',
+      {% with sync_url=sync_url, sync_target='#edm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -164,10 +207,13 @@
 
     {% if edm.treaties %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 130px 130px 110px 120px 130px 80px minmax(150px,1fr);min-width:1080px">
+      <div class="dtable" style="--cols:230px minmax(110px,1fr) 115px 130px 130px 120px minmax(140px,1fr) minmax(150px,1.5fr) 80px 165px;min-width:1370px">
         <div class="dtable__head">
-          <span class="l">Treaty</span><span class="l">Type</span><span class="l">Applies at</span><span class="l">Currency</span>
-          <span>Attachment</span><span>Limit</span><span>Share</span><span class="l">Effective</span>
+          <span class="l">Treaty</span><span class="l">Type</span><span>Attachment</span>
+          <span class="l">Basis</span>
+          <span>Occurrence limit</span><span>Risk limit</span>
+          <span class="l">Cedent</span><span class="l">Lines of business</span>
+          <span class="l">Currency</span><span class="l">Effective</span>
         </div>
         {% for t in edm.treaties %}
         {% include "partials/treaty_row.html" %}
@@ -190,51 +236,48 @@
     {% endif %}
   </details>
 
-  {# ── Broker analyses (US3) — standalone, grouped by source RDM (FR-030/FR-037) ── #}
-  {% set analysis_total = edm.analyses | map(attribute='analyses') | map('length') | sum %}
+  {% if source_submission %}
+  {% set analysis_total = submission_rdms | map(attribute='analysis_count') | sum %}
   <details class="sec" open id="edm-broker-analyses">
     <summary>
-      <span class="sec__caret">▸</span>
+      <span class="sec__caret">&#9657;</span>
       <span class="sec__title">Broker analyses</span>
-      {% if analysis_total %}
-      <span class="badge badge--neutral">{{ edm.analyses | length }} RDM{{ '' if edm.analyses|length == 1 else 's' }} · {{ analysis_total }} analys{{ 'is' if analysis_total == 1 else 'es' }}</span>
-      {% endif %}
+      <span class="badge badge--neutral">{{ submission_rdms|length }} RDMs &middot; {{ analysis_total }} analyses</span>
       <span class="sec__spacer"></span>
-      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
+      <span class="sec__note">Every RDM in {{ source_submission.name }} &middot; settings &amp; metadata only &middot; no loss numbers</span>
     </summary>
-
-    {% if analysis_total %}
-    <div class="derive-note"><strong>Linkage &amp; scope:</strong> each analysis is linked to the
-      <strong>Portfolio it was run against</strong> (resolved from Risk Modeler’s <code>exposureResourceId</code>).
-      A <strong>group</strong> is a single analysis shown with Portfolio = <em>Group</em> — its member breakdown
-      isn’t available; results whose exposure can’t be matched show <em>“— not linked”</em>.
-      Settings/metadata only this iteration — <strong>no loss numbers</strong>.</div>
-
+    {% if submission_rdms %}
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 170px 70px minmax(130px,1fr) 120px 80px 120px 90px 60px 110px;min-width:1180px">
+      <div class="dtable" style="--cols:230px minmax(110px,1fr) minmax(120px,1fr) minmax(110px,1fr) 80px minmax(120px,1fr) 80px 70px 130px;min-width:1050px">
         <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Type</span><span class="l">Peril</span>
-          <span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span><span class="l">Term</span>
-          <span class="l">PLA</span><span class="l">Rate</span>
+          <span class="l">Analysis</span><span class="l">Type</span>
+          <span class="l">Peril</span><span class="l">Region</span>
+          <span class="l">Currency</span><span class="l">Engine</span>
+          <span class="l">Term</span><span class="l">PLA</span>
+          <span class="l">Rate</span>
         </div>
-        {% for group in edm.analyses %}
-        <div class="dtable__group">
-          <span class="kind">RDM</span><span class="name">{{ group.rdm_name or 'RDM' }}</span>
-          {% if group.rdm_irp_id %}<span class="ref">#{{ group.rdm_irp_id }}</span>{% endif %}
-          <a class="link" href="/rdms/{{ group.rdm_id }}">Open RDM →</a>
-        </div>
-        {% for a in group.analyses %}
-        {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
-        {% endfor %}
+        {% for rdm in submission_rdms %}
+        <details class="dtable__rdm"
+          hx-get="/submissions/{{ source_submission.id }}/edms/{{ edm.id }}/rdms/{{ rdm.rdm_id }}/analyses"
+          hx-trigger="toggle[event.target.open] once"
+          hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
+          <summary><div class="dtable__group">
+            <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+            <span class="name">{{ rdm.rdm_name }}</span>
+            {% if rdm.rdm_irp_id %}<span class="ref">#{{ rdm.rdm_irp_id }}</span>{% endif %}
+            <span class="ref">{{ rdm.analysis_count }} analyses</span>
+            <a class="link" href="/submissions/{{ source_submission.id }}/rdms/{{ rdm.rdm_id }}"
+               onclick="event.stopPropagation()">Open RDM &rarr;</a>
+          </div></summary>
+          <div id="rdm-analyses-{{ rdm.rdm_id }}" class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+        </details>
         {% endfor %}
       </div>
     </div>
-    {% elif edm.detail_state == 'importing' %}
-    <div class="state-box">Broker analyses appear after the package's RDM imports
-      finish.</div>
     {% else %}
-    <div class="state-box">No broker analyses on this EDM.</div>
+    <div class="state-box">No RDMs are related to {{ source_submission.name }}.</div>
     {% endif %}
   </details>
+  {% endif %}
 
 </div>

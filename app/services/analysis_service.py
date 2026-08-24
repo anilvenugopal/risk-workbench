@@ -1,23 +1,19 @@
 """Analysis service — the broker-analysis read models (spec 004 US3).
 
-Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``
-(broker ⇔ ``rdm_id`` set — DATA_MODEL §6; no stored origin column):
+Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
 
   • ``list_broker_analyses(rdm_id)`` — the RDM page (FR-030/FR-031, R8):
-    grouped by ``rdm_id`` so an analysis applied across M EDMs is shown ONCE
-    (the M pair-rows are handles sharing one ``irp_id``); each with its parsed
-    ``settings_metadata`` (missing/partial → blank, never error), ``is_group``
-    (FR-035), and the read-time-resolved portfolio (FR-036/R9).
-  • ``list_edm_analyses(edm_id)`` — the EDM page (FR-037): the same rows
-    scoped to one EDM, grouped by source RDM; ``bucket_by_portfolio`` feeds
-    the per-portfolio inline panels (group/unresolved stay standalone-only).
-  • ``analysis_counts`` — un-empties the package-card / EDM counts (FR-050).
+    grouped by ``rdm_id``; each with its parsed
+    ``settings_metadata`` (missing/partial → blank, never error) and
+    ``is_group`` (FR-035).
+  • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
+    submission RDM context and therefore returns no groups.
 
-**Portfolio linkage is derived at read time** (R9): a ``LEFT JOIN
-irp_portfolio ON edm_id + exposure_resource_id ↔ irp_id`` — never a stored FK,
-so resolution is import-order safe and self-heals on re-import. Display
-precedence (ui.md §4): ``is_group`` → "Group"; resolved → portfolio link;
-else → "— not linked".
+**No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
+way to tie an RDM analysis to an EDM portfolio, and every analysis here is
+broker-provided (``rdm_id`` NOT NULL). ``irp_analysis.exposure_resource_id`` is
+still captured by the worker — it is defensible only for analyses CIC runs
+itself — but nothing reads or displays it.
 
 The curated ``AnalysisSettings`` view model reads the documented RM payload
 fields defensively (``analysisType``/``engineType``/``engineVersion``/
@@ -35,13 +31,6 @@ from typing import Any
 
 from app.services._common import _parse_json_dict, _uid
 from db import execute
-
-
-@dataclass
-class PortfolioRef:
-    """The resolved owning portfolio (id + name) — a link target, not a model."""
-    id: str
-    name: str
 
 
 @dataclass
@@ -80,15 +69,12 @@ class BrokerAnalysis:
     irp_id: str                  # Moody's analysisId
     name: str | None
     rdm_id: str
-    rdm_name: str | None         # source-RDM name (the mini panel's RDM cell)
-    edm_id: str | None           # representative handle's EDM
-    edm_name: str | None
+    rdm_name: str | None         # source-RDM name
+    edm_name: str | None         # representative handle's EDM
     edm_names: list[str] = field(default_factory=list)  # every EDM it spans
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
-    exposure_resource_id: str | None = None
-    portfolio: PortfolioRef | None = None   # resolved (R9); None ⇒ Group / not linked
 
 
 @dataclass
@@ -97,19 +83,19 @@ class BrokerAnalysisGroup:
     rdm_id: str
     rdm_name: str | None
     rdm_irp_id: Any
+    status: str | None = None
+    analysis_count: int = 0
     analyses: list[BrokerAnalysis] = field(default_factory=list)
+    # A backfill_rdm_analyses head is pending/running for this RDM — the EDM
+    # detail page's contextual broker-analyses section polls while any group
+    # carries this, so an RDM's own capture finishing after the EDM's own
+    # backfill still lands without a manual refresh.
+    sync_running: bool = False
 
     @property
     def edm_count(self) -> int:
         return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
-
-@dataclass
-class AnalysisCounts:
-    """FR-050 — the populated counts (spec 003 D5 rendered these empty)."""
-    total: int = 0
-    rdm_count: int = 0
-    linked: int = 0
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -168,52 +154,37 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
     )
 
 
-# One row per (RDM×EDM) handle + its read-time-resolved portfolio (R9): the
-# LEFT JOIN keys on the SAME edm_id + the captured RM pointer — never a stored
-# FK, so it is import-order safe and self-heals on re-import.
+# One row per (RDM×EDM) handle.
 _HANDLE_SELECT = """
-    SELECT a.id, a.rdm_id, a.edm_id, a.irp_id, a.name, a.is_group,
-           a.settings_metadata, a.exposure_resource_id,
+    SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
            e.name AS edm_name,
-           r.name AS rdm_name, r.irp_id AS rdm_irp_id,
-           pf.id AS portfolio_id, pf.name AS portfolio_name
+           r.name AS rdm_name, r.irp_id AS rdm_irp_id
     FROM irp_analysis a
     LEFT JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_rdm r ON r.id = a.rdm_id
-    LEFT JOIN irp_portfolio pf
-           ON pf.edm_id = a.edm_id
-          AND pf.irp_id = a.exposure_resource_id
-          AND pf.deleted_at IS NULL
     WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
 """
 
 
 def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
     """Collapse the M (RDM×EDM) handle rows sharing one ``irp_id`` into ONE
-    display row (R8): the representative handle is the first that resolves a
-    portfolio (else the first seen); ``edm_names`` collects every EDM spanned;
-    settings come from any handle that has them (the snapshot is per-analysis)."""
+    display row (R8): the representative handle is the first seen;
+    ``edm_names`` collects every EDM spanned; settings come from any handle that
+    has them (the snapshot is per-analysis)."""
     out: list[BrokerAnalysis] = []
     by_key: dict[tuple, BrokerAnalysis] = {}
     for r in rows:
         key = (_uid(r["rdm_id"]), str(r["irp_id"]))
-        resolved = (PortfolioRef(id=_uid(r["portfolio_id"]),
-                                 name=r["portfolio_name"])
-                    if r["portfolio_id"] is not None and not r["is_group"]
-                    else None)
         existing = by_key.get(key)
         if existing is None:
             settings = _parse_settings(r["settings_metadata"])
             entry = BrokerAnalysis(
                 id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
                 rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
-                edm_id=_uid(r["edm_id"]),
                 edm_name=r["edm_name"],
                 edm_names=[r["edm_name"]] if r["edm_name"] else [],
                 is_group=bool(r["is_group"]), settings=settings,
-                display=_to_display(settings),
-                exposure_resource_id=r["exposure_resource_id"],
-                portfolio=resolved)
+                display=_to_display(settings))
             by_key[key] = entry
             out.append(entry)
             continue
@@ -224,14 +195,6 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             if settings is not None:
                 existing.settings = settings
                 existing.display = _to_display(settings)
-        if existing.portfolio is None and resolved is not None:
-            # prefer the handle that actually resolves (ui.md §4 link cell) —
-            # re-point the WHOLE representative, not just the display fields
-            existing.id = _uid(r["id"])
-            existing.exposure_resource_id = r["exposure_resource_id"]
-            existing.portfolio = resolved
-            existing.edm_id = _uid(r["edm_id"])
-            existing.edm_name = r["edm_name"]
     return out
 
 
@@ -255,8 +218,8 @@ def _group_by_rdm(rows: list[dict]) -> list[BrokerAnalysisGroup]:
 
 def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
     """The RDM page's read (FR-030/FR-031/R8): this RDM's broker analyses,
-    deduped across their M EDM handles (shown once), each with parsed settings,
-    ``is_group``, and the resolved portfolio. No scoping (Article 6)."""
+    deduped across their M EDM handles (shown once), each with parsed settings
+    and ``is_group``. No scoping (Article 6)."""
     rows = execute(
         f"{_HANDLE_SELECT} AND a.rdm_id = :r ORDER BY a.name, a.irp_id, a.id",
         {"r": str(rdm_id)}, connection="WORKBENCH")
@@ -264,64 +227,55 @@ def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
 
 
 def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The EDM page's read (FR-037): this EDM's broker analyses grouped by
-    source RDM (divider rows), each with its resolved portfolio. Feeds both the
-    standalone section and — via ``bucket_by_portfolio`` — the per-portfolio
-    inline panels. No scoping (Article 6)."""
+    """Direct library EDM pages have no submission context and show no RDM list."""
+    return []
+
+
+def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
+    """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
-        f"{_HANDLE_SELECT} AND a.edm_id = :e "
-        "ORDER BY r.inserted_at, a.rdm_id, a.name, a.irp_id",
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    return _group_by_rdm([dict(r) for r in rows])
+        "SELECT r.id, r.name, r.irp_id, r.status, COUNT(a.id) AS analysis_count "
+        "FROM submission_rdm sr JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "LEFT JOIN irp_analysis a ON a.rdm_id = r.id AND a.deleted_at IS NULL "
+        "WHERE sr.submission_id = :submission_id AND r.deleted_at IS NULL "
+        "GROUP BY r.id, r.name, r.irp_id, r.status, r.inserted_at "
+        "ORDER BY r.inserted_at, r.name",
+        {"submission_id": str(submission_id)}, connection="WORKBENCH")
+    return [
+        BrokerAnalysisGroup(
+            rdm_id=_uid(row["id"]), rdm_name=row["name"],
+            rdm_irp_id=row["irp_id"], status=row["status"],
+            analysis_count=int(row["analysis_count"] or 0))
+        for row in rows
+    ]
 
 
-def bucket_by_portfolio(
-        groups: list[BrokerAnalysisGroup]) -> dict[str, list[BrokerAnalysis]]:
-    """The R9 bucketing for the inline panels (ui.md §4): ONLY clearly-linked
-    analyses land in a portfolio bucket — ``is_group`` and unresolved rows stay
-    standalone-only. Keyed by the workbench ``irp_portfolio.id``."""
-    buckets: dict[str, list[BrokerAnalysis]] = {}
-    for g in groups:
-        for a in g.analyses:
-            if a.portfolio is not None and not a.is_group:
-                buckets.setdefault(a.portfolio.id, []).append(a)
-    return buckets
+def list_submission_rdm_analyses(
+    *, submission_id: Any, rdm_id: Any,
+) -> list[BrokerAnalysis] | None:
+    """Return stored analyses when the RDM belongs to the named submission.
 
-
-def analysis_counts(*, edm_id: Any) -> AnalysisCounts:
-    """FR-050: populated counts for one EDM (the package card renders these
-    per member, the EDM detail directly). ``total`` dedups on (rdm_id, irp_id)
-    — one per broker analysis, not per handle; ``linked`` counts distinct
-    analyses whose pointer resolves (non-group)."""
+    ``None`` distinguishes an invalid association from an associated RDM with no
+    captured analyses. The query never calls Risk Modeler.
+    """
+    associated = execute(
+        "SELECT r.id FROM submission_rdm sr "
+        "JOIN irp_rdm r ON r.id = sr.rdm_id "
+        "WHERE sr.submission_id = :submission_id AND sr.rdm_id = :rdm_id "
+        "AND r.deleted_at IS NULL",
+        {"submission_id": str(submission_id), "rdm_id": str(rdm_id)},
+        connection="WORKBENCH")
+    if not associated:
+        return None
     rows = execute(
-        """
-        SELECT a.rdm_id, a.irp_id, a.is_group,
-               CASE WHEN pf.id IS NOT NULL THEN 1 ELSE 0 END AS resolved
-        FROM irp_analysis a
-        LEFT JOIN irp_portfolio pf
-               ON pf.edm_id = a.edm_id
-              AND pf.irp_id = a.exposure_resource_id
-              AND pf.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
-          AND a.edm_id = :e
-        """,
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    # Dedup app-side on (rdm_id, irp_id) — the handle → analysis collapse (R8);
-    # an analysis is 'linked' when ANY handle resolves. Portable (no dialect
-    # string-concat in aggregates); the per-view row count is small.
-    linked_by_key: dict[tuple, bool] = {}
-    for r in rows:
-        key = (_uid(r["rdm_id"]), str(r["irp_id"]))
-        is_linked = bool(r["resolved"]) and not bool(r["is_group"])
-        linked_by_key[key] = linked_by_key.get(key, False) or is_linked
-    return AnalysisCounts(
-        total=len(linked_by_key),
-        rdm_count=len({k[0] for k in linked_by_key}),
-        linked=sum(1 for v in linked_by_key.values() if v))
+        f"{_HANDLE_SELECT} AND a.rdm_id = :rdm_id "
+        "ORDER BY a.name, a.irp_id, a.id",
+        {"rdm_id": str(rdm_id)}, connection="WORKBENCH")
+    return _dedup_handles([dict(row) for row in rows])
 
 
 __all__ = [
-    "PortfolioRef", "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
-    "AnalysisCounts", "list_broker_analyses", "list_edm_analyses",
-    "bucket_by_portfolio", "analysis_counts",
+    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
+    "list_broker_analyses", "list_edm_analyses", "list_submission_rdms",
+    "list_submission_rdm_analyses",
 ]

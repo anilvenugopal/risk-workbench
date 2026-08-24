@@ -7,7 +7,6 @@
 @import url("layout.css");
 @import url("components.css");
 @import url("submissions.css");
-@import url("packages.css");
 @import url("details.css");
 
 [x-cloak] { display: none !important; }
@@ -95,14 +94,14 @@
 .filters__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 18px; width: 100%; }
 .filters label { font-size: var(--fs-caption); color: var(--text-tertiary); display: flex; flex-direction: column; gap: 4px; }
 .filters select { min-width: 150px; }
-/* The Owner picker cannot wrap its input in a <label>: a click on a menu row
-   inside a label is forwarded to the input, which reopens the menu it just
-   closed. Label and combobox are siblings, stacked like the other filters. */
+/* A picker cannot wrap its control in a <label>: a click on a menu row inside a
+   label is forwarded to the control, which reopens the menu it just closed. Label
+   and combobox are siblings, stacked like the other filters. */
 .filters__field { display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-caption); color: var(--text-tertiary); }
 .filters__combo { position: relative; min-width: 170px; }
-/* Status and Treaty type are buttons, not <select>, so their closed control and
-   their menu match the Owner picker. Buttons inherit neither the page font nor
-   left alignment. */
+/* Status, Treaty type and Owner are buttons, not <select>, so a closed picker
+   matches the fields beside it. Buttons inherit neither the page font nor left
+   alignment. */
 .filters__trigger { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); font-family: inherit; text-align: left; color: var(--text-primary); cursor: pointer; }
 .filters__chevron { color: var(--text-tertiary); font-size: 10px; }
 
@@ -122,6 +121,7 @@
 
 /* ── Submission / full-page detail ──────────────────────────────────────── */
 .detail-head { margin-bottom: 18px; }
+.detail-crumbs { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: var(--fs-label); margin-bottom: var(--space-2); }
 .detail-head h1 { font-size: 20px; margin: 0 0 5px; color: var(--text-primary); font-weight: var(--fw-medium); }
 .detail-meta { font-size: var(--fs-label); color: var(--text-secondary); display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
 .detail-meta__handler { color: var(--text-tertiary); }
@@ -248,3 +248,13 @@
 .new-wf__intro { font-size: var(--fs-label); color: var(--text-secondary); line-height: 1.5; background: var(--color-info-bg); border: 1px solid var(--color-info-border); border-radius: var(--radius-md); padding: var(--space-3) 14px; }
 .new-wf .wf-field { grid-template-columns: 130px 1fr; }
 .new-wf__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: var(--space-2); }
+
+/* Sync-from-Risk-Modeler table (the adoptable EDM list) */
+.sync-table th.sync-pick, .sync-table td.sync-pick { width: 32px; padding-right: 0; }
+.sync-table th.sync-num, .sync-table td.sync-num { text-align: right; }
+.sync-table td.sync-num { font-variant-numeric: tabular-nums; }
+/* Picked rows highlight off :checked, so the row needs no Alpine state of its own. */
+.sync-table tr:has(input[name="irp_ids"]:checked) td { background: var(--color-brand-faint); }
+.sync-table td.sync-open { text-align: right; white-space: nowrap; }
+.sync-table td.sync-open a { color: var(--color-brand); text-decoration: none; font-size: var(--fs-label); }
+.sync-table td.sync-open a:hover { text-decoration: underline; }

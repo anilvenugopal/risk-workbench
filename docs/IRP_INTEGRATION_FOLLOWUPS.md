@@ -1,24 +1,29 @@
 # irp-integration — follow-up changes for the Risk Workbench
 
-What `irp-integration` needs (or would benefit from) to fully serve the workbench, discovered during
-the spec-003 reconciliation on **2026-07-14** against the committed wheel (**PyPI `0.2.0`**). We own
-the library, so these are ours to make.
+What `irp-integration` needs (or would benefit from) to fully serve the workbench.
+Older findings retain the wheel version they were tested against.
 
-**None of these is on the Iteration-2 critical path.** Iteration 2 runs on 0.2.0 as-is, behind
-`app/services/irp_gateway.py`. The confirmed method surface the workbench relies on is recorded in
-`specs/003-edm-rdm-entity-management/contracts/worker-poller.md` → "IRP gateway — confirmed method surface".
+## Package retirement dependency — confirmed 2026-08-12
+
+The active source is **TestPyPI `irp-integration` 0.4.0**. The lockfile resolves
+the `irp-testpypi` group to 0.4.0. The installed signature is:
+
+```python
+submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=...)
+```
+
+The workbench passes `exposure_set_name=rdm_name`. One RDM import therefore runs
+without an EDM target. Package retirement ports this signature through
+`app/services/irp_gateway.py` and removes every per-EDM RDM apply call.
 
 ---
 
 ## Feature gaps (block a deferred workbench feature)
 
-### 1. Optional-EDM RDM import (review-only / RDM-only packages)
-`rdm.submit_rdm_import_job(rdm_name, edm_name, rdm_file_path)` makes `edm_name` **mandatory** — it
-resolves the EDM's `resourceUri` via `search_edms` and raises if none is found. Standalone-RDM import
-(analyses with no exposure) is a real Risk Modeler capability but has no code path here.
-- **Change:** make `edm_name` optional and add a no-EDM import path (analyses with `edm_id` null).
-- **Unblocks:** workbench FR-002 (review-only import), FR-016, SC-004 (RDM-only package) — all deferred
-  by spec 003 D3.
+### 1. Standalone RDM import — resolved in 0.4.0
+
+Version 0.4.0 accepts `exposure_set_name` instead of requiring `edm_name`.
+Broker analyses can therefore be imported and enumerated with `edm_id` null.
 
 ---
 
@@ -161,7 +166,7 @@ Known constraints on the workbench side:
 
 **STOPGAP SHIPPED (2026-07-28) — the workbench no longer blocks on this method.**
 `irp_gateway.get_edm_exposure_summary(*, edm_name, edm_irp_id)` now computes the summary itself:
-repo-owned set-based scripts (`sql/databridge/portfolio_{total_tiv,states,lines_of_business,currencies}.sql`,
+repo-owned set-based scripts (`sql/databridge/portfolio_{list,countries,states,lines_of_business,currencies}.sql`,
 adapted from `IRP/knowledge/sql scripts/`) run through the wheel's **generic**
 `DataBridgeManager.execute_query_from_file(..., database=...)`, against the database resolved from
 RM's `search_edms` `databaseName` (hit matched on `exposureId` — resolves same-named EDMs). Graceful
@@ -169,11 +174,14 @@ absence unchanged (any raise → `summary: null`, cells render "—", job still 
 
 The contract above is amended accordingly if/when the bespoke method is still wanted:
 - `sub_perils` **dropped** — sub-perils are an analysis-settings attribute, not an exposure attribute
-  (workbench scope call, 2026-07-28); `countries` dropped (no country-level read; geography = states).
+  (workbench scope call, 2026-07-28).
+- `countries` **added** (8/4 D11) — distinct `Address.CountryCode` (fallback `CountryRMSCode`) per
+  portfolio; codes, not names — the EDM Address table has no country-name column.
 - `lines_of_business` **added** — distinct `lobdet.LOBNAME` via policy per portfolio.
-- `tiv_by_currency` → **`total_tiv`** (float) — Moody's precomputed `exposure_metrics.totalTIV`
-  account rollup (exposuretype 8019) summed per portfolio; no currency attribution.
-- Resolved shape: `{portfolioId(str): {portfolio_name, total_tiv, states, lines_of_business, currencies}}`.
+- `tiv_by_currency` **dropped** — TIV left the page on 8/4 (currency conversion makes the figure
+  indefensible); `portfolio_total_tiv.sql` became `portfolio_list.sql`, a plain `portinfo`
+  enumeration that still seeds every portfolio into the summary.
+- Resolved shape: `{portfolioId(str): {portfolio_name, countries, states, lines_of_business, currencies}}`.
   PORTINFOID is still only *assumed* equal to RM's portfolioId — `portfolio_name` remains the
   fallback join key (unchanged).
 

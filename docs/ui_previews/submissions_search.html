@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Submissions filter row — multi-select (D16) · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.scaffold-note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-caption);margin-bottom:var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase;margin-bottom:var(--space-2)}
+.note{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-2)}
+.stage{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);padding:var(--space-4);box-shadow:var(--shadow-sm)}
+
+/* ── existing app classes reused verbatim ─────────────────────────────────── */
+.wf-field__input{padding:5px var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);font:inherit;font-size:var(--fs-label);color:var(--text-primary);width:100%}
+.wf-field__input:focus{outline:none;border-color:var(--color-brand);box-shadow:var(--ring-focus)}
+.btn-sm{display:inline-flex;align-items:center;height:28px;padding:0 var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--border-default);background:var(--surface-panel);color:var(--text-secondary);font-size:var(--fs-label);text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn-sm:hover{background:var(--surface-hover)}
+.banner{padding:var(--space-2) var(--space-3);border-radius:var(--radius-md);font-size:var(--fs-label);border:1px solid var(--border-default);margin-bottom:var(--space-3)}
+.banner--error{color:var(--color-danger);background:var(--color-danger-bg);border-color:var(--color-danger-border)}
+.ta__menu{position:absolute;z-index:20;top:calc(100% + 3px);left:0;min-width:100%;background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);max-height:240px;overflow:auto;padding:var(--space-1);display:flex;flex-direction:column;gap:1px}
+.ta__opt{display:flex;align-items:center;gap:var(--space-2);width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:6px var(--space-2);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);color:var(--text-primary);white-space:nowrap}
+.ta__opt:hover,.ta__opt.is-active{background:var(--color-brand-faint)}
+.ta__empty{padding:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
+
+/* ── filter row ───────────────────────────────────────────────────────────── */
+.filters{display:flex;flex-direction:column;gap:var(--space-3)}
+.filters__row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-3)}
+.filters label,.filters__field>span,.filters__field>label{display:block;font-size:var(--fs-caption);text-transform:uppercase;letter-spacing:.04em;color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.filters__field{min-width:190px}
+.filters>*>label{min-width:150px}
+.filters__combo{position:relative}
+
+/* the multi-select trigger: chips, or "Any" */
+.filters__trigger{display:flex;align-items:center;gap:var(--space-2);min-height:30px;text-align:left;cursor:pointer}
+.filters__trigger .filters__chips{flex:1;display:flex;flex-wrap:wrap;gap:var(--space-1);overflow:hidden}
+.filters__any{color:var(--text-tertiary)}
+.filters__chevron{color:var(--text-tertiary);font-size:var(--fs-caption)}
+.filter-chip{display:inline-flex;align-items:center;gap:var(--space-1);padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--color-brand-border);background:var(--color-brand-wash);color:var(--color-brand);font-size:var(--fs-caption);font-weight:var(--fw-medium);white-space:nowrap}
+.filter-chip__x{border:0;background:none;padding:0;margin-left:1px;color:var(--color-brand);cursor:pointer;font-size:var(--fs-caption);line-height:1}
+.filter-chip__x:hover{color:var(--color-danger)}
+.filters__more{font-size:var(--fs-caption);color:var(--text-tertiary);align-self:center}
+
+/* the tick column in a multi-select menu row */
+.ta__check{width:12px;flex:none;color:var(--color-brand);font-size:var(--fs-caption)}
+.ta__opt[aria-selected="true"]{font-weight:var(--fw-medium)}
+.ta__filter{padding:var(--space-1) var(--space-1) var(--space-2)}
+
+/* treaty year — typed, not picked */
+.chip-input{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1);padding:3px var(--space-2);min-height:30px;border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel)}
+.chip-input:focus-within{border-color:var(--color-brand);box-shadow:var(--ring-focus)}
+.chip-input__field{flex:1;min-width:64px;border:0;outline:none;background:none;font:inherit;font-size:var(--fs-label);color:var(--text-primary);padding:2px 0}
+.chip-input--error{border-color:var(--color-danger);background:var(--color-danger-bg)}
+.filters__msg{grid-column:2;font-size:var(--fs-caption);margin-top:3px;color:var(--color-danger)}
+.filters__hint{font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:3px}
+
+/* ── list below the filters (context only) ────────────────────────────────── */
+.mk-table{width:100%;border-collapse:collapse;font-size:var(--fs-body);margin-top:var(--space-4)}
+.mk-table thead th{text-align:left;padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:.03em;border-bottom:1px solid var(--border-default);font-weight:var(--fw-medium)}
+.mk-table td{padding:9px var(--space-3);border-bottom:1px solid var(--border-faint);color:var(--text-primary)}
+.sort-th{display:inline-flex;align-items:center;gap:var(--space-1);color:inherit;text-decoration:none;cursor:pointer}
+.sort-th.is-sorted{color:var(--text-primary);font-weight:var(--fw-semibold)}
+.sort-th__caret{font-size:var(--fs-eyebrow);line-height:1}
+.open-link{color:var(--color-brand);font-size:var(--fs-label);text-decoration:none}
+.mono{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.muted,.na{color:var(--text-tertiary)}
+.status-chip{display:inline-block;font-size:var(--fs-caption);font-weight:var(--fw-medium);letter-spacing:.03em;text-transform:uppercase;padding:1px var(--space-2);border-radius:var(--radius-pill);border:1px solid var(--color-info-border);color:var(--color-info);background:var(--color-info-bg)}
+.status-chip--completed{color:var(--color-positive);background:var(--color-positive-bg);border-color:var(--color-positive-border)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="scaffold-note">
+    <strong>UI PREVIEW — not wired.</strong> Submissions filter row, multi-select (D16), on top of the
+    click-to-sort header already built (D15). Menus are drawn open where the state calls for it.
+    Real tokens; IBM&nbsp;Plex falls back to system fonts offline.
+  </div>
+
+  <div class="hero">Submissions — filter row</div>
+  <div class="sub">Status, treaty type and owner become menus of chips. Treaty year is typed, not picked.</div>
+
+  <!-- ── STATE 1 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 1 — the landing view: nothing selected but the analyst's own name</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <label>Name<input class="wf-field__input" type="text" value="" placeholder=""></label>
+        <label>Cedant<input class="wf-field__input" type="text" value=""></label>
+        <label>CRM ID<input class="wf-field__input" type="text" value=""></label>
+        <div class="filters__field">
+          <span>Owner</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filter-chip">Analyst A<span class="filter-chip__x">×</span></span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filters__any">Any</span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Treaty type</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips"><span class="filters__any">Any</span></span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <label style="min-width:150px">Inception<input class="wf-field__input" type="date"></label>
+        <div class="filters__field" style="min-width:210px">
+          <span>Treaty year</span>
+          <div class="chip-input">
+            <input class="chip-input__field" placeholder="Type a year, press Enter">
+          </div>
+        </div>
+        <a class="btn-sm" href="#">Clear filters</a>
+      </div>
+    </div>
+
+    <table class="mk-table">
+      <thead>
+        <tr>
+          <th><a class="sort-th" href="#">Name</a></th>
+          <th><a class="sort-th" href="#">Cedant</a></th>
+          <th>CRM ID</th><th>Treaty type</th>
+          <th aria-sort="descending"><a class="sort-th is-sorted" href="#">Inception<span class="sort-th__caret">▼</span></a></th>
+          <th><a class="sort-th" href="#">Year</a></th>
+          <th>Status</th><th>Owner</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><a class="open-link" href="#">TY2604_AmericanFamily</a></td><td>American Family Mutual</td>
+            <td><span class="mono">CRM-4417</span> <span class="muted">+2 more</span></td><td>Cat XoL</td>
+            <td>2026-04-01</td><td>2026</td><td><span class="status-chip">Active</span></td><td class="muted">Analyst A</td></tr>
+        <tr><td><a class="open-link" href="#">TY2601_Zephyr</a></td><td>Zephyr Mutual</td>
+            <td><span class="mono">CRM-3120</span></td><td>Quota Share</td>
+            <td>2026-01-01</td><td>2026</td><td><span class="status-chip">Active</span></td><td class="muted">Analyst A</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Owner is pre-filled with the signed-in analyst (D13, already built). Clearing the last
+      owner chip is the same as picking "Any owner": the field then sends <code>owner=any</code>, because a
+      request carrying no owner at all lands back on the analyst's own deals.</div>
+  </div>
+
+  <!-- ── STATE 2 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 2 — Status menu open, two statuses ticked</div>
+  <div class="stage" style="padding-bottom:200px">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger" aria-expanded="true">
+              <span class="filters__chips">
+                <span class="filter-chip">Active<span class="filter-chip__x">×</span></span>
+                <span class="filter-chip">Completed<span class="filter-chip__x">×</span></span>
+              </span>
+              <span class="filters__chevron">▾</span>
+            </button>
+            <div class="ta__menu" role="listbox" aria-multiselectable="true" style="width:200px">
+              <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>Active</button>
+              <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>Completed</button>
+              <button class="ta__opt is-active" role="option" aria-selected="false"><span class="ta__check"></span>Cancelled</button>
+            </div>
+          </div>
+        </div>
+        <div class="filters__field">
+          <span>Treaty type</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips">
+                <span class="filter-chip">Cat XoL<span class="filter-chip__x">×</span></span>
+                <span class="filter-chip">Quota Share<span class="filter-chip__x">×</span></span>
+              </span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <label style="min-width:150px">Inception<input class="wf-field__input" type="date"></label>
+        <div class="filters__field" style="min-width:210px">
+          <span>Treaty year</span>
+          <div class="chip-input"><input class="chip-input__field" placeholder="Type a year, press Enter"></div>
+        </div>
+        <a class="btn-sm" href="#">Clear filters</a>
+      </div>
+    </div>
+    <div class="note">Clicking an option toggles it and leaves the menu open — picking three statuses is three
+      clicks, not three open/close cycles. Each toggle re-runs the list request.</div>
+  </div>
+
+  <!-- ── STATE 3 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 3 — Owner menu open with the narrowing box; two treaty years entered as chips</div>
+  <div class="stage" style="padding-bottom:200px">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field">
+          <span>Owner</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger" aria-expanded="true">
+              <span class="filters__chips">
+                <span class="filter-chip">Analyst A<span class="filter-chip__x">×</span></span>
+                <span class="filter-chip">Cheryl Nolan<span class="filter-chip__x">×</span></span>
+              </span>
+              <span class="filters__chevron">▾</span>
+            </button>
+            <div class="ta__menu" style="width:230px">
+              <div class="ta__filter"><input class="wf-field__input" placeholder="Narrow this list" value="an"></div>
+              <div role="listbox" aria-multiselectable="true">
+                <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>Any owner</button>
+                <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>Analyst A</button>
+                <button class="ta__opt" role="option" aria-selected="false"><span class="ta__check"></span>Analyst B</button>
+                <button class="ta__opt" role="option" aria-selected="true"><span class="ta__check">✓</span>Cheryl Nolan</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="filters__field" style="min-width:260px">
+          <span>Treaty year</span>
+          <div class="chip-input">
+            <span class="filter-chip">2025<button class="filter-chip__x">×</button></span>
+            <span class="filter-chip">2026<button class="filter-chip__x">×</button></span>
+            <input class="chip-input__field" value="">
+          </div>
+          <div class="filters__hint">Enter adds a year · Backspace removes the last one</div>
+        </div>
+        <a class="btn-sm" href="#">Clear filters</a>
+      </div>
+    </div>
+    <div class="note">Owner keeps the text box it has today, moved inside the menu — it narrows the list of
+      analysts in place and never filters the deals on its own. Status and treaty type are short closed lists
+      and get no box. There is no year list to pick from, so the year field is typed: 4 digits, Enter.</div>
+  </div>
+
+  <!-- ── STATE 4 ─────────────────────────────────────────────────────────── -->
+  <div class="eyebrow">State 4 — validation: a year that is not a year, and too many values on one filter</div>
+  <div class="stage">
+    <div class="filters">
+      <div class="filters__row">
+        <div class="filters__field" style="min-width:260px">
+          <span>Treaty year</span>
+          <div class="chip-input chip-input--error">
+            <span class="filter-chip">2025<button class="filter-chip__x">×</button></span>
+            <input class="chip-input__field" value="20x6">
+          </div>
+          <div class="filters__msg">Enter a 4-digit year between 1900 and 2999.</div>
+        </div>
+        <div class="filters__field">
+          <span>Status</span>
+          <div class="filters__combo">
+            <button type="button" class="wf-field__input filters__trigger">
+              <span class="filters__chips">
+                <span class="filter-chip">Active<span class="filter-chip__x">×</span></span>
+                <span class="filter-chip">Completed<span class="filter-chip__x">×</span></span>
+              </span>
+              <span class="filters__more">+19</span>
+              <span class="filters__chevron">▾</span>
+            </button>
+          </div>
+        </div>
+        <a class="btn-sm" href="#">Clear filters</a>
+      </div>
+    </div>
+
+    <div style="margin-top:var(--space-4)">
+      <div class="banner banner--error" role="alert">Status accepts 20 values or fewer.</div>
+    </div>
+    <div class="note">The bad year never becomes a chip, so it never reaches the query — the message sits under
+      the field and the list keeps showing what the committed chips select. The 20-value cap is a server
+      answer in the same banner the 100-character and 10-word limits already use; the trigger collapses to
+      "+19" once the chips stop fitting.</div>
+  </div>
+
+</div>
+</body>
+</html>

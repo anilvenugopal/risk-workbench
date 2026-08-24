@@ -16,7 +16,14 @@ from datetime import date
 
 import pytest
 
+from app.services import edm_service, rdm_service
 from app.services import submission_service as svc
+from app.services.errors import (
+    ConcurrencyConflict,
+    SelfLinkError,
+    SubmissionClosed,
+    UnknownLinkError,
+)
 from app.services.submission_service import (
     add_crm_id,
     cedant_suggestions,
@@ -32,13 +39,8 @@ from app.services.submission_service import (
     set_status,
     update_submission,
 )
-from app.services.errors import (
-    ConcurrencyConflict,
-    SelfLinkError,
-    SubmissionClosed,
-    UnknownLinkError,
-)
-from db import execute_command
+from app.workers import entity_jobs
+from db import execute, execute_command, execute_one, execute_scalar
 
 STALE = "1999-01-01 00:00:00.000000"  # a marker that can never match
 
@@ -89,6 +91,271 @@ def test_get_submission_has_no_access_restriction(iteration1_db):
     # Owned by B, still fully readable (no row-level security, FR-019).
     sid = _mk(iteration1_db, owner=iteration1_db.user_b).submission_id
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
+
+
+def test_submission_entities_use_direct_associations_and_stored_counts(iteration2_db):
+    first = _mk(iteration2_db, name="First").submission_id
+    second = _mk(iteration2_db, name="Second", cedant="Second Re").submission_id
+    edm_id = str(uuid.uuid4())
+    rdm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedEDM', 'ready', 101)",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_rdm (id, name, status, irp_id) "
+        "VALUES (:id, 'SharedRDM', 'ready', 202)",
+        {"id": rdm_id}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '301')",
+        {"id": str(uuid.uuid4()), "edm": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_analysis (id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'SharedRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_id}, connection="WORKBENCH")
+
+    first_edms = svc.list_submission_edms(first)
+    second_edms = svc.list_submission_edms(second)
+    first_rdms = svc.list_submission_rdms(first)
+    second_rdms = svc.list_submission_rdms(second)
+
+    assert [(row.id, row.portfolio_count) for row in first_edms] == [(edm_id, 1)]
+    assert [(row.id, row.portfolio_count) for row in second_edms] == [(edm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in first_rdms] == [(rdm_id, 1)]
+    assert [(row.id, row.analysis_count) for row in second_rdms] == [(rdm_id, 1)]
+
+
+def test_submission_entity_tables_sort_by_name_status_and_count(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Sorted entities").submission_id
+    edm_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for edm_id, name, status in zip(
+        edm_ids, ("BravoEDM", "AlphaEDM", "CharlieEDM"),
+        ("ready", "importing", "error"), strict=True,
+    ):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, :status)",
+            {"id": edm_id, "name": name, "status": status},
+            connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH",
+        )
+    for index in range(2):
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+            "VALUES (:id, :edm, :name, :irp)",
+            {"id": str(uuid.uuid4()), "edm": edm_ids[0],
+             "name": f"Portfolio{index}", "irp": str(index)},
+            connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_portfolio (id, edm_id, name, irp_id) "
+        "VALUES (:id, :edm, 'Portfolio', '3')",
+        {"id": str(uuid.uuid4()), "edm": edm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.name for row in svc.list_submission_edms(
+        submission_id, sort="name", descending=True)] == [
+            "CharlieEDM", "BravoEDM", "AlphaEDM"]
+    assert [row.status for row in svc.list_submission_edms(
+        submission_id, sort="status")] == ["error", "importing", "ready"]
+    assert [row.portfolio_count for row in svc.list_submission_edms(
+        submission_id, sort="count", descending=True)] == [2, 1, 0]
+
+    rdm_ids = [str(uuid.uuid4()) for _ in range(2)]
+    for rdm_id, name in zip(rdm_ids, ("SmallRDM", "LargeRDM"), strict=True):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": rdm_id, "name": name}, connection="WORKBENCH",
+        )
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission_id, "r": rdm_id}, connection="WORKBENCH",
+        )
+    execute_command(
+        "INSERT INTO irp_analysis "
+        "(id, rdm_id, irp_id, source_rdm_name, status_code) "
+        "VALUES (:id, :rdm, '401', 'LargeRDM', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_ids[1]}, connection="WORKBENCH",
+    )
+
+    assert [row.analysis_count for row in svc.list_submission_rdms(
+        submission_id, sort="count", descending=True)] == [1, 0]
+
+
+@pytest.mark.parametrize(
+    ("sort", "descending", "expected"),
+    [
+        ("name", False, "e.name ASC, e.id ASC"),
+        ("name", True, "e.name DESC, e.id ASC"),
+        ("status", False, "e.status ASC, e.name ASC, e.id ASC"),
+        ("count", True, "portfolio_count DESC, e.name ASC, e.id ASC"),
+    ],
+)
+def test_submission_entity_table_order_uses_unique_columns(
+    sort, descending, expected,
+):
+    assert svc._entity_table_order(
+        sort, descending, entity_alias="e", count_alias="portfolio_count",
+    ) == expected
+
+
+def test_submission_import_creates_entity_association_and_provenance(
+    iteration2_db, fake_irp, drive,
+):
+    submission_id = _mk(iteration2_db, name="Import target").submission_id
+
+    edm = edm_service.import_edm(
+        name="Imported_EDM", source_file_path=str(drive / "edm1.bak"),
+        actor_id=iteration2_db.user_a, submission_id=submission_id)
+    rdm = rdm_service.import_rdm(
+        name="Imported_RDM", source_file_path=str(drive / "rdm1.mdf"),
+        actor_id=iteration2_db.user_a, submission_id=submission_id)
+
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_edm WHERE submission_id=:s AND edm_id=:e",
+        {"s": submission_id, "e": edm.entity_id}, connection="WORKBENCH") == 1
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_rdm WHERE submission_id=:s AND rdm_id=:r",
+        {"s": submission_id, "r": rdm.entity_id}, connection="WORKBENCH") == 1
+    heads = execute(
+        "SELECT input_data FROM rwb_job WHERE requestor_id IN (:e, :r) "
+        "ORDER BY rwb_job_type",
+        {"e": edm.entity_id, "r": rdm.entity_id}, connection="WORKBENCH")
+    assert len(heads) == 2
+    assert all(submission_id in row["input_data"] for row in heads)
+
+    entity_jobs.run_pending()
+    jobs = execute(
+        "SELECT requested_from_submission_id, irp_edm_id, irp_rdm_id FROM irp_job "
+        "WHERE requested_from_submission_id=:s ORDER BY irp_job_type",
+        {"s": submission_id}, connection="WORKBENCH")
+    assert len(jobs) == 2
+    assert all(
+        str(row["requested_from_submission_id"]).lower() == submission_id
+        for row in jobs
+    )
+    assert sum(row["irp_edm_id"] is not None for row in jobs) == 1
+    assert sum(row["irp_rdm_id"] is not None for row in jobs) == 1
+
+
+def test_add_existing_candidates_exclude_related_and_deleted_entities(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Candidate target").submission_id
+    available = str(uuid.uuid4())
+    related = str(uuid.uuid4())
+    deleted = str(uuid.uuid4())
+    for entity_id, name, deleted_at in (
+        (available, "AvailableEDM", None),
+        (related, "RelatedEDM", None),
+        (deleted, "DeletedEDM", "2026-01-01 00:00:00"),
+    ):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status, deleted_at) "
+            "VALUES (:id, :name, 'ready', :deleted)",
+            {"id": entity_id, "name": name, "deleted": deleted_at},
+            connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": related}, connection="WORKBENCH")
+
+    page = svc.list_edm_candidates(submission_id, query="available", page=1)
+
+    assert [row.id for row in page.rows] == [available]
+    assert page.has_next is False
+
+
+def test_add_existing_candidates_are_paginated(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Candidate pages").submission_id
+    for index in range(svc.PAGE_SIZE + 1):
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": str(uuid.uuid4()), "name": f"Candidate{index:03d}"},
+            connection="WORKBENCH")
+
+    first = svc.list_edm_candidates(submission_id, page=1)
+    second = svc.list_edm_candidates(submission_id, page=2)
+
+    assert len(first.rows) == svc.PAGE_SIZE and first.has_next is True
+    assert len(second.rows) == 1 and second.has_next is False
+
+
+def test_attach_existing_keeps_valid_selections_when_others_are_stale(iteration2_db):
+    submission_id = _mk(iteration2_db, name="Attach target").submission_id
+    valid = str(uuid.uuid4())
+    already_related = str(uuid.uuid4())
+    missing = str(uuid.uuid4())
+    for entity_id, name in ((valid, "ValidRDM"), (already_related, "RelatedRDM")):
+        execute_command(
+            "INSERT INTO irp_rdm (id, name, status) VALUES (:id, :name, 'ready')",
+            {"id": entity_id, "name": name}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": already_related}, connection="WORKBENCH")
+
+    result = svc.attach_rdms(
+        submission_id=submission_id,
+        rdm_ids=[valid, valid, already_related, missing, "invalid", "invalid"],
+        actor_id=iteration2_db.user_a)
+
+    assert result.attached_ids == [valid]
+    assert result.stale_ids == ["invalid", already_related, missing]
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_rdm WHERE submission_id=:s",
+        {"s": submission_id}, connection="WORKBENCH") == 2
+
+
+def test_detach_removes_only_the_selected_submission_association(iteration2_db):
+    first = _mk(iteration2_db, name="Detach first").submission_id
+    second = _mk(iteration2_db, name="Detach second", cedant="Second Re").submission_id
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'SharedDetach', 'ready')",
+        {"id": edm_id}, connection="WORKBENCH")
+    for submission_id in (first, second):
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+
+    assert svc.detach_edm(submission_id=first, edm_id=edm_id) is True
+
+    assert execute_one(
+        "SELECT id FROM irp_edm WHERE id=:e", {"e": edm_id},
+        connection="WORKBENCH") is not None
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM submission_edm WHERE edm_id=:e",
+        {"e": edm_id}, connection="WORKBENCH") == 1
+    assert svc.list_submission_edms(second)[0].id == edm_id
+
+
+def test_closed_submission_rejects_association_writes(iteration2_db, drive):
+    submission_id = _mk(iteration2_db, name="Closed associations").submission_id
+    edm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_edm (id, name, status) VALUES (:id, 'ClosedEDM', 'ready')",
+        {"id": edm_id}, connection="WORKBENCH")
+    set_status(
+        submission_id=submission_id, to_status="COMPLETED", reason=None,
+        expected_updated_at=_marker(submission_id), actor_id=iteration2_db.user_a)
+
+    with pytest.raises(SubmissionClosed):
+        svc.attach_edms(
+            submission_id=submission_id, edm_ids=[edm_id],
+            actor_id=iteration2_db.user_a)
+    with pytest.raises(SubmissionClosed):
+        svc.detach_edm(submission_id=submission_id, edm_id=edm_id)
+    with pytest.raises(SubmissionClosed):
+        edm_service.import_edm(
+            name="ClosedImport", source_file_path=str(drive / "edm1.bak"),
+            actor_id=iteration2_db.user_a, submission_id=submission_id)
 
 
 def test_cedant_suggestions_distinct_and_sorted(iteration1_db):
@@ -155,12 +422,12 @@ def test_list_owner_predicate_is_not_an_access_gate(iteration1_db):
              cedant="Beta", inc=date(2026, 2, 1)).submission_id
     # Owner filter is scoped to the (throwaway) owner, so exact-match is safe:
     # nothing else in the DB is owned by this freshly-created analyst.
-    mine = {r.id for r in list_submissions(owner_id=iteration1_db.user_a).rows}
+    mine = {r.id for r in list_submissions(owner_ids=[iteration1_db.user_a]).rows}
     assert mine == {a1}
-    # "All" (owner=None) must include BOTH owners' deals — that is the property
+    # "All" (owner_ids=[]) must include BOTH owners' deals — that is the property
     # under test (no row-level scoping). Assert membership, not exact equality,
     # so unrelated deals already present in a shared dev DB don't fail the test.
-    all_ids = {r.id for r in list_submissions(owner_id=None).rows}
+    all_ids = {r.id for r in list_submissions(owner_ids=[]).rows}
     assert {a1, b1} <= all_ids  # All shows every deal regardless of owner
 
 
@@ -174,15 +441,15 @@ def test_list_filters_combine(iteration1_db):
         inc=date(2025, 1, 1), ty=2025)
 
     # Scope every filter query to this test's throwaway owner so rows already
-    # present in a shared dev DB can't skew the counts. owner_id is itself just
+    # present in a shared dev DB can't skew the counts. owner_ids is itself just
     # another AND-predicate, so this still exercises filter combination.
-    assert len(list_submissions(owner_id=a, cedant_name="Acme").rows) == 2
-    assert len(list_submissions(owner_id=a, treaty_type_code="cat_xol").rows) == 2
-    assert len(list_submissions(owner_id=a, inception_date=date(2026, 6, 1)).rows) == 1
-    assert len(list_submissions(owner_id=a, treaty_year=2025).rows) == 1
+    assert len(list_submissions(owner_ids=[a], cedant_name="Acme").rows) == 2
+    assert len(list_submissions(owner_ids=[a], treaty_type_codes=["cat_xol"]).rows) == 2
+    assert len(list_submissions(owner_ids=[a], inception_date=date(2026, 6, 1)).rows) == 1
+    assert len(list_submissions(owner_ids=[a], treaty_years=[2025]).rows) == 1
     # combined AND: Acme + cat_xol → only X
     combo = list_submissions(
-        owner_id=a, cedant_name="Acme", treaty_type_code="cat_xol").rows
+        owner_ids=[a], cedant_name="Acme", treaty_type_codes=["cat_xol"]).rows
     assert len(combo) == 1 and combo[0].name == "X"
 
 
@@ -195,11 +462,11 @@ def test_list_search_by_name_ands_every_word(iteration1_db):
     ammod = _mk(iteration1_db, owner=a, name="American Modern Renewal",
                 cedant="American Modern", inc=date(2026, 6, 1)).submission_id
     assert {r.id for r in list_submissions(
-        owner_id=a, name="american family").rows} == {amfam}
+        owner_ids=[a], name="american family").rows} == {amfam}
     assert {r.id for r in list_submissions(
-        owner_id=a, name="american").rows} == {amfam, ammod}
+        owner_ids=[a], name="american").rows} == {amfam, ammod}
     # "mutual" is in a cedant and in no name, so the search box does not match it.
-    assert list_submissions(owner_id=a, name="mutual").rows == []
+    assert list_submissions(owner_ids=[a], name="mutual").rows == []
 
 
 def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
@@ -208,9 +475,9 @@ def test_list_cedant_filter_matches_part_of_the_name(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, owner=a, name="Cedant partial",
               cedant="American Family Mutual").submission_id
-    assert {r.id for r in list_submissions(owner_id=a, cedant_name="fam").rows} == {sid}
+    assert {r.id for r in list_submissions(owner_ids=[a], cedant_name="fam").rows} == {sid}
     assert {r.id for r in list_submissions(
-        owner_id=a, cedant_name="american mutual").rows} == {sid}
+        owner_ids=[a], cedant_name="american mutual").rows} == {sid}
 
 
 def test_list_filter_by_owner_id(iteration1_db):
@@ -225,7 +492,7 @@ def test_list_filter_by_owner_id(iteration1_db):
         {"a": str(a), "b": str(b)}, connection="WORKBENCH")
 
     assert [r.id for r in list_submissions(
-        name=f"Owned {tag}", owner_id=b).rows] == [theirs]
+        name=f"Owned {tag}", owner_ids=[b]).rows] == [theirs]
     assert {r.id for r in list_submissions(
         name=f"Owned {tag}").rows} == {mine, theirs}
 
@@ -234,7 +501,7 @@ def test_list_owner_id_that_is_not_a_uuid_matches_nothing(iteration1_db):
     """A hand-typed ?owner=… reaches the uniqueidentifier comparison, which SQL
     Server refuses. It has to read as "no match", not as an error."""
     _mk(iteration1_db, owner=iteration1_db.user_a, name="Some deal")
-    assert list_submissions(owner_id="not-a-uuid").rows == []
+    assert list_submissions(owner_ids=["not-a-uuid"]).rows == []
 
 
 def test_list_filter_by_crm_id(iteration1_db):
@@ -245,9 +512,9 @@ def test_list_filter_by_crm_id(iteration1_db):
     add_crm_id(submission_id=tagged, crm_id="CRM-4418", actor_id=a)
     # A substring of either tag finds the deal, and finds it ONCE even though both
     # tags match — the predicate is EXISTS, not a join.
-    assert [r.id for r in list_submissions(owner_id=a, crm_id="441").rows] == [tagged]
-    assert [r.id for r in list_submissions(owner_id=a, crm_id="4418").rows] == [tagged]
-    assert list_submissions(owner_id=a, crm_id="9999").rows == []
+    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="441").rows] == [tagged]
+    assert [r.id for r in list_submissions(owner_ids=[a], crm_id="4418").rows] == [tagged]
+    assert list_submissions(owner_ids=[a], crm_id="9999").rows == []
 
 
 def test_list_rows_carry_their_crm_ids(iteration1_db):
@@ -258,7 +525,7 @@ def test_list_rows_carry_their_crm_ids(iteration1_db):
     add_crm_id(submission_id=tagged, crm_id="CRM-1", actor_id=a)
     _bump()  # distinct inserted_at, so "oldest tag first" is deterministic here
     add_crm_id(submission_id=tagged, crm_id="CRM-2", actor_id=a)
-    rows = {r.id: r for r in list_submissions(owner_id=a).rows}
+    rows = {r.id: r for r in list_submissions(owner_ids=[a]).rows}
     assert rows[tagged].crm_ids == ["CRM-1", "CRM-2"]
     assert rows[untagged].crm_ids == []
 
@@ -271,16 +538,16 @@ def test_list_filter_by_status(iteration1_db):
     set_status(submission_id=done, to_status="COMPLETED", reason="delivered",
                expected_updated_at=_marker(done), actor_id=a)
     assert [r.id for r in list_submissions(
-        owner_id=a, status_code="COMPLETED").rows] == [done]
+        owner_ids=[a], status_codes=["COMPLETED"]).rows] == [done]
     assert [r.id for r in list_submissions(
-        owner_id=a, status_code="ACTIVE").rows] == [active]
+        owner_ids=[a], status_codes=["ACTIVE"]).rows] == [active]
 
 
 def test_list_search_treats_a_wildcard_as_a_literal(iteration1_db):
     a = iteration1_db.user_a
     literal = _mk(iteration1_db, owner=a, name="100% quota share").submission_id
     _mk(iteration1_db, owner=a, name="100 quota share", inc=date(2026, 7, 1))
-    assert [r.id for r in list_submissions(owner_id=a, name="100%").rows] == [literal]
+    assert [r.id for r in list_submissions(owner_ids=[a], name="100%").rows] == [literal]
 
 
 def test_list_returns_one_page_at_a_time(iteration1_db):
@@ -296,16 +563,16 @@ def test_list_returns_one_page_at_a_time(iteration1_db):
         _mk(iteration1_db, owner=a, name=f"{tag} deal {i:03d}",
             cedant=f"{tag} cedant {i:03d}", inc=date(2026, 4, 1))
 
-    first = list_submissions(owner_id=a)
+    first = list_submissions(owner_ids=[a])
     assert len(first.rows) == svc.PAGE_SIZE
     assert first.page == 1 and first.has_next is True
 
-    second = list_submissions(owner_id=a, page=2)
+    second = list_submissions(owner_ids=[a], page=2)
     assert [r.name for r in second.rows] == [
         f"{tag} deal {svc.PAGE_SIZE:03d}", f"{tag} deal {svc.PAGE_SIZE + 1:03d}"]
     assert second.page == 2 and second.has_next is False
 
-    past_the_end = list_submissions(owner_id=a, page=3)
+    past_the_end = list_submissions(owner_ids=[a], page=3)
     assert past_the_end.rows == [] and past_the_end.has_next is False
 
 
@@ -314,8 +581,133 @@ def test_list_page_below_one_reads_the_first_page(iteration1_db):
     a = iteration1_db.user_a
     sid = _mk(iteration1_db, owner=a, name="Only deal").submission_id
     for page in (0, -5):
-        result = list_submissions(owner_id=a, page=page)
+        result = list_submissions(owner_ids=[a], page=page)
         assert result.page == 1 and [r.id for r in result.rows] == [sid]
+
+
+# ── D16: multi-value filters ─────────────────────────────────────────────────
+
+def _four_mixed_deals(db):
+    """One deal per (treaty type, treaty year, status) combination the tests below
+    select on, so a filter that ORs too widely shows up as an extra row."""
+    a = db.user_a
+    made = {}
+    for name, treaty_type, year in (
+            ("Cat 2025", "cat_xol", 2025), ("Cat 2026", "cat_xol", 2026),
+            ("Quota 2025", "quota_share", 2025), ("Surplus 2027", "surplus", 2027)):
+        made[name] = _mk(db, owner=a, name=name, cedant=name, tt=treaty_type,
+                         inc=date(year, 4, 1), ty=year).submission_id
+    return a, made
+
+
+def test_list_ors_within_a_multi_value_filter(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"]).rows} == {
+        "Cat 2025", "Cat 2026", "Quota 2025"}
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_years=[2025, 2027]).rows} == {
+        "Cat 2025", "Quota 2025", "Surplus 2027"}
+
+
+def test_list_ands_one_multi_value_filter_against_another(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], treaty_type_codes=["cat_xol", "quota_share"],
+        treaty_years=[2025, 2027]).rows} == {"Cat 2025", "Quota 2025"}
+
+
+def test_list_treats_an_empty_list_as_no_filter(iteration1_db):
+    a, _ = _four_mixed_deals(iteration1_db)
+    assert len(list_submissions(
+        owner_ids=[a], treaty_type_codes=[], treaty_years=[],
+        status_codes=[]).rows) == 4
+
+
+def test_list_filters_on_several_statuses(iteration1_db):
+    a, made = _four_mixed_deals(iteration1_db)
+    for name in ("Cat 2025", "Quota 2025"):
+        set_status(submission_id=made[name], to_status="COMPLETED", reason=None,
+                   expected_updated_at=_marker(made[name]), actor_id=a)
+    set_status(submission_id=made["Cat 2026"], to_status="CANCELLED", reason=None,
+               expected_updated_at=_marker(made["Cat 2026"]), actor_id=a)
+    assert {r.name for r in list_submissions(
+        owner_ids=[a], status_codes=["COMPLETED", "CANCELLED"]).rows} == {
+        "Cat 2025", "Quota 2025", "Cat 2026"}
+
+
+def test_list_filters_on_several_owners(iteration1_db):
+    a, b = iteration1_db.user_a, iteration1_db.user_b
+    mine = _mk(iteration1_db, owner=a, name="Mine", cedant="Mine Re").submission_id
+    theirs = _mk(iteration1_db, owner=b, name="Theirs",
+                 cedant="Theirs Re").submission_id
+    assert {r.id for r in list_submissions(owner_ids=[a, b]).rows} == {mine, theirs}
+    # An id that is not a UUID binds NULL and matches nothing, without taking the
+    # other owner's deals down with it.
+    assert {r.id for r in list_submissions(
+        owner_ids=[a, "not-a-uuid"]).rows} == {mine}
+
+
+# ── D15: click-to-sort ───────────────────────────────────────────────────────
+
+def _sorted_deals(db):
+    """Three deals whose name, cedant, inception and treaty year each order them
+    differently, so one ordering cannot pass for another."""
+    a = db.user_a
+    _mk(db, owner=a, name="Alpha", cedant="Zulu Re", inc=date(2026, 1, 1), ty=2026)
+    _mk(db, owner=a, name="Bravo", cedant="Yankee Re", inc=date(2026, 3, 1), ty=2024)
+    _mk(db, owner=a, name="Charlie", cedant="Xray Re", inc=date(2026, 2, 1), ty=2025)
+    return a
+
+
+@pytest.mark.parametrize(
+    ("sort", "descending", "expected"),
+    [
+        ("name", False, ["Alpha", "Bravo", "Charlie"]),
+        ("name", True, ["Charlie", "Bravo", "Alpha"]),
+        ("cedant", False, ["Charlie", "Bravo", "Alpha"]),
+        ("cedant", True, ["Alpha", "Bravo", "Charlie"]),
+        ("inception", True, ["Bravo", "Charlie", "Alpha"]),
+        ("inception", False, ["Alpha", "Charlie", "Bravo"]),
+        ("year", True, ["Alpha", "Charlie", "Bravo"]),
+        ("year", False, ["Bravo", "Charlie", "Alpha"]),
+    ],
+)
+def test_list_sorts_on_each_whitelisted_column(
+        iteration1_db, sort, descending, expected):
+    a = _sorted_deals(iteration1_db)
+    assert [r.name for r in list_submissions(
+        owner_ids=[a], sort=sort, descending=descending).rows] == expected
+
+
+@pytest.mark.parametrize("sort", ["status", "s.name; DROP TABLE submission", "", None])
+def test_list_sort_outside_the_whitelist_is_rejected(iteration1_db, sort):
+    """The key is looked up in SORT_COLUMNS, so nothing from the query string reaches
+    the ORDER BY."""
+    a = _sorted_deals(iteration1_db)
+    with pytest.raises(KeyError):
+        list_submissions(owner_ids=[a], sort=sort)
+
+
+def test_list_defaults_to_newest_inception_first(iteration1_db):
+    a = _sorted_deals(iteration1_db)
+    assert [r.name for r in list_submissions(owner_ids=[a]).rows] == [
+        "Bravo", "Charlie", "Alpha"]
+
+
+def test_list_breaks_a_sort_tie_the_same_way_on_every_page(iteration1_db):
+    """Every deal here shares a treaty year, so the sorted column decides nothing and
+    the tiebreaker decides the whole order. Without it the two pages could repeat a
+    deal and skip another."""
+    a = iteration1_db.user_a
+    for i in range(svc.PAGE_SIZE + 2):
+        _mk(iteration1_db, owner=a, name=f"deal {i:03d}", cedant=f"cedant {i:03d}",
+            inc=date(2026, 4, 1), ty=2026)
+    first = list_submissions(owner_ids=[a], sort="year", descending=True)
+    second = list_submissions(owner_ids=[a], sort="year", descending=True, page=2)
+    names = [r.name for r in first.rows] + [r.name for r in second.rows]
+    assert names == sorted(names)
+    assert len(set(names)) == svc.PAGE_SIZE + 2
 
 
 def test_status_kinds_lists_every_status_in_display_order(iteration1_db):
@@ -328,11 +720,11 @@ def test_reassign_owner_moves_my_view(iteration1_db):
     reassign_owner(submission_id=sid, new_owner_id=iteration1_db.user_b,
                    expected_updated_at=_marker(sid), actor_id=iteration1_db.user_a)
     assert get_submission(sid).assigned_analyst_id == iteration1_db.user_b
-    assert list_submissions(owner_id=iteration1_db.user_a).rows == []
-    assert len(list_submissions(owner_id=iteration1_db.user_b).rows) == 1
+    assert list_submissions(owner_ids=[iteration1_db.user_a]).rows == []
+    assert len(list_submissions(owner_ids=[iteration1_db.user_b]).rows) == 1
     # Still visible in the global ("everyone") list — assert the deal is present
     # rather than that it is the ONLY row, so a shared dev DB doesn't fail this.
-    assert sid in {r.id for r in list_submissions(owner_id=None).rows}
+    assert sid in {r.id for r in list_submissions(owner_ids=[]).rows}
 
 
 def test_reassign_owner_stale_marker_conflicts(iteration1_db):
@@ -514,7 +906,7 @@ def test_create_with_an_unknown_link_target_is_rejected(iteration1_db, link_valu
     # Scoped to this test's throwaway owner, so the assertion is "the deal was not
     # written" rather than "a page of the list is the same length".
     assert list_submissions(
-        owner_id=iteration1_db.user_a, name="Stale link").rows == []
+        owner_ids=[iteration1_db.user_a], name="Stale link").rows == []
 
 
 @pytest.mark.parametrize("link_value", [str(uuid.uuid4()), "not-a-uuid"])

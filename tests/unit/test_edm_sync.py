@@ -1,7 +1,7 @@
 """Route and template tests for the manual per-EDM Sync action (spec 004
 Addendum A, T056): ``POST /edms/{edm_id}/sync`` (CSRF; HTMX swap of the live
 ``#edm-detail`` body, PRG fallback) + ``GET /edms/{edm_id}/body`` (the
-self-terminating poll target, package-card pattern), with service behavior
+self-terminating poll target), with service behavior
 monkeypatched. The SQL-bearing sync flows live in
 ``tests/sqlserver/test_edm_sync.py``.
 """
@@ -13,14 +13,14 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
-from app.services import edm_service, rdm_service
+from app.services import edm_service
 
 # ── route: POST /edms/{edm_id}/sync + GET /edms/{edm_id}/body (live UX) ───────────
 #
 # These tests are the database-free tier: edm_service is monkeypatched to pin
 # service behavior, and the assertions own the route/template contract only.
 # The SQL-bearing sync flows live in tests/sqlserver. The Sync UX mirrors the
-# package-card live pattern: an HTMX POST swaps the ``#edm-detail`` body partial,
+# An HTMX POST swaps the ``#edm-detail`` body partial,
 # which self-polls ``GET /edms/{id}/body`` every 3s while the backfill head is in
 # flight and stops emitting the trigger once it lands. The no-JS fallback is
 # Post/Redirect/Get, so a refresh never re-prompts the form.
@@ -56,7 +56,7 @@ def _detail_obj(**over) -> edm_service.EdmDetail:
     base = dict(
         id="edm-1", name="legacy_edm", status="ready", as_of=None,
         source_file_path="/share/legacy.bak", irp_id=77001,
-        created_by_irp_job_irp_id=None, package_id=None,
+        created_by_irp_job_irp_id=None,
         inserted_at="2026-01-01", updated_at="2026-01-01",
         portfolio_count=0, portfolios=[], detail_state="unavailable",
         sync_running=False)
@@ -78,11 +78,8 @@ def test_sync_route_nonhtmx_post_redirects_prg(monkeypatch):
     # No-JS fallback: Post/Redirect/Get back to the canonical URL — the browser
     # never parks on /sync, so refreshing never re-prompts a form re-submission.
     calls: list[dict] = []
-    rdm_calls: list[dict] = []
     monkeypatch.setattr(edm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
-    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm",
-                        lambda **kw: rdm_calls.append(kw) or [])
     from app.auth.csrf import generate_csrf_token
     r = _client().post("/edms/edm-1/sync",
                        data={"csrf_token": generate_csrf_token()})
@@ -90,7 +87,6 @@ def test_sync_route_nonhtmx_post_redirects_prg(monkeypatch):
     assert r.headers["location"] == "/edms/edm-1"
     assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
     # The EDM page shows RDM-sourced analyses too — its Sync refreshes both.
-    assert rdm_calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
 
 
 def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
@@ -98,11 +94,8 @@ def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
     # the swapped-in render shows the disabled Syncing… button AND carries the
     # self-poll trigger because the head is now in flight.
     calls: list[dict] = []
-    rdm_calls: list[dict] = []
     monkeypatch.setattr(edm_service, "sync_detail",
                         lambda **kw: calls.append(kw) or "job-1")
-    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm",
-                        lambda **kw: rdm_calls.append(kw) or [])
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(detail_state="pending",
                                                    sync_running=True))
@@ -112,7 +105,6 @@ def test_sync_route_htmx_returns_live_body_partial(monkeypatch):
                        headers={"HX-Request": "true"})
     assert r.status_code == 200
     assert calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
-    assert rdm_calls == [{"edm_id": "edm-1", "actor_id": "analyst-1"}]
     assert 'id="edm-detail"' in r.text
     assert 'hx-get="/edms/edm-1/body"' in r.text and "every 3s" in r.text
     assert "Syncing" in r.text and "disabled" in r.text
@@ -167,7 +159,6 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
 
     # The sync POST itself still renders the body — it wires the poll up.
     monkeypatch.setattr(edm_service, "sync_detail", lambda **kw: "job-1")
-    monkeypatch.setattr(rdm_service, "sync_analyses_for_edm", lambda **kw: [])
     from app.auth.csrf import generate_csrf_token
     r = _client().post("/edms/edm-1/sync",
                        data={"csrf_token": generate_csrf_token()},
@@ -178,7 +169,7 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
 
 def test_body_poll_partial_live_while_importing(monkeypatch):
     # The same wrapper keeps the page fresh through an in-flight import too —
-    # the import statuses are live exactly like the package card's.
+    # the import statuses remain live while the worker runs.
     monkeypatch.setattr(edm_service, "get_edm_detail",
                         lambda edm_id: _detail_obj(status="pending_import",
                                                    detail_state="importing"))

@@ -13,15 +13,23 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 
 from __future__ import annotations
 
+from typing import Annotated
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
-from app.services import edm_service, rdm_service
+from app.routers._entity_notes import save_notes
+from app.services import analysis_service, edm_service
 from app.services.errors import (
-    ConcurrencyConflict, InvalidMemberName, InvalidSourceFile,
-    NameCollisionError)
+    ConcurrencyConflict,
+    EdmCatalogUnavailable,
+    InvalidMemberName,
+    InvalidSourceFile,
+    NameCollisionError,
+)
 
 router = APIRouter()
 
@@ -32,9 +40,10 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _render(request: Request, template: str, extra: dict, status_code: int = 200):
+def _render(request: Request, template: str, extra: dict, status_code: int = 200,
+            nav_key: str = _NAV_KEY):
     current_user = request.state.user
-    nav = get_nav_context(current_user, _NAV_KEY)
+    nav = get_nav_context(current_user, nav_key)
     return _templates(request).TemplateResponse(
         request, template,
         {"current_user": current_user, "nav": nav, **extra},
@@ -86,6 +95,71 @@ def library_table(request: Request):
     itself. No writes, no Risk Modeler call (Article 11)."""
     return _partial(request, "partials/library_table.html",
                     _library_context(request))
+
+
+# ── Sync existing Risk Modeler EDMs (literal path, before /edms/{edm_id}) ────────
+
+def _sync_context(request: Request) -> dict:
+    """The adoptable list, or the unavailable state when Risk Modeler does not
+    answer (``page`` is None). The banner counts are read either way, so a Risk
+    Modeler outage on the redirect cannot hide a sync that already happened."""
+    q = (request.query_params.get("q") or "").strip() or None
+    return {
+        "page": edm_service.list_adoptable_edms(
+            page=_int_param(request, "page", default=1), name=q),
+        "page_size": edm_service.ADOPTABLE_PAGE_SIZE,
+        "filter_values": {"q": request.query_params.get("q", "")},
+        # Set by the POST's redirect, so the banner survives Post/Redirect/Get.
+        "synced": _int_param(request, "synced"),
+        "skipped": _int_param(request, "skipped"),
+        "sync_error": request.query_params.get("sync_error") == "unavailable",
+    }
+
+
+def _int_param(request: Request, key: str, default: int = 0) -> int:
+    """A mangled value falls back to ``default`` rather than 422 — the pager and the
+    banner counts are navigation, not form input."""
+    try:
+        return max(0, int(request.query_params.get(key, default)))
+    except ValueError:
+        return default
+
+
+@router.get("/edms/sync", response_class=HTMLResponse)
+def sync_list(request: Request):
+    """EDMs that exist in Risk Modeler with no ``irp_edm`` row. No polling: each
+    render is another Risk Modeler call, so a self-poll would turn one page view
+    into a call stream."""
+    return _render(request, "pages/edm_sync.html", _sync_context(request),
+                   nav_key="irp.sync_edms")
+
+
+@router.post("/edms/sync")
+def sync_adopt(request: Request, csrf_token: Annotated[str, Form()],
+               irp_ids: Annotated[list[int] | None, Form()] = None):
+    """Take in the ticked EDMs, then Post/Redirect/Get back to this page, whose
+    re-read is what drops the newly synced rows from the list."""
+    if not validate_csrf_token(csrf_token):
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse("/edms/sync", status_code=303)
+    try:
+        result = edm_service.adopt_edms(irp_ids=irp_ids or [],
+                                        actor_id=request.state.user.id)
+    except EdmCatalogUnavailable:
+        params = {"sync_error": "unavailable"}
+        q = (request.query_params.get("q") or "").strip()
+        if q:
+            params["q"] = q
+        return RedirectResponse(f"/edms/sync?{urlencode(params)}", status_code=303)
+    # The form action carries the search term, so the analyst lands back inside the
+    # list they were working through. `page` is dropped: the rows just taken in are
+    # gone and the page they were on has re-flowed.
+    params = {"synced": len(result.adopted), "skipped": len(result.skipped)}
+    q = (request.query_params.get("q") or "").strip()
+    if q:
+        params["q"] = q
+    return RedirectResponse(f"/edms/sync?{urlencode(params)}", status_code=303)
 
 
 # ── Import form + name check (literal paths first) ───────────────────────────────
@@ -154,6 +228,133 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
                    status_code=status_code)
 
 
+def _contextual_not_found(request: Request):
+    return _render(
+        request, "base/error.html",
+        {"status_code": 404, "title": "Not found",
+         "detail": "That EDM is not related to the named submission."},
+        status_code=404, nav_key="submissions.detail")
+
+
+def _contextual_template_context(
+    context: edm_service.ContextualEdmDetail,
+) -> dict:
+    base_url = (f"/submissions/{context.submission.id}/edms/"
+                f"{context.edm.id}")
+    return {
+        "edm": context.edm,
+        "source_submission": context.submission,
+        "edm_choices": context.edm_choices,
+        "submission_rdms": context.rdms,
+        "detail_base_url": base_url,
+        "detail_body_url": f"{base_url}/body",
+        "detail_sync_url": f"{base_url}/sync",
+        "detail_notes_url": f"{base_url}/notes",
+    }
+
+
+def _contextual_body_partial(
+    request: Request, submission_id: str, edm_id: str, *, poll: bool = False,
+):
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return HTMLResponse(
+            '<div class="page-pad" id="edm-detail">'
+            '<div class="state-box state-box--warn">'
+            'This EDM is no longer related to the submission.</div></div>')
+    if poll and context.edm.sync_running and context.edm.detail_state == "populated":
+        return Response(status_code=204)
+    return _partial(
+        request, "partials/edm_detail_body.html",
+        _contextual_template_context(context))
+
+
+@router.get(
+    "/submissions/{submission_id}/edms/{edm_id}",
+    response_class=HTMLResponse,
+)
+def contextual_detail(request: Request, submission_id: str, edm_id: str):
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    return _render(
+        request, "pages/edm_detail.html",
+        {**_contextual_template_context(context), "nc_unchecked": False},
+        nav_key="submissions.detail")
+
+
+@router.get(
+    "/submissions/{submission_id}/edms/{edm_id}/body",
+    response_class=HTMLResponse,
+)
+def contextual_detail_body(request: Request, submission_id: str, edm_id: str):
+    return _contextual_body_partial(
+        request, submission_id, edm_id, poll=True)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/sync")
+def contextual_sync(
+    request: Request, submission_id: str, edm_id: str,
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/edms/{edm_id}"
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(url, status_code=303)
+    context_exists = edm_service.sync_contextual_detail(
+        submission_id=submission_id, edm_id=edm_id,
+        actor_id=request.state.user.id)
+    if not context_exists:
+        return _contextual_not_found(request)
+    if is_htmx:
+        return _contextual_body_partial(request, submission_id, edm_id)
+    return RedirectResponse(url, status_code=303)
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/notes")
+def contextual_notes(
+    request: Request, submission_id: str, edm_id: str,
+    notes: str = Form(default=""), original_notes: str = Form(default=""),
+    csrf_token: str = Form(...),
+):
+    url = f"/submissions/{submission_id}/edms/{edm_id}"
+    if edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
+        return _contextual_not_found(request)
+    return save_notes(
+        request, kind="edm", entity_id=edm_id, action=f"{url}/notes",
+        return_url=url, notes=notes, original_notes=original_notes,
+        csrf_token=csrf_token, get_entity=edm_service.get_edm_detail)
+
+
+@router.get(
+    "/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses",
+    response_class=HTMLResponse,
+)
+def contextual_rdm_analyses(
+    request: Request, submission_id: str, edm_id: str, rdm_id: str,
+):
+    context = edm_service.get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return _contextual_not_found(request)
+    analyses = analysis_service.list_submission_rdm_analyses(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if analyses is None:
+        return _contextual_not_found(request)
+    rdm = next(
+        (group for group in context.rdms if group.rdm_id == rdm_id.lower()), None)
+    if rdm is None:
+        return _contextual_not_found(request)
+    return _partial(
+        request, "partials/contextual_rdm_analyses.html",
+        {"analyses": analyses, "rdm": rdm})
+
+
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
 def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
@@ -163,8 +364,8 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
-        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
-        # every-3s poll ends instead of 404-looping (package-card precedent).
+        # EDM hard-gone mid-poll: return a terminal notice with no trigger,
+        # so the every-3s poll ends instead of returning a repeating 404.
         return HTMLResponse(
             '<div class="page-pad" id="edm-detail">'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
@@ -201,10 +402,6 @@ def retry(request: Request, edm_id: str, csrf_token: str = Form(...)):
 def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
     # Manual detail re-sync (FR-003 as amended): enqueues the backfill_edm_detail
     # worker — the fetch itself never runs on this request path (Article 11).
-    # The page shows RDM-sourced analyses too, so the same click also re-runs
-    # backfill_rdm_analyses for every RDM applied to this EDM (one per-RDM head,
-    # each with its own in-flight guard); EdmDetail.sync_running covers those, so
-    # the live body keeps polling until the analyses land as well.
     # HTMX path: swap the #edm-detail wrapper in place (it then self-polls until
     # the head lands). No-JS fallback: Post/Redirect/Get, so a refresh never
     # re-prompts a form re-submission.
@@ -216,8 +413,6 @@ def sync(request: Request, edm_id: str, csrf_token: str = Form(...)):
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     edm_service.sync_detail(edm_id=edm_id, actor_id=request.state.user.id)
-    rdm_service.sync_analyses_for_edm(edm_id=edm_id,
-                                      actor_id=request.state.user.id)
     if is_htmx:
         return _body_partial(request, edm_id)
     return RedirectResponse(f"/edms/{edm_id}", status_code=303)
@@ -245,6 +440,19 @@ def replace_file(
     except ConcurrencyConflict:
         return _detail(request, edm_id, status_code=409)
     return _detail(request, edm_id)
+
+
+@router.post("/edms/{edm_id}/notes")
+def notes(
+    request: Request, edm_id: str, notes: str = Form(default=""),
+    original_notes: str = Form(default=""), csrf_token: str = Form(...),
+):
+    return save_notes(
+        request, kind="edm", entity_id=edm_id,
+        action=f"/edms/{edm_id}/notes",
+        return_url=f"/edms/{edm_id}", notes=notes,
+        original_notes=original_notes, csrf_token=csrf_token,
+        get_entity=edm_service.get_edm_detail)
 
 
 __all__ = ["router"]

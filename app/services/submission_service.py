@@ -26,17 +26,24 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import text
 
-from db import (execute, execute_one, execute_scalar, execute_command,
-                get_connection, row_limit)
-from app.services._common import _uid, _utcnow
+from app.services._common import _rm_ui_root, _uid, _utcnow
 from app.services.errors import (
     ConcurrencyConflict,
     SelfLinkError,
     SubmissionClosed,
     UnknownLinkError,
+)
+from db import (
+    execute,
+    execute_command,
+    execute_one,
+    execute_scalar,
+    get_connection,
+    row_limit,
 )
 
 ACTIVE = "ACTIVE"
@@ -45,6 +52,14 @@ ACTIVE = "ACTIVE"
 # page is what an analyst scans before narrowing; it also caps how many ids
 # `_attach_crm_ids` binds, which SQL Server limits to 2,100 per statement.
 PAGE_SIZE = 50
+
+ENTITY_TABLE_SORTS = ("name", "status", "count")
+ENTITY_TABLE_DEFAULT_SORT = "name"
+ENTITY_TABLE_SORT_STARTS_DESCENDING = {
+    "name": False,
+    "status": False,
+    "count": True,
+}
 
 
 # ── Result / row DTOs (contracts/data-access.md) ─────────────────────────────
@@ -127,6 +142,46 @@ class CreateResult:
 class UpdateResult:
     updated: bool
     warnings: list[SubmissionRow] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SubmissionEdm:
+    id: str
+    name: str
+    status: str | None
+    portfolio_count: int
+    rm_url: str | None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class SubmissionRdm:
+    id: str
+    name: str
+    status: str | None
+    analysis_count: int
+    rm_url: str | None
+    notes: str | None = None
+
+
+@dataclass(frozen=True)
+class EntityCandidate:
+    id: str
+    name: str
+    status: str | None
+
+
+@dataclass(frozen=True)
+class CandidatePage:
+    rows: list[EntityCandidate]
+    page: int
+    has_next: bool
+
+
+@dataclass(frozen=True)
+class AttachResult:
+    attached_ids: list[str]
+    stale_ids: list[str]
 
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
@@ -264,10 +319,13 @@ def _word_and_clauses(
 def _submission_rows(
     clauses: list[str], params: dict[str, Any], *, exclude_id: Any = None,
     limit: int | None = None, offset: int = 0,
+    order_by: str = "s.inception_date DESC, s.name",
 ) -> list[SubmissionRow]:
     """Run the shared row query: the master list, the look-alike check and the "links
-    to" typeahead all select the same columns in the same newest-inception-first
-    order, and differ only in their predicates.
+    to" typeahead all select the same columns, and differ only in their predicates.
+
+    ``order_by`` is interpolated SQL, never a bound value: pass ``SORT_COLUMNS``
+    text, never a query-string value.
 
     ``exclude_id`` drops one submission from the results — the deal being renamed, or
     the one being edited so it cannot be offered as its own link. A value that is not
@@ -278,17 +336,25 @@ def _submission_rows(
         clauses = [*clauses, "s.id <> :exclude"]
         params = {**params, "exclude": excluded}
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-    sql = _ROW_SELECT + where + " ORDER BY s.inception_date DESC, s.name"
+    sql = _ROW_SELECT + where + f" ORDER BY {order_by}"
     if limit is not None:
         sql += " " + row_limit(limit, offset=offset)
     return [_to_row(row) for row in execute(sql, params, connection="WORKBENCH")]
 
 
+def _in_clause(
+    column: str, values: list[Any], prefix: str,
+) -> tuple[str, dict[str, Any]]:
+    """An ``IN (...)`` predicate over ``values``, one bound parameter each.
+    ``prefix`` namespaces them so two filters in one query cannot collide."""
+    params = {f"{prefix}{index}": value for index, value in enumerate(values)}
+    placeholders = ", ".join(f":{key}" for key in params)
+    return f"{column} IN ({placeholders})", params
+
+
 def _attach_crm_ids(rows: list[SubmissionRow]) -> None:
     """Set each row's ``crm_ids``, oldest tag first, for the master list's CRM column
-    (CR3). One query for the whole page (the dynamic ``IN`` param set mirrors
-    ``package_service.submission_refs_for_packages``); a deal with no tags keeps the
-    default ``[]``.
+    (CR3). One query covers the page; a deal with no tags keeps the default ``[]``.
 
     One bound parameter per row, so the caller has to hand this a page rather than a
     whole table — SQL Server rejects a statement carrying more than 2,100."""
@@ -360,27 +426,26 @@ def create_submission(
         "now": now,
         "actor": actor,
     }
-    with get_connection("WORKBENCH") as conn:
-        with conn.begin():
-            conn.execute(text(
-                """
-                INSERT INTO submission
-                    (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
-                     inception_date, treaty_year, links_to_submission_id,
-                     directory_path, status_code, inserted_at, updated_at,
-                     inserted_by, updated_by)
-                VALUES
-                    (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
-                     'ACTIVE', :now, :now, :actor, :actor)
-                """
-            ), params)
-            conn.execute(text(
-                """
-                INSERT INTO submission_status_event
-                    (id, submission_id, status_code, reason, at, inserted_by)
-                VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
-                """
-            ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        conn.execute(text(
+            """
+            INSERT INTO submission
+                (id, assigned_analyst_id, name, cedant_name, treaty_type_code,
+                 inception_date, treaty_year, links_to_submission_id,
+                 directory_path, status_code, inserted_at, updated_at,
+                 inserted_by, updated_by)
+            VALUES
+                (:id, :owner, :name, :cedant, :tt, :inc, :ty, :lt, :dir,
+                 'ACTIVE', :now, :now, :actor, :actor)
+            """
+        ), params)
+        conn.execute(text(
+            """
+            INSERT INTO submission_status_event
+                (id, submission_id, status_code, reason, at, inserted_by)
+            VALUES (:eid, :sid, 'ACTIVE', NULL, :now, :actor)
+            """
+        ), {"eid": str(uuid.uuid4()), "sid": sid, "now": now, "actor": actor})
     for crm_id in crm_ids or []:
         if crm_id.strip():
             add_crm_id(submission_id=sid, crm_id=crm_id, actor_id=actor)
@@ -430,18 +495,268 @@ def get_submission(submission_id: Any) -> Submission | None:
     )
 
 
+def _risk_modeler_url(name: str, *, kind: str) -> str | None:
+    root = _rm_ui_root()
+    if root is None:
+        return None
+    if kind == "edm":
+        return f"{root}/riskmodeler/datasources/{quote(str(name), safe='')}/portfolios"
+    return f"{root}/riskmodeler/analyses?sourceRdmName={quote(str(name), safe='')}"
+
+
+def _entity_table_order(
+    sort: str, descending: bool, *, entity_alias: str, count_alias: str,
+) -> str:
+    columns = {
+        "name": f"{entity_alias}.name",
+        "status": f"{entity_alias}.status",
+        "count": count_alias,
+    }
+    column = columns.get(sort, columns[ENTITY_TABLE_DEFAULT_SORT])
+    direction = "DESC" if descending else "ASC"
+    if column == f"{entity_alias}.name":
+        return f"{column} {direction}, {entity_alias}.id ASC"
+    return f"{column} {direction}, {entity_alias}.name ASC, {entity_alias}.id ASC"
+
+
+def _list_submission_entities(
+    submission_id: Any, *, kind: str, sort: str, descending: bool,
+    entity_id: Any | None,
+) -> list[SubmissionEdm] | list[SubmissionRdm]:
+    edm = kind == "edm"
+    entity_table = "irp_edm" if edm else "irp_rdm"
+    association_table = "submission_edm" if edm else "submission_rdm"
+    entity_column = "edm_id" if edm else "rdm_id"
+    child_table = "irp_portfolio" if edm else "irp_analysis"
+    count_alias = "portfolio_count" if edm else "analysis_count"
+    dto = SubmissionEdm if edm else SubmissionRdm
+    order_by = _entity_table_order(
+        sort, descending, entity_alias="e", count_alias=count_alias)
+    params: dict[str, Any] = {"id": str(submission_id)}
+    entity_filter = ""
+    if entity_id is not None:
+        entity_filter = " AND e.id = :entity_id"
+        params["entity_id"] = str(entity_id)
+    rows = execute(
+        f"SELECT e.id, e.name, e.status, e.notes, COUNT(c.id) AS {count_alias} "
+        f"FROM {association_table} a JOIN {entity_table} e ON e.id = a.{entity_column} "
+        f"LEFT JOIN {child_table} c ON c.{entity_column} = e.id AND c.deleted_at IS NULL "
+        "WHERE a.submission_id = :id AND e.deleted_at IS NULL" + entity_filter + " "
+        "GROUP BY e.id, e.name, e.status, e.notes, e.inserted_at "
+        f"ORDER BY {order_by}",
+        params, connection="WORKBENCH",
+    )
+    return [
+        dto(
+            id=_uid(row["id"]), name=row["name"], status=row["status"],
+            rm_url=_risk_modeler_url(row["name"], kind=kind),
+            notes=row["notes"],
+            **{count_alias: int(row[count_alias] or 0)},
+        )
+        for row in rows
+    ]
+
+
+def list_submission_edms(
+    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
+    descending: bool = False, entity_id: Any | None = None,
+) -> list[SubmissionEdm]:
+    return _list_submission_entities(
+        submission_id, kind="edm", sort=sort, descending=descending,
+        entity_id=entity_id)
+
+
+def list_submission_rdms(
+    submission_id: Any, *, sort: str = ENTITY_TABLE_DEFAULT_SORT,
+    descending: bool = False, entity_id: Any | None = None,
+) -> list[SubmissionRdm]:
+    return _list_submission_entities(
+        submission_id, kind="rdm", sort=sort, descending=descending,
+        entity_id=entity_id)
+
+
+def _list_entity_candidates(
+    *, submission_id: Any, query: str, page: int, kind: str,
+) -> CandidatePage:
+    page = max(1, page)
+    entity_table = "irp_edm" if kind == "edm" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    params: dict[str, Any] = {"submission_id": str(submission_id)}
+    where = (
+        "e.deleted_at IS NULL AND NOT EXISTS ("
+        f"SELECT 1 FROM {association_table} a "
+        f"WHERE a.submission_id = :submission_id AND a.{entity_column} = e.id)"
+    )
+    cleaned_query = query.strip()
+    if cleaned_query:
+        where += " AND LOWER(e.name) LIKE :query ESCAPE '\\'"
+        params["query"] = f"%{_escape_like(cleaned_query.lower())}%"
+    sql = (
+        f"SELECT e.id, e.name, e.status FROM {entity_table} e "
+        f"WHERE {where} ORDER BY e.name, e.id "
+        + row_limit(PAGE_SIZE + 1, offset=(page - 1) * PAGE_SIZE)
+    )
+    rows = execute(sql, params, connection="WORKBENCH")
+    has_next = len(rows) > PAGE_SIZE
+    return CandidatePage(
+        rows=[EntityCandidate(id=_uid(row["id"]), name=row["name"],
+                              status=row["status"])
+              for row in rows[:PAGE_SIZE]],
+        page=page,
+        has_next=has_next,
+    )
+
+
+def list_edm_candidates(
+    submission_id: Any, *, query: str = "", page: int = 1,
+) -> CandidatePage:
+    return _list_entity_candidates(
+        submission_id=submission_id, query=query, page=page, kind="edm")
+
+
+def list_rdm_candidates(
+    submission_id: Any, *, query: str = "", page: int = 1,
+) -> CandidatePage:
+    return _list_entity_candidates(
+        submission_id=submission_id, query=query, page=page, kind="rdm")
+
+
+def _attach_entities(
+    *, submission_id: Any, entity_ids: list[Any], actor_id: Any, kind: str,
+) -> AttachResult:
+    sid = str(submission_id)
+    entity_table = "irp_edm" if kind == "edm" else "irp_rdm"
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    normalized: list[str] = []
+    stale: list[str] = []
+    seen: set[str] = set()
+    for value in entity_ids:
+        raw_value = str(value).strip()
+        if raw_value in seen:
+            continue
+        seen.add(raw_value)
+        entity_id = _as_uuid(value)
+        if entity_id is None:
+            stale.append(raw_value)
+        elif entity_id not in normalized:
+            normalized.append(entity_id)
+
+    attached: list[str] = []
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        status = conn.execute(
+            text("SELECT status_code FROM submission WHERE id = :id"),
+            {"id": sid},
+        ).scalar()
+        _require_active(status)
+        for entity_id in normalized:
+            eligible = conn.execute(text(
+                f"SELECT e.id FROM {entity_table} e "
+                "WHERE e.id = :entity_id AND e.deleted_at IS NULL "
+                "AND NOT EXISTS ("
+                f"SELECT 1 FROM {association_table} a "
+                "WHERE a.submission_id = :submission_id "
+                f"AND a.{entity_column} = e.id)"
+            ), {"entity_id": entity_id, "submission_id": sid}).first()
+            if eligible is None:
+                stale.append(entity_id)
+                continue
+            conn.execute(text(
+                f"INSERT INTO {association_table} "
+                f"(submission_id, {entity_column}, inserted_at, inserted_by) "
+                "VALUES (:submission_id, :entity_id, :now, :actor)"
+            ), {"submission_id": sid, "entity_id": entity_id,
+                "now": _utcnow(), "actor": str(actor_id)})
+            attached.append(entity_id)
+    return AttachResult(attached_ids=attached, stale_ids=stale)
+
+
+def attach_edms(
+    *, submission_id: Any, edm_ids: list[Any], actor_id: Any,
+) -> AttachResult:
+    return _attach_entities(
+        submission_id=submission_id, entity_ids=edm_ids,
+        actor_id=actor_id, kind="edm")
+
+
+def attach_rdms(
+    *, submission_id: Any, rdm_ids: list[Any], actor_id: Any,
+) -> AttachResult:
+    return _attach_entities(
+        submission_id=submission_id, entity_ids=rdm_ids,
+        actor_id=actor_id, kind="rdm")
+
+
+def _detach_entity(
+    *, submission_id: Any, entity_id: Any, kind: str,
+) -> bool:
+    sid = str(submission_id)
+    association_table = "submission_edm" if kind == "edm" else "submission_rdm"
+    entity_column = "edm_id" if kind == "edm" else "rdm_id"
+    normalized_entity_id = _as_uuid(entity_id)
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        status = conn.execute(
+            text("SELECT status_code FROM submission WHERE id = :id"),
+            {"id": sid},
+        ).scalar()
+        _require_active(status)
+        if normalized_entity_id is None:
+            return False
+        result = conn.execute(text(
+            f"DELETE FROM {association_table} "
+            f"WHERE submission_id = :submission_id AND {entity_column} = :entity_id"
+        ), {"submission_id": sid, "entity_id": normalized_entity_id})
+    return result.rowcount > 0
+
+
+def detach_edm(*, submission_id: Any, edm_id: Any) -> bool:
+    return _detach_entity(
+        submission_id=submission_id, entity_id=edm_id, kind="edm")
+
+
+def detach_rdm(*, submission_id: Any, rdm_id: Any) -> bool:
+    return _detach_entity(
+        submission_id=submission_id, entity_id=rdm_id, kind="rdm")
+
+
+# The columns the list header can sort on (D15). The request carries the key; the
+# column text is looked up here and never taken from the query string. CRM ID does
+# not sort — a deal carries several.
+SORT_COLUMNS = {
+    "name": "s.name",
+    "cedant": "s.cedant_name",
+    "inception": "s.inception_date",
+    "year": "s.treaty_year",
+}
+DEFAULT_SORT = "inception"
+# The direction a column starts in when the analyst first clicks it.
+SORT_STARTS_DESCENDING = {"name": False, "cedant": False,
+                          "inception": True, "year": True}
+
+
+def _order_by(sort: str, descending: bool) -> str:
+    """Name and id follow the sorted column so a page boundary falls in the same
+    place every request when the sorted column ties."""
+    column = SORT_COLUMNS[sort]
+    tiebreakers = [c for c in ("s.name", "s.id") if c != column]
+    return ", ".join([f"{column} {'DESC' if descending else 'ASC'}", *tiebreakers])
+
+
 def list_submissions(
-    *, owner_id: Any = None,
+    *, owner_ids: list[Any] | None = None,
     name: str | None = None,
     cedant_name: str | None = None, crm_id: str | None = None,
-    treaty_type_code: str | None = None, inception_date: Any = None,
-    treaty_year: int | None = None, status_code: str | None = None,
-    page: int = 1,
+    treaty_type_codes: list[str] | None = None, inception_date: Any = None,
+    treaty_years: list[int] | None = None, status_codes: list[str] | None = None,
+    page: int = 1, sort: str = DEFAULT_SORT, descending: bool = True,
 ) -> SubmissionPage:
-    """One page of the master list. ``owner_id`` set → deals assigned to that
-    analyst (plain predicate, R7); ``None`` → every owner. Filters AND-combine as
-    bound predicates (FR-021). Every deal is visible to every analyst regardless
-    of owner (Article 6).
+    """One page of the master list. Filters AND-combine as bound predicates
+    (FR-021). Every deal is visible to every analyst regardless of owner
+    (Article 6) — ``owner_ids`` is a plain predicate, never an access gate (R7).
+
+    The list filters OR within themselves and AND against the others (D16). An
+    empty list turns that filter off: ``owner_ids=[]`` lists every owner's deals.
 
     ``name`` (CR1) and ``cedant_name`` match on words, every word required — see
     ``_word_and_clauses``. ``crm_id`` matches a substring of any CRM tag the deal
@@ -449,17 +764,20 @@ def list_submissions(
     exact.
 
     ``page`` is 1-based; anything lower is page 1, so a hand-typed ``?page=0``
-    reads the first page rather than a negative offset.
+    reads the first page rather than a negative offset. ``sort`` is a key of
+    ``SORT_COLUMNS``.
 
     No minimum term length: every read is capped at ``PAGE_SIZE``, so a
     one-character search costs no more than the page it narrows."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    if owner_id is not None:
-        clauses.append("s.assigned_analyst_id = :owner")
+    if owner_ids:
         # An owner id that is not a UUID binds NULL, which matches no row — the
         # hand-typed-URL case ``_as_uuid`` exists for.
-        params["owner"] = _as_uuid(owner_id)
+        clause, owner_params = _in_clause(
+            "s.assigned_analyst_id", [_as_uuid(o) for o in owner_ids], "owner")
+        clauses.append(clause)
+        params |= owner_params
     if name:
         name_clauses, name_params = _word_and_clauses(name, ("s.name",), "n")
         clauses += name_clauses
@@ -475,23 +793,29 @@ def list_submissions(
             "EXISTS (SELECT 1 FROM submission_crm_id c "
             "WHERE c.submission_id = s.id AND c.crm_id LIKE :crm ESCAPE '\\')")
         params["crm"] = f"%{_escape_like(crm_id.strip())}%"
-    if treaty_type_code:
-        clauses.append("s.treaty_type_code = :tt")
-        params["tt"] = treaty_type_code
+    if treaty_type_codes:
+        clause, treaty_type_params = _in_clause(
+            "s.treaty_type_code", treaty_type_codes, "tt")
+        clauses.append(clause)
+        params |= treaty_type_params
     if inception_date is not None:
         clauses.append("s.inception_date = :inc")
         params["inc"] = _as_date(inception_date)
-    if treaty_year is not None:
-        clauses.append("s.treaty_year = :ty")
-        params["ty"] = int(treaty_year)
-    if status_code:
-        clauses.append("s.status_code = :status")
-        params["status"] = status_code
+    if treaty_years:
+        clause, treaty_year_params = _in_clause(
+            "s.treaty_year", [int(year) for year in treaty_years], "ty")
+        clauses.append(clause)
+        params |= treaty_year_params
+    if status_codes:
+        clause, status_params = _in_clause("s.status_code", status_codes, "status")
+        clauses.append(clause)
+        params |= status_params
     page = max(1, int(page or 1))
     # One row past the page: its presence is what "there is a next page" means,
     # without a COUNT(*) over the same predicates.
     rows = _submission_rows(clauses, params, limit=PAGE_SIZE + 1,
-                            offset=(page - 1) * PAGE_SIZE)
+                            offset=(page - 1) * PAGE_SIZE,
+                            order_by=_order_by(sort, descending))
     has_next = len(rows) > PAGE_SIZE
     rows = rows[:PAGE_SIZE]
     _attach_crm_ids(rows)

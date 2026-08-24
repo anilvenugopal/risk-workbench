@@ -46,6 +46,18 @@ def _columns(table: str) -> set[str]:
 
 
 class TestDetailTablesMigration:
+    @pytest.mark.parametrize("table", ["irp_edm", "irp_rdm"])
+    def test_entity_notes_are_nullable_nvarchar_250(self, table):
+        rows = execute(
+            "SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE "
+            "FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = :table "
+            "AND COLUMN_NAME = 'notes'",
+            {"table": table}, connection="WORKBENCH")
+        assert rows == [{"DATA_TYPE": "nvarchar",
+                         "CHARACTER_MAXIMUM_LENGTH": 250,
+                         "IS_NULLABLE": "YES"}]
+
     @pytest.mark.parametrize("name", DETAIL_TABLES)
     def test_detail_table_exists(self, name):
         assert _table_exists(name) == 1
@@ -73,6 +85,7 @@ class TestDetailTablesMigration:
         # (data-model §4/§6); it must not be silently added.
         assert "group_parent_id" not in cols
         assert "customer_id" not in cols  # Article 6
+        assert "package_id" not in cols
 
     @pytest.mark.parametrize("table,constraint", [
         ("irp_portfolio", "uq_irp_portfolio_edm_irp"),
@@ -111,6 +124,19 @@ class TestDetailTablesMigration:
         assert len(row) == 1
         assert row[0]["label"] == "Backfill EDM Detail"
         assert row[0]["sort_order"] == 27
+
+    def test_live_edm_irp_id_is_unique(self):
+        row = execute(
+            "SELECT is_unique, has_filter, filter_definition FROM sys.indexes "
+            "WHERE name = 'uq_irp_edm_live_irp_id' "
+            "AND object_id = OBJECT_ID('dbo.irp_edm')",
+            connection="WORKBENCH")
+
+        assert len(row) == 1
+        assert row[0]["is_unique"] is True
+        assert row[0]["has_filter"] is True
+        assert "[irp_id] IS NOT NULL" in row[0]["filter_definition"]
+        assert "[deleted_at] IS NULL" in row[0]["filter_definition"]
 
 
 # ── behavioral: the idempotent detail upsert under the real driver ────────────

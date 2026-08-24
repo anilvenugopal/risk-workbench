@@ -131,24 +131,16 @@
     {% endfor %}
   </ul>
 
-  {# Packages — one full-width card per package (FR-022). #}
-  <div class="section-head" style="margin-top: 24px;">
-    <h2>Packages</h2>
-    {% if is_active %}
-    <button class="btn-sm btn-sm--primary" type="button"
-            hx-get="/submissions/{{ submission.id }}/packages/new"
-            hx-target="#package-modal-mount" hx-swap="innerHTML">New package</button>
-    {% endif %}
-  </div>
-
-  <div id="package-list" class="package-list">
-    {% for card in package_cards %}
-      {% include "partials/package_card.html" %}
-    {% else %}
-    <span class="tag-empty package-list__empty">No packages yet.</span>
-    {% endfor %}
-  </div>
-
-  <div id="package-modal-mount"></div>
+  {% with kind='edm', entities=submission_edms, backfill_running=edm_backfill_running,
+          sort_links=edm_sort_links, table_url=edm_table_url,
+          count_field='portfolio_count', count_label='Portfolio count' %}
+    {% include "partials/submission_entity_table.html" %}
+  {% endwith %}
+  {% with kind='rdm', entities=submission_rdms, backfill_running=rdm_backfill_running,
+          sort_links=rdm_sort_links, table_url=rdm_table_url,
+          count_field='analysis_count', count_label='Analysis count' %}
+    {% include "partials/submission_entity_table.html" %}
+  {% endwith %}
+  <div id="submission-entity-modal"></div>
 </div>
 {% endblock %}

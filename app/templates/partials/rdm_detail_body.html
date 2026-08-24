@@ -1,10 +1,10 @@
 {# The whole RDM detail body (spec 004 US3 — matches docs/ui_previews/rdm_detail.html
-   rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with EDM +
-   Portfolio columns (resolved / Group / — not linked, FR-036), per-analysis
-   settings/metadata with the rate sub-drill (FR-031). NO loss numbers, no
+   rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with an EDM
+   column and per-analysis settings/metadata with the rate sub-drill (FR-031).
+   No portfolio is shown (8/4 D8 — see broker_analysis_row). NO loss numbers, no
    own-vs-broker comparison (FR-033/FR-034); every missing field renders blank,
    never an error. #}
-{# Live body (package-card pattern, mirrors edm_detail_body): while the manual
+{# Live body (mirrors edm_detail_body): while the manual
    analyses backfill is in flight — or the import itself still is — the wrapper
    polls its own read-only render every 3s and swaps itself, so the page updates
    on its own when the rwb job lands. The server stops emitting the trigger once
@@ -15,18 +15,46 @@
 {% set analysis_total = analyses | map(attribute='analyses') | map('length') | sum %}
 {% set edm_total = analyses | map(attribute='edm_count') | sum %}
 {% set live = sync_running or rdm.status in ('pending_import', 'importing') %}
+{% set body_url = detail_body_url|default('/rdms/' ~ rdm.id ~ '/body') %}
+{% set sync_url = detail_sync_url|default('/rdms/' ~ rdm.id ~ '/sync') %}
+{% set base_url = detail_base_url|default('/rdms/' ~ rdm.id) %}
+{% set entity_notes = rdm.notes %}
+{% set note_action = detail_notes_url|default('/rdms/' ~ rdm.id ~ '/notes') %}
+{% set note_value = note_value|default(rdm.notes or '') %}
+{% set note_original = note_original|default(rdm.notes or '') %}
+{% set note_editing = note_editing|default(false) %}
+{% set note_error = note_error|default(none) %}
+{% set note_conflict = note_conflict|default(none) %}
+{% set note_conflict_active = note_conflict_active|default(false) %}
 <div class="page-pad" id="rdm-detail"
+  x-data="{ notesOpen: {{ 'true' if note_editing else 'false' }} }"
+  x-bind:class="{ 'rdm-notes-open': notesOpen }"
+  x-on:entity-note-saved="notesOpen = false"
   {%- if live %}
-  hx-get="/rdms/{{ rdm.id }}/body" hx-trigger="every 3s"
+  hx-get="{{ body_url }}" hx-trigger="every 3s [!document.querySelector('#rdm-detail .entity-note--editing') && !document.querySelector('#rdm-detail.rdm-notes-open')]"
   hx-target="this" hx-swap="outerHTML"
   {%- endif %}>
   <div class="detail-head">
+    {% if source_submission %}
+    <nav class="detail-crumbs" aria-label="Submission context">
+      <a class="crumb" href="/submissions/{{ source_submission.id }}">{{ source_submission.name }}</a>
+      <span class="crumb__sep">&rsaquo;</span>
+      <span class="crumb crumb--current">{{ rdm.name }}</span>
+    </nav>
+    {% endif %}
+    <div class="detail-head-row">
+    <div>
     <h1>{{ rdm.name }}
       <span class="status-chip status-chip--{{ (rdm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ rdm.status or 'unknown' }}</span>
     </h1>
     <div class="detail-meta">
       <span class="mono" title="{{ rdm.source_file_path }}">{{ rdm.source_file_path or '—' }}</span>
+      <span class="crumb__sep">&middot;</span>
+      <button class="detail-note-toggle" type="button" aria-controls="entity-note"
+              x-bind:aria-expanded="notesOpen"
+              x-on:click="notesOpen = !notesOpen"
+              x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
       {% if rdm.irp_id %}
       <span class="crumb__sep">·</span>
       <span>RM RDM #{{ rdm.irp_id }}</span>
@@ -51,25 +79,43 @@
       {% if sync_running %}
       <button class="btn-sm" type="button" disabled>Syncing…</button>
       {% else %}
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_title="Re-fetch this RDM's broker-analysis settings from Risk Modeler" %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
       {% endif %}
       {% endif %}
     </div>
+    </div>
+    {% if source_submission %}
+    <div class="rdm-picker">
+      <label for="rdm-picker">RDM in {{ source_submission.name }}</label>
+      <select id="rdm-picker" class="wf-field__input"
+              x-on:change="window.location.href = $event.target.value">
+        {% for choice in rdm_choices %}
+        <option value="/submissions/{{ source_submission.id }}/rdms/{{ choice.id }}"
+                {% if choice.id == rdm.id %}selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    </div>
+  </div>
+
+  <div x-show="notesOpen" x-cloak>
+    {% include "partials/entity_note.html" %}
   </div>
 
   {# ── import-error recovery (specific reason surfaced per issue #17) ── #}
   {% if rdm.status == 'error' %}
   {% with rec_lead='One or more applies failed in Risk Modeler',
-          rec_error=import_error, rec_base='/rdms/' ~ rdm.id,
+          rec_error=import_error, rec_base=base_url,
           rec_updated_at=rdm.updated_at %}
   {% include "partials/entity_recovery.html" %}
   {% endwith %}
   {% endif %}
 
-  {# ── Broker analyses (US3) — grouped by rdm_id, EDM + Portfolio columns ── #}
+  {# ── Broker analyses (US3) — grouped by rdm_id, EDM column ── #}
   <details class="sec" open>
     <summary>
       <span class="sec__caret">▸</span>
@@ -84,15 +130,12 @@
     {% if analysis_total %}
     <div class="derive-note"><strong>Settings &amp; metadata only this iteration</strong> —
       no loss numbers (ELT / EP / AAL / return-period / PLT) and no own-vs-broker
-      comparison; those arrive with the results iteration. Each analysis links to the
-      <strong>Portfolio it ran against</strong>; a <strong>group</strong> shows
-      Portfolio = <em>Group</em> (no member breakdown), and unresolved results show
-      <em>“— not linked”</em>.</div>
+      comparison; those arrive with the results iteration.</div>
 
     <div class="dtable-shell">
-      <div class="dtable" style="--cols:210px 150px 160px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1260px">
+      <div class="dtable" style="--cols:210px 150px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1100px">
         <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Portfolio</span><span class="l">Type</span>
+          <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Type</span>
           <span class="l">Peril</span><span class="l">Region</span><span class="l">Currency</span><span class="l">Engine</span>
           <span class="l">Term</span><span class="l">PLA</span><span class="l">Rate</span>
         </div>
@@ -115,7 +158,7 @@
     <div class="state-box state-box--warn"><strong>Settings not available.</strong><br>
       The last sync from Risk Modeler failed. The RDM is still <em>ready</em>.
       {% if rdm.status == 'ready' %}
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}
@@ -126,7 +169,7 @@
       This RDM was imported before backfill shipped.
       {% if rdm.status == 'ready' %}
       Sync now to fetch its broker-analysis settings from Risk Modeler.
-      {% with sync_url='/rdms/' ~ rdm.id ~ '/sync', sync_target='#rdm-detail',
+      {% with sync_url=sync_url, sync_target='#rdm-detail',
               sync_label='Sync now', sync_primary=true, sync_boxed=true %}
       {% include "partials/sync_form.html" %}
       {% endwith %}

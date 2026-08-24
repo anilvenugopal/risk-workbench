@@ -94,7 +94,7 @@ re-capture.
   reading `importing` because another EDM's apply is still in flight. That is honest, not a
   bug: the analyses *are* current; the RDM as a whole isn't done.
 - **A mid-poll hard-gone RDM returns a terminal notice with no trigger**, so the 3-second poll
-  ends instead of 404-looping — the same pattern the package card uses.
+  ends instead of repeatedly returning 404.
 - **This page is the recovery surface for pre-capability RDMs.** An RDM imported before the
   settings/pointer capture shipped is name-only forever unless the analyst clicks Sync — see
   [manual sync](../backfill/manual_sync.md).

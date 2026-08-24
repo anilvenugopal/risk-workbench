@@ -12,7 +12,12 @@ proceeds with ``ImportResult.collision_unchecked=True`` (the router warns) and t
 worker-side submit validation is the backstop. No function applies row scoping —
 every analyst sees every EDM (Article 6 / FR-037).
 
-Portability matches ``submission_service`` / ``package_service``: app-side UUIDs bound
+``list_adoptable_edms`` / ``adopt_edms`` take in an EDM that already exists in Risk
+Modeler: the workbench never imported it, so there is nothing to submit. Listing is
+a second permitted request-path *read*; the adopt is a plain insert plus one
+``backfill_edm_detail`` head, which fetches the portfolios and treaties.
+
+Portability matches ``submission_service``: app-side UUIDs bound
 as ``str``, app-supplied UTC timestamps, no dialect-only SQL.
 """
 
@@ -22,40 +27,52 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
-from app.config import settings
 from app.services import (
-    analysis_service, name_check, package_service,
-    portfolio_service, rwb_job_service, treaty_service)
-from app.services._common import _uid, _utcnow
+    analysis_service,
+    irp_gateway,
+    name_check,
+    portfolio_service,
+    rwb_job_service,
+    treaty_service,
+)
+from app.services._common import (
+    SubmissionRef,
+    _attach_submissions,
+    _import_entity,
+    _mark_error,
+    _mark_importing,
+    _replace_source_file,
+    _retry_import,
+    _rm_ui_root,
+    _submission_entity_context,
+    _uid,
+    _utcnow,
+)
 from app.services.analysis_service import BrokerAnalysisGroup
-from app.services.errors import ConcurrencyConflict, NameCollisionError
+from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
-from app.services.package_service import SubmissionRef
-from app.services.portfolio_service import EdmAggregate, PortfolioRow
+from app.services.portfolio_service import PortfolioRow
 from app.services.treaty_service import TreatyRow
-from app.services.shared_drive import validate_selection
 from app.workers import dispatch
-from db import execute, execute_command, execute_one
+from db import execute, execute_command, execute_one, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
-# Entity-status lifecycle (plain string — Article 3 carve-out): pending_import →
-# importing → ready / error → delete_pending → deleted (data-model §6).
+# Entity-status lifecycle (plain string — Article 3 carve-out).
 PENDING = "pending_import"
 IMPORTING = "importing"
 READY = "ready"
 ERROR = "error"
-DELETE_PENDING = "delete_pending"
-DELETED = "deleted"
-# statuses from which a (re)import must NOT be launched (in flight or already done).
-_LOCKED = (IMPORTING, READY)
 # Ordered status vocabulary offered as the library status filter (US7 / T058).
-STATUSES = (PENDING, IMPORTING, READY, ERROR, DELETE_PENDING, DELETED)
+STATUSES = (PENDING, IMPORTING, READY, ERROR)
 # Statuses a worker still moves on its own — the library list polls while any row
 # sits in one of these and stops once every row is terminal.
-TRANSIENT_STATUSES = (PENDING, IMPORTING, DELETE_PENDING)
+TRANSIENT_STATUSES = (PENDING, IMPORTING)
+# Rows per page on the "sync existing EDMs" list. Matches submission_service's
+# PAGE_SIZE so the two paged lists step through at the same rate.
+ADOPTABLE_PAGE_SIZE = 50
 
 
 @dataclass
@@ -74,9 +91,9 @@ class EdmRow:
     status: str | None
     source_file_path: str | None
     irp_id: int | None
-    package_id: str | None
     inserted_at: Any
     updated_at: Any
+    notes: str | None = None
     # Owning submissions (M:N), oldest-first — populated only by ``list_edms``;
     # defaulted so ``get_edm`` and every existing caller are unaffected (US7 / T058).
     submissions: list[SubmissionRef] = field(default_factory=list)
@@ -90,8 +107,8 @@ def check_name_collision(name: str) -> CollisionCheck:
 
 
 def import_edm(
-    *, name: str, source_file_path: str, package_id: Any | None = None,
-    actor_id: Any,
+    *, name: str, source_file_path: str, actor_id: Any,
+    submission_id: Any | None = None,
 ) -> ImportResult:
     """Create an ``irp_edm`` (``pending_import``) and enqueue one ``upload_edm`` head
     (``requestor_type='analyst_request'``, ``requestor_id=irp_edm.id``). The worker
@@ -100,36 +117,174 @@ def import_edm(
     ``SHARED_DRIVE_ROOT`` and is a file (else ``InvalidSourceFile``). Raises
     ``NameCollisionError`` — before persisting anything — when the name already
     exists in Risk Modeler (issue #17)."""
-    name = package_service.clean_member_name(name)     # raises InvalidMemberName
-    canonical = validate_selection(source_file_path)   # raises InvalidSourceFile
-    check = check_name_collision(name)
-    if check.collides:
-        raise NameCollisionError(
-            f"An EDM named '{name}' already exists in Risk Modeler. "
-            "Choose a different name.")
+    entity_id, collision_unchecked = _import_entity(
+        "edm", name=name, source_file_path=source_file_path, actor_id=actor_id,
+        submission_id=submission_id)
+    return ImportResult(entity_id=entity_id, collision_unchecked=collision_unchecked)
 
-    edm_id = str(uuid.uuid4())
+
+# ── adopting EDMs that already live in Risk Modeler ──────────────────────────────
+
+@dataclass
+class AdoptableEdm:
+    """One Risk Modeler EDM with no ``irp_edm`` row. Straight from RM's exposures
+    list except ``rm_url``, which the workbench builds."""
+    irp_id: int
+    name: str
+    status: str | None = None
+    server_name: str | None = None
+    portfolio_count: int | None = None
+    treaty_count: int | None = None
+    updated_at: str | None = None
+    rm_url: str | None = None
+
+
+@dataclass
+class AdoptablePage:
+    """One page of the adoptable list. ``total`` counts every EDM the diff and the
+    name search left, not just this page."""
+    rows: list[AdoptableEdm]
+    page: int
+    has_next: bool
+    total: int
+
+
+@dataclass
+class AdoptResult:
+    """``adopted`` is the new ``irp_edm.id`` per EDM taken in; ``skipped`` holds the
+    exposureIds that were not taken in — the workbench already tracks them, or Risk
+    Modeler no longer lists them."""
+    adopted: list[str] = field(default_factory=list)
+    skipped: list[int] = field(default_factory=list)
+
+
+def _claimed_exposure_ids() -> set[str]:
+    """Every RM exposureId a live ``irp_edm`` row already holds."""
+    rows = execute(
+        "SELECT irp_id FROM irp_edm "
+        "WHERE deleted_at IS NULL AND irp_id IS NOT NULL",
+        connection="WORKBENCH")
+    return {str(r["irp_id"]) for r in rows}
+
+
+def _unresolved_names() -> set[str]:
+    """Names of live rows that hold no exposureId — still importing, or the poller's
+    by-name resolution missed and the row reached ``ready`` with ``irp_id`` NULL.
+    ``error`` is excluded because a failed import created nothing in Risk Modeler."""
+    rows = execute(
+        "SELECT name FROM irp_edm WHERE deleted_at IS NULL AND irp_id IS NULL "
+        "AND status <> :e",
+        {"e": ERROR}, connection="WORKBENCH")
+    return {r["name"] for r in rows}
+
+
+def list_adoptable_edms(*, page: int = 1,
+                        name: str | None = None) -> AdoptablePage | None:
+    """Risk Modeler's EDMs minus the ones the workbench already tracks, or None when
+    Risk Modeler does not answer — the page then renders its unavailable state
+    rather than a short list, which would read as "everything is already synced".
+
+    This *read* is permitted on the request path (Article 11, same latitude
+    ``name_check`` takes) and is not cached: a stale list would offer an EDM that is
+    already gone. A soft-deleted ``irp_edm`` row hides nothing — an EDM deleted here
+    but still in Risk Modeler is offered again.
+
+    Paging and the ``name`` search are applied here, not passed to Risk Modeler:
+    removing the already-tracked EDMs is what makes a page, and that subtraction
+    needs the whole list. ``page`` is 1-based and clamped to the last page that has
+    rows."""
+    claimed = _claimed_exposure_ids()
+    unresolved = _unresolved_names()
+    try:
+        catalog = irp_gateway.list_edms()
+    except Exception:
+        logger.exception("adoptable EDM list unavailable — Risk Modeler read failed")
+        return None
+    term = (name or "").strip().lower()
+    adoptable = [
+        AdoptableEdm(
+            irp_id=int(e.irp_id), name=e.name, status=e.status,
+            server_name=e.server_name, portfolio_count=e.portfolio_count,
+            treaty_count=e.treaty_count, updated_at=e.updated_at,
+            rm_url=_rm_datasource_url(e.name, "portfolios"))
+        for e in catalog
+        if e.irp_id not in claimed and e.name not in unresolved
+        and (not term or term in e.name.lower())
+    ]
+    adoptable.sort(key=lambda a: a.name.lower())
+    last_page = max(1, (len(adoptable) + ADOPTABLE_PAGE_SIZE - 1) // ADOPTABLE_PAGE_SIZE)
+    page = min(max(1, int(page or 1)), last_page)
+    start = (page - 1) * ADOPTABLE_PAGE_SIZE
+    return AdoptablePage(rows=adoptable[start:start + ADOPTABLE_PAGE_SIZE],
+                         page=page, has_next=len(adoptable) > start + ADOPTABLE_PAGE_SIZE,
+                         total=len(adoptable))
+
+
+def adopt_edms(*, irp_ids: list[int], actor_id: Any) -> AdoptResult:
+    """Create an ``irp_edm`` for each Risk Modeler EDM the analyst selected and
+    enqueue one ``backfill_edm_detail`` head each, which fills in the portfolios,
+    their exposure figures, and the treaties.
+
+    Not routed through ``import_edm``: that path demands a shared-drive
+    ``source_file_path`` and raises ``NameCollisionError`` on exactly the
+    already-in-Risk-Modeler name every adoption uses. An adopted row therefore has
+    ``source_file_path`` NULL and ``status='ready'``.
+
+    A filtered unique index on live ``irp_id`` values decides concurrent attempts;
+    the losing request reports the EDM as skipped. The insert guard also repeats the
+    unresolved-name arm of the ``list_adoptable_edms`` diff."""
+    result = AdoptResult()
+    wanted = {int(i) for i in irp_ids}
+    if not wanted:
+        return result
+
+    try:
+        by_irp_id = {e.irp_id: e for e in irp_gateway.list_edms()}
+    except Exception as exc:
+        logger.exception("Risk Modeler EDM catalog unavailable during sync")
+        raise EdmCatalogUnavailable from exc
     now = _utcnow()
     actor = str(actor_id)
-    execute_command(
-        """
-        INSERT INTO irp_edm (id, package_id, source_file_path, name, status,
-            inserted_at, updated_at, inserted_by, updated_by)
-        VALUES (:id, :pkg, :src, :name, :status, :now, :now, :by, :by)
-        """,
-        {"id": edm_id, "pkg": (str(package_id) if package_id else None),
-         "src": canonical, "name": name, "status": PENDING,
-         "now": now, "by": actor},
-        connection="WORKBENCH",
-    )
-    job_id = rwb_job_service.enqueue_rwb_job(
-        requestor_type="analyst_request", requestor_id=edm_id,
-        rwb_job_type="upload_edm",
-        input_data={"edm_id": edm_id, "package_id": _uid(package_id)},
-        actor_id=actor,
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    return ImportResult(entity_id=edm_id, collision_unchecked=not check.checked)
+    for irp_id in sorted(wanted):
+        entry = by_irp_id.get(str(irp_id))
+        if entry is None:
+            logger.warning("adopt_edms: exposureId %s is not in Risk Modeler's "
+                           "list — skipped", irp_id)
+            result.skipped.append(irp_id)
+            continue
+        edm_id = str(uuid.uuid4())
+        try:
+            rows = execute_command(
+                """
+                INSERT INTO irp_edm (id, name, irp_id, server_name, status,
+                    inserted_at, updated_at, inserted_by, updated_by)
+                SELECT :id, :n, :iid, :srv, :s, :now, :now, :by, :by
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM irp_edm
+                    WHERE deleted_at IS NULL
+                      AND (irp_id = :iid
+                           OR (irp_id IS NULL AND name = :n
+                               AND status <> :err)))
+                """,
+                {"id": edm_id, "n": entry.name, "iid": irp_id,
+                 "srv": entry.server_name, "s": READY, "now": now, "by": actor,
+                 "err": ERROR},
+                connection="WORKBENCH",
+            )
+        except Exception as exc:
+            if not is_unique_violation(exc):
+                raise
+            rows = 0
+        if rows == 0:
+            result.skipped.append(irp_id)
+            continue
+        result.adopted.append(edm_id)
+
+    for edm_id in result.adopted:
+        sync_detail(edm_id=edm_id, actor_id=actor)
+    logger.info("adopted %d EDM(s) from Risk Modeler by analyst %s (%d skipped)",
+                len(result.adopted), actor, len(result.skipped))
+    return result
 
 
 def _to_row(row: dict) -> EdmRow:
@@ -139,21 +294,21 @@ def _to_row(row: dict) -> EdmRow:
         status=row["status"],
         source_file_path=row["source_file_path"],
         irp_id=row["irp_id"],
-        package_id=_uid(row["package_id"]),
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
+        notes=row["notes"],
     )
 
 
 _ROW_SELECT = (
-    "SELECT id, package_id, source_file_path, name, irp_id, status, "
-    "inserted_at, updated_at FROM irp_edm"
+    "SELECT id, source_file_path, name, irp_id, status, "
+    "inserted_at, updated_at, notes FROM irp_edm"
 )
 
 
-def list_edms(*, package_id: Any | None = None, name: str | None = None,
+def list_edms(*, name: str | None = None,
               status: str | None = None) -> list[EdmRow]:
-    """Every EDM (library), one package's EDMs, or a filtered slice. NO row scoping
+    """Every EDM in the library, optionally filtered. NO row scoping
     (FR-037 / Article 6) — all analysts see all EDMs. Soft-deleted rows excluded.
 
     ``name`` narrows by case-insensitive substring (``LIKE`` — case-insensitive on
@@ -162,9 +317,6 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
     Each returned row's ``.submissions`` is set to its owning submissions (oldest-first)."""
     where = "WHERE deleted_at IS NULL"
     params: dict[str, Any] = {}
-    if package_id is not None:
-        where += " AND package_id = :pid"
-        params["pid"] = str(package_id)
     if name:
         where += " AND name LIKE :q"
         params["q"] = f"%{name}%"
@@ -174,20 +326,8 @@ def list_edms(*, package_id: Any | None = None, name: str | None = None,
     rows = execute(f"{_ROW_SELECT} {where} ORDER BY inserted_at DESC, name",
                    params, connection="WORKBENCH")
     result = [_to_row(r) for r in rows]
-    _attach_submissions(result)
+    _attach_submissions("edm", result)
     return result
-
-
-def _attach_submissions(rows: list[EdmRow]) -> None:
-    """Set each row's ``.submissions`` from the M:N ``submission_package`` join
-    (oldest-first). One query for the whole page; standalone rows keep the default []."""
-    package_ids = [r.package_id for r in rows if r.package_id]
-    if not package_ids:
-        return
-    refs = package_service.submission_refs_for_packages(package_ids)
-    for row in rows:
-        if row.package_id:
-            row.submissions = refs.get(row.package_id, [])
 
 
 def get_edm(edm_id: Any) -> EdmRow | None:
@@ -231,26 +371,22 @@ class EdmDetail:
     source_file_path: str | None
     irp_id: int | None              # RM exposureId (durable entity id)
     created_by_irp_job_irp_id: str | None
-    package_id: str | None
     inserted_at: Any
     updated_at: Any
     portfolio_count: int
     portfolios: list[PortfolioRow]
     # 'populated' | 'importing' | 'pending' | 'failed' | 'empty' | 'unavailable'
     detail_state: str
+    notes: str | None = None
     # a backfill head (either key) is pending/running — drives the "Syncing…"
     # button state even when the table is already populated
     sync_running: bool = False
     # US2: the EDM-level treaty set (parsed attributes) for the expand/collapse
     # view + Excel export; empty list ⇒ the section renders its own state.
     treaties: list[TreatyRow] = field(default_factory=list)
-    # US3 (FR-037): the standalone RDM-grouped broker-analyses list; each
-    # portfolio in `portfolios` additionally carries its LINKED analyses
-    # (bucketed by the R9 resolution — group/unresolved stay standalone-only).
+    # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
+    # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
-    # US4 (FR-040/FR-042): the DERIVED quick-orientation rollup — None ⇒ no
-    # snapshot yet ⇒ the strip renders the pending state (FR-043).
-    aggregate: EdmAggregate | None = None
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -261,7 +397,15 @@ class EdmDetail:
     import_error: str | None = None
 
 
-def _latest_backfill_status(edm_id: str) -> str | None:
+@dataclass
+class ContextualEdmDetail:
+    edm: EdmDetail
+    submission: SubmissionRef
+    edm_choices: list[SubmissionRef]
+    rdms: list[BrokerAnalysisGroup]
+
+
+def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
     enqueue sources: the poller's heads key on the finished ``import_edm``
     irp_job (hence the join), the manual Sync's key on ``(analyst_request,
@@ -280,43 +424,46 @@ def _latest_backfill_status(edm_id: str) -> str | None:
     return row["status_code"] if row is not None else None
 
 
-def _analyses_backfill_running(edm_id: str) -> bool:
-    """True while ANY ``backfill_rdm_analyses`` touching this EDM is in flight —
-    the poller's heads key on the pair's ``import_rdm`` apply (joined to its
-    EDM), a manual RDM Sync's on the RDM id (paired to this EDM via the same
-    applies). Folded into ``EdmDetail.sync_running`` so the live body keeps
-    polling (and the Sync button stays disabled) until the analyses land too —
-    the EDM page's Sync refreshes both (2026-07-24)."""
-    row = execute_one(
-        "SELECT rj.id FROM rwb_job rj "
+def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
+    """``latest_backfill_status`` for a whole entity table in one query —
+    newest ``updated_at`` per EDM reduced app-side. Every requested id gets a
+    key; EDMs whose detail backfill never ran map to ``None``."""
+    statuses: dict[str, str | None] = {str(e): None for e in edm_ids}
+    if not statuses:
+        return statuses
+    params = {f"e{i}": value for i, value in enumerate(statuses)}
+    placeholders = ", ".join(f":e{i}" for i in range(len(statuses)))
+    rows = execute(
+        "SELECT rj.status_code, "
+        "COALESCE(ij.irp_edm_id, rj.requestor_id) AS edm_id "
+        "FROM rwb_job rj "
         "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
         "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_rdm_analyses' "
-        "AND rj.status_code IN ('pending', 'running') "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id IN ("
-        "         SELECT irp_rdm_id FROM irp_job "
-        "         WHERE irp_edm_id = :e AND irp_job_type = 'import_rdm' "
-        "         AND irp_rdm_id IS NOT NULL)))",
-        {"e": edm_id}, connection="WORKBENCH")
-    return row is not None
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
+        f"AND (ij.irp_edm_id IN ({placeholders}) "
+        "     OR (rj.requestor_type = 'analyst_request' "
+        f"         AND rj.requestor_id IN ({placeholders}))) "
+        "ORDER BY rj.updated_at DESC",
+        params, connection="WORKBENCH")
+    for row in rows:
+        key = str(row["edm_id"])
+        if statuses.get(key) is None:
+            statuses[key] = row["status_code"]
+    return statuses
 
 
-def _rm_treaties_url(name: str) -> str | None:
-    """The Risk Modeler UI deep link for this EDM's treaties screen —
-    ``https://<RISK_MODELER_TENANT_NAME>.<rm-domain>/riskmodeler/datasources/
-    <edm-name>/treaties``, where ``<rm-domain>`` is the registrable domain of
-    ``RISK_MODELER_BASE_URL`` (rms-ppe.com in the sandbox, rms.com in prod):
-    RM's web UI lives on the TENANT subdomain, not the API host. A plain
-    navigation link, never an API call (Article 11). ``None`` when the tenant
-    name or base URL is not configured (e.g. api-key auth deployments)."""
-    tenant = settings.risk_modeler_tenant_name.strip()
-    api_host = urlsplit(settings.risk_modeler_base_url.strip()).hostname or ""
-    domain = ".".join(api_host.rsplit(".", 2)[-2:]) if "." in api_host else ""
-    if not tenant or not domain:
+def _rm_datasource_url(name: str, screen: str) -> str | None:
+    """The Risk Modeler UI deep link for one of this EDM's datasource screens
+    (``_rm_ui_root`` explains the tenant-subdomain origin). ``None`` when the
+    UI root is not configured.
+
+    RM addresses the datasource by *name*, not exposureId, and EDM names are not
+    unique — for a duplicated name the link lands on whichever one RM picks."""
+    root = _rm_ui_root()
+    if root is None:
         return None
-    return (f"https://{tenant}.{domain}/riskmodeler/datasources/"
-            f"{quote(str(name), safe='')}/treaties")
+    return (f"{root}/riskmodeler/datasources/"
+            f"{quote(str(name), safe='')}/{screen}")
 
 
 def _detail_state(status: str | None, as_of: Any,
@@ -346,8 +493,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     recovery paths."""
     eid = str(edm_id)
     row = execute_one(
-        "SELECT id, package_id, source_file_path, name, irp_id, "
-        "created_by_irp_job_irp_id, as_of, status, inserted_at, updated_at "
+        "SELECT id, source_file_path, name, irp_id, "
+        "created_by_irp_job_irp_id, as_of, status, inserted_at, updated_at, notes "
         "FROM irp_edm WHERE id = :id",
         {"id": eid}, connection="WORKBENCH")
     if row is None:
@@ -355,12 +502,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
-    # Attach each portfolio's LINKED analyses inline (US3/FR-037): the R9
-    # bucketing keeps group/unresolved rows standalone-only (ui.md §4).
-    buckets = analysis_service.bucket_by_portfolio(analyses)
-    for p in portfolios:
-        p.analyses = buckets.get(p.id, [])
-    job_status = _latest_backfill_status(eid)
+    job_status = latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
         name=row["name"],
@@ -369,21 +511,44 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         source_file_path=row["source_file_path"],
         irp_id=row["irp_id"],
         created_by_irp_job_irp_id=row["created_by_irp_job_irp_id"],
-        package_id=_uid(row["package_id"]),
         inserted_at=row["inserted_at"],
         updated_at=row["updated_at"],
         portfolio_count=len(portfolios),
         portfolios=portfolios,
         detail_state=_detail_state(row["status"], row["as_of"], portfolios,
                                    job_status),
-        sync_running=(job_status in ("pending", "running")
-                      or _analyses_backfill_running(eid)),
+        notes=row["notes"],
+        sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
-        aggregate=portfolio_service.aggregate_exposure(portfolios),
-        rm_treaties_url=_rm_treaties_url(row["name"]),
+        rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
+    )
+
+
+def get_contextual_edm_detail(
+    *, submission_id: Any, edm_id: Any,
+) -> ContextualEdmDetail | None:
+    """Return an EDM only when it belongs to the named submission."""
+    sid = str(submission_id)
+    eid = str(edm_id)
+    ctx = _submission_entity_context("edm", submission_id=sid, entity_id=eid)
+    if ctx is None:
+        return None
+    source, choices = ctx
+    edm = get_edm_detail(eid)
+    if edm is None:
+        return None
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle
+    # (same reason sync_contextual_detail below imports it locally).
+    from app.services import rdm_service
+    rdms = analysis_service.list_submission_rdms(submission_id=sid)
+    for rdm in rdms:
+        rdm.sync_running = (
+            rdm_service.latest_backfill_status(rdm.rdm_id) in ("pending", "running"))
+    return ContextualEdmDetail(
+        edm=edm, submission=source, edm_choices=choices, rdms=rdms,
     )
 
 
@@ -399,7 +564,7 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     current = _current(eid)
     if current is None or current["status"] in (PENDING, IMPORTING):
         return None
-    if _latest_backfill_status(eid) in ("pending", "running"):
+    if latest_backfill_status(eid) in ("pending", "running"):
         return None
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
@@ -411,20 +576,26 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     return job_id
 
 
+def sync_contextual_detail(
+    *, submission_id: Any, edm_id: Any, actor_id: Any,
+) -> bool:
+    """Queue stored EDM and submission-RDM refreshes for a valid context."""
+    context = get_contextual_edm_detail(
+        submission_id=submission_id, edm_id=edm_id)
+    if context is None:
+        return False
+    sync_detail(edm_id=edm_id, actor_id=actor_id)
+    # Local import avoids the edm_service/rdm_service shared-DTO import cycle.
+    from app.services import rdm_service
+    for rdm in context.rdms:
+        rdm_service.sync_detail(rdm_id=rdm.rdm_id, actor_id=actor_id)
+    return True
+
+
 def _current(edm_id: str) -> dict | None:
     return execute_one(
         "SELECT status, updated_at FROM irp_edm WHERE id = :id AND deleted_at IS NULL",
         {"id": edm_id}, connection="WORKBENCH")
-
-
-def _package_id(edm_id: str) -> str | None:
-    """The EDM's owning package (if any). A retry/replace re-enqueue MUST carry this so
-    the resulting ``import_edm`` job stays package-scoped — the poller chains the RDM
-    applies off ``job.package_id`` (``upload_rdm`` on FINISHED), and a null there silently
-    severs the EDM→RDM chain (no ``upload_rdm``, no ``import_rdm``)."""
-    row = execute_one("SELECT package_id FROM irp_edm WHERE id = :id",
-                      {"id": edm_id}, connection="WORKBENCH")
-    return str(row["package_id"]) if row and row["package_id"] else None
 
 
 def retry_import(*, edm_id: Any, actor_id: Any) -> None:
@@ -433,24 +604,7 @@ def retry_import(*, edm_id: Any, actor_id: Any) -> None:
     ``error`` entity back to ``pending_import`` **and** the head back to ``pending`` so
     the worker re-submits (the body only advances a ``pending_import`` row, so the
     entity reset is required for the resubmit to actually fire)."""
-    eid = str(edm_id)
-    current = _current(eid)
-    if current is None or current["status"] in _LOCKED:
-        return
-    execute_command(
-        "UPDATE irp_edm SET status = :p, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :err",
-        {"p": PENDING, "err": ERROR, "now": _utcnow(), "by": str(actor_id), "id": eid},
-        connection="WORKBENCH",
-    )
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm",
-        input_data={"edm_id": eid, "package_id": _package_id(eid)},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    logger.info("edm %s import retry requested by analyst %s", eid, actor_id)
+    _retry_import("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def replace_source_file(
@@ -459,31 +613,9 @@ def replace_source_file(
 ) -> None:
     """Replace the source file of a failed/errored EDM and re-import (FR-046).
     Optimistic-concurrency checked on ``updated_at`` (FR-039). Validates the new path."""
-    eid = str(edm_id)
-    canonical = validate_selection(new_source_file_path)  # raises InvalidSourceFile
-    rows = execute_command(
-        """
-        UPDATE irp_edm
-        SET source_file_path = :src, status = :status, updated_at = :now,
-            updated_by = :by
-        WHERE id = :id AND updated_at = :expected AND deleted_at IS NULL
-        """,
-        {"src": canonical, "status": PENDING, "now": _utcnow(),
-         "by": str(actor_id), "id": eid, "expected": expected_updated_at},
-        connection="WORKBENCH",
-    )
-    if rows == 0:
-        raise ConcurrencyConflict(
-            "This EDM changed since you opened it — reload and re-apply.")
-    job_id = rwb_job_service.ensure_pending_rwb_job(
-        requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type="upload_edm",
-        input_data={"edm_id": eid, "package_id": _package_id(eid)},
-        actor_id=str(actor_id),
-    )
-    dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="upload_edm")
-    logger.info("edm %s source file replaced by analyst %s — re-import enqueued",
-                eid, actor_id)
+    _replace_source_file(
+        "edm", entity_id=edm_id, new_source_file_path=new_source_file_path,
+        expected_updated_at=expected_updated_at, actor_id=actor_id)
 
 
 # ── worker / poller status writers (Article 11 boundary) ─────────────────────────
@@ -491,30 +623,15 @@ def replace_source_file(
 def mark_importing(*, edm_id: Any, actor_id: Any | None = None) -> None:
     """Worker-side: the import submit succeeded — flip ``pending_import`` → ``importing``
     (FR-004). Left alone if the row was already advanced (idempotent re-run)."""
-    execute_command(
-        "UPDATE irp_edm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status = :from_status",
-        {"s": IMPORTING, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(edm_id), "from_status": PENDING},
-        connection="WORKBENCH",
-    )
+    _mark_importing("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def mark_error(*, edm_id: Any, actor_id: Any | None = None) -> None:
     """Worker-side: a **submit-side** failure (never reached Risk Modeler) — flip an
     import-in-progress EDM to the visible, analyst-recoverable ``error`` state, the same
-    state the poller uses for an RM-side terminal failure (worker-poller.md §3). Only
-    touches ``pending_import``/``importing`` so it never clobbers ``ready`` or a delete
-    (``delete_pending``/``deleted``); idempotent on re-run."""
-    execute_command(
-        "UPDATE irp_edm SET status = :s, updated_at = :now, updated_by = :by "
-        "WHERE id = :id AND status IN (:p, :i)",
-        {"s": ERROR, "now": _utcnow(),
-         "by": (str(actor_id) if actor_id is not None else None),
-         "id": str(edm_id), "p": PENDING, "i": IMPORTING},
-        connection="WORKBENCH",
-    )
+    state the poller uses for an RM-side terminal failure (worker-poller.md §3).
+    Only touches ``pending_import``/``importing``; idempotent on re-run."""
+    _mark_error("edm", entity_id=edm_id, actor_id=actor_id)
 
 
 def backfill_on_terminal(conn, *, edm_id: Any, status: str,
@@ -522,9 +639,8 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
                          created_by_irp_job_irp_id: str | None = None) -> None:
     """Poller-side: on the import job's terminal status, flip the entity to
     ``ready``/``error`` and (on ready) backfill two *distinct* identifiers (FR-006):
-    ``irp_id`` = the durable RM **entity id** (the EDM's ``exposureId``, resolved by
-    name — NOT the import job id; see the ``irp_gateway`` caveat), which delete later
-    uses to remove the exposure; ``created_by_irp_job_irp_id`` = the **import job's**
+    ``irp_id`` = the durable RM **entity id** (the EDM's ``exposureId``), while
+    ``created_by_irp_job_irp_id`` = the **import job's**
     ``irp_id`` (audit / lineage). Runs inside the poller's transaction (accepts ``conn``)."""
     from sqlalchemy import text  # noqa: PLC0415 — local: keep module import surface small
     ready = status == READY
@@ -542,46 +658,17 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
         "now": _utcnow(), "id": str(edm_id)})
 
 
-def claim_for_delete(*, edm_id: Any) -> bool:
-    """Worker-side atomic guard (worker-poller.md §2): flip to ``delete_pending`` iff
-    not already deleting/deleted. ``False`` (rowcount 0) ⇒ another worker owns it."""
-    rows = execute_command(
-        "UPDATE irp_edm SET status = :s, updated_at = :now "
-        "WHERE id = :id AND status NOT IN (:dp, :d)",
-        {"s": DELETE_PENDING, "now": _utcnow(), "id": str(edm_id),
-         "dp": DELETE_PENDING, "d": DELETED},
-        connection="WORKBENCH",
-    )
-    return rows == 1
-
-
-def set_deleted(conn, *, edm_id: Any) -> None:
-    """Poller-side: the delete_edm job reached FINISHED — mark the EDM ``deleted``
-    (the entity soft-delete happens at package finalize). Runs in the poller's txn."""
-    from sqlalchemy import text  # noqa: PLC0415
-    conn.execute(text(
-        "UPDATE irp_edm SET status = :s, updated_at = :now WHERE id = :id"
-    ), {"s": DELETED, "now": _utcnow(), "id": str(edm_id)})
-
-
-def mark_delete_error(conn, *, edm_id: Any) -> None:
-    """Poller-side: a delete_edm job reached a non-FINISHED terminal — flip the EDM to
-    the recoverable ``error`` state but **preserve ``irp_id``** (the RM exposureId).
-    Unlike ``backfill_on_terminal`` (an import writer that nulls ``irp_id`` on a
-    non-ready terminal), delete must keep the exposureId so a re-triggered delete still
-    calls ``submit_delete_edm`` instead of the "never imported" inline branch (which
-    would orphan the exposure in Risk Modeler). Runs in the poller's txn."""
-    from sqlalchemy import text  # noqa: PLC0415
-    conn.execute(text(
-        "UPDATE irp_edm SET status = :s, updated_at = :now WHERE id = :id"
-    ), {"s": ERROR, "now": _utcnow(), "id": str(edm_id)})
-
-
 __all__ = [
-    "ImportResult", "EdmRow", "EdmDetail", "PENDING", "IMPORTING", "READY", "ERROR",
-    "DELETE_PENDING", "DELETED", "STATUSES", "TRANSIENT_STATUSES",
+    "ImportResult", "EdmRow", "EdmDetail", "ContextualEdmDetail",
+    "AdoptableEdm", "AdoptablePage",
+    "AdoptResult",
+    "PENDING", "IMPORTING", "READY", "ERROR",
+    "STATUSES", "TRANSIENT_STATUSES",
     "check_name_collision", "import_edm", "list_edms", "get_edm",
-    "latest_import_error", "get_edm_detail", "sync_detail",
+    "list_adoptable_edms", "adopt_edms",
+    "latest_import_error", "latest_backfill_status", "latest_backfill_statuses",
+    "get_edm_detail",
+    "get_contextual_edm_detail", "sync_detail", "sync_contextual_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
-    "backfill_on_terminal", "claim_for_delete", "set_deleted", "mark_delete_error",
+    "backfill_on_terminal",
 ]

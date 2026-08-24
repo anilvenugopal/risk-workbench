@@ -50,7 +50,7 @@ def test_enqueue_distinct_type_not_deduped(iteration2_db):
     a = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
                         rwb_job_type="upload_edm")
     b = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                        rwb_job_type="delete_edm")
+                        rwb_job_type="upload_rdm")
     assert a is not None and b is not None and a != b
 
 
@@ -92,7 +92,7 @@ def test_enqueue_absorbs_unique_violation_conn_path(iteration2_db, monkeypatch):
                                   rwb_job_type="upload_rdm", conn=conn)
             # the outer txn must survive the absorbed violation and still commit work.
             other = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                                    rwb_job_type="delete_edm", conn=conn)
+                                    rwb_job_type="upload_edm", conn=conn)
     assert first is not None and dup is None and other is not None
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
                           {"r": rid}, connection="WORKBENCH") == 2
