@@ -109,11 +109,11 @@ def test_compose_group_cart_names_bounds_and_overlap_note(iteration2_db):
     ])
 
     first, second = plans
-    # name = the label exactly as typed (P-24); number = the name truncated
-    # to 20 characters (P-26)
+    # name = the label exactly as typed (P-24); number = the name inside 20
+    # characters (P-26), hash-tailed once it no longer fits
     assert (first.name, first.number) == ("Coastal", "Coastal")
     assert second.name == "Florida Hurricane Commercial Book"
-    assert second.number == "Florida Hurricane Co"
+    assert second.number.startswith("Florida Hurric")
     assert len(second.number) <= breakout_service.PORTFOLIO_NUMBER_MAX
     # upper bound = min over dimensions of Σ selected per-value counts (P-23)
     assert first.accounts_upper_bound == 801       # min(220+1481, 801)
@@ -442,6 +442,34 @@ def test_group_worker_rerun_skips_then_reclaims_after_prune(
     assert rows[0]["deleted_at"] is None
     assert rows[0]["irp_id"] != first["irp_id"]    # the new RM portfolio
     assert rows[0]["breakout_group_id"] == first["breakout_group_id"]
+
+
+def test_group_numbers_stay_distinct_past_the_number_cap(
+        iteration2_db, fake_irp):
+    """Two labels sharing their first 20 characters must not compose one
+    portfolio_number — the number is what adoption resolves on (FR-011)."""
+    fake_irp.selection_by_value = {"TX": [1, 2], "CA": [3]}
+    edm_id, pid = _eligible_pair(fake_irp)
+    job_ids = request_group_breakout(
+        edm_id, pid,
+        [_group("Coastal wind exposure north", {"state": ["TX"]}),
+         _group("Coastal wind exposure south", {"state": ["CA"]})],
+        AS_OF, iteration2_db.user_a)
+
+    numbers = {r["number"] for r in _group_rows(pid)}
+    assert len(numbers) == 2
+    assert all(len(n) <= 20 for n in numbers)
+    for jid in job_ids:
+        assert run_breakout_job(jid, "custom")["status_code"] == "succeeded"
+
+    # the lineage rows go but the Risk Modeler portfolios stay, so each entry
+    # takes the create-then-adopt path and must resolve its own number
+    execute_command("DELETE FROM irp_portfolio WHERE source_portfolio_id = :s",
+                    {"s": pid}, connection="WORKBENCH")
+    for jid in job_ids:
+        job = rerun_breakout_job(jid, "custom")
+        assert job["status_code"] == "succeeded", job["error_detail"]
+        assert json.loads(job["output_data"])["adopted"] == 1
 
 
 def test_group_worker_unusable_group_fails_with_nothing(

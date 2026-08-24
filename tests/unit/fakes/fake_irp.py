@@ -408,8 +408,16 @@ class FakeIRP:
 
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]:
-        # EVERY hit — the worker refuses to adopt when there is more than one
-        return list(self.hits_by_number.get(number, []))
+        # EVERY hit — the worker refuses to adopt when there is more than one.
+        # Unseeded numbers resolve against the sub-portfolios this fake created
+        # and still holds, so two entries composing one number read as
+        # ambiguous here exactly as they would in Risk Modeler.
+        if number in self.hits_by_number:
+            return list(self.hits_by_number[number])
+        return [PortfolioHit(irp_id=p["portfolio_irp_id"], name=p["name"])
+                for p in self.created_sub_portfolios
+                if p["number"] == number
+                and p["name"] in self.taken_portfolio_names]
 
     def find_portfolio_by_name(self, *, exposure_irp_id: str,
                                name: str) -> list[PortfolioHit]:

@@ -1059,6 +1059,19 @@ def _group_rows(portfolio_id: Any) -> dict[str, dict]:
     return {str(r["group_key"]): dict(r) for r in rows}
 
 
+def _compose_group_number(name: str) -> str:
+    """The group's ``portfolio_number`` inside 20 characters: the name verbatim
+    when it fits (P-26), otherwise the first 14 characters plus 6 hex digits of
+    sha256(name) — the ``_compose_number`` technique, not its scheme. Two names
+    sharing their first 20 characters must not compose one number: the number
+    is what adoption resolves on, and two portfolios carrying one fail both
+    (FR-011)."""
+    if len(name) <= PORTFOLIO_NUMBER_MAX:
+        return name
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest().upper()[:6]
+    return name[:PORTFOLIO_NUMBER_MAX - 6].rstrip() + digest
+
+
 def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                        groups: Sequence[dict]) -> list[GroupPlan]:
     """Validate and compose a whole cart in submission order. Each element of
@@ -1101,7 +1114,7 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                      else "in the cart")
             raise GateRefused(f"a portfolio named {name!r} already exists "
                               f"{where} — choose a different name")
-        number = name[:PORTFOLIO_NUMBER_MAX].rstrip()
+        number = _compose_group_number(name)
         taken.add(name.casefold())
         overlap = [p.label for p in plans
                    if any(set(filters.get(d, ())) & set(p.filters.get(d, ()))

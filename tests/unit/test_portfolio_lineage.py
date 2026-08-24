@@ -14,6 +14,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.services import edm_service, portfolio_service
 from app.services._common import _utcnow
@@ -147,3 +148,21 @@ def test_save_generated_revives_soft_deleted_rm_id_match_on_adoption(iteration2_
         "SELECT deleted_at FROM irp_portfolio WHERE id = :i",
         {"i": first.portfolio_id}, connection="WORKBENCH")
     assert row["deleted_at"] is None
+
+def test_lineage_write_reports_a_non_unique_integrity_error_as_itself(
+        iteration2_db):
+    # is_unique_violation (db/errors.py) is true for ANY IntegrityError, so a
+    # foreign-key failure on breakout_group_id or inserted_by reaches the
+    # UNIQUE-race recovery. It must surface as itself, not as a claim the write
+    # lost a race it never entered.
+    edm_id, a = _setup_source()
+    execute_command(
+        "CREATE TRIGGER reject_fl BEFORE INSERT ON irp_portfolio "
+        "WHEN NEW.breakout_value = 'FL' BEGIN "
+        "SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END",
+        {}, connection="WORKBENCH")
+
+    with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+        portfolio_service.save_generated_portfolio(
+            edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
+            dimension_code="state", value="FL", actor_id=None)

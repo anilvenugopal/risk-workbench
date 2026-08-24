@@ -190,7 +190,7 @@ One row per (source portfolio, canonical member set). The row's UUID is the grou
 | `group_key` | NVARCHAR(64) NOT NULL | `sha256(canonical filters)[:12]` — the identity (P-22) |
 | `label` | NVARCHAR(256) NOT NULL | the analyst's group name; adopt-not-rename |
 | `filters` | NVARCHAR(MAX) NOT NULL | canonical member-filter JSON: `{"state": ["FL","GA"], "peril": ["2"]}` — OR within, AND across (P-20) |
-| `name` / `number` | NVARCHAR(256) / NVARCHAR(64) NOT NULL | the approved plan values (rule 8); name = the label exactly as typed (P-24), number = the name truncated to 20 (P-26). Rows approved before 2026-08-10 keep their composed `{source} - {label}` name and `P{rm id}-G-{key token}` number |
+| `name` / `number` | NVARCHAR(256) / NVARCHAR(64) NOT NULL | the approved plan values (rule 8); name = the label exactly as typed (P-24), number = the name inside 20 characters, hash-tailed on overrun (P-26). Rows approved before 2026-08-10 keep their composed `{source} - {label}` name and `P{rm id}-G-{key token}` number |
 | `cart_id` | UNIQUEIDENTIFIER NOT NULL | the confirm that most recently carried the group — banner aggregation (FR-020) |
 | audit | | `inserted_at`/`updated_at` NOT NULL; `inserted_by`/`updated_by` NULL FK → `app_user.id` |
 

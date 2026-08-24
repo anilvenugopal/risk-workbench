@@ -218,6 +218,10 @@ def save_generated_portfolio(
         raise ValueError(
             "breakout lineage integrity: source portfolio, dimension, and value "
             "must be set together")
+    if (dimension_code == "custom") != (group_id is not None):
+        raise ValueError(
+            "breakout lineage integrity: dimension 'custom' and a "
+            "breakout_group row go together, and only with each other")
     source = execute_one(
         "SELECT edm_id, deleted_at FROM irp_portfolio WHERE id = :s",
         {"s": _uid(source_portfolio_id)}, connection="WORKBENCH")
@@ -247,17 +251,19 @@ def save_generated_portfolio(
             except Exception as exc:  # noqa: BLE001 — a UNIQUE race is a skip, not a failure
                 if not is_unique_violation(exc):
                     raise
-            # uq_irp_portfolio_breakout or uq_irp_portfolio_edm_irp says another
-            # writer now holds one of this write's identities (concurrent
-            # identical breakout / redelivered job / raced backfill) —
-            # re-resolve against what the table holds now, never an error for
-            # the healthy race (FR-011).
-            claimed = _claim_existing(conn, params)
-            if claimed is None:
-                raise RuntimeError(
-                    "breakout lineage write lost a UNIQUE race but no row "
-                    "matches the lineage key or the RM id — refusing to guess")
-            return claimed
+                # uq_irp_portfolio_breakout or uq_irp_portfolio_edm_irp says
+                # another writer now holds one of this write's identities
+                # (concurrent identical breakout / redelivered job / raced
+                # backfill) — re-resolve against what the table holds now,
+                # never an error for the healthy race (FR-011). Its own
+                # savepoint: is_unique_violation is true for any
+                # IntegrityError, so this arm also sees failures no re-resolve
+                # can explain, and the claim may violate in its turn.
+                with conn.begin_nested():
+                    claimed = _claim_existing(conn, params)
+                if claimed is None:
+                    raise
+                return claimed
 
 
 def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
