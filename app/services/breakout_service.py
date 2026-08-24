@@ -57,9 +57,13 @@ LARGE_FANOUT_THRESHOLD = 25
 # The dimension letter inside the generated portfolio_number (R4) — value
 # dimensions only; a custom group's number is its name truncated to 20 (P-26).
 _DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C", "peril": "P"}
-# Analyst-facing noun per dimension for disabled-with-reason copy.
+# Analyst-facing noun per dimension for disabled-with-reason copy, and its
+# plural for the chooser tile's count line — "line of business" and "country"
+# both refuse a suffixed s, so the plural is maintained rather than derived.
 _DIMENSION_NOUN = {"lob": "line of business", "state": "state",
                    "country": "country", "peril": "peril", "custom": "custom"}
+_DIMENSION_NOUN_PLURAL = {"lob": "lines of business", "state": "states",
+                          "country": "countries", "peril": "perils"}
 # The peril dimension's values are `loccvg.PERIL` numeric codes, and neither the
 # EDM nor Risk Modeler pairs a code with a name (W-21), so the mnemonics
 # analysts read are maintained here (D4, closing O-02): 1 earthquake,
@@ -153,6 +157,7 @@ class DimensionEligibility:
     dimension: str            # breakout_dimension_kind.code
     label: str                # breakout_dimension_kind.label (display)
     noun: str                 # analyst-facing noun for this dimension, resolved once
+    noun_plural: str          # its plural, for the chooser tile's count line
     eligible: bool
     values: list[BreakoutValue]   # from the stored summary ([] when ineligible)
     reason: str | None        # analyst-facing disabled-with-reason copy
@@ -324,20 +329,21 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
             # display label, never a value dimension the summary enumerates.
             continue
         noun = _DIMENSION_NOUN.get(code, label.lower())
+        plural = _DIMENSION_NOUN_PLURAL.get(code, f"{noun} values")
         values = _parse_breakout_values(summary, code)
         if values is None:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun, eligible=False,
-                values=[], reason=MISSING_SUMMARY_REASON))
+                dimension=code, label=label, noun=noun, noun_plural=plural,
+                eligible=False, values=[], reason=MISSING_SUMMARY_REASON))
         elif len(values) < 2:
             dim_reason = (f"only one {noun} present" if len(values) == 1
                           else f"no {noun} values present")
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun, eligible=False,
-                values=values, reason=dim_reason))
+                dimension=code, label=label, noun=noun, noun_plural=plural,
+                eligible=False, values=values, reason=dim_reason))
         else:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun,
+                dimension=code, label=label, noun=noun, noun_plural=plural,
                 eligible=portfolio_eligible, values=values, reason=None))
 
     account_total = None

@@ -199,7 +199,10 @@ def test_modal_quick_chooser_offers_peril(routes_db, client):
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
     assert "By peril" in r.text and "2 perils present" in r.text
-    assert "By line of business" in r.text and "By geography - state" in r.text
+    # every tile's count line comes from the dimension's own noun (CQ-009)
+    assert "By line of business" in r.text and "2 lines of business present" \
+        in r.text
+    assert "By geography - state" in r.text and "2 states present" in r.text
 
     r = client.get(_url(edm_id, pid) + "?dimension=peril")
     assert 'name="dimension" value="peril"' in r.text

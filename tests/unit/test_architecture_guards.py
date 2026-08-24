@@ -119,7 +119,8 @@ def test_breakout_request_path_reads_only_its_two_permitted_gateway_calls():
 
 def test_every_seeded_breakout_dimension_has_its_vocabulary():
     """Per-dimension registration lockstep. Every value dimension (lob, state,
-    country, peril) needs the ``portfolio_number`` letter, the noun, both
+    country, peril) needs the ``portfolio_number`` letter, the noun and its
+    plural (the chooser tile renders the count line from them), both
     DataBridge scripts (selection + coverage), the ``run_breakout_{code}``
     job-type seed, and the worker body — a missing entry composes a wrong
     number, renders a missing noun, or fails the run."""
@@ -137,6 +138,7 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
     job_types = {code for code, _label, _order in RWB_JOB_TYPE_SEED}
     for code in values:
         assert code in breakout_service._DIMENSION_NOUN, code
+        assert code in breakout_service._DIMENSION_NOUN_PLURAL, code
         assert code in breakout_service._DIMENSION_LETTER, code
         assert code in irp_gateway._SELECTION_SCRIPTS, code
         assert code in irp_gateway._COVERAGE_SCRIPTS, code

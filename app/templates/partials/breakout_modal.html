@@ -29,7 +29,7 @@
 {%- endmacro -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
 {%- macro dim_meta(d) -%}
-{{ d.values|length }} {% if d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}{% if d.dimension == 'lob' %}line{% elif d.dimension == 'peril' %}peril{% else %}state{% endif %}{{ '' if d.values|length == 1 else 's' }}{% endif %} present
+{{ d.values|length }} {{ d.noun if d.values|length == 1 else d.noun_plural }} present
 {%- endmacro -%}
 <div class="modal" id="breakout-modal" x-data>
   {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
