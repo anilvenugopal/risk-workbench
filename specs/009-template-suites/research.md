@@ -247,8 +247,8 @@ from templates **entirely** — the third and final flip (optional pair → requ
 stored at all). Analysis currency, scheme, and vintage become **submit-time parameters** in
 Iteration 7: chosen per run at the suite level, pre-filled from env-var defaults (USD; latest
 RMS scheme; most-recent *currently-effective* vintage — a future-dated vintage never
-auto-selects) and always put in front of the analyst; genuinely mixed-currency books run as
-separate regional suites (80/20). Rationale: currency baked into a template triplicates
+auto-selects) and always put in front of the analyst; the rare truly mixed-currency book runs
+as separate regional suites. Rationale: currency stored on a template triplicates
 templates per currency and goes stale the moment a new scheme/vintage releases, and CIC — not
 the system — decides when the default flips ("I want to flip the switch"). `analysis_template`
 drops all three columns; `_validate_currency`, the builder's three currency selects, and the
