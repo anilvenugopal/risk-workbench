@@ -308,14 +308,17 @@ def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
 
 
 def update_exposure_metrics(conn, *, portfolio_id: Any, metrics: dict) -> None:
-    """Replace Risk Modeler's portfolio metadata while retaining its summary."""
+    """Replace Risk Modeler's portfolio metadata, keeping every other key of
+    the snapshot — ``summary`` and the ``stamp_date`` the breakout confirm
+    compares against (FR-002a); dropping the stamp would fail every later
+    confirm as stale."""
     row = conn.execute(text(
         "SELECT exposure_detail FROM irp_portfolio WHERE id = :id"
     ), {"id": str(portfolio_id)}).mappings().first()
     if row is None:
         return
     current = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
-    snapshot = {"metrics": metrics, "summary": current.get("summary")}
+    snapshot = {**current, "metrics": metrics}
     conn.execute(text(
         "UPDATE irp_portfolio SET exposure_detail = :detail, updated_at = :now "
         "WHERE id = :id"

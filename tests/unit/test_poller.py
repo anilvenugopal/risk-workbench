@@ -37,7 +37,8 @@ def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
         "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
         {"id": portfolio_id,
          "detail": json.dumps({"metrics": {"hazardVersion": "23.0"},
-                               "summary": {"countries": ["US"]}})},
+                               "summary": {"countries": ["US"]},
+                               "stamp_date": "2026-08-01T00:00:00Z"})},
         connection="WORKBENCH")
     fake_irp.add_portfolio(
         edm_exposure_id="90001", irp_id="101", name="Portfolio 1",
@@ -67,6 +68,7 @@ def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
     detail = json.loads(portfolio["exposure_detail"])
     assert detail["metrics"]["hazardVersion"] == "23.0,25.0"
     assert detail["summary"] == {"countries": ["US"]}
+    assert detail["stamp_date"] == "2026-08-01T00:00:00Z"
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:

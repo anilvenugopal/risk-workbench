@@ -76,7 +76,9 @@ _GETTERS = {..., "geohaz": irp_gateway.get_geohaz_job}
 - On `FINISHED`, `_resolve_geohaz_metadata` calls Get Portfolio Metadata outside
   the database transaction. `_handle_geohaz_terminal` replaces
   `irp_portfolio.exposure_detail.metrics` inside the tracking transaction and
-  retains `exposure_detail.summary`. A metadata read failure is logged and does
+  retains every other key of the snapshot — `exposure_detail.summary` and
+  `exposure_detail.stamp_date`, the stamp the breakout confirm compares against
+  (spec 005 FR-002a). A metadata read failure is logged and does
   not prevent the job status update.
 
 ## `_submission_retry`
