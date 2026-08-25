@@ -134,4 +134,4 @@ def test_sync_irp_metadata_kind_is_seeded():
         "WHERE code = 'sync_irp_metadata'",
         connection="WORKBENCH",
     )
-    assert rows == [{"label": "Sync IRP metadata", "sort_order": 90}]
+    assert rows == [{"label": "Sync IRP metadata", "sort_order": 120}]
