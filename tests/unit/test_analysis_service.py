@@ -141,7 +141,8 @@ def test_rm_url_needs_irp_id_and_a_configured_rm_ui(iteration2_db, monkeypatch):
     _executed(edm_id=edm, name="B")  # not yet backfilled
 
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
-    assert rows["A"].rm_url == "https://acme.rms-ppe.com/riskmodeler/analyses/9001"
+    assert rows["A"].rm_url == (
+        "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/9001/0")
     assert rows["B"].rm_url is None
 
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "")

@@ -331,15 +331,13 @@ _EXECUTED_SELECT = """
 def _rm_analysis_url(irp_id: Any) -> str | None:
     """The Risk Modeler web UI page for one analysis — plain navigation, never
     an API call (Article 11). ``None`` without an ``irp_id`` or when the RM UI
-    origin is not configured. The ``/riskmodeler/analyses/{id}`` path is
-    unverified against the live RM UI (no per-analysis link existed in the
-    repo before) — confirm during manual testing."""
+    origin is not configured. The trailing ``/0`` is part of the RM UI route."""
     if not irp_id:
         return None
     root = _rm_ui_root()
     if root is None:
         return None
-    return f"{root}/riskmodeler/analyses/{irp_id}"
+    return f"{root}/riskmodeler/datasources/analysis/{irp_id}/0"
 
 
 def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
