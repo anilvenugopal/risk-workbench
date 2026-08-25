@@ -5,7 +5,7 @@ import json
 from app.services import geohaz_service
 from app.workers import geohaz_jobs, runtime
 from db import execute, execute_one
-from tests.unit.test_geohaz_service import _edm_with_portfolios
+from tests.unit.conftest import edm_with_portfolios as _edm_with_portfolios
 
 
 def _run(job_id: str) -> bool:
@@ -20,11 +20,14 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     iteration2_db, fake_irp,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
-    launched = geohaz_service.launch(
+    geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids,
         actor_id=iteration2_db.user_a)
+    head_id = str(execute_one(
+        "SELECT id FROM rwb_job WHERE rwb_job_type = 'run_geohaz'",
+        {}, connection="WORKBENCH")["id"])
 
-    assert _run(launched.rwb_job_ids[0]) is True
+    assert _run(head_id) is True
 
     job = execute_one(
         "SELECT * FROM irp_job WHERE irp_job_type = 'geohaz'",
@@ -35,7 +38,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     assert str(job["inserted_by"]) == iteration2_db.user_a
     enqueued = execute_one(
         "SELECT input_data FROM rwb_job WHERE id = :id",
-        {"id": launched.rwb_job_ids[0]}, connection="WORKBENCH")
+        {"id": head_id}, connection="WORKBENCH")
     assert (json.loads(job["request_params"])
             == json.loads(enqueued["input_data"])["params"])
     assert json.loads(job["last_submission_payload"])["kind"] == "geohaz"
@@ -49,7 +52,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     }
     head = execute_one(
         "SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
-        {"id": launched.rwb_job_ids[0]}, connection="WORKBENCH")
+        {"id": head_id}, connection="WORKBENCH")
     assert head["status_code"] == "succeeded"
     assert head["error_detail"] is None
     assert fake_irp.submits[0]["skip_prev_hazard"] is False

@@ -9,31 +9,7 @@ from app.services import geohaz_service, irp_job_service, rwb_job_service
 from app.services.errors import GeohazLaunchConflict, InvalidGeohazLaunch
 from app.workers import dispatch
 from db import execute, execute_command, execute_scalar
-
-
-def _edm_with_portfolios(count: int = 2) -> tuple[str, list[str]]:
-    edm_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_edm (id, name, status, inserted_at, updated_at) "
-        "VALUES (:id, 'GeoHaz EDM', 'ready', '2026-08-13', '2026-08-13')",
-        {"id": edm_id}, connection="WORKBENCH")
-    portfolio_ids: list[str] = []
-    for number in range(1, count + 1):
-        portfolio_id = str(uuid.uuid4())
-        portfolio_ids.append(portfolio_id)
-        execute_command(
-            "INSERT INTO irp_portfolio "
-            "(id, edm_id, name, irp_id, inserted_at, updated_at) "
-            "VALUES (:id, :edm, :name, :irp, '2026-08-13', '2026-08-13')",
-            {
-                "id": portfolio_id,
-                "edm": edm_id,
-                "name": f"Portfolio {number}",
-                "irp": str(100 + number),
-            },
-            connection="WORKBENCH",
-        )
-    return edm_id, portfolio_ids
+from tests.unit.conftest import edm_with_portfolios as _edm_with_portfolios
 
 
 def _job_count() -> int:
@@ -114,7 +90,7 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
     dispatch.configure(lambda *, rwb_job_id, rwb_job_type: sent.append(
         (rwb_job_id, rwb_job_type)))
     try:
-        result = geohaz_service.launch(
+        launched = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=portfolio_ids,
             actor_id=iteration2_db.user_a,
@@ -127,8 +103,7 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         "FROM rwb_job WHERE rwb_job_type = 'run_geohaz' ORDER BY requestor_id",
         {}, connection="WORKBENCH")
     assert len(rows) == 2
-    assert set(result.rwb_job_ids) == {str(row["id"]) for row in rows}
-    assert set(result.portfolio_ids) == set(portfolio_ids)
+    assert set(launched) == set(portfolio_ids)
     expected_params = {
         "data_version": "25.0",
         "model_family": "DLM",
@@ -144,7 +119,7 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         assert input_data["requested_by_user_id"] == iteration2_db.user_a
         assert str(row["inserted_by"]) == iteration2_db.user_a
         assert row["status_code"] == "pending"
-    assert set(sent) == {(job_id, "run_geohaz") for job_id in result.rwb_job_ids}
+    assert set(sent) == {(str(row["id"]), "run_geohaz") for row in rows}
 
 
 def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
@@ -159,18 +134,16 @@ def test_launch_normalizes_sql_server_uuid_casing(iteration2_db, monkeypatch):
 
     monkeypatch.setattr(geohaz_service, "execute", execute_with_uppercase_ids)
 
-    result = geohaz_service.launch(
+    launched = geohaz_service.launch(
         edm_id=edm_id,
         portfolio_ids=portfolio_ids,
         actor_id=iteration2_db.user_a,
     )
 
-    assert result.portfolio_ids == portfolio_ids
+    assert launched == portfolio_ids
 
 
-def test_lookup_states_show_live_status_then_stored_hazard_version(
-    iteration2_db,
-):
+def test_read_shows_live_status_then_stored_hazard_version(iteration2_db):
     edm_id, portfolio_ids = _edm_with_portfolios(6)
     submitting, submitted, live, succeeded, failed, never = portfolio_ids
     rwb_job_service.ensure_pending_rwb_job(
@@ -191,12 +164,20 @@ def test_lookup_states_show_live_status_then_stored_hazard_version(
     execute_command(
         "UPDATE irp_job SET status = 'FINISHED' WHERE id = :id",
         {"id": finished_job}, connection="WORKBENCH")
-    failed_job = irp_job_service.record_submitted_irp_job(
+    # `failed` also carries an earlier FINISHED run, so the later failure must
+    # not displace the hazard version the finished run stored.
+    earlier_job = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=failed, irp_id="912")
     execute_command(
-        "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
-        {"id": failed_job}, connection="WORKBENCH")
+        "UPDATE irp_job SET status = 'FINISHED', inserted_at = '2026-08-12' "
+        "WHERE id = :id", {"id": earlier_job}, connection="WORKBENCH")
+    failed_job = irp_job_service.record_submitted_irp_job(
+        irp_job_type="geohaz", irp_edm_id=edm_id,
+        irp_portfolio_id=failed, irp_id="913")
+    execute_command(
+        "UPDATE irp_job SET status = 'FAILED', inserted_at = '2026-08-13' "
+        "WHERE id = :id", {"id": failed_job}, connection="WORKBENCH")
     for portfolio_id, version in (
         (succeeded, "23.0,25.0"), (failed, "23.0"), (never, ""),
     ):
@@ -206,7 +187,8 @@ def test_lookup_states_show_live_status_then_stored_hazard_version(
                 "metrics": {"hazardVersion": version}, "summary": None})},
             connection="WORKBENCH")
 
-    states = geohaz_service.lookup_states(edm_id)
+    states = {pid: pg.state
+              for pid, pg in geohaz_service.read(edm_id=edm_id).items()}
 
     assert states[submitting].label == "SUBMITTING"
     assert states[submitting].live is True
@@ -219,29 +201,7 @@ def test_lookup_states_show_live_status_then_stored_hazard_version(
     assert states[never].label == "" and states[never].live is False
 
 
-def test_lookup_state_uses_stored_version_after_a_later_failure(iteration2_db):
-    edm_id, [portfolio_id] = _edm_with_portfolios(1)
-    for irp_id, status in (("920", "FINISHED"), ("921", "FAILED")):
-        job_id = irp_job_service.record_submitted_irp_job(
-            irp_job_type="geohaz", irp_edm_id=edm_id,
-            irp_portfolio_id=portfolio_id, irp_id=irp_id)
-        execute_command(
-            "UPDATE irp_job SET status = :status WHERE id = :id",
-            {"status": status, "id": job_id}, connection="WORKBENCH")
-    execute_command(
-        "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
-        {"id": portfolio_id,
-         "detail": json.dumps({"metrics": {"hazardVersion": "25.0"}})},
-        connection="WORKBENCH")
-
-    state = geohaz_service.cell_state(portfolio_id)
-
-    assert state is not None
-    assert state.label == "25.0"
-    assert state.live is False
-
-
-def test_latest_lookup_returns_only_newest_run(iteration2_db):
+def test_read_returns_only_the_newest_run(iteration2_db):
     edm_id, [portfolio_id] = _edm_with_portfolios(1)
     first = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
@@ -269,16 +229,17 @@ def test_latest_lookup_returns_only_newest_run(iteration2_db):
         "WHERE id = :id",
         {"id": second}, connection="WORKBENCH")
 
-    latest = geohaz_service.latest_lookup(portfolio_id)
+    latest = geohaz_service.read(portfolio_id=portfolio_id)[portfolio_id].latest
 
     assert latest is not None
-    assert latest.id == second
     assert latest.request_params["perils"] == ["windstorm"]
     assert latest.status == "SUBMISSION FAILED"
     assert latest.failed is True
+    assert str(latest.submitted_at).startswith("2026-08-13")
+    assert str(latest.completed_at).startswith("2026-08-13")
 
 
-def test_latest_lookups_returns_newest_run_per_portfolio(iteration2_db):
+def test_read_returns_the_newest_run_per_portfolio(iteration2_db):
     edm_id, [single_run, two_runs] = _edm_with_portfolios(2)
     other_edm_id, [foreign] = _edm_with_portfolios(1)
     irp_job_service.record_submitted_irp_job(
@@ -286,10 +247,12 @@ def test_latest_lookups_returns_newest_run_per_portfolio(iteration2_db):
         irp_portfolio_id=single_run, irp_id="960")
     older = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
-        irp_portfolio_id=two_runs, irp_id="961")
+        irp_portfolio_id=two_runs, irp_id="961",
+        request_params={"data_version": "24.0"})
     newer = irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
-        irp_portfolio_id=two_runs, irp_id="962")
+        irp_portfolio_id=two_runs, irp_id="962",
+        request_params={"data_version": "25.0"})
     irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=other_edm_id,
         irp_portfolio_id=foreign, irp_id="963")
@@ -300,7 +263,7 @@ def test_latest_lookups_returns_newest_run_per_portfolio(iteration2_db):
         "UPDATE irp_job SET inserted_at = '2026-08-13' WHERE id = :id",
         {"id": newer}, connection="WORKBENCH")
 
-    latest = geohaz_service.latest_lookups(edm_id)
+    entries = geohaz_service.read(edm_id=edm_id)
 
-    assert set(latest) == {single_run, two_runs}
-    assert latest[two_runs].id == newer
+    assert set(entries) == {single_run, two_runs}
+    assert entries[two_runs].latest.request_params["data_version"] == "25.0"

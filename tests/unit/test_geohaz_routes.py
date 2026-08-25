@@ -5,8 +5,8 @@ import json
 from app.services import analysis_service, edm_service, irp_job_service
 from app.services._common import SubmissionRef
 from db import execute, execute_command
+from tests.unit.conftest import edm_with_portfolios as _edm_with_portfolios
 from tests.unit.test_edm_sync import _client
-from tests.unit.test_geohaz_service import _edm_with_portfolios
 
 
 def _form(portfolio_ids: list[str]) -> dict:
@@ -40,7 +40,7 @@ def test_detail_renders_selectable_and_ineligible_portfolios(iteration2_db):
 
     body = _client().get(f"/edms/{edm_id}").text
 
-    assert 'x-data="geohazSelection"' in body
+    assert "checkPicks({ name: 'portfolio_ids', observe: true })" in body
     assert 'x-ref="selectAll"' in body
     assert 'aria-label="Select all available portfolios"' in body
     assert '@click.stop="all($event.target.checked)"' in body
@@ -290,7 +290,7 @@ def test_missing_portfolio_cell_is_terminal_empty_fragment(iteration2_db):
         f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
 
     assert response.status_code == 200
-    assert "geohaz-cell" in response.text
+    assert "&mdash;" in response.text
     assert "hx-trigger" not in response.text
 
 
@@ -322,19 +322,14 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
         {"id": without_summary}, connection="WORKBENCH")
 
     body = _client().get(f"/edms/{edm_id}").text
+    details = body[body.index(f'id="geohaz-details-{portfolio_id}"'):]
+    details = details[:details.index("</section>")]
 
-    assert "Most recent hazard lookup" in body
-    assert "Data Version" in body
-    assert "Model Family" in body
-    assert "Hazard Layers" in body
-    assert "Skip locations with previous hazard lookup" in body
-    assert "Overwrite user-defined hazard values" in body
-    assert "Result" in body
-    assert "25.0" in body
-    assert "DLM" in body
-    assert "Earthquake, Windstorm" in body
-    assert "Yes" in body
-    assert "No" in body
-    assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." not in body
-    assert "Failed" in body
-    assert "Unavailable" not in body
+    assert "Most recent hazard lookup" in details
+    assert "<dd>25.0</dd>" in details
+    assert "<dd>DLM</dd>" in details
+    assert "Earthquake, Windstorm" in details
+    assert "<dt>Skip locations with previous hazard lookup</dt><dd>Yes</dd>" in details
+    assert "<dt>Overwrite user-defined hazard values</dt><dd>No</dd>" in details
+    assert "EARTHQUAKE processed 14 Locations." not in details
+    assert '<dd class="geohaz-details__failed">Failed</dd>' in details

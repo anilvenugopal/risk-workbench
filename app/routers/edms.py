@@ -370,10 +370,6 @@ def detail(request: Request, edm_id: str):
     return _detail(request, edm_id)
 
 
-def _toast_header(message: str, kind: str) -> str:
-    return json.dumps({"rwb:toast": {"message": message, "type": kind}})
-
-
 @router.post("/edms/{edm_id}/geohaz")
 def geohaz_launch(
     request: Request,
@@ -400,7 +396,7 @@ def geohaz_launch(
     selected = portfolio_ids or []
     error: str | None = None
     try:
-        result = geohaz_service.launch(
+        launched = geohaz_service.launch(
             edm_id=edm_id,
             portfolio_ids=selected,
             actor_id=request.state.user.id,
@@ -419,13 +415,15 @@ def geohaz_launch(
         if submission_id else _body_partial(request, edm_id)
     )
     if error is not None:
-        response.headers["HX-Trigger"] = _toast_header(error, "error")
+        response.headers["HX-Trigger"] = json.dumps(
+            {"rwb:toast": {"message": error, "type": "error"}})
     else:
         message = (
-            f"Hazard lookup queued for {len(result.portfolio_ids)} "
-            f"portfolio{'s' if len(result.portfolio_ids) != 1 else ''}."
+            f"Hazard lookup queued for {len(launched)} "
+            f"portfolio{'s' if len(launched) != 1 else ''}."
         )
-        response.headers["HX-Trigger"] = _toast_header(message, "success")
+        response.headers["HX-Trigger"] = json.dumps(
+            {"rwb:toast": {"message": message, "type": "success"}})
     return response
 
 
@@ -438,16 +436,16 @@ def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
     # a deleted portfolio's cell polling forever. The terminal fragment carries
     # no hx-* attributes, and the swap itself ends the poll — the same pattern
     # as _body_partial's EDM-gone terminal notice.
-    state = geohaz_service.cell_state(portfolio_id, edm_id=edm_id)
+    # Scoped to one portfolio, so the read returns at most one entry.
+    entry = next(iter(
+        geohaz_service.read(edm_id=edm_id, portfolio_id=portfolio_id).values()), None)
     return _partial(
         request,
         "partials/geohaz_cell.html",
         {
             "edm_id": edm_id,
-            "state": state,
-            "latest": (
-                geohaz_service.latest_lookup(portfolio_id) if state else None
-            ),
+            "state": entry.state if entry else None,
+            "latest": entry.latest if entry else None,
             "refresh_details": True,
         },
     )

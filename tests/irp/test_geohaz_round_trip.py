@@ -13,10 +13,13 @@ os.environ.setdefault(
     "SESSION_SECRET_KEY", "irp-test-secret-key-not-for-production")
 
 from app.config import settings  # noqa: E402
-from app.services import geohaz_service, irp_gateway  # noqa: E402
+from app.poller import run  # noqa: E402
+from app.services import irp_gateway  # noqa: E402
 
 pytestmark = pytest.mark.irp
 
+# Deliberately not irp_job_service.TERMINAL: that set also carries the
+# workbench-local "SUBMISSION FAILED", which get_geohaz_job can never return.
 _TERMINAL = {"FINISHED", "FAILED", "CANCELLED"}
 
 
@@ -64,6 +67,6 @@ def test_geohaz_hazard_only_round_trip_captures_terminal_body():
     assert result.status == "FINISHED", (
         f"GeoHaz job {submitted.irp_id} ended as {result.status}; "
         f"terminal body saved to {capture_path}.")
-    assert geohaz_service.completion_summary(result.result) is not None, (
-        "Update completion_summary for the captured terminal body at "
+    assert run._geohaz_completion_summary(result.result) is not None, (
+        "Update _geohaz_completion_summary for the captured terminal body at "
         f"{capture_path}.")

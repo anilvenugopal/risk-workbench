@@ -17,7 +17,7 @@ from app.poller import run as poller
 from app.services import edm_service, irp_job_service
 from app.workers import entity_jobs
 from db import execute, execute_command, execute_one
-from tests.unit.test_geohaz_service import _edm_with_portfolios
+from tests.unit.conftest import edm_with_portfolios as _edm_with_portfolios
 
 
 def test_geohaz_uses_single_status_getter_and_metadata_refresh():

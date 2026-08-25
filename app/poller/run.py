@@ -38,7 +38,6 @@ from app.config import settings
 from app.logging_setup import setup_logging
 from app.services import (
     edm_service,
-    geohaz_service,
     irp_gateway,
     irp_job_service,
     portfolio_service,
@@ -102,8 +101,10 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
 
 
 def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    # _resolve_geohaz_metadata returns {} unless FINISHED, so a present value is
+    # already proof of a FINISHED run.
     metadata = resolved.get("portfolio_metadata")
-    if status == "FINISHED" and metadata is not None:
+    if metadata is not None:
         portfolio_service.update_exposure_metrics(
             conn, portfolio_id=job["irp_portfolio_id"], metrics=metadata)
 
@@ -168,9 +169,28 @@ _TERMINAL_RESOLVERS = {
     "geohaz": _resolve_geohaz_metadata,
 }
 
-# Per-type completion-summary extractor, applied on every tracking write.
+
+def _geohaz_completion_summary(result: dict | None) -> str | None:
+    """Return the GeoHaz task's summary text from a terminal completion body."""
+    if not isinstance(result, dict):
+        return None
+    tasks = result.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        output = task.get("output")
+        summary = output.get("summary") if isinstance(output, dict) else None
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    return None
+
+
+# Per-type completion-summary extractor, applied only on a terminal write —
+# update_tracking keeps the stored summary unchanged while the job is running.
 _SUMMARIZERS = {
-    "geohaz": geohaz_service.completion_summary,
+    "geohaz": _geohaz_completion_summary,
 }
 
 
@@ -239,12 +259,14 @@ def _track_irp_jobs() -> None:
             try:
                 with get_connection("WORKBENCH") as conn:
                     with conn.begin():
-                        summarizer = _SUMMARIZERS.get(job["irp_job_type"])
+                        summary = None
+                        if result.status in irp_job_service.TERMINAL:
+                            summarizer = _SUMMARIZERS.get(job["irp_job_type"])
+                            if summarizer is not None:
+                                summary = summarizer(result.result)
                         irp_job_service.update_tracking(
                             conn, irp_job_id=job["id"], status=result.status,
-                            result=result.result,
-                            completion_summary=(
-                                summarizer(result.result) if summarizer else None),
+                            result=result.result, completion_summary=summary,
                         )
                         if result.status in irp_job_service.TERMINAL:
                             handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])

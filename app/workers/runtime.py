@@ -197,6 +197,7 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
 
 __all__ = [
     "JobResult",
-    "upsert_heartbeat",
+    "load_input",
     "run_job",
+    "worker_id",
 ]
