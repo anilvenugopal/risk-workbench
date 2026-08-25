@@ -143,9 +143,7 @@ def test_create_add_readback_chunking_and_idempotent_readd(sandbox):
     # THE ASSERTION THIS SUITE EXISTS FOR (T061). The composition PATCHes the
     # accounts over REST and then counts members with DataBridge SQL against
     # the EDM database — two different systems, and nothing has shown the
-    # second sees the first's write immediately. W-1's read-back equality was
-    # measured against the paginated REST enumeration, before W-20 moved the
-    # read-back to a scalar count on 2026-08-05. `_compose_or_adopt` returning
+    # second sees the first's write immediately. `_compose_or_adopt` returning
     # at all IS that proof: the gateway raises when the count differs from the
     # ids sent, on the FIRST read, with no retry and no sleep anywhere in the
     # path. If this fails with a count below len(ids) while Risk Modeler shows

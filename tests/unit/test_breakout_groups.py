@@ -1,17 +1,7 @@
-"""Unit tests for custom grouping (spec 005 follow-on — FR-018–021, T-12/T-14).
-
-Covers the group identity (canonical member-set hash), the cart composition
-(validation against the stored summary, adopt-not-rename, name exactly as
-typed with duplicate names blocked — P-24/P-25, name-derived numbers — P-26,
-upper-bound counts, the may-overlap note), the immediate name check
-(``check_group_name``), the cart confirm
-(ordered refusals writing no rows; one ``breakout_group`` row and one
-``run_breakout_custom`` job per group, keyed on the group row's UUID; the
-one-episode rule in both directions), the group worker (union within a
-dimension, intersect across; empty intersection fails with nothing created;
-lineage rows carry dimension ``custom``, the group_key, and the group row id,
-reclaim included), ``page_state``'s custom flights and cart-aggregated
-banner, and the list read model's group-label resolution.
+"""Unit tests for custom grouping (spec 005 follow-on — FR-018–021, T-12/T-14):
+the group identity hash, the cart composition and its refusals, the immediate
+name check, the cart confirm, the group worker, and the read models that
+render a group — ``page_state`` and the portfolio list.
 """
 
 from __future__ import annotations
@@ -34,7 +24,7 @@ from app.services.breakout_service import (
     request_group_breakout,
 )
 from app.services.name_check import CollisionCheck
-from db import execute, execute_command, execute_one
+from db import execute, execute_command
 from tests.unit.breakout_rows import (
     AS_OF,
     RM_STAMP,
@@ -365,10 +355,8 @@ def test_group_worker_unions_within_and_intersects_across(
     assert len(rows) == 1
     row = rows[0]
     assert row["breakout_dimension_code"] == "custom"
-    assert row["breakout_value"] == json.loads(
-        execute_one("SELECT input_data FROM rwb_job WHERE id = :i",
-                    {"i": jid}, connection="WORKBENCH")["input_data"]
-        )["group"]["key"]
+    assert row["breakout_value"] == compute_group_key(
+        {"state": ["TX", "CA"], "lob": ["EQ Comm"]})
     assert row["breakout_group_id"] == _group_rows(pid)[0]["id"]
     # one selection read per dimension, each scoped to its own values
     assert [(c["dimension"], c["values"]) for c in fake_irp.selection_calls] \

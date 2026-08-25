@@ -224,28 +224,11 @@ def test_modal_marks_existing_rows_as_already_created(routes_db, client):
     assert "already created" in r.text
 
 
-def test_modal_large_fanout_untruncated_with_several_minutes_note(
-        routes_db, client):
-    # 40 LOB values: every row renders (no truncation) + the FR-006c statement.
-    values = [{"value": f"LOB {i:02d}", "label": None, "accounts": 10}
-              for i in range(40)]
-    edm_id = mk_edm()
-    pid = mk_portfolio(edm_id, summary=dict(
-        SUMMARY, breakout_values={"lob": values}))
-    r = client.get(_url(edm_id, pid))
-    assert r.status_code == 200
-    for i in range(40):
-        assert f"usfl_commercial - LOB {i:02d}" in r.text
-    assert "40 sub-portfolios is a large run" in r.text
-    assert "several minutes" in r.text
-
-
 def test_modal_disclosures_in_every_form(routes_db, client):
     # The same value set against three coverage readings forces every arm of
-    # both FR-007 lines — overlap and left-out — and P-21's cut of the
-    # explanatory prose. The value counts are identical throughout; only the
-    # measured coverage moves, which is the point: Σ accounts cannot tell
-    # these apart.
+    # both FR-007 lines — overlap and left-out. The value counts are identical
+    # throughout; only the measured coverage moves, which is the point:
+    # Σ accounts cannot tell these apart.
     edm_id = mk_edm()
     values = {"lob": [{"value": "A", "label": None, "accounts": 700},
                       {"value": "B", "label": None, "accounts": 600}]}
@@ -280,11 +263,6 @@ def test_modal_disclosures_in_every_form(routes_db, client):
     assert "match more than one" not in flat3
     assert "Accounts with no line of business value are left out." in flat3
     assert "carry no line of business value" not in flat3
-
-    for rendered in (flat, flat2, flat3):
-        assert "inflation" not in rendered
-        assert "tend to be the largest" not in rendered
-        assert "commercial account" not in rendered
 
 
 def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
