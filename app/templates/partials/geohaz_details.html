@@ -1,0 +1,36 @@
+<section class="geohaz-details" id="geohaz-details-{{ portfolio_id }}"
+         aria-label="Most recent hazard lookup"
+         {%- if oob|default(false) %} hx-swap-oob="outerHTML"{% endif %}>
+  <h3>Most recent hazard lookup</h3>
+  {% if latest %}
+  {% set params = latest.request_params %}
+  <dl class="geohaz-details__list">
+    <div><dt>Data Version</dt><dd>{{ params.get('data_version') or '—' }}</dd></div>
+    <div><dt>Model Family</dt><dd>{{ params.get('model_family') or '—' }}</dd></div>
+    <div><dt>Hazard Layers</dt><dd>
+      {% if params.get('perils') %}{{ params.get('perils')|map('capitalize')|join(', ') }}{% else %}—{% endif %}
+    </dd></div>
+    <div><dt>Skip locations with previous hazard lookup</dt><dd>{{ 'Yes' if params.get('skip_prev_hazard') else 'No' }}</dd></div>
+    <div><dt>Overwrite user-defined hazard values</dt><dd>{{ 'Yes' if params.get('override_user_def') else 'No' }}</dd></div>
+    <div><dt>Submitted</dt><dd>
+      {% if latest.submitted_at %}<time data-utc="{{ latest.submitted_at }}"
+        title="{{ latest.submitted_at }} UTC">{{ latest.submitted_at }}</time>
+      {%- else %}&mdash;{% endif %}
+    </dd></div>
+    <div><dt>Completed</dt><dd>
+      {% if latest.completed_at %}<time data-utc="{{ latest.completed_at }}"
+        title="{{ latest.completed_at }} UTC">{{ latest.completed_at }}</time>
+      {%- else %}&mdash;{% endif %}
+    </dd></div>
+    <div class="geohaz-details__result"><dt>Result</dt>
+      {% if latest.failed %}
+      <dd class="geohaz-details__failed">{{ latest.status.capitalize() }}</dd>
+      {% else %}
+      <dd>{{ latest.completion_summary or 'Unavailable' }}</dd>
+      {% endif %}
+    </div>
+  </dl>
+  {% else %}
+  <p class="tag-empty">No hazard lookup has been run through the workbench.</p>
+  {% endif %}
+</section>

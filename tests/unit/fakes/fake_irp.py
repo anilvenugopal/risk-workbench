@@ -265,6 +265,20 @@ class FakeIRP:
                             source_file_path=source_file_path,
                             exposure_set_name=name)
 
+    def submit_geohaz(self, *, edm_name: str, portfolio_name: str,
+                      version: str, perils: list[str],
+                      skip_prev_hazard: bool,
+                      override_user_def: bool) -> SubmitResult:
+        return self._submit(
+            "geohaz",
+            edm_name=edm_name,
+            portfolio_name=portfolio_name,
+            version=version,
+            perils=list(perils),
+            skip_prev_hazard=skip_prev_hazard,
+            override_user_def=override_user_def,
+        )
+
     def search_analyses(self, *, source_rdm_name: str,
                         exposure_name: str | None = None) -> list[AnalysisHit]:
         # Return every seeded analysis matching this (RDM, EDM) pair. The gateway now
@@ -440,6 +454,10 @@ class FakeIRP:
         return hits
 
     def get_import_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
+                         result=self.results.get(irp_id))
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 

@@ -619,30 +619,49 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
-  // makes the whole row a hit area. With JS off none of it is needed — the button
-  // stays enabled and an empty irp_ids POST is a no-op redirect.
-  Alpine.data('syncPicks', () => ({
+  // Checkbox picker for the "Sync from Risk Modeler" EDM table (name: irp_ids) and
+  // the hazard-lookup portfolio table (name: portfolio_ids, observe: true). Counts
+  // the ticked boxes for the button label and drives the select-all tri-state.
+  // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+  // zero leaves the button disabled over visibly ticked boxes. With JS off none of
+  // it is needed: the button stays enabled and an empty POST is a no-op redirect.
+  //
+  // `observe` adds a MutationObserver because the geohaz-cell poll disables and
+  // enables a checkbox by OOB-swapping its whole <span> on job completion, and a
+  // DOM replacement fires no native change event.
+  Alpine.data('checkPicks', ({ name, observe = false } = {}) => ({
     count: 0,
-    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
-    // zero leaves the button disabled over visibly ticked boxes.
-    init() { this.onChange(); },
+    total: 0,
+    observer: null,
+    init() {
+      this.onChange();
+      if (observe) {
+        this.observer = new MutationObserver(() => this.onChange());
+        this.observer.observe(this.$root, { childList: true, subtree: true });
+      }
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
-      return this.$root.querySelectorAll('input[name="irp_ids"]');
+      return this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
     },
     onChange() {
-      this.count = this.$root.querySelectorAll(
-        'input[name="irp_ids"]:checked').length;
+      const boxes = this.boxes();
+      this.total = boxes.length;
+      this.count = Array.from(boxes).filter((box) => box.checked).length;
+      const selectAll = this.$refs.selectAll;
+      if (!selectAll) return;
+      selectAll.checked = this.total > 0 && this.count === this.total;
+      selectAll.indeterminate = this.count > 0 && this.count < this.total;
     },
     all(checked) {
-      this.boxes().forEach((b) => { b.checked = checked; });
+      this.boxes().forEach((box) => { box.checked = checked; });
       this.onChange();
     },
     pick(e) {
       // A click that ends a drag-selection keeps the selection, so an exposureId
       // can be copied out of a row without toggling it.
       if (window.getSelection().toString()) return;
-      const box = e.currentTarget.querySelector('input[name="irp_ids"]');
+      const box = e.currentTarget.querySelector(`input[name="${name}"]`);
       if (!box) return;
       box.checked = !box.checked;
       this.onChange();

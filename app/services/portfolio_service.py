@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
@@ -33,6 +33,9 @@ from app.services._common import (
 )
 from db import execute, execute_one, get_connection, is_unique_violation
 
+if TYPE_CHECKING:
+    from app.services.geohaz_service import CellState, LatestLookup
+
 
 @dataclass
 class PortfolioRow:
@@ -44,6 +47,8 @@ class PortfolioRow:
     irp_id: str | None
     exposure_detail: dict | None
     as_of: Any
+    geohaz_state: CellState | None = None
+    geohaz_latest: LatestLookup | None = None
     # Spec 005 (FR-012), attached by edm_service.get_edm_detail: the live
     # breakout run on this portfolio (breakout_service.BreakoutFlight, None
     # when idle) and the durable failure lines from the latest terminal run
@@ -302,6 +307,24 @@ def _claim_existing(conn, params: dict) -> GeneratedWrite | None:
     return None
 
 
+def update_exposure_metrics(conn, *, portfolio_id: Any, metrics: dict) -> None:
+    """Replace Risk Modeler's portfolio metadata, keeping every other key of
+    the snapshot — ``summary`` and the ``stamp_date`` the breakout confirm
+    compares against (FR-002a); dropping the stamp would fail every later
+    confirm as stale."""
+    row = conn.execute(text(
+        "SELECT exposure_detail FROM irp_portfolio WHERE id = :id"
+    ), {"id": str(portfolio_id)}).mappings().first()
+    if row is None:
+        return
+    current = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
+    snapshot = {**current, "metrics": metrics}
+    conn.execute(text(
+        "UPDATE irp_portfolio SET exposure_detail = :detail, updated_at = :now "
+        "WHERE id = :id"
+    ), {"detail": _json(snapshot), "now": _utcnow(), "id": str(portfolio_id)})
+
+
 def list_portfolios(*, edm_id: Any) -> list[PortfolioRow]:
     """Every portfolio of an EDM (read model), each with its parsed
     ``exposure_detail`` (``None`` → graceful empty) and its breakout lineage
@@ -373,5 +396,5 @@ def _resolve_breakout_value_labels(portfolios: list[PortfolioRow]) -> None:
 
 
 __all__ = ["PortfolioRow", "GeneratedWrite", "upsert_portfolio_detail",
-           "prune_missing", "list_portfolios", "save_generated_portfolio",
-           "find_generated"]
+           "update_exposure_metrics", "prune_missing", "list_portfolios",
+           "save_generated_portfolio", "find_generated"]

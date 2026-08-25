@@ -2,9 +2,9 @@
    edm_detail.html rev 7 + ui.md §2): minimal header (FR-011 — NO cedant/LOB),
    inline read-only per-portfolio table as the PRIMARY content, treaties (US2),
    broker analyses (US3). The EDM-level aggregate strip is gone (8/4 D12 — its
-   counts double-count). Read-only — no create/edit/split/filter control, no map
-   (FR-014/FR-016); every unavailable state renders gracefully (ui.md §5),
-   never an error. #}
+   counts double-count). Read-only — no create/edit/split/filter control, though
+   GeoHaz can be launched for selected portfolios — no map (FR-014/FR-016);
+   every unavailable state renders gracefully (ui.md §5), never an error. #}
 {# Live body (entity detail pattern): while the backfill head is in flight — or
    the import itself still is — the wrapper polls its own read-only render every
    3s and swaps itself, so the page updates on its own when the rwb job lands.

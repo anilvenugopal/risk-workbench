@@ -104,8 +104,9 @@ ITERATION2_SCHEMA = [
     )""",
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
-        irp_edm_id TEXT, irp_rdm_id TEXT,
+        irp_edm_id TEXT, irp_portfolio_id TEXT, irp_rdm_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
+        request_params TEXT, completion_summary TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
         last_completion_result TEXT, submission_attempt_count INTEGER,
         submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,
@@ -191,6 +192,7 @@ IRP_JOB_RESOURCE_TYPE_SEED = [("portfolio", "Portfolio", 10)]
 RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RDM", 20),
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
+                     ("run_geohaz", "Run GeoHaz", 28),
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),

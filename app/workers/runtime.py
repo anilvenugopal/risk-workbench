@@ -11,6 +11,7 @@ reclaim a dead worker's row.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -27,6 +28,11 @@ from app.services._common import _utcnow
 from db import get_connection
 
 logger = logging.getLogger(__name__)
+
+
+def worker_id(module: str) -> str:
+    """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
+    return f"{socket.gethostname()}:{module}"
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
@@ -196,6 +202,6 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
 
 __all__ = [
     "JobResult",
-    "upsert_heartbeat",
     "run_job",
+    "worker_id",
 ]
