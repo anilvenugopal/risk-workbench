@@ -48,7 +48,6 @@ from app.workers import broker, dispatch, runtime
 from db import (
     execute,
     execute_command,
-    execute_one,
     execute_scalar,
     get_connection,
     is_unique_violation,
@@ -59,14 +58,6 @@ logger = logging.getLogger(__name__)
 # Importing this module registers the actors against the broker configured in
 # app.workers.broker (module import side effect — no Redis connection yet).
 _ = broker.redis_broker
-
-
-def _load_input(rwb_job_id: Any) -> dict:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
-                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
 
 
 # ── upload_edm (US1) ────────────────────────────────────────────────────────────

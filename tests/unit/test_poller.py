@@ -9,13 +9,92 @@ from an RM-side ``FAILED`` and is never tracked. Driven by the fake IRP.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 
 from app.poller import run as poller
-from app.services import edm_service
+from app.services import edm_service, irp_job_service
 from app.workers import entity_jobs
-from db import execute, execute_one
+from db import execute, execute_command, execute_one
+from tests.unit.conftest import edm_with_portfolios as _edm_with_portfolios
+
+
+def test_geohaz_uses_single_status_getter_and_metadata_refresh():
+    assert poller._GETTERS["geohaz"] is poller.irp_gateway.get_geohaz_job
+    assert poller._TERMINAL_HANDLERS["geohaz"] is poller._handle_geohaz_terminal
+    assert poller._TERMINAL_RESOLVERS["geohaz"] is poller._resolve_geohaz_metadata
+
+
+def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
+    iteration2_db, fake_irp,
+):
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    execute_command(
+        "UPDATE irp_edm SET irp_id = 90001 WHERE id = :id",
+        {"id": edm_id}, connection="WORKBENCH")
+    execute_command(
+        "UPDATE irp_portfolio SET exposure_detail = :detail WHERE id = :id",
+        {"id": portfolio_id,
+         "detail": json.dumps({"metrics": {"hazardVersion": "23.0"},
+                               "summary": {"countries": ["US"]},
+                               "stamp_date": "2026-08-01T00:00:00Z"})},
+        connection="WORKBENCH")
+    fake_irp.add_portfolio(
+        edm_exposure_id="90001", irp_id="101", name="Portfolio 1",
+        exposure={"hazardVersion": "23.0,25.0", "totalLocations": 142})
+    job_id = irp_job_service.record_submitted_irp_job(
+        irp_job_type="geohaz", irp_id="25234199",
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
+    result = {
+        "status": "FINISHED",
+        "details": {"summary": "GEOHAZ is successful"},
+        "tasks": [{"name": "HAZARD", "output": {
+            "summary": "For the Layer : EARTHQUAKE processed 142 Locations out of 142."
+        }}],
+    }
+    fake_irp.finish("25234199", result)
+
+    poller.poll_once()
+
+    job = execute_one(
+        "SELECT completion_summary, last_completion_result FROM irp_job WHERE id=:id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert job["completion_summary"] == result["tasks"][0]["output"]["summary"]
+    assert json.loads(job["last_completion_result"]) == result
+    portfolio = execute_one(
+        "SELECT exposure_detail FROM irp_portfolio WHERE id = :id",
+        {"id": portfolio_id}, connection="WORKBENCH")
+    detail = json.loads(portfolio["exposure_detail"])
+    assert detail["metrics"]["hazardVersion"] == "23.0,25.0"
+    assert detail["summary"] == {"countries": ["US"]}
+    assert detail["stamp_date"] == "2026-08-01T00:00:00Z"
+    # The lookup moved RM's stampDate, so the stored stamp must be re-synced or
+    # every later breakout on this portfolio is refused as stale (005 FR-002a).
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(backfills) == 1
+    assert edm_id in backfills[0]["input_data"]
+
+
+def test_failed_geohaz_still_enqueues_the_detail_backfill(
+    iteration2_db, fake_irp,
+):
+    """A failed lookup can still have written part of its hazard data, moving
+    the portfolio's stampDate — the re-sync is chained on any terminal."""
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    execute_command(
+        "UPDATE irp_edm SET irp_id = 90001 WHERE id = :id",
+        {"id": edm_id}, connection="WORKBENCH")
+    irp_job_service.record_submitted_irp_job(
+        irp_job_type="geohaz", irp_id="25234200",
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
+    fake_irp.fail("25234200")
+
+    poller.poll_once()
+
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(backfills) == 1
+    assert edm_id in backfills[0]["input_data"]
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:

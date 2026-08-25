@@ -24,7 +24,6 @@ lie). No rollback anywhere (P-07).
 from __future__ import annotations
 
 import logging
-import socket
 from typing import Any, Callable
 
 import dramatiq
@@ -45,10 +44,6 @@ logger = logging.getLogger(__name__)
 # Importing this module registers the actors against the broker configured in
 # app.workers.broker (module import side effect — no Redis connection yet).
 _ = broker.redis_broker
-
-
-def _worker_id() -> str:
-    return f"{socket.gethostname()}:{__name__}"
 
 
 def _dimension_label(dimension: str) -> str:
@@ -396,31 +391,31 @@ _BREAKOUT_TIME_LIMIT_MS = 60 * 60 * 1000
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_lob(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_state(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_country(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_peril(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
 @dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_custom(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=_worker_id(),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=lambda: _run_breakout_group_body(rwb_job_id))
 
 
