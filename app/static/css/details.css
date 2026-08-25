@@ -77,6 +77,9 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dt-namecol { display: flex; flex-direction: column; min-width: 0; }
 .dt-title { font-weight: var(--fw-semibold); color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
 .dt-sub { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
+/* the sub-line under a portfolio name: the breakout arrow, then the RM id */
+.dt-subline { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.dt-frommark { flex: none; font-size: var(--fs-caption); line-height: 1; color: var(--text-tertiary); }
 .dt-geo-sub { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
 /* group divider row within a table (broker analyses grouped by source RDM) */
 .dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
@@ -166,3 +169,129 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .detail-note-toggle { border: 0; padding: 0; background: transparent;
   color: var(--color-brand); font: inherit; cursor: pointer; }
 .detail-note-toggle:hover { text-decoration: underline; }
+
+/* ── portfolio breakout (spec 005) — modal, in-flight, banner, error lines ──
+   Markup fixed by docs/ui_previews/breakout_modal.html (approved 2026-08-04);
+   tokens only (Article 9). */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-8) var(--space-4);
+  z-index: 50;
+  overflow-y: auto;
+}
+.bo-modal { background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: var(--radius-xl); box-shadow: var(--shadow-lg); width: 100%; max-width: min(900px, 94vw); max-height: min(85vh, 760px); display: flex; flex-direction: column; overflow: hidden; margin: auto; }
+/* Constant height whenever a pane is open (tabs visible), so switching tabs
+   or dimensions never resizes the dialog; the value lists flex to absorb the
+   space and are the only scrollers. Gate/error-only states stay content-sized. */
+.bo-modal--pane { height: min(85vh, 760px); }
+.bo-modal__header { display: flex; align-items: baseline; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--border-faint); }
+.bo-modal__title { font-size: var(--fs-h3); font-weight: var(--fw-semibold); }
+.bo-modal__src { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-tertiary); }
+.bo-modal__body { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); flex: 1 1 auto; min-height: 0; }
+.bo-modal__body > * { flex-shrink: 0; }
+.bo-modal__footer { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-faint); }
+.bo-modal__count { margin-right: auto; font-size: var(--fs-label); color: var(--text-secondary); }
+.bo-modal__count strong { color: var(--text-primary); }
+
+/* dimension chooser — four options in a 2×2 grid, each enabled or disabled-with-reason */
+.bo-dims { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.bo-dim { border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); background: var(--surface-panel); cursor: pointer; text-align: left; font: inherit; }
+.bo-dim[aria-pressed="true"] { border-color: var(--color-brand); background: var(--color-brand-faint); box-shadow: inset 0 0 0 1px var(--color-brand); }
+.bo-dim__name { display: block; font-size: var(--fs-label); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.bo-dim__meta { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); margin-top: 1px; }
+.bo-dim:disabled, .bo-dim--disabled { cursor: not-allowed; background: var(--surface-recessed); }
+.bo-dim:disabled .bo-dim__name, .bo-dim--disabled .bo-dim__name { color: var(--text-disabled); }
+.bo-dim__reason { display: block; font-size: var(--fs-caption); color: var(--color-warning); margin-top: 1px; }
+
+/* the preview list — every sub-portfolio to be created, NEVER truncated */
+.bo-list { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.bo-list__scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.bo-list__head, .bo-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 76px; align-items: center; gap: var(--space-3); padding: var(--space-1) var(--space-3); }
+.bo-list__head { position: sticky; top: 0; background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding-top: var(--space-2); padding-bottom: var(--space-2); }
+.bo-list__head .r { text-align: right; }
+.bo-row { border-bottom: 1px solid var(--c-border-faint); font-size: var(--fs-label); }
+.bo-row:last-child { border-bottom: none; }
+.bo-row__value { font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__label { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
+.bo-row__name { font-family: var(--font-mono); font-size: var(--fs-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bo-row__accounts { text-align: right; font-variant-numeric: tabular-nums; }
+.bo-row__exists { font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; }
+
+/* disclosures (FR-007/FR-006c) — info tone for the measured statement,
+   warning tone for refusals + the large-run note, neutral for fixed copy */
+.bo-note { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); line-height: 1.45; }
+.bo-note--overlap { background: var(--color-info-bg); border: 1px solid var(--color-info-border); color: var(--color-info); }
+.bo-note--notice { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+.bo-note--error { background: var(--color-danger-bg); border: 1px solid var(--color-danger-border); color: var(--color-danger); }
+.bo-note--plain { background: var(--surface-recessed); border: 1px solid var(--border-faint); color: var(--text-tertiary); }
+.bo-note strong { font-weight: var(--fw-semibold); }
+
+/* a POST-backed action rendered as an inline link (the modal's Sync pointers) */
+
+/* custom grouping (follow-on FR-018–021) — mode tabs, dimension pills,
+   value checkboxes, and the cart */
+.bo-tabs { display: flex; gap: var(--space-1); border-bottom: 1px solid var(--border-default); }
+.bo-tab { font: inherit; font-size: var(--fs-label); font-weight: var(--fw-medium); color: var(--text-tertiary); background: none; border: none; border-bottom: 2px solid transparent; padding: var(--space-1) var(--space-2); cursor: pointer; }
+.bo-tab[aria-selected="true"] { color: var(--color-brand); border-bottom-color: var(--color-brand); font-weight: var(--fw-semibold); }
+.bo-pills { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.bo-pill { font: inherit; font-size: var(--fs-caption); font-weight: var(--fw-medium); border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: 2px var(--space-3); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.bo-pill[aria-pressed="true"] { border-color: var(--color-brand); background: var(--color-brand-faint); color: var(--color-brand); font-weight: var(--fw-semibold); }
+.bo-pill:disabled { cursor: not-allowed; background: var(--surface-recessed); color: var(--text-disabled); }
+.bo-pill__meta { font-weight: var(--fw-regular); color: var(--text-tertiary); }
+.bo-custom { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.bo-custom > * { flex-shrink: 0; }
+.bo-custom__cols { display: flex; gap: var(--space-3); flex: 1 1 auto; min-height: 0; }
+.bo-custom__opts { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.bo-checks { border: 1px solid var(--border-default); border-radius: var(--radius-md); flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-1) var(--space-2); }
+.bo-check { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-label); padding: 2px var(--space-1); }
+.bo-check input { margin: 0; }
+.bo-check__label { color: var(--text-tertiary); font-size: var(--fs-caption); }
+.bo-check__accounts { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-tertiary); font-size: var(--fs-caption); }
+.bo-picked { flex: 0 0 38%; display: flex; flex-direction: column; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: var(--space-2); overflow-y: auto; }
+.bo-picked__empty { margin: auto; font-size: var(--fs-caption); color: var(--text-tertiary); text-align: center; }
+.bo-picked__chips { display: flex; flex-wrap: wrap; gap: var(--space-1); align-content: flex-start; }
+.bo-picked__chip { display: inline-flex; align-items: center; gap: var(--space-1); font: inherit; font-size: var(--fs-caption); border: 1px solid var(--border-default); border-radius: var(--radius-pill); padding: 1px var(--space-2); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.bo-picked__chip:hover { border-color: var(--color-danger); color: var(--color-danger); }
+.bo-picked__dim { color: var(--text-tertiary); }
+.bo-picked__x { color: var(--text-tertiary); }
+.bo-addrow { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.bo-addrow input[type=text] { flex: 1; height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-md); padding: 0 var(--space-3); font: inherit; font-size: var(--fs-label); }
+.bo-cart { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; }
+.bo-cart__head { background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-2) var(--space-3); }
+#bo-cart-rows { max-height: min(26vh, 240px); overflow-y: auto; }
+.bo-cart__empty { padding: var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); text-align: center; }
+.bo-cart-row { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-faint); display: flex; flex-direction: column; gap: 2px; }
+.bo-cart-row:last-child { border-bottom: none; }
+.bo-cart-row__top { display: flex; align-items: baseline; gap: var(--space-2); }
+.bo-cart-row__label { font-size: var(--fs-label); font-weight: var(--fw-semibold); }
+.bo-cart-row__remove { margin-left: auto; font: inherit; font-size: var(--fs-caption); color: var(--text-tertiary); background: none; border: none; cursor: pointer; }
+.bo-cart-row__remove:hover { color: var(--color-danger); }
+.bo-cart-row__filters { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-cart-row__meta { font-size: var(--fs-caption); color: var(--text-tertiary); }
+.bo-cart-row__warn { font-size: var(--fs-caption); color: var(--color-warning); }
+
+/* in-flight (modal body + portfolio row) */
+.bo-spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--color-brand-border); border-top-color: var(--color-brand); border-radius: 50%; animation: bo-spin .7s linear infinite; display: inline-block; vertical-align: -2px; margin-right: var(--space-2); }
+@keyframes bo-spin { to { transform: rotate(360deg); } }
+.bo-flight { display: flex; align-items: center; font-size: var(--fs-label); color: var(--text-secondary); background: var(--color-brand-faint); border: 1px solid var(--color-brand-border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+
+/* the row control + row in-flight indicator (first .dtable cell) */
+.bo-btn { margin-left: auto; flex: none; height: 22px; padding: 0 var(--space-2); border: 1px solid var(--border-default); border-radius: var(--radius-sm); background: var(--surface-panel); color: var(--text-secondary); font-size: var(--fs-caption); font-weight: var(--fw-medium); cursor: pointer; }
+.bo-btn:hover { border-color: var(--color-brand); color: var(--color-brand); }
+.bo-inline { margin-left: auto; flex: none; display: inline-flex; align-items: center; font-size: var(--fs-caption); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+/* lineage inside the expanded panel of a generated row (US3/FR-014 as revised
+   2026-08-11) — base portfolio + breakout criteria above the value lists */
+.drow-lineage { margin-bottom: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-faint); }
+
+/* page-side completion banner + durable per-row error line (FR-012) */
+.bo-banner { border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-label); margin-bottom: var(--space-3); }
+.bo-banner--ok { background: var(--color-positive-bg); border: 1px solid var(--color-positive-border); color: var(--color-positive); }
+.bo-banner--partial { background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); color: var(--color-warning); }
+.bo-row-error { font-size: var(--fs-caption); color: var(--color-negative); background: var(--color-negative-bg); border-top: 1px solid var(--color-negative-border); padding: var(--space-1) var(--space-3); position: sticky; left: 0; width: 100cqw; }
+.bo-row-error strong { font-weight: var(--fw-semibold); }

@@ -190,7 +190,7 @@ Full rules in the constitution. Key points for implementation:
 | `rwb_workbench` | `MSSQL_WORKBENCH_*` | App state, workflow, audit | Alembic (`make db-migrate`) |
 | `rwb_exposure` | `MSSQL_EXPOSURE_*` | Exposure data (EDM/RDM) | Bootstrap SQL script |
 | `rwb_loss` | `MSSQL_LOSS_*` | Loss results | Bootstrap SQL script |
-| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** (constitution Art. 11 v3.1.0); never migrated/bootstrapped; never raw SQL from app code |
+| DATABRIDGE | `MSSQL_DATABRIDGE_*` | Moody's — read-only | **Read-only, only via irp-integration methods, worker-side** — except a bounded single-row point-of-action check, which may run on the request path and must fail open (constitution Art. 11 v3.2.0); never migrated/bootstrapped; never raw SQL from app code |
 
 ## Dev DB Strategy
 

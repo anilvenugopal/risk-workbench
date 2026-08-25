@@ -1,0 +1,126 @@
+{# The Portfolios section — spec 004 US1's headline read-only snapshot plus
+   spec 005's breakout surfacing (FR-001/FR-012/FR-014): the completion banner,
+   each source row's in-flight counter, generated rows as the worker upserts
+   them, and the durable per-row failure lines. Spec 007 adds the GeoHaz launch
+   form around the table — the checkbox column, the select-all, the Hazard
+   Version column and the Run hazard lookup button. Context: `edm`
+   (edm_service.EdmDetail).
+
+   Live unit (T-11, 2026-08-05): while a breakout episode is underway — the run
+   itself, or its follow-up backfill_edm_detail filling figures in — THIS
+   section polls itself every 3s and swaps itself. The whole-body poll answers
+   204 meanwhile (app/routers/edms.py), because #edm-detail is the page's
+   scrolling element: replacing it threw the analyst back to the top of the page
+   every 3 seconds. The poll response additionally OOB-swaps the header meta
+   line — the one place outside this section that carries a portfolio count.
+   app.js reapplies the open/closed state of every <details>
+   here after the swap, so an expanded row stays expanded. #}
+{# The poll render (edm_portfolios_live.html) has no contextual `sync_url` in
+   scope, hence the default. `gh_sub` is the submission the analyst came
+   through, carried on the poll URL so the GeoHaz form keeps its
+   `submission_id` across a swap; the POST handler validates the pairing. #}
+{% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
+{% set gh_sub = gh_sub if gh_sub is defined
+     else (source_submission.id if source_submission else none) %}
+{% set section_url = '/edms/' ~ edm.id ~ '/portfolios-section'
+     ~ ('?submission_id=' ~ gh_sub if gh_sub else '') %}
+{% set bo_live = edm.breakout_running
+     or (edm.breakout_banner and edm.breakout_banner.filling_in) %}
+<details class="sec" open id="edm-portfolios"
+  {%- if bo_live %}
+  hx-get="{{ section_url }}" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">Portfolios</span>
+    {% if edm.detail_state in ('populated', 'empty') %}
+    <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
+    {% endif %}
+    <span class="sec__spacer"></span>
+    <span class="sec__note">Break out creates one sub-portfolio per value of the chosen dimension</span>
+  </summary>
+
+  {# ── breakout completion banner (spec 005 FR-012) — the newest terminal
+     run_breakout_* job: a clean run shows while its follow-up backfill fills
+     figures in, a failed/partial one stays until the next run supersedes it ── #}
+  {% if edm.breakout_banner %}
+  {% set b = edm.breakout_banner %}
+  <div class="bo-banner bo-banner--{{ 'ok' if b.ok else 'partial' }}">
+    <strong>{{ b.noun|capitalize }} breakout of {{ b.source_name }}:</strong>
+    {{ b.created }} created{% if b.adopted %}, {{ b.adopted }} adopted{% endif %}{% if b.skipped_existing %}, {{ b.skipped_existing }} already created{% endif %}{% if b.failed %}, {{ b.failed }} failed{% endif %}{% if b.error %} — {{ b.error }}{% elif b.ok %} — exposure figures are filling in automatically{% endif %}.
+  </div>
+  {% endif %}
+
+  {% if edm.detail_state == 'populated' %}
+  <form method="post" action="/edms/{{ edm.id }}/geohaz"
+        hx-post="/edms/{{ edm.id }}/geohaz"
+        hx-target="#edm-detail" hx-swap="outerHTML"
+        x-data="checkPicks({ name: 'portfolio_ids', observe: true })"
+        @change="onChange()">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    {% if gh_sub %}
+    <input type="hidden" name="submission_id" value="{{ gh_sub }}">
+    {% endif %}
+    <div class="section-head">
+      <span class="tag-empty">Select one or more available portfolios.</span>
+      <button class="btn-sm btn-sm--primary" type="submit"
+              :disabled="count === 0">Run hazard lookup</button>
+    </div>
+    <div class="dtable-shell">
+      <div class="dtable dtable--selectable" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1357px">
+        <div class="dtable__head">
+          <span class="geohaz-pick">
+            <input type="checkbox" x-ref="selectAll"
+                   aria-label="Select all available portfolios"
+                   title="Select all available portfolios"
+                   :disabled="total === 0"
+                   @click.stop="all($event.target.checked)">
+          </span>
+          <span class="l">Portfolio</span>
+          <span>Locations</span><span>Accounts</span><span>Policies</span>
+          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
+          <span class="l">States</span><span class="l">Currency</span><span class="l">Hazard Version</span>
+        </div>
+        {% for p in edm.portfolios %}
+        {% include "partials/portfolio_row.html" %}
+        {% endfor %}
+      </div>
+    </div>
+  </form>
+  <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
+    Name column stays pinned while you scroll sideways. Perils shown are the
+    perils <em>present</em> per portfolio; absence isn't inferred as a defect.</p>
+  {% elif edm.detail_state == 'importing' %}
+  <div class="state-box">Per-portfolio detail appears within ~1 minute of the
+    import finishing.</div>
+  {% elif edm.detail_state == 'pending' %}
+  <div class="state-box">Exposure detail is being fetched from Risk Modeler —
+    it appears here shortly.</div>
+  {% elif edm.detail_state == 'failed' %}
+  <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
+    The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
+    {% if edm.status == 'ready' %}
+    {% with sync_url=sync_url, sync_target='#edm-detail',
+            sync_label='Sync now', sync_primary=true, sync_boxed=true %}
+    {% include "partials/sync_form.html" %}
+    {% endwith %}
+    {% endif %}
+  </div>
+  {% elif edm.detail_state == 'empty' %}
+  <div class="state-box">No portfolios in this EDM.</div>
+  {% else %}
+  <div class="state-box"><strong>Detail not available.</strong><br>
+    Imported before exposure backfill shipped.
+    {% if edm.status == 'ready' %}
+    Sync now to fetch its per-portfolio detail from Risk Modeler.
+    {% with sync_url=sync_url, sync_target='#edm-detail',
+            sync_label='Sync now', sync_primary=true, sync_boxed=true %}
+    {% include "partials/sync_form.html" %}
+    {% endwith %}
+    {% else %}
+    Re-import to populate its per-portfolio detail.
+    {% endif %}
+  </div>
+  {% endif %}
+</details>

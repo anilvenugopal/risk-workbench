@@ -1,0 +1,23 @@
+{# One server-composed cart row (FR-018/P-23), appended into #bo-cart-rows by
+   the group-preview POST — or, when `error` is set, the refusal line
+   retargeted at #bo-cart-error (the route sends HX-Retarget/HX-Reswap).
+   The hidden `group` input is what the cart confirm posts back; the server
+   re-validates it in full (client JSON is never trusted). #}
+{% if error %}
+<div class="bo-note bo-note--error" role="alert"><strong>Not added:</strong>
+  {{ error }}</div>
+{% else %}
+<div id="bo-cart-error" hx-swap-oob="true"></div>
+<div class="bo-cart-row">
+  <input type="hidden" name="group" value="{{ group_json }}">
+  <div class="bo-cart-row__top">
+    <span class="bo-cart-row__label">{{ plan.label }}</span>
+    <button type="button" class="bo-cart-row__remove"
+            @click="$event.target.closest('.bo-cart-row').remove(); recount()">remove</button>
+  </div>
+  <div class="bo-cart-row__filters">{% for dim, vals in plan.filters.items() %}{{ dim }}: {{ vals|map('breakout_display', dim)|join(', ') }}{% if not loop.last %} · {% endif %}{% endfor %}</div>
+  <div class="bo-cart-row__meta">up to {{ '{:,}'.format(plan.accounts_upper_bound) }} accounts
+    {%- if plan.adopted %} · existing breakout{% if plan.exists %} — already created, the run will skip it{% endif %}{% endif %}
+    {%- if plan.may_overlap_with %} <span class="bo-cart-row__warn">· may overlap with {{ plan.may_overlap_with|join(', ') }}</span>{% endif %}</div>
+</div>
+{% endif %}

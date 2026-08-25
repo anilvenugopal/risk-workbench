@@ -333,3 +333,28 @@ def test_latest_lookup_renders_requested_details_and_result(iteration2_db):
     assert "<dt>Overwrite user-defined hazard values</dt><dd>No</dd>" in details
     assert "EARTHQUAKE processed 14 Locations." not in details
     assert '<dd class="geohaz-details__failed">Failed</dd>' in details
+
+
+def test_section_poll_keeps_the_submission_on_the_geohaz_form(
+    iteration2_db, monkeypatch,
+):
+    # The breakout-episode poll swaps the whole Portfolios section, and the
+    # GeoHaz form lives inside it. GET /edms/{id}/portfolios-section has no
+    # submission in its path, so the section's poll URL carries one and the
+    # route hands it straight back — otherwise a launch after a swap would
+    # return the plain EDM page instead of the submission-scoped one.
+    edm_id, _ = _edm_with_portfolios(2)
+    context = _context(edm_id)
+    context.edm.breakout_running = True
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: context)
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda _id: context.edm)
+    client = _client()
+
+    page = client.get(f"/submissions/submission-a/edms/{edm_id}")
+    poll_url = f"/edms/{edm_id}/portfolios-section?submission_id=submission-a"
+    assert f'hx-get="{poll_url}"' in page.text
+
+    swapped = client.get(poll_url).text
+    assert 'name="submission_id" value="submission-a"' in swapped
+    assert f'hx-get="{poll_url}"' in swapped

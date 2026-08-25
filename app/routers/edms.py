@@ -463,9 +463,12 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
             '</div></div>')
     if poll and edm.sync_running and edm.detail_state == "populated":
         # A populated page mid-sync: swapping the body every 3s would collapse
-        # every <details> the analyst opened. 204 → htmx swaps nothing and the
-        # poll keeps ticking; the first post-sync poll returns the fresh body
-        # (whose trigger is gone), rendering the result exactly once.
+        # every <details> the analyst opened and — because #edm-detail is the
+        # page's scrolling element — scroll them back to the top. 204 → htmx
+        # swaps nothing and the poll keeps ticking; the first post-sync poll
+        # returns the fresh body (whose trigger is gone), rendering the result
+        # exactly once. A breakout episode is served by the Portfolios
+        # section's own poll instead (T-11 — portfolios_section below).
         return Response(status_code=204)
     return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
 
@@ -479,6 +482,41 @@ def detail_body(request: Request, edm_id: str):
     204 (poll continues, nothing swaps) so open rows aren't collapsed. No writes,
     no Risk Modeler call (Article 11)."""
     return _body_partial(request, edm_id, poll=True)
+
+
+@router.get("/edms/{edm_id}/portfolios-section", response_class=HTMLResponse)
+def portfolios_section(request: Request, edm_id: str,
+                       submission_id: str | None = None):
+    """The Portfolios section on its own, for the breakout-episode poll (T-11).
+
+    A breakout changes only that section — the completion banner, the source
+    row's ``N of M`` counter, the generated rows, the per-row failure lines —
+    so the section polls this route every 3s instead of the whole body: the
+    body wrapper ``#edm-detail`` is the page's scrolling element, and replacing
+    it scrolled the analyst back to the top every cycle. The response also
+    OOB-swaps the header meta line and the rollup strip, the two places outside
+    the section that carry a portfolio count. The template emits the ``every 3s``
+    trigger only while the breakout episode is live (the run itself, or its
+    FR-013 follow-up backfill filling figures in), so polling self-terminates.
+
+    ``submission_id`` is the submission the analyst came through, carried on the
+    poll URL and handed straight back to the GeoHaz form's hidden input so a
+    launch after a swap still returns to the submission-scoped page. It is not
+    validated here — nothing is read with it; POST /edms/{id}/geohaz rejects a
+    submission the EDM does not belong to.
+
+    Read-only — no writes, no Risk Modeler call (Article 11)."""
+    edm = edm_service.get_edm_detail(edm_id)
+    if edm is None:
+        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (the body-poll precedent).
+        return HTMLResponse(
+            '<details class="sec" open id="edm-portfolios">'
+            '<summary><span class="sec__title">Portfolios</span></summary>'
+            '<div class="state-box state-box--warn">This EDM no longer exists.'
+            '</div></details>')
+    return _partial(request, "partials/edm_portfolios_live.html",
+                    {"edm": edm, "gh_sub": submission_id})
 
 
 @router.post("/edms/{edm_id}/retry")

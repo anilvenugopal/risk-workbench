@@ -10,7 +10,6 @@ reclaim a dead worker's row.
 
 from __future__ import annotations
 
-import json
 import logging
 import socket
 import threading
@@ -19,13 +18,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
+from dramatiq.middleware import TimeLimitExceeded
 from sqlalchemy import text
 
 from app import log_context
 from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _utcnow
-from db import execute_one, get_connection
+from db import get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +33,6 @@ logger = logging.getLogger(__name__)
 def worker_id(module: str) -> str:
     """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
     return f"{socket.gethostname()}:{module}"
-
-
-def load_input(rwb_job_id: Any) -> dict:
-    row = execute_one(
-        "SELECT input_data FROM rwb_job WHERE id = :id",
-        {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
@@ -172,6 +163,20 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
                         correlation_id=row.get("correlation_id")):
             try:
                 result = body()
+            except TimeLimitExceeded:
+                # Dramatiq killed the actor thread at its time limit. Mark the
+                # row failed HERE: TimeLimitExceeded is a BaseException the
+                # generic handler below never sees, and a row left 'running'
+                # would be reset to pending by the reconciler and re-dispatched
+                # into the same kill, forever. Re-raise so dramatiq finishes
+                # its interrupt handling.
+                logger.error("rwb_job %s exceeded the actor time limit",
+                             rwb_job_id)
+                rwb_job_service.complete_rwb_job(
+                    rwb_job_id=rwb_job_id, status="failed",
+                    error_detail="the run exceeded the worker time limit")
+                _finished("failed")
+                raise
             except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
                 logger.exception("rwb_job %s body failed", rwb_job_id)
                 rwb_job_service.complete_rwb_job(
@@ -197,7 +202,6 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
 
 __all__ = [
     "JobResult",
-    "load_input",
     "run_job",
     "worker_id",
 ]

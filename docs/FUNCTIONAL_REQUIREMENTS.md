@@ -316,6 +316,8 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 Re-shaping exposure to match treaty terms before analysis. This cannot be done in the current workflow tool (done in RiskLink today, which is slow); Risk Modeler makes it fast and synchronous, so it becomes a *preferred* path.
 
+> **Build record (2026-08-05; rev. 2026-08-12, spec 005 P-19 rev.).** One-click breakouts shipped in Iteration 4 with four quick dimensions — line of business, state, country, and peril — plus custom groups (analyst-defined filter sets): see `specs/005-subportfolio-breakouts/spec.md` and PRD §10A.5/§21. The 2026-07-29 product direction resolved the commercial-geo open question below (Risk Modeler assigns whole accounts; accepted and disclosed in the preview). The filtered sub-portfolio builder and the complement split are fast-follows.
+
 | Requirement | Implementation | Notes |
 |---|---|---|
 | Sub-portfolios are created by filtering an EDM's exposure. | Not implemented | To match terms the broker didn't break out — e.g. isolate a state with a different retention, or exclude a line of business. |
@@ -328,8 +330,9 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| One-click breakout by line of business creates one sub-portfolio per LOB. | Not implemented | Simplest case; unaffected by the commercial-geo problem below. |
-| One-click breakout by state/country creates one sub-portfolio per geography. | Not implemented |  |
+| One-click breakout by line of business creates one sub-portfolio per LOB. | Implemented | Simplest case; unaffected by the commercial-geo problem below. |
+| One-click breakout by state/country creates one sub-portfolio per geography. | Implemented | State/state-equivalent and country grain (spec 005). |
+| One-click breakout by peril creates one sub-portfolio per peril. | Implemented | P-19 rev. 2026-08-12 promoted peril to a quick dimension. |
 | One-click complement split ("X vs. not-X") creates one portfolio for selected states and one for everything else. | Not implemented | e.g. Northeast and everything-not-Northeast, from a single action. |
 | Breakouts sum to 100% of the source portfolio. | Not implemented | Not "run the whole thing, then a subset, and subtract" — that's messy. |
 | A "do the opposite" option produces the complement of a defined filter without re-coding it. | Not implemented | Define "Florida mobile home" once and also get "everything that's not Florida mobile home." |
@@ -338,7 +341,9 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 > **Open question — commercial-policy geographic split (blocking for the geography breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed; a RiskLink "checkbox" recollection is not load-bearing. Output-side alternative: write losses to the state level and let the model allocate back. Ben investigating RM behavior; Cheryl polling the team for the preferred default. (Design note 06 §3, O6-1/O6-2.)
 
-**Out of scope for MVP:** peril splitting / peril-specific portfolios (no longer needed — "we don't have to split it up by peril"; verify whether RM adds a missing peril); update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
+Peril splitting ships as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12) — verify separately whether RM adds a missing peril.
+
+**Out of scope for MVP:** update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
 
 ---
 

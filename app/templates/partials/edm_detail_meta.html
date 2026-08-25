@@ -1,0 +1,51 @@
+{# The EDM detail header's meta line — source path, identifiers, portfolio
+   count, sync stamp, and the manual Sync control (spec 004 FR-011: no cedant,
+   no LOB). Context: `edm` (edm_service.EdmDetail).
+   Its own element (2026-08-05, T-11): the Portfolios section's breakout poll
+   OOB-swaps this line, because the portfolio count and the Sync button state
+   both move while a breakout runs and the whole-body poll is quiet meanwhile.
+   `oob_swap` is set only by partials/edm_portfolios_live.html — that render
+   has no contextual `sync_url` in scope, hence the default. #}
+{% set sync_url = sync_url | default('/edms/' ~ edm.id ~ '/sync') %}
+<div class="detail-meta" id="edm-detail-meta"
+     {%- if oob_swap | default(false) %} hx-swap-oob="true"{% endif %}>
+  <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
+  <span class="crumb__sep">&middot;</span>
+  <button class="detail-note-toggle" type="button" aria-controls="entity-note"
+          x-bind:aria-expanded="notesOpen"
+          x-on:click="notesOpen = !notesOpen"
+          x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
+  {% if edm.irp_id %}
+  <span class="crumb__sep">·</span>
+  <span>RM EDM #{{ edm.irp_id }}</span>
+  {% endif %}
+  {% if edm.created_by_irp_job_irp_id %}
+  <span class="crumb__sep">·</span>
+  <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>
+  {% endif %}
+  {% if edm.detail_state in ('populated', 'empty') %}
+  <span class="crumb__sep">·</span>
+  <span>{{ edm.portfolio_count }} portfolio{{ '' if edm.portfolio_count == 1 else 's' }}</span>
+  {% endif %}
+  {% if edm.as_of %}
+  <span class="crumb__sep">·</span>
+  <span class="synced"><span class="synced__dot"></span> synced
+    <time data-utc="{{ edm.as_of }}" title="{{ edm.as_of }} UTC">{{ edm.as_of }}</time></span>
+  {% elif edm.detail_state == 'failed' %}
+  <span class="crumb__sep">·</span>
+  <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
+  {% endif %}
+  {# manual re-sync (FR-003 as amended 2026-07-23) — re-runs the backfill
+     worker; hidden while the import itself is still in flight #}
+  {% if edm.status == 'ready' %}
+  <span class="crumb__sep">·</span>
+  {% if edm.sync_running %}
+  <button class="btn-sm" type="button" disabled>Syncing…</button>
+  {% else %}
+  {% with sync_url=sync_url, sync_target='#edm-detail',
+          sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
+  {% include "partials/sync_form.html" %}
+  {% endwith %}
+  {% endif %}
+  {% endif %}
+</div>

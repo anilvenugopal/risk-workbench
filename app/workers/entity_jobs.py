@@ -68,7 +68,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     or reconciler re-run is a no-op (``JobResult.ok``). A submit that never reaches Risk
     Modeler records a ``SUBMISSION FAILED`` ``irp_job`` (for the poller's retry batch),
     flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     submission_id = ctx.get("requested_from_submission_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
@@ -122,7 +122,7 @@ def _rdm_import_exists(rdm_id: Any) -> bool:
 
 def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Submit one standalone RDM import and record its ``irp_job``."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     submission_id = ctx.get("requested_from_submission_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -222,7 +222,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     lookup here — resolution is read-time in ``analysis_service``.
 
     Manual RDM sync uses the same RDM-wide capture."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     apply_irp_id = ctx.get("apply_irp_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -338,7 +338,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         retry machinery) but NEVER touches the EDM's ``ready`` status (FR-005);
       • a missing EDM or one with no exposureId is a graceful skip — a
         pre-capability/never-finished EDM stays in the empty state (R7)."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
@@ -412,9 +412,14 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         # Namespaced snapshot (data-model §2): the /metrics payload verbatim under
         # "metrics"; "summary" is the DataBridge aggregate (null when unavailable —
         # never a stale prior, so the row's as_of can't overstate its freshness).
+        # "stamp_date" is the portfolio's RM stampDate from the enumeration —
+        # read BEFORE the DataBridge summary read, so the stored stamp is
+        # conservative — the FR-002a freshness anchor the breakout confirm
+        # compares against (spec 005).
         portfolio_service.upsert_portfolio_detail(
             edm_id=edm_id, irp_id=p.irp_id, name=p.name,
-            exposure_detail={"metrics": exposure.payload, "summary": summary},
+            exposure_detail={"metrics": exposure.payload, "summary": summary,
+                             "stamp_date": p.stamp},
             as_of=now)
         stored += 1
 

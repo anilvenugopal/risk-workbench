@@ -13,11 +13,20 @@ description: "Task list template for feature implementation"
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
-## Format: `[ID] [P?] [Story] Description`
+## Format: `[ID] [P?] [Story] [Ref] Description`
 
 - **[P]**: Can run in parallel (different files, no dependencies)
 - **[Story]**: Which user story this task belongs to (e.g., US1, US2, US3)
+- **[Ref]**: The requirement or decision it implements — `FR-nnn` from `spec.md`, `T-nn`/`P-nn` from the decision tables. Omit only for setup and cleanup tasks.
 - Include exact file paths in descriptions
+- Where the proof is not obvious from the task, add one `- Proof:` line naming the test or observation that closes it
+
+Example:
+
+```text
+- [ ] T018 [US1] [FR-009] [T-02] Persist the analyst-confirmed portfolio list in `rwb_job.input_data`
+  - Proof: worker integration test creates exactly the portfolios the analyst confirmed
+```
 
 ## Path Conventions
 
@@ -43,10 +52,10 @@ description: "Task list template for feature implementation"
 
   For a user story that introduces a screen with real new layout, add a UI preview task as
   the first task in that story's phase: a quick rendered HTML preview
-  (docs/ui_previews/<screen>.html, from _scaffold.html) approved before wiring. SKIP it for
+  (docs/ui_previews/<screen>.html, from _scaffold.html) approved before the template is built. SKIP it for
   trivial/derivative UI (copy tweaks, adding a field to an already-styled component) — just
   build those. Implement ONE story per pass; stop at the checkpoint for the approver to click
-  the running slice. See docs/UI_WORKFLOW.md.
+  the running feature. See docs/UI_WORKFLOW.md.
 
   DO NOT keep these sample tasks in the generated tasks.md file.
   ============================================================================
@@ -98,7 +107,7 @@ Examples of foundational tasks (adjust based on your project):
 
 > Skip for trivial/derivative UI — just build those. When kept, approval is informal (show → 👍). See docs/UI_WORKFLOW.md.
 
-- [ ] T0xx [US1] Quick rendered HTML preview for [screen] in docs/ui_previews/[screen].html (from _scaffold.html; reuse existing classes) — approved before wiring
+- [ ] T0xx [US1] Quick rendered HTML preview for [screen] in docs/ui_previews/[screen].html (from _scaffold.html; reuse existing classes) — approved before the Jinja2 template is built
 
 ### Implementation for User Story 1
 
@@ -109,7 +118,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] T016 [US1] Add validation and error handling
 - [ ] T017 [US1] Add logging for user story 1 operations
 
-**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. **STOP** — the approver clicks the running slice before User Story 2 begins.
+**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently. **STOP** — the approver clicks the running feature before User Story 2 begins.
 
 ---
 
@@ -168,7 +177,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
-- [ ] TXXX Security hardening
+- [ ] TXXX Security review: authorization on new routes, input validation, secrets handling
 - [ ] TXXX Run quickstart.md validation
 
 ---
@@ -193,7 +202,7 @@ Examples of foundational tasks (adjust based on your project):
 ### Within Each User Story
 
 - Tests (if included) MUST be written and FAIL before implementation
-- UI preview approved before wiring — only for screens with real new layout; skip trivial changes (see docs/UI_WORKFLOW.md)
+- UI preview approved before the Jinja2 template is built — only for screens with real new layout; skip trivial changes (see docs/UI_WORKFLOW.md)
 - Models before services
 - Services before endpoints
 - Core implementation before integration

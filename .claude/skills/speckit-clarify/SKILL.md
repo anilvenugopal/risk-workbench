@@ -177,31 +177,31 @@ Execution steps:
 
 6. Integration after EACH accepted answer (incremental update approach):
     - Maintain in-memory representation of the spec (loaded once at start) plus the raw file contents.
-    - For the first integrated answer in this session:
-       - Ensure a `## Clarifications` section exists (create it just after the highest-level contextual/overview section per the spec template if missing).
-       - Under it, create (if not present) a `### Session YYYY-MM-DD` subheading for today.
-    - Append a bullet line immediately after acceptance: `- Q: <question> → A: <final answer>`.
+    - Record the decision in the spec's `## Open product decisions` table:
+       - If the answer resolves an existing row, update that row's Status and Detail. The row keeps its ID.
+       - Otherwise add a new row with the next unused ID and the status the answer warrants (usually Approved).
+    - Record the full exchange in `research.md` under a `## Clarifications` heading with a `### Session YYYY-MM-DD` subheading for today: `- Q: <question> → A: <final answer>`. Point the decision row's Where column at it. The spec never carries a Clarifications section — history lives in research.md.
     - Then immediately apply the clarification to the most appropriate section(s):
        - Functional ambiguity → Update or add a bullet in Functional Requirements.
        - User interaction / actor distinction → Update User Stories or Actors subsection (if present) with clarified role, constraint, or scenario.
-       - Data shape / entities → Update Data Model (add fields, types, relationships) preserving ordering; note added constraints succinctly.
-       - Non-functional constraint → Add/modify measurable criteria in Success Criteria > Measurable Outcomes (convert vague adjective to metric or explicit target).
-       - Edge case / negative flow → Add a new bullet under Edge Cases / Error Handling (or create such subsection if template provides placeholder for it).
+       - Data shape / entities → Update Key Entities (add entities, attributes, relationships) preserving ordering; note added constraints succinctly.
+       - Non-functional constraint → Add/modify measurable criteria in Success Criteria (convert vague adjective to metric or explicit target).
+       - Edge case / negative flow → Add a **Given**/**When**/**Then** acceptance scenario under the relevant user story (the spec template has no Edge Cases section).
        - Terminology conflict → Normalize term across spec; retain original only if necessary by adding `(formerly referred to as "X")` once.
     - If the clarification invalidates an earlier ambiguous statement, replace that statement instead of duplicating; leave no obsolete contradictory text.
-    - Save the spec file AFTER each integration to minimize risk of context loss (atomic overwrite).
+    - Save the spec and research.md files AFTER each integration to minimize risk of context loss (atomic overwrite).
     - Preserve formatting: do not reorder unrelated sections; keep heading hierarchy intact.
     - Keep each inserted clarification minimal and testable (avoid narrative drift).
 
 7. Validation (performed after EACH write plus final pass):
-   - Clarifications session contains exactly one bullet per accepted answer (no duplicates).
+   - Each accepted answer has exactly one decision-table row in the spec and one Q/A line in research.md (no duplicates).
    - Total asked (accepted) questions ≤ 5.
    - Updated sections contain no lingering vague placeholders the new answer was meant to resolve.
    - No contradictory earlier statement remains (scan for now-invalid alternative choices removed).
-   - Markdown structure valid; only allowed new headings: `## Clarifications`, `### Session YYYY-MM-DD`.
+   - Markdown structure valid; no new headings are added to the spec. The only new headings allowed are `## Clarifications` / `### Session YYYY-MM-DD` in research.md.
    - Terminology consistency: same canonical term used across all updated sections.
 
-8. Write the updated spec back to `FEATURE_SPEC`.
+8. Write the updated spec back to `FEATURE_SPEC` and save the updated `research.md` (create it if the feature has none yet).
 
 9. **Re-validate Spec Quality Checklist** (if it exists):
    - Check if `FEATURE_DIR/checklists/requirements.md` exists.
