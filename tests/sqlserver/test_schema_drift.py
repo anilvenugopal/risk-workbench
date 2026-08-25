@@ -45,7 +45,7 @@ def test_mirror_matches_real_schema_exactly(table):
         f"{table}: the SQLite unit mirror drifted from the migration.\n"
         f"  only in mirror: {sorted(mirror - real)}\n"
         f"  only in real:   {sorted(real - mirror)}\n"
-        f"Update tests/iteration1_mirror.py:ITERATION1_SCHEMA to match.")
+        f"Update the matching schema block in tests/iteration1_mirror.py.")
 
 
 @pytest.mark.parametrize("table", SUBSET_TABLES)

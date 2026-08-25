@@ -48,7 +48,7 @@ Every submission follows three sequential phases. The workbench covers all three
 
 #### Phase B — Analysis Execution
 1. **Hazard lookup (GeoHaz)** — optionally run hazard lookup on a portfolio before analysis (§10B). Broker geocoding is preserved; re-geocoding is not a workbench action.
-2. **Analysis configuration** — select model profiles, output profiles, event rate schemes, currency. For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
+2. **Analysis configuration** — select model profiles, output profiles, event rate schemes; currency, currency scheme, and vintage are chosen at submit time (spec 009 P-11). For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
 3. **Job submission & tracking** — submit analysis jobs via IRP API. Auto-poll for status. Surface progress, completion, and failures.
 4. **Notifications** — push notification (Teams, email, or in-app center) on job completion or failure (Iteration 11; §18).
 
@@ -66,7 +66,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Sub-portfolio (breakout)** — a portfolio created by **filtering** an EDM's exposure (e.g. isolate a state with a different retention, exclude an LOB), so it matches treaty terms the broker didn't break out. Created synchronously (`create_portfolio()`, HTTP 201, no job). Filter values are picked from the *real values present in the portfolio*, not free-text. One-click breakouts fan a portfolio out by LOB or geography, including complement ("X vs. not-X") splits (§10A). Creation granularity is capped at state/country; finer cuts (CRESTA, ZIP) are results, not portfolios.
 - **Analysis** — an analysis (or, when `is_group=true`, a **group** — a group *is* an analysis in Risk Modeler) belonging to an EDM. `rdm_id` set → the analysis came from importing that RDM (broker); null → a net-new analysis the analyst ran (own). Backed by `irp_analysis`.
 - **Treaty** — a reinsurance treaty belonging to an EDM, referenced by analyses by name. Create/edit is synchronous (no job). Backed by `irp_treaty`.
-- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event rate scheme, treaty names, currency), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite`.
+- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event rate scheme, per-analysis toggles), for batch submission; currency and treaty selection happen at submit time (spec 009 P-09/P-11). **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite`.
 - **Prerequisite gate** — the computed "what can the analyst do right now": a lookup + entity-existence/job-terminal-status check in code (§13.1), not a stored stage machine. Replaces the removed Workflow/Stage/Task construct.
 - **Name-based coupling** — each op resolves its inputs live from Risk Modeler by name at submit time (`search_edms`/`search_portfolios`/`search_analyses`/`search_treaties`); there is no typed handle to chain (§13.2).
 - **Job (`irp_job`)** — an IRP async operation tracked in the Workbench Metamodel DB — one row per real IRP op (the executable unit). Has an `irp_job_type` (which IRP endpoint to poll), an `irp_id` (RM's job id), and one or more `rwb_job` rows written on completion.
@@ -161,7 +161,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year`, plus the region/peril tag from the template (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. The naming scheme is configurable per template suite. The draft analysis-naming convention draws on **portfolio name + near-term/long-term + event-rate scheme** (FR §4, O7-3) but is **not yet finalized**; the exact token set is locked when Iteration 7 (analysis templates) is planned.
+For EDM imports, analysis jobs, and group names the workbench generates names from submission context — the deal's own attributes: `cedant_name`, `treaty_year` (CR-003; there is no customer short-code or program to draw on anymore). An analyst submitting a worldwide contract should never have to type 50+ analysis names. Templates store no naming pattern and no region/peril metadata (spec 009 P-03 — dropped 2026-08-18 with auto-naming); the draft analysis-naming convention draws on **portfolio name + near-term/long-term + event-rate scheme** (FR §4, O7-3) but is **not yet finalized**; the exact token set is locked by the time the suite run flow (Iteration 7) is built.
 
 ---
 
@@ -500,7 +500,7 @@ This replaces the prior `authoring_status` field, whose three-value guess (`draf
 
 `submission.name` is **not unique.** The July 9 CIC session established that two genuinely distinct deals can share every naming-convention attribute — same cedant, same inception, same treaty type (e.g. a regional cat and a corporate cat incepting the same day) — and differ only by the **manual, optional CRM ID** (design note 03 §4). A DB-level `UNIQUE(name)` would therefore reject a legitimate second deal, or force analysts to mangle the label with a suffix at peak season. So identity rests on the surrogate `id` (UUID); `name` is a human label kept consistent by autocomplete. To still guard against *accidental* re-creation, create/rename runs a **non-blocking** "a similar deal already exists" check (same UX as the EDM/RDM name-collision warning, §9.4) — it warns and lets the analyst proceed, never hard-blocks. *(Resolves the OQ-3 identity/uniqueness tension from design note 03 in favor of a surrogate key + soft warning.)*
 
-> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 7, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
+> **Note on `cycle` (removed).** The prior data model had a `submission.cycle` field ("e.g. 2026Q1") intended for auto-naming. It has been removed — it modeled a renewal-cycle concept that doesn't correspond to how this team works broker submissions; there is no cycle, just deals (and a nullable `treaty_year`/`renews_from_submission_id` where a renewal relationship actually exists, §7.2). It was only ever consumed by the auto-naming pattern example in §11.2 (Iteration 6, not yet built). The replacement token set is resolved in CR-003: `cedant_name` + `treaty_year` + region + peril (§2.6, §11.2).
 
 ### 7.3 Submission UI
 
@@ -771,7 +771,9 @@ Enabled once an **EDM + portfolio** exist (§13.1). Hazard lookup is **optional*
 
 ## 11. Feature: Analysis templates & template suites — **IN MVP**
 
-> **In scope for the MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral). The batch problem below is the #1 analyst pain point, so saved templates and suites ship rather than being built only on demand. Until the template UI lands in its iteration, batch analysis runs as an app-side loop over `submit_portfolio_analysis_job` (§14.3); the templates layer replaces the manual per-job configuration, not the loop itself.
+> **In scope for the MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral). The batch problem below is the #1 analyst pain point, so saved templates and suites ship rather than being built only on demand.
+>
+> **Suites first (2026-08-14, D9).** Build order reversed: template/suite definition and administration land **before** individual analysis execution (Iteration 6 before Iteration 7 — §21). CIC thinks in outcomes — "pick these five portfolios, pick these three treaties, run the Canada suite" — and today must explode that thought into model profiles, perils, regions, and output selections by hand. The suite is the top-level object the analyst reaches for; single-analysis execution is the substrate under it, not the first deliverable.
 
 ### 11.1 The batch problem
 
@@ -789,30 +791,42 @@ The configurable inputs a template captures, and how the builder exposes them:
 - **Currency** — loss/analysis currency is selected per analysis. **Defaults to the exposure's native currency when the exposure is one-to-one** (a single currency present), and **to USD otherwise** (a US book must not default to Euros). The **latest currency scheme** (exchange rate at a point in time) is used by default when rerunning; a **custom scheme** can be selected when one exists. The workbench does not build or import schemes — those are built in Risk Modeler.
 - **Treaties** — selected **by name or pattern** (name-based coupling, §13.2).
 - **Tags** — set per analysis.
+- **Analysis metadata screen (2026-08-14).** Model profiles, output profiles, accumulation profiles, and currency schemes are **viewed in the workbench, created/edited in Risk Modeler, and synced back** (IRP metadata sync, §15.2) — the same "selected, not owned" pattern as EDM data. Event-rate schemes are selected, never authored (CIC does not create custom event rates).
 
 ### 11.2 Analysis template
 
-A saved configuration for a single analysis job. Stored in the Metamodel DB as `analysis_template`:
-- `name` — template name
-- `created_by` — templates are **global** (visible to all analysts) or `created_by`-scoped (per-analyst); there is no `customer_id` scope (CR-003 M2/O1 — no customer isolation)
+One analysis definition — "one row in Analysis Builder": analysis/model profile + output profile + event rate (auto-populated), plus optional additional settings (2026-08-14, D10; currency removed per spec 009 P-11 — analysis currency, scheme, and vintage are chosen at submit time, never stored). Stored in the Metamodel DB as `analysis_template`:
+- `name` — template name, unique among live rows
+- templates are **global** (visible to all analysts); `inserted_by` records authorship only; there is no `customer_id` scope (CR-003 M2/O1 — no customer isolation)
 - `analysis_profile_name` — IRP model profile name
 - `output_profile_name`
 - `event_rate_scheme_name` (nullable — required for DLM, not for HD)
-- `treaty_name_pattern` — optional pattern for auto-selecting treaties from an EDM
-- `tag_names` — list of IRP tags to apply
-- `currency_code`
-- `region_label`, `peril_code` — metadata for display and grouping
-- `auto_name_pattern` — Jinja-style template string for auto-generating the analysis job name. Built from the deal's own attributes (CR-003, §2.6): `cedant_name` + `treaty_year` + `region_label` + `peril_code`. (The earlier example used the removed `submission.cycle`, and a pre-CR-003 draft proposed a `customer_code` token — neither exists; there is no customer, §7.)
-- `franchise_deductible` (bool), `min_loss_threshold`, `num_max_loss_event`
+- tags — free-text labels stored in `analysis_template_tag`
+- `franchise_deductible` (bool), `treat_construction_occupancy_as_unknown` (bool), `min_loss_threshold`, `num_max_loss_event`
+
+Dropped from earlier drafts: `treaty_name_pattern` (P-09), `currency_code` (P-11), `region_label`/`peril_code` (P-03 — region is not a stored attribute), `auto_name_pattern` (P-03, §2.6).
 
 ### 11.3 Template suite
 
-A named collection of templates for batch submission. Stored as `template_suite` + `template_suite_item` (ordered):
-- `name` — suite name (e.g., "Global 2026 Q1")
-- `created_by` — global or `created_by`-scoped, same as templates; no `customer_id` scope (CR-003 M2/O1)
-- Items link to `analysis_template` rows with an optional per-item `portfolio_name_override`
+An **unordered set of templates** (spec 009 P-08), defined primarily by **region + output level**; the other settings are standardized within the suite (2026-08-14, D10). LOB (property / auto / workers comp) is a further axis carrying different settings, handled via `analysis_template_tag` and/or naming convention (O14-8). Stored as `template_suite` + `template_suite_item`:
+- `name` — suite name (e.g., "Global 2026 Q1"), unique among live rows
+- `inserted_by` — authorship only; suites and templates are global (visible to all analysts; CR-003 M2/O1)
+- Items link to `analysis_template` rows; no item order and no per-item settings (P-08)
 
-**Applying a suite** to a submission generates one analysis submission per template item (an app-side loop over `submit_portfolio_analysis_job`, each producing its own `irp_job` row — §14.3). Names are auto-generated from each template's `auto_name_pattern` + submission context. The analyst reviews, adjusts if needed, then submits.
+**Suites are predefined, not freeform user-built (2026-08-14, D11).** Predefined suites are how CIC enforces consistent settings ("are you running the US defaults with our settings?"); analysts use what's available, and only the exception path drops to a long list or Risk Modeler. This requires:
+- A **suite administration page** (`/templates`) — create/edit templates and suites, admin-maintained. `template_suite` is not a kind table; suites are built on this admin page, with **Duplicate-and-edit** (spec 009 P-12) as the fast path for variants.
+- Starter-suite seeding and Excel export/import are **out of MVP scope** (spec 009 P-02, deferred 2026-08-19): nothing is seeded and there is no transfer file; initial setup — including any starter suites — is manual via the admin page. The worked Excel design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`.
+
+**A suite may mix DLM, HD, and accumulation templates (2026-08-14, D14).** US wildfire is HD-only while most US perils are DLM; Japan has both ("Japan DLM suite" and "Japan HD suite" coexist). Keeping DLM and accumulation in separate suites is a **convention, not a rule**. Reinforces `event_rate_scheme_name` nullable-for-HD (§11.4).
+
+### 11.3a Running a suite — default-first, expandable, failure-tolerant
+
+*(2026-08-14, D13/D14 — delivered with execution, Iteration 7.)*
+
+- **Default path is one action:** select portfolios (+ treaties), pick the suite, hit go — no inspection of the constituent rows required.
+- **Optional expand-to-deselect:** the run panel expands into the suite's template/peril list so the analyst can deselect what doesn't apply (e.g. flood not covered by the treaty); the rest still auto-queues.
+- **Applying a suite** generates one analysis submission per template item (an app-side loop over `submit_portfolio_analysis_job`, each producing its own `irp_job` row — §14.3). Names are auto-generated from each template's `auto_name_pattern` + submission context. The analyst reviews, adjusts if needed, then submits.
+- **Peril/portfolio mismatch is expected, not an error:** a broad suite run against data lacking a peril fails those sub-analyses ("no locations match the criteria") and generates no loss → no charge. CIC prefers "run it all, deal with the failures at the end" over interrogating the database first — **but every failure is surfaced with its reason** (the job summary says the peril wasn't present), never silently ignored.
 
 ### 11.4 DLM vs HD detection
 
@@ -1010,15 +1024,13 @@ Always required: `RISK_MODELER_BASE_URL`, `RISK_MODELER_RESOURCE_GROUP_ID`
 
 "Sync IRP Metadata" rail action fetches and caches IRP reference data into the local `irp_*` cache tables in the Metamodel DB. Feeds op-configuration dropdowns and the point-of-action reference-data checks (§13.3).
 
-What is synced:
-- `client.reference_data.get_model_profiles()` → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
-- `client.reference_data.get_output_profiles()` → `irp_output_profile`
-- `client.reference_data.get_event_rate_schemes()` → `irp_event_rate_scheme`
-- `client.reference_data.get_all_simulation_sets()` → `irp_simulation_set`
-- `client.reference_data.get_tags()` → `irp_tag`
-- `client.reference_data.search_currencies()` → `irp_currency`
-- `client.edm.search_database_servers()` → `irp_database_server`
-- `client.edm.search_edms()` → `irp_edm_cache` (EDMs already in IRP)
+What is synced (six sets, spec 009 FR-001):
+- model profiles → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
+- output profiles → `irp_output_profile`
+- event rate schemes → `irp_event_rate_scheme`
+- currencies → `irp_currency`
+- currency schemes → `irp_currency_scheme`
+- currency scheme vintages → `irp_currency_scheme_vintage`
 
 ### 15.3 Analysis results retrieval
 
@@ -1137,7 +1149,7 @@ Analysts must compare their own analysis results against the broker's results (p
 
 > **Reconciled (2026-07-21).** Broker RDM results are retrieved via the **same REST result endpoints as own results** (§15.3) — **not** DataBridge — and stored in **`analysis_result_meta`**, keyed on `rdm_id`. There is no `rdm_result` table and no DataBridge query for broker results. This aligns §17 with §15.3 ("results are REST-only, own *and* broker"), §16.1, and the 2026-07-10 locked dedup decision.
 
-Importing a broker RDM creates broker analyses as `irp_analysis` rows with `rdm_id` set (§9.2). Their result data is **static and identical** across the M EDM-copies a bundle produces, so `retrieve_analysis_results` fires **once per `rdm_id`** and stores one `analysis_result_meta` row (+ Parquet) per (RDM source analysis, perspective), shared by all M handles (§16.1). No analysis execution is required — the broker analyses and their settings/metadata are viewable since Iteration 3; their **loss numbers** are retrieved and viewable from Iteration 6, when `retrieve_analysis_results` / `analysis_result_meta` land.
+Importing a broker RDM creates broker analyses as `irp_analysis` rows with `rdm_id` set (§9.2). Their result data is **static and identical** across the M EDM-copies a bundle produces, so `retrieve_analysis_results` fires **once per `rdm_id`** and stores one `analysis_result_meta` row (+ Parquet) per (RDM source analysis, perspective), shared by all M handles (§16.1). No analysis execution is required — the broker analyses and their settings/metadata are viewable since Iteration 3; their **loss numbers** are retrieved and viewable from Iteration 7, when `retrieve_analysis_results` / `analysis_result_meta` land.
 
 ### 17.3 Comparison view
 
@@ -1329,11 +1341,11 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **Rewritten (2026-07-21).** This slot was previously "Search framework"; search now moves to the end (Iteration 12) and is built once over the complete entity set. This iteration is the EDM/RDM detail-and-backfill work that FR §2.2 ("Exposure Details Viewing") never had a home for. Covers backlog #7 (post-import detail backfill) and #8 (EDM detail page redesign). Placed first so the analyst can *understand* imported exposure and broker results before acting on them.
 
-**In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils, lines of business, geography, currency, TIV/record volume, associated treaties — FR §2.2; sub-perils dropped 2026-07-28 — an analysis-settings attribute, not exposure), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / broker-analysis viewing** — RDM import already creates `irp_analysis` objects; this iteration surfaces the **broker analyses grouped by `rdm_id` and each analysis's settings/metadata** (§16.2 metadata list) on the RDM/analysis detail pages **and on the EDM detail page** (inline under each portfolio + a standalone RDM-grouped section). Each analysis is **linked to the portfolio it ran against** — captured from Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) and resolved to the owning `irp_portfolio` at read time (a group shows "Group", an unresolvable exposure "— not linked"; distinct from the FR §7 deferred results-comparison linking — see 2026-07-23 change-log). No analysis execution is required — the analyses exist from the RDM import path built in Iteration 2. Broker **loss numbers** (ELT/EP/AAL/return-period/PLT, deduped by `rdm_id` into `analysis_result_meta`, §16.1) and the `retrieve_analysis_results` worker are **deferred to Iteration 6** (spec 004 Clarifications 2026-07-23).
+**In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils, lines of business, geography, currency, TIV/record volume, associated treaties — FR §2.2; sub-perils dropped 2026-07-28 — an analysis-settings attribute, not exposure), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / broker-analysis viewing** — RDM import already creates `irp_analysis` objects; this iteration surfaces the **broker analyses grouped by `rdm_id` and each analysis's settings/metadata** (§16.2 metadata list) on the RDM/analysis detail pages **and on the EDM detail page** (inline under each portfolio + a standalone RDM-grouped section). Each analysis is **linked to the portfolio it ran against** — captured from Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) and resolved to the owning `irp_portfolio` at read time (a group shows "Group", an unresolvable exposure "— not linked"; distinct from the FR §7 deferred results-comparison linking — see 2026-07-23 change-log). No analysis execution is required — the analyses exist from the RDM import path built in Iteration 2. Broker **loss numbers** (ELT/EP/AAL/return-period/PLT, deduped by `rdm_id` into `analysis_result_meta`, §16.1) and the `retrieve_analysis_results` worker are **deferred to Iteration 7** (spec 004 Clarifications 2026-07-23; renumbered 2026-08-17).
 
-**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 6); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iterations 6/7); broker side-by-side comparison (Iteration 9); Loss Repository export.
+**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 7); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iteration 7); broker side-by-side comparison (Iteration 9); Loss Repository export.
 
-**Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler, with each portfolio's **linked broker analyses inline** and a standalone RDM-grouped analyses section; open an imported RDM and see its **broker analyses and their settings/metadata**, each showing the **portfolio it ran against** (or "Group" / "— not linked") (broker **loss numbers** deferred to Iteration 6 — spec 004 Clarifications 2026-07-23); a newly completed import backfills its detail data automatically via the poller/worker path.
+**Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler, with each portfolio's **linked broker analyses inline** and a standalone RDM-grouped analyses section; open an imported RDM and see its **broker analyses and their settings/metadata**, each showing the **portfolio it ran against** (or "Group" / "— not linked") (broker **loss numbers** deferred to Iteration 7 — spec 004 Clarifications 2026-07-23, renumbered 2026-08-17); a newly completed import backfills its detail data automatically via the poller/worker path.
 
 ### Iteration 4 — Sub-portfolio creation & breakouts
 
@@ -1359,25 +1371,25 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** select two portfolios on the EDM summary page and run hazard lookup with one click and no modal; both jobs use the fixed DLM parameters and are tracked via the poller with in-line per-portfolio status; on completion the per-layer locations-looked-up summary is shown and each portfolio shows it has been hazard-looked-up through the workbench; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1; what execution detail to record per lookup — O8-3.)*
 
-### Iteration 6 — Analysis execution
+### Iteration 6 — Analysis templates & template suites (definition & administration) — **IN MVP**
 
-> **Split (2026-07-21).** Carved out of the old monolithic Iteration 6 ("Analysis execution, grouping & results"). Execution comes *before* template authoring — build the ability to run a single analysis, then the batch/template layer on top (Iteration 7). Most of the job infrastructure already exists from Iteration 2; the remainder lands here.
+> **Reordered again (2026-08-17, session 8/14 D9).** The 2026-07-21 plan built execution first, templates on top. Reversed: CIC works in outcomes ("pick these portfolios, run the US suite"), so suite/template definition and administration land first and individual execution becomes the substrate under them (Iteration 7). Feasible because execution work had only reached the metadata stage.
 
-**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the per-analysis config surface (§11.1a — model/output profiles, event-rate scheme, franchise/construction toggles, currency defaulting, treaties by name); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); §14.7 SSE monitoring of running jobs; §15.3 analysis-results retrieval for **own** (executed) analyses, **extending the Iteration-3 detail views** to show newly-executed results; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
+**In:** §11.2/§11.3 (analysis template entity, template suite, `analysis_template_tag`); the **suite administration page** — create/edit/duplicate templates and suites (D11/O14-1, spec 009 P-12); IRP metadata sync (§15.2), `irp_*` cache tables seeded; the **analysis metadata screen** (model/output/accumulation profiles + currency schemes — viewed here, created in RM, §11.1a); DLM/HD detection for template validation (§11.4 — event-rate scheme required for DLM, optional for HD).
 
-**Out:** template suites & batch application (Iteration 7); grouping (Iteration 8); Loss Repository export (Iteration 10).
+**Out:** analysis submission/execution and the suite **run** flow (Iteration 7); grouping, results, export; **starter-suite seeding and Excel export/import** (spec 009 P-02, deferred — setup is manual via the admin page).
 
-**Exit:** configure and execute a single analysis against Risk Modeler driven by the prerequisite gate; run the same config across multiple selected portfolios in one action; a treaty edit hands off to the RM editor and the refreshed view reflects it; the job is tracked and a wedged job is recovered by the heartbeat/reconciler; SSE shows live status; results are retrieved and appear on the analysis detail view.
+**Exit:** create a template and a suite ("Global 2026 Q1") on the administration page; duplicate a template and edit the copy; IRP metadata sync populates the profile/scheme/currency dropdowns and the metadata screen.
 
-### Iteration 7 — Analysis templates & template suites — **IN MVP**
+### Iteration 7 — Analysis execution (single + suite run)
 
-> **Reordered (2026-07-21).** Was the standalone old Iteration 4 (IN MVP); now follows execution so templates batch-apply a capability that already runs.
+> **Reordered again (2026-08-17, session 8/14 D9).** Was Iteration 6; now follows templates so the run flow is suite-first from day one (§11.3a). Most of the job infrastructure already exists from Iteration 2; the remainder lands here.
 
-**In:** §11 (analysis template entity, template suite, batch application via an app-side submit loop, auto-naming from submission context), IRP metadata sync (§15.2), `irp_*` cache tables seeded.
+**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the **suite run flow** (§11.3a — select portfolios + treaties, pick the suite, go; expand-to-deselect; app-side submit loop; auto-naming from submission context; per-analysis failures surfaced with reason); the per-analysis config form (§11.1a — model/output profiles, event-rate scheme, franchise/construction toggles, currency defaulting, treaties by name); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); §14.7 SSE monitoring of running jobs; §15.3 analysis-results retrieval for **own** (executed) analyses, **extending the Iteration-3 detail views** to show newly-executed results; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
 
-**Out:** grouping, results, export.
+**Out:** grouping (Iteration 8); Loss Repository export (Iteration 10).
 
-**Exit:** create a template suite ("Global 2026 Q1"); apply it to a submission and see 50+ auto-named analysis configs generated and executed via the loop; IRP metadata sync populates profile/server dropdowns.
+**Exit:** apply a suite to a submission and see 50+ auto-named analysis configs generated and executed via the loop, with any peril-mismatch failures surfaced with their reason; configure and execute a single analysis against Risk Modeler driven by the prerequisite gate; run the same config across multiple selected portfolios in one action; a treaty edit hands off to the RM editor and the refreshed view reflects it; the job is tracked and a wedged job is recovered by the heartbeat/reconciler; SSE shows live status; results are retrieved and appear on the analysis detail view.
 
 ### Iteration 8 — Grouping
 
@@ -1393,7 +1405,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New placement (2026-07-21).** Promoted to its own iteration between grouping and results export (was bundled into the old Iteration 6).
 
-**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import; broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 6) against own executed/grouped results.
+**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import; broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 7) against own executed/grouped results.
 
 **Out:** Loss Repository export.
 
@@ -1401,7 +1413,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Iteration 10 — Results export
 
-> **Rescoped (2026-07-21).** Narrowed to the Moody's → Loss Repository export only; results *viewing* now lives in Iteration 3 (broker) and Iteration 6 (own).
+> **Rescoped (2026-07-21).** Narrowed to the Moody's → Loss Repository export only; results *viewing* now lives in Iteration 3 (broker) and Iteration 7 (own).
 
 **In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker) to pull results out of Risk Modeler, and §16.3 the Loss Repository write through the thin adapter layer (A19); §16.1 results storage where it feeds the export.
 
@@ -1500,6 +1512,12 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Dramatiq workers for result processing and submission retry only** (§14.5). Redis broker.
 - **EDM and RDM are first-class entities** in the Metamodel DB, each created from a shared-drive `source_file_path` (CR-003 M5 — no `file_artifact` table) (§9).
 - **Analysis templates and template suites** — in MVP (practice-lead call, 2026-07-06; reverses the CR-002 deferral). Auto-naming from submission context is the intended approach (§11).
+- **2026-08-14 — CIC session (suites first; predefined suites; suite run flow).** Five decisions locked (design note 14, D9–D14):
+  - **Suites before execution (D9).** Template/suite definition and administration are built before individual analysis execution — CIC works in outcomes ("run the US suite"); execution is the substrate. §21 Iterations 6/7 swapped.
+  - **Vocabulary (D10, amended by spec 009).** A **template** = one analysis definition ("one row in Analysis Builder"): analysis/model profile + output profile + event rate (auto-populated) + optional settings — currency is a submit-time choice, never stored (P-11). A **suite** = an unordered set of templates (P-08), defined primarily by **region + output level** (§11.2/§11.3).
+  - **Suites are predefined, not freeform user-built (D11).** Admin-maintained; starter-set seeding and Excel export-import were deferred out of MVP (spec 009 P-02) — setup is manual, with duplicate-and-edit (P-12) as the fast path (§11.3).
+  - **Run-a-suite is default-first (D13).** Select portfolios + treaties, pick the suite, go; optional expand-to-deselect (§11.3a).
+  - **Suites may mix DLM, HD, and accumulation templates (D14);** DLM-vs-accumulation separation is a convention, not a rule. Peril/portfolio mismatch failures are expected, surfaced with a reason, never silently ignored (§11.3, §11.3a).
 - **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
 - **Session store is WORKBENCH DB** (`user_session` table), not Redis. Sessions survive Redis restarts; active sessions are queryable; admin force-logout is a single UPDATE (§5.1.4).
 - **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
@@ -1531,7 +1549,9 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.5). Cheryl investigating.
 - **O8-1 — geocode/hazard version-stamp origin.** Confirm with Moody's where RM's geocode/hazard stamp comes from and what it gates; the workbench neither displays nor reads it (§10B.4). Cheryl / team.
 - **O8-3 — hazard-execution lineage detail.** What execution detail the workbench records and displays per hazard lookup, given a naive stamp read is insufficient (§10B.4). Ben; settled at Iteration 5 spec time.
-- **O7-3 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); locked when Iteration 7 is planned.
+- **O7-3 / O14-9 — analysis auto-naming convention.** Draft draws on portfolio name + near-term/long-term + event-rate scheme, not finalized (§2.6, §11); templates store no pattern (spec 009 P-03), and the token set is locked by the time the suite run flow (Iteration 7) is built. Ben.
+- **O14-4 — US/Canada default-settings list.** Cheryl drafts the CIC defaults for the manually-built starter suites (US / Canada / US+Canada / global, ~10 templates each); seeding was deferred by spec 009 P-02. Cheryl → Ben.
+- **O14-8 — LOB + treaties in suites.** LOB (property/auto/workers comp) carries different settings — handled via `analysis_template_tag` and/or naming convention; run-time treaty selection moved to the suite run flow after spec 009 P-09 dropped `treaty_name_pattern` (§11.3). Ben.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
 - **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
 - **O7-5 — accumulation ground-up.** Whether ground-up can be dropped from accumulation output via the API (§16.4a).
@@ -1554,6 +1574,16 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-08-24 — Spec 009 reconciliation: templates/suites as built
+
+Scope: §2.6, §11.2, §11.3, §15.2, §21 Iteration 6, §23 locked + open decisions, this log — brings the PRD in line with the spec-009 decisions made in the 2026-08-18/20 design sessions (design notes 16–18). No CR (the feature shipped as specified; the PRD had kept the earlier drafts).
+
+- **Suites are unordered (P-08, reverses D10's "ordered"):** no item position, no per-item `portfolio_name_override`.
+- **Currency removed from templates entirely (P-11):** analysis currency, currency scheme, and scheme vintage are submit-time choices (Iteration 7), never stored on templates or suites.
+- **Template columns dropped (P-03/P-09):** `treaty_name_pattern`, `region_label`, `peril_code`, `auto_name_pattern` — region is not a stored attribute; auto-naming carries no template pattern.
+- **Starter-suite seeding and Excel export/import deferred out of MVP (P-02):** setup is manual via the admin page; **duplicate-and-edit (P-12)** is the near-term path. O14-2 closed by deferral; O14-3 resolved by P-03.
+- **§15.2 sync targets corrected to the six sets actually cached:** model profiles, output profiles, event rate schemes, currencies, currency schemes, currency scheme vintages. `irp_simulation_set`, `irp_tag`, `irp_database_server`, and `irp_edm_cache` are not synced and do not exist.
+
 ### 2026-08-19 — Data version config collapsed to a single value
 
 Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — same day as the entry below. Risk Modeler
@@ -1568,6 +1598,16 @@ Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — Risk Modeler docume
 confirm `version` accepts the literal string `"latest"`, resolved server-side. Reverted same day
 (entry above) after confirming Risk Modeler rejects the literal.
 
+### 2026-08-17 — Session 8/14 reconciliation: suites before execution; predefined suites + administration
+
+Scope: §11 (header note, §11.1a, §11.2, §11.3, new §11.3a), §21 Iterations 6/7 swapped (cross-references renumbered in §2.6, the `cycle` note, §16.1, §21 Iterations 3/9/10), §23 locked + open decisions, this log. Reconciles the PRD with design session 8/14 (design note 14, D9–D14); `FUNCTIONAL_REQUIREMENTS.md` §4/§5 updated the same day. No CR (feature already in MVP; this re-sequences and pins its shape).
+
+- **Iterations 6 and 7 swapped (D9).** Iteration 6 is now **templates & suites — definition and administration** (entities, admin page, seeded starter suites, CSV/Excel export-import, IRP metadata sync, analysis metadata screen); Iteration 7 is **analysis execution — single + suite run** (execution engine, suite run flow, results retrieval). References to the old Iteration 6 (execution/results) in change-log entries dated before 2026-08-17 mean today's Iteration 7.
+- **§11 pinned to the locked vocabulary (D10):** template = one analysis definition ("one row in Analysis Builder"); suite = ordered set of templates defined primarily by region + output level; LOB as a further axis via tags/naming (O14-8).
+- **§11.3 rewritten for predefined suites (D11):** admin page (built full-featured first, then pared down — O14-1), starter set (US / Canada / US+Canada / global, ~10 templates each — O14-4), CSV/Excel export + import (O14-2); suites may mix DLM/HD/accumulation (D14) — separation demoted to a convention.
+- **New §11.3a — running a suite (D13/D14):** one-action default path, expand-to-deselect, batch apply loop, mismatch failures expected but surfaced with reason. Delivered with Iteration 7.
+- **§11.1a — analysis metadata screen:** model/output/accumulation profiles + currency schemes viewed in the workbench, created in Risk Modeler, synced back; event-rate schemes selected, never authored.
+- **Open items added:** O14-3 (region as a selection axis — resolve in the Iteration 6 spec), O14-4 (CIC default-settings list), O14-8 (LOB/treaties), O14-9 (auto-naming, folded into O7-3). GeoHaz and EDM-notes decisions from the same session (D1–D8) are tracked in design note 14 and land with their own features, not this pass.
 ### 2026-08-17 — Portfolios table shows a Hazard Version column
 
 Scope: §10B.4 — approver direction (P-03/P-07), spec 007. Supersedes the 2026-08-12 entry's "no

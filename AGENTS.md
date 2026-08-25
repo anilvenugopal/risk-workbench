@@ -1,7 +1,6 @@
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/007-geohaz-execution/plan.md
+When present, read `specs/009-template-suites/plan.md` for the current
+technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
 # Risk Analysis Workbench — Agent Context

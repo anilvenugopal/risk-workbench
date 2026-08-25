@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Template Suites · UI Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../../app/static/css/app.css">
+<link rel="stylesheet" href="../../app/static/css/components.css">
+<link rel="stylesheet" href="../../app/static/css/submissions.css">
+<style>
+html,body{height:auto;min-height:100%;overflow-y:auto}
+body{background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);margin:0}
+.preview{max-width:1100px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.preview-note{padding:var(--space-3) var(--space-4);margin-bottom:var(--space-6);border:1px solid var(--color-warning-border);border-radius:var(--radius-md);background:var(--color-warning-wash);color:var(--color-warning);font-size:var(--fs-caption)}
+.preview-label{margin:var(--space-8) 0 var(--space-3);color:var(--text-tertiary);font-size:var(--fs-caption);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.preview-label:first-of-type{margin-top:0}
+/* Everything below reuses real component classes (.page-pad, .detail-head, .wf-fields,
+   .form-banner, .mk-table, .btn-sm, .badge, .filters) — no invented classes, per
+   docs/UI_WORKFLOW.md's "class-convention drift" note. */
+.section-block{margin-bottom:var(--space-7)}
+.picker-list{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2)}
+.picker-item{display:flex;align-items:center;gap:var(--space-2);padding:6px var(--space-2);border-radius:var(--radius-sm)}
+.picker-item:hover{background:var(--surface-hover)}
+.picker-item label{flex:1;cursor:pointer}
+</style>
+</head>
+<body>
+<main class="preview">
+  <div class="preview-note"><strong>UI preview.</strong> Reworked 2026-08-19 for the P-10 reversal (currency scheme + vintage both required, no "Default" state), P-08/P-09 (suites unordered, no treaty name pattern), and user feedback on this draft: Suites and Templates now live on separate tabs of the same page (never listed together), and the suite builder's template picker gets a search box. Export/Import removed — Excel transfer is out of MVP scope (spec P-02). Built only with classes that exist in app.css/components.css/submissions.css.</div>
+
+  <div class="preview-label">Administration page · Suites tab (admin view)</div>
+  <div class="page-pad section-block" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+    <div class="detail-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4)">
+      <div>
+        <h1>Template Suites</h1>
+        <div class="detail-meta">Analysis templates and the suites that group them. Visible to every analyst; only admins can create, edit, or delete.</div>
+      </div>
+      <div style="display:flex;gap:var(--space-2);flex-shrink:0">
+        <a class="btn-sm" href="#">New template</a>
+        <a class="btn-sm btn-sm--primary" href="#">New suite</a>
+      </div>
+    </div>
+
+    <nav class="tabs" aria-label="Templates and suites">
+      <a class="tab tab--active" href="#">Suites <span class="badge badge--neutral">3</span></a>
+      <a class="tab" href="#">Templates <span class="badge badge--neutral">3</span></a>
+    </nav>
+
+    <table class="mk-table">
+      <thead><tr><th>Name</th><th>Items</th><th>Author</th><th></th></tr></thead>
+      <tbody>
+        <tr class="data-row"><td><a class="open-link" href="#">US</a></td><td>3</td><td>Dev Admin</td><td></td></tr>
+        <tr class="data-row"><td><a class="open-link" href="#">Canada</a></td><td>2</td><td>Dev Admin</td><td></td></tr>
+        <tr class="data-row"><td><a class="open-link" href="#">Global Wind</a> <span class="badge badge--negative">unresolved</span></td><td>4</td><td>Dev Admin</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="preview-label">Administration page · Templates tab (admin view)</div>
+  <div class="page-pad section-block" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+    <div class="detail-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4)">
+      <div>
+        <h1>Template Suites</h1>
+        <div class="detail-meta">Analysis templates and the suites that group them. Visible to every analyst; only admins can create, edit, or delete.</div>
+      </div>
+      <div style="display:flex;gap:var(--space-2);flex-shrink:0">
+        <a class="btn-sm" href="#">New template</a>
+        <a class="btn-sm btn-sm--primary" href="#">New suite</a>
+      </div>
+    </div>
+
+    <nav class="tabs" aria-label="Templates and suites">
+      <a class="tab" href="#">Suites <span class="badge badge--neutral">3</span></a>
+      <a class="tab tab--active" href="#">Templates <span class="badge badge--neutral">3</span></a>
+    </nav>
+
+    <form class="filters" method="get" action="#">
+      <label>Search
+        <input class="wf-field__input" type="text" name="q" value="wind" autocomplete="off">
+      </label>
+    </form>
+    <table class="mk-table">
+      <thead><tr><th>Name</th><th>Family</th><th>Model profile</th><th>Currency</th><th></th></tr></thead>
+      <tbody>
+        <tr class="data-row"><td><a class="open-link" href="#">US Wind DLM</a></td><td><span class="badge badge--brand">DLM</span></td><td>RMS Default RL25</td><td class="mono">USD · RMS · RL25</td><td></td></tr>
+        <tr class="data-row"><td><a class="open-link" href="#">US Wind HD</a></td><td><span class="badge badge--info">HD</span></td><td>RMS Default HD</td><td class="mono">USD · RMS · RL25</td><td></td></tr>
+        <tr class="data-row"><td><a class="open-link" href="#">Global Wind Accumulation</a> <span class="badge badge--negative">unresolved</span></td><td><span class="badge badge--warning">Accumulation</span></td><td>Global Accumulation</td><td class="mono">USD · RMS · RL25</td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="preview-label">Template builder · validation state (admin)</div>
+  <div class="page-pad section-block" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+    <div class="detail-head"><h1>New analysis template</h1></div>
+
+    <div class="form-banner form-banner--error">
+      Event rate scheme is required for DLM analyses.
+    </div>
+
+    <div class="wf-fields" style="max-width:640px">
+      <div class="wf-fields__legend"><span class="wf-field__req">*</span> Required</div>
+
+      <div class="wf-field">
+        <label>NAME <span class="wf-field__req">*</span></label>
+        <input class="wf-field__input" type="text" value="US Wind DLM">
+      </div>
+
+      <div class="wf-field">
+        <label>MODEL PROFILE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input">
+          <option>RMS Default RL25 — DLM · RL25</option>
+          <option>RMS Default HD — HD · HDv3.0</option>
+          <option>Global Accumulation — Accumulation</option>
+        </select>
+      </div>
+
+      <div class="wf-field">
+        <label>EVENT RATE SCHEME</label>
+        <select class="wf-field__input wf-field__input--error">
+          <option selected>Choose a scheme…</option>
+          <option>RMS WS — WS · NAWS</option>
+        </select>
+        <div class="wf-field__msg wf-field__error">Event rate scheme is required for DLM analyses.</div>
+      </div>
+
+      <div class="wf-field">
+        <label>OUTPUT PROFILE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input"><option>RMS Default Output</option></select>
+      </div>
+
+      <div class="wf-field">
+        <label>CURRENCY <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input"><option>USD — US Dollar</option></select>
+      </div>
+
+      <div class="wf-field">
+        <label>CURRENCY SCHEME <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input"><option>RMS — anchor USD</option><option>DT — anchor USD</option></select>
+      </div>
+
+      <div class="wf-field">
+        <label>CURRENCY VINTAGE <span class="wf-field__req">*</span></label>
+        <select class="wf-field__input"><option selected>RL25 — 2025-05-28</option><option>RL23 — 2023-05-30</option></select>
+        <div class="wf-field__msg wf-field__hint">Pre-selects the scheme's latest vintage. Change it if this template should pin an older one.</div>
+      </div>
+
+      <div class="wf-field">
+        <label>MIN LOSS THRESHOLD</label>
+        <input class="wf-field__input" type="number" step="0.01" value="1.00" style="max-width:140px">
+      </div>
+
+      <div class="wf-field">
+        <label>MAX LOSS EVENTS</label>
+        <input class="wf-field__input" type="number" value="1" style="max-width:140px">
+      </div>
+
+      <div class="wf-field">
+        <label>FRANCHISE DEDUCTIBLE</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:var(--fs-label);font-weight:normal"><input type="checkbox" style="width:auto"> Apply franchise deductible</label>
+      </div>
+
+      <div class="wf-field">
+        <label>UNRECOGNIZED CONSTRUCTION / OCCUPANCY</label>
+        <select class="wf-field__input">
+          <option selected>Treat as unknown</option>
+          <option>Skip location during analysis</option>
+        </select>
+      </div>
+
+      <div class="wf-field">
+        <label>TAGS</label>
+        <input class="wf-field__input" type="text" value="US; Wind" list="tag-names">
+        <datalist id="tag-names"><option value="US"><option value="Wind"><option value="Canada"></datalist>
+        <div class="wf-field__msg wf-field__hint">Separate tag names with semicolons — autocompletes over tags already used.</div>
+      </div>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="button">Save template</button>
+      <a class="btn-sm" href="#">Cancel</a>
+    </div>
+  </div>
+
+  <div class="preview-label">Template detail · unresolved reference (non-admin read view)</div>
+  <div class="page-pad section-block" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+    <div class="detail-head">
+      <h1>Global Wind Accumulation</h1>
+      <div class="detail-meta"><span class="badge badge--warning">Accumulation</span><span class="badge badge--negative">unresolved reference</span></div>
+    </div>
+    <div class="wf-fields" style="max-width:640px">
+      <div class="wf-field"><label>MODEL PROFILE</label><span class="wf-field__val">Global Accumulation <span class="badge badge--negative">not found in Risk Modeler</span></span></div>
+      <div class="wf-field"><label>OUTPUT PROFILE</label><span class="wf-field__val">RMS Default Output</span></div>
+      <div class="wf-field"><label>CURRENCY</label><span class="wf-field__val">USD · RMS · RL25</span></div>
+      <div class="wf-field"><label>TAGS</label><span class="wf-field__val"><span class="badge badge--brand">US</span> <span class="badge badge--brand">Wind</span></span></div>
+    </div>
+  </div>
+
+  <div class="preview-label">Suite builder · unordered membership (admin)</div>
+  <div class="page-pad section-block" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+    <div class="detail-head"><h1>Edit US suite</h1><div class="detail-meta">Add each analysis template at most once. Suites have no ordering — display sorts by template name.</div></div>
+
+    <div class="wf-fields" style="max-width:480px">
+      <div class="wf-field"><label>SUITE NAME <span class="wf-field__req">*</span></label><input class="wf-field__input" type="text" value="US"></div>
+    </div>
+
+    <div class="section-head"><h2>Templates in this suite</h2></div>
+    <input class="wf-field__input" type="text" placeholder="Filter templates…" value="wind" style="margin-bottom:var(--space-2);max-width:320px">
+    <div class="picker-list">
+      <div class="picker-item"><input type="checkbox" checked><label>US Wind DLM <span class="badge badge--brand badge--sm">DLM</span></label></div>
+      <div class="picker-item"><input type="checkbox" checked><label>US Wind HD <span class="badge badge--info badge--sm">HD</span></label></div>
+      <div class="picker-item"><input type="checkbox"><label>Global Wind Accumulation <span class="badge badge--warning badge--sm">Accumulation</span> <span class="badge badge--negative badge--sm">unresolved</span></label></div>
+    </div>
+    <div class="wf-field__msg wf-field__hint" style="margin-top:4px">Filtered to templates matching "wind" — 1 more not shown.</div>
+
+    <div class="form-actions">
+      <button class="btn-sm btn-sm--primary" type="button">Save suite</button>
+      <a class="btn-sm" href="#">Cancel</a>
+      <button class="btn-sm btn-sm--danger" type="button" style="margin-left:auto">Delete suite</button>
+    </div>
+  </div>
+
+  <div class="preview-label">Empty states</div>
+  <div class="section-block" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5)">
+    <div class="page-pad" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+      <div class="section-head"><h2>No suites</h2></div>
+      <p class="empty">No template suites yet. Create one to get started — nothing is seeded (spec P-02).</p>
+    </div>
+    <div class="page-pad" style="border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel)">
+      <div class="section-head"><h2>Suite with no items</h2></div>
+      <p class="empty">No templates added. Tick a template above to add the first entry.</p>
+    </div>
+  </div>
+</main>
+</body>
+</html>

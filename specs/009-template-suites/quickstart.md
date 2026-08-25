@@ -1,0 +1,66 @@
+# Quickstart: Verifying Analysis Templates & Template Suites (009)
+
+## Prerequisites
+
+- Dev stack up (`make dev-up` or WSL2 native — developer's call, not an agent's).
+- Rebuilt database: `make db-rebuild` (destructive) — migrates the 10 new tables. No suite or
+  template content is seeded — setup is manual (spec P-02).
+- IRP sandbox credentials in the environment (for the sync; everything else works without them).
+- irp-integration `>= 0.6.0rc2` — the pinned TestPyPI pre-release (`make irp-testpypi`;
+  `make irp-status` shows the active source) carrying the T-06 validation utility and the T-07
+  currency-scheme + scheme-vintage reads (released & pinned 2026-08-19). The
+  accumulation-profile read is tabled (T-02), so no Accumulation rows appear until it resumes.
+- Sign in as the seeded admin (`admin@example.com`) for mutating steps; any analyst for viewing.
+
+## US1 — Metadata sync & five-tab screen
+
+1. Open **Templates → Analysis Metadata** (`/templates/metadata`). Before any sync: five tabs
+   (Model Profiles, Output Profiles, Event Rate Schemes, Currencies, Currency Schemes with their
+   vintages — P-07, Currencies reversed back in 2026-08-19), each with an
+   empty state and no last-synced time.
+2. Click **Sync IRP Metadata**. The page reports the queued job; when the worker finishes,
+   refresh: each tab lists its set read-only, last-synced time shown. Model profiles carry a
+   DLM/HD/Accumulation marker and the raw software version. Expect ~3,500 model profiles in the
+   sandbox — type
+   `UDCT` (or any UD prefix) in the filter and watch the list narrow without a page reload.
+3. Click sync twice quickly: one job runs; the second click is refused with a "sync already in
+   progress" message (never two interleaved syncs).
+4. Failure path: with broken IRP credentials, sync → job fails with a reason on the page;
+   previously synced rows and last-synced time unchanged.
+5. No create/edit control exists on any tab.
+
+## US2 — Templates & suites
+
+1. `/templates` as a non-admin analyst: suites and templates visible, no create/edit/delete
+   controls; direct POSTs redirect to `/`.
+2. As admin, create a template: pick a DLM profile (e.g. an `RL25` one) — the Event Rate Scheme
+   list populates with the profile's peril/region matches as soon as the profile is chosen, no
+   keystroke needed (FR-007/O17-9), and pre-selects when only one matches. Clear it and save →
+   rejected naming the DLM rule. Pick an HD profile → saves without a scheme. The form has no
+   currency, currency-scheme, or vintage field (P-11 — currency is chosen at submit time in
+   Iteration 7).
+3. Analysis settings show defaults (1.00 / 1 / off / "Treat as unknown") and accept edits.
+4. Duplicate template name → rejected with a message.
+5. Press **Duplicate** on the template's detail page → a saved copy named `<name> (copy)` opens
+   for editing, settings and tags identical; duplicate again → `<name> (copy 2)`. Swap the copy's
+   model profile and save (P-12).
+6. Compose a suite from a DLM + an HD template (an unordered group — no ordering controls, no
+   per-item settings); try adding the same template twice (blocked). Save — no mixing error.
+7. Press **Duplicate** on the suite's detail page → a saved copy named `<name> (copy)` opens for
+   editing with the same templates; remove one from the copy and save — the original suite is
+   unchanged.
+8. Try deleting a template the suite references → blocked, suite named.
+9. Unresolved flag: create a template, then (in Risk Modeler or by editing the sandbox) remove its
+   profile and re-sync — the template shows the unresolved flag; the value is unchanged.
+10. As a non-admin, no Duplicate button renders and a direct duplicate POST is rejected (P-01).
+
+*The former US3 (Excel export/import round-trip) is out of MVP scope (spec P-02) — moving suites
+between environments is manual; the design is retained in `contracts/transfer-workbook.md`.*
+
+## Test tiers
+
+| Tier | Command | Covers |
+|---|---|---|
+| Unit | `uv run pytest tests/unit` | sync worker (fake IRP), metadata routes/fragments, template validation (DLM rule, duplicate names, delete guard), suite composition, duplicate-and-edit (copy fidelity, `(copy)` naming), admin gating |
+| SQL Server | `make test-sql` (or `make wsl-test-sql`) | migration of the new tables, filtered unique indexes, schema-drift guard |
+| IRP sandbox | `make shell`, then `uv run pytest tests/irp --run-irp` | reference-data reads return the shapes R1 documents |
