@@ -105,10 +105,11 @@ race backstop.
 
 ### Most recent lookup details (FR-022)
 
-`SELECT … FROM irp_job LEFT JOIN app_user ON app_user.id = irp_job.inserted_by
-WHERE irp_portfolio_id = :pid AND irp_job_type = 'geohaz' ORDER BY inserted_at DESC`
-— the first row supplies Data Version, Model Family, Hazard Layers, both
-hazard lookup options, and Result. Result is `completion_summary` (or "Unavailable",
+`SELECT … FROM irp_job WHERE irp_portfolio_id = :pid AND irp_job_type = 'geohaz'
+ORDER BY inserted_at DESC` — the first row supplies Data Version, Model Family,
+Hazard Layers, both hazard lookup options, Submitted, Completed, and Result. The
+launching analyst is stored in `inserted_by` and is not displayed, so `app_user`
+is never joined. Result is `completion_summary` (or "Unavailable",
 FR-023).
 
 ## 5. Unchanged

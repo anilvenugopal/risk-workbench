@@ -90,11 +90,11 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 
 **Why this priority**: The summary is the payoff of a completed lookup and the substance of the P-05 lineage record, but it has no value until launches (US1) and tracking (US2) exist.
 
-**Independent Test**: Let a lookup complete; expand the portfolio row and confirm the Risk Modeler completion summary displays with the parameter set.
+**Independent Test**: Let a lookup complete; expand the portfolio row and confirm the Risk Modeler completion summary displays with the parameter set and the submitted and completed timestamps.
 
 **Acceptance Scenarios**:
 
-1. **Given** a lookup that reached terminal success, **When** the analyst expands the portfolio row, **Then** the lookup's record shows `tasks[].output.summary` alongside the submitted parameter set.
+1. **Given** a lookup that reached terminal success, **When** the analyst expands the portfolio row, **Then** the lookup's record shows `tasks[].output.summary` alongside the submitted parameter set and the submitted and completed timestamps.
 2. **Given** the summary says a layer processed zero locations, **When** the summary is shown, **Then** the original Risk Modeler text remains unchanged.
 3. **Given** a completion response without a task output summary, **When** the record is shown, **Then** the summary displays as unavailable, never an error page.
 4. **Given** a portfolio looked up more than once through the workbench, **When** the analyst expands its row, **Then** only the most recent lookup's parameters and result are displayed.
@@ -108,7 +108,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 - **Portfolio with a running lookup**: excluded from new launches (P-06); once the job is terminal — success or failure — the portfolio is launchable again.
 - **Inapplicable peril**: the layer reports zero locations; zero is a value, never a failure.
 - **Job fails in Risk Modeler**: the portfolio's latest-run details show the failed lookup when it is most recent; no portfolio, EDM, or submission status changes; analysis is never blocked by it.
-- **Completion response missing `tasks[].output.summary`**: the record keeps status, parameters, analyst, and timestamps; the summary shows as unavailable.
+- **Completion response missing `tasks[].output.summary`**: the record keeps status, parameters, and timestamps; the summary shows as unavailable.
 - **Lookup run directly in Risk Modeler**: invisible to the workbench by design — the displayed details come from workbench `irp_job` rows, not from a Risk Modeler lookup.
 - **Repeat lookups on one portfolio**: allowed once the prior job is terminal; the newest `irp_job` replaces the previously displayed details.
 - **Launch while the EDM is mid-import or mid-sync**: allowed — the gate is EDM + ≥1 portfolio only. A portfolio renamed or removed between selection and submit surfaces as that portfolio's failed submission (visible, relaunchable); the other portfolios in the launch are unaffected.
@@ -131,7 +131,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 **Status & latest details on the summary page (US2)**
 
 - **FR-010**: Non-terminal geohaz jobs MUST be tracked by the existing poller through single-status checks — never polled to completion, and never checked or fetched on a web request path.
-- **FR-011**: The portfolios table on the EDM summary page MUST carry **"Hazard Version"** as its final column (P-07). The column MUST display **SUBMITTING** while the worker sends a job, the Risk Modeler job status while the job is non-terminal, and the raw stored `hazardVersion` otherwise. An absent or empty `hazardVersion` MUST display empty.
+- **FR-011**: The portfolios table on the EDM summary page MUST carry **"Hazard Version"** as its final column (P-07). The column MUST display **SUBMITTING** while the worker sends a job, **SUBMITTED** from the moment the submit is accepted until Risk Modeler first reports a status, the Risk Modeler job status while the job is non-terminal, and the raw stored `hazardVersion` otherwise. An absent or empty `hazardVersion` MUST display empty.
 - **FR-012**: While a geohaz job is non-terminal, its status in the column MUST refresh by polling the workbench without a manual page reload (no live push — SSE is Iteration 6).
 - **FR-013**: EDM sync MUST store the Get Portfolio Metadata response, including `hazardVersion`, in `irp_portfolio.exposure_detail`. The workbench MUST NOT use `hazardVersion` to gate an action (P-03).
 - **FR-014**: A geohaz job that fails — in submission or in Risk Modeler — MUST be visible in the portfolio's expanded details when it is the most recent run, with Result showing the terminal status (Failed / Cancelled / Submission failed) in place of a completion summary; it MUST NOT replace the column's stored `hazardVersion`, MUST NOT change the portfolio's or EDM's own state, and MUST NOT block a later launch on that portfolio.
@@ -141,7 +141,7 @@ When a lookup completes, the analyst reads Risk Modeler's `tasks[].output.summar
 
 - **FR-020**: When a geohaz job finishes successfully, the workbench MUST copy `tasks[].output.summary` from the completion response into the geohaz `irp_job` and refresh the portfolio's Get Portfolio Metadata snapshot in the background — never on a web request path.
 - **FR-021**: The per-lookup record MUST comprise (P-05): the submitted parameter set, launching analyst, submitted and completed timestamps, terminal status, and completion summary string.
-- **FR-022**: Expanding a portfolio row MUST show a column to the right of Lines of business, Countries, States, and Currencies. The column MUST show only the most recent lookup's Data Version, Model Family, Hazard Layers, Skip locations with previous hazard lookup, Overwrite user-defined hazard values, and Result. Result MUST use `completion_summary` when the most recent lookup succeeded, or the terminal status (Failed / Cancelled / Submission failed) when it did not.
+- **FR-022**: Expanding a portfolio row MUST show a column to the right of Lines of business, Countries, States, and Currencies. The column MUST show only the most recent lookup's Data Version, Model Family, Hazard Layers, Skip locations with previous hazard lookup, Overwrite user-defined hazard values, Submitted, Completed, and Result. The launching analyst is stored on the `irp_job` row but is not displayed. Result MUST use `completion_summary` when the most recent lookup succeeded, or the terminal status (Failed / Cancelled / Submission failed) when it did not.
 - **FR-023**: The workbench MUST display the completion summary without parsing or rewriting it. A missing summary MUST render as unavailable and MUST NOT cause a page error.
 
 ### Key Entities

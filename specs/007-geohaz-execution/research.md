@@ -187,3 +187,23 @@ stays visible in the history (FR-014). Geohaz failure rows are standard `SUBMISS
 now keyed per entity via `irp_portfolio_id`, which is exactly the per-entity dedup the batch's own
 docstring demands (`irp_job_service.py:140-145`) — so they join the automatic batch whenever it is
 implemented. Implementing the batch is not this feature.
+
+## R10 — Spec text written after the code (recorded, not reversed)
+
+Commit `071df7c` (2026-08-19) reconciled `spec.md` and `docs/FUNCTIONAL_REQUIREMENTS.md`
+with what had already shipped. Two entries in it were new decisions rather than
+corrections, and are recorded here so the order is visible:
+
+- **FR-024** (select-all checkbox in the portfolios table header) was written after
+  the checkbox shipped in T015. The requirement stands — the checkbox is wanted — but
+  it was not one the implementation was built against.
+- The `FUNCTIONAL_REQUIREMENTS.md` geocoding/hazard row **"No geocode/hazard version
+  stamp is displayed, and RM's stamp is never read to gate anything"** was replaced by
+  **"The portfolios table displays the raw `hazardVersion`, and RM's stamp is never read
+  to gate anything"**. That is a deliberate reversal of the display half, settled by
+  P-07 and design note 15; the gating half is unchanged. The row now carries the
+  reversal and its date rather than reading as if it always said this.
+
+A third entry in the same commit — deleting "launching analyst, and timestamps" from
+User Story 3 — was reversed on 2026-08-24: the timestamps are now rendered in the
+most recent lookup details (FR-022). The launching analyst stays stored and undisplayed.

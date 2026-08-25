@@ -57,7 +57,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 ### Risks
 
 1. **The terminal response field may change in a later wheel version** (T-06). The page renders "Summary unavailable" when `tasks[].output.summary` is absent; the opt-in sandbox test checks the active wheel.
-2. **Whether Risk Modeler accepts a hazard-only job on a never-geocoded portfolio is unobserved** (T-04): the wheel submits any layer combination, but RM may fail a hazard lookup that has no geocode data to read. If so it surfaces as a per-portfolio `FAILED` — visible and relaunchable, and consistent with FR-005 (the app must not run geocoding for the analyst). The sandbox capture confirms the hazard-only submit end to end.
+2. **Whether Risk Modeler accepts a hazard-only job on a never-geocoded portfolio is unobserved** (T-04): the wheel submits any layer combination, but RM may fail a hazard lookup that has no geocode data to read. If so it surfaces as a per-portfolio `FAILED` — visible and relaunchable, and consistent with FR-005 (the app must not run geocoding for the analyst). T029 (`uv run pytest tests/irp --run-irp` inside `make shell`) is the pre-merge gate that closes this risk; until it runs against the active wheel, the hazard-only submit is unobserved.
 3. The wheel hard-fails a submit when the portfolio has zero accounts or zero locations (its own pre-validation) — that surfaces as a per-portfolio `SUBMISSION FAILED`, which is the intended FR-006/FR-014 path, not a special case.
 
 ---

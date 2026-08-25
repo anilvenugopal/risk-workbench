@@ -68,9 +68,11 @@ _GETTERS = {..., "geohaz": irp_gateway.get_geohaz_job}
 ```
 
 - The existing `_track_irp_jobs` loop handles the rest: single-status check,
-  extraction of `tasks[].output.summary`, and `update_tracking`, which stores
-  the summary in `completion_summary` and the full response in
-  `last_completion_result`.
+  and `update_tracking`, which stores the summary in `completion_summary` and the
+  full response in `last_completion_result`. `_geohaz_completion_summary` extracts
+  `tasks[].output.summary` and runs only on a terminal status — `update_tracking`
+  writes both columns only when terminal, so parsing a non-terminal body is work
+  SQL discards.
 - On `FINISHED`, `_resolve_geohaz_metadata` calls Get Portfolio Metadata outside
   the database transaction. `_handle_geohaz_terminal` replaces
   `irp_portfolio.exposure_detail.metrics` inside the tracking transaction and
