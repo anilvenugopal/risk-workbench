@@ -24,6 +24,14 @@ the routers (contracts/data-access.md):
                              Modeler; an unreachable gateway fails OPEN with a
                              warning instead (the worker-side submit validation
                              is the backstop).
+- ``InvalidGeohazLaunch``  — a hazard-lookup launch names a missing EDM, selects
+                             no portfolio, or selects one outside the EDM.
+- ``GeohazLaunchConflict`` — a selected portfolio already has a hazard lookup in
+                             flight (P-06).
+
+The two hazard-lookup errors are the exception to the → HTTP-status mapping: the
+launch POST re-renders the EDM detail body and reports the message as an error
+toast, so the analyst keeps the page and the selection.
 
 They deliberately carry no DB or HTTP coupling — the service raises, the router
 translates.
@@ -90,6 +98,14 @@ class EdmCatalogUnavailable(ServiceError):
     """Raised when Risk Modeler's EDM catalog cannot be read during a sync."""
 
 
+class InvalidGeohazLaunch(ServiceError):
+    """Raised when a GeoHaz launch fails form, gate, or membership validation."""
+
+
+class GeohazLaunchConflict(ServiceError):
+    """Raised when a selected portfolio already has a lookup in progress."""
+
+
 __all__ = [
     "ServiceError",
     "SubmissionClosed",
@@ -102,4 +118,6 @@ __all__ = [
     "JobSubmitError",
     "NameCollisionError",
     "EdmCatalogUnavailable",
+    "InvalidGeohazLaunch",
+    "GeohazLaunchConflict",
 ]

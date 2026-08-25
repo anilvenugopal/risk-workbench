@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     # default matches irp-integration's own default.
     irp_edm_import_server: str = "databridge-1"
 
+    # Hazard data version sent on every geohaz launch (Risk Modeler has no
+    # "latest" resolution — see research R6). Bump when Moody's ships a new
+    # version.
+    hazard_data_version: str = "25.0"
+
     # BASE_URL and TENANT_NAME are ALSO mirrored here (read-only): the web layer
     # builds deep links into Risk Modeler's own UI from them (the UI lives on
     # https://<tenant>.<domain-of-BASE_URL>, e.g. the EDM treaties screen) —

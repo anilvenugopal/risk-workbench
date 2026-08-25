@@ -13,10 +13,10 @@ All database access goes through the `db/` package. App code calls `get_connecti
 | `WORKBENCH` | Workbench metamodel (this schema) | Alembic + app |
 | `EXPOSURE` | Exposure repository | App — `db/bootstrap/exposure_schema.sql` |
 | `LOSS` | Loss repository | App — `db/bootstrap/loss_schema.sql` |
-| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side; constitution Art. 11 v3.1.0); never DDL |
+| `DATABRIDGE` | DataBridge (Moody's cloud) | Moody's — read-only; app code never sends SQL (reads go through irp-integration methods, worker-side, plus the one bounded single-row point-of-action check permitted on the request path; constitution Art. 11 v3.2.0); never DDL |
 
 - **Pooling:** `MSSQL_POOL_SIZE` (default 5), `MSSQL_POOL_MAX_OVERFLOW` (default 5), `MSSQL_POOL_RECYCLE` (default 1800s). For 30 concurrent users: `POOL_SIZE=10`, `MAX_OVERFLOW=20`.
-- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE`/`LOSS` are bootstrapped by idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`); they are not under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, constitution Art. 11 v3.1.0), never raw SQL.
+- **Dev DB strategy:** drop-create-seed via a single Alembic revision (`0001_initial.py`) until production cutover. `EXPOSURE`/`LOSS` are bootstrapped by idempotent SQL scripts (`python -m app.cli bootstrap-exposure` / `bootstrap-loss`); they are not under Alembic. `DATABRIDGE` is never migrated or bootstrapped; the app reads it only through irp-integration client methods (worker-side, plus the bounded single-row point-of-action check the request path may run — constitution Art. 11 v3.2.0), never raw SQL.
 - **Redis:** `REDIS_URL` (default `redis://localhost:6379/0`). Dramatiq broker; stateless.
 
 ---
@@ -184,6 +184,9 @@ erDiagram
 ```mermaid
 erDiagram
   irp_edm ||--o{ irp_portfolio : "contains portfolios"
+  irp_portfolio ||--o{ irp_portfolio : "breakout lineage (nullable)"
+  irp_portfolio ||--o{ breakout_group : "custom groups defined on it"
+  breakout_group |o--o{ irp_portfolio : "generated group portfolio (nullable)"
   irp_edm ||--o{ irp_treaty : holds
 
   irp_edm {
@@ -222,8 +225,32 @@ erDiagram
     uniqueidentifier edm_id FK
     string name "portfolio name in IRP"
     int irp_id "nullable; written synchronously (create returns 201)"
+    string exposure_detail "nullable JSON snapshot: RM metrics + DataBridge summary (spec 004)"
+    uniqueidentifier source_portfolio_id FK "nullable; breakout lineage — the IMMEDIATE source portfolio (spec 005)"
+    string breakout_dimension_code FK "nullable; breakout_dimension_kind"
+    string breakout_value "nullable; the selection filter value verbatim (Admin1Code / LOB name / peril code); the group_key for custom groups"
+    uniqueidentifier breakout_group_id FK "nullable; the custom group this portfolio was generated from (spec 005 T-12)"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
+    datetime inserted_at
+    datetime updated_at
+    uniqueidentifier inserted_by FK
+    uniqueidentifier updated_by FK
+  }
+  breakout_dimension_kind {
+    string code PK "lob / state / country / peril / custom"
+    string label
+    int sort_order
+  }
+  breakout_group {
+    uniqueidentifier id PK "also the group job's rwb_job.requestor_id (T-13)"
+    uniqueidentifier source_portfolio_id FK
+    string group_key "hash of filters; UNIQUE with source_portfolio_id (uq_breakout_group_source_key)"
+    string label "the analyst's group name; kept on re-confirm (adopt-not-rename, P-22)"
+    string filters "member-filter JSON — OR within a dimension, AND across (P-20)"
+    string name "approved-plan portfolio name; worker executes verbatim"
+    string number "approved-plan portfolio number"
+    uniqueidentifier cart_id "the confirm that most recently carried this group (FR-020 banner)"
     datetime inserted_at
     datetime updated_at
     uniqueidentifier inserted_by FK
@@ -250,6 +277,10 @@ erDiagram
 - **`created_by_irp_job_irp_id`** links EDM/RDM back to the async import job that created the entity. `irp_portfolio` and `irp_treaty` have none — their creation is synchronous.
 - **Name-collision check.** Setting or renaming an EDM/RDM name runs `client.edm.search_edms()` / `search_rdms()` — **blocking** since 2026-07-27 (issue #17, spec 003 FR-012 as amended): a hit rejects the save/sync (irp-integration ≥ 0.2.1 would fail the submit anyway). When Risk Modeler is unreachable the check fails open with a visible warning and the worker-side submit validation is the backstop.
 - **Treaty** is referenced by analyses **by name**; create/edit is synchronous (`search_treaties` / `create_treaty` / `create_treaty_lob`). Creating a treaty with its lines of business is a **1 + N** call pattern and is **non-atomic** — a partial failure leaves some LOBs missing; the UI lets the analyst retry the remainder.
+- **Breakout lineage (spec 005).** `source_portfolio_id`, `breakout_dimension_code`, and `breakout_value` are set together for breakout-generated portfolios and all NULL for broker-arrived ones; `breakout_group_id` is set only alongside dimension `custom`. `source_portfolio_id` records the **immediate source only** — a portfolio generated from a generated portfolio points at its direct parent, and chained lineage is read by walking the chain, never rendered as one. `breakout_value` is the selection filter value verbatim: the state code (`Admin1Code`) for geography, the LOB name for line of business — display resolves the value's label (`Admin1Name`) at read time from the source portfolio's stored summary, and no label is stored on the row (P-12 as revised 2026-08-05). The filtered unique index `uq_irp_portfolio_breakout (source_portfolio_id, breakout_dimension_code, breakout_value) WHERE source_portfolio_id IS NOT NULL AND deleted_at IS NULL` is the idempotency key — one live generated portfolio per (source, dimension, value).
+- **`breakout_group` (spec 005 T-12/T-13)** stores one row per custom group defined on a source portfolio: the analyst's `label`, the canonical member-`filters` JSON (OR within a dimension, AND across dimensions — P-20) with `group_key` as its hash, and the approved-plan `name`/`number` the worker executes verbatim. `UNIQUE(source_portfolio_id, group_key)` makes re-confirming the same member set reuse the row, and the row's UUID doubles as the group job's `rwb_job.requestor_id` (requestor type `breakout_group`), so the job dedup key needs no `rwb_job` change. The generated portfolio points back via `irp_portfolio.breakout_group_id` and carries `breakout_dimension_code = 'custom'` with the `group_key` as `breakout_value`. `cart_id` marks the confirm that most recently carried the group — the completion banner aggregates terminal jobs sharing the newest `cart_id` (FR-020).
+- **`irp_portfolio.inserted_by` is populated for breakout-generated portfolios** (the confirming analyst, carried in the breakout job's `input_data.actor_id`) — the first writer to use that column on this table.
+- **`exposure_detail`** (spec 004) is the per-portfolio JSON snapshot the `backfill_edm_detail` worker stores: RM's `/metrics` payload plus the DataBridge exposure summary, read defensively by the web layer. Spec 005 extends the summary with `breakout_values` (per-dimension value lists keyed by `breakout_dimension_kind.code`, each value carrying an account count and a nullable display label), `account_total`, and `breakout_coverage` (per dimension: the accounts carrying at least one value and the accounts carrying more than one, counted per account for the breakout preview's overlap statement), captures the portfolio's RM `stampDate` alongside it, and switches the summary's `states` list to state codes (`Admin1Code`).
 
 ---
 
@@ -313,7 +344,7 @@ erDiagram
 
 ## 7. Analysis templates & suites
 
-Saved analysis-job configurations for batch submission — a worldwide contract can need 50–150+ model/region/peril/treaty combinations. Templates and suites are **global** (visible to all analysts); `created_by` records authorship only.
+Saved analysis-job configurations for batch submission — a worldwide contract can need 50–150+ model/region/peril/treaty combinations. Templates and suites are **global** (visible to all analysts); `inserted_by` records authorship only.
 
 ```mermaid
 erDiagram
@@ -324,14 +355,14 @@ erDiagram
 
   analysis_template {
     uniqueidentifier id PK
-    string name "unique among live rows"
+    string name "UNIQUE among live rows (uq_analysis_template_live_name)"
     string analysis_profile_name "IRP model profile name"
     string output_profile_name
     string event_rate_scheme_name "nullable; required for DLM, optional for HD/Accumulation"
-    decimal min_loss_threshold "default 1.00"
-    int num_max_loss_event "default 1"
-    bool franchise_deductible "default 0"
-    bool treat_construction_occupancy_as_unknown "default 1"
+    bool franchise_deductible "NOT NULL default 0"
+    decimal min_loss_threshold "DECIMAL(18,2) NOT NULL default 1.00"
+    int num_max_loss_event "NOT NULL default 1"
+    bool treat_construction_occupancy_as_unknown "NOT NULL default 1"
     datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
@@ -339,14 +370,14 @@ erDiagram
     uniqueidentifier updated_by FK
   }
   analysis_template_tag {
-    uniqueidentifier template_id FK "PK(template_id, tag_name)"
-    string tag_name "RM resolves and creates tags at submit"
+    uniqueidentifier template_id PK "composite PK with tag_name"
+    string tag_name PK "RM resolves and creates tags at submit"
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
   template_suite {
     uniqueidentifier id PK
-    string name "e.g. Global 2026 Q1; unique among live rows"
+    string name "e.g. Global 2026 Q1; UNIQUE among live rows (uq_template_suite_live_name)"
     datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
@@ -355,8 +386,8 @@ erDiagram
   }
   template_suite_item {
     uniqueidentifier id PK
-    uniqueidentifier suite_id FK
-    uniqueidentifier template_id FK "UNIQUE(suite_id, template_id)"
+    uniqueidentifier suite_id FK "UNIQUE with template_id (uq_template_suite_item_template)"
+    uniqueidentifier template_id FK
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
@@ -364,7 +395,7 @@ erDiagram
 
 - Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD/Accumulation (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
 - **Suites are unordered** (spec 009 P-08): `template_suite_item` is a plain membership row — no `position`, no per-item settings; `UNIQUE(suite_id, template_id)` keeps a template in a suite at most once.
-- **Templates store no currency** (design note 17 D4/D5, 2026-08-20 — reverses spec 009 P-10): analysis currency, currency scheme, and scheme vintage are chosen in the execution modal at submit time, per chosen suite, pre-filled from pinned env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_*`, §10). The submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the chosen vintage's effective date; the confirmed values ride the persisted execution plan (spec 010).
+- **Templates store no currency** (spec 009 P-11 / design note 17 D4/D5, 2026-08-20 — reverses P-10): analysis currency, currency scheme, and scheme vintage are chosen in the execution modal at submit time, per chosen suite, pre-filled from pinned env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_*`, §10). The submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the chosen vintage's effective date; the confirmed values ride the persisted execution plan (spec 010).
 - **Dropped in spec 009:** `treaty_name_pattern` (P-09 — treaties are picked explicitly at run time in the execution modal), `region_label`/`peril_code` (P-03 — region/output level conveyed by names), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule — PRD §2.6).
 
 ---
@@ -398,6 +429,8 @@ erDiagram
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
+    string request_params "JSON; analyst parameter snapshot; nullable"
+    string completion_summary "Risk Modeler task output summary; nullable"
     string last_submission_payload "JSON; latest submit request"
     string last_submission_response "JSON; RM's response to that submit"
     string last_completion_result "JSON; terminal poll response (FINISHED or FAILED)"
@@ -449,7 +482,7 @@ erDiagram
     uniqueidentifier updated_by FK "nullable"
   }
   rwb_job_requestor_type_kind {
-    string code PK "irp_job / analyst_request / rwb_job"
+    string code PK "irp_job / analyst_request / rwb_job / breakout_group"
     string label
     int sort_order
     datetime inserted_at
@@ -569,69 +602,62 @@ erDiagram
 
 ## 10. IRP reference cache
 
-Populated by the "Sync IRP Metadata" action; the app never writes to these tables otherwise.
+Populated by the "Sync IRP Metadata" action; the app never writes to these tables otherwise,
+with one exception: `irp_event_rate_scheme.workbench_is_active` (spec 009 P-13/FR-022) is a
+Workbench-owned curation flag admins toggle on the analysis-metadata screen — Workbench state
+about the scheme, not an edit to the synced values, and the sync never writes it.
 
 ```mermaid
 erDiagram
   irp_model_profile {
     uniqueidentifier id PK
-    string irp_id
+    int irp_id "UNIQUE (uq_irp_model_profile_irp_id)"
     string name
-    string software_version_code "contains 'HD' → HD, else DLM"
-    string description "nullable"
-    datetime as_of
+    bool is_accumulation "NOT NULL default 0"
+    string software_version_code "nullable; contains 'HD' → HD, else DLM"
+    string peril_code "nullable; pairs with event rate schemes"
+    string model_region_code "nullable; pairs with event rate schemes"
+    string peril "nullable; display"
+    string region "nullable; display"
+    string analysis_type "nullable; display"
     datetime inserted_at
     datetime updated_at
   }
   irp_output_profile {
     uniqueidentifier id PK
-    string irp_id
+    int irp_id "UNIQUE (uq_irp_output_profile_irp_id)"
     string name
-    datetime as_of
+    bool rms_default "NOT NULL default 0"
     datetime inserted_at
     datetime updated_at
   }
   irp_event_rate_scheme {
     uniqueidentifier id PK
-    string irp_id
+    int irp_id "UNIQUE (uq_irp_event_rate_scheme_irp_id)"
     string name
     string peril_code "nullable"
     string model_region_code "nullable"
-    datetime as_of
-    datetime inserted_at
-    datetime updated_at
-  }
-  irp_simulation_set {
-    uniqueidentifier id PK
-    string irp_id
-    string name
-    string description "nullable"
-    datetime as_of
-    datetime inserted_at
-    datetime updated_at
-  }
-  irp_tag {
-    uniqueidentifier id PK
-    string irp_id
-    string name
-    datetime as_of
+    string model_version_code "nullable"
+    bool is_hd "NOT NULL default 0"
+    bit workbench_is_active "Workbench-owned; default 1; sync never writes it"
     datetime inserted_at
     datetime updated_at
   }
   irp_currency {
     uniqueidentifier id PK
-    string code "ISO 4217 (natural key)"
+    string code "ISO 4217; UNIQUE (uq_irp_currency_code)"
     string name
-    datetime as_of
+    string country_name "nullable"
+    string symbol "nullable"
     datetime inserted_at
     datetime updated_at
   }
   irp_currency_scheme {
     uniqueidentifier id PK
-    int irp_id
+    int irp_id "UNIQUE (uq_irp_currency_scheme_irp_id)"
     string name
     string code
-    string anchor_currency_code "nullable; base currency"
+    string anchor_currency_code "nullable"
     int update_interval_days "nullable"
     datetime inserted_at
     datetime updated_at
@@ -644,16 +670,9 @@ erDiagram
     datetime inserted_at
     datetime updated_at
   }
-  irp_database_server {
-    uniqueidentifier id PK
-    string name "IRP server name (natural key)"
-    datetime as_of
-    datetime inserted_at
-    datetime updated_at
-  }
 ```
 
-- `irp_currency.code` and `irp_database_server.name` are natural keys — neither has a Moody's-assigned surrogate id, so neither carries an `irp_id`.
+- `irp_currency.code` is a natural key — currencies have no Moody's-assigned surrogate id, so the table carries no `irp_id`.
 - **Currency-scheme vintages are versions nested inside a scheme** (design note 17 D2): `irp_currency_scheme_vintage` has no `irp_id` and no unique key — the upstream vintage item carries no id and `(currency_scheme_code, vintage)` is not unique upstream (Risk Modeler allows duplicate vintage names) — so the sync is a raw snapshot, delete-all + insert. The metadata screen and the spec-010 submit-time currency picker read these two tables.
 - **Currency defaults are configuration, not a table** (design note 17 D6/D7): `DEFAULT_ANALYSIS_CURRENCY_CODE` / `_SCHEME` / `_VINTAGE` env vars pre-fill the execution modal's pickers; ops edits them, the system never advances them when a newer vintage syncs. No admin UI or RBAC in MVP.
 
@@ -730,25 +749,27 @@ erDiagram
 | `submission_rdm` | Submission ↔ RDM M:N join (composite PK). |
 | `irp_edm` | A global EDM in IRP (DataBridge SQL DB); `source_file_path`; status plain string. |
 | `irp_rdm` | A global broker-results resource; no `edm_id`; one standalone import lifecycle. |
-| `irp_portfolio` | Portfolio within an EDM; `irp_id` written synchronously. |
+| `irp_portfolio` | Portfolio within an EDM; `irp_id` written synchronously. Carries the `exposure_detail` snapshot (spec 004) and breakout lineage (spec 005). |
+| `breakout_dimension_kind` | Breakout dimension vocabulary (`lob` / `state` / `country` / `peril` / `custom`); also the key inside `exposure_detail.summary.breakout_values`. |
+| `breakout_group` | One custom breakout per (source portfolio, canonical member set); owns the analyst's label and the filter set its generated portfolio links back to. |
 | `irp_treaty` | Treaty in IRP, belonging to one EDM; referenced by name. |
 | `irp_analysis` | Analysis/group. `edm_id`/`rdm_id` both nullable, CHECK ≥1; broker rows use (`rdm_id`, `irp_id`) and have `edm_id` null. |
 | `irp_analysis_status_kind` | `pending` / `running` / `ready` / `error`. |
 | `analysis_template` | Saved analysis-job config (global). |
 | `analysis_template_tag` | Tags on a template (junction). |
-| `template_suite` / `template_suite_item` | Named ordered collection of templates. |
+| `template_suite` / `template_suite_item` | Named unordered set of templates (P-08). |
 | `irp_job` | One IRP async op; entity target plus nullable `requested_from_submission_id` provenance. |
 | `irp_job_type_kind` | `import_edm`/`import_rdm`/`geohaz`/`analysis`/`grouping`/`export`. |
 | `irp_job_resource` / `irp_job_resource_type_kind` | Typed `(resource_type, resource_uri)` submit payload. |
 | `rwb_job` | App-side queued work; decoupled from `irp_job`. |
-| `rwb_job_requestor_type_kind` | `irp_job`/`analyst_request`/`rwb_job`. |
+| `rwb_job_requestor_type_kind` | `irp_job`/`analyst_request`/`rwb_job`/`breakout_group`. |
 | `rwb_job_type_kind` | Work-type vocabulary (§8). |
 | `rwb_job_heartbeat` | Per-job progress heartbeat (one row per job). |
 | `rwb_job_status_kind` | `pending`/`running`/`succeeded`/`failed`. |
 | `analysis_result_meta` | Result-set metadata. Own: per (analysis, perspective). Broker: deduped per (`rdm_id`, analysis_name, perspective). Exactly one of `analysis_id`/`rdm_id`. |
 | `result_export` | Exported result deliverable. |
 | `delivery_kind` | `file` / `sql`. |
-| `irp_model_profile` … `irp_database_server` | IRP reference cache (§10). |
+| `irp_model_profile` / `irp_output_profile` / `irp_event_rate_scheme` / `irp_currency` / `irp_currency_scheme` / `irp_currency_scheme_vintage` | IRP reference cache (§10). |
 | `validation_run` … `validation_result_category_kind` | Phase A validation — **DEFERRED**. |
 
 ---
@@ -763,8 +784,9 @@ erDiagram
 | `irp_analysis_status_kind` | `pending`, `running`, `ready`, `error`. |
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
-| `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_edm_detail`, `backfill_rdm_analyses`, `execute_analysis_batch`, `backfill_analysis_detail`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. |
+| `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`. |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `backfill_analysis_detail`, `sync_irp_metadata`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`backfill_analysis_detail` added by spec 010.) |
+| `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography - State), `country` (Geography - Country), `peril` (Peril), `custom` (Custom group — the grouping lineage code) — spec 005. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
 | `delivery_kind` | `file`, `sql`. |
 | `validation_run_status_kind` *(deferred)* | `running`, `complete`, `error`. |

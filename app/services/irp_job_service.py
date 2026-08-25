@@ -46,6 +46,8 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         "submission": (str(requested_from_submission_id)
                        if requested_from_submission_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
+        "portfolio": (str(irp_portfolio_id)
+                      if irp_portfolio_id is not None else None),
         "rdm": (str(irp_rdm_id) if irp_rdm_id is not None else None),
         "portfolio": (str(irp_portfolio_id) if irp_portfolio_id is not None else None),
         "analysis": (str(irp_analysis_id) if irp_analysis_id is not None else None),
@@ -55,6 +57,7 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         # Inherited from the worker's bound per-job context (issue #28) — both
         # writers (submit + submission-failure) run inside run_job's bind.
         "cid": log_context.correlation_id(),
+        "request_params": _json(request_params),
         "payload": _json(payload),
         "response": _json(response),
         "params": _json(request_params),
@@ -75,9 +78,9 @@ def record_submitted_irp_job(
     irp_id: str, resource_uri: str | None = None,
     payload: dict | None = None, response: dict | None = None,
     request_params: dict | None = None,
-    actor_id: Any | None = None, conn=None,
+    actor_id: Any | None = None, status: str = "QUEUED", conn=None,
 ) -> str:
-    """Worker-side: write the ``irp_job`` (status ``QUEUED``, ``irp_id`` set) plus
+    """Worker-side: write the submitted ``irp_job`` (``irp_id`` set) plus
     any ``irp_job_resource`` (the ``resource_uri`` captured at submit — the
     completion response omits it, R1). ``irp_portfolio_id``/``irp_analysis_id``/
     ``request_params`` are the spec-010 analysis-execution linkage columns —
@@ -92,7 +95,7 @@ def record_submitted_irp_job(
             irp_edm_id=irp_edm_id, irp_rdm_id=irp_rdm_id,
             irp_portfolio_id=irp_portfolio_id, irp_analysis_id=irp_analysis_id,
             irp_job_type=irp_job_type, irp_id=irp_id,
-            status="QUEUED", payload=payload, response=response,
+            status=status, payload=payload, response=response,
             request_params=request_params,
             attempt_count=0, actor_id=actor_id, now=now)
         if resource_uri is not None:
@@ -132,7 +135,8 @@ def list_non_terminal() -> list[dict]:
 
 
 def update_tracking(conn, *, irp_job_id: Any, status: str,
-                    result: dict | None = None) -> None:
+                    result: dict | None = None,
+                    completion_summary: str | None = None) -> None:
     """Poller-side: mirror the Risk Modeler status in place (Article 4) and stamp
     ``last_tracked_at``; on a terminal status also stamp ``completed_at`` and store
     the completion body. Runs inside the poller's transaction (accepts ``conn``)."""
@@ -143,11 +147,14 @@ def update_tracking(conn, *, irp_job_id: Any, status: str,
         UPDATE irp_job
         SET status = :s, last_tracked_at = :now, updated_at = :now,
             completed_at = CASE WHEN :terminal = 1 THEN :now ELSE completed_at END,
+            completion_summary = CASE WHEN :terminal = 1 THEN :summary
+                                      ELSE completion_summary END,
             last_completion_result = CASE WHEN :terminal = 1 THEN :result
                                           ELSE last_completion_result END
         WHERE id = :id
         """
     ), {"s": status, "now": now, "terminal": (1 if terminal else 0),
+        "summary": completion_summary,
         "result": _json(result), "id": str(irp_job_id)})
 
 

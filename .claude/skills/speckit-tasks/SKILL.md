@@ -149,7 +149,7 @@ The tasks.md should be immediately executable - each task must be specific enoug
 Every task MUST strictly follow this format:
 
 ```text
-- [ ] [TaskID] [P?] [Story?] Description with file path
+- [ ] [TaskID] [P?] [Story?] [Ref?] Description with file path
 ```
 
 **Format Components**:
@@ -163,14 +163,16 @@ Every task MUST strictly follow this format:
    - Foundational phase: NO story label  
    - User Story phases: MUST have story label
    - Polish phase: NO story label
-5. **Description**: Clear action with exact file path
+5. **[Ref] tag**: The requirement or decision the task implements — `FR-nnn` from spec.md, or `T-nn`/`P-nn`/`O-nn` from the decision tables. Omit only for setup and cleanup tasks. Multiple tags allowed (e.g., `[FR-009] [T-02]`).
+6. **Description**: Clear action with exact file path
+7. **Proof line**: Where the proof is not obvious from the task, add an indented `- Proof:` line naming the test or observation that closes it
 
 **Examples**:
 
 - ✅ CORRECT: `- [ ] T001 Create project structure per implementation plan`
 - ✅ CORRECT: `- [ ] T005 [P] Implement authentication middleware in src/middleware/auth.py`
-- ✅ CORRECT: `- [ ] T012 [P] [US1] Create User model in src/models/user.py`
-- ✅ CORRECT: `- [ ] T014 [US1] Implement UserService in src/services/user_service.py`
+- ✅ CORRECT: `- [ ] T012 [P] [US1] [FR-003] Create User model in src/models/user.py`
+- ✅ CORRECT: `- [ ] T014 [US1] [FR-003] [T-02] Implement UserService in src/services/user_service.py`
 - ❌ WRONG: `- [ ] Create User model` (missing ID and Story label)
 - ❌ WRONG: `T001 [US1] Create model` (missing checkbox)
 - ❌ WRONG: `- [ ] [US1] Create User model` (missing Task ID)

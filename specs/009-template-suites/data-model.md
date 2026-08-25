@@ -45,8 +45,13 @@ DEFAULT 0, audit.
 
 `id` PK, `irp_id` INT NOT NULL UNIQUE (= `eventRateSchemeId`), `name` NVARCHAR(200) NOT NULL
 (= `eventRateSchemeName`), `peril_code` NVARCHAR(20) NULL, `model_region_code` NVARCHAR(20) NULL,
-`model_version_code` NVARCHAR(50) NULL, `is_hd` BIT NOT NULL DEFAULT 0, audit. Only active schemes
-are synced (the wheel filters `isActive=True`).
+`model_version_code` NVARCHAR(50) NULL, `is_hd` BIT NOT NULL DEFAULT 0, `workbench_is_active`
+BIT NOT NULL DEFAULT 1, audit. Only active schemes are synced (the wheel filters `isActive=True`).
+`workbench_is_active` is the Workbench-owned curation flag (P-13/FR-022, design note 18 O18-1):
+admins toggle it on the metadata screen; `scheme_options()` offers only active schemes; the sync
+never writes it (its UPDATE lists columns explicitly — R16), but a scheme that vanishes from the
+API is hard-deleted, so the flag resets to active if the scheme later returns. Distinct from
+Risk Modeler's own `isActive`.
 
 ### `irp_currency`
 

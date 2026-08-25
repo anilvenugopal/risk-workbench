@@ -324,15 +324,15 @@ def upgrade() -> None:
                       server_default=sa.text("GETUTCDATE()")),
         )
 
-    # ── irp_job (one tracked Risk Modeler asynchronous operation) ────────────────
-    # NOTE: created WITHOUT irp_portfolio_id/irp_analysis_id — irp_portfolio and
-    # irp_analysis do not exist yet at this point in the script; both FKs are added
-    # by ALTER once their target tables are created below (data-model §2, spec 010).
+    # ── irp_job (one tracked Risk Modeler asynchronous operation; data-model §2) ─
+    # irp_portfolio_id's FK is added after irp_portfolio is created below;
+    # irp_analysis_id is added by ALTER once irp_analysis exists (spec 010).
     op.create_table(
         "irp_job",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requested_from_submission_id", sa.Uuid, nullable=True),
         sa.Column("irp_edm_id", sa.Uuid, nullable=True),
+        sa.Column("irp_portfolio_id", sa.Uuid, nullable=True),
         sa.Column("irp_rdm_id", sa.Uuid, nullable=True),
         sa.Column("irp_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # IRP int id as string
@@ -342,12 +342,13 @@ def upgrade() -> None:
         # Operational log-trace id inherited from the rwb_job whose worker
         # submitted this op (issue #28). Provenance only — never a predicate.
         sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
-        sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
-        sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
-        sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
         # JSON snapshot of the submit kwargs (spec 010, data-model §2) — the
         # submission_retry batch resubmits from this verbatim, never recomposed.
         sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
+        sa.Column("completion_summary", sa.NVARCHAR(None), nullable=True),
+        sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
+        sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
+        sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
         sa.Column("submission_attempt_count", sa.Integer, nullable=False,
                   server_default="0"),
         sa.Column("submitted_at", DATETIME2, nullable=True),
@@ -371,6 +372,7 @@ def upgrade() -> None:
     op.create_index("ix_irp_job_status", "irp_job", ["status"])
     op.create_index("ix_irp_job_requested_from_submission_id", "irp_job",
                     ["requested_from_submission_id"])
+    op.create_index("ix_irp_job_irp_portfolio_id", "irp_job", ["irp_portfolio_id"])
 
     # ── irp_job_resource (typed submit payload — the resource URI; §3) ──────────
     op.create_table(
@@ -394,7 +396,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requestor_type", sa.NVARCHAR(50), nullable=False),
         # requestor_id has NO DB FK — its target varies by requestor_type
-        # (irp_job / analyst_request / rwb_job), data-model §4.
+        # (irp_job / analyst_request / rwb_job / breakout_group), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
         sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
@@ -532,6 +534,16 @@ def upgrade() -> None:
     #  No status column (Article 4), no scope column (Article 6).
     # ══════════════════════════════════════════════════════════════════════════
 
+    # ── breakout_dimension_kind (kind, Article 3 — Iteration 4, spec 005) ────────
+    # Created BEFORE irp_portfolio: its code is the FK target of the lineage
+    # column below (data-model 005 §2); dropped after irp_portfolio in downgrade().
+    op.create_table(
+        "breakout_dimension_kind",
+        sa.Column("code", sa.NVARCHAR(32), primary_key=True),
+        sa.Column("label", sa.NVARCHAR(128), nullable=False),
+        sa.Column("sort_order", sa.Integer, nullable=False),
+    )
+
     # ── irp_portfolio (a portfolio within an EDM — the detail page's primary unit) ─
     op.create_table(
         "irp_portfolio",
@@ -542,6 +554,17 @@ def upgrade() -> None:
         # JSON snapshot — per-portfolio exposure figures, stored verbatim (R2).
         sa.Column("exposure_detail", sa.NVARCHAR(None), nullable=True),
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
+        # Breakout lineage (Iteration 4, spec 005 data-model §1): all three NULL
+        # for broker-arrived portfolios, set together by portfolio_service
+        # save_generated_portfolio. source_portfolio_id records the
+        # IMMEDIATE source only (chained lineage walks the chain). The self-FK
+        # stays ondelete NO ACTION — SQL Server rejects a cascading self-reference.
+        sa.Column("source_portfolio_id", sa.Uuid, nullable=True),
+        sa.Column("breakout_dimension_code", sa.NVARCHAR(32), nullable=True),
+        # The value the SELECTION FILTER uses, verbatim: Admin1Code for state,
+        # LOBNAME for lob (P-12). External exposure vocabulary → plain column
+        # per the Article 3 snapshot rationale.
+        sa.Column("breakout_value", sa.NVARCHAR(256), nullable=True),
         # Soft-delete: the backfill's stale-row prune (RM no longer returns it).
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
@@ -551,25 +574,88 @@ def upgrade() -> None:
         sa.Column("inserted_by", sa.Uuid, nullable=True),
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["source_portfolio_id"], ["irp_portfolio.id"]),
+        sa.ForeignKeyConstraint(["breakout_dimension_code"],
+                                ["breakout_dimension_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
         sa.UniqueConstraint("edm_id", "irp_id", name="uq_irp_portfolio_edm_irp"),
         # No scope/customer column (Article 6).
     )
     op.create_index("ix_irp_portfolio_edm_id", "irp_portfolio", ["edm_id"])
+    op.create_foreign_key(
+        "fk_irp_job_irp_portfolio_id",
+        "irp_job",
+        "irp_portfolio",
+        ["irp_portfolio_id"],
+        ["id"],
+    )
+    # The breakout idempotency key (spec 005 data-model §1 / FR-011): one LIVE
+    # generated portfolio per (source, dimension, value) — re-runs and double
+    # submits hit this as a constraint, not a convention; a soft-deleted row
+    # does not block re-creation.
+    op.create_index(
+        "uq_irp_portfolio_breakout", "irp_portfolio",
+        ["source_portfolio_id", "breakout_dimension_code", "breakout_value"],
+        unique=True,
+        mssql_where=sa.text(
+            "source_portfolio_id IS NOT NULL AND deleted_at IS NULL"),
+    )
+
+    # ── breakout_group (spec 005 follow-on T-12/T-13 — one row per custom
+    #    group). The row's UUID is the group job's rwb_job.requestor_id
+    #    (requestor_id is a Uuid column, so a composite string key was not an
+    #    option — T-13). UNIQUE(source_portfolio_id, group_key) makes
+    #    re-confirming the same member set reuse the row, which dedups the job
+    #    through UNIQUE(requestor_type, requestor_id, rwb_job_type) with no
+    #    rwb_job change. Generated portfolios point back via
+    #    irp_portfolio.breakout_group_id (added below — the two tables
+    #    reference each other, so the column arrives after both exist);
+    #    their breakout_value holds the group_key.
+    op.create_table(
+        "breakout_group",
+        sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
+        sa.Column("source_portfolio_id", sa.Uuid, nullable=False),
+        sa.Column("group_key", sa.NVARCHAR(64), nullable=False),
+        # The analyst's group name — display + the generated name's token.
+        # Adopt-not-rename (P-22): re-confirming the same members under a new
+        # label keeps this one.
+        sa.Column("label", sa.NVARCHAR(256), nullable=False),
+        # Canonical member-filter JSON: {"state": ["FL","GA"], "peril": ["2"]}
+        # — OR within a dimension, AND across dimensions (P-20). The group_key
+        # is its hash.
+        sa.Column("filters", sa.NVARCHAR(None), nullable=False),
+        # The approved plan values (AGENTS.md rule 8): the worker executes
+        # these verbatim.
+        sa.Column("name", sa.NVARCHAR(256), nullable=False),
+        sa.Column("number", sa.NVARCHAR(64), nullable=False),
+        # The confirm that most recently carried this group — the banner
+        # aggregates terminal jobs sharing the newest cart_id (FR-020).
+        sa.Column("cart_id", sa.Uuid, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("updated_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.Column("inserted_by", sa.Uuid, nullable=True),
+        sa.Column("updated_by", sa.Uuid, nullable=True),
+        sa.ForeignKeyConstraint(["source_portfolio_id"], ["irp_portfolio.id"]),
+        sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
+        sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
+        sa.UniqueConstraint("source_portfolio_id", "group_key",
+                            name="uq_breakout_group_source_key"),
+    )
+    op.add_column("irp_portfolio",
+                  sa.Column("breakout_group_id", sa.Uuid, nullable=True))
+    op.create_foreign_key("fk_irp_portfolio_breakout_group", "irp_portfolio",
+                          "breakout_group", ["breakout_group_id"], ["id"])
 
     # ── spec-010 FKs deferred until irp_portfolio exists (irp_analysis already
-    #    does — created above) ────────────────────────────────────────────────
+    #    does — created above; irp_job.irp_portfolio_id is inline in its
+    #    create_table, FK added right after irp_portfolio above) ──────────────
     op.add_column("irp_analysis",
                   sa.Column("irp_portfolio_id", sa.Uuid, nullable=True))
     op.create_foreign_key(
         "fk_irp_analysis_irp_portfolio_id", "irp_analysis", "irp_portfolio",
-        ["irp_portfolio_id"], ["id"],
-    )
-    op.add_column("irp_job",
-                  sa.Column("irp_portfolio_id", sa.Uuid, nullable=True))
-    op.create_foreign_key(
-        "fk_irp_job_irp_portfolio_id", "irp_job", "irp_portfolio",
         ["irp_portfolio_id"], ["id"],
     )
     op.add_column("irp_job",
@@ -650,6 +736,11 @@ def upgrade() -> None:
         sa.Column("model_region_code", sa.NVARCHAR(20), nullable=True),
         sa.Column("model_version_code", sa.NVARCHAR(50), nullable=True),
         sa.Column("is_hd", sa.Boolean, nullable=False, server_default="0"),
+        # Workbench-owned curation flag (design note 18 D1/D3): gates the scheme
+        # pickers only. Distinct from Risk Modeler's own isActive; the metadata
+        # sync never writes it (its UPDATE lists columns explicitly).
+        sa.Column("workbench_is_active", sa.Boolean, nullable=False,
+                  server_default="1"),
         sa.Column("inserted_at", DATETIME2, nullable=False,
                   server_default=sa.text("GETUTCDATE()")),
         sa.Column("updated_at", DATETIME2, nullable=False,
@@ -819,17 +910,38 @@ def upgrade() -> None:
         "('upload_rdm', 'Upload RDM', 20), "
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
+        "('run_geohaz', 'Run GeoHaz', 28), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
-        "('sync_irp_metadata', 'Sync IRP metadata', 90)"
+        "('run_breakout_lob', 'Portfolio breakout by line of business', 90), "
+        "('run_breakout_state', 'Portfolio breakout by geography (state)', 100), "
+        "('run_breakout_country', 'Portfolio breakout by country', 105), "
+        "('run_breakout_peril', 'Portfolio breakout by peril', 107), "
+        "('run_breakout_custom', 'Portfolio breakout by custom group', 110), "
+        "('sync_irp_metadata', 'Sync IRP metadata', 120)"
+    ))
+    # breakout_dimension_kind — the four value dimensions (spec 005
+    # data-model §2) plus custom, the grouping pane's lineage code (generated
+    # group portfolios carry breakout_dimension_code='custom' with the
+    # group_key as breakout_value; T-12). Quick-mode run_breakout_* enqueues
+    # under the already-seeded analyst_request requestor-type code; group jobs
+    # enqueue under breakout_group (the group row's UUID — T-13).
+    op.execute(sa.text(
+        "INSERT INTO breakout_dimension_kind (code, label, sort_order) VALUES "
+        "('lob', 'Line of business', 10), "
+        "('state', 'Geography - State', 20), "
+        "('country', 'Geography - Country', 25), "
+        "('peril', 'Peril', 30), "
+        "('custom', 'Custom group', 40)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_requestor_type_kind (code, label, sort_order) VALUES "
         "('irp_job', 'IRP Job', 10), "
         "('analyst_request', 'Analyst Request', 20), "
-        "('rwb_job', 'RWB Job', 30)"
+        "('rwb_job', 'RWB Job', 30), "
+        "('breakout_group', 'Breakout Group', 40)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_status_kind (code, label, sort_order) VALUES "
@@ -873,12 +985,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop the spec-010 cross-references first (irp_job <-> irp_portfolio/
-    # irp_analysis, irp_analysis <-> irp_portfolio/analysis_template) — added by
-    # ALTER after their target tables existed, so the table drops below would
-    # otherwise hit a live FK regardless of ordering.
+    # Drop the spec-010 cross-references first (irp_job -> irp_analysis,
+    # irp_analysis -> irp_portfolio/analysis_template) — added by ALTER after
+    # their target tables existed, so the table drops below would otherwise hit
+    # a live FK regardless of ordering. fk_irp_job_irp_portfolio_id is dropped
+    # in the Iteration-3 section below with the breakout structures.
     op.drop_constraint("fk_irp_job_irp_analysis_id", "irp_job", type_="foreignkey")
-    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job", type_="foreignkey")
     op.drop_constraint("fk_irp_analysis_analysis_template_id", "irp_analysis",
                        type_="foreignkey")
     op.drop_constraint("fk_irp_analysis_irp_portfolio_id", "irp_analysis",
@@ -908,8 +1020,18 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
+    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job", type_="foreignkey")
+    # breakout_group and irp_portfolio reference each other — drop the
+    # irp_portfolio-side FK/column first, then the group table.
+    op.drop_constraint("fk_irp_portfolio_breakout_group", "irp_portfolio",
+                       type_="foreignkey")
+    op.drop_column("irp_portfolio", "breakout_group_id")
+    op.drop_table("breakout_group")
+    op.drop_index("uq_irp_portfolio_breakout", table_name="irp_portfolio")
     op.drop_index("ix_irp_portfolio_edm_id", table_name="irp_portfolio")
     op.drop_table("irp_portfolio")
+    # After irp_portfolio — its breakout_dimension_code FK targets this kind table.
+    op.drop_table("breakout_dimension_kind")
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
@@ -925,6 +1047,7 @@ def downgrade() -> None:
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
     op.drop_index("ix_irp_job_irp_analysis_id", table_name="irp_job")
+    op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
     op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")
     op.drop_index("ix_irp_job_status", table_name="irp_job")
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")

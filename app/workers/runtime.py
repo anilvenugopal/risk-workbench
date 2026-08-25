@@ -30,6 +30,11 @@ from db import get_connection
 logger = logging.getLogger(__name__)
 
 
+def worker_id(module: str) -> str:
+    """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
+    return f"{socket.gethostname()}:{module}"
+
+
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
 
 @dataclass
@@ -124,11 +129,6 @@ class _Heartbeat:
 
 # ── the shared claim → heartbeat → complete lifecycle ───────────────────────────
 
-def worker_id(module_name: str) -> str:
-    """The host:module claim/heartbeat identity actors pass to run_job."""
-    return f"{socket.gethostname()}:{module_name}"
-
-
 def run_job(*, rwb_job_id: Any, worker_id: str,
             body: Callable[[], "JobResult | dict | None"]) -> bool:
     """Claim the row; if won, run ``body`` under a heartbeat and complete it in place.
@@ -170,7 +170,8 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
                 # would be reset to pending by the reconciler and re-dispatched
                 # into the same kill, forever. Re-raise so dramatiq finishes
                 # its interrupt handling.
-                logger.error("rwb_job %s exceeded the actor time limit", rwb_job_id)
+                logger.error("rwb_job %s exceeded the actor time limit",
+                             rwb_job_id)
                 rwb_job_service.complete_rwb_job(
                     rwb_job_id=rwb_job_id, status="failed",
                     error_detail="the run exceeded the worker time limit")
@@ -201,6 +202,6 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
 
 __all__ = [
     "JobResult",
-    "upsert_heartbeat",
     "run_job",
+    "worker_id",
 ]

@@ -339,6 +339,26 @@ def test_direct_duplicate_template_post_rejected_for_non_admin(
     assert len(template_service.list_templates()) == 1
 
 
+def test_duplicate_surfaces_drift_validation_error_on_the_form(
+    iteration2_db, fake_irp,
+):
+    # Saved while its profile was absent from the cache (pairing validation
+    # short-circuits), then a sync lands the profile as DLM — the copy now
+    # fails the scheme-required rule.
+    template_id = template_service.save_template(
+        _values_for_service(event_rate_scheme_name=None))
+    metadata_jobs._sync_irp_metadata_body()
+
+    resp = _client().post(
+        f"/templates/analysis-templates/{template_id}/duplicate",
+        data={"csrf_token": generate_csrf_token()},
+    )
+
+    assert resp.status_code == 200
+    assert "Event rate scheme is required for DLM analyses" in resp.text
+    assert len(template_service.list_templates()) == 1
+
+
 def test_unresolved_badge_renders_on_detail_and_list(iteration2_db, fake_irp):
     metadata_jobs._sync_irp_metadata_body()
     template_id = template_service.save_template(_values_for_service())
@@ -405,6 +425,52 @@ def test_edit_form_prefills_scheme_options_for_the_stored_profile(
     body = _client().get(f"/templates/analysis-templates/{template_id}").text
 
     assert '<option value="RMS WS" selected>' in body
+
+
+def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    template_service.set_scheme_visibility(20, False)
+
+    body = _client().get(f"/templates/analysis-templates/{template_id}").text
+
+    assert "RMS WS (hidden in Analysis Metadata)" in body
+    assert "not found in Risk Modeler" not in body
+
+
+def test_edit_form_shows_off_profile_scheme_with_its_real_peril_region(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE irp_event_rate_scheme "
+            "SET peril_code = 'EQ', model_region_code = 'NAEQ' "
+            "WHERE name = 'RMS WS'"
+        )
+
+    body = _client().get(f"/templates/analysis-templates/{template_id}").text
+
+    assert "not found in Risk Modeler" not in body
+    assert "RMS WS — EQ · NAEQ" in body
+
+
+def test_edit_form_labels_scheme_missing_from_cache_as_not_found(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "DELETE FROM irp_event_rate_scheme WHERE name = 'RMS WS'"
+        )
+
+    body = _client().get(f"/templates/analysis-templates/{template_id}").text
+
+    assert "RMS WS (not found in Risk Modeler)" in body
 
 
 # ── Suite builder ───────────────────────────────────────────────────────────────
@@ -548,4 +614,27 @@ def test_direct_duplicate_suite_post_rejected_for_non_admin(iteration2_db, fake_
     )
 
     assert resp.status_code == 302
+    assert len(template_service.list_suites()) == 1
+
+
+def test_duplicate_suite_surfaces_validation_error_on_the_form(
+    iteration2_db, fake_irp,
+):
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service())
+    suite_id = template_service.save_suite("US", [template_id])
+    # Simulate drift: the template soft-deleted out from under the suite —
+    # the delete route's in-use guard normally prevents this.
+    with iteration2_db.engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE analysis_template SET deleted_at = inserted_at"
+        )
+
+    resp = _client().post(
+        f"/templates/suites/{suite_id}/duplicate",
+        data={"csrf_token": generate_csrf_token()},
+    )
+
+    assert resp.status_code == 200
+    assert "Every suite entry must reference a live analysis template" in resp.text
     assert len(template_service.list_suites()) == 1

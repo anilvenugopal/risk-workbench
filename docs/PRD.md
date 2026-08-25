@@ -48,7 +48,7 @@ Every submission follows three sequential phases. The workbench covers all three
 
 #### Phase B — Analysis Execution
 1. **Hazard lookup (GeoHaz)** — optionally run hazard lookup on a portfolio before analysis (§10B). Broker geocoding is preserved; re-geocoding is not a workbench action.
-2. **Analysis configuration** — select model profiles, output profiles, event rate schemes, currency. For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
+2. **Analysis configuration** — select model profiles, output profiles, event rate schemes; currency, currency scheme, and vintage are chosen at submit time (spec 009 P-11). For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
 3. **Job submission & tracking** — submit analysis jobs via IRP API. Auto-poll for status. Surface progress, completion, and failures.
 4. **Notifications** — push notification (Teams, email, or in-app center) on job completion or failure (Iteration 11; §18).
 
@@ -66,7 +66,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Sub-portfolio (breakout)** — a portfolio created by **filtering** an EDM's exposure (e.g. isolate a state with a different retention, exclude an LOB), so it matches treaty terms the broker didn't break out. Created synchronously (`create_portfolio()`, HTTP 201, no job). Filter values are picked from the *real values present in the portfolio*, not free-text. One-click breakouts fan a portfolio out by LOB or geography, including complement ("X vs. not-X") splits (§10A). Creation granularity is capped at state/country; finer cuts (CRESTA, ZIP) are results, not portfolios.
 - **Analysis** — an analysis (or, when `is_group=true`, a **group** — a group *is* an analysis in Risk Modeler) belonging to an EDM. `rdm_id` set → the analysis came from importing that RDM (broker); null → a net-new analysis the analyst ran (own). Backed by `irp_analysis`.
 - **Treaty** — a reinsurance treaty belonging to an EDM, referenced by analyses by name. Create/edit is synchronous (no job). Backed by `irp_treaty`.
-- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event-rate scheme, analysis settings, tags — currency is chosen at submit time, not stored; §11.3a), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite` (shipped Iteration 6, spec 009).
+- **Analysis template** — a saved configuration for one analysis job (model profile, output profile, event-rate scheme, analysis settings, tags — currency and treaty selection happen at submit time, not stored; spec 009 P-09/P-11, §11.3a), for batch submission. **In MVP** (practice-lead call, 2026-07-06 — reverses the CR-002 deferral); batch submission from saved templates is the top analyst pain point. Backed by `analysis_template` + `template_suite` (shipped Iteration 6, spec 009).
 - **Prerequisite gate** — the computed "what can the analyst do right now": a lookup + entity-existence/job-terminal-status check in code (§13.1), not a stored stage machine. Replaces the removed Workflow/Stage/Task construct.
 - **Name-based coupling** — each op resolves its inputs live from Risk Modeler by name at submit time (`search_edms`/`search_portfolios`/`search_analyses`/`search_treaties`); there is no typed handle to chain (§13.2).
 - **Job (`irp_job`)** — an IRP async operation tracked in the Workbench Metamodel DB — one row per real IRP op (the executable unit). Has an `irp_job_type` (which IRP endpoint to poll), an `irp_id` (RM's job id), and one or more `rwb_job` rows written on completion.
@@ -161,7 +161,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. An analyst submitting a worldwide contract should never have to type 50+ analysis names. EDM/RDM import names are auto-populated from the chosen file (§8, §9). **Analysis names follow a fixed workbench rule: portfolio name + template name, truncated from the right to Risk Modeler's 64-character analysis-name cap** (locked 2026-08-20, resolving O7-3/O14-9) — the template name already conveys profile, region, and peril, so no configurable pattern is needed; the per-template `auto_name_pattern` was dropped in Iteration 6 (spec 009). The workbench stores the full untruncated name on `irp_analysis`; only the name sent to Risk Modeler is clipped. Group naming lands with grouping (Iteration 8).
+Auto-naming is a first-class feature, not a convenience. An analyst submitting a worldwide contract should never have to type 50+ analysis names. EDM/RDM import names are auto-populated from the chosen file (§8, §9). **Analysis names follow a fixed workbench rule: portfolio name + template name, truncated from the right to Risk Modeler's 64-character analysis-name cap** (locked 2026-08-20, resolving O7-3/O14-9) — the template name already conveys profile, region, and peril, so no configurable pattern is needed; the per-template `auto_name_pattern` was dropped in Iteration 6 (spec 009 P-03). The workbench stores the full untruncated name on `irp_analysis`; only the name sent to Risk Modeler is clipped. Group naming lands with grouping (Iteration 8).
 
 ---
 
@@ -660,7 +660,7 @@ Validation categories (initial set, extensible):
 In the deferred Phase A vision the analyst runs exposure modification operations via DataBridge:
 - ~~Create sub-portfolios~~ — **moved to §10A** and reimplemented as the **synchronous IRP `create_portfolio()`** path; it is *not* a DataBridge operation. (This resolves the earlier §1.3/§10.3-vs-§14.3/§15.5 contradiction in favor of the IRP path.)
 - Modify data elements (e.g., construction class mapping, currency normalization) — **out of MVP** (FR §3).
-- ~~Create peril-specific portfolios~~ — **out of MVP**: "we don't have to split it up by peril" (FR §3; verify separately whether RM adds a *missing* peril).
+- ~~Create peril-specific portfolios~~ — **out of MVP**: "we don't have to split it up by peril" (FR §3; verify separately whether RM adds a *missing* peril). *(Superseded 2026-08-12, spec 005 P-19 rev.: peril shipped as a quick breakout dimension.)*
 
 The remaining (deferred) operations would run as DataBridge SQL commands via `client.databridge.execute_command(query, params, ...)`, logged in the audit log.
 
@@ -672,7 +672,7 @@ After validation passes, the analyst would push pre-aggregated exposure summarie
 
 ## 10A. Feature: Portfolio management (sub-portfolios & breakouts) — **IN MVP**
 
-> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits, peril splits, and merge/combine are out of MVP.
+> **Distinct from §10.** This is the MVP data-shaping capability: creating **filtered sub-portfolios** of an EDM, synchronously, via IRP `create_portfolio()`. It is *not* the deferred DataBridge exposure-modification path (§10.3). Data-element edits and merge/combine are out of MVP. Peril splits are **in**, as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12).
 
 ### 10A.1 What this is
 
@@ -706,7 +706,7 @@ Beyond a single filtered sub-portfolio, the analyst can fan a source portfolio o
 - **"Do the opposite"** — produce the complement of a defined filter without re-coding it (define "Florida mobile home" once, and also get "everything that's not Florida mobile home").
 - **Breakouts sum to 100%** of the source portfolio — not "run the whole thing, then a subset, and subtract" (FR §3).
 
-> **Open question — commercial-policy geographic split (blocks the geography & complement breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed (a RiskLink "checkbox" recollection is not load-bearing). Output-side alternative: write losses to the state level and let the model allocate back. **Ben is investigating RM behavior; Cheryl is polling the team for the preferred default** (FR §3, O6-1/O6-2). The **LOB breakout is unblocked and can ship first**; the geography and complement breakouts wait on this resolution.
+> **Resolved by product direction (2026-07-29 — O6-1/O6-2).** Risk Modeler assigns **whole accounts**: an account matching several values lands in full in each matching sub-portfolio, and no location-level toggle is awaited. The **geography breakout ships now** with that behavior accepted and **disclosed** — the preview quantifies the overlap for the portfolio being broken out (spec 005 FR-007) and states that blank-value exposure lands in no sub-portfolio. The complement split remains a fast-follow.
 
 ### 10A.6 Prerequisite gate
 
@@ -714,7 +714,7 @@ Sub-portfolio creation is enabled once an EDM with **≥1 portfolio** exists (po
 
 ### 10A.7 Out of scope (FR §3)
 
-Data-element modification (construction/currency normalization); peril-specific portfolios ("we don't have to split it up by peril" — verify separately whether RM adds a *missing* peril); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); finer-than-state/country granularity as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested).
+Data-element modification (construction/currency normalization); **merge/combine portfolios** (recombination happens on **results** — grouping, §16.4 — not on exposure); geographic granularity finer than state/country as a portfolio; portfolio deletion (not addressed by the FR — treat as out of MVP unless requested). Peril-specific portfolios are **in** (spec 005 P-19 rev., 2026-08-12) — verify separately whether RM adds a *missing* peril.
 
 ---
 
@@ -724,20 +724,44 @@ Data-element modification (construction/currency normalization); peril-specific 
 
 An **optional** pre-analysis operation that runs Moody's hazard lookup on a portfolio. In this workbench it is **hazard lookup only** — **geocoding is not re-run** (broker geocoding is preserved; Cheryl has never re-geocoded in this role). Re-geocoding, if ever needed, is done intentionally *inside the model*, not as a workbench action (FR §5).
 
+The action lives on the **EDM/portfolio summary page**: the analyst selects **one or more portfolios** and clicks Run hazard lookup once; no parameter modal opens. The workbench submits **one geohaz job per selected portfolio** (design sessions 2026-08-07 and 2026-08-14).
+
 Async: `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` → `irp_job_type = geohaz` (§14.3), polled via `client.portfolio.get_geohaz_job(id)` (§14.4). *(Confirm the exact `submit_geohaz_job` parameter set against the installed `irp-integration` wheel before implementing — §14.3.)*
 
-### 10B.2 Parameters (defaults in **bold**)
+### 10B.2 Fixed DLM parameters
 
-- **Data version** — defaults to the **latest** (v25 as of now).
-- **Model family** — defaults to **DLM (non-HD)**.
-- **Perils** — **earthquake and windstorm** selected by default; toggleable. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
-- **Missing locations** — not skipped; **overwritten** ("the more comprehensive the data, the better").
+Every launch uses the same parameter set. The analyst does not review or change the parameters in the workbench.
+
+- **Data version** — a configured value (`HAZARD_DATA_VERSION`, v25 as of now); Risk Modeler has no `"latest"` resolution, so this is bumped by config edit as Moody's ships new versions.
+- **Model family** — DLM (non-HD).
+- **Perils** — earthquake and windstorm. Running an inapplicable peril returns **zero for that layer, not a failure** (e.g. earthquake on a windstorm book).
+- **Previous hazard results** — do not skip previously looked-up locations; overwrite user-defined hazard values ("the more comprehensive the data, the better").
 
 ### 10B.3 Result
 
-The hazard job returns a **summary of locations looked up per layer**, surfaced to the analyst when it completes.
+The hazard job returns a **summary of locations looked up per layer**, shown to the analyst when it completes. Exactly which fields of the completion response the workbench records is decided at Iteration 5 spec time (O8-3).
 
-### 10B.4 Prerequisite gate & relationship to analysis
+### 10B.4 On-screen display: Hazard Version column + app-side lineage
+
+The 2026-08-07 design session settled "Geocode and hazard information on the screen — no. Ability to
+execute hazard lookup from the screen — yes." Approver direction on 2026-08-17 (P-03/P-07) added a
+Hazard Version column to the portfolios table, superseding the "no version stamp" framing this
+section originally carried.
+
+- The portfolios table's final column is **"Hazard Version"**. It shows **SUBMITTING** while the
+  worker sends a job, the Risk Modeler job status while a geohaz job is non-terminal, and otherwise
+  the portfolio's **raw stored `hazardVersion`** from Get Portfolio Metadata (empty when absent).
+  Status refreshes by polling the workbench (§14.7 SSE lands with Iteration 6 and can replace the
+  polling).
+- The stamp still gates nothing: the workbench **never reads `hazardVersion` to gate an action** — a
+  live analysis on parcel-geocoded data with no stamp succeeded, so the stamp is not evidence of
+  geocode state (O8-1 tracks confirming its origin with Moody's).
+- Expanding a portfolio row shows the **workbench's own execution history**: the most recent geohaz
+  lookup's parameters and result, from `irp_job` rows with `irp_job_type = geohaz`. Which execution
+  details are recorded and displayed per lookup (data version, perils, per-layer counts, …) is
+  **O8-3**, settled at Iteration 5 spec time.
+
+### 10B.5 Prerequisite gate & relationship to analysis
 
 Enabled once an **EDM + portfolio** exist (§13.1). Hazard lookup is **optional** and is **not a hard prerequisite for analysis** — broker exposure is usually already geocoded/hazarded, so analysis is not gated on a geohaz job having run. (This is why the Analysis gate row, §13.1, does not list geohaz.)
 
@@ -770,7 +794,7 @@ The configurable inputs a template captures, and how the builder exposes them:
 
 ### 11.2 Analysis template
 
-One analysis definition — "one row in Analysis Builder": model profile + output profile + event-rate scheme (required for DLM, optional otherwise) + analysis settings (2026-08-14, D10; shipped Iteration 6, spec 009; currency moved to submit time 2026-08-20, note 17 D4). Stored in the Metamodel DB as `analysis_template`:
+One analysis definition — "one row in Analysis Builder": model profile + output profile + event-rate scheme (required for DLM, optional otherwise) + analysis settings (2026-08-14, D10; shipped Iteration 6, spec 009; currency moved to submit time 2026-08-20, note 17 D4 → spec 009 P-11). Stored in the Metamodel DB as `analysis_template`:
 - `name` — template name, unique
 - `created_by` — authorship only; templates are **global** (visible to all analysts; CR-003 M2/O1 — no customer isolation). Create/edit/delete is **admin-role-gated** (spec 009 P-01)
 - `analysis_profile_name` — IRP model profile name (DLM/HD/Accumulation classification derived from the cached profile, §11.4)
@@ -779,7 +803,7 @@ One analysis definition — "one row in Analysis Builder": model profile + outpu
 - `tag_names` — IRP tag names to apply (autocomplete over names already used; RM resolves and creates tags at submit)
 - `min_loss_threshold`, `num_max_loss_event`, `franchise_deductible`, unrecognized-occupancy treatment — surfaced in the builder with defaults (spec 009 FR-005)
 
-**Dropped during Iteration 6 (spec 009):** `treaty_name_pattern` (P-09 — treaties are picked at run time in the execution modal, §11.3a), `region_label` / `peril_code` (P-03 — region and output level are conveyed by names, not stored; closes O14-3), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule, §2.6). A template whose saved reference value disappears on re-sync is flagged unresolved, never silently changed (spec 009 FR-011).
+**Dropped during Iteration 6 (spec 009):** `treaty_name_pattern` (P-09 — treaties are picked at run time in the execution modal, §11.3a), `currency_code` / `currency_scheme_code` / `currency_vintage` (P-11 — chosen at submit time), `region_label` / `peril_code` (P-03 — region and output level are conveyed by names, not stored; closes O14-3), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule, §2.6). A template whose saved reference value disappears on re-sync is flagged unresolved, never silently changed (spec 009 FR-011).
 
 ### 11.3 Template suite
 
@@ -788,7 +812,7 @@ An **unordered set of templates** (spec 009 P-08 — no item order, no per-item 
 - `created_by` — authorship only; suites and templates are global (visible to all analysts; CR-003 M2/O1). Create/edit/delete is admin-role-gated (P-01)
 - Items link to `analysis_template` rows — a plain set; a template appears at most once per suite
 
-**Suites are predefined, not freeform user-built (2026-08-14, D11).** Predefined suites are how CIC enforces consistent settings ("are you running the US defaults with our settings?"); analysts use what's available, and only the exception path drops to a long list or Risk Modeler. The **suite administration surface** (create/edit templates and suites, admin-gated) shipped in Iteration 6. **Starter-suite seeding and CSV/Excel export + import are deferred out of MVP** (spec 009 P-02) — initial setup, including any starter suites, is manual via the admin page; the Excel transfer design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`.
+**Suites are predefined, not freeform user-built (2026-08-14, D11).** Predefined suites are how CIC enforces consistent settings ("are you running the US defaults with our settings?"); analysts use what's available, and only the exception path drops to a long list or Risk Modeler. The **suite administration surface** (create/edit templates and suites, admin-gated) shipped in Iteration 6, with **duplicate-and-edit** (spec 009 P-12) as the fast path for variants. **Starter-suite seeding and CSV/Excel export + import are deferred out of MVP** (spec 009 P-02) — initial setup, including any starter suites, is manual via the admin page; the Excel transfer design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`.
 
 **A suite may mix DLM, HD, and accumulation templates (2026-08-14, D14).** US wildfire is HD-only while most US perils are DLM; Japan has both ("Japan DLM suite" and "Japan HD suite" coexist). Keeping DLM and accumulation in separate suites is a **convention, not a rule**. Reinforces `event_rate_scheme_name` nullable-for-HD (§11.4).
 
@@ -875,7 +899,7 @@ A **treaty belongs to an EDM** and is referenced by analyses **by name** (not by
 | Grouping | member analyses/groups exist (`FINISHED`) |
 | Export → Loss Repo | analysis/group exists (`FINISHED`) |
 
-This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones. **GeoHaz (hazard lookup) is optional and deliberately *not* an Analysis prerequisite** — broker exposure is usually already geocoded/hazarded, so the Analysis row above does not require a geohaz job to have run (§10B.4, FR §5). *(Open: whether HD models need hazard run ahead — O7-1.)* **Subportfolio** creation needs `≥1 portfolio` because portfolios arrive with the EDM (§10A.2), and a sub-portfolio filters an existing one.
+This matches every granular sequence diagram's "Pre-requisites" section — the gate centralizes rules each flow already documents, it does not invent new ones. **GeoHaz (hazard lookup) is optional and deliberately *not* an Analysis prerequisite** — broker exposure is usually already geocoded/hazarded, so the Analysis row above does not require a geohaz job to have run (§10B.5, FR §5). *(Open: whether HD models need hazard run ahead — O7-1.)* **Subportfolio** creation needs `≥1 portfolio` because portfolios arrive with the EDM (§10A.2), and a sub-portfolio filters an existing one.
 
 **Auto-fires vs click-gated.** Import completion automatically starts its own
 detail backfill. EDM completion never starts RDM import work. Anything requiring
@@ -1002,15 +1026,13 @@ Always required: `RISK_MODELER_BASE_URL`, `RISK_MODELER_RESOURCE_GROUP_ID`
 
 "Sync IRP Metadata" rail action fetches and caches IRP reference data into the local `irp_*` cache tables in the Metamodel DB. Feeds op-configuration dropdowns and the point-of-action reference-data checks (§13.3).
 
-What is synced:
-- `client.reference_data.get_model_profiles()` → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
-- `client.reference_data.get_output_profiles()` → `irp_output_profile`
-- `client.reference_data.get_event_rate_schemes()` → `irp_event_rate_scheme`
-- `client.reference_data.get_all_simulation_sets()` → `irp_simulation_set`
-- `client.reference_data.get_tags()` → `irp_tag`
-- `client.reference_data.search_currencies()` → `irp_currency`
-- `client.edm.search_database_servers()` → `irp_database_server`
-- `client.edm.search_edms()` → `irp_edm_cache` (EDMs already in IRP)
+What is synced (six sets, spec 009 FR-001):
+- model profiles → `irp_model_profile` (includes `software_version_code` for DLM/HD detection)
+- output profiles → `irp_output_profile`
+- event rate schemes → `irp_event_rate_scheme`
+- currencies → `irp_currency`
+- currency schemes → `irp_currency_scheme`
+- currency scheme vintages → `irp_currency_scheme_vintage`
 
 ### 15.3 Analysis results retrieval
 
@@ -1331,23 +1353,25 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **New (2026-07-21).** Portfolio work previously appeared only as the word "portfolio" in the old Iteration 6 exit line and had no scoped iteration. Full §-body: **§10A**. Reconciled to FR §3 — "modification" is dropped (data-element edits and merge/combine are out of MVP); the capability is **filtered sub-portfolio creation + one-click breakouts**.
 
-**In:** the current-**split view** of an EDM's portfolios (§10A.3); **sub-portfolio creation by filter** on the request path (`create_portfolio()` → synchronous HTTP 201, writes `irp_portfolio.irp_id` inline), with filter values picked from the **real values present in the portfolio** (§10A.4; account-bucketed native filter — slices can double-count, cannot be made "pure"); **one-click breakouts** (app-side loop over `create_portfolio()`) — **the LOB breakout is unblocked and ships here**; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
+> **Narrowed (2026-07-29, spec 005).** The iteration ships the **two one-click breakouts** — by line of business and by geography at state/state-equivalent grain — with preview/confirm, lineage, and the prerequisite gate. The **filtered sub-portfolio builder (§10A.4) and the complement split are fast-follows**; the current-split view is already served by spec 004's per-portfolio table. *(Superseded 2026-08-12, spec 005 P-19 rev.: four quick dimensions shipped — LOB, state, country, peril — plus custom groups.)*
 
-**Out:** geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / peril-specific portfolios / merge-combine (out of MVP, §10A.7).
+**In:** **one-click breakouts** (app-side loop: select the source portfolio's matching account ids → synchronous `create_portfolio()` → account add) by **line of business** and by **geography (state/state-equivalent)**, each previewed and confirmed with the quantified overlap and blank-value disclosures; breakout lineage (source portfolio, dimension, value) stored on `irp_portfolio` and shown in the portfolio list; automatic exposure-detail refresh for generated portfolios; the prerequisite-gate rule for the op (§13.1), built as part of this slice.
 
-> **Blocked sub-item — geography & complement breakouts.** The by-state/country and complement ("X vs. not-X" / "do the opposite") breakouts are **blocked on the commercial-policy geographic-split open question** (§10A.5, O6-1/O6-2 — Ben/Cheryl investigating RM keep-all-vs-matching-locations behavior). Ship them within this iteration if the question resolves in time; otherwise LOB-only ships and the geographic breakouts follow as a fast-follow.
+**Out:** the **filtered sub-portfolio builder (§10A.4)** and the **complement split** ("X vs. not-X" / "do the opposite") — fast-follows; geohaz (Iteration 5), analysis execution, grouping, results; data-element modification / merge-combine (out of MVP, §10A.7). Peril-specific portfolios shipped as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12).
 
-**Exit:** open an imported EDM and see its current portfolio split; create a sub-portfolio by filtering on real portfolio values; run a one-click LOB breakout that produces one sub-portfolio per LOB summing to 100% of the source; the prerequisite gate enables/disables the op correctly from entity state.
+> **Resolved sub-item — geography breakout unblocked (2026-07-29).** O6-1/O6-2 closed by product direction: Risk Modeler assigns whole accounts, the overlap that produces is accepted and disclosed (quantified per portfolio in the preview), and no location-level toggle is awaited (§10A.5). The geography breakout ships in this iteration alongside LOB.
+
+**Exit:** from the EDM detail page, run a one-click LOB or state breakout that produces one sub-portfolio per distinct value, together covering the source, with the measured overlap disclosed before confirm; generated portfolios appear in the list with lineage and acquire figures automatically; the prerequisite gate enables/disables the op correctly from entity state. *(Superseded 2026-08-12, spec 005 P-19 rev.: the shipped quick dimensions are LOB, state, country, and peril, plus custom groups.)*
 
 ### Iteration 5 — GeoHaz (hazard lookup)
 
-> **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved).
+> **New (2026-07-21).** Was only the word "geocode" in the old Iteration 6 exit line. Full §-body: **§10B**. Reconciled to FR §5 — this is **hazard lookup only**; geocoding is *not* re-run (broker geocoding preserved). **Updated 2026-08-12** from the Aug 7 design session: multi-portfolio launch from the summary page, app-side lineage/status display, no version-stamp display or gating (§10B.4, §24 change log).
 
-**In:** the hazard-lookup op against Risk Modeler on a portfolio — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the configurable parameters with their defaults (data version = latest, family = DLM, perils = EQ + windstorm, missing locations overwritten — §10B.2); the per-layer **"locations looked up" summary** surfaced on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.4).
+**In:** the hazard-lookup op against Risk Modeler, launched with one click from the EDM/portfolio summary page against **one or more selected portfolios** (one geohaz job per portfolio, one fixed parameter set per launch) — `submit_geohaz_job` → `irp_job_type = geohaz`, polled via `get_geohaz_job` (async); the fixed DLM parameters (configured data version, EQ + windstorm, previous locations not skipped, user-defined values overwritten — §10B.2); **per-portfolio display of app-side hazard-lookup history and in-line job status** on the summary page, refreshed by polling the workbench (§10B.4); the per-layer **"locations looked up" summary** shown on completion (§10B.3); the prerequisite-gate rule (geohaz needs an EDM + portfolio, §13.1). Hazard lookup is **optional** and **not** an analysis prerequisite (§10B.5). No geocode/hazard **version stamp** is displayed or read (§10B.4).
 
-**Out:** analysis execution, grouping, results; geocoding (never a workbench action).
+**Out:** analysis execution, grouping, results; geocoding (never a workbench action); SSE live job status (§14.7, Iteration 6 — polling refresh suffices here).
 
-**Exit:** run hazard lookup on a portfolio with the default parameters; the job is tracked via the poller; on completion the per-layer locations-looked-up summary is shown; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1.)*
+**Exit:** select two portfolios on the EDM summary page and run hazard lookup with one click and no modal; both jobs use the fixed DLM parameters and are tracked via the poller with in-line per-portfolio status; on completion the per-layer locations-looked-up summary is shown and each portfolio shows it has been hazard-looked-up through the workbench; the gate requires a portfolio before geohaz is enabled. *(Open: whether HD models need hazard run ahead — O7-1; what execution detail to record per lookup — O8-3.)*
 
 ### Iteration 6 — Analysis templates & template suites (definition & administration) — **IN MVP**
 
@@ -1355,11 +1379,11 @@ This prompt applies independently to each of the three app-managed databases (`W
 >
 > **Shipped (spec 009, merged 2026-08-20).** With four scope changes from the spec: starter-suite seeding and CSV/Excel export-import deferred out of MVP (P-02 — setup is manual via the admin page; Excel design retained in `specs/009-template-suites/contracts/transfer-workbook.md`); suites shipped **unordered** with no per-item settings (P-08); `treaty_name_pattern` and `auto_name_pattern` dropped from templates (P-09; naming resolved in §2.6); templates store currency + currency scheme + scheme vintage, all required, with no submit-time defaulting (P-10).
 
-**In:** §11.2/§11.3 (analysis template entity, template suite, `analysis_template_tag`); the **suite administration surface** — create/edit templates and suites, built comprehensively then pared down (D11/O14-1); IRP metadata sync (§15.2), `irp_*` cache tables seeded; the **analysis metadata screen** (model/output/accumulation profiles + currencies + currency schemes with vintages — viewed here, created in RM, §11.1a); DLM/HD detection for template validation (§11.4 — event-rate scheme required for DLM, optional for HD).
+**In:** §11.2/§11.3 (analysis template entity, template suite, `analysis_template_tag`); the **suite administration surface** — create/edit/duplicate templates and suites (D11/O14-1, spec 009 P-12), built comprehensively then pared down; IRP metadata sync (§15.2), `irp_*` cache tables seeded; the **analysis metadata screen** (model/output/accumulation profiles + currencies + currency schemes with vintages — viewed here, created in RM, §11.1a); DLM/HD detection for template validation (§11.4 — event-rate scheme required for DLM, optional for HD).
 
-**Out:** analysis submission/execution and the suite **run** flow (Iteration 7); grouping, results, export.
+**Out:** analysis submission/execution and the suite **run** flow (Iteration 7); grouping, results, export; **starter-suite seeding and Excel export/import** (spec 009 P-02, deferred — setup is manual via the admin page).
 
-**Exit:** create a template and a suite ("Global 2026 Q1") on the administration surface; IRP metadata sync populates the profile/scheme/currency dropdowns and the metadata screen. *(Starter-suite seeding and the CSV/Excel round-trip left the exit criteria with the P-02 deferral.)*
+**Exit:** create a template and a suite ("Global 2026 Q1") on the administration surface; duplicate a template and edit the copy; IRP metadata sync populates the profile/scheme/currency dropdowns and the metadata screen. *(Starter-suite seeding and the CSV/Excel round-trip left the exit criteria with the P-02 deferral.)*
 
 ### Iteration 7 — Analysis execution (suite run first, then single templates)
 
@@ -1497,8 +1521,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Analysis templates and template suites** — in MVP (practice-lead call, 2026-07-06; reverses the CR-002 deferral). Auto-naming from submission context is the intended approach (§11).
 - **2026-08-14 — CIC session (suites first; predefined suites; suite run flow).** Five decisions locked (design note 14, D9–D14):
   - **Suites before execution (D9).** Template/suite definition and administration are built before individual analysis execution — CIC works in outcomes ("run the US suite"); execution is the substrate. §21 Iterations 6/7 swapped.
-  - **Vocabulary (D10).** A **template** = one analysis definition ("one row in Analysis Builder"): analysis/model profile + output profile + event rate (auto-populated) + currency + optional settings. A **suite** = an ordered set of templates, defined primarily by **region + output level** (§11.2/§11.3). *(Superseded in part by spec 009: suites are **unordered** with no per-item settings — P-08; region/output level are conveyed by names, not stored fields — P-03; the currency selection is currency + scheme + vintage, all required — P-10.)*
-  - **Suites are predefined, not freeform user-built (D11).** Admin-maintained + seeded starter set (US, Canada, US+Canada, global — ~10 templates each) + CSV/Excel export-import to move suites between environments (§11.3). *(Superseded in part by spec 009 P-02: seeding and CSV/Excel export-import deferred out of MVP; setup is manual via the admin page.)*
+  - **Vocabulary (D10, amended by spec 009).** A **template** = one analysis definition ("one row in Analysis Builder"): analysis/model profile + output profile + event rate (auto-populated) + optional settings — currency is a submit-time choice, never stored (P-11). A **suite** = an unordered set of templates (P-08), defined primarily by **region + output level**, both conveyed by names, not stored fields (P-03; §11.2/§11.3).
+  - **Suites are predefined, not freeform user-built (D11).** Admin-maintained; starter-set seeding and Excel export-import were deferred out of MVP (spec 009 P-02) — setup is manual, with duplicate-and-edit (P-12) as the fast path (§11.3).
   - **Run-a-suite is default-first (D13).** Select portfolios + treaties, pick the suite, go; optional expand-to-deselect (§11.3a). *(Reshaped 2026-08-20: portfolio-first modal flow, treaties picked in the modal, direct submit — see the 2026-08-20 decision above.)*
   - **Suites may mix DLM, HD, and accumulation templates (D14);** DLM-vs-accumulation separation is a convention, not a rule. Peril/portfolio mismatch failures are expected, surfaced with a reason, never silently ignored (§11.3, §11.3a).
 - **v1 auth: username + bcrypt password** (`AUTH_MODE=password`). bcrypt cost 12, rate limiting, server-side sessions in WORKBENCH DB (`user_session` table), CSRF tokens, forced password change on first login, admin-only reset. No Redis dependency for auth. Upgrade to Entra SSO (`AUTH_MODE=oidc`) requires no downstream changes (§5.1, §5.2, §5.3).
@@ -1527,9 +1551,11 @@ This prompt applies independently to each of the three app-managed databases (`W
 - Exposure Repository schema (coordinates with reporting team)
 - Idle-timeout durations (sliding + absolute)
 - Export format beyond Parquet (CSV? Excel?)
-- **O6-1/O6-2 — commercial-policy geographic split (blocks the geography & complement portfolio breakouts, §10A.5).** Does RM keep all locations or only matching ones on a geographic split, and is there a toggle? Ben investigating RM behavior; Cheryl polling the team for the preferred default.
-- **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.4). Cheryl investigating.
-- **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.4). Cheryl investigating.
+- **O6-1/O6-2 — commercial-policy geographic split — resolved by product direction (2026-07-29, §10A.5).** Risk Modeler assigns whole accounts on a geographic split; the geography breakout ships with that behavior accepted and disclosed (the preview quantifies the overlap per portfolio — spec 005 FR-007), and no location-level toggle is awaited. The complement split remains a fast-follow.
+- **O7-1 — hazard for HD.** Whether hazard retrieval must be run ahead of time for HD models (§10B.5). Cheryl investigating.
+- **O7-2 — enhanced risk data.** Not used today, may be HD-only; availability and whether CIC wants it being checked (§10B.5). Cheryl investigating.
+- **O8-1 — geocode/hazard version-stamp origin.** Confirm with Moody's where RM's geocode/hazard stamp comes from and what it gates; the workbench neither displays nor reads it (§10B.4). Cheryl / team.
+- **O8-3 — hazard-execution lineage detail.** What execution detail the workbench records and displays per hazard lookup, given a naive stamp read is insufficient (§10B.4). Ben; settled at Iteration 5 spec time.
 - **O14-4 — US/Canada default-settings list.** Cheryl drafts the CIC defaults to guide the manual suite setup on the admin page (starter-suite seeding deferred, spec 009 P-02); scope is US / Canada / US+Canada / global (~10 templates each). Cheryl → Ben.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
 - **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
@@ -1553,6 +1579,16 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ## 24. Change log
 
+### 2026-08-24 — Spec 009 reconciliation: templates/suites as built
+
+Scope: §2.6, §11.2, §11.3, §15.2, §21 Iteration 6, §23 locked + open decisions, this log — brings the PRD in line with the spec-009 decisions made in the 2026-08-18/20 design sessions (design notes 16–18). No CR (the feature shipped as specified; the PRD had kept the earlier drafts).
+
+- **Suites are unordered (P-08, reverses D10's "ordered"):** no item position, no per-item `portfolio_name_override`.
+- **Currency removed from templates entirely (P-11):** analysis currency, currency scheme, and scheme vintage are submit-time choices (Iteration 7), never stored on templates or suites.
+- **Template columns dropped (P-03/P-09):** `treaty_name_pattern`, `region_label`, `peril_code`, `auto_name_pattern` — region is not a stored attribute; auto-naming carries no template pattern.
+- **Starter-suite seeding and Excel export/import deferred out of MVP (P-02):** setup is manual via the admin page; **duplicate-and-edit (P-12)** is the near-term path. O14-2 closed by deferral; O14-3 resolved by P-03.
+- **§15.2 sync targets corrected to the six sets actually cached:** model profiles, output profiles, event rate schemes, currencies, currency schemes, currency scheme vintages. `irp_simulation_set`, `irp_tag`, `irp_database_server`, and `irp_edm_cache` are not synced and do not exist.
+
 ### 2026-08-20 — Design session 8/20 (note 17): currency to submit time, suite level; dedup dropped; submission tag
 
 Scope: §1.4 (template glossary), §11.1 (currency bullet), §11.2 (template fields), §11.3a (currency-in-modal bullet, direct-submit bullet), this log; `DATA_MODEL.md` §6/§7/§10 and `FUNCTIONAL_REQUIREMENTS.md` §4 updated the same day; spec 010 amended (P-02; new P-15/P-16/P-17). No CR.
@@ -1572,6 +1608,20 @@ Scope: §1.4 (template glossary), §2.6 (naming rule), §11.1a/§11.2/§11.3 (re
 - **Iteration 7 phased:** suite execution first, single-template execution second, loss retrieval later.
 - **§11 reconciled to spec 009 as shipped:** admin-gated create/edit/delete (P-01); starter seeding + CSV/Excel deferred (P-02); no stored region/peril fields (P-03, closes O14-3); unordered suites, no per-item settings (P-08); `treaty_name_pattern` dropped — treaties picked at run time (P-09, closes the O14-8 treaty question; LOB rides on tags/naming); currency + scheme + vintage all required, no submit-time defaulting (P-10); analysis settings surfaced in the builder with defaults (009 FR-005); `auto_name_pattern` dropped.
 
+### 2026-08-19 — Data version config collapsed to a single value
+
+Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — same day as the entry below. Risk Modeler
+does not accept the literal string `"latest"` for geohaz's `version` field; confirmed wrong before
+shipping. Data version stays config-owned, but the list-shaped `HAZARD_DATA_VERSIONS` (comma list,
+first entry used) is replaced with a single `HAZARD_DATA_VERSION` string (default `25.0`) — the
+launch is one-click with no dropdown, so the list never had more than one live member.
+
+### 2026-08-19 — Data version sends the literal "latest" (reverted same day)
+
+Scope: §10B.2, §21 Iteration 5, spec 007 (research R6) — Risk Modeler documentation appeared to
+confirm `version` accepts the literal string `"latest"`, resolved server-side. Reverted same day
+(entry above) after confirming Risk Modeler rejects the literal.
+
 ### 2026-08-17 — Session 8/14 reconciliation: suites before execution; predefined suites + administration
 
 Scope: §11 (header note, §11.1a, §11.2, §11.3, new §11.3a), §21 Iterations 6/7 swapped (cross-references renumbered in §2.6, the `cycle` note, §16.1, §21 Iterations 3/9/10), §23 locked + open decisions, this log. Reconciles the PRD with design session 8/14 (design note 14, D9–D14); `FUNCTIONAL_REQUIREMENTS.md` §4/§5 updated the same day. No CR (feature already in MVP; this re-sequences and pins its shape).
@@ -1582,6 +1632,28 @@ Scope: §11 (header note, §11.1a, §11.2, §11.3, new §11.3a), §21 Iterations
 - **New §11.3a — running a suite (D13/D14):** one-action default path, expand-to-deselect, batch apply loop, mismatch failures expected but surfaced with reason. Delivered with Iteration 7.
 - **§11.1a — analysis metadata screen:** model/output/accumulation profiles + currency schemes viewed in the workbench, created in Risk Modeler, synced back; event-rate schemes selected, never authored.
 - **Open items added:** O14-3 (region as a selection axis — resolve in the Iteration 6 spec), O14-4 (CIC default-settings list), O14-8 (LOB/treaties), O14-9 (auto-naming, folded into O7-3). GeoHaz and EDM-notes decisions from the same session (D1–D8) are tracked in design note 14 and land with their own features, not this pass.
+### 2026-08-17 — Portfolios table shows a Hazard Version column
+
+Scope: §10B.4 — approver direction (P-03/P-07), spec 007. Supersedes the 2026-08-12 entry's "no
+version stamps" framing below: the portfolios table's final column is now **"Hazard Version"**,
+showing a non-terminal geohaz job's in-line status or otherwise the portfolio's raw stored
+`hazardVersion`. The value still gates nothing — Risk Modeler's stamp is not read to block or permit
+any workbench action.
+
+### 2026-08-14 — DLM hazard lookup changed to one click
+
+Scope: §10B.1, §10B.2, §21 Iteration 5, and this log — applies design session D4 from `docs/design_session_notes/14_analysis_suites_first_geohaz_dlm_hazard_edm_notes.md`.
+
+- The analyst selects portfolios and clicks Run hazard lookup. No parameter modal opens.
+- Every workbench launch uses the first configured data version, DLM, earthquake + windstorm, previous locations not skipped, and user-defined hazard values overwritten.
+
+### 2026-08-12 — GeoHaz reconciled to the Aug 7 design session (Iteration 5 prep)
+
+Scope: §10B, §13.1 reference, §21 Iteration 5, §23 open decisions, this log — folds the 2026-08-07 design-session GeoHaz decisions (`docs/design_session_notes/10_edm_summary_submissions_geohaz_currency.md` §2) into the PRD ahead of the Iteration 5 spec. No CR (feature scope unchanged; the session settled how the op is launched and displayed).
+
+- **Multi-portfolio launch from the summary page (§10B.1).** Hazard lookup is launched from the EDM/portfolio summary page against one or more selected portfolios; one geohaz job per portfolio, one parameter set per launch. §10B previously said "a portfolio", singular.
+- **App-side lineage, not version stamps (new §10B.4).** The workbench displays no geocode/hazard version stamp and never reads RM's stamp to gate anything — a live analysis on stamp-less, parcel-geocoded data succeeded. Instead the summary page shows, per portfolio, whether hazard lookup has been run through the workbench and the in-line status of any non-terminal geohaz job (polling refresh; §14.7 SSE stays in Iteration 6). What execution detail is recorded and displayed per lookup is O8-3, settled at Iteration 5 spec time. The gate section moved from §10B.4 to §10B.5.
+- **§23** — added O8-1 (version-stamp origin, confirm with Moody's) and O8-3 (hazard-execution lineage detail).
 
 ### 2026-07-27 — Spec 003 amendment (issues #17 + #11): name collision blocks the save
 

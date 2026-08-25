@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.auth.password import hash_password, validate_password_requirements
+from app.routers._guards import require_admin
 from db import execute, execute_command
 
 router = APIRouter(prefix="/admin")
@@ -16,19 +17,11 @@ def _templates(request: Request):
     return request.app.state.templates
 
 
-def _require_admin(request: Request):
-    """Return current_user if admin, else redirect."""
-    user = getattr(request.state, "user", None)
-    if not user or not user.is_admin:
-        return None, RedirectResponse("/", status_code=302)
-    return user, None
-
-
 # ── GET /admin/users ──────────────────────────────────────────────────────────
 
 @router.get("/users", response_class=HTMLResponse)
 def user_list(request: Request):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     from app.nav import get_nav_context
@@ -59,7 +52,7 @@ def user_list(request: Request):
 
 @router.get("/users/new", response_class=HTMLResponse)
 def new_user_form(request: Request):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     from app.nav import get_nav_context
@@ -88,7 +81,7 @@ def create_user(
     password: str = Form(...),
     csrf_token: str = Form(...),
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
 
@@ -122,7 +115,7 @@ def create_user(
 
 @router.get("/users/{user_id}", response_class=HTMLResponse)
 def user_detail(request: Request, user_id: str):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     from app.nav import get_nav_context
@@ -167,7 +160,7 @@ def reset_password(
     new_password: str = Form(...),
     csrf_token: str = Form(...),
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -192,7 +185,7 @@ def assign_role(
     role_code: str = Form(...),
     csrf_token: str = Form(...),
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -221,7 +214,7 @@ def force_logout(
     user_id: str,
     csrf_token: str = Form(...),
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):
@@ -246,7 +239,7 @@ def provision_oidc_user(
     role_code: str = Form(...),
     csrf_token: str = Form(...),
 ):
-    current_user, redirect = _require_admin(request)
+    current_user, redirect = require_admin(request)
     if redirect:
         return redirect
     if not validate_csrf_token(csrf_token):

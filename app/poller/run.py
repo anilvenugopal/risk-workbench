@@ -42,11 +42,12 @@ from app.services import (
     edm_service,
     irp_gateway,
     irp_job_service,
+    portfolio_service,
     rdm_service,
     rwb_job_service,
 )
 from app.workers import dispatch
-from db import execute, get_connection
+from db import execute, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ _GETTERS = {
     "import_edm": irp_gateway.get_import_job,
     "import_rdm": irp_gateway.get_import_job,
     "analysis": irp_gateway.get_analysis_job,
+    "geohaz": irp_gateway.get_geohaz_job,
 }
 
 
@@ -150,11 +152,34 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
             "id": job["irp_analysis_id"]})
 
 
+def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    # _resolve_geohaz_metadata returns {} unless FINISHED, so a present value is
+    # already proof of a FINISHED run.
+    metadata = resolved.get("portfolio_metadata")
+    if metadata is not None:
+        portfolio_service.update_exposure_metrics(
+            conn, portfolio_id=job["irp_portfolio_id"], metrics=metadata)
+    # A hazard lookup writes hazard data onto the portfolio's locations, which
+    # advances Risk Modeler's stampDate. The breakout confirm compares that
+    # stamp against exposure_detail.stamp_date (spec 005 FR-002a), so without a
+    # re-sync every later breakout on this portfolio is refused as stale. The
+    # backfill rewrites metrics, summary, and stamp_date from one read, keeping
+    # the stored stamp and the summary it describes in step. Chained on any
+    # terminal status: a failed lookup can still have written part of its data.
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="irp_job", requestor_id=job["id"],
+        rwb_job_type="backfill_edm_detail",
+        input_data={"edm_id": str(job["irp_edm_id"])},
+        conn=conn,
+    )
+
+
 # terminal irp_job.status → handler (extended per user story).
 _TERMINAL_HANDLERS = {
     "import_edm": _handle_import_edm_terminal,
     "import_rdm": _handle_import_rdm_terminal,
     "analysis": _handle_analysis_terminal,
+    "geohaz": _handle_geohaz_terminal,
 }
 
 
@@ -183,6 +208,23 @@ def _resolve_edm_exposure_id(edm_id) -> str | None:
         return ids[-1]
 
 
+def _resolve_geohaz_metadata(job: dict, result) -> dict:
+    if result.status != "FINISHED" or not job.get("irp_portfolio_id"):
+        return {}
+    ids = execute_one(
+        "SELECT e.irp_id AS edm_irp_id, p.irp_id AS portfolio_irp_id "
+        "FROM irp_portfolio p JOIN irp_edm e ON e.id = p.edm_id "
+        "WHERE p.id = :id AND p.deleted_at IS NULL",
+        {"id": str(job["irp_portfolio_id"])}, connection="WORKBENCH")
+    if not ids or ids["edm_irp_id"] is None or ids["portfolio_irp_id"] is None:
+        logger.warning("portfolio metadata ids unavailable for irp_job=%s", job["id"])
+        return {}
+    exposure = irp_gateway.get_portfolio_exposure(
+        edm_irp_id=int(ids["edm_irp_id"]),
+        portfolio_irp_id=int(ids["portfolio_irp_id"]))
+    return {"portfolio_metadata": exposure.payload}
+
+
 # Terminal-time entity-id lookups that need a Risk Modeler call — run OUTSIDE the DB
 # transaction (Article 11: never hold a txn across a network round-trip). Each returns
 # a dict merged into the handler's ``resolved`` argument.
@@ -190,6 +232,31 @@ _TERMINAL_RESOLVERS = {
     "import_edm": lambda job, result: (
         {"edm_exposure_id": _resolve_edm_exposure_id(job["irp_edm_id"])}
         if result.status == "FINISHED" else {}),
+    "geohaz": _resolve_geohaz_metadata,
+}
+
+
+def _geohaz_completion_summary(result: dict | None) -> str | None:
+    """Return the GeoHaz task's summary text from a terminal completion body."""
+    if not isinstance(result, dict):
+        return None
+    tasks = result.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        output = task.get("output")
+        summary = output.get("summary") if isinstance(output, dict) else None
+        if isinstance(summary, str) and summary.strip():
+            return summary.strip()
+    return None
+
+
+# Per-type completion-summary extractor, applied only on a terminal write —
+# update_tracking keeps the stored summary unchanged while the job is running.
+_SUMMARIZERS = {
+    "geohaz": _geohaz_completion_summary,
 }
 
 
@@ -261,9 +328,15 @@ def _track_irp_jobs() -> None:
             try:
                 with get_connection("WORKBENCH") as conn:
                     with conn.begin():
+                        summary = None
+                        if result.status in irp_job_service.TERMINAL:
+                            summarizer = _SUMMARIZERS.get(job["irp_job_type"])
+                            if summarizer is not None:
+                                summary = summarizer(result.result)
                         irp_job_service.update_tracking(
                             conn, irp_job_id=job["id"], status=result.status,
-                            result=result.result)
+                            result=result.result, completion_summary=summary,
+                        )
                         if result.status in irp_job_service.TERMINAL:
                             handler = _TERMINAL_HANDLERS.get(job["irp_job_type"])
                             if handler is not None:

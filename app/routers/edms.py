@@ -28,6 +28,7 @@ from app.services import (
     analysis_execution_service,
     analysis_service,
     edm_service,
+    geohaz_service,
     portfolio_service,
     template_service,
     treaty_service,
@@ -35,6 +36,8 @@ from app.services import (
 from app.services.errors import (
     ConcurrencyConflict,
     EdmCatalogUnavailable,
+    GeohazLaunchConflict,
+    InvalidGeohazLaunch,
     InvalidMemberName,
     InvalidSourceFile,
     NameCollisionError,
@@ -254,7 +257,9 @@ def _detail(request: Request, edm_id: str, status_code: int = 200):
     # name-collision check couldn't reach Risk Modeler.
     return _render(request, "pages/edm_detail.html",
                    {"edm": edm,
-                    "nc_unchecked": request.query_params.get("nc") == "unchecked"},
+                    "nc_unchecked": request.query_params.get("nc") == "unchecked",
+                    "geohaz_queued": request.query_params.get("geohaz") == "queued",
+                    "geohaz_error": request.query_params.get("geohaz_error")},
                    status_code=status_code)
 
 
@@ -312,7 +317,12 @@ def contextual_detail(request: Request, submission_id: str, edm_id: str):
         return _contextual_not_found(request)
     return _render(
         request, "pages/edm_detail.html",
-        {**_contextual_template_context(context), "nc_unchecked": False},
+        {
+            **_contextual_template_context(context),
+            "nc_unchecked": False,
+            "geohaz_queued": request.query_params.get("geohaz") == "queued",
+            "geohaz_error": request.query_params.get("geohaz_error"),
+        },
         nav_key="submissions.detail")
 
 
@@ -666,6 +676,87 @@ async def delete_analyses(request: Request, edm_id: str):
     return _delete_analyses_response(request, edm_id, form)
 
 
+@router.post("/edms/{edm_id}/geohaz")
+def geohaz_launch(
+    request: Request,
+    edm_id: str,
+    csrf_token: Annotated[str, Form()],
+    portfolio_ids: Annotated[list[str] | None, Form()] = None,
+    submission_id: Annotated[str | None, Form()] = None,
+):
+    is_htmx = request.headers.get("HX-Request") == "true"
+    submission_id = submission_id or None
+    return_url = (
+        f"/submissions/{submission_id}/edms/{edm_id}"
+        if submission_id else f"/edms/{edm_id}"
+    )
+    if not validate_csrf_token(csrf_token):
+        if is_htmx:
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(return_url, status_code=303)
+
+    if submission_id and edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
+        return _contextual_not_found(request)
+
+    selected = portfolio_ids or []
+    error: str | None = None
+    try:
+        launched = geohaz_service.launch(
+            edm_id=edm_id,
+            portfolio_ids=selected,
+            actor_id=request.state.user.id,
+        )
+    except (InvalidGeohazLaunch, GeohazLaunchConflict) as exc:
+        error = str(exc)
+        if not is_htmx:
+            query = urlencode({"geohaz_error": error})
+            return RedirectResponse(f"{return_url}?{query}", status_code=303)
+
+    if not is_htmx:
+        return RedirectResponse(f"{return_url}?geohaz=queued", status_code=303)
+
+    response = (
+        _contextual_body_partial(request, submission_id, edm_id)
+        if submission_id else _body_partial(request, edm_id)
+    )
+    if error is not None:
+        response.headers["HX-Trigger"] = json.dumps(
+            {"rwb:toast": {"message": error, "type": "error"}})
+    else:
+        message = (
+            f"Hazard lookup queued for {len(launched)} "
+            f"portfolio{'s' if len(launched) != 1 else ''}."
+        )
+        response.headers["HX-Trigger"] = json.dumps(
+            {"rwb:toast": {"message": message, "type": "success"}})
+    return response
+
+
+@router.get(
+    "/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell",
+    response_class=HTMLResponse,
+)
+def geohaz_cell(request: Request, edm_id: str, portfolio_id: str):
+    # 200 always: htmx never swaps a non-2xx response, so a 404 here would leave
+    # a deleted portfolio's cell polling forever. The terminal fragment carries
+    # no hx-* attributes, and the swap itself ends the poll — the same pattern
+    # as _body_partial's EDM-gone terminal notice.
+    # Scoped to one portfolio, so the read returns at most one entry.
+    entry = next(iter(
+        geohaz_service.read(edm_id=edm_id, portfolio_id=portfolio_id).values()), None)
+    return _partial(
+        request,
+        "partials/geohaz_cell.html",
+        {
+            "edm_id": edm_id,
+            "state": entry.state if entry else None,
+            "latest": entry.latest if entry else None,
+            "refresh_details": True,
+        },
+    )
+
+
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
     """The shell-less #edm-detail wrapper — the HTMX swap/poll unit."""
     edm = edm_service.get_edm_detail(edm_id)
@@ -678,9 +769,12 @@ def _body_partial(request: Request, edm_id: str, *, poll: bool = False):
             '</div></div>')
     if poll and edm.sync_running and edm.detail_state == "populated":
         # A populated page mid-sync: swapping the body every 3s would collapse
-        # every <details> the analyst opened. 204 → htmx swaps nothing and the
-        # poll keeps ticking; the first post-sync poll returns the fresh body
-        # (whose trigger is gone), rendering the result exactly once.
+        # every <details> the analyst opened and — because #edm-detail is the
+        # page's scrolling element — scroll them back to the top. 204 → htmx
+        # swaps nothing and the poll keeps ticking; the first post-sync poll
+        # returns the fresh body (whose trigger is gone), rendering the result
+        # exactly once. A breakout episode is served by the Portfolios
+        # section's own poll instead (T-11 — portfolios_section below).
         return Response(status_code=204)
     return _partial(request, "partials/edm_detail_body.html", {"edm": edm})
 
@@ -694,6 +788,41 @@ def detail_body(request: Request, edm_id: str):
     204 (poll continues, nothing swaps) so open rows aren't collapsed. No writes,
     no Risk Modeler call (Article 11)."""
     return _body_partial(request, edm_id, poll=True)
+
+
+@router.get("/edms/{edm_id}/portfolios-section", response_class=HTMLResponse)
+def portfolios_section(request: Request, edm_id: str,
+                       submission_id: str | None = None):
+    """The Portfolios section on its own, for the breakout-episode poll (T-11).
+
+    A breakout changes only that section — the completion banner, the source
+    row's ``N of M`` counter, the generated rows, the per-row failure lines —
+    so the section polls this route every 3s instead of the whole body: the
+    body wrapper ``#edm-detail`` is the page's scrolling element, and replacing
+    it scrolled the analyst back to the top every cycle. The response also
+    OOB-swaps the header meta line and the rollup strip, the two places outside
+    the section that carry a portfolio count. The template emits the ``every 3s``
+    trigger only while the breakout episode is live (the run itself, or its
+    FR-013 follow-up backfill filling figures in), so polling self-terminates.
+
+    ``submission_id`` is the submission the analyst came through, carried on the
+    poll URL and handed straight back to the GeoHaz form's hidden input so a
+    launch after a swap still returns to the submission-scoped page. It is not
+    validated here — nothing is read with it; POST /edms/{id}/geohaz rejects a
+    submission the EDM does not belong to.
+
+    Read-only — no writes, no Risk Modeler call (Article 11)."""
+    edm = edm_service.get_edm_detail(edm_id)
+    if edm is None:
+        # EDM hard-gone mid-poll: a terminal notice with no trigger, so the
+        # every-3s poll ends instead of 404-looping (the body-poll precedent).
+        return HTMLResponse(
+            '<details class="sec" open id="edm-portfolios">'
+            '<summary><span class="sec__title">Portfolios</span></summary>'
+            '<div class="state-box state-box--warn">This EDM no longer exists.'
+            '</div></details>')
+    return _partial(request, "partials/edm_portfolios_live.html",
+                    {"edm": edm, "gh_sub": submission_id})
 
 
 @router.post("/edms/{edm_id}/retry")

@@ -31,6 +31,8 @@ from urllib.parse import quote
 
 from app.services import (
     analysis_service,
+    breakout_service,
+    geohaz_service,
     irp_gateway,
     name_check,
     portfolio_service,
@@ -398,6 +400,13 @@ class EdmDetail:
     # Modeler message (``latest_import_error``) — set only when status ==
     # 'error'; None when the failure recorded no submit detail.
     import_error: str | None = None
+    # Spec 005 (FR-012): a ``run_breakout_*`` job on one of this EDM's
+    # portfolios is pending|running — keeps the body's 3s self-poll alive so
+    # generated rows appear as the worker upserts them.
+    breakout_running: bool = False
+    # The newest terminal breakout job's completion banner
+    # (breakout_service.BreakoutBanner) — None when nothing warrants one.
+    breakout_banner: Any = None
 
 
 @dataclass
@@ -409,22 +418,13 @@ class ContextualEdmDetail:
 
 
 def latest_backfill_status(edm_id: str) -> str | None:
-    """The newest ``backfill_edm_detail`` job status for this EDM across BOTH
-    enqueue sources: the poller's heads key on the finished ``import_edm``
-    irp_job (hence the join), the manual Sync's key on ``(analyst_request,
-    edm_id)`` directly. Newest ``updated_at`` wins — a revived (re-synced) row
-    keeps its ``inserted_at``, so insert order would lie. ``None`` when detail
-    backfill never ran — the pre-capability / forward-only state."""
-    row = execute_one(
-        "SELECT rj.status_code FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e)) "
-        "ORDER BY rj.updated_at DESC",
-        {"e": edm_id}, connection="WORKBENCH")
-    return row["status_code"] if row is not None else None
+    """The newest ``backfill_edm_detail`` job status for this EDM across its
+    three enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
+    membership predicate. Newest ``updated_at`` wins — a revived (re-synced)
+    row keeps its ``inserted_at``, so insert order would lie. ``None`` when
+    detail backfill never ran — the pre-capability / forward-only state."""
+    rows = rwb_job_service.backfill_edm_detail_rows([edm_id])
+    return rows[0]["status_code"] if rows else None
 
 
 def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
@@ -432,23 +432,7 @@ def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
     newest ``updated_at`` per EDM reduced app-side. Every requested id gets a
     key; EDMs whose detail backfill never ran map to ``None``."""
     statuses: dict[str, str | None] = {str(e): None for e in edm_ids}
-    if not statuses:
-        return statuses
-    params = {f"e{i}": value for i, value in enumerate(statuses)}
-    placeholders = ", ".join(f":e{i}" for i in range(len(statuses)))
-    rows = execute(
-        "SELECT rj.status_code, "
-        "COALESCE(ij.irp_edm_id, rj.requestor_id) AS edm_id "
-        "FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        f"AND (ij.irp_edm_id IN ({placeholders}) "
-        "     OR (rj.requestor_type = 'analyst_request' "
-        f"         AND rj.requestor_id IN ({placeholders}))) "
-        "ORDER BY rj.updated_at DESC",
-        params, connection="WORKBENCH")
-    for row in rows:
+    for row in rwb_job_service.backfill_edm_detail_rows(list(statuses)):
         key = str(row["edm_id"])
         if statuses.get(key) is None:
             statuses[key] = row["status_code"]
@@ -503,9 +487,21 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
     if row is None:
         return None
     portfolios = portfolio_service.list_portfolios(edm_id=eid)
+    geohaz = geohaz_service.read(edm_id=eid)
+    for portfolio in portfolios:
+        entry = geohaz.get(portfolio.id)
+        if entry is not None:
+            portfolio.geohaz_state = entry.state
+            portfolio.geohaz_latest = entry.latest
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
     executed_analyses = analysis_service.list_executed_analyses(edm_id=eid)
+    # Spec 005: in-flight indicator, completion banner, and durable per-row
+    # error lines for the breakout fan-out (FR-012) — WORKBENCH reads only.
+    breakout = breakout_service.page_state(eid)
+    for p in portfolios:
+        p.breakout_flight = breakout.flights.get(p.id)
+        p.breakout_errors = breakout.errors.get(p.id, [])
     job_status = latest_backfill_status(eid)
     return EdmDetail(
         id=_uid(row["id"]),
@@ -529,6 +525,8 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
+        breakout_running=breakout.running,
+        breakout_banner=breakout.banner,
     )
 
 

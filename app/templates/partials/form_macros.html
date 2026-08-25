@@ -1,8 +1,8 @@
 {# Shared fragments for the template builder and template/metadata tables. #}
 
-{% macro family_badge(family) -%}
+{% macro family_badge(family, sm=false) -%}
   {%- if family -%}
-  <span class="badge badge--{{ 'warning' if family == 'Accumulation' else ('info' if family == 'HD' else 'brand') }}">{{ family }}</span>
+  <span class="badge badge--{{ 'warning' if family == 'Accumulation' else ('info' if family == 'HD' else 'brand') }}{{ ' badge--sm' if sm }}">{{ family }}</span>
   {%- endif -%}
 {%- endmacro %}
 

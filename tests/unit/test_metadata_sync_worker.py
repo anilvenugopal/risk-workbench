@@ -6,8 +6,10 @@ from app.services.irp_gateway import (
     CurrencyEntry,
     CurrencySchemeEntry,
     CurrencySchemeVintageEntry,
+    EventRateSchemeEntry,
     ModelProfileEntry,
 )
+from app.services.template_service import set_scheme_visibility
 from app.workers import metadata_jobs
 from db import execute
 
@@ -60,6 +62,20 @@ def test_resync_updates_names_and_removes_vanished_rows(iteration2_db, fake_irp)
     assert [row["code"] for row in _rows("irp_currency", "code")] == ["CAD"]
     assert [row["code"] for row in _rows("irp_currency_scheme", "irp_id")] == [
         "RMS"]
+
+
+def test_resync_preserves_workbench_scheme_visibility(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    set_scheme_visibility(20, False)
+    fake_irp.event_rate_schemes = [
+        EventRateSchemeEntry(20, "RMS WS renamed", "WS", "NAWS", "25.0", False)]
+
+    result = metadata_jobs._sync_irp_metadata_body()
+
+    assert result.status == "succeeded"
+    scheme = _rows("irp_event_rate_scheme", "irp_id")[0]
+    assert scheme["name"] == "RMS WS renamed"
+    assert scheme["workbench_is_active"] == 0
 
 
 def test_resync_replaces_currency_scheme_vintages_wholesale_including_duplicates(

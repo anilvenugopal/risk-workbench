@@ -3,6 +3,8 @@
 <option value="{{ option.name }}"{% if option.selected %} selected{% endif %}>
   {%- if option.unresolved -%}
   {{ option.name }} (not found in Risk Modeler)
+  {%- elif option.hidden -%}
+  {{ option.name }} (hidden in Analysis Metadata)
   {%- else -%}
   {{ option.name }} — {{ option.peril_code or '?' }} · {{ option.model_region_code or '?' }}
   {%- endif -%}

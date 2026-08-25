@@ -316,6 +316,8 @@ Reviewing broker-provided results and settings. Full results review and delivery
 
 Re-shaping exposure to match treaty terms before analysis. This cannot be done in the current workflow tool (done in RiskLink today, which is slow); Risk Modeler makes it fast and synchronous, so it becomes a *preferred* path.
 
+> **Build record (2026-08-05; rev. 2026-08-12, spec 005 P-19 rev.).** One-click breakouts shipped in Iteration 4 with four quick dimensions — line of business, state, country, and peril — plus custom groups (analyst-defined filter sets): see `specs/005-subportfolio-breakouts/spec.md` and PRD §10A.5/§21. The 2026-07-29 product direction resolved the commercial-geo open question below (Risk Modeler assigns whole accounts; accepted and disclosed in the preview). The filtered sub-portfolio builder and the complement split are fast-follows.
+
 | Requirement | Implementation | Notes |
 |---|---|---|
 | Sub-portfolios are created by filtering an EDM's exposure. | Not implemented | To match terms the broker didn't break out — e.g. isolate a state with a different retention, or exclude a line of business. |
@@ -328,8 +330,9 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| One-click breakout by line of business creates one sub-portfolio per LOB. | Not implemented | Simplest case; unaffected by the commercial-geo problem below. |
-| One-click breakout by state/country creates one sub-portfolio per geography. | Not implemented |  |
+| One-click breakout by line of business creates one sub-portfolio per LOB. | Implemented | Simplest case; unaffected by the commercial-geo problem below. |
+| One-click breakout by state/country creates one sub-portfolio per geography. | Implemented | State/state-equivalent and country grain (spec 005). |
+| One-click breakout by peril creates one sub-portfolio per peril. | Implemented | P-19 rev. 2026-08-12 promoted peril to a quick dimension. |
 | One-click complement split ("X vs. not-X") creates one portfolio for selected states and one for everything else. | Not implemented | e.g. Northeast and everything-not-Northeast, from a single action. |
 | Breakouts sum to 100% of the source portfolio. | Not implemented | Not "run the whole thing, then a subset, and subtract" — that's messy. |
 | A "do the opposite" option produces the complement of a defined filter without re-coding it. | Not implemented | Define "Florida mobile home" once and also get "everything that's not Florida mobile home." |
@@ -338,7 +341,9 @@ Re-shaping exposure to match treaty terms before analysis. This cannot be done i
 
 > **Open question — commercial-policy geographic split (blocking for the geography breakouts).** Splitting a multi-location commercial policy geographically breaks its financial structure and can double-count in a complement split (keep-all-locations behavior). Whether Risk Modeler keeps all locations or only matching ones — and whether it exposes a toggle — is unconfirmed; a RiskLink "checkbox" recollection is not load-bearing. Output-side alternative: write losses to the state level and let the model allocate back. Ben investigating RM behavior; Cheryl polling the team for the preferred default. (Design note 06 §3, O6-1/O6-2.)
 
-**Out of scope for MVP:** peril splitting / peril-specific portfolios (no longer needed — "we don't have to split it up by peril"; verify whether RM adds a missing peril); update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
+Peril splitting ships as a quick breakout dimension (spec 005 P-19 rev., 2026-08-12) — verify separately whether RM adds a missing peril.
+
+**Out of scope for MVP:** update/change data elements; data validation reports; exposure profiling / loading summaries to the Exposure Repository; **merge/combine portfolios** (recombination happens on results, not exposure — design note 06 §4).
 
 ---
 
@@ -367,7 +372,7 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | DLM requires an event-rate scheme. | Implemented | Determined by the model profile, not the file; enforced at template save. |
 | HD makes the event-rate scheme optional. | Implemented | Determined by the model profile, not the file. |
 | Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Implemented | **Added 8/14.** The analysis-metadata screen: five tabs (model profiles, output profiles, event-rate schemes, currencies, currency schemes with vintages); same pattern as EDM data — selected, not owned. Accumulation profiles await a tabled irp-integration read (spec 009 FR-001). |
-| Event-rate schemes are selected, never authored. | Implemented | **Added 8/14.** CIC does not create custom event rates. |
+| Event-rate schemes are selected, never authored. | Implemented | **Added 8/14.** CIC does not create custom event rates. Admins can hide schemes from the pickers (spec 009 P-13). |
 
 **Templates & suites**
 
@@ -377,7 +382,7 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 | A suite is an unordered set of templates. | Implemented | **Changed 8/18 (spec 009 P-08)** — was "ordered". No item order, no per-item settings; a template appears at most once per suite. e.g. "Global 2026 Q1." |
 | A suite is defined primarily by region and output level. | Implemented | **Added 8/14.** Both conveyed by the suite's name, not stored fields (spec 009 P-03); the other settings are standardized within the suite. |
 | Suites are predefined, not freeform user-built. | Implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Create/edit/delete is admin-role-gated (spec 009 P-01); every analyst can view. Exceptions drop to the long list or Risk Modeler. |
-| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Nothing is seeded — starter suites (US, Canada, US+Canada, global) are set up manually on this page (spec 009 P-02). |
+| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Nothing is seeded — starter suites (US, Canada, US+Canada, global) are set up manually on this page (spec 009 P-02); duplicate-and-edit (P-12) is the fast path. |
 | Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Deferred 8/19 (spec 009 P-02).** Nice-to-have; the worked design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`. |
 | A suite may mix DLM, HD, and accumulation templates. | Implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
 | Line of business is a further suite axis carrying different settings. | Implemented | **Added 8/14.** Property / auto / workers comp; carried via template tags and naming convention — no dedicated LOB field. |
@@ -399,17 +404,22 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Hazard lookup can be run on a portfolio. | Not implemented |  |
-| Geocoding is not re-run by default. | Not implemented | Broker geocoding is preserved — Cheryl has never re-geocoded in this role. |
+| Hazard lookup can be launched from the EDM/portfolio summary page against one or more selected portfolios. | Implemented | One geohaz job per portfolio, one parameter set per launch. Spec 007 (Iteration 5), FR-001. |
+| Hazard lookup starts with one click and no parameter modal. | Implemented | Every launch uses the standard DLM parameters. Spec 007, FR-002. |
+| Geocoding is not re-run by default. | Implemented | Broker geocoding is preserved — Cheryl has never re-geocoded in this role. Spec 007, FR-005. |
 | Re-geocoding, if ever needed, is done intentionally inside the model. | Not implemented | Not a workbench action. |
-| Hazard lookup defaults to the latest data version. | Not implemented | v25 as of now. |
-| Hazard lookup defaults to DLM (non-HD). | Not implemented |  |
-| Missing locations are not skipped; they are overwritten. | Not implemented | "The more comprehensive the data, the better." |
-| Earthquake and windstorm perils are selected by default. | Not implemented | Toggleable. |
-| Running an inapplicable peril returns zero for that layer, not a failure. | Not implemented | e.g. earthquake on a windstorm book. |
-| The hazard job returns a summary of locations looked up per layer. | Not implemented |  |
+| Hazard lookup uses the configured `HAZARD_DATA_VERSION`. | Implemented | v25 as of now. Spec 007, FR-002. |
+| Hazard lookup uses DLM (non-HD). | Implemented | Spec 007, FR-002. |
+| Previously looked-up locations are not skipped. User-defined hazard values are overwritten. | Implemented | "The more comprehensive the data, the better." Spec 007, FR-002. |
+| Hazard lookup runs earthquake and windstorm. | Implemented | Fixed for the one-click DLM launch. Spec 007, FR-002. |
+| Running an inapplicable peril returns zero for that layer, not a failure. | Implemented | e.g. earthquake on a windstorm book — Risk Modeler behavior; the workbench submits both perils and displays whatever `tasks[].output.summary` reports. |
+| The hazard job returns a summary of locations looked up per layer. | Implemented | Shown as Result in the expanded portfolio row. Spec 007, FR-022/FR-023. |
+| The summary page shows, per portfolio, whether hazard lookup has been run through the workbench, with in-line status of any running geohaz job. | Implemented | The portfolios table's Hazard Version column; app-side execution history from `irp_job`. Spec 007, FR-011/FR-012. |
+| The portfolios table displays the raw `hazardVersion`, and RM's stamp is never read to gate anything. | Implemented | Reverses the earlier "no geocode/hazard version stamp is displayed" row (2026-08-19): the stamp is displayed, and the unchanged half is that it never gates anything. The Hazard Version column shows the job's in-line status while non-terminal, then the raw stored `hazardVersion` (empty when absent); stamp origin is still O8-1. Spec 007, FR-013 (P-03). |
 
 > **Open questions — hazard for HD / enhanced risk data.** Whether hazard retrieval must be run ahead of time for HD models is unconfirmed (O7-1). Enhanced risk data is not used today and may be HD-only; availability and whether CIC will want it is being checked (O7-2). Cheryl investigating both. (Design note 07 §1.3.)
+>
+> **Open questions — version stamp / lineage detail.** Where RM's geocode/hazard stamp comes from and what it gates (O8-1, Cheryl/team with Moody's); what execution detail the workbench records and displays per hazard lookup (O8-3, Ben — settled at Iteration 5 spec time). (Design note 10 §2/§7.)
 
 **Treaty & reinsurance editing — pass-through**
 

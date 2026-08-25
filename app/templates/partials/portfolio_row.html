@@ -2,13 +2,14 @@
    FR-012/FR-013). Context: `p` (portfolio_service.PortfolioRow). The snapshot
    is namespaced (data-model §2): "metrics" = RM /metrics verbatim (counts +
    perilsExposed string); "summary" = the DataBridge aggregate
-   (geography/LOB/currency), null until available. Rows written before
-   2026-07-23 hold the flat /metrics payload — `m` falls back to the flat
-   shape. Every field is read defensively; a missing field renders "—", never
-   an error. Records == locations, so there is no separate Records column
-   (preview rev 7). Expanding the row (8/4 CR15) reveals the FULL value lists
-   the collapsed cells truncate — lines of business, countries, states,
-   currencies — capped at 100 values each (CR19). #}
+   (geography/LOB/currency), null until available. Every field is read
+   defensively; a missing field renders "—", never an error. Records ==
+   locations, so there is no separate Records column (preview rev 7).
+   Expanding the row (8/4 CR15) reveals the FULL value lists the collapsed
+   cells truncate — lines of business, countries, states, currencies —
+   capped at 100 values each (CR19) — and, on a generated sub-portfolio, its
+   lineage: the base portfolio and the breakout criteria (FR-014 as revised
+   2026-08-11; the collapsed row carries no lineage). #}
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
   {%- elif v is number -%}{{ '{:,.0f}'.format(v) }}
@@ -19,22 +20,53 @@
   {%- if vals -%}{{ vals|join(', ') }}{%- else -%}<span class="na">&mdash;</span>{%- endif -%}
 {%- endmacro -%}
 {%- set d = p.exposure_detail or {} -%}
-{%- set m = d.get('metrics') or d -%}
+{%- set m = d.get('metrics') or {} -%}
 {%- set s = d.get('summary') or {} -%}
 {%- set lobs = s.get('lines_of_business') or [] -%}
 {%- set countries = s.get('countries') or [] -%}
-{%- set states = s.get('states') or [] -%}
+{#- spec 005 (P-12 as revised 2026-08-05): a state carries its display label
+    (Admin1Name) where the summary's breakout_values hold one, falling back to
+    the Admin1Code — "St Croix", never "010". A pre-005 snapshot has no
+    breakout_values and renders its states list verbatim (the old name/code
+    mix). -#}
+{%- set states = [] -%}
+{%- set state_entries = (s.get('breakout_values') or {}).get('state') -%}
+{%- if state_entries -%}
+  {%- for e in state_entries -%}{%- set _ = states.append(e.get('label') or e.get('value')) -%}{%- endfor -%}
+{%- else -%}
+  {%- set states = s.get('states') or [] -%}
+{%- endif -%}
 {%- set curr = s.get('currencies') or [] -%}
 <details class="drow" id="portfolio-{{ p.id }}">
   <summary>
+  {% with portfolio_id=p.id, portfolio_name=p.name,
+          eligible=not p.geohaz_state.live %}
+    {% include "partials/geohaz_checkbox.html" %}
+  {% endwith %}
   <span class="l">
-    <span class="dt-name">
-      <input type="checkbox" name="portfolio_ids" value="{{ p.id }}" onclick="event.stopPropagation()" @change="onChange()">
-      <span class="dt-caret">▸</span>
+    <span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title">{{ p.name }}</span>
-        {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+        <span class="dt-subline">
+          {# spec 005 US3 (FR-014 rev. 2026-08-11): the collapsed row marks a
+             generated sub-portfolio with the arrow and nothing more — the base
+             portfolio and the criteria are in the expanded panel below. #}
+          {% if p.source_name %}<span class="dt-frommark" title="Broken out from {{ p.source_name }} — expand the row for the breakout criteria">↳</span>{% endif %}
+          {% if p.irp_id %}<span class="dt-sub">Portfolio #{{ p.irp_id }}</span>{% endif %}
+        </span>
       </span>
+      {# spec 005 (FR-001): the breakout entry point / in-flight indicator,
+         near the expand affordance; EDM ready only. Clicking must not toggle
+         the row — interactive elements inside <summary> don't, and the
+         stopPropagation matches the section-header action precedent. #}
+      {% if p.breakout_flight %}
+      <span class="bo-inline" title="a {{ p.breakout_flight.noun }} breakout is running for this portfolio"><span class="bo-spinner"></span>{{ p.breakout_flight.done }} of {{ p.breakout_flight.planned }}</span>
+      {% elif edm is defined and edm.status == 'ready' %}
+      <button class="bo-btn" type="button" onclick="event.stopPropagation()"
+              hx-get="/edms/{{ edm.id }}/portfolios/{{ p.id }}/breakout"
+              hx-target="#breakout-modal-mount" hx-swap="innerHTML"
+              title="One sub-portfolio per value of the chosen dimension, or custom breakouts">Break out</button>
+      {% endif %}
     </span>
   </span>
   <span>{{ num(m.get('totalLocations')) }}</span>
@@ -69,21 +101,68 @@
       {{ curr[:3]|join(', ') }}{% if curr|length > 3 %} <span class="dt-geo-sub">+{{ curr|length - 3 }}</span>{% endif %}
     {%- else -%}<span class="na">&mdash;</span>{%- endif -%}
   </span>
+  {% with state=p.geohaz_state, edm_id=p.edm_id %}
+  {% include "partials/geohaz_cell.html" %}
+  {% endwith %}
   </summary>
   <div class="drow__body drow__body--recessed">
-    {% if lobs or countries or states or curr %}
-    <dl class="drow-lists">
-      {% for label, values in [('Lines of business', lobs), ('Countries', countries),
-                               ('States', states), ('Currencies', curr)] if values %}
+    <div class="portfolio-detail-columns">
       <div>
-        <dt>{{ label }} ({{ values|length }})</dt>
-        <dd>{{ values[:100]|join(', ') }}{% if values|length > 100 %} <span class="na">… +{{ values|length - 100 }} more not shown</span>{% endif %}</dd>
+        {# spec 005 US3 (FR-014 as revised 2026-08-11): lineage renders here, in
+           the expanded panel of a generated row only — the IMMEDIATE source,
+           never a rendered chain, plus the breakout criteria in the Risk
+           Modeler description format. Base and broker-arrived rows render none
+           of it. #}
+        {% if p.source_name %}
+        <dl class="drow-lists drow-lineage">
+          <div>
+            <dt>Base portfolio</dt>
+            <dd>{{ p.source_name }}</dd>
+          </div>
+          <div>
+            <dt>Breakout criteria</dt>
+            <dd>
+              {%- if p.breakout_dimension_code == 'custom' -%}
+                {%- if p.breakout_group_filters -%}
+                  {%- for dim, vals in p.breakout_group_filters|dictsort -%}
+                    {{ dim }} IN ({{ vals|map('breakout_display', dim)|join(', ') }}){% if not loop.last %} AND {% endif %}
+                  {%- endfor -%}
+                {%- else -%}{{ p.breakout_group_label or p.breakout_value }}{%- endif -%}
+              {%- else -%}
+                {{ p.breakout_dimension_label or p.breakout_dimension_code }} IN ({{ p.breakout_value_label or (p.breakout_value | breakout_display(p.breakout_dimension_code)) }})
+              {%- endif -%}
+            </dd>
+          </div>
+        </dl>
+        {% endif %}
+        {% if lobs or countries or states or curr %}
+        <dl class="drow-lists">
+          {% for label, values in [('Lines of business', lobs), ('Countries', countries),
+                                   ('States', states), ('Currencies', curr)] if values %}
+          <div>
+            <dt>{{ label }} ({{ values|length }})</dt>
+            <dd>{{ values[:100]|join(', ') }}{% if values|length > 100 %} <span class="na">… +{{ values|length - 100 }} more not shown</span>{% endif %}</dd>
+          </div>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <p class="tag-empty" style="margin:0">No value lists available — the
+          DataBridge summary hasn't been stored for this portfolio.</p>
+        {% endif %}
       </div>
-      {% endfor %}
-    </dl>
-    {% else %}
-    <p class="tag-empty" style="margin:0">No value lists available — the
-      DataBridge summary hasn't been stored for this portfolio.</p>
-    {% endif %}
+      {% with portfolio_id=p.id, latest=p.geohaz_latest %}
+        {% include "partials/geohaz_details.html" %}
+      {% endwith %}
+    </div>
   </div>
 </details>
+{# spec 005 (FR-012): durable per-row failure lines from the LATEST terminal
+   breakout run per dimension — server-rendered, survive refresh, no dismissal;
+   superseded only by the next terminal run. Re-run = the same Break out
+   confirm (idempotent); zero-match reasons already point at Sync. #}
+{% for be in p.breakout_errors %}
+<div class="bo-row-error">
+  <strong>{% if be.value %}{{ be.value }}{% if be.name %} — {{ be.name }}{% endif %} failed:{% else %}{{ be.noun|capitalize }} breakout failed:{% endif %}</strong>
+  {{ be.error }}
+</div>
+{% endfor %}

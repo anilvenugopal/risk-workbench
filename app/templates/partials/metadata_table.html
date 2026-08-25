@@ -49,7 +49,7 @@
         {% elif active_tab == "output-profiles" %}
         <tr><th>Name</th><th>Risk Modeler ID</th><th>Default</th></tr>
         {% elif active_tab == "event-rate-schemes" %}
-        <tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th></tr>
+        <tr><th>Name</th><th>Peril code</th><th>Model region</th><th>Model version</th><th>HD</th><th>Active</th></tr>
         {% elif active_tab == "currencies" %}
         <tr><th>Code</th><th>Name</th><th>Country</th><th>Symbol</th></tr>
         {% else %}
@@ -69,7 +69,27 @@
           {% elif active_tab == "output-profiles" %}
           <tr><td>{{ row.name }}</td><td class="mono">{{ row.irp_id }}</td><td>{{ 'Yes' if row.rms_default else '—' }}</td></tr>
           {% elif active_tab == "event-rate-schemes" %}
-          <tr><td>{{ row.name }}</td><td class="mono">{{ row.peril_code or '—' }}</td><td class="mono">{{ row.model_region_code or '—' }}</td><td class="mono">{{ row.model_version_code or '—' }}</td><td>{{ 'Yes' if row.is_hd else 'No' }}</td></tr>
+          <tr>
+            <td>{{ row.name }}</td>
+            <td class="mono">{{ row.peril_code or '—' }}</td>
+            <td class="mono">{{ row.model_region_code or '—' }}</td>
+            <td class="mono">{{ row.model_version_code or '—' }}</td>
+            <td>{{ 'Yes' if row.is_hd else 'No' }}</td>
+            <td>
+              {% if current_user and current_user.is_admin %}
+              <form hx-post="/templates/metadata/event-rate-schemes/{{ row.irp_id }}/visibility?tab={{ active_tab }}&q={{ q | urlencode }}"
+                    hx-target="#metadata-content" hx-swap="outerHTML"
+                    hx-trigger="change">
+                <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+                <input type="checkbox" name="is_active" value="1"
+                       {% if row.workbench_is_active %}checked{% endif %}
+                       aria-label="Show {{ row.name }} in scheme pickers">
+              </form>
+              {% else %}
+              {{ 'Yes' if row.workbench_is_active else '—' }}
+              {% endif %}
+            </td>
+          </tr>
           {% elif active_tab == "currencies" %}
           <tr><td class="mono">{{ row.code }}</td><td>{{ row.name }}</td><td>{{ row.country_name or '—' }}</td><td>{{ row.symbol or '—' }}</td></tr>
           {% else %}

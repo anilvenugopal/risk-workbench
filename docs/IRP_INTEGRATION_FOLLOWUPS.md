@@ -263,6 +263,46 @@ adopting those).
 
 ---
 
+## Spec-005 breakout surface — shipped in TestPyPI `0.3.0` (2026-08-04, PR #21)
+
+The portfolio-breakout iteration consumed these library changes, delivered on branch
+`feature/filtered-subportfolio-creation` and published as **TestPyPI `0.3.0`**
+(`make irp-testpypi`; signatures re-confirmed against the installed wheel):
+
+- `portfolio.search_accounts_by_portfolio_paginated`, `search_policies_paginated`,
+  `search_locations_paginated` — paginated selection reads with completeness
+  checking. **Note the ceiling:** the account search refuses past **100,000 records**
+  because it can no longer prove the page sequence is complete (observed on a
+  248,000-account portfolio, spec 005 W-20) — which is why the workbench's breakout
+  selection runs as one set-based DataBridge query
+  (`sql/databridge/breakout_{lob,state}_accounts.sql` via `execute_query_from_file`)
+  instead of REST enumeration.
+- `portfolio.manage_portfolio_accounts(exposure_id, portfolio_id, accounts_to_add=…,
+  accounts_to_remove=…)` — PATCH, synchronous HTTP 200, reports `completed`/`total`.
+  `completed` counts ids **newly** added, so 0 on a re-add is healthy (W-9); the
+  workbench verifies composition by a DataBridge member count instead.
+- `portfolio.create_portfolio(edm_name, name, number, description)` — synchronous
+  HTTP 201; validates the **40-character name** and **20-character number** limits
+  client-side. Always pass `portfolio_number` explicitly — omitted, RM defaults the
+  number to the name and overruns the 20-character cap (W-13).
+
+**Platform endpoints only** (standing direction 2026-07-30): every method above rides
+`/platform/...`; the legacy `/riskmodeler/v1|v2` endpoints are never used and no new
+wrapper should adopt them.
+
+### Dead ends — investigated and closed; do not re-research
+
+- **`allowDeepFilters=true`** on the exposure-level account search: returns zero rows
+  with HTTP 200 — silently useless, not an error (spec 005 W-7, T-09 rejected).
+- **The `filtered-accounts` PUT** (`add_filtered_accounts`): exists but returns `{}`
+  and cannot report what it did, so composition can never be verified; not consumed
+  (spec 005 T-02).
+- **Filtering policies by `lobId`**: HTTP 500 server-side; filter on the name field
+  instead — and the workbench has since moved LOB selection to DataBridge SQL
+  entirely (spec 005 W-5/W-20).
+
+---
+
 ## To confirm against the sandbox (verification, not library changes)
 Owner's `--run-irp` environment; results may turn some of the above into concrete tickets:
 - `search_analyses` supports the `sourceRdmName` filter field on `/platform/riskdata/v1/analyses`

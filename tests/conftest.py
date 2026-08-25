@@ -27,6 +27,7 @@ from sqlalchemy.pool import StaticPool
 
 from db.connection import _ENGINE_OVERRIDES, dispose_all, register_engine
 from tests.iteration1_mirror import (
+    BREAKOUT_DIMENSION_SEED,
     IRP_ANALYSIS_STATUS_SEED,
     IRP_JOB_RESOURCE_TYPE_SEED,
     IRP_JOB_TYPE_SEED,
@@ -216,6 +217,7 @@ def iteration2_db() -> SimpleNamespace:
         _seed(conn, "rwb_job_requestor_type_kind", RWB_JOB_REQUESTOR_TYPE_SEED)
         _seed(conn, "rwb_job_status_kind", RWB_JOB_STATUS_SEED)
         _seed(conn, "irp_analysis_status_kind", IRP_ANALYSIS_STATUS_SEED)
+        _seed(conn, "breakout_dimension_kind", BREAKOUT_DIMENSION_SEED)
     register_engine("WORKBENCH", engine)
     yield SimpleNamespace(engine=engine, user_a=user_a, user_b=user_b)
     engine.dispose()

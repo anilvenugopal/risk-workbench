@@ -20,14 +20,18 @@ from db import execute
 
 
 class _InjectUser(BaseHTTPMiddleware):
+    def __init__(self, app, is_admin: bool = False):
+        super().__init__(app)
+        self.is_admin = is_admin
+
     async def dispatch(self, request: Request, call_next):
         request.state.user = CurrentUser(
             id="00000000-0000-0000-0000-000000000001",
             email="analyst@example.com",
             display_name="Test Analyst",
             session_id="session-id",
-            role_codes=["analyst"],
-            is_admin=False,
+            role_codes=["admin"] if self.is_admin else ["analyst"],
+            is_admin=self.is_admin,
             must_change_password=False,
             entra_oid=None,
             is_active=True,
@@ -35,7 +39,7 @@ class _InjectUser(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-def _client() -> TestClient:
+def _client(*, admin: bool = False) -> TestClient:
     app = FastAPI()
     renderer = Jinja2Templates(directory="app/templates")
     renderer.env.globals["app_env"] = settings.app_env
@@ -43,7 +47,7 @@ def _client() -> TestClient:
     renderer.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     renderer.env.globals["generate_csrf_token"] = generate_csrf_token
     app.state.templates = renderer
-    app.add_middleware(_InjectUser)
+    app.add_middleware(_InjectUser, is_admin=admin)
     app.include_router(templates.router)
     return TestClient(app, follow_redirects=False)
 
@@ -72,6 +76,8 @@ def test_no_metadata_tab_has_create_or_edit_controls(iteration2_db):
         assert 'href="/templates/analysis-templates/new"' not in body
         assert ">Create<" not in body
         assert ">Edit<" not in body
+        # The event-rate visibility checkbox is admin-only.
+        assert 'type="checkbox"' not in body
 
 
 def test_currencies_tab_renders_synced_currencies(iteration2_db, fake_irp):
@@ -298,7 +304,10 @@ def test_each_tab_links_out_to_its_risk_modeler_settings_screen(
     body = _client().get(
         "/templates/metadata/table?tab=event-rate-schemes"
     ).text
-    assert "Open in Risk Modeler" not in body
+    assert (
+        'href="https://prodmgmt.rms-ppe.com/riskmodeler/'
+        'modelcomposer#event-rate-schemes"' in body
+    )
 
 
 def test_tab_rm_links_hidden_when_tenant_not_configured(iteration2_db, monkeypatch):
@@ -309,3 +318,74 @@ def test_tab_rm_links_hidden_when_tenant_not_configured(iteration2_db, monkeypat
     ).text
 
     assert "Open in Risk Modeler" not in body
+
+
+# ── Event-rate-scheme visibility toggle (workbench_is_active) ──────────────────
+
+_VISIBILITY_URL = "/templates/metadata/event-rate-schemes/20/visibility"
+
+
+def _scheme_active(irp_id: int) -> int:
+    rows = execute(
+        "SELECT workbench_is_active FROM irp_event_rate_scheme"
+        " WHERE irp_id = :id",
+        {"id": irp_id}, connection="WORKBENCH")
+    return rows[0]["workbench_is_active"]
+
+
+def test_admin_can_hide_and_show_a_scheme(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+    client = _client(admin=True)
+
+    # Unchecked checkbox: the is_active field is absent from the POST body.
+    hide = client.post(
+        f"{_VISIBILITY_URL}?tab=event-rate-schemes",
+        data={"csrf_token": generate_csrf_token()},
+        headers={"HX-Request": "true"},
+    )
+
+    assert hide.status_code == 200
+    assert 'id="metadata-content"' in hide.text
+    assert "checked" not in hide.text
+    assert _scheme_active(20) == 0
+
+    show = client.post(
+        _VISIBILITY_URL,
+        data={"csrf_token": generate_csrf_token(), "is_active": "1"},
+    )
+
+    assert show.status_code == 303
+    assert show.headers["location"] == (
+        "/templates/metadata?tab=event-rate-schemes")
+    assert _scheme_active(20) == 1
+
+
+def test_admin_sees_visibility_checkbox_in_fragment(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    body = _client(admin=True).get(
+        "/templates/metadata/table?tab=event-rate-schemes").text
+
+    assert 'type="checkbox"' in body
+    assert "checked" in body
+
+
+def test_non_admin_cannot_toggle_scheme_visibility(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    response = _client().post(
+        _VISIBILITY_URL, data={"csrf_token": generate_csrf_token()})
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/"
+    assert _scheme_active(20) == 1
+
+
+def test_bad_csrf_token_does_not_toggle_scheme_visibility(iteration2_db, fake_irp):
+    metadata_jobs._sync_irp_metadata_body()
+
+    response = _client(admin=True).post(
+        _VISIBILITY_URL, data={"csrf_token": "wrong"})
+
+    assert response.status_code == 303
+    assert _scheme_active(20) == 1

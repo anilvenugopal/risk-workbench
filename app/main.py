@@ -16,6 +16,7 @@ from app.auth.csrf import generate_csrf_token
 from app.auth.middleware import SessionMiddleware
 from app.config import settings
 from app.logging_setup import RequestContextMiddleware, setup_logging
+from app.services import breakout_service
 from db.connection import dispose_all, test_connection
 
 # At module import — after uvicorn has applied its own log config (it configures
@@ -65,6 +66,9 @@ templates.env.globals["app_env"] = settings.app_env
 templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
 templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
 templates.env.globals["generate_csrf_token"] = generate_csrf_token
+# Breakout values are stored as the EDM's own filter values; peril's are numeric
+# codes, so every template that shows one runs it through this filter.
+templates.env.filters["breakout_display"] = breakout_service.display_value
 
 # Make templates available to routers via app state
 app.state.templates = templates
@@ -75,6 +79,7 @@ from app.routers import (  # noqa: E402
     auth,
     edms,
     health,
+    portfolios,
     rdms,
     shared_drive,
     shell,
@@ -91,6 +96,7 @@ app.include_router(admin.router)
 app.include_router(submissions.router)
 app.include_router(shared_drive.router)
 app.include_router(edms.router)
+app.include_router(portfolios.router)
 app.include_router(rdms.router)
 app.include_router(treaties.router)
 app.include_router(template_routes.router)

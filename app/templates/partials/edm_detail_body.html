@@ -2,15 +2,19 @@
    edm_detail.html rev 7 + ui.md §2): minimal header (FR-011 — NO cedant/LOB),
    inline read-only per-portfolio table as the PRIMARY content, treaties (US2),
    broker analyses (US3). The EDM-level aggregate strip is gone (8/4 D12 — its
-   counts double-count). Read-only — no create/edit/split/filter control, no map
-   (FR-014/FR-016); every unavailable state renders gracefully (ui.md §5),
-   never an error. #}
+   counts double-count). Read-only — no create/edit/split/filter control, though
+   GeoHaz can be launched for selected portfolios — no map (FR-014/FR-016);
+   every unavailable state renders gracefully (ui.md §5), never an error. #}
 {# Live body (entity detail pattern): while the backfill head is in flight — or
    the import itself still is — the wrapper polls its own read-only render every
    3s and swaps itself, so the page updates on its own when the rwb job lands.
    The server stops emitting the trigger once the work is terminal, so polling
    ends without a reload. The Sync forms swap this wrapper via HTMX (URL never
-   changes, no re-submission prompt on refresh); plain-POST fallback is PRG. #}
+   changes, no re-submission prompt on refresh); plain-POST fallback is PRG.
+   A breakout episode is NOT polled here (T-11, 2026-08-05): #edm-detail is the
+   page's scrolling element, so swapping it every 3s threw the analyst back to
+   the top. Only the Portfolios section changes during a breakout, and that
+   section polls itself — partials/edm_portfolios_section.html. #}
 {% set live = edm.sync_running
      or edm.status in ('pending_import', 'importing')
      or submission_rdms|default([])|selectattr('sync_running')|list|length > 0 %}
@@ -49,47 +53,7 @@
       <span class="status-chip status-chip--{{ (edm.status or 'unknown')|lower|replace(' ', '-') }}">
         {{ edm.status or 'unknown' }}</span>
     </h1>
-    <div class="detail-meta">
-      <span class="mono" title="{{ edm.source_file_path }}">{{ edm.source_file_path or '—' }}</span>
-      <span class="crumb__sep">&middot;</span>
-      <button class="detail-note-toggle" type="button" aria-controls="entity-note"
-              x-bind:aria-expanded="notesOpen"
-              x-on:click="notesOpen = !notesOpen"
-              x-text="notesOpen ? 'Hide Notes' : 'View Notes'">View Notes</button>
-      {% if edm.irp_id %}
-      <span class="crumb__sep">·</span>
-      <span>RM EDM #{{ edm.irp_id }}</span>
-      {% endif %}
-      {% if edm.created_by_irp_job_irp_id %}
-      <span class="crumb__sep">·</span>
-      <span class="mono" title="creating import job">job #{{ edm.created_by_irp_job_irp_id }}</span>
-      {% endif %}
-      {% if edm.detail_state in ('populated', 'empty') %}
-      <span class="crumb__sep">·</span>
-      <span>{{ edm.portfolio_count }} portfolio{{ '' if edm.portfolio_count == 1 else 's' }}</span>
-      {% endif %}
-      {% if edm.as_of %}
-      <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot"></span> synced
-        <time data-utc="{{ edm.as_of }}" title="{{ edm.as_of }} UTC">{{ edm.as_of }}</time></span>
-      {% elif edm.detail_state == 'failed' %}
-      <span class="crumb__sep">·</span>
-      <span class="synced"><span class="synced__dot synced__dot--warn"></span> last sync failed</span>
-      {% endif %}
-      {# manual re-sync (FR-003 as amended 2026-07-23) — re-runs the backfill
-         worker; hidden while the import itself is still in flight #}
-      {% if edm.status == 'ready' %}
-      <span class="crumb__sep">·</span>
-      {% if edm.sync_running %}
-      <button class="btn-sm" type="button" disabled>Syncing…</button>
-      {% else %}
-      {% with sync_url=sync_url, sync_target='#edm-detail',
-              sync_title="Re-fetch this EDM's detail from Risk Modeler" %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% endif %}
-      {% endif %}
-    </div>
+    {% include "partials/edm_detail_meta.html" %}
     </div>
     {% if source_submission %}
     <div class="edm-picker">
@@ -120,77 +84,10 @@
   {% endif %}
 
   {# ── Portfolios (US1) — THE HEADLINE: inline, read-only, textual snapshot ── #}
-  <details class="sec" open x-data="portfolioPicks()">
-    <summary>
-      <span class="sec__caret">▸</span>
-      <span class="sec__title">Portfolios</span>
-      {% if edm.detail_state in ('populated', 'empty') %}
-      <span class="badge badge--neutral">{{ edm.portfolio_count }}</span>
-      {% endif %}
-      <span class="sec__spacer"></span>
-      {% if edm.status == 'ready' and edm.portfolio_count > 0 %}
-      <button class="btn-sm" type="button" :disabled="!count" onclick="event.stopPropagation()"
-              hx-get="{{ base_url }}/execute?kind=suite" hx-include="[name='portfolio_ids']"
-              hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
-      <button class="btn-sm" type="button" :disabled="!count" onclick="event.stopPropagation()"
-              hx-get="{{ base_url }}/execute?kind=template" hx-include="[name='portfolio_ids']"
-              hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
-      {% endif %}
-      <span class="sec__note">Read-only snapshot · split / breakout arrive Iteration 4</span>
-    </summary>
-
-    {% if edm.detail_state == 'populated' %}
-    <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px;min-width:1185px">
-        <div class="dtable__head">
-          <span class="l">Portfolio</span><span>Locations</span><span>Accounts</span><span>Policies</span>
-          <span class="l">Perils</span><span class="l">Lines of business</span><span class="l">Countries</span>
-          <span class="l">States</span><span class="l">Currency</span>
-        </div>
-        {% for p in edm.portfolios %}
-        {% include "partials/portfolio_row.html" %}
-        {% endfor %}
-      </div>
-    </div>
-    <p class="tag-empty" style="font-size:var(--fs-caption);margin-top:var(--space-2)">
-      Name column stays pinned while you scroll sideways. Perils shown are the
-      perils <em>present</em> per portfolio; absence isn't inferred as a defect.</p>
-    {% elif edm.detail_state == 'importing' %}
-    <div class="state-box">Per-portfolio detail appears within ~1 minute of the
-      import finishing.</div>
-    {% elif edm.detail_state == 'pending' %}
-    <div class="state-box">Exposure detail is being fetched from Risk Modeler —
-      it appears here shortly.</div>
-    {% elif edm.detail_state == 'failed' %}
-    <div class="state-box state-box--warn"><strong>Exposure detail unavailable.</strong><br>
-      The last sync from Risk Modeler failed. The EDM is still <em>ready</em>.
-      {% if edm.status == 'ready' %}
-      {% with sync_url=sync_url, sync_target='#edm-detail',
-              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% endif %}
-    </div>
-    {% elif edm.detail_state == 'empty' %}
-    <div class="state-box">No portfolios in this EDM.</div>
-    {% else %}
-    <div class="state-box"><strong>Detail not available.</strong><br>
-      Imported before exposure backfill shipped.
-      {% if edm.status == 'ready' %}
-      Sync now to fetch its per-portfolio detail from Risk Modeler.
-      {% with sync_url=sync_url, sync_target='#edm-detail',
-              sync_label='Sync now', sync_primary=true, sync_boxed=true %}
-      {% include "partials/sync_form.html" %}
-      {% endwith %}
-      {% else %}
-      Re-import to populate its per-portfolio detail.
-      {% endif %}
-    </div>
-    {% endif %}
-  </details>
+  {% include "partials/edm_portfolios_section.html" %}
 
   {# ── Treaties (US2) — EDM-level, expand/collapse, Excel export (FR-020–FR-025) ── #}
-  <details class="sec" open>
+  <details class="sec" open id="edm-treaties">
     <summary>
       <span class="sec__caret">▸</span>
       <span class="sec__title">Treaties</span>

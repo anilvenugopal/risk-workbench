@@ -1,0 +1,18 @@
+<span class="l{% if state and state.live %} geohaz-cell--live{% endif %}"
+  {%- if state and state.live %}
+  hx-get="/edms/{{ edm_id }}/portfolios/{{ state.portfolio_id }}/geohaz-cell"
+  hx-trigger="every 3s" hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+  {% if state %}{{ state.label }}{% else %}<span class="na">&mdash;</span>{% endif %}
+</span>
+{% if refresh_details and state %}
+  {% if not state.live %}
+  {% with portfolio_id=state.portfolio_id, portfolio_name=state.portfolio_name,
+          eligible=true, oob=true %}
+    {% include "partials/geohaz_checkbox.html" %}
+  {% endwith %}
+  {% endif %}
+  {% with portfolio_id=state.portfolio_id, latest=latest, oob=true %}
+    {% include "partials/geohaz_details.html" %}
+  {% endwith %}
+{% endif %}
