@@ -97,16 +97,17 @@ class SuitePick:
 # ── naming helpers (T-04/T-05) — pure; the worker owns the live-collision loop ──
 
 def build_full_name(portfolio_name: str, template_name: str) -> str:
-    return f"{portfolio_name} {template_name}"
+    return f"CRE_{portfolio_name}_{template_name}"
 
 
 def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
     """The (full_name, submitted_name) pair for collision attempt ``attempt``
-    (0 = no suffix). ``submitted_name`` is right-truncated to
-    ``NAME_MAX_LEN``, the suffix re-clipping the base so it always fits."""
+    (0 = no suffix; attempt n ≥ 1 gets ``_{n+1}`` — the unsuffixed original is
+    implicitly #1). ``submitted_name`` is right-truncated to ``NAME_MAX_LEN``,
+    the suffix re-clipping the base so it always fits."""
     if attempt == 0:
         return full_name, full_name[:NAME_MAX_LEN]
-    suffix = f" - {attempt}"
+    suffix = f"_{attempt + 1}"
     return (full_name + suffix,
             full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 

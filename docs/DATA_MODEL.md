@@ -275,7 +275,7 @@ erDiagram
     uniqueidentifier rdm_id FK "nullable; set → broker, null → own"
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
     string name "≤64-char name, exact string sent to RM (own); IRP analysis name (broker)"
-    string full_name "nullable; untruncated portfolio+template name incl. rerun suffix — own analyses only (spec 010 T-04)"
+    string full_name "nullable; untruncated CRE_{portfolio}_{template} name incl. rerun suffix — own analyses only (spec 010 T-04)"
     int irp_id "nullable; resolves only after FINISHED"
     bool is_group "true → this row IS a group"
     string status_code FK "irp_analysis_status_kind"

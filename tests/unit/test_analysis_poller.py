@@ -134,7 +134,7 @@ def _submission_failed_row(iteration2_db, fake_irp) -> dict:
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
-    fake_irp.raise_on_submit_analysis_for.add("Portfolio A Template A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
     svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
@@ -176,7 +176,7 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     _age_completed_at(row["job_id"], seconds_ago=(
         settings.irp_submission_retry_base_secs
         * 2 ** row["submission_attempt_count"] + 5))
-    fake_irp.raise_on_submit_analysis_for.discard("Portfolio A Template A")
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
 
     poller._submission_retry()
 

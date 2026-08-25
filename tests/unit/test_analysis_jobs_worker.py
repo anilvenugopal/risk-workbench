@@ -116,8 +116,8 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
 
     rows = _analyses_for(edm_id)
     assert len(rows) == 1
-    assert rows[0]["name"] == "Portfolio A Template A"
-    assert rows[0]["full_name"] == "Portfolio A Template A"
+    assert rows[0]["name"] == "CRE_Portfolio A_Template A"
+    assert rows[0]["full_name"] == "CRE_Portfolio A_Template A"
     assert rows[0]["status_code"] == "running"
     assert rows[0]["irp_portfolio_id"] == portfolio_id
 
@@ -125,7 +125,7 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
         "SELECT status, irp_analysis_id, request_params FROM irp_job "
         "WHERE irp_analysis_id = :a", {"a": rows[0]["id"]}, connection="WORKBENCH")
     assert irp_job["status"] == "QUEUED"
-    assert json.loads(irp_job["request_params"])["job_name"] == "Portfolio A Template A"
+    assert json.loads(irp_job["request_params"])["job_name"] == "CRE_Portfolio A_Template A"
 
 
 def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_currency(
@@ -154,11 +154,11 @@ def test_shared_template_across_two_suites_submits_twice_with_suffix_and_own_cur
     rows = _analyses_for(edm_id)
     assert len(rows) == 2
     names = sorted(r["name"] for r in rows)
-    assert names == ["Portfolio A Shared Template",
-                     "Portfolio A Shared Template - 1"]
+    assert names == ["CRE_Portfolio A_Shared Template",
+                     "CRE_Portfolio A_Shared Template_2"]
     submits = {s["job_name"]: s["currency"] for s in fake_irp.analysis_submits}
-    assert submits["Portfolio A Shared Template"]["scheme"] == "RMS"
-    assert submits["Portfolio A Shared Template - 1"]["scheme"] == "DT"
+    assert submits["CRE_Portfolio A_Shared Template"]["scheme"] == "RMS"
+    assert submits["CRE_Portfolio A_Shared Template_2"]["scheme"] == "DT"
     assert _rwb_job_of(execution_id)["status_code"] == "succeeded"
 
 
@@ -170,7 +170,7 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     p1 = _seed_portfolio(edm_id, "Portfolio A")
     p2 = _seed_portfolio(edm_id, "Portfolio B")
     template_id = _seed_template("Template A")
-    fake_irp.raise_on_submit_analysis_for.add("Portfolio A Template A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
 
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[p1, p2], treaty_names=[],
@@ -183,11 +183,11 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     assert json.loads(job["output_data"]) == {"submitted": 1, "submission_failed": 1}
 
     rows = {r["name"]: r for r in _analyses_for(edm_id)}
-    failed = rows["Portfolio A Template A"]
+    failed = rows["CRE_Portfolio A_Template A"]
     assert failed["status_code"] == "pending"
     assert failed["failure_reason"] and "forced analysis submit failure" in failed[
         "failure_reason"]
-    ok = rows["Portfolio B Template A"]
+    ok = rows["CRE_Portfolio B_Template A"]
     assert ok["status_code"] == "running"
 
     failed_job = execute_one(
@@ -202,7 +202,7 @@ def test_every_item_failing_to_submit_fails_the_rwb_job(iteration2_db, fake_irp)
     edm_id = _seed_edm()
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template("Template A")
-    fake_irp.raise_on_submit_analysis_for.add("Portfolio A Template A")
+    fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
 
     execution_id = svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id], treaty_names=[],

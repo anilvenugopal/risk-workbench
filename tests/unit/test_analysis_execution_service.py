@@ -80,9 +80,9 @@ def _seed_suite(name: str, template_ids: list[str]) -> str:
 
 # ── naming helpers (T-04/T-05) ───────────────────────────────────────────────────
 
-def test_build_full_name_is_portfolio_space_template():
+def test_build_full_name_is_cre_prefixed_underscore_delimited():
     assert svc.build_full_name("US Southeast Wind", "US HU DLM v23") == (
-        "US Southeast Wind US HU DLM v23")
+        "CRE_US Southeast Wind_US HU DLM v23")
 
 
 def test_name_attempt_zero_has_no_suffix_and_clips_at_64():
@@ -96,15 +96,15 @@ def test_name_attempt_zero_has_no_suffix_and_clips_at_64():
 def test_name_attempt_suffix_re_clips_base_so_it_still_fits_64():
     full = "x" * 80
     full_name, name = svc.name_attempt(full, 1)
-    assert full_name == full + " - 1"
-    assert name == full[:64 - len(" - 1")] + " - 1"
+    assert full_name == full + "_2"
+    assert name == full[:64 - len("_2")] + "_2"
     assert len(name) == 64
 
 
 def test_name_attempt_suffix_survives_on_a_short_name():
     full_name, name = svc.name_attempt("Short Name", 2)
-    assert full_name == "Short Name - 2"
-    assert name == "Short Name - 2"
+    assert full_name == "Short Name_3"
+    assert name == "Short Name_3"
 
 
 # ── plan composition ─────────────────────────────────────────────────────────────

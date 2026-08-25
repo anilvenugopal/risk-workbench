@@ -61,9 +61,10 @@ Per work unit (portfolio *p*, item *i*):
 1. **Resume check** (FR-015): an `irp_analysis` row for `(execution_id, p.id,
    i.item_no)` (`execution_item_no` column) with an `irp_job` row → skip (already done).
    A row **without** an `irp_job` → go to step 3 reusing its recorded `name`.
-2. **Name** (FR-007, T-04/T-05): `full = f"{p.name} {i.template_name}"`; `rm = full[:64]`;
-   while a live `irp_analysis` with `(edm_id, name=rm)` exists, next suffix `" (n)"`,
-   re-clipping the base so `rm` stays ≤64; the same suffix is appended to `full`.
+2. **Name** (FR-007, T-04/T-05): `full = f"CRE_{p.name}_{i.template_name}"`; `rm = full[:64]`;
+   while a live `irp_analysis` with `(edm_id, name=rm)` exists, next suffix `_{n}` (first
+   collision → `_2`), re-clipping the base so `rm` stays ≤64; the same suffix is
+   appended to `full`.
    Transaction A: insert `irp_analysis` (`edm_id`, `irp_portfolio_id`,
    `analysis_template_id`, `execution_id`, `execution_item_no=i.item_no`, `name=rm`,
    `full_name=full`, `status_code='pending'`, `inserted_by=actor_id`) — the row is

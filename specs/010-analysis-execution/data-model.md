@@ -15,7 +15,7 @@ Today the table is broker-shaped. Changed/added columns:
 | `source_rdm_name` | NOT NULL → **NULL** | Broker-only |
 | `irp_id` | NOT NULL → **NULL** | RM analysisId exists only after the job finishes; backfilled by `backfill_analysis_detail` |
 | `name` | unchanged (NVARCHAR(256) NULL) | For executed rows: the exact ≤64-char name sent to RM (suffix included) |
-| `full_name` | **new** NVARCHAR(256) NULL | Untruncated `portfolio + " " + template` (+ suffix); set for executed rows, NULL for broker rows (P-05/P-10) |
+| `full_name` | **new** NVARCHAR(256) NULL | Untruncated `CRE_{portfolio}_{template}` (+ suffix); set for executed rows, NULL for broker rows (P-05/P-10) |
 | `irp_portfolio_id` | **new** Uuid NULL FK → `irp_portfolio.id` | The portfolio the analysis ran against (trustworthy — workbench submitted it) |
 | `analysis_template_id` | **new** Uuid NULL FK → `analysis_template.id` | The template it came from; survives template soft-delete |
 | `execution_id` | **new** Uuid NULL | The run's UUID — equals the `execute_analysis_batch` row's `requestor_id`; the "originating submission context" of FR-008 together with `inserted_by` |
