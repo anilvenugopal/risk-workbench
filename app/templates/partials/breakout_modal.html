@@ -209,11 +209,7 @@
         {% elif not d.eligible %}
         <div class="bo-dim bo-dim--disabled">
           <span class="bo-dim__name">{{ dim_title(d) }}</span>
-          <span class="bo-dim__reason">
-            {%- if d.reason == missing_summary_reason -%}
-            exposure summary not available — run Sync
-            {%- else -%}{{ d.reason }}{%- endif -%}
-          </span>
+          <span class="bo-dim__reason">{{ d.reason }}</span>
         </div>
         {% elif d.dimension == modal.dimension %}
         <button class="bo-dim" aria-pressed="true" type="button">
