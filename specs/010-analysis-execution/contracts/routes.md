@@ -74,17 +74,36 @@ No IRP call happens on this request path.
 
 ## User-executed analyses section
 
-Rendered inside `partials/edm_detail_body.html` on both page variants — no new route;
-the existing 3s body self-poll delivers the live updates (T-11). The server-side `live`
-flag adds: any `irp_analysis` of this EDM whose joined latest `irp_job` is non-terminal,
-or whose `status_code` is `pending`/`running`.
+Rendered inside `partials/edm_detail_body.html` on both page variants; the section is
+its own polling fragment (`GET /edms/{edm_id}/analyses` and
+`GET /submissions/{submission_id}/edms/{edm_id}/analyses`), self-polling every 3s while
+`live` — any `irp_analysis` of this EDM whose joined latest `irp_job` is non-terminal,
+or whose `status_code` is `pending`/`running`. Both GETs accept `?status=` clamped to
+`failed` / `in_progress` / `ready` (P-18); the filter is baked into the poll URL so a
+swap never resets it. Rows render in three fixed groups — Failed, In progress, Ready —
+date-descending within each.
 
-Row contract (new `partials/executed_analysis_row.html`, modeled on
-`broker_analysis_row.html`): full name (`full_name`), portfolio name, status chip
-(derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as "Failed to submit ·
-attempt n/max"), and when failed the `failure_reason`. Expanded: the settings grid once
-`settings_metadata` is backfilled; the loss-numbers fragment (below) once results exist.
-No RDM grouping (FR-013). Visible to every analyst (Article 6).
+Row contract (`partials/executed_analysis_row.html`, modeled on
+`broker_analysis_row.html`): delete checkbox on `is_deletable` rows, full name
+(`full_name`) with an "RM ↗" link once `irp_id` is backfilled, portfolio name, template
+name, status chip (derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as
+"Failed to submit · attempt n/max") with the `failure_reason` when failed, and the
+localized submit time. Expanded: the settings grid once `settings_metadata` is
+backfilled; the loss-numbers fragment (below) once results exist. No RDM grouping
+(FR-013). Visible to every analyst (Article 6).
+
+### `POST /edms/{edm_id}/analyses/delete` (+ `/submissions/{submission_id}/edms/{edm_id}/analyses/delete`)
+
+Multi-select delete of terminal analyses (P-19, FR-023/FR-024). Form fields:
+`csrf_token`, repeated `analysis_ids`. The whole batch is validated up front (every id
+must resolve on this EDM and be deletable) — any violation, or an empty selection,
+returns 422 whose banner text surfaces as a toast. Per row: Risk Modeler delete first
+(synchronous, `irp_gateway.delete_analysis` — permitted on the request path like
+submits, Article 11), local soft delete (`deleted_at`) on success; a row whose RM
+delete fails is kept and counted in the warning toast. Success → 204 with
+`HX-Trigger: {"analyses-changed": true, "rwb:toast": …}` — a distinct event from
+`execution-submitted`, so a delete never clears portfolio ticks or starts the
+post-execute re-fire loop.
 
 ## Loss numbers fragment (loss phase)
 

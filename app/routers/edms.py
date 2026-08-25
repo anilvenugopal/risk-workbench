@@ -14,6 +14,7 @@ declared before ``/edms/{edm_id}`` so the parameter route never shadows them.
 from __future__ import annotations
 
 import json
+from html import escape
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -342,7 +343,24 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
     return _partial(
         request, "partials/executed_analyses_section.html",
         {"edm": context.edm,
+         "status_filter": _analyses_status_filter(request),
          "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
+
+
+@router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
+async def contextual_delete_analyses(
+    request: Request, submission_id: str, edm_id: str,
+):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}/edms/{edm_id}",
+                                status_code=303)
+    if edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
+        return _contextual_not_found(request)
+    return _delete_analyses_response(request, edm_id, form)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/sync")
@@ -575,6 +593,16 @@ async def execute_submit(request: Request, edm_id: str):
     return Response(status_code=204, headers=_EXECUTION_SUBMITTED_HEADERS)
 
 
+_ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+
+
+def _analyses_status_filter(request: Request) -> str:
+    """The section's ``?status=`` filter, clamped to the three group keys —
+    anything else reads as no filter."""
+    status = (request.query_params.get("status") or "").strip()
+    return status if status in _ANALYSES_STATUS_FILTERS else ""
+
+
 def _analyses_section_partial(request: Request, edm_id: str):
     """The Analyses section's own fragment (executed_analyses_section.html) —
     its polling unit, separate from the rest of the detail body (T-11
@@ -588,7 +616,9 @@ def _analyses_section_partial(request: Request, edm_id: str):
             '<summary><span class="sec__title">Analyses</span></summary>'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></details>')
-    return _partial(request, "partials/executed_analyses_section.html", {"edm": edm})
+    return _partial(request, "partials/executed_analyses_section.html",
+                    {"edm": edm,
+                     "status_filter": _analyses_status_filter(request)})
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
@@ -596,6 +626,44 @@ def detail_analyses(request: Request, edm_id: str):
     """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
     Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id)
+
+
+def _delete_analyses_response(request: Request, edm_id: str, form) -> Response:
+    """Shared body of the two analyses-delete POSTs (P-19): synchronous
+    request-path cascade — Risk Modeler delete first, local soft delete on
+    success. Validation failures return 422 whose banner text app.js surfaces
+    as a toast (htmx:responseError)."""
+    analysis_ids = form.getlist("analysis_ids")
+    try:
+        outcome = analysis_service.delete_executed_analyses(
+            edm_id=edm_id, analysis_ids=analysis_ids,
+            actor_id=request.state.user.id)
+    except ValueError as exc:
+        return HTMLResponse(
+            f'<div class="form-banner--error">{escape(str(exc))}</div>',
+            status_code=422)
+    message = f"Deleted {outcome.deleted} analysis(es)."
+    toast_type = "success"
+    if outcome.failed:
+        message += (f" {len(outcome.failed)} could not be deleted in "
+                    "Risk Modeler.")
+        toast_type = "warning"
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({
+            "analyses-changed": True,
+            "rwb:toast": {"message": message, "type": toast_type},
+        }),
+    })
+
+
+@router.post("/edms/{edm_id}/analyses/delete")
+async def delete_analyses(request: Request, edm_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+    return _delete_analyses_response(request, edm_id, form)
 
 
 def _body_partial(request: Request, edm_id: str, *, poll: bool = False):

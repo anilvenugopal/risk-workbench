@@ -165,6 +165,13 @@ at a checkpoint for the approver to click the running feature before the next be
 - [ ] T047 Run the full quickstart.md verification (Phases 1–4 + treaty pass-through) against the running stack; report tiers by name and count, naming any tier that did not run
 - [ ] T048 Diff subtraction review per AGENTS.md: remove comments/tests restating the implementation, inline single-use helpers, remove speculative branches, compare diff size with requirement size
 
+## Phase 10: Design-18 extensions (P-18/P-19, FR-007/FR-022–FR-024 — added 2026-08-24)
+
+- [X] T051 [FR-007] Naming format change in `app/services/analysis_execution_service.py`: `build_full_name` → `CRE_{portfolio}_{template}`, rerun suffix `_2`, `_3`… (P-05/P-10 as amended); update the hard-coded name literals in `tests/unit/test_analysis_execution_service.py`, `test_analysis_jobs_worker.py`, `test_analysis_poller.py`
+- [X] T052 [FR-011] `_analysis_failure_reason` in `app/poller/run.py` descends `tasks[] → output → errors[] → message` (first non-empty message in task order — task 1 is the engine root cause) before the top-level key scan; unit tests with the real two-task FAILED body shape
+- [X] T053 [P-18/FR-022] Analyses grid: `analysis_service` read model gains `template_name`/`inserted_at`/`irp_id`/`rm_url`/`group_key`/`is_deletable`; `executed_analyses_section.html` groups Failed / In progress / Ready with a `?status=` filter baked into the poll URL; `executed_analysis_row.html` gains checkbox, RM ↗ link, Template and Submitted cells; `analysisPicks()` + tick/reopen restore in `app/static/js/app.js`
+- [X] T054 [P-19/FR-023/FR-024] Multi-select delete: `irp_gateway.delete_analysis` (+ FakeIRP), `analysis_service.delete_executed_analyses` (validate batch up front, RM-first cascade, per-row failure isolation, local soft delete), `POST .../analyses/delete` routes (both page variants, `analyses-changed` HX-Trigger), retry-batch guard in `app/poller/run.py` (`deleted_at IS NULL` join); unit tests for the service and the poller guard
+
 ---
 
 ## Dependencies & Execution Order

@@ -691,6 +691,19 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Analysis multi-select in the executed-analyses section (spec 010 P-19) —
+  // counts ticked rows so the Delete button enables; the boxes themselves are
+  // read straight off the DOM by hx-include at click time. init() recounts
+  // after each 3s swap (the swap hook below restores the ticks by value).
+  Alpine.data('analysisPicks', () => ({
+    count: 0,
+    init() { this.onChange(); },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="analysis_ids"]:checked').length;
+    },
+  }));
+
   // Execute Suite / Execute Template modal (spec 010). All state lives in the DOM
   // (checkboxes, selects) — this component only reads it, matching syncPicks: no
   // duplicated selection state to drift out of sync with the real form.
@@ -857,24 +870,38 @@ document.addEventListener('execution-submitted', () => {
 });
 
 // Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
-// from scratch, so an expanded row's <details open> would otherwise reset —
-// losing the analyst's place mid-inspection. Remember which analysis rows
-// were open just before the swap and reopen those same rows once the fresh
-// content lands (picking up whatever changed in them along the way).
+// from scratch, so an expanded row's <details open> and a ticked delete
+// checkbox would otherwise reset — losing the analyst's place mid-inspection
+// or mid-selection. Remember both just before the swap and restore them once
+// the fresh content lands (a row deleted or no longer deletable simply has no
+// box to restore); one bubbling change event makes analysisPicks() recount.
 let _analysesReopenIds = null;
+let _analysesCheckedIds = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
   if (e.detail.target.id !== 'edm-executed-analyses') return;
   _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
     .map((row) => row.id).filter(Boolean);
+  _analysesCheckedIds = [...e.detail.target.querySelectorAll(
+    'input[name="analysis_ids"]:checked')].map((box) => box.value);
 });
 document.addEventListener('htmx:afterSwap', () => {
-  if (!_analysesReopenIds || !_analysesReopenIds.length) { _analysesReopenIds = null; return; }
+  if (_analysesReopenIds === null && _analysesCheckedIds === null) return;
   const section = document.getElementById('edm-executed-analyses');
-  _analysesReopenIds.forEach((id) => {
-    const row = section && document.getElementById(id);
-    if (row) row.open = true;
-  });
+  if (section) {
+    (_analysesReopenIds || []).forEach((id) => {
+      const row = document.getElementById(id);
+      if (row) row.open = true;
+    });
+    let restored = null;
+    (_analysesCheckedIds || []).forEach((value) => {
+      const box = section.querySelector(
+        `input[name="analysis_ids"][value="${value}"]`);
+      if (box) { box.checked = true; restored = box; }
+    });
+    if (restored) restored.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   _analysesReopenIds = null;
+  _analysesCheckedIds = null;
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

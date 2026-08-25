@@ -129,6 +129,11 @@ class FakeIRP:
         # (analysis_name, edm_name) -> seeded AnalysisHit kwargs (get_analysis_by_name)
         self._own_analyses: dict[tuple[str, str], dict] = {}
         self.raise_on_get_analysis_by_name = False
+        # recorded delete_analysis calls, in order
+        self.deleted_analyses: list[str] = []
+        # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
+        # mirrors raise_on_submit_analysis_for)
+        self.raise_on_delete_analysis: set[str] = set()
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -403,6 +408,12 @@ class FakeIRP:
                 f"fake IRP: no analysis named '{analysis_name}' for EDM "
                 f"'{edm_name}'")
         return AnalysisHit(**hit)
+
+    def delete_analysis(self, irp_id: str) -> None:
+        if str(irp_id) in self.raise_on_delete_analysis:
+            raise IRPIntegrationError(
+                f"fake IRP: forced analysis delete failure for '{irp_id}'")
+        self.deleted_analyses.append(str(irp_id))
 
     def search_edms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("edm", name))

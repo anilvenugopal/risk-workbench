@@ -1,21 +1,38 @@
 {# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013) —
    modeled on broker_analysis_row.html: the identical settings-grid expansion
    (shared partials/_analysis_metadata_fields.html / _analysis_rate_detail.html,
-   so the two views can't drift), a Portfolio column in place of
-   EDM/type/peril/currency/..., and no RDM grouping. Context: `a` —
+   so the two views can't drift), plus Portfolio / Template / Submitted columns
+   and a delete checkbox on terminal rows (P-18/P-19). Context: `a` —
    analysis_service.ExecutedAnalysis. The failure reason (when present) is
    shown inline in the collapsed row — visible without expanding (FR-011). #}
 {%- set d = a.display -%}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
+    <span class="l">
+      {% if a.is_deletable %}
+      <input type="checkbox" name="analysis_ids" value="{{ a.id }}"
+             onclick="event.stopPropagation()" @change="onChange()">
+      {% endif %}
+    </span>
     <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-namecol">
         <span class="dt-title">{{ a.full_name or a.name }}</span>
+        {% if a.rm_url %}
+        <a class="dt-sub" href="{{ a.rm_url }}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()"
+           title="Open this analysis in Risk Modeler (new tab)">RM ↗</a>
+        {% endif %}
       </span></span></span>
     <span class="l">{{ a.portfolio_name or '—' }}</span>
+    <span class="l">{{ a.template_name or '—' }}</span>
     <span class="l">
       <span class="status-chip status-chip--{{ a.status_chip }}">{{ a.status_label }}</span>
       {% if a.failure_reason %}<span class="exec-reason">{{ a.failure_reason }}</span>{% endif %}
+    </span>
+    <span class="l">
+      {% if a.inserted_at %}
+      <time data-utc="{{ a.inserted_at }}" title="{{ a.inserted_at }} UTC">{{ a.inserted_at }}</time>
+      {% else %}—{% endif %}
     </span>
   </summary>
   <div class="drow__body">

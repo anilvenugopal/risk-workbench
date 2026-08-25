@@ -3,7 +3,9 @@
 Article 11: every Risk Modeler call goes through this thin gateway so the poller
 and workers can be unit-tested against a fake (Article 12). The web layer only
 ever reaches the *submit* / *search* methods indirectly, via services that enqueue
-workers — it never calls the ``get_*`` status checks or any result retrieval.
+workers — plus one synchronous ``delete_analysis`` on the request path (spec 010
+P-19, permitted like submits by Article 11) — it never calls the ``get_*`` status
+checks or any result retrieval.
 
 **Single-status-check only.** ``get_*_job`` maps to one status read; the blocking
 ``poll_*_to_completion`` helpers are NEVER wrapped here (they run for minutes and
@@ -274,6 +276,8 @@ class IRPGateway(Protocol):
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
     def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
+
+    def delete_analysis(self, irp_id: str) -> None: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -550,6 +554,11 @@ class _RealGateway:
                                   if r.get("exposureResourceId") is not None else None),
             exposure_resource_type=r.get("exposureResourceType"))
 
+    def delete_analysis(self, irp_id: str) -> None:
+        # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
+        # Failures raise IRPIntegrationError; the caller keeps the local row.
+        self._client().analysis.delete_analysis(int(irp_id))
+
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
     def search_edms(self, name: str) -> list[EntityHit]:
@@ -814,6 +823,10 @@ def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
     return _active().get_analysis_by_name(analysis_name, edm_name)
 
 
+def delete_analysis(irp_id: str) -> None:
+    _active().delete_analysis(irp_id)
+
+
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
@@ -827,5 +840,6 @@ __all__ = [
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
     "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
+    "delete_analysis",
     "IRPIntegrationError",
 ]

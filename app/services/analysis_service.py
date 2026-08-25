@@ -28,17 +28,24 @@ fields defensively (``analysisType``/``engineType``/``engineVersion``/
 2026-07-24); term / PLA / event-rate fields have NO documented source and stay
 blank until the sandbox confirms their spelling (IRP_INTEGRATION_FOLLOWUPS.md).
 
-Read-only; no loss numbers (FR-033); no row scoping (Article 6).
+No loss numbers (FR-033); no row scoping (Article 6). The one write is
+``delete_executed_analyses`` (spec 010 P-19): a synchronous request-path delete
+of terminal own-executed analyses — Risk Modeler first, then a local soft
+delete — everything else here is read-only.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import settings
-from app.services._common import _parse_json_dict, _uid
-from db import execute
+from app.services import irp_gateway
+from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from db import execute, execute_command
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -117,6 +124,10 @@ class ExecutedAnalysis:
     portfolio_name: str | None
     status_code: str            # pending | running | ready | error
     failure_reason: str | None
+    template_name: str | None = None
+    inserted_at: Any = None     # submit request time (Submitted column)
+    irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
+    rm_url: str | None = None   # Risk Modeler link-out; None without irp_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
     job_status: str | None = None       # latest irp_job.status; None before submit
@@ -150,6 +161,26 @@ class ExecutedAnalysis:
         if self.job_status == "SUBMISSION FAILED":
             return "submission-failed"
         return "error"  # FAILED, CANCELLED
+
+    @property
+    def group_key(self) -> str:
+        """The Analyses grid's group: ``failed`` / ``in_progress`` / ``ready``.
+        Derived, not raw ``status_code`` — a failed-to-submit row is
+        ``status_code='pending'`` but belongs under Failed."""
+        if self.status_code == "error" or self.status_chip in (
+                "error", "submission-failed"):
+            return "failed"
+        if self.status_code == "ready":
+            return "ready"
+        return "in_progress"
+
+    @property
+    def is_deletable(self) -> bool:
+        """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
+        chip turns ready at job FINISHED, seconds before the backfill writes
+        ``irp_id`` — deleting in that window would orphan the RM analysis."""
+        return (self.status_code in ("ready", "error")
+                or self.status_chip == "submission-failed")
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -287,12 +318,28 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 
 _EXECUTED_SELECT = """
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
-           a.settings_metadata, p.name AS portfolio_name
+           a.settings_metadata, a.inserted_at, a.irp_id,
+           p.name AS portfolio_name, t.name AS template_name
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
 """
+
+
+def _rm_analysis_url(irp_id: Any) -> str | None:
+    """The Risk Modeler web UI page for one analysis — plain navigation, never
+    an API call (Article 11). ``None`` without an ``irp_id`` or when the RM UI
+    origin is not configured. The ``/riskmodeler/analyses/{id}`` path is
+    unverified against the live RM UI (no per-analysis link existed in the
+    repo before) — confirm during manual testing."""
+    if not irp_id:
+        return None
+    root = _rm_ui_root()
+    if root is None:
+        return None
+    return f"{root}/riskmodeler/analyses/{irp_id}"
 
 
 def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
@@ -303,10 +350,13 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
     analyses = []
     for r in rows:
         parsed = _parse_settings(r["settings_metadata"])
+        irp_id = str(r["irp_id"]) if r["irp_id"] is not None else None
         analyses.append(ExecutedAnalysis(
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
-            failure_reason=r["failure_reason"], settings=parsed,
+            failure_reason=r["failure_reason"],
+            template_name=r["template_name"], inserted_at=r["inserted_at"],
+            irp_id=irp_id, rm_url=_rm_analysis_url(irp_id), settings=parsed,
             display=_to_display(parsed)))
     if not analyses:
         return analyses
@@ -326,6 +376,60 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
             a.job_status = job["status"]
             a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
     return analyses
+
+
+@dataclass(frozen=True)
+class DeleteOutcome:
+    deleted: int
+    failed: list[str]  # display names whose Risk Modeler delete failed
+
+
+def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
+                             actor_id: Any) -> DeleteOutcome:
+    """Delete terminal own-executed analyses (spec 010 P-19): validate the
+    whole batch up front (every posted id must resolve on this EDM and be
+    ``is_deletable``, else ``ValueError``), then per row cascade to Risk
+    Modeler first and soft-delete locally on success. A row whose RM delete
+    fails is recorded in ``failed`` and kept visible for retry. RM-first
+    order: a crash between the two calls leaves a visible row with a dangling
+    ``irp_id`` — recoverable by retrying — rather than a hidden RM analysis."""
+    ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
+    if not ids:
+        raise ValueError("No analyses selected.")
+    rows = {a.id: a for a in list_executed_analyses(edm_id=edm_id)}
+    picked = []
+    for analysis_id in ids:
+        row = rows.get(analysis_id)
+        if row is None:
+            raise ValueError(
+                "A selected analysis no longer belongs to this EDM.")
+        if not row.is_deletable:
+            raise ValueError(
+                f"'{row.full_name or row.name}' is still in progress "
+                "and cannot be deleted.")
+        picked.append(row)
+
+    deleted = 0
+    failed: list[str] = []
+    for row in picked:
+        if row.irp_id is not None:
+            # Outside any transaction (Article 11 — never hold a txn across
+            # a Risk Modeler round-trip).
+            try:
+                irp_gateway.delete_analysis(row.irp_id)
+            except Exception:  # noqa: BLE001 — per-row isolation; row stays for retry
+                logger.exception("Risk Modeler delete failed for analysis %s "
+                                 "(irp_id=%s)", row.id, row.irp_id)
+                failed.append(row.full_name or row.name or row.id)
+                continue
+        now = _utcnow()
+        execute_command(
+            "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+            "updated_by = :by WHERE id = :id AND deleted_at IS NULL",
+            {"now": now, "by": (str(actor_id) if actor_id is not None else None),
+             "id": row.id}, connection="WORKBENCH")
+        deleted += 1
+    return DeleteOutcome(deleted=deleted, failed=failed)
 
 
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
@@ -372,7 +476,9 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
-    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "ExecutedAnalysis",
-    "list_broker_analyses", "list_edm_analyses", "list_executed_analyses",
-    "list_submission_rdms", "list_submission_rdm_analyses",
+    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
+    "ExecutedAnalysis",
+    "delete_executed_analyses", "list_broker_analyses", "list_edm_analyses",
+    "list_executed_analyses", "list_submission_rdms",
+    "list_submission_rdm_analyses",
 ]
