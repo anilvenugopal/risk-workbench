@@ -12,6 +12,7 @@ failure failing the ``rwb_job`` while the EDM stays ``ready`` and recoverable
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from app.poller import run as poller
 from app.services import edm_service, portfolio_service, rwb_job_service, treaty_service
@@ -79,11 +80,12 @@ def test_backfill_upserts_portfolios_with_snapshot_and_as_of(
     assert {r["irp_id"] for r in rows} == {"501", "502"}
     by_irp = {r["irp_id"]: r for r in rows}
     # namespaced snapshot: /metrics verbatim under "metrics"; no DataBridge summary
-    # seeded → "summary" is null (cells render "—"), never a stale/absent key
+    # seeded → "summary" is null (cells render "—"), never a stale/absent key;
+    # "stamp_date" (spec 005 FR-002a) is null when the enumeration carried none
     assert json.loads(by_irp["501"]["exposure_detail"]) == {
-        "metrics": EXPOSURE_A, "summary": None}
+        "metrics": EXPOSURE_A, "summary": None, "stamp_date": None}
     assert json.loads(by_irp["502"]["exposure_detail"]) == {
-        "metrics": EXPOSURE_B, "summary": None}
+        "metrics": EXPOSURE_B, "summary": None, "stamp_date": None}
     assert all(r["as_of"] is not None for r in rows)
     # the EDM-level last-synced trust signal is stamped on success (FR-052)
     edm = execute_one("SELECT as_of, status FROM irp_edm WHERE id=:i",
@@ -192,9 +194,10 @@ def test_backfill_merges_databridge_summary_per_portfolio(
 
     by_irp = {r["irp_id"]: r for r in _portfolio_rows(edm_id)}
     assert json.loads(by_irp["501"]["exposure_detail"]) == {
-        "metrics": EXPOSURE_A, "summary": SUMMARY_A}
+        "metrics": EXPOSURE_A, "summary": SUMMARY_A, "stamp_date": None}
     assert json.loads(by_irp["502"]["exposure_detail"]) == {
-        "metrics": EXPOSURE_B, "summary": None}  # uncovered → null, never absent
+        "metrics": EXPOSURE_B, "summary": None,  # uncovered → null, never absent
+        "stamp_date": None}
     assert json.loads(_backfill_job()["output_data"])["summary"] == "ok"
 
 
@@ -440,7 +443,8 @@ def test_pruned_portfolio_resurrects_when_recreated_in_rm(
 
     rows = portfolio_service.list_portfolios(edm_id=edm_id)
     assert [(p.name, p.irp_id) for p in rows] == [("Primary 2026", "601")]
-    assert rows[0].exposure_detail == {"metrics": EXPOSURE_B, "summary": None}
+    assert rows[0].exposure_detail == {"metrics": EXPOSURE_B, "summary": None,
+                                       "stamp_date": None}
     assert len(_portfolio_rows(edm_id)) == 1  # resurrected in place, no dupe
 
 
@@ -463,7 +467,8 @@ def test_enumerated_portfolio_with_failed_exposure_read_is_not_pruned(
     assert result.status == "succeeded"
     by_irp = {p.irp_id: p for p in portfolio_service.list_portfolios(edm_id=edm_id)}
     assert set(by_irp) == {"501", "502"}  # 502 enumerated → kept
-    assert by_irp["502"].exposure_detail == {"metrics": EXPOSURE_B, "summary": None}
+    assert by_irp["502"].exposure_detail == {"metrics": EXPOSURE_B, "summary": None,
+                                             "stamp_date": None}
 
 
 def test_failed_enumeration_never_prunes_existing_rows(
@@ -485,6 +490,64 @@ def test_failed_enumeration_never_prunes_existing_rows(
     fake_irp.raise_on_search_treaties = True
     entity_jobs._backfill_edm_detail_body(_backfill_job()["id"])  # treaty half fails
     assert len(treaty_service.list_treaties(edm_id=edm_id)) == 1
+
+
+# ── spec 005 (T016): the counted summary + the stampDate freshness anchor ─────────
+# The summary gains account_total and the breakout_values container (R11), and
+# the same backfill captures the portfolio's RM stampDate alongside it
+# (FR-002a) — read at enumeration time, before the DataBridge read.
+
+SUMMARY_COUNTED = {
+    "portfolio_name": "Primary 2026",
+    "total_tiv": 2.8e9,
+    "currencies": ["USD"],
+    "states": ["FL", "TX"],
+    "lines_of_business": ["Commercial"],
+    "account_total": 1701,
+    "breakout_values": {
+        "state": [{"value": "FL", "label": "FLORIDA", "accounts": 1493},
+                  {"value": "TX", "label": "TEXAS", "accounts": 220}],
+        "lob": [{"value": "Commercial", "label": None, "accounts": 1701}],
+    },
+}
+
+
+def test_backfill_stores_stamp_date_and_counted_summary(
+        iteration2_db, fake_irp, drive):
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    exposure_id = fake_irp.edm_exposure_id("EDM")
+    fake_irp.add_portfolio(edm_exposure_id=exposure_id, irp_id="501",
+                           name="Primary 2026", exposure=EXPOSURE_A,
+                           stamp="2026-08-01T12:00:00Z")
+    fake_irp.set_exposure_summary("EDM", {"501": SUMMARY_COUNTED})
+
+    entity_jobs.run_pending(worker_id="w1")
+
+    snap = json.loads(_portfolio_rows(edm_id)[0]["exposure_detail"])
+    assert snap["stamp_date"] == "2026-08-01T12:00:00Z"
+    assert snap["summary"]["account_total"] == 1701
+    assert snap["summary"]["breakout_values"]["state"] == [
+        {"value": "FL", "label": "FLORIDA", "accounts": 1493},
+        {"value": "TX", "label": "TEXAS", "accounts": 220}]
+    assert snap["summary"]["breakout_values"]["lob"] == [
+        {"value": "Commercial", "label": None, "accounts": 1701}]
+
+
+def test_pre_iteration_snapshot_still_parses(iteration2_db, fake_irp, drive):
+    # A row written by the spec-004 builder — no stamp_date key, a summary with
+    # no breakout_values/account_total — still parses, and its generated rows
+    # carry no breakout value label (nothing to resolve one from).
+    edm_id = _edm_ready(drive, fake_irp, iteration2_db.user_a)
+    portfolio_service.upsert_portfolio_detail(
+        edm_id=edm_id, irp_id="777", name="Legacy 2025",
+        exposure_detail={"metrics": EXPOSURE_A, "summary": SUMMARY_A},
+        as_of=datetime.utcnow())
+
+    rows = portfolio_service.list_portfolios(edm_id=edm_id)
+    assert rows[0].exposure_detail["summary"] == SUMMARY_A
+    assert "stamp_date" not in rows[0].exposure_detail
+    assert rows[0].exposure_detail["summary"]["states"] == ["FL", "LA", "TX"]
+    assert rows[0].breakout_value_label is None
 
 
 def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, drive):

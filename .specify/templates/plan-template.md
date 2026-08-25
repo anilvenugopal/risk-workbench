@@ -1,133 +1,87 @@
 # Implementation Plan: [FEATURE]
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+<!-- Technical only. User stories and scope → spec.md. Schema → data-model.md.
+     Payloads → contracts/. Endpoint investigation → research.md. Everything
+     above the `---` is what a reviewer reads to decide: ten minutes to read. -->
 
-**Note**: This template is filled in by the `/speckit-plan` command. See `.specify/templates/plan-template.md` for the execution workflow.
+## Plan status
 
-## Summary
+**Ready for tasks:** [Yes | No]
+**Blocked by:** [O-nn / T-nn, one line each, or Nothing]
 
-[Extract from feature spec: primary requirement + technical approach from research]
+## Design summary
+
+<!-- Max 15 bullets, in execution order. Name what runs, where it runs, and what
+     it writes: the route, the worker, the table, the job. -->
+
+- [what happens on the request path]
+- [what is persisted, and when]
+- [what the worker does]
+- [what fires afterward]
+
+## Material changes
+
+| Area | Change |
+|---|---|
+| Database | |
+| Worker | |
+| UI | |
+| Library | |
+
+## High-risk technical decisions
+
+<!-- Every technical decision a reviewer must see, resolved or not — and
+     nowhere else. Status: Approved | Proposed | Assumed | Open | Deferred |
+     Blocked. Decided rows stay in the table and keep their ID — task [Ref]
+     tags and research.md anchors point at these IDs. Delete the losing
+     alternative, not the row; history lives in research.md. -->
+
+| ID | Decision | Status | Detail |
+|---|---|---|---|
+| T-01 | | Approved | |
+
+---
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
+<!-- Only what changed or constrains the design. The stack is documented in
+     docs/PRD.md §3 (Technology stack & environment); architecture rules in
+     .specify/memory/constitution.md. Do not restate either. -->
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
-
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
-
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
-
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
-
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
-
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
-
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
-
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**New dependencies**: [or None]
+**Databases touched**: [which of the three, and why]
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+*GATE: before Phase 0 research, re-checked after Phase 1 design.*
 
-Verify compliance with all 13 articles from `.specify/memory/constitution.md`.
-Mark each ✅ compliant / ⚠ needs resolution / N/A not applicable:
+Reviewed against all 13 articles in `.specify/memory/constitution.md`: [no violations | violations below].
 
-| Article | Title | Status | Notes |
-|---------|-------|--------|-------|
-| 1 | Navigation Manifest Is the One Versioned Source of Truth | | |
-| 2 | Sequencing Is Derived, Not Stored | | |
-| 3 | Categoricals Are Kind Tables, Never Enums — Except External-Status Mirrors | | |
-| 4 | Status Is Event-Sourced with Cached Current | | |
-| 5 | Mechanical Follow-up Auto-fires; Judgment Waits for a Click | | |
-| 6 | No Row-Level Security; All Authenticated Analysts See All Deals | | |
-| 7 | One Data-Access Package, Two Paths (`/db`) | | |
-| 8 | Server-Rendered; No SPA | | |
-| 9 | Styling Extends ITCSS via Tokens | | |
-| 10 | SQL Table Is the Queue; Single Worker by Default | | |
-| 11 | IRP Polling and Result Work Behind Interface; Submission on Request Path Permitted | | |
-| 12 | Test-First, Three Connected Strategies | | |
-| 13 | Authentication & Secrets | | |
+Material interactions — where an article actively shapes this design:
 
-> Any ⚠ MUST be resolved before `/speckit-implement`. Document justification
-> in the Complexity Tracking table below.
+- **Article [n] ([title])**: [how]
 
 ## Project Structure
 
-### Documentation (this feature)
+<!-- Changed areas only, real paths. -->
 
 ```text
-specs/[###-feature]/
-├── plan.md              # This file (/speckit-plan command output)
-├── research.md          # Phase 0 output (/speckit-plan command)
-├── data-model.md        # Phase 1 output (/speckit-plan command)
-├── quickstart.md        # Phase 1 output (/speckit-plan command)
-├── contracts/           # Phase 1 output (/speckit-plan command)
-└── tasks.md             # Phase 2 output (/speckit-tasks command - NOT created by /speckit-plan)
+[path/that/changes]/     # what changes
 ```
-
-### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
-
-```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
-
-tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
-```
-
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
 
 ## Complexity Tracking
 
-> **Fill ONLY if Constitution Check has violations that must be justified**
+> Only if the Constitution Check has a violation to justify.
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+| Violation | Why needed | Simpler alternative rejected because |
+|---|---|---|
+
+## Testing
+
+<!-- Strategy by tier. Not a test-file inventory. -->
+
+- **Unit**: [what is covered]
+- **SQL Server integration**: [what is covered]
+- **IRP sandbox**: [what is covered, or N/A]
