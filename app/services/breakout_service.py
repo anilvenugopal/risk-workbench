@@ -5,16 +5,17 @@ Owns, per contracts/data-access.md §1:
     named must-test),
   • the pure name/number plan builder (``build_breakout_plan`` — P-11/T-05),
   • the overlap statement (``compute_overlap`` — FR-007/P-13),
-  • the confirm path (``request_breakout`` — five ordered steps, no ``rwb_job``
-    row until all five pass),
+  • the confirm path (``request_breakout`` — seven ordered steps, no ``rwb_job``
+    row until all seven pass),
   • the worker-side plan load + outcome assembly (``load_approved_plan`` /
     ``summarize_outcomes`` — R10/T-10).
 
-All SQL through ``db.execute*`` (Article 7). The ONLY Risk Modeler call on the
-request path is ``request_breakout``'s freshness read via
-``irp_gateway.fetch_portfolio_stamp`` — the Article 2 submit-time pattern
-(FR-002a). Value enumeration reads the STORED spec-004 summary only; no
-DataBridge or RM read anywhere else (Article 11).
+All SQL through ``db.execute*`` (Article 7). Three reads run on the request
+path: ``request_breakout``'s freshness read via
+``irp_gateway.fetch_portfolio_stamp`` (the Article 2 submit-time pattern,
+FR-002a), and the Add's two fail-open checks — the cached name search through
+``name_check`` and the single-row DataBridge count (Article 11's request-path
+exception, v3.2.0). Value enumeration reads the STORED spec-004 summary only.
 """
 
 from __future__ import annotations
