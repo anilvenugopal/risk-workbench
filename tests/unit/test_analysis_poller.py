@@ -125,6 +125,51 @@ def test_cancelled_is_treated_as_a_failure(iteration2_db, fake_irp):
     assert row["failure_reason"]  # fallback summary, never blank
 
 
+def test_failure_reason_prefers_first_task_error_message():
+    body = {
+        "status": "FAILED",
+        "tasks": [
+            {"taskId": "1", "output": {"summary": "", "errors": [
+                {"message": "ENGINE-400:Exposure failed to process. "
+                            "No valid locations for the peril region."}]}},
+            {"taskId": "2", "output": {"errors": [
+                {"message": "We encountered an error trying to run the job."}]}},
+        ],
+    }
+    assert poller._analysis_failure_reason(body) == (
+        "ENGINE-400:Exposure failed to process. "
+        "No valid locations for the peril region.")
+
+
+def test_failure_reason_skips_tasks_without_errors_then_falls_back():
+    body = {"status": "FAILED",
+            "tasks": [{"taskId": "1", "output": {"errors": []}},
+                      {"taskId": "2"}]}
+    assert poller._analysis_failure_reason(body) == "Risk Modeler status: FAILED"
+
+
+def test_failed_with_nested_task_errors_stores_the_engine_message(
+        iteration2_db, fake_irp):
+    a = _submitted_analysis(iteration2_db, fake_irp)
+    fake_irp.fail(a["irp_id"], result={
+        "status": "FAILED",
+        "tasks": [
+            {"taskId": "1", "output": {"errors": [
+                {"message": "ENGINE-400:Exposure failed to process."}]}},
+            {"taskId": "2", "output": {"errors": [
+                {"message": "Generic downstream message."}]}},
+        ],
+    })
+
+    poller.poll_once()
+
+    row = execute_one(
+        "SELECT status_code, failure_reason FROM irp_analysis WHERE id = :id",
+        {"id": a["id"]}, connection="WORKBENCH")
+    assert row["status_code"] == "error"
+    assert row["failure_reason"] == "ENGINE-400:Exposure failed to process."
+
+
 # ── submission_retry batch (T-09) ────────────────────────────────────────────────
 
 def _submission_failed_row(iteration2_db, fake_irp) -> dict:
@@ -234,6 +279,22 @@ def test_retry_exhaustion_flips_analysis_to_error(iteration2_db, fake_irp):
     analysis = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
                            {"id": row["analysis_id"]}, connection="WORKBENCH")
     assert analysis["status_code"] == "error"
+
+
+def test_retry_skips_a_soft_deleted_analysis(iteration2_db, fake_irp):
+    # A failed-to-submit row the analyst deleted (P-19) must never be
+    # resubmitted by the retry batch.
+    row = _submission_failed_row(iteration2_db, fake_irp)
+    _age_completed_at(row["job_id"], seconds_ago=10_000_000)
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    execute_command(
+        "UPDATE irp_analysis SET deleted_at = :n WHERE id = :i",
+        {"n": datetime.now(timezone.utc).replace(tzinfo=None),
+         "i": row["analysis_id"]}, connection="WORKBENCH")
+
+    poller._submission_retry()
+
+    assert len(fake_irp.analysis_submits) == 1  # only the original attempt
 
 
 def test_retry_ignores_rows_already_at_the_max(iteration2_db, fake_irp):

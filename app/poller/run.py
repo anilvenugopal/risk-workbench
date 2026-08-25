@@ -104,9 +104,25 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
 def _analysis_failure_reason(result: dict | None) -> str:
     """The message extracted from a terminal analysis completion body, falling
     back to the raw summary (FR-011) — field names are read defensively since
-    the wheel's failure-completion shape is undocumented."""
+    the wheel's failure-completion shape is undocumented. Real FAILED bodies
+    nest the message at ``tasks[].output.errors[].message``; the first
+    non-empty message in task order wins (task 1 carries the engine root
+    cause — e.g. ``ENGINE-400:…`` — later tasks are downstream noise)."""
     if not isinstance(result, dict):
         return "Risk Modeler reported no failure detail"
+    tasks = result.get("tasks")
+    if isinstance(tasks, list):
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            output = task.get("output")
+            errors = output.get("errors") if isinstance(output, dict) else None
+            if not isinstance(errors, list):
+                continue
+            for error in errors:
+                message = error.get("message") if isinstance(error, dict) else None
+                if isinstance(message, str) and message.strip():
+                    return message.strip()
     for key in ("errorMessage", "failureReason", "statusMessage", "message", "reason"):
         value = result.get(key)
         if isinstance(value, str) and value.strip():
@@ -363,6 +379,7 @@ def _submission_retry() -> None:
         SELECT j.id, j.irp_analysis_id, j.request_params,
                j.submission_attempt_count, j.completed_at
         FROM irp_job j
+        JOIN irp_analysis a ON a.id = j.irp_analysis_id AND a.deleted_at IS NULL
         WHERE j.irp_job_type = 'analysis' AND j.status = 'SUBMISSION FAILED'
           AND j.irp_analysis_id IS NOT NULL
           AND j.submission_attempt_count < :max_retries
