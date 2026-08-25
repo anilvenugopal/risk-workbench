@@ -25,9 +25,15 @@ from starlette.concurrency import run_in_threadpool
 from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
 from app.services.breakout_service import (
-    GateRefused, StaleSummary, SummaryRewritten)
+    BreakoutRefused, GateRefused, StaleSummary, SummaryRewritten)
 
 router = APIRouter()
+
+# Which 409 variant the modal re-renders for each refusal — the error_kind the
+# template branches on. A base BreakoutRefused, which nothing raises today,
+# renders the gate variant rather than reaching the 500 handler.
+_REFUSAL_KIND = {SummaryRewritten: "rewritten", StaleSummary: "stale",
+                 GateRefused: "gate"}
 
 
 def _templates(request: Request):
@@ -145,12 +151,8 @@ def breakout_confirm(
         requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
             request.state.user.id)
-    except SummaryRewritten as exc:
-        return refused(exc.reason, "rewritten")
-    except StaleSummary as exc:
-        return refused(exc.reason, "stale")
-    except GateRefused as exc:
-        return refused(exc.reason, "gate")
+    except BreakoutRefused as exc:
+        return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))
     if requested is None:
         return refused(error_kind="running")
 
@@ -245,12 +247,8 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
             edm_id, portfolio_id, _carted_groups(form),
             str(form.get("summary_as_of") or "") or None,
             request.state.user.id)
-    except SummaryRewritten as exc:
-        return refused(exc.reason, "rewritten")
-    except StaleSummary as exc:
-        return refused(exc.reason, "stale")
-    except GateRefused as exc:
-        return refused(exc.reason, "gate")
+    except BreakoutRefused as exc:
+        return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))
     if job_ids is None:
         return refused(error_kind="running")
 

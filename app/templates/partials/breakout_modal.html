@@ -19,11 +19,24 @@
       if not missing else [] -%}
 {%- set pane_open = (not missing) and gate.portfolio_eligible
       and not gate.in_flight and error_kind != 'stale' -%}
+{%- set blocked = (not missing) and (gate.refresh_in_flight
+      or not gate.portfolio_eligible) -%}
 {%- set confirmable = pane_open and not custom_mode and modal.dimension -%}
 {%- set cart_ready = pane_open and custom_mode and groupable -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
 {%- macro dim_meta(d) -%}
 {{ d.values|length }} {{ d.noun if d.values|length == 1 else d.noun_plural }} present
+{%- endmacro -%}
+{# Both panes close with the same note whenever the EDM is mid-Sync or the
+   portfolio itself is ineligible; only the third arm differs per pane. #}
+{%- macro blocked_note(gate) -%}
+{% if gate.refresh_in_flight %}
+<div class="bo-note bo-note--plain">Close this dialog — when the sync
+  finishes the page updates on its own and Break out re-enables.</div>
+{% else %}
+<div class="bo-note bo-note--plain">Breakout is not available right now:
+  {{ gate.reason }}.</div>
+{% endif %}
 {%- endmacro -%}
 <div class="modal" id="breakout-modal" x-data>
   {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
@@ -185,12 +198,8 @@
                 {% if d.reason %}title="{{ d.reason }}"{% endif %}>{{ d.label }}</button>
         {% endfor %}
       </div>
-      {% if gate.refresh_in_flight %}
-      <div class="bo-note bo-note--plain">Close this dialog — when the sync
-        finishes the page updates on its own and Break out re-enables.</div>
-      {% elif not gate.portfolio_eligible %}
-      <div class="bo-note bo-note--plain">Breakout is not available right now:
-        {{ gate.reason }}.</div>
+      {% if blocked %}
+      {{ blocked_note(gate) }}
       {% else %}
       <div class="bo-note bo-note--plain">No dimension carries two or more
         distinct values — custom breakouts read the stored exposure summary.
@@ -227,12 +236,8 @@
         {% endfor %}
       </div>
 
-      {% if gate.refresh_in_flight %}
-      <div class="bo-note bo-note--plain">Close this dialog — when the sync
-        finishes the page updates on its own and Break out re-enables.</div>
-      {% elif not gate.portfolio_eligible %}
-      <div class="bo-note bo-note--plain">Breakout is not available right now:
-        {{ gate.reason }}.</div>
+      {% if blocked %}
+      {{ blocked_note(gate) }}
       {% elif not modal.dimension %}
       <div class="bo-note bo-note--plain">The breakout reads the stored
         exposure summary. Running Sync closes this dialog and starts the
