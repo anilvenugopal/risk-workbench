@@ -122,12 +122,13 @@ def breakout_confirm(
     summary_as_of: str = Form(default=""),
     csrf_token: str = Form(...),
 ):
-    """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the five
-    ordered steps — gate re-check, summary-unchanged check, freshness read,
-    plan persistence, idempotent enqueue. Success returns the EDM body partial
-    (retargeted at ``#edm-detail`` — the modal closes itself) with the
-    "Breakout started" toast; every refusal returns **409 + the re-rendered
-    modal** and writes no job row. No-JS fallback is PRG."""
+    """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the seven
+    ordered steps — gate re-check, in-flight check, dimension-eligibility
+    check, summary-unchanged check, freshness read, plan persistence,
+    idempotent enqueue. Success returns the Portfolios section (retargeted at
+    ``#edm-portfolios`` — the modal closes itself) with the "Breakout started"
+    toast; every refusal returns **409 + the re-rendered modal** and writes no
+    job row. No-JS fallback is PRG."""
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
@@ -224,8 +225,8 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
     every posted group and applies the same ordered refusals as the quick
     confirm — **409 + the re-rendered modal** on each, with no job row; on
     pass, one ``breakout_group`` upsert and one ``run_breakout_custom`` job
-    per group. Success returns the EDM body partial exactly like the quick
-    confirm."""
+    per group. Success returns the Portfolios section retargeted at
+    ``#edm-portfolios``, exactly like the quick confirm."""
     form = await request.form()
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(str(form.get("csrf_token") or "")):
