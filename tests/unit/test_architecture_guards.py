@@ -1,7 +1,5 @@
-"""Iteration-2 architecture guards (T064 — Article 11 / Article 6 / FR-041).
-
-Two constitutional invariants of the async spine, asserted as source scans so a
-regression trips the unit tier rather than production:
+"""Architecture guards asserted as source scans, so a regression trips the unit
+tier rather than production:
 
 1. **Article 11 — single-status-check only.** ``poll_*_to_completion`` (and any
    poll-inside convenience wrapper) blocks for minutes and is forbidden. The
@@ -14,6 +12,9 @@ regression trips the unit tier rather than production:
    authenticated analyst sees every entity; ownership reaches a submission only
    through submission association tables. (Complements ``test_no_scope.py``, which
    guards the wider ``app/`` + ``db/`` trees; this adds the Alembic schema.)
+3. **Spec 005 — the breakout request path.** Routers never touch
+   ``irp_gateway``, the request path opens no DataBridge connection, and every
+   seeded breakout dimension carries its full vocabulary.
 """
 
 from __future__ import annotations
@@ -83,3 +84,86 @@ def test_no_scope_construct_on_async_entities():
             if token in text:
                 offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
     assert offenders == [], f"row-level-security constructs present (Article 6/FR-041): {offenders}"
+
+
+# ── Spec 005 (T042): the breakout request path ────────────────────────────────────
+# Article 11 as applied to the confirm flow (contracts/http-routes.md): the web
+# layer performs no IRP call itself — routers never touch irp_gateway, and the
+# request path opens no DataBridge connection of its own.
+
+_BREAKOUT_SERVICE = _APP / "services" / "breakout_service.py"
+
+
+def test_routers_never_touch_irp_gateway():
+    """No router imports or calls irp_gateway — every RM interaction on a
+    request path is mediated by a service."""
+    offenders = _offenders((_APP / "routers").rglob("*.py"),
+                           re.compile(r"irp_gateway"))
+    assert offenders == [], f"routers must not touch irp_gateway: {offenders}"
+
+
+def test_every_seeded_breakout_dimension_has_its_vocabulary():
+    """Per-dimension registration lockstep. Every value dimension (lob, state,
+    country, peril) needs a full ``_DIMENSIONS`` entry — the noun, its plural
+    (the chooser tile renders the count line from them), and the
+    ``portfolio_number`` letter — plus both DataBridge scripts (selection +
+    coverage), the ``run_breakout_{code}`` job-type seed, and the worker body.
+    A missing entry composes a wrong number, renders a missing noun, or fails
+    the run."""
+    from app.services import breakout_service, irp_gateway
+    from app.workers import portfolio_jobs
+    from tests.iteration1_mirror import (
+        BREAKOUT_DIMENSION_SEED,
+        RWB_JOB_TYPE_SEED,
+    )
+
+    seeded = {code for code, _label, _order in BREAKOUT_DIMENSION_SEED}
+    values = seeded - {"custom"}
+    assert values == {"lob", "state", "country", "peril"}
+
+    job_types = {code for code, _label, _order in RWB_JOB_TYPE_SEED}
+    for code in values:
+        registered = breakout_service._DIMENSIONS[code]
+        assert registered.noun_plural and registered.number_letter, code
+        assert code in irp_gateway._SELECTION_SCRIPTS, code
+        assert code in irp_gateway._COVERAGE_SCRIPTS, code
+        # A value dimension with no clause in breakout_match_count.sql would
+        # have its filter dropped, and the Add-time count would then include
+        # accounts the breakout excludes (P-29).
+        assert code in irp_gateway._MATCH_COUNT_PARAMS, code
+        assert f"run_breakout_{code}" in job_types, code
+        assert f"run_breakout_{code}" in portfolio_jobs._BODIES, code
+    # custom (T-12): the grouping lineage code — the job type and the group
+    # worker body, but NO number letter (P-26: a group's number is its name
+    # truncated to 20); selections run through the value dimensions' scripts,
+    # so it must never gain scripts of its own.
+    assert breakout_service._DIMENSIONS["custom"].number_letter is None
+    assert "run_breakout_custom" in job_types
+    assert "run_breakout_custom" in portfolio_jobs._BODIES
+    assert "custom" not in irp_gateway._SELECTION_SCRIPTS
+    assert "custom" not in irp_gateway._COVERAGE_SCRIPTS
+    assert "custom" not in irp_gateway._MATCH_COUNT_PARAMS
+
+    sql_dir = _REPO_ROOT / "sql" / "databridge"
+    absent = [script for scripts in (irp_gateway._SELECTION_SCRIPTS,
+                                     irp_gateway._COVERAGE_SCRIPTS,
+                                     {"match": irp_gateway._MATCH_COUNT_SCRIPT})
+              for script in scripts.values()
+              if not (sql_dir / script).is_file()]
+    assert absent == [], f"registered script missing from sql/databridge: {absent}"
+
+
+def test_no_databridge_on_request_path():
+    """The web layer never opens a DataBridge connection itself and never runs a
+    trusted script: the summary the modal renders is the STORED one, and the one
+    permitted request-path read goes through ``irp_gateway`` and a repo-owned SQL
+    file (Article 11, request-path exception v3.2.0)."""
+    paths = [*(_APP / "routers").rglob("*.py"), _BREAKOUT_SERVICE]
+    offenders = []
+    for path in paths:
+        text = _strip_line_comments(path.read_text(encoding="utf-8"))
+        for token in ("DATABRIDGE", "execute_script_file"):
+            if token in text:
+                offenders.append(f"{path.relative_to(_REPO_ROOT)}: {token}")
+    assert offenders == [], (
+        f"DataBridge access is worker-side only (Article 11): {offenders}")

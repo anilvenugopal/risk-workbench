@@ -1,131 +1,75 @@
 # Feature Specification: [FEATURE NAME]
 
-**Feature Branch**: `[###-feature-name]`
+**Branch**: `[###-feature-name]` | **Created**: [DATE]
 
-**Created**: [DATE]
+<!-- Product only. Design → plan.md. Schema → data-model.md. Evidence and
+     rejected options → research.md. Everything above the `---` is what a
+     reviewer reads to decide: keep it under 40 lines. -->
 
-**Status**: Draft
+## Status
 
-**Input**: User description: "$ARGUMENTS"
+<!-- "Ready for tasks" is declared once, in plan.md (Plan status) — set Phase
+     to match it; do not restate the verdict here. -->
 
-## User Scenarios & Testing *(mandatory)*
+**Phase:** [Draft | Planning | Ready for tasks | Implementing]
+**Blocking:** [what, or Nothing]
 
-<!--
-  IMPORTANT: User stories should be PRIORITIZED as user journeys ordered by importance.
-  Each user story/journey must be INDEPENDENTLY TESTABLE - meaning if you implement just ONE of them,
-  you should still have a viable MVP (Minimum Viable Product) that delivers value.
+## Outcome
 
-  Assign priorities (P1, P2, P3, etc.) to each story, where P1 is the most critical.
-  Think of each story as a standalone slice of functionality that can be:
-  - Developed independently
-  - Tested independently
-  - Deployed independently
-  - Demonstrated to users independently
--->
+[Two sentences. What can a user do now that they could not before?]
 
-### User Story 1 - [Brief Title] (Priority: P1)
+## In scope
 
-[Describe this user journey in plain language]
+- [capability]
 
-**Why this priority**: [Explain the value and why it has this priority level]
+## Out of scope
 
-**Independent Test**: [Describe how this can be tested independently - e.g., "Can be fully tested by [specific action] and delivers [specific value]"]
+- [excluded thing, so no one has to ask]
 
-**Acceptance Scenarios**:
+## Non-negotiable behavior
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
-2. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. [rule a reviewer must agree to]
 
----
+## Open product decisions
 
-### User Story 2 - [Brief Title] (Priority: P2)
+<!-- Every product decision a reviewer must see, resolved or not — and nowhere
+     else. Assumptions go here with status Assumed. Status: Approved | Proposed
+     | Assumed | Open | Deferred | Blocked. Decided rows stay in the table and
+     keep their ID (an O-nn stays O-nn when approved) — task [Ref] tags and
+     research.md anchors point at these IDs. Delete the losing alternative,
+     not the row; history lives in research.md. -->
 
-[Describe this user journey in plain language]
-
-**Why this priority**: [Explain the value and why it has this priority level]
-
-**Independent Test**: [Describe how this can be tested independently]
-
-**Acceptance Scenarios**:
-
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+| ID | Decision | Status | Where |
+|---|---|---|---|
+| O-01 | [question] | Blocked | `research.md#R1` |
 
 ---
 
-### User Story 3 - [Brief Title] (Priority: P3)
+## User Stories
 
-[Describe this user journey in plain language]
+<!-- 2–4 stories, P1 first, each independently shippable. Max 7 scenarios each. -->
 
-**Why this priority**: [Explain the value and why it has this priority level]
+### 1. [Title] (P1)
 
-**Independent Test**: [Describe how this can be tested independently]
+[The journey in plain language. One paragraph.]
 
-**Acceptance Scenarios**:
+**Acceptance**
 
-1. **Given** [initial state], **When** [action], **Then** [expected outcome]
+1. **Given** [state], **When** [action], **Then** [outcome]
 
----
+## Requirements
 
-[Add more user stories as needed, each with an assigned priority]
+<!-- Max 25. Outcomes the user or business needs, not how it is built.
+     Gaps: [NEEDS CLARIFICATION: question] plus an O-nn row above. -->
 
-### Edge Cases
+- **FR-001**: [capability]
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right edge cases.
--->
+## Key Entities *(if the feature involves data)*
 
-- What happens when [boundary condition]?
-- How does system handle [error scenario]?
+- **[Entity]**: [what it means to the business]
 
-## Requirements *(mandatory)*
+## Success Criteria
 
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right functional requirements.
--->
+<!-- Measurable, technology-agnostic. 3–5. -->
 
-### Functional Requirements
-
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
-
-*Example of marking unclear requirements:*
-
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
-
-### Key Entities *(include if feature involves data)*
-
-- **[Entity 1]**: [What it represents, key attributes without implementation]
-- **[Entity 2]**: [What it represents, relationships to other entities]
-
-## Success Criteria *(mandatory)*
-
-<!--
-  ACTION REQUIRED: Define measurable success criteria.
-  These must be technology-agnostic and measurable.
--->
-
-### Measurable Outcomes
-
-- **SC-001**: [Measurable metric, e.g., "Users can complete account creation in under 2 minutes"]
-- **SC-002**: [Measurable metric, e.g., "System handles 1000 concurrent users without degradation"]
-- **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
-- **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
-
-## Assumptions
-
-<!--
-  ACTION REQUIRED: The content in this section represents placeholders.
-  Fill them out with the right assumptions based on reasonable defaults
-  chosen when the feature description did not specify certain details.
--->
-
-- [Assumption about target users, e.g., "Users have stable internet connectivity"]
-- [Assumption about scope boundaries, e.g., "Mobile support is out of scope for v1"]
-- [Assumption about data/environment, e.g., "Existing authentication system will be reused"]
-- [Dependency on existing system/service, e.g., "Requires access to the existing user profile API"]
+- **SC-001**: [measurable outcome]

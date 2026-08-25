@@ -107,7 +107,8 @@ class TestJobTablesMigration:
     def test_rwb_job_requestor_and_status_seeds(self):
         req = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_requestor_type_kind", {}, connection="WORKBENCH")}
-        assert req == {"irp_job", "analyst_request", "rwb_job"}
+        assert req == {"irp_job", "analyst_request", "rwb_job",
+                       "breakout_group"}
         st = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_status_kind", {}, connection="WORKBENCH")}
         assert st == {"pending", "running", "succeeded", "failed"}

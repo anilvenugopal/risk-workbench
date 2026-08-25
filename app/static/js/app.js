@@ -195,6 +195,69 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // The breakout modal's custom-groups pane (spec 005 FR-018). Pills toggle
+  // x-show, so switching dimensions loses no ticked state (T-15), and the chips
+  // are derived from the checkboxes, so clearing the boxes clears them. Add
+  // breakout is gated the way Import is: disabled until the as-you-type check
+  // comes back usable — 'ok', or 'unchecked' when Risk Modeler was unreachable
+  // (the group-preview route re-checks at Add either way).
+  Alpine.data('breakoutCustom', (opts = {}) => ({
+    dim: opts.dim || '',
+    nameVal: '',
+    nameState: 'pending',
+    sel: [],
+    get checking() {
+      return !!this.nameVal.trim() && this.nameState === 'pending';
+    },
+    get nameCleared() {
+      return !!this.nameVal.trim() && ncCleared(this.nameState);
+    },
+    resel() {
+      this.sel = [...this.$root.querySelectorAll('.bo-checks input:checked')]
+        .map((c) => ({
+          name: c.name,
+          v: c.value,
+          shown: c.dataset.display,
+          d: c.closest('.bo-checks').dataset.dimlabel,
+        }));
+    },
+    onChange() {
+      this.resel();
+      boClearCartError(this.$root);
+    },
+    onName(e) {
+      this.nameVal = e.target.value;
+      this.nameState = 'pending';
+      ncReset(this.$root.querySelector('.name-collision'));
+      boClearCartError(this.$root);
+    },
+    unpick(s) {
+      this.$root.querySelectorAll('.bo-checks input:checked').forEach((c) => {
+        if (c.name === s.name && c.value === s.v) c.checked = false;
+      });
+      this.resel();
+    },
+    onSwap() {
+      this.nameState = ncState(this.$root.querySelector('.name-collision'));
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap();
+    },
+    // Keyed on the status: the mount clears isError for a 409 refusal, which
+    // also makes htmx report the refusal as successful.
+    onAdded(e) {
+      if (e.detail.xhr.status !== 200) return;
+      this.$root.querySelectorAll('.bo-checks input:checked')
+        .forEach((c) => { c.checked = false; });
+      this.$root.querySelector('[name=group_label]').value = '';
+      boClearCartError(this.$root);
+      ncReset(this.$root.querySelector('.name-collision'));
+      this.nameVal = '';
+      this.nameState = 'pending';
+      this.resel();
+    },
+  }));
+
   // Typeahead menu shared by the submission form's CEDANT field and its "links
   // to" picker (CR7/CR8). HTMX fetches and renders the options; this only handles
   // open/close, the keyboard, and committing a pick.
@@ -723,6 +786,62 @@ if (document.readyState !== 'loading') {
 }
 document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 
+// ── Swap state preservation ───────────────────────────────────────────────────
+// Two things live only in the DOM, and an HTMX swap replaces DOM: how far the
+// analyst has scrolled, and which <details> are open. The EDM detail page's
+// #edm-detail wrapper is the scrolling element (.shell is height:100vh with
+// overflow hidden — the page itself never scrolls), so a poll that swaps it, or
+// that swaps a section inside it, must not cost the analyst their place.
+// Recorded for the swap target's subtree before the swap and reapplied after it
+// settles: every <details id> keeps its open/closed state, and the scroller
+// keeps its offset. Elements the response added (a generated portfolio row) are
+// absent from the record and render at their server-rendered default.
+//
+// Keyed by the target element: up to four swaps are in flight at once during a
+// breakout episode, and each afterSettle must read its own record.
+const swapState = new WeakMap();
+
+function detailsOpenState(root) {
+  const state = {};
+  if (root.matches && root.matches('details[id]')) state[root.id] = root.open;
+  root.querySelectorAll('details[id]').forEach((d) => { state[d.id] = d.open; });
+  return state;
+}
+
+document.addEventListener('htmx:beforeSwap', (e) => {
+  const target = e.detail.target;
+  if (!target || !target.querySelectorAll) return;
+  // 204 and other no-swap responses (the populated-mid-sync body poll) leave
+  // the DOM alone — recording then would strand a stale offset for the next
+  // real swap to restore.
+  if (e.detail.shouldSwap === false) {
+    swapState.delete(target);
+    return;
+  }
+  const scroller = document.getElementById('edm-detail');
+  swapState.set(target, {
+    details: detailsOpenState(target),
+    scrollTop: scroller ? scroller.scrollTop : null,
+  });
+});
+
+document.addEventListener('htmx:afterSettle', (e) => {
+  const target = e.detail && e.detail.target;
+  if (!target) return;
+  const state = swapState.get(target);
+  if (!state) return;
+  swapState.delete(target);
+  Object.keys(state.details).forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && el.tagName === 'DETAILS') el.open = state.details[id];
+  });
+  // The swap may have replaced #edm-detail itself — re-resolve it by id. A
+  // recorded 0 is a real offset, so compare against null rather than testing
+  // truthiness.
+  const scroller = document.getElementById('edm-detail');
+  if (scroller && state.scrollTop !== null) scroller.scrollTop = state.scrollTop;
+});
+
 // ── Toasts + global error surfacing ───────────────────────────────────────────
 // Nothing should fail silently: every HTMX response error / network error raises a
 // toast. HTMX drops non-2xx responses by default, so without this an error is
@@ -767,6 +886,15 @@ function messageFromResponse(xhr) {
     }
   } catch (_) { /* fall through to the generic message */ }
   return null;
+}
+
+// A breakout refusal names one set of ticked values and one breakout name. Editing
+// either makes it wrong, so it clears on edit the way ncReset drops a stale name
+// verdict.
+function boClearCartError(el) {
+  const form = el && el.closest('form');
+  const box = form && form.querySelector('#bo-cart-error');
+  if (box) box.innerHTML = '';
 }
 
 document.addEventListener('htmx:responseError', (e) => {
