@@ -80,6 +80,18 @@ _GETTERS = {..., "geohaz": irp_gateway.get_geohaz_job}
   `exposure_detail.stamp_date`, the stamp the breakout confirm compares against
   (spec 005 FR-002a). A metadata read failure is logged and does
   not prevent the job status update.
+- On every terminal status, `_handle_geohaz_terminal` enqueues one
+  `backfill_edm_detail` head for the EDM, keyed `(irp_job, <the geohaz job id>)`
+  — the same chaining `_handle_import_edm_terminal` uses. A hazard lookup writes
+  hazard data onto the portfolio's locations, which advances Risk Modeler's
+  `stampDate`; without the re-sync the breakout confirm refuses every later
+  breakout on that portfolio as stale. The backfill rewrites `metrics`,
+  `summary`, and `stamp_date` from one read, so the stored stamp and the summary
+  it describes stay in step. The inline `update_exposure_metrics` above still
+  runs: it gives the portfolios table the new `hazardVersion` immediately,
+  before the backfill's poller pass. Chained on failure too — a failed lookup
+  can still have written part of its data. While the head is pending or running,
+  the breakout gate disables the action (spec 005 P-16).
 
 ## `_submission_retry`
 

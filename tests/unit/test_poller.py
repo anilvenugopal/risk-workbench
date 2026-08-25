@@ -69,6 +69,32 @@ def test_geohaz_terminal_stores_summary_and_refreshes_metadata(
     assert detail["metrics"]["hazardVersion"] == "23.0,25.0"
     assert detail["summary"] == {"countries": ["US"]}
     assert detail["stamp_date"] == "2026-08-01T00:00:00Z"
+    # The lookup moved RM's stampDate, so the stored stamp must be re-synced or
+    # every later breakout on this portfolio is refused as stale (005 FR-002a).
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(backfills) == 1
+    assert edm_id in backfills[0]["input_data"]
+
+
+def test_failed_geohaz_still_enqueues_the_detail_backfill(
+    iteration2_db, fake_irp,
+):
+    """A failed lookup can still have written part of its hazard data, moving
+    the portfolio's stampDate — the re-sync is chained on any terminal."""
+    edm_id, [portfolio_id] = _edm_with_portfolios(1)
+    execute_command(
+        "UPDATE irp_edm SET irp_id = 90001 WHERE id = :id",
+        {"id": edm_id}, connection="WORKBENCH")
+    irp_job_service.record_submitted_irp_job(
+        irp_job_type="geohaz", irp_id="25234200",
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio_id)
+    fake_irp.fail("25234200")
+
+    poller.poll_once()
+
+    backfills = _rwb_jobs_of("backfill_edm_detail")
+    assert len(backfills) == 1
+    assert edm_id in backfills[0]["input_data"]
 
 
 def _import_and_submit(drive, actor, name="EDM", fname="edm1.bak") -> tuple[str, str]:

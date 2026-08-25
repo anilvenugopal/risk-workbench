@@ -107,6 +107,19 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     if metadata is not None:
         portfolio_service.update_exposure_metrics(
             conn, portfolio_id=job["irp_portfolio_id"], metrics=metadata)
+    # A hazard lookup writes hazard data onto the portfolio's locations, which
+    # advances Risk Modeler's stampDate. The breakout confirm compares that
+    # stamp against exposure_detail.stamp_date (spec 005 FR-002a), so without a
+    # re-sync every later breakout on this portfolio is refused as stale. The
+    # backfill rewrites metrics, summary, and stamp_date from one read, keeping
+    # the stored stamp and the summary it describes in step. Chained on any
+    # terminal status: a failed lookup can still have written part of its data.
+    rwb_job_service.enqueue_rwb_job(
+        requestor_type="irp_job", requestor_id=job["id"],
+        rwb_job_type="backfill_edm_detail",
+        input_data={"edm_id": str(job["irp_edm_id"])},
+        conn=conn,
+    )
 
 
 # terminal irp_job.status → handler (extended per user story).
