@@ -55,16 +55,27 @@ _SEPARATOR = " - "
 # second gate.
 LARGE_FANOUT_THRESHOLD = 25
 
-# The dimension letter inside the generated portfolio_number (R4) — value
-# dimensions only; a custom group's number is its name truncated to 20 (P-26).
-_DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C", "peril": "P"}
-# Analyst-facing noun per dimension for disabled-with-reason copy, and its
-# plural for the chooser tile's count line — "line of business" and "country"
-# both refuse a suffixed s, so the plural is maintained rather than derived.
-_DIMENSION_NOUN = {"lob": "line of business", "state": "state",
-                   "country": "country", "peril": "peril", "custom": "custom"}
-_DIMENSION_NOUN_PLURAL = {"lob": "lines of business", "state": "states",
-                          "country": "countries", "peril": "perils"}
+
+@dataclass(frozen=True)
+class _Dimension:
+    noun: str
+    noun_plural: str | None    # None for custom — the chooser never renders it
+    number_letter: str | None  # None for custom: a group's number is its name
+                               # truncated to 20 (P-26)
+
+
+# What each breakout_dimension_kind code carries beyond its seeded row: the
+# analyst-facing noun for the disabled-with-reason copy, its plural for the
+# chooser tile's count line ("line of business" and "country" both refuse a
+# suffixed s, so plurals are maintained rather than derived), and the dimension
+# letter inside the generated portfolio_number (R4).
+_DIMENSIONS = {
+    "lob":     _Dimension("line of business", "lines of business", "L"),
+    "state":   _Dimension("state",            "states",            "S"),
+    "country": _Dimension("country",          "countries",         "C"),
+    "peril":   _Dimension("peril",            "perils",            "P"),
+    "custom":  _Dimension("custom",           None,                None),
+}
 # The peril dimension's values are `loccvg.PERIL` numeric codes, and neither the
 # EDM nor Risk Modeler pairs a code with a name (W-21), so the mnemonics
 # analysts read are maintained here (D4, closing O-02): 1 earthquake,
@@ -90,12 +101,13 @@ def display_value(value: str, dimension: str) -> str:
 
 
 def _dimension_letter(dimension: str) -> str:
-    try:
-        return _DIMENSION_LETTER[dimension]
-    except KeyError:
+    registered = _DIMENSIONS.get(dimension)
+    letter = registered.number_letter if registered is not None else None
+    if letter is None:
         raise ValueError(
             f"no portfolio_number letter registered for breakout dimension "
-            f"{dimension!r} — add it to _DIMENSION_LETTER") from None
+            f"{dimension!r} — add it to _DIMENSIONS")
+    return letter
 
 
 # ── Refusals (the router maps each to a 409 variant — http-routes.md) ───────────
@@ -317,8 +329,8 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
             # The grouping pane's lineage code (T-12) — an FK target and a
             # display label, never a value dimension the summary enumerates.
             continue
-        noun = _DIMENSION_NOUN.get(code, label.lower())
-        plural = _DIMENSION_NOUN_PLURAL.get(code, f"{noun} values")
+        registered = _DIMENSIONS[code]
+        noun, plural = registered.noun, registered.noun_plural
         values = _parse_breakout_values(summary, code)
         if values is None:
             dimensions.append(DimensionEligibility(
@@ -629,7 +641,8 @@ def _noun_for_job_type(rwb_job_type: str) -> tuple[str, str]:
     # no longer carries a noun for — so the code stands in rather than raising a
     # completed run's banner off the page.
     code = str(rwb_job_type).removeprefix("run_breakout_")
-    return code, _DIMENSION_NOUN.get(code, code)
+    registered = _DIMENSIONS.get(code)
+    return code, registered.noun if registered is not None else code
 
 
 def _count(output: dict, key: str) -> int:
@@ -713,7 +726,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
                     if _uid(r["pid"]) == pid and _cart_id_of(r) in carts)
         done = len(keys & _existing_breakout_values(pid, "custom"))
         flights[pid] = BreakoutFlight(dimension="custom",
-                                      noun=_DIMENSION_NOUN["custom"],
+                                      noun=_DIMENSIONS["custom"].noun,
                                       planned=len(keys), done=done)
 
     terminal = execute(
@@ -733,7 +746,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
         _collect_error_lines(errors, _uid(row["requestor_id"]), code, noun, row)
     for row in terminal_custom:
         _collect_error_lines(errors, _uid(row["pid"]), "custom",
-                             _DIMENSION_NOUN["custom"], row)
+                             _DIMENSIONS["custom"].noun, row)
 
     return BreakoutPageState(running=bool(flights),
                              banner=_newest_banner(terminal, terminal_custom),
@@ -799,7 +812,7 @@ def _newest_banner(terminal: Sequence, terminal_custom: Sequence,
     cart_id = _cart_id_of(custom)
     rows = ([r for r in terminal_custom if _cart_id_of(r) == cart_id]
             if cart_id else [custom])
-    return _banner_over(rows, noun=_DIMENSION_NOUN["custom"],
+    return _banner_over(rows, noun=_DIMENSIONS["custom"].noun,
                         source_name=str(custom["source_name"]))
 
 
