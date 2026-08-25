@@ -1,8 +1,9 @@
 {% import "partials/form_macros.html" as forms %}
 {% for template in templates %}
-<div class="picker-item" data-name="{{ template.name | lower }}">
+<div class="picker-item" data-name="{{ template.name | lower }}"
+     @click="pick($event)">
   <input type="checkbox" name="template_ids" value="{{ template.id }}"
-         {% if template.id in selected_ids %}checked{% endif %}>
+         {% if template.id in selected_ids %}checked{% endif %} @click.stop>
   <label>{{ template.name }}
     {{ forms.family_badge(template.profile_family, sm=true) }}
     {% if template.unresolved %}<span class="badge badge--negative badge--sm">unresolved</span>{% endif %}

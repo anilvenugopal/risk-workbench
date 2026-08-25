@@ -721,7 +721,7 @@ document.addEventListener('alpine:init', () => {
   // `observe` adds a MutationObserver because the geohaz-cell poll disables and
   // enables a checkbox by OOB-swapping its whole <span> on job completion, and a
   // DOM replacement fires no native change event.
-  Alpine.data('checkPicks', ({ name, observe = false } = {}) => ({
+  Alpine.data('checkPicks', ({ name, observe = false, visibleOnly = false } = {}) => ({
     count: 0,
     total: 0,
     observer: null,
@@ -734,7 +734,11 @@ document.addEventListener('alpine:init', () => {
     },
     destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
-      return this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      const boxes = this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      // The suite builder's filter hides non-matching rows: select-all and the
+      // count then cover only the templates the analyst can see.
+      if (!visibleOnly) return boxes;
+      return Array.from(boxes).filter((box) => box.offsetParent !== null);
     },
     onChange() {
       const boxes = this.boxes();
