@@ -31,7 +31,7 @@
     </span>
     <span class="l">
       {% if a.inserted_at %}
-      <time data-utc="{{ a.inserted_at }}" title="{{ a.inserted_at }} UTC">{{ a.inserted_at }}</time>
+      <time data-utc="{{ a.inserted_at }}" title="{{ a.inserted_at }} UTC">{{ (a.inserted_at | string)[:19] }}</time>
       {% else %}—{% endif %}
     </span>
   </summary>
