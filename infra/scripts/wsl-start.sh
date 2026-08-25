@@ -12,37 +12,12 @@ COMPOSE="docker compose -f infra/docker-compose.yml --env-file infra/.env"
 # ── SQL Server ────────────────────────────────────────────────────────────────
 $COMPOSE up -d sqlserver
 
-# ── Redis / Valkey (AOF durability required) ─────────────────────────────────
-# appendonly yes + appendfsync everysec: acknowledged enqueues survive a broker
-# crash (≤ ~1s worst-case loss). This closes the pending-lost failure case and
-# removes the need for a pending-side sweep in the reconciler.
-#
-# redis-server/redis-cli (Ubuntu) or valkey-server/valkey-cli (RHEL9) — same
-# RESP protocol, same flags; only the binary name differs.
-if which redis-cli > /dev/null 2>&1; then
-    CLI=redis-cli
-    SERVER=redis-server
+# ── Redis ─────────────────────────────────────────────────────────────────────
+if redis-cli ping > /dev/null 2>&1; then
+    echo "Redis already running"
 else
-    CLI=valkey-cli
-    SERVER=valkey-server
-fi
-
-if $CLI ping > /dev/null 2>&1; then
-    echo "Redis/Valkey already running"
-    AOF=$($CLI CONFIG GET appendonly 2>/dev/null | tail -1)
-    if [ "$AOF" != "yes" ]; then
-        echo "WARNING: Redis/Valkey is running but AOF is not enabled (appendonly=$AOF)."
-        echo "         Stop it with 'make wsl-stop' and rerun 'make wsl-start'."
-    fi
-else
-    $SERVER \
-        --daemonize yes \
-        --logfile /tmp/rwb-redis.log \
-        --bind 127.0.0.1 \
-        --appendonly yes \
-        --appendfsync everysec \
-        --dir /tmp
-    echo "Redis/Valkey started with AOF (log: /tmp/rwb-redis.log)"
+    redis-server --daemonize yes --logfile /tmp/rwb-redis.log --bind 127.0.0.1
+    echo "Redis started (log: /tmp/rwb-redis.log)"
 fi
 
 echo ""

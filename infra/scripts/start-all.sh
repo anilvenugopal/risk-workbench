@@ -12,9 +12,8 @@
 #   uvicorn        → FOREGROUND (keeps the container alive; logs stream to stdout)
 #
 # Environment:
-#   APP_DEBUG=1            → start uvicorn under debugpy on port 5678 instead of direct
-#   RWB_WORKER_PROCESSES   → dramatiq worker OS processes to fork (default: 1)
-#   RWB_WORKER_THREADS     → dramatiq worker threads per process (default: 2)
+#   APP_DEBUG=1    → start uvicorn under debugpy on port 5678 instead of direct
+#   APP_WORKERS    → number of dramatiq worker threads (default: 2)
 
 set -euo pipefail
 
@@ -24,43 +23,32 @@ PID_DIR=$WORKSPACE/.dev-pids
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
-# ── 1. Redis (AOF durability required) ───────────────────────────────────────
-# appendonly yes + appendfsync everysec ensures acknowledged Dramatiq enqueues
-# survive a broker crash (≤ ~1s worst-case loss). Required in all environments.
-echo "[start] Redis (AOF enabled)..."
+# ── 1. Redis ──────────────────────────────────────────────────────────────────
+echo "[start] Redis..."
 redis-server \
     --daemonize yes \
     --logfile "$LOG_DIR/redis.log" \
     --bind 127.0.0.1 \
-    --protected-mode yes \
-    --appendonly yes \
-    --appendfsync everysec \
-    --dir "$LOG_DIR"
+    --protected-mode yes
 
 # ── 2. nginx ──────────────────────────────────────────────────────────────────
 echo "[start] nginx..."
-# nginx.conf is a template — ${APP_ROOT} must be substituted with the real
-# checkout path (source file is volume-mounted, so edits take effect on
-# reload via make nginx-reload; the generated file in LOG_DIR is not).
-APP_ROOT=$WORKSPACE envsubst '$APP_ROOT' \
-    < "$WORKSPACE/deploy/nginx/nginx.conf" \
-    > "$LOG_DIR/nginx.conf"
-nginx -c "$LOG_DIR/nginx.conf" -g "daemon on;"
+# nginx.conf is volume-mounted so edits take effect on reload (make nginx-reload)
+nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
 
 # ── 3. Dramatiq workers ───────────────────────────────────────────────────────
 echo "[start] Dramatiq workers..."
-PROCESSES=${RWB_WORKER_PROCESSES:-1}
-THREADS=${RWB_WORKER_THREADS:-2}
-dramatiq app.workers.entrypoint \
-    --processes "$PROCESSES" \
-    --threads "$THREADS" \
+WORKERS=${APP_WORKERS:-2}
+dramatiq app.workers \
+    --processes 1 \
+    --threads "$WORKERS" \
     >> "$LOG_DIR/worker.log" 2>&1 &
 echo $! > "$PID_DIR/worker.pid"
-echo "       worker PID=$(cat "$PID_DIR/worker.pid") processes=$PROCESSES threads=$THREADS"
+echo "       worker PID=$(cat "$PID_DIR/worker.pid") threads=$WORKERS"
 
 # ── 4. Poller ─────────────────────────────────────────────────────────────────
 echo "[start] Poller..."
-python -m app.poller.run --loop \
+python -m app.poller.run --loop --interval 30 \
     >> "$LOG_DIR/poller.log" 2>&1 &
 echo $! > "$PID_DIR/poller.pid"
 echo "       poller PID=$(cat "$PID_DIR/poller.pid")"
