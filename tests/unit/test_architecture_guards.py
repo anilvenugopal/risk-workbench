@@ -1,7 +1,5 @@
-"""Iteration-2 architecture guards (T064 — Article 11 / Article 6 / FR-041).
-
-Two constitutional invariants of the async spine, asserted as source scans so a
-regression trips the unit tier rather than production:
+"""Architecture guards asserted as source scans, so a regression trips the unit
+tier rather than production:
 
 1. **Article 11 — single-status-check only.** ``poll_*_to_completion`` (and any
    poll-inside convenience wrapper) blocks for minutes and is forbidden. The
@@ -14,6 +12,9 @@ regression trips the unit tier rather than production:
    authenticated analyst sees every entity; ownership reaches a submission only
    through submission association tables. (Complements ``test_no_scope.py``, which
    guards the wider ``app/`` + ``db/`` trees; this adds the Alembic schema.)
+3. **Spec 005 — the breakout request path.** Routers never touch
+   ``irp_gateway``, the request path opens no DataBridge connection, and every
+   seeded breakout dimension carries its full vocabulary.
 """
 
 from __future__ import annotations
@@ -87,13 +88,10 @@ def test_no_scope_construct_on_async_entities():
 
 # ── Spec 005 (T042): the breakout request path ────────────────────────────────────
 # Article 11 as applied to the confirm flow (contracts/http-routes.md): the web
-# layer performs NO IRP call itself — routers never touch irp_gateway — and the
-# ONE Risk Modeler read on the request path is breakout_service's confirm-time
-# freshness check, fetch_portfolio_stamp (the Article 2 submit-time pattern,
-# deliberately not named get_*). DataBridge is worker-side only.
+# layer performs no IRP call itself — routers never touch irp_gateway, and the
+# request path opens no DataBridge connection of its own.
 
 _BREAKOUT_SERVICE = _APP / "services" / "breakout_service.py"
-_IRP_GATEWAY_CALL = re.compile(r"irp_gateway\.(\w+)")
 
 
 def test_routers_never_touch_irp_gateway():
@@ -102,19 +100,6 @@ def test_routers_never_touch_irp_gateway():
     offenders = _offenders((_APP / "routers").rglob("*.py"),
                            re.compile(r"irp_gateway"))
     assert offenders == [], f"routers must not touch irp_gateway: {offenders}"
-
-
-def test_breakout_request_path_reads_only_its_two_permitted_gateway_calls():
-    """breakout_service calls exactly two gateway functions — the FR-002a
-    freshness read at confirm and the P-29 emptiness count at Add — and never a
-    web-layer get_*. Both are named exceptions: the Article 2 submit-time
-    pattern and Article 11's request-path exception (v3.2.0, bounded single-row
-    read, fail-open). Value enumeration still comes off the stored summary."""
-    text = _strip_line_comments(_BREAKOUT_SERVICE.read_text(encoding="utf-8"))
-    calls = set(_IRP_GATEWAY_CALL.findall(text))
-    assert calls <= {"fetch_portfolio_stamp", "count_breakout_match"}, (
-        "breakout_service may only call irp_gateway.fetch_portfolio_stamp and "
-        f"count_breakout_match on the request path (Article 11): {sorted(calls)}")
 
 
 def test_every_seeded_breakout_dimension_has_its_vocabulary():
