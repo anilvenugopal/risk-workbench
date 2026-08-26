@@ -157,7 +157,8 @@ def main() -> int:
                     ('irp_job',         'IRP Job',          10),
                     ('analyst_request', 'Analyst Request',  20),
                     ('rwb_job',         'RWB Job',          30),
-                    ('breakout_group',  'Breakout Group',   40)
+                    ('breakout_group',  'Breakout Group',   40),
+                    ('irp_analysis',    'IRP Analysis',     50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -208,7 +209,24 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            print("  [irp_job/rwb_job/breakout kind tables] seeds OK")
+            # analysis_perspective_kind — the five financial perspectives the
+            # retrieval worker requests (spec 011 O-07); Gross first is the
+            # screen-wide default.
+            conn.execute(text("""
+                MERGE analysis_perspective_kind AS target
+                USING (VALUES
+                    ('GR', 'Gross',              10),
+                    ('RL', 'Reinsurance Layer',  20),
+                    ('WX', 'Working Excess',     30),
+                    ('QS', 'Quota Share',        40),
+                    ('GU', 'Ground Up',          50)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [irp_job/rwb_job/breakout/perspective kind tables] seeds OK")
 
             app_env = os.environ.get("APP_ENV", "development")
             if app_env == "development":

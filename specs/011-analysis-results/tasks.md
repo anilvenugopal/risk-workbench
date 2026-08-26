@@ -43,7 +43,7 @@ other section stay as they are.
 
 **Purpose**: Pin the external prerequisite and re-confirm the moving wheel.
 
-- [ ] T001 Confirm `get_stats` / `get_ep` signatures and row shapes against the active wheel (`make irp-status`; irp-integration 0.6.2 `AnalysisManager`) before writing the gateway — the wheel is pre-release and moves (contracts/irp-gateway.md)
+- [X] T001 Confirm `get_stats` / `get_ep` signatures and row shapes against the active wheel (`make irp-status`; irp-integration 0.6.2 `AnalysisManager`) before writing the gateway — the wheel is pre-release and moves (contracts/irp-gateway.md). *Confirmed 2026-08-26 against the installed 0.6.2: both take `(analysis_id, perspective_code, exposure_resource_id)` positionally, set `exposureResourceType=PORTFOLIO` themselves, validate the perspective against `PERSPECTIVE_CODES`, and return `response.json()` verbatim (`analysis.py:1374`, `:1416`). Contract signatures unchanged.*
 - [X] T002 [T-02] irp-integration 0.6.2 (TestPyPI pin, installed 2026-08-26) carries the full RM `PERSPECTIVE_CODES` vocabulary — WX and QS pass client-side validation, so no external dependency remains
 
 ---
@@ -52,16 +52,16 @@ other section stay as they are.
 
 **Purpose**: Schema, seeds, mirror, and the gateway functions every story calls. No user story work can begin until this phase is complete.
 
-- [ ] T003 [T-04] [T-06] [T-01] [T-09] In `alembic/versions/0001_initial.py` per data-model.md: add `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), NULL); create `analysis_perspective_kind` (code PK, label, sort_order, inserted_at) with seeds GR/RL/WX/QS/GU at sort_order 10–50 (Gross first = default); seed `rwb_job_requestor_type_kind` row `irp_analysis`
-- [ ] T004 [P] [T-06] [T-01] Same seeds in `infra/scripts/seed_db.py` (`retrieve_analysis_results` already exists in `rwb_job_type_kind` — no job-type change)
-- [ ] T005 Mirror T003 in `tests/iteration1_mirror.py`: SQLite DDL for `loss_results`, `submitted_settings` and `analysis_perspective_kind`, both seed sets (depends on T003–T004)
-- [ ] T006 [P] [T-04] [T-09] SQL Server tier assertions in `tests/sqlserver/test_analysis_results_migration.py` (new): `loss_results` and `submitted_settings` columns present and NVARCHAR(MAX), the 5 perspective seeds in order, the `irp_analysis` requestor kind row, and a JSON extract write/read round-trip on `loss_results`
-  - Proof: `make test-sql` (developer-run; unverified until the developer runs it)
-- [ ] T007 [P] [FR-003] Add `get_analysis_stats` / `get_analysis_ep` to `app/services/irp_gateway.py` per contracts/irp-gateway.md — protocol + `_RealGateway` + module wrappers, keyword-only `analysis_id` / `perspective_code` / `exposure_resource_id`, RM row lists returned verbatim; worker-only (Article 11), never bypassing the wheel's perspective validation
-- [ ] T008 [P] [FR-003] [FR-004] FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: accept all five perspective codes from day one; per-(analysis, perspective) fixtures shaped like the R3 captures including the TCE-OEP/TCE-AEP elements; default rows for GR/GU and empty lists otherwise; record calls for idempotency assertions
-- [ ] T009 [FR-003] Unit tests for the two gateway wrappers in `tests/unit/test_irp_gateway.py`, and extend the guard in `tests/unit/test_architecture_guards.py` so no route module calls them (worker-only)
+- [X] T003 [T-04] [T-06] [T-01] [T-09] In `alembic/versions/0001_initial.py` per data-model.md: add `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), NULL); create `analysis_perspective_kind` (code PK, label, sort_order, inserted_at) with seeds GR/RL/WX/QS/GU at sort_order 10–50 (Gross first = default); seed `rwb_job_requestor_type_kind` row `irp_analysis`
+- [X] T004 [P] [T-06] [T-01] Same seeds in `infra/scripts/seed_db.py` (`retrieve_analysis_results` already exists in `rwb_job_type_kind` — no job-type change)
+- [X] T005 Mirror T003 in `tests/iteration1_mirror.py`: SQLite DDL for `loss_results`, `submitted_settings` and `analysis_perspective_kind`, both seed sets (depends on T003–T004). *`ANALYSIS_PERSPECTIVE_SEED` is applied by the `iteration2_db` fixture in `tests/conftest.py` and the `routes_db` fixture in `tests/unit/test_breakout_routes.py`, the two places that build the mirror.*
+- [X] T006 [P] [T-04] [T-09] SQL Server tier assertions in `tests/sqlserver/test_analysis_results_migration.py` (new): `loss_results` and `submitted_settings` columns present and NVARCHAR(MAX), the 5 perspective seeds in order, the `irp_analysis` requestor kind row, and a JSON extract write/read round-trip on `loss_results`
+  - Proof: `make test-sql` (developer-run; **not yet run — unverified**)
+- [X] T007 [P] [FR-003] Add `get_analysis_stats` / `get_analysis_ep` to `app/services/irp_gateway.py` per contracts/irp-gateway.md — protocol + `_RealGateway` + module wrappers, keyword-only `analysis_id` / `perspective_code` / `exposure_resource_id`, RM row lists returned verbatim; worker-only (Article 11), never bypassing the wheel's perspective validation
+- [X] T008 [P] [FR-003] [FR-004] FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: accept all five perspective codes from day one; per-(analysis, perspective) fixtures shaped like the R3 captures including the TCE-OEP/TCE-AEP elements; default rows for GR/GU and empty lists otherwise; record calls for idempotency assertions
+- [X] T009 [FR-003] Unit tests for the two gateway wrappers in `tests/unit/test_irp_gateway.py`, and extend the guard in `tests/unit/test_architecture_guards.py` so no route module calls them (worker-only). *The guard is wider than routers: the two names may appear only in `irp_gateway.py` and under `app/workers/`.*
 
-**Checkpoint**: Unit tier green on the new schema mirror and gateway — user story work can begin.
+**Checkpoint**: Unit tier green on the new schema mirror and gateway — user story work can begin. *2026-08-26: unit tier 1270 passed. SQL Server tier not run — `linux-box` is down, and T003's new columns and kind table reach the database only through a developer `make db-rebuild`.*
 
 ---
 

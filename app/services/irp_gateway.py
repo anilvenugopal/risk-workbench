@@ -368,6 +368,12 @@ class IRPGateway(Protocol):
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]: ...
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]: ...
+
     def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
@@ -985,6 +991,24 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
+        # verbatim. The wheel validates perspective_code against its own
+        # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        return self._client().analysis.get_stats(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/ep — one element per
+        # epType (OEP, AEP, TCE-OEP, TCE-AEP), returned verbatim; the worker's
+        # builder does the filtering and the return-period lookup.
+        return self._client().analysis.get_ep(
+            analysis_id, perspective_code, exposure_resource_id)
+
     def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
         # Raises IRPIntegrationError (IRPAPIError) on 0 or >1 matches — Article 2
         # name-based coupling; the caller resolves an own-executed analysis by
@@ -1285,6 +1309,20 @@ def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
 
 
+def get_analysis_stats(*, analysis_id: int, perspective_code: str,
+                       exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_stats(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def get_analysis_ep(*, analysis_id: int, perspective_code: str,
+                    exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_ep(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
 def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
     return _active().get_analysis_by_name(analysis_name, edm_name)
 
@@ -1359,6 +1397,7 @@ __all__ = [
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
     "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
+    "get_analysis_stats", "get_analysis_ep",
     "delete_analysis",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",

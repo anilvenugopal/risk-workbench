@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from irp_integration.analysis_validation import (
-    classify_model_profile,
-    validate_analysis_settings,
+    analysis_type_for_software_version,
+    validate_event_rate_scheme_settings,
 )
 from sqlalchemy import text
 
@@ -99,7 +99,7 @@ def profile_family(
         return "Accumulation"
     if software_version_code is None:
         return None
-    return classify_model_profile(software_version_code)
+    return analysis_type_for_software_version(software_version_code)
 
 
 def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
@@ -126,7 +126,9 @@ def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
         and profile["peril_code"] is not None
         and profile["model_region_code"] is not None
     )
-    return validate_analysis_settings(
+    # The wheel returns one message or None; the two rules it checks cannot both
+    # fail, and every caller here collects errors as a list.
+    message = validate_event_rate_scheme_settings(
         software_version_code=version,
         scheme_provided=bool(params["scheme"]),
         profile_peril_code=profile["peril_code"] or "",
@@ -136,6 +138,7 @@ def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
             scheme["model_region_code"] if pair_known else None
         ),
     )
+    return [message] if message else []
 
 
 def _validate_template(conn, params: dict) -> list[str]:
