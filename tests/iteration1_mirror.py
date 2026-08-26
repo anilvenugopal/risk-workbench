@@ -295,8 +295,8 @@ RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("breakout_group", "Breakout Group", 40)]  # T-13
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
-IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
-                            ("ready", "Ready", 30), ("error", "Error", 40)]
+IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
+                            ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
                            ("state", "Geography - State", 20),
                            ("country", "Geography - Country", 25),

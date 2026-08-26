@@ -117,12 +117,12 @@ class ExecutedAnalysis:
     """One workbench-submitted analysis for the EDM detail page's user-executed
     section (spec 010 US2, FR-013). Status is derived from the latest tracked
     ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
-    status_code`` keeps only the four coarse lifecycle codes."""
+    status_code`` keeps only the three coarse lifecycle codes."""
     id: str
     name: str | None            # the ≤64-char name submitted to Risk Modeler
     full_name: str | None       # untruncated portfolio + template (+ suffix)
     portfolio_name: str | None
-    status_code: str            # pending | running | ready | error
+    status_code: str            # pending | ready | error
     failure_reason: str | None
     template_name: str | None = None
     inserted_at: Any = None     # submit request time (Submitted column)
@@ -137,10 +137,9 @@ class ExecutedAnalysis:
     @property
     def is_live(self) -> bool:
         """Drives the EDM page's 3s self-poll (T-11): still moving toward a
-        terminal outcome. Equivalent to "joined job non-terminal" — status_code
-        only reaches ready/error once the job (or the exhausted retry batch)
-        already has."""
-        return self.status_code in ("pending", "running")
+        terminal outcome. ``pending`` is the only in-flight value — every write
+        that leaves it is terminal."""
+        return self.status_code == "pending"
 
     @property
     def status_label(self) -> str:

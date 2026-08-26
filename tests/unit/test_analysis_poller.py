@@ -97,7 +97,7 @@ def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
     assert input_data["rm_analysis_id"] == "9001"
     status = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
                          {"id": a["id"]}, connection="WORKBENCH")
-    assert status["status_code"] == "running"  # untouched — backfill flips it to ready
+    assert status["status_code"] == "pending"  # untouched — backfill flips it to ready
 
 
 def test_finished_without_analysis_id_passes_none(iteration2_db, fake_irp):
@@ -242,19 +242,22 @@ def test_retry_success_updates_the_row_in_place(iteration2_db, fake_irp):
     poller._submission_retry()
 
     job = execute_one(
-        "SELECT id, status, irp_id, submission_attempt_count FROM irp_job "
-        "WHERE irp_analysis_id = :a", {"a": row["analysis_id"]}, connection="WORKBENCH")
+        "SELECT id, status, irp_id, submission_attempt_count, completed_at "
+        "FROM irp_job WHERE irp_analysis_id = :a",
+        {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert job["id"] == row["job_id"]  # updated in place — no new irp_job row
     assert job["status"] == "QUEUED"
     assert job["irp_id"] is not None
     assert job["submission_attempt_count"] == 2
+    # completed_at is the backoff clock; a job back in flight has none.
+    assert job["completed_at"] is None
     total_jobs = execute("SELECT id FROM irp_job WHERE irp_analysis_id = :a",
                         {"a": row["analysis_id"]}, connection="WORKBENCH")
     assert len(total_jobs) == 1
     analysis = execute_one("SELECT status_code, failure_reason FROM irp_analysis "
                            "WHERE id = :id", {"id": row["analysis_id"]},
                            connection="WORKBENCH")
-    assert analysis["status_code"] == "running"
+    assert analysis["status_code"] == "pending"
     assert analysis["failure_reason"] is None
 
 

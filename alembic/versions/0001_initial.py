@@ -967,10 +967,11 @@ def upgrade() -> None:
         "('failed', 'Failed', 40)"
     ))
     # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
+    # `pending` is the only in-flight value: every other write is terminal.
+    # Progress while an analysis runs is irp_job.status, which the poller keeps.
     op.execute(sa.text(
         "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
-        "('running', 'Running', 20), "
         "('ready', 'Ready', 30), "
         "('error', 'Error', 40)"
     ))

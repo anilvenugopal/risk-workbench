@@ -132,18 +132,12 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
             connection="WORKBENCH")
         return "submission_failed"
 
-    with get_connection("WORKBENCH") as conn, conn.begin():
-        irp_job_service.record_submitted_irp_job(
-            irp_job_type="analysis", requested_from_submission_id=submission_id,
-            irp_edm_id=edm_id, irp_portfolio_id=portfolio["id"],
-            irp_analysis_id=claimed["id"], irp_id=irp_id,
-            resource_uri=request_body.get("resourceUri"), payload=submit_kwargs,
-            response=request_body, request_params=submit_kwargs,
-            actor_id=actor_id, conn=conn)
-        conn.execute(text(
-            "UPDATE irp_analysis SET status_code = 'running', updated_at = :now "
-            "WHERE id = :id"
-        ), {"now": _utcnow(), "id": claimed["id"]})
+    irp_job_service.record_submitted_irp_job(
+        irp_job_type="analysis", requested_from_submission_id=submission_id,
+        irp_edm_id=edm_id, irp_portfolio_id=portfolio["id"],
+        irp_analysis_id=claimed["id"], irp_id=irp_id,
+        resource_uri=request_body.get("resourceUri"), payload=submit_kwargs,
+        response=request_body, request_params=submit_kwargs, actor_id=actor_id)
     return "submitted"
 
 
@@ -180,6 +174,17 @@ def execute_analysis_batch(rwb_job_id: str) -> None:
 
 # ── backfill_analysis_detail (US1, FR-009) ──────────────────────────────────────
 
+def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
+    """End the analysis at ``error`` alongside the failed ``rwb_job``. Its
+    ``irp_job`` already reads FINISHED, so leaving ``pending`` would keep the EDM
+    page's 3s poll running for a row that is never coming back."""
+    execute_command(
+        "UPDATE irp_analysis SET status_code = 'error', failure_reason = :r, "
+        "updated_at = :now WHERE id = :id",
+        {"r": reason, "now": _utcnow(), "id": analysis_id}, connection="WORKBENCH")
+    return runtime.JobResult.fail(reason)
+
+
 def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     """Fill in a FINISHED own-executed analysis' ``irp_id`` (RM's ``analysisId``,
     extracted by the poller from the completion body), ``irp_app_analysis_id`` (the
@@ -196,14 +201,14 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
 
     rm_id = ctx.get("rm_analysis_id")
     if not rm_id:
-        return runtime.JobResult.fail("completion payload had no analysisId")
+        return _fail_analysis(analysis_id, "completion payload had no analysisId")
 
     try:
         meta = irp_gateway.get_analysis_metadata(analysis_id=int(rm_id))
     except Exception as exc:  # noqa: BLE001 — resolution failed, recoverable rwb_job failure
         logger.warning("backfill_analysis_detail: metadata fetch failed for %s "
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
-        return runtime.JobResult.fail(f"analysis resolve failed: {exc}")
+        return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
     resource = execute_one(
         "SELECT r.resource_uri FROM irp_job j "

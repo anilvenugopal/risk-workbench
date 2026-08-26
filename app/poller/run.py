@@ -438,7 +438,8 @@ def _retry_submission(row: dict) -> None:
         conn.execute(text(
             "UPDATE irp_job SET irp_id = :irp, status = 'QUEUED', "
             "submission_attempt_count = submission_attempt_count + 1, "
-            "last_submission_response = :resp, updated_at = :now WHERE id = :id"
+            "last_submission_response = :resp, completed_at = NULL, "
+            "updated_at = :now WHERE id = :id"
         ), {"irp": irp_id, "resp": json.dumps(request_body), "now": now,
             "id": row["id"]})
         resource_uri = request_body.get("resourceUri")
@@ -450,8 +451,8 @@ def _retry_submission(row: dict) -> None:
             ), {"id": str(uuid.uuid4()), "jid": row["id"], "uri": resource_uri,
                 "now": now})
         conn.execute(text(
-            "UPDATE irp_analysis SET status_code = 'running', failure_reason = NULL, "
-            "updated_at = :now WHERE id = :id"
+            "UPDATE irp_analysis SET failure_reason = NULL, updated_at = :now "
+            "WHERE id = :id"
         ), {"now": now, "id": row["irp_analysis_id"]})
     logger.info("submission_retry: resubmitted irp_job=%s -> irp_id=%s",
                row["id"], irp_id)

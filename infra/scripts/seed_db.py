@@ -182,7 +182,6 @@ def main() -> int:
                 MERGE irp_analysis_status_kind AS target
                 USING (VALUES
                     ('pending', 'Pending', 10),
-                    ('running', 'Running', 20),
                     ('ready',   'Ready',   30),
                     ('error',   'Error',   40)
                 ) AS src (code, label, sort_order)

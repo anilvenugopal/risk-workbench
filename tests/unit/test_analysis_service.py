@@ -179,9 +179,9 @@ def test_no_job_yet_reads_submitting(iteration2_db):
 
 def test_queued_and_running_are_live_importing(iteration2_db):
     edm = _edm()
-    queued = _executed(edm_id=edm, status_code="running")
+    queued = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=queued, status="QUEUED")
-    running = _executed(edm_id=edm, status_code="running")
+    running = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=running, status="RUNNING")
 
     rows = {a.id: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
@@ -247,7 +247,7 @@ def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_
 
 def test_latest_job_wins_when_more_than_one_row(iteration2_db):
     edm = _edm()
-    analysis = _executed(edm_id=edm, status_code="running")
+    analysis = _executed(edm_id=edm, status_code="pending")
     older = _utcnow() - timedelta(minutes=5)
     _job(analysis_id=analysis, status="QUEUED", inserted_at=older)
     _job(analysis_id=analysis, status="RUNNING", inserted_at=_utcnow())
@@ -265,10 +265,10 @@ def _one_of_each_state(edm: str) -> dict[str, str]:
         "failed_run": _executed(edm_id=edm, name="F1", status_code="error"),
         "failed_submit": _executed(edm_id=edm, name="F2", status_code="pending"),
         "submitting": _executed(edm_id=edm, name="P1", status_code="pending"),
-        "running": _executed(edm_id=edm, name="R1", status_code="running"),
-        # job FINISHED but backfill hasn't written irp_id / status ready yet
+        "running": _executed(edm_id=edm, name="R1", status_code="pending"),
+        # job FINISHED but the backfill hasn't written irp_id / status ready yet
         "finished_unbackfilled": _executed(edm_id=edm, name="R2",
-                                           status_code="running"),
+                                           status_code="pending"),
         "ready": _executed(edm_id=edm, name="D1", status_code="ready",
                            irp_id="9001"),
     }
@@ -368,7 +368,7 @@ def test_delete_rejects_a_non_terminal_row(iteration2_db, fake_irp):
     edm = _edm()
     ready = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
     _job(analysis_id=ready, status="FINISHED")
-    running = _executed(edm_id=edm, name="B", status_code="running")
+    running = _executed(edm_id=edm, name="B", status_code="pending")
     _job(analysis_id=running, status="RUNNING")
 
     with pytest.raises(ValueError):
@@ -393,7 +393,7 @@ def test_delete_rejects_a_row_of_another_edm(iteration2_db, fake_irp):
 
 def test_delete_rejects_finished_but_unbackfilled_row(iteration2_db, fake_irp):
     edm = _edm()
-    analysis = _executed(edm_id=edm, status_code="running")
+    analysis = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=analysis, status="FINISHED")
 
     with pytest.raises(ValueError):

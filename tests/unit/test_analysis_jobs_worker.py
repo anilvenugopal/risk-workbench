@@ -118,7 +118,8 @@ def test_batch_worker_submits_and_records_job(iteration2_db, fake_irp):
     assert len(rows) == 1
     assert rows[0]["name"] == "CRE_Portfolio A_Template A"
     assert rows[0]["full_name"] == "CRE_Portfolio A_Template A"
-    assert rows[0]["status_code"] == "running"
+    # `pending` until a terminal write: irp_job.status carries the progress.
+    assert rows[0]["status_code"] == "pending"
     assert rows[0]["irp_portfolio_id"] == portfolio_id
 
     irp_job = execute_one(
@@ -188,7 +189,8 @@ def test_one_item_failing_to_submit_never_stops_the_loop(iteration2_db, fake_irp
     assert failed["failure_reason"] and "forced analysis submit failure" in failed[
         "failure_reason"]
     ok = rows["CRE_Portfolio B_Template A"]
-    assert ok["status_code"] == "running"
+    assert ok["status_code"] == "pending"
+    assert ok["failure_reason"] is None
 
     failed_job = execute_one(
         "SELECT status, submission_attempt_count FROM irp_job "
@@ -278,7 +280,7 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
     assert len(rows) == 1
     assert rows[0]["id"] == claimed["id"]
     assert rows[0]["name"] == claimed["name"]
-    assert rows[0]["status_code"] == "running"
+    assert rows[0]["status_code"] == "pending"
 
 
 # ── backfill_analysis_detail ──────────────────────────────────────────────────────
@@ -337,14 +339,18 @@ def _run_backfill(input_data: dict) -> str:
     return job_id
 
 
-def _assert_backfill_failed(job_id, analysis_id) -> None:
+def _assert_backfill_failed(job_id, analysis_id, reason_fragment: str) -> None:
     job = execute_one("SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
                       {"id": job_id}, connection="WORKBENCH")
     assert job["status_code"] == "failed"
     assert job["error_detail"]
-    still = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
-                        {"id": analysis_id}, connection="WORKBENCH")
-    assert still["status_code"] == "running"  # untouched — "completed, details pending"
+    # The irp_job already reads FINISHED, so the analysis has to end terminal too
+    # or the EDM page's 3s poll never stops.
+    ended = execute_one(
+        "SELECT status_code, failure_reason FROM irp_analysis WHERE id = :id",
+        {"id": analysis_id}, connection="WORKBENCH")
+    assert ended["status_code"] == "error"
+    assert reason_fragment in ended["failure_reason"]
 
 
 def test_backfill_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp):
@@ -360,7 +366,7 @@ def test_backfill_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp)
     # completion payload carried no tasks[].output.log.analysisId
     job_id = _run_backfill({"analysis_id": analysis["id"],
                             "rm_analysis_id": None})
-    _assert_backfill_failed(job_id, analysis["id"])
+    _assert_backfill_failed(job_id, analysis["id"], "no analysisId")
 
 
 def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
@@ -376,4 +382,4 @@ def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
 
     job_id = _run_backfill({"analysis_id": analysis["id"],
                             "rm_analysis_id": "9001"})
-    _assert_backfill_failed(job_id, analysis["id"])
+    _assert_backfill_failed(job_id, analysis["id"], "analysis resolve failed")
