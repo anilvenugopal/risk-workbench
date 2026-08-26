@@ -527,18 +527,6 @@ def upgrade() -> None:
         unique=True, mssql_where=irp_analysis_live_edm_name,
         sqlite_where=irp_analysis_live_edm_name,
     )
-    # The worker's resume key (spec 010, data-model §1): _submit_one reads it as a
-    # scalar subquery, which raises on a duplicate. uq_irp_analysis_live_edm_name
-    # does not prevent one — a rerun landing on a different _n suffix passes it.
-    # Filtered: all three columns are NULL for broker rows.
-    irp_analysis_execution_item = sa.text("execution_id IS NOT NULL")
-    op.create_index(
-        "uq_irp_analysis_execution_item", "irp_analysis",
-        ["execution_id", "irp_portfolio_id", "execution_item_no"],
-        unique=True, mssql_where=irp_analysis_execution_item,
-        sqlite_where=irp_analysis_execution_item,
-    )
-
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
     #  irp_portfolio / irp_treaty: thin §5 identity/lineage records + a JSON
@@ -672,6 +660,19 @@ def upgrade() -> None:
         "fk_irp_analysis_irp_portfolio_id", "irp_analysis", "irp_portfolio",
         ["irp_portfolio_id"], ["id"],
     )
+
+    # The worker's resume key (spec 010, data-model §1): _submit_one reads it as a
+    # scalar subquery, which raises on a duplicate. uq_irp_analysis_live_edm_name
+    # does not prevent one — a rerun landing on a different _n suffix passes it.
+    # Filtered: all three columns are NULL for broker rows.
+    irp_analysis_execution_item = sa.text("execution_id IS NOT NULL")
+    op.create_index(
+        "uq_irp_analysis_execution_item", "irp_analysis",
+        ["execution_id", "irp_portfolio_id", "execution_item_no"],
+        unique=True, mssql_where=irp_analysis_execution_item,
+        sqlite_where=irp_analysis_execution_item,
+    )
+
     op.add_column("irp_job",
                   sa.Column("irp_analysis_id", sa.Uuid, nullable=True))
     op.create_foreign_key(
@@ -1052,6 +1053,7 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_index("uq_irp_analysis_execution_item", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")
