@@ -241,6 +241,8 @@
 
 /* ── Submission EDM and RDM tables ───────────────────────────────────────── */
 .submission-entity-head { margin-top: var(--space-6); }
+/* Matches the gap the RDM section head puts above itself. */
+#submission-analyses { margin-top: var(--space-6); }
 .entity-table-wrap { border: 1px solid var(--border-default);
   border-radius: var(--radius-md); overflow: hidden; background: var(--surface-panel); }
 .entity-table { table-layout: fixed; width: 100%; }
