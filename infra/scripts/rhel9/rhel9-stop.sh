@@ -78,18 +78,30 @@ stop_and_verify() {
     echo "[$name] sending stop signal to PID $pid..."
     kill -TERM "$pid"
 
-    # Give it a real moment to shut down before checking — matches the
-    # graceful-stop pattern used for Dramatiq elsewhere in this project,
-    # though this is a short fixed wait, not the drain-and-poll mechanism
-    # planned separately for the worker.
-    sleep 2
+    # Poll instead of one fixed sleep: a single Dramatiq worker's graceful
+    # shutdown can legitimately take several seconds (default
+    # --worker-shutdown-timeout is 30s — it lets in-flight messages finish
+    # before exiting), and with one process per queue (CR-004) several
+    # workers shut down at the same time, competing for CPU. Confirmed
+    # directly: a fixed 2s sleep reported 5 of 13 workers as "still
+    # running" when every one of them had actually exited within a few
+    # more seconds — a false positive, not a real stuck process. Exiting
+    # the loop as soon as the PID is actually gone (rather than always
+    # waiting the full ceiling) keeps a normal, fast stop just as quick as
+    # the old fixed sleep was.
+    local waited=0
+    local max_wait=35
+    while [ "$waited" -lt "$max_wait" ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+    done
 
     if kill -0 "$pid" 2>/dev/null; then
-        echo "[$name] WARNING: PID $pid still running after stop signal."
+        echo "[$name] WARNING: PID $pid still running ${max_wait}s after stop signal."
         echo "         It may need more time, or 'kill -9 $pid' if truly stuck."
     else
         rm -f "$pidfile"
-        echo "[$name] stopped."
+        echo "[$name] stopped (after ${waited}s)."
     fi
 
     if [ -n "$port" ]; then
