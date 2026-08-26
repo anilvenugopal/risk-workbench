@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 from app.poller import run as poller
 from app.services import analysis_service, rdm_service
 from app.services._common import SubmissionRef
-from app.workers import dispatch, entity_jobs
+from app.workers import analysis_jobs, dispatch, entity_jobs
 from db import execute, execute_command, execute_scalar
 
 
@@ -166,6 +166,86 @@ def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, driv
                    "WHERE rdm_id=:r", {"r": rdm_id}, connection="WORKBENCH")
     assert [str(r["irp_id"]) for r in rows] == ["910"]
     assert rows[0]["settings_metadata"] is not None
+
+
+# ── broker retrieval chain (spec 011 US2, FR-002/FR-006) ─────────────────────────
+
+def _retrieval_jobs() -> list[dict]:
+    return execute(
+        "SELECT requestor_id, status_code FROM rwb_job "
+        "WHERE rwb_job_type='retrieve_analysis_results'",
+        {}, connection="WORKBENCH")
+
+
+def _seed_two_broker_analyses(fake_irp) -> None:
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO",
+                          metadata={"engineType": "DLM"})
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E2",
+                          analysis_id="901", name="NT",
+                          exposure_resource_id="502",
+                          exposure_resource_type="PORTFOLIO",
+                          metadata={"engineType": "HD"})
+
+
+def test_rdm_backfill_enqueues_one_retrieval_per_captured_analysis(
+        iteration2_db, fake_irp, drive):
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    analysis_ids = {str(r["id"]) for r in execute(
+        "SELECT id FROM irp_analysis WHERE rdm_id=:r", {"r": rdm_id},
+        connection="WORKBENCH")}
+    jobs = _retrieval_jobs()
+    assert len(jobs) == 2
+    assert {str(j["requestor_id"]) for j in jobs} == analysis_ids
+
+    # the retrieval worker stores each extract against the stored broker pointer
+    analysis_jobs.run_pending()
+    stored = execute("SELECT loss_results FROM irp_analysis WHERE rdm_id=:r",
+                     {"r": rdm_id}, connection="WORKBENCH")
+    assert all(row["loss_results"] is not None for row in stored)
+    assert {c["exposure_resource_id"] for c in fake_irp.result_calls} == {
+        "501", "502"}
+
+
+def test_recapture_of_same_rdm_enqueues_nothing_and_refetches_nothing(
+        iteration2_db, fake_irp, drive):
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    analysis_jobs.run_pending()
+    calls_after_first = len(fake_irp.result_calls)
+
+    # another EDM copy of the same RDM re-fires the same RDM-wide capture
+    assert rdm_service.sync_detail(rdm_id=rdm_id,
+                                   actor_id=iteration2_db.user_a) is not None
+    entity_jobs.run_pending()
+    analysis_jobs.run_pending()
+
+    assert len(_retrieval_jobs()) == 2  # no new jobs (US2-3)
+    assert len(fake_irp.result_calls) == calls_after_first  # nothing re-fetched
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM irp_analysis WHERE rdm_id=:r", {"r": rdm_id},
+        connection="WORKBENCH") == 2  # still one row per source analysis
+
+
+def test_backfill_skips_stored_results_even_without_the_dedup_row(
+        iteration2_db, fake_irp, drive):
+    # loss_results IS NULL is its own guard, not a side effect of the UNIQUE
+    # key: with the job rows gone, a re-capture still enqueues nothing.
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    analysis_jobs.run_pending()
+    execute_command(
+        "DELETE FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results'",
+        {}, connection="WORKBENCH")
+
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=iteration2_db.user_a)
+    entity_jobs.run_pending()
+
+    assert _retrieval_jobs() == []
 
 
 # ── the EDM page syncs both: per-RDM fan-out + sync_running visibility ────────────

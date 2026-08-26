@@ -43,7 +43,7 @@ from app.services import (
     rwb_job_service,
     treaty_service,
 )
-from app.services._common import _utcnow
+from app.services._common import _uid, _utcnow
 from app.workers import broker, dispatch, runtime
 from db import (
     execute,
@@ -302,6 +302,20 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             conn.execute(text(
                 "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
             ), {"now": now, "id": str(rdm_id)})
+    # Chain the results retrieval (spec 011 FR-002, T-01): one job per live
+    # captured analysis still missing its extract. The queue's UNIQUE key is the
+    # FR-006 dedup — a re-import of another EDM copy enqueues nothing — and
+    # enqueue_rwb_job never resurrects a terminal failed retrieval (O-06).
+    for pending in execute(
+            "SELECT id FROM irp_analysis WHERE rdm_id = :r "
+            "AND deleted_at IS NULL AND loss_results IS NULL",
+            {"r": str(rdm_id)}, connection="WORKBENCH"):
+        retrieval_id = rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_analysis", requestor_id=_uid(pending["id"]),
+            rwb_job_type="retrieve_analysis_results",
+            input_data={"analysis_id": _uid(pending["id"])})
+        dispatch.dispatch(rwb_job_id=retrieval_id,
+                          rwb_job_type="retrieve_analysis_results")
     captured = len(hits)
     logger.info("captured %d analysis row(s) for rdm=%s", captured, rdm_id)
     out: dict[str, Any] = {"captured": captured}

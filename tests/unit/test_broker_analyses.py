@@ -1,9 +1,14 @@
-"""Unit tests for ``analysis_service.list_broker_analyses`` (spec 004 US3, T035).
+"""Unit tests for the broker-analysis read model and row rendering.
 
-The RDM page's read model (FR-030/FR-031/FR-035, R8): broker analyses grouped
-by ``rdm_id`` (an analysis applied across M EDMs shown ONCE), parsed
-``settings_metadata`` (missing/partial → blank, never error), and ``is_group``
-surfaced. No analysis is attributed to a portfolio (8/4 D8).
+Spec 004 US3 (T035): broker analyses grouped by ``rdm_id`` (an analysis applied
+across M EDMs shown ONCE), parsed ``settings_metadata`` (missing/partial →
+blank, never error), and ``is_group`` surfaced. No analysis is attributed to a
+portfolio (8/4 D8).
+
+Spec 011 US2 (T024): broker rows carry the stored results extract
+(``results_state`` / ``results``), a Risk Modeler link, and a Submitted value
+from the payload's ``createDate``; the expanded row lists the not-returned
+fields (FR-020/FR-022/FR-024/FR-025).
 """
 
 from __future__ import annotations
@@ -11,8 +16,14 @@ from __future__ import annotations
 import json
 import uuid
 
-from app.services import analysis_service
-from app.services._common import _utcnow
+from fastapi import FastAPI, Request
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.testclient import TestClient
+
+from app.config import settings as app_settings
+from app.services import analysis_service, edm_service
+from app.services._common import SubmissionRef, _utcnow
 from db import execute_command
 
 # The documented RM analysis metadata shape (search-analyses / get-analysis —
@@ -66,11 +77,14 @@ def _rdm(name: str, irp_id: int | None = None) -> str:
 
 def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
               settings: dict | None = None, is_group: bool = False,
+              loss_results: dict | None = None,
               row_id: str | None = None) -> str:
     cols: dict = dict(rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
                       name=name, status_code="ready",
                       settings_metadata=(json.dumps(settings) if settings
                                          else None),
+                      loss_results=(json.dumps(loss_results) if loss_results
+                                    else None),
                       is_group=(1 if is_group else 0))
     if row_id is not None:
         cols["id"] = row_id  # pin ORDER BY a.id ties for deterministic tests
@@ -146,3 +160,180 @@ def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
 
     [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
     assert {a.irp_id for a in g.analyses} == {"1"}
+
+
+# ── spec 011 US2: results fields, RM link, createDate (T024) ────────────────────
+
+_STORED_RPS = (5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000)
+
+LOSS_RESULTS = {
+    "engine_type": "DLM", "engine_version": "23.0",
+    "retrieved_at": "2026-08-26T00:00:00Z",
+    "perspectives": {
+        "GR": {"aal": 38270.59, "std_dev": 2645726.19,
+               "oep": {str(rp): float(rp) for rp in _STORED_RPS},
+               "aep": {str(rp): 2.0 * rp for rp in _STORED_RPS}},
+        "RL": None, "WX": None, "QS": None, "GU": None,
+    },
+}
+
+
+def test_broker_results_read_from_the_stored_extract(iteration2_db):
+    rdm, edm = _rdm("R"), _edm("E")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", loss_results=LOSS_RESULTS)
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    [a] = g.analyses
+
+    assert a.results_state == "ready"
+    assert [p.code for p in a.results] == ["GR", "RL", "WX", "QS", "GU"]
+    gr = a.results[0]
+    assert gr.produced and gr.aal == 38270.59 and gr.std_dev == 2645726.19
+    assert [r["rp"] for r in gr.rows] == [
+        "10,000", "1,000", "500", "250", "100", "50"]  # condensed, largest first
+    assert not a.results[1].produced  # explicitly empty → absent, never an error
+
+
+def test_broker_results_pending_then_failed_with_reason(iteration2_db):
+    rdm, edm = _rdm("R"), _edm("E")
+    pending_id = _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
+    failed_id = _analysis(rdm_id=rdm, edm_id=edm, irp_id="2")
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'failed', 'results read failed for WX')",
+        {"id": str(uuid.uuid4()), "rid": failed_id}, connection="WORKBENCH")
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    by_id = {a.id: a for a in g.analyses}
+
+    assert by_id[pending_id].results_state == "pending"
+    assert by_id[pending_id].results_error is None
+    assert by_id[failed_id].results_state == "failed"
+    assert by_id[failed_id].results_error == "results read failed for WX"
+
+
+def test_broker_rm_url_and_created_at(iteration2_db, monkeypatch):
+    monkeypatch.setattr(app_settings, "risk_modeler_base_url",
+                        "https://api-euw1.rms-ppe.com/")
+    monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "acme")
+    rdm, edm = _rdm("R"), _edm("E")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="5521",
+              settings=dict(SETTINGS_LIVE, createDate="2026-08-20T14:02:11.000Z"))
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="5522", settings=None)
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    by_irp = {a.irp_id: a for a in g.analyses}
+
+    # built the same way own rows build theirs (FR-025)
+    assert by_irp["5521"].rm_url == (
+        "https://acme.rms-ppe.com/riskmodeler/analyses/5521")
+    assert by_irp["5521"].created_at == "2026-08-20T14:02:11.000Z"
+    assert by_irp["5522"].created_at is None  # no snapshot → no Submitted value
+
+
+# ── row rendering via the contextual lazy route (T024) ──────────────────────────
+
+class _InjectUser(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        from app.services.auth_service import CurrentUser
+        request.state.user = CurrentUser(
+            id="analyst-1", email="analyst@example.com", display_name="Analyst",
+            session_id="s", role_codes=["analyst"], is_admin=False,
+            must_change_password=False, entra_oid=None, is_active=True)
+        return await call_next(request)
+
+
+def _client() -> TestClient:
+    from app.auth.csrf import generate_csrf_token
+    from app.config import settings
+    from app.routers import edms
+
+    app = FastAPI()
+    templates = Jinja2Templates(directory="app/templates")
+    templates.env.globals["app_env"] = settings.app_env
+    templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
+    templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
+    templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    app.state.templates = templates
+    app.add_middleware(_InjectUser)
+    app.include_router(edms.router)
+    return TestClient(app, follow_redirects=False)
+
+
+def _context() -> edm_service.ContextualEdmDetail:
+    return edm_service.ContextualEdmDetail(
+        edm=edm_service.EdmDetail(
+            id="edm-1", name="Shared EDM", status="ready", as_of=None,
+            source_file_path="/share/shared.bak", irp_id=101,
+            created_by_irp_job_irp_id=None, inserted_at="2026-01-01",
+            updated_at="2026-01-01", portfolio_count=0, portfolios=[],
+            detail_state="empty"),
+        submission=SubmissionRef(id="submission-a", name="Submission A"),
+        edm_choices=[SubmissionRef(id="edm-1", name="Shared EDM")],
+        rdms=[analysis_service.BrokerAnalysisGroup(
+            rdm_id="rdm-1", rdm_name="Acme Broker RDM", rdm_irp_id=201,
+            analysis_count=1)],
+    )
+
+
+def _broker_row(**over) -> analysis_service.BrokerAnalysis:
+    base = dict(
+        id="analysis-1", irp_id="88215", name="Broker AEP", rdm_id="rdm-1",
+        rdm_name="Acme Broker RDM", edm_name=None,
+        rm_url="https://acme.rms-ppe.com/riskmodeler/analyses/88215",
+        created_at="2026-08-20T14:02:11.000Z")
+    base.update(over)
+    return analysis_service.BrokerAnalysis(**base)
+
+
+def _render_rows(monkeypatch, analyses) -> str:
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: _context())
+    monkeypatch.setattr(analysis_service, "list_submission_rdm_analyses",
+                        lambda **kwargs: analyses)
+    r = _client().get("/submissions/submission-a/edms/edm-1/rdms/rdm-1/analyses")
+    assert r.status_code == 200
+    return r.text
+
+
+def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
+    html = _render_rows(monkeypatch, [_broker_row()])
+
+    # Risk Modeler link and the broker's own run date (FR-024/FR-025)
+    assert 'href="https://acme.rms-ppe.com/riskmodeler/analyses/88215"' in html
+    assert ">RM ↗</a>" in html
+    assert '<time data-utc="2026-08-20T14:02:11.000Z"' in html
+    # results still pending
+    assert "Results pending — retrieval is queued or running." in html
+    # the fields Risk Modeler never returns are listed, not hidden (FR-022)
+    assert "Analysis template" in html
+    assert "Min loss threshold" in html
+    assert "Franchise deductible" in html
+    assert "Unrecognized construction / occupancy" in html
+    assert html.count("not returned") >= 5
+    # no broker row names a portfolio (FR-020)
+    assert "Portfolio" not in html
+
+
+def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
+    ready = _broker_row(results_state="ready", results=[
+        analysis_service.PerspectiveResults(
+            code="GR", label="Gross", produced=True, aal=1234.0, std_dev=99.0,
+            rows=[{"rp": "10,000", "oep": 4.0, "aep": 8.0,
+                   "oep_display": "4", "aep_display": "8"}]),
+        analysis_service.PerspectiveResults(
+            code="RL", label="Reinsurance Layer", produced=False),
+    ])
+    failed = _broker_row(id="analysis-2", irp_id="88216", name="Broker NT",
+                         results_state="failed",
+                         results_error="results read failed for WX")
+
+    html = _render_rows(monkeypatch, [ready, failed])
+
+    assert ">OEP</th>" in html and ">AEP</th>" in html
+    assert ">AAL</td>" in html and ">Std dev</td>" in html
+    assert "The analysis did not produce this perspective." in html
+    assert "Results retrieval failed." in html
+    assert "results read failed for WX" in html
+    assert "Portfolio" not in html

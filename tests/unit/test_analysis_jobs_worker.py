@@ -553,6 +553,63 @@ def test_retrieval_fails_when_no_pointer_anywhere(iteration2_db, fake_irp):
     assert job["error_detail"] == "no exposure pointer"
 
 
+# ── retrieve_analysis_results: broker pointer resolution (US2, T-03/O-02) ────────
+
+
+def _seed_broker_analysis(*, irp_id="7001", exposure_resource_id=None,
+                          settings=None) -> str:
+    rdm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_rdm (id, name, status) VALUES (:id, 'R', 'ready')",
+        {"id": rdm_id}, connection="WORKBENCH")
+    analysis_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, rdm_id, irp_id, name, status_code, "
+        "exposure_resource_id, settings_metadata) "
+        "VALUES (:id, :rdm, :irp, 'B', 'ready', :x, :sm)",
+        {"id": analysis_id, "rdm": rdm_id, "irp": irp_id,
+         "x": exposure_resource_id,
+         "sm": (json.dumps(settings) if settings else None)},
+        connection="WORKBENCH")
+    return analysis_id
+
+
+def test_broker_retrieval_uses_the_stored_exposure_pointer(iteration2_db, fake_irp):
+    analysis_id = _seed_broker_analysis(exposure_resource_id="888",
+                                        settings={"engineType": "DLM"})
+
+    job = _run_retrieval(analysis_id)
+
+    assert job["status_code"] == "succeeded"
+    assert _stored_extract(analysis_id)["engine_type"] == "DLM"
+    assert all(c["exposure_resource_id"] == "888" for c in fake_irp.result_calls)
+
+
+def test_broker_retrieval_rereads_metadata_when_the_stored_pointer_is_null(
+        iteration2_db, fake_irp):
+    analysis_id = _seed_broker_analysis(exposure_resource_id=None, settings=None)
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E",
+                          analysis_id="7001", exposure_resource_id="777",
+                          metadata={"engineType": "HD", "engineVersion": "3.0"})
+
+    job = _run_retrieval(analysis_id)
+
+    assert job["status_code"] == "succeeded"
+    doc = _stored_extract(analysis_id)
+    assert doc["engine_type"] == "HD"  # the re-read filled the engine fields too
+    assert all(c["exposure_resource_id"] == "777" for c in fake_irp.result_calls)
+
+
+def test_broker_retrieval_fails_when_no_pointer_anywhere(iteration2_db, fake_irp):
+    analysis_id = _seed_broker_analysis(exposure_resource_id=None)
+
+    job = _run_retrieval(analysis_id)
+
+    assert job["status_code"] == "failed"
+    assert job["error_detail"] == "no exposure pointer"
+    assert _stored_extract(analysis_id) is None
+
+
 def _retrieval_jobs_for(analysis_id: str) -> list[dict]:
     return execute(
         "SELECT id, status_code FROM rwb_job WHERE requestor_type = 'irp_analysis' "

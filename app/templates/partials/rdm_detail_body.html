@@ -1,9 +1,9 @@
 {# The whole RDM detail body (spec 004 US3 — matches docs/ui_previews/rdm_detail.html
    rev 3 + ui.md §3): header + the broker analyses grouped by rdm_id with an EDM
-   column and per-analysis settings/metadata with the rate sub-drill (FR-031).
-   No portfolio is shown (8/4 D8 — see broker_analysis_row). NO loss numbers, no
-   own-vs-broker comparison (FR-033/FR-034); every missing field renders blank,
-   never an error. #}
+   column and per-analysis settings/metadata (FR-031).
+   No portfolio is shown (8/4 D8 — see broker_analysis_row). Each row's
+   expansion carries the stored spec-011 results extract; no own-vs-broker
+   comparison; every missing field renders blank, never an error. #}
 {# Live body (mirrors edm_detail_body): while the manual
    analyses backfill is in flight — or the import itself still is — the wrapper
    polls its own read-only render every 3s and swaps itself, so the page updates
@@ -123,15 +123,9 @@
       {% if analysis_total %}
       <span class="badge badge--neutral">{{ analysis_total }}</span>
       {% endif %}
-      <span class="sec__spacer"></span>
-      <span class="sec__note">Settings &amp; metadata only · no loss numbers this iteration</span>
     </summary>
 
     {% if analysis_total %}
-    <div class="derive-note"><strong>Settings &amp; metadata only this iteration</strong> —
-      no loss numbers (ELT / EP / AAL / return-period / PLT) and no own-vs-broker
-      comparison; those arrive with the results iteration.</div>
-
     <div class="dtable-shell">
       <div class="dtable" style="--cols:210px 150px 70px minmax(130px,1fr) 110px 70px 110px 90px 60px 100px;min-width:1100px">
         <div class="dtable__head">

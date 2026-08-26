@@ -314,7 +314,7 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
         "SELECT a.id, a.irp_id, a.rdm_id, a.loss_results, a.settings_metadata, "
-        "p.irp_id AS portfolio_irp_id "
+        "a.exposure_resource_id, p.irp_id AS portfolio_irp_id "
         "FROM irp_analysis a "
         "LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id "
         "WHERE a.id = :id",
@@ -328,10 +328,12 @@ def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
 
     settings = (json.loads(row["settings_metadata"])
                 if row["settings_metadata"] else None)
-    # T-03: own rows point at the RM portfolio the analysis ran against; one
-    # metadata re-read when the pointer is NULL (also filling the engine fields
-    # when settings_metadata is NULL too).
-    pointer = row["portfolio_irp_id"]
+    # T-03: own rows point at the RM portfolio the analysis ran against; broker
+    # rows (rdm_id set) at RM's own reported pointer captured at RDM backfill.
+    # One metadata re-read when the pointer is NULL (also filling the engine
+    # fields when settings_metadata is NULL too).
+    pointer = (row["exposure_resource_id"] if row["rdm_id"] is not None
+               else row["portfolio_irp_id"])
     if pointer is None:
         try:
             meta = irp_gateway.get_analysis_metadata(analysis_id=int(row["irp_id"]))

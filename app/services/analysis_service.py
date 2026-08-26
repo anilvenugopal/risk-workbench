@@ -28,7 +28,9 @@ fields defensively (``analysisType``/``engineType``/``engineVersion``/
 2026-07-24); term / PLA / event-rate fields have NO documented source and stay
 blank until the sandbox confirms their spelling (IRP_INTEGRATION_FOLLOWUPS.md).
 
-No loss numbers (FR-033); no row scoping (Article 6). The one write is
+Broker rows carry the stored spec-011 results extract (``results_state`` /
+``results``) once ``retrieve_analysis_results`` lands it — read from
+``loss_results``, never from Risk Modeler. No row scoping (Article 6). The one write is
 ``delete_executed_analyses`` (spec 010 P-19): a synchronous request-path delete
 of terminal own-executed analyses — Risk Modeler first, then a local soft
 delete — everything else here is read-only.
@@ -72,10 +74,6 @@ class AnalysisSettings:
         """The compact Engine column: ``DLM · 23.0`` (either half optional)."""
         parts = [p for p in (self.engine_type, self.engine_version) if p]
         return " · ".join(parts) if parts else None
-
-    @property
-    def has_rate_detail(self) -> bool:
-        return bool(self.event_rate_scheme or self.rate_vintage or self.term)
 
 
 def _fmt_loss(value: Any) -> str:
@@ -192,6 +190,12 @@ class BrokerAnalysis:
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    rm_url: str | None = None    # Risk Modeler link-out, built as own rows build theirs (FR-025)
+    created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
+    # ── spec 011 results (FR-008/SC-005) ──────────────────────────────────────
+    results_state: str = "pending"      # pending | failed | ready
+    results_error: str | None = None    # failed retrieval's error_detail
+    results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
 
 
 @dataclass
@@ -356,7 +360,7 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
 # One row per (RDM×EDM) handle.
 _HANDLE_SELECT = """
     SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
-           e.name AS edm_name,
+           a.loss_results, e.name AS edm_name,
            r.name AS rdm_name, r.irp_id AS rdm_irp_id
     FROM irp_analysis a
     LEFT JOIN irp_edm e ON e.id = a.edm_id
@@ -365,25 +369,55 @@ _HANDLE_SELECT = """
 """
 
 
+def _mark_failed_retrievals(analyses: list) -> None:
+    """Flip still-pending rows whose retrieval ``rwb_job`` ended ``failed`` to
+    failed + reason (SC-005) while the run status stays untouched. A terminal
+    failed row is never resurrected by the dedup key, so the join is exact,
+    not latest-of-many."""
+    pending = [a for a in analyses if a.results_state == "pending"]
+    if not pending:
+        return
+    params = {f"a{i}": a.id for i, a in enumerate(pending)}
+    placeholders = ", ".join(f":a{i}" for i in range(len(pending)))
+    failed = execute(
+        f"SELECT requestor_id, error_detail FROM rwb_job "
+        f"WHERE requestor_type = 'irp_analysis' "
+        f"AND rwb_job_type = 'retrieve_analysis_results' "
+        f"AND status_code = 'failed' "
+        f"AND requestor_id IN ({placeholders})",
+        params, connection="WORKBENCH")
+    by_id = {_uid(row["requestor_id"]): row["error_detail"] for row in failed}
+    for a in pending:
+        if a.id in by_id:
+            a.results_state = "failed"
+            a.results_error = by_id[a.id]
+
+
 def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
     """Collapse the M (RDM×EDM) handle rows sharing one ``irp_id`` into ONE
     display row (R8): the representative handle is the first seen;
-    ``edm_names`` collects every EDM spanned; settings come from any handle that
-    has them (the snapshot is per-analysis)."""
+    ``edm_names`` collects every EDM spanned; settings and results come from
+    any handle that has them (both snapshots are per-analysis)."""
     out: list[BrokerAnalysis] = []
     by_key: dict[tuple, BrokerAnalysis] = {}
+    perspectives = list_analysis_perspectives() if rows else []
     for r in rows:
         key = (_uid(r["rdm_id"]), str(r["irp_id"]))
         existing = by_key.get(key)
         if existing is None:
             settings = _parse_settings(r["settings_metadata"])
+            results = _perspective_results(r["loss_results"], perspectives)
             entry = BrokerAnalysis(
                 id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
                 rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
                 edm_name=r["edm_name"],
                 edm_names=[r["edm_name"]] if r["edm_name"] else [],
                 is_group=bool(r["is_group"]), settings=settings,
-                display=_to_display(settings))
+                display=_to_display(settings),
+                rm_url=_rm_analysis_url(r["irp_id"]),
+                created_at=(settings or {}).get("createDate"),
+                results_state=("ready" if results else "pending"),
+                results=results)
             by_key[key] = entry
             out.append(entry)
             continue
@@ -394,6 +428,13 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             if settings is not None:
                 existing.settings = settings
                 existing.display = _to_display(settings)
+                existing.created_at = settings.get("createDate")
+        if not existing.results:
+            results = _perspective_results(r["loss_results"], perspectives)
+            if results:
+                existing.results = results
+                existing.results_state = "ready"
+    _mark_failed_retrievals(out)
     return out
 
 
@@ -494,23 +535,7 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
         if job is not None:
             a.job_status = job["status"]
             a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
-    # A failed retrieval reads as failed + reason while the run stays FINISHED
-    # (SC-005). A terminal failed row is never resurrected by the dedup key, so
-    # the join is exact, not latest-of-many.
-    pending = [a for a in analyses if a.results_state == "pending"]
-    if pending:
-        failed = execute(
-            f"SELECT requestor_id, error_detail FROM rwb_job "
-            f"WHERE requestor_type = 'irp_analysis' "
-            f"AND rwb_job_type = 'retrieve_analysis_results' "
-            f"AND status_code = 'failed' "
-            f"AND requestor_id IN ({placeholders})",
-            params, connection="WORKBENCH")
-        by_id = {_uid(row["requestor_id"]): row["error_detail"] for row in failed}
-        for a in pending:
-            if a.id in by_id:
-                a.results_state = "failed"
-                a.results_error = by_id[a.id]
+    _mark_failed_retrievals(analyses)
     return analyses
 
 

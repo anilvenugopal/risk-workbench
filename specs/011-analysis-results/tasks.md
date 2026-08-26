@@ -115,19 +115,19 @@ and identical numbers on both copies.
 
 ### Implementation for User Story 2
 
-- [ ] T020 [US2] [FR-002] [FR-006] [T-01] Broker chain enqueue in `_backfill_rdm_analyses_body` (`app/workers/entity_jobs.py`), after the capture transaction commits: for every live (`rdm_id`, `irp_id`) row of this RDM with `loss_results IS NULL`, the same `enqueue_rwb_job` keyed on that row's `irp_analysis.id`; rows already carrying results enqueue nothing
-- [ ] T021 [US2] [T-03] Broker pointer branch in the `retrieve_analysis_results` body (`app/workers/analysis_jobs.py`): broker rows (`rdm_id IS NOT NULL`) use stored `irp_analysis.exposure_resource_id`, with the T011 metadata re-read when NULL — closes spec O-02
-- [ ] T022 [US2] [FR-020] [FR-011] [FR-022] Broker row display: results state and the two-column expanded row (reusing T014) in `app/templates/partials/broker_analysis_row.html` / `contextual_rdm_analyses.html`; the analysis template and all four analysis settings read as not returned, since Risk Modeler returns none of them; no broker row names a portfolio
-- [ ] T022a [US2] [FR-024] [FR-025] Two fields on `BrokerAnalysis` (`app/services/analysis_service.py`): `rm_url`, built the same way `ExecutedAnalysis.rm_url` is, and `created_at` from the payload's documented `createDate` — so broker rows fill the Risk Modeler and Submitted columns instead of showing `—`
+- [X] T020 [US2] [FR-002] [FR-006] [T-01] Broker chain enqueue in `_backfill_rdm_analyses_body` (`app/workers/entity_jobs.py`), after the capture transaction commits: for every live (`rdm_id`, `irp_id`) row of this RDM with `loss_results IS NULL`, the same `enqueue_rwb_job` keyed on that row's `irp_analysis.id`; rows already carrying results enqueue nothing
+- [X] T021 [US2] [T-03] Broker pointer branch in the `retrieve_analysis_results` body (`app/workers/analysis_jobs.py`): broker rows (`rdm_id IS NOT NULL`) use stored `irp_analysis.exposure_resource_id`, with the T011 metadata re-read when NULL — closes spec O-02
+- [X] T022 [US2] [FR-020] [FR-011] [FR-022] Broker row display: results state and the two-column expanded row (reusing T014) in `app/templates/partials/broker_analysis_row.html` / `contextual_rdm_analyses.html`; the analysis template and all four analysis settings read as not returned, since Risk Modeler returns none of them; no broker row names a portfolio. *The broker expansion was the last caller of `_analysis_metadata_fields.html` / `_analysis_rate_detail.html` — both partials deleted; the RDM page's "no loss numbers this iteration" notes removed with them.*
+- [X] T022a [US2] [FR-024] [FR-025] Two fields on `BrokerAnalysis` (`app/services/analysis_service.py`): `rm_url`, built the same way `ExecutedAnalysis.rm_url` is, and `created_at` from the payload's documented `createDate` — so broker rows fill the Risk Modeler and Submitted columns instead of showing `—`. *Until US3's merged table, the row renders both: the `RM ↗` link beside `A-<id>` and the Submitted `<time data-utc>` in the expansion's source line.*
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] [FR-002] [FR-006] Unit tests in `tests/unit/test_rdm_sync.py`: RDM backfill enqueues one retrieval per captured live analysis, skips rows with stored results, and a re-import of another EDM copy enqueues nothing and triggers zero FakeIRP calls; broker pointer resolution (stored value, re-read fallback, still-NULL fail) in `tests/unit/test_analysis_jobs_worker.py`
-- [ ] T024 [P] [US2] [FR-020] [FR-024] [FR-025] Render tests in `tests/unit/test_broker_analyses.py`: broker rows show results state and the expanded row with the not-returned fields listed, carry a Risk Modeler link and a Submitted value from `createDate`, and name no portfolio anywhere
-- [ ] T025 [US2] [T-03] IRP sandbox test in `tests/irp/`: broker pointer (`exposure_resource_id`) against an RDM-imported analysis returns stats/EP rows
-  - Proof: `uv run pytest tests/irp --run-irp` inside `make shell` (developer-run)
+- [X] T023 [P] [US2] [FR-002] [FR-006] Unit tests in `tests/unit/test_rdm_sync.py`: RDM backfill enqueues one retrieval per captured live analysis, skips rows with stored results, and a re-import of another EDM copy enqueues nothing and triggers zero FakeIRP calls; broker pointer resolution (stored value, re-read fallback, still-NULL fail) in `tests/unit/test_analysis_jobs_worker.py`
+- [X] T024 [P] [US2] [FR-020] [FR-024] [FR-025] Render tests in `tests/unit/test_broker_analyses.py`: broker rows show results state and the expanded row with the not-returned fields listed, carry a Risk Modeler link and a Submitted value from `createDate`, and name no portfolio anywhere
+- [X] T025 [US2] [T-03] IRP sandbox test in `tests/irp/test_analysis_results.py`: broker pointer (`exposure_resource_id`) against an RDM-imported analysis returns stats/EP rows — gated on `IRP_TEST_RDM_NAME` (a pre-imported sandbox RDM)
+  - Proof: `uv run pytest tests/irp --run-irp` inside `make shell` (developer-run; **not yet run — unverified**)
 
-**Checkpoint**: Broker results arrive once per RDM and read on every copy. **STOP** — approver clicks before US3.
+**Checkpoint**: Broker results arrive once per RDM and read on every copy. **STOP** — approver clicks before US3. *2026-08-26: unit tier 1302 passed. IRP sandbox tier (T025) not run — `linux-box` is down; developer runs the `--run-irp` tier with `IRP_TEST_RDM_NAME` set.*
 
 ---
 

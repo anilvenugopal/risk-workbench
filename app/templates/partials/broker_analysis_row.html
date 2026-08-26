@@ -5,8 +5,11 @@
                   grid must match)
    No portfolio is shown: an RDM analysis cannot be tied to an EDM portfolio
    trustworthily (8/4 D8). `is_group` still marks the analysis itself (FR-035).
-   Missing settings fields render blank / "not provided", never an error. No
-   loss numbers (FR-033). #}
+   Missing settings fields render blank / "not provided", never an error. The
+   expansion is the spec-011 two-column body shared with own rows
+   (partials/analysis_results_inline.html): field groups left — the analysis
+   template and the four analysis settings read "not returned", since Risk
+   Modeler returns none of them (FR-022) — condensed results right. #}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
@@ -18,7 +21,10 @@
       <span class="dt-namecol">
         <span class="dt-title">{{ a.name or 'Analysis ' ~ a.irp_id }}
           {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span>
-        <span class="dt-sub">A-{{ a.irp_id }}</span>
+        <span class="dt-sub">A-{{ a.irp_id }}
+          {%- if a.rm_url %} <a href="{{ a.rm_url }}" target="_blank" rel="noopener"
+             onclick="event.stopPropagation()"
+             title="Open this analysis in Risk Modeler (new tab)">RM ↗</a>{% endif %}</span>
       </span></span></span>
     {% if show_edm %}
     <span class="l">
@@ -36,24 +42,7 @@
     <span class="l">{{ cell(d.pla) }}</span>
     <span class="l">{% if d.event_rate_scheme or d.rate_vintage %}{{ d.event_rate_scheme or d.rate_vintage }}{% else %}<span class="na">Missing</span>{% endif %}</span>
   </summary>
-  <div class="drow__body">
-    <dl class="settings-grid">
-      {% if show_edm %}
-      <div><dt>EDM</dt><dd{% if not a.edm_name %} class="blank"{% endif %}>{{ a.edm_names|join(', ') or a.edm_name or 'not provided' }}</dd></div>
-      {% endif %}
-      {% if a.is_group %}
-      <div><dt>Group</dt>
-        <dd class="blank">combines multiple analyses; member breakdown not available</dd></div>
-      {% endif %}
-      {% include "partials/_analysis_metadata_fields.html" %}
-    </dl>
-    {% if d.has_rate_detail %}
-    <details class="drill">
-      <summary>▾ Rate / event-rate detail</summary>
-      <div class="drill__body">
-        {% include "partials/_analysis_rate_detail.html" %}
-      </div>
-    </details>
-    {% endif %}
+  <div class="drow__body drow__body--split">
+    {% include "partials/analysis_results_inline.html" %}
   </div>
 </details>
