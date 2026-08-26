@@ -275,6 +275,7 @@ new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
 and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
 still does not stop/start them.
 
+- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the database — `python infra/scripts/reset_db.py`, then `python -m alembic upgrade head`, then `python infra/scripts/seed_db.py` (same three steps as `make db-rebuild`; RHEL9 has no Make target for this yet, run them directly).
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
   foreground/manually as a proof of concept only. Deliberately deferred for

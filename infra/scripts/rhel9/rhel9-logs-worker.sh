@@ -17,6 +17,16 @@ QUEUE="${1:-}"
 cd "$APP_DIR"
 
 if [ -z "$QUEUE" ]; then
+    # `.venv/bin/python -m app.workers.queues` imports app.config, which
+    # needs every setting env var (e.g. session_secret_key) set — confirmed
+    # directly against a real RHEL9 host: without this, that import fails
+    # with a pydantic ValidationError before it ever lists a queue name.
+    # Only needed on this branch — the tail -f path below never imports
+    # app code at all.
+    set -a
+    source infra/.env
+    set +a
+
     echo "Usage: bash infra/scripts/rhel9/rhel9-logs-worker.sh <queue>" >&2
     echo "" >&2
     echo "Available queues:" >&2

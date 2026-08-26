@@ -35,6 +35,14 @@ done
 
 cd "$APP_DIR"
 
+# `.venv/bin/python -m app.workers.queues` imports app.config, which needs
+# every setting env var (e.g. session_secret_key) set — confirmed directly
+# against a real RHEL9 host: without this, that import fails with a
+# pydantic ValidationError before it ever lists a queue name.
+set -a
+source infra/.env
+set +a
+
 QUEUES="$(.venv/bin/python -m app.workers.queues 2>/dev/null)"
 if [ -z "$QUEUES" ]; then
     echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues returned nothing)." >&2

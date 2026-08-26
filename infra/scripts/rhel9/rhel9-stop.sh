@@ -27,6 +27,16 @@ PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
 # never needed a working directory.
 cd "$APP_DIR"
 
+# `.venv/bin/python -m app.workers.queues` imports app.config, which needs
+# every setting env var (e.g. session_secret_key) to be set — confirmed
+# directly: without this, that import fails with a pydantic
+# ValidationError before it ever gets to listing queue names. rhel9-start.sh
+# already does this; this script previously never needed to import
+# app code at all, so it never had this line.
+set -a
+source infra/.env
+set +a
+
 # Checks whether a systemd unit of this name exists AND has a restart
 # policy that isn't "no" — if so, a plain kill/shutdown command would be
 # silently undone, the same trap found in Ubuntu's Redis tonight.
