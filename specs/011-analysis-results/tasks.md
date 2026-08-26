@@ -188,8 +188,8 @@ follows screen-wide; >10 selections scroll horizontally; originating-tab selecti
 
 ## Phase 7: Polish
 
-- [ ] T037 Subtraction review of the full diff per AGENTS.md: remove comments/tests restating the implementation, inline single-use helpers, delete speculative branches; compare diff size with requirement size
-- [ ] T038 Run the quickstart.md walkthrough end-to-end (developer-run stack) and report tiers by name and count — unit tier count, SQL Server tier (`make test-sql`), IRP sandbox tier (`--run-irp`)
+- [X] T037 Subtraction review of the full diff per AGENTS.md: remove comments/tests restating the implementation, inline single-use helpers, delete speculative branches; compare diff size with requirement size. *2026-08-26: full 011 diff (~3,440 insertions app+tests) reviewed. Two history-preserving comments removed (`analyses_merged_section.html` "Replaces …" lineage, `_to_display` "folded into analysis_mode before" note). No speculative branches, no single-use helpers to inline, no tests restating implementation found; three partials and the old two-section layout were already deleted during the stories. Diff size is proportional to the 25-FR / 4-story scope. Unit tier 1327 passed after the edits.*
+- [ ] T038 Run the quickstart.md walkthrough end-to-end (developer-run stack) and report tiers by name and count — unit tier count, SQL Server tier (`make test-sql`), IRP sandbox tier (`--run-irp`). *2026-08-26: unit tier 1327 passed. SQL Server tier being run by the developer; IRP sandbox tier and the quickstart walkthrough need the developer-run stack (`linux-box` down).*
 
 ---
 

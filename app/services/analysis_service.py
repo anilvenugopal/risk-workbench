@@ -343,8 +343,6 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
     return AnalysisSettings(
         analysis_type=_text(_first(p, "analysisType", "type")),
         analysis_mode=_text(_first(p, "analysisMode", "mode")),
-        # its own field (spec 011): folded into analysis_mode before, where ELT
-        # and the mode competed for one slot
         framework=_text(_first(p, "analysisFramework")),
         engine_type=_text(_first(p, "engineType")),
         engine_version=_text(_first(p, "engineVersion", "modelVersion")),
