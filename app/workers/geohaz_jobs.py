@@ -68,7 +68,7 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
 def run_geohaz(rwb_job_id: str) -> None:
     runtime.run_job(
         rwb_job_id=rwb_job_id,
-        worker_id=runtime.worker_id(__name__),
+        worker_id=runtime.worker_id(),
         body=lambda: _run_geohaz_body(rwb_job_id),
     )
 

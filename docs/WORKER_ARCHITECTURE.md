@@ -39,7 +39,13 @@ complete_rwb_job() →  status='succeeded' or 'failed'
   status='pending'`. Whoever's `UPDATE` actually changes a row wins; a second
   claimant sees rowcount 0 and backs off. This is what makes it safe for
   any number of workers, across any number of queues, to claim from the
-  same table at once.
+  same table at once. The claiming process stamps `claimed_by` with
+  `runtime.worker_id()` — `hostname:pid`, identifying the OS process, not
+  the job or the Python module the actor happens to live in (neither is the
+  worker's business; `rwb_job_type` already names the job precisely). This
+  is what lets a support engineer look at a stuck `running` row and know
+  exactly which process to go kill (see "A job is stuck," below) instead of
+  only knowing which host.
 - **Heartbeat**: while the body runs, a background thread stamps
   `rwb_job_heartbeat.heartbeat_at` every `RWB_HEARTBEAT_INTERVAL_SECS`. If a
   worker process dies mid-job, its heartbeat goes stale; the poller's
@@ -67,7 +73,7 @@ Four steps, always in this order:
    ```python
    @rwb_actor(max_retries=0)
    def my_thing(rwb_job_id: str) -> None:
-       runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+       runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                        body=lambda: _my_thing_body(rwb_job_id))
    ```
    `@rwb_actor` (from `app.workers.queues`) is `@dramatiq.actor` with

@@ -63,13 +63,13 @@ def _dummy_fail_body(rwb_job_id) -> runtime.JobResult:
 
 @rwb_actor(max_retries=0)
 def dummy_wait(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _dummy_wait_body(rwb_job_id))
 
 
 @rwb_actor(max_retries=0)
 def dummy_fail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _dummy_fail_body(rwb_job_id))
 
 

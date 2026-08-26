@@ -142,7 +142,7 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
 
 @rwb_actor(max_retries=0)
 def sync_irp_metadata(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=_sync_irp_metadata_body)
 
 

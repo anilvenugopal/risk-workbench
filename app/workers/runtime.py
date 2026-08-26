@@ -11,6 +11,7 @@ reclaim a dead worker's row.
 from __future__ import annotations
 
 import logging
+import os
 import socket
 import threading
 import time
@@ -30,9 +31,20 @@ from db import get_connection
 logger = logging.getLogger(__name__)
 
 
-def worker_id(module: str) -> str:
-    """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
-    return f"{socket.gethostname()}:{module}"
+def worker_id() -> str:
+    """The heartbeat identity for a job actor — identifies the OS process, not
+    the job or the module it happens to be defined in (neither is the
+    worker's own business; ``rwb_job_type`` already names the job on every
+    log line and DB row). ``hostname:pid`` is unique among currently-running
+    processes, which is what matters for "is this the process to kill" and
+    "which of N processes on this queue handled this" (``RWB_WORKER_PROCESSES``
+    > 1) — without the PID, every process on a host produced the identical
+    string. Sliced to 128 chars to match ``rwb_job.claimed_by`` and
+    ``rwb_job_heartbeat.worker_id``'s ``NVARCHAR(128)`` width: a longer value
+    would otherwise raise "String or binary data would be truncated" on
+    write and fail the claim, rather than merely displaying truncated."""
+    raw = f"{socket.gethostname()}:{os.getpid()}"
+    return raw[:128]
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────

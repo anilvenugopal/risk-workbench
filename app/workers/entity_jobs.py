@@ -106,7 +106,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @rwb_actor(max_retries=0)
 def upload_edm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_edm_body(rwb_job_id))
 
 
@@ -152,7 +152,7 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @rwb_actor(max_retries=0)
 def upload_rdm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_rdm_body(rwb_job_id))
 
 
@@ -314,7 +314,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
 
 @rwb_actor(max_retries=0)
 def backfill_rdm_analyses(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
 
 
@@ -466,7 +466,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
 
 @rwb_actor(max_retries=0)
 def backfill_edm_detail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 
