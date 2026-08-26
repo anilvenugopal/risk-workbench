@@ -105,11 +105,10 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
 
 def _analysis_failure_reason(result: dict | None) -> str:
     """The message extracted from a terminal analysis completion body, falling
-    back to the raw summary (FR-011) — field names are read defensively since
-    the wheel's failure-completion shape is undocumented. Real FAILED bodies
-    nest the message at ``tasks[].output.errors[].message``; the first
-    non-empty message in task order wins (task 1 carries the engine root
-    cause — e.g. ``ENGINE-400:…`` — later tasks are downstream noise)."""
+    back to the raw summary (FR-011). Real FAILED bodies nest the message at
+    ``tasks[].output.errors[].message``; the first non-empty message in task
+    order wins (task 1 carries the engine root cause — e.g. ``ENGINE-400:…`` —
+    later tasks are downstream noise)."""
     if not isinstance(result, dict):
         return "Risk Modeler reported no failure detail"
     tasks = result.get("tasks")
@@ -125,10 +124,9 @@ def _analysis_failure_reason(result: dict | None) -> str:
                 message = error.get("message") if isinstance(error, dict) else None
                 if isinstance(message, str) and message.strip():
                     return message.strip()
-    for key in ("errorMessage", "failureReason", "statusMessage", "message", "reason"):
-        value = result.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    error_message = result.get("errorMessage")
+    if isinstance(error_message, str) and error_message.strip():
+        return error_message.strip()
     return f"Risk Modeler status: {result.get('status', 'unknown')}"
 
 
@@ -413,12 +411,7 @@ def _retry_submission(row: dict) -> None:
     (the approved-plans rule — never recomposed from live rows) and update it
     IN PLACE (T-09: ``record_submission_failure``'s insert-per-failure design
     makes per-row attempt counting meaningless)."""
-    params = json.loads(row["request_params"]) if row["request_params"] else None
-    if not params:
-        logger.warning(
-            "submission_retry: irp_job %s has no request_params to resubmit",
-            row["id"])
-        return
+    params = json.loads(row["request_params"])
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
         irp_id, request_body = irp_gateway.submit_portfolio_analysis(**params)

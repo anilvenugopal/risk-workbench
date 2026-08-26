@@ -3,8 +3,9 @@
 ``execute_analysis_batch`` submits one Risk Modeler analysis per (portfolio,
 plan item) — the plan is the approved snapshot from
 ``analysis_execution_service.request_execution``; this module reads nothing else
-(AGENTS.md rule 8). ``backfill_analysis_detail`` resolves a FINISHED analysis by
-its exact submitted name and fills in its Risk Modeler detail.
+(AGENTS.md rule 8). ``backfill_analysis_detail`` fills in a FINISHED analysis' Risk
+Modeler detail, resolved by the ``analysisId`` the poller extracted from the
+completion body.
 """
 
 from __future__ import annotations
@@ -17,7 +18,12 @@ from typing import Any, Callable
 import dramatiq
 from sqlalchemy import text
 
-from app.services import analysis_execution_service, irp_gateway, irp_job_service
+from app.services import (
+    analysis_execution_service,
+    irp_gateway,
+    irp_job_service,
+    rwb_job_service,
+)
 from app.services._common import _utcnow
 from app.workers import broker, runtime
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
@@ -25,14 +31,6 @@ from db import execute, execute_command, execute_one, get_connection, is_unique_
 logger = logging.getLogger(__name__)
 
 _ = broker.redis_broker
-
-
-def _load_input(rwb_job_id: Any) -> dict:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
-                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
 
 
 # ── execute_analysis_batch (US1, T-01/T-04/T-05) ────────────────────────────────
@@ -150,7 +148,7 @@ def _submit_one(*, edm_id: str, edm_name: str, execution_id: str, portfolio: dic
 
 
 def _execute_analysis_batch_body(rwb_job_id: Any) -> runtime.JobResult:
-    plan = _load_input(rwb_job_id)
+    plan = rwb_job_service.load_input_data(rwb_job_id)
     portfolios = plan.get("portfolios") or []
     items = plan.get("items") or []
     counts = {"submitted": 0, "submission_failed": 0, "skipped": 0}
@@ -188,7 +186,7 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     web-UI id for deep links) and ``settings_metadata``. ``exposure_resource_id``
     is copied from the ``resourceUri`` already captured at submit
     (``irp_job_resource``) — never re-resolved (T-02)."""
-    ctx = _load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
         "SELECT 1 AS present FROM irp_analysis WHERE id = :id",

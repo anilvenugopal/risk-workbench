@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import uuid
 
+import pytest
+
 from app.services import analysis_execution_service as svc
 from db import execute_command, execute_one
 
@@ -184,15 +186,13 @@ def test_gate_rejects_incomplete_currency_block(iteration2_db):
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
 
-    try:
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
         svc.request_execution(
             edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="", currency_vintage="",
             actor_id=iteration2_db.user_a)
-        raise AssertionError("expected ExecutionGateError")
-    except svc.ExecutionGateError as exc:
-        assert any("currency" in e.lower() for e in exc.errors)
+    assert any("currency" in e.lower() for e in exc_info.value.errors)
 
 
 def test_gate_rejects_cache_invalid_vintage(iteration2_db):
@@ -201,16 +201,14 @@ def test_gate_rejects_cache_invalid_vintage(iteration2_db):
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
 
-    try:
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
         svc.request_execution(
             edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="RMS",
             currency_vintage="NOT-A-REAL-VINTAGE",
             actor_id=iteration2_db.user_a)
-        raise AssertionError("expected ExecutionGateError")
-    except svc.ExecutionGateError as exc:
-        assert any("vintage" in e.lower() for e in exc.errors)
+    assert any("vintage" in e.lower() for e in exc_info.value.errors)
 
 
 def test_gate_rejects_edm_not_ready(iteration2_db):
@@ -219,15 +217,12 @@ def test_gate_rejects_edm_not_ready(iteration2_db):
     portfolio_id = _seed_portfolio(edm_id)
     template_id = _seed_template()
 
-    try:
+    with pytest.raises(svc.ExecutionGateError):
         svc.request_execution(
             edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
             treaty_names=[], template_ids=[template_id],
             currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
             actor_id=iteration2_db.user_a)
-        raise AssertionError("expected ExecutionGateError")
-    except svc.ExecutionGateError:
-        pass
 
 
 def test_gate_rejects_suite_kind_with_zero_templates_selected(iteration2_db):
@@ -237,7 +232,7 @@ def test_gate_rejects_suite_kind_with_zero_templates_selected(iteration2_db):
     template_id = _seed_template()
     suite_id = _seed_suite("Suite One", [template_id])
 
-    try:
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
         svc.request_execution(
             edm_id=edm_id, kind="suite", portfolio_ids=[portfolio_id],
             treaty_names=[],
@@ -245,9 +240,7 @@ def test_gate_rejects_suite_kind_with_zero_templates_selected(iteration2_db):
                 suite_id=suite_id, template_ids=[],  # every template deselected
                 currency_code="USD", currency_scheme="RMS", currency_vintage="RL25")],
             actor_id=iteration2_db.user_a)
-        raise AssertionError("expected ExecutionGateError")
-    except svc.ExecutionGateError as exc:
-        assert any("suite" in e.lower() for e in exc.errors)
+    assert any("suite" in e.lower() for e in exc_info.value.errors)
 
 
 def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
@@ -258,7 +251,7 @@ def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
     t2 = _seed_template("Not in suite")
     suite_id = _seed_suite("Suite One", [t1])
 
-    try:
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
         svc.request_execution(
             edm_id=edm_id, kind="suite", portfolio_ids=[portfolio_id],
             treaty_names=[],
@@ -266,6 +259,4 @@ def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
                 suite_id=suite_id, template_ids=[t2],
                 currency_code="USD", currency_scheme="RMS", currency_vintage="RL25")],
             actor_id=iteration2_db.user_a)
-        raise AssertionError("expected ExecutionGateError")
-    except svc.ExecutionGateError as exc:
-        assert any("belong" in e.lower() for e in exc.errors)
+    assert any("belong" in e.lower() for e in exc_info.value.errors)

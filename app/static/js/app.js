@@ -970,30 +970,33 @@ document.addEventListener('rwb:toast', (e) => {
 });
 
 // Analysis execution submit (spec 010): the execute modal's POST fires this
-// alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
-// section refetches on its own (executed_analyses_section.html) — this only
-// clears the portfolio picks that were just submitted, so Execute Suite /
-// Execute Template disable again (checkPicks reads checked boxes off the
-// DOM, so a real 'change' event is what makes it recompute).
+// alongside rwb:toast (HX-Trigger header) and closes itself. Clear the
+// portfolio picks that were just submitted so Execute Suite / Execute Template
+// disable again (checkPicks reads checked boxes off the DOM, so a real 'change'
+// event is what makes it recompute), then keep nudging the Analyses section:
+// the execute_analysis_batch job writes its first pending irp_analysis row
+// worker-side, moments after this request returns (Article 5), so the section's
+// own immediate refetch can land before that write. Re-fire every 2s until a
+// row shows up pending — the section's hx-trigger then carries "every 3s" and
+// keeps itself current — or 10 tries in. The re-fire re-enters this handler,
+// which the in-flight guard turns into a no-op.
+let _executionBootstrap = null;
 document.addEventListener('execution-submitted', () => {
   const checked = document.querySelectorAll('input[name="portfolio_ids"]:checked');
   checked.forEach((box) => { box.checked = false; });
   if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
-});
 
-// The freshly-enqueued execute_analysis_batch job writes its first pending
-// irp_analysis row worker-side, moments after the request above returns
-// (Article 5) — the section's own immediate refetch can land before that
-// write happens. Re-fire the event a few times until a row shows up as
-// pending/running (the section's hx-trigger then carries "every 3s" and
-// keeps itself current from there) or we give up.
-document.addEventListener('execution-submitted', () => {
+  if (_executionBootstrap) return;
   let attempts = 0;
-  const poll = window.setInterval(() => {
+  _executionBootstrap = window.setInterval(() => {
     attempts += 1;
     const section = document.getElementById('edm-executed-analyses');
     const live = section && (section.getAttribute('hx-trigger') || '').includes('every 3s');
-    if (live || !section || attempts >= 10) { window.clearInterval(poll); return; }
+    if (live || !section || attempts >= 10) {
+      window.clearInterval(_executionBootstrap);
+      _executionBootstrap = null;
+      return;
+    }
     htmx.trigger(document.body, 'execution-submitted');
   }, 2000);
 });

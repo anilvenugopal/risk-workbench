@@ -71,12 +71,14 @@
            hx-include reads the same portfolio_ids boxes at click time. type=button
            keeps them from submitting the surrounding geohaz form. #}
         {% if edm.status == 'ready' %}
+        {% set execute_url = ('/submissions/' ~ gh_sub if gh_sub else '')
+             ~ '/edms/' ~ edm.id ~ '/execute' %}
         <button class="btn-sm" type="button" :disabled="count === 0"
-                hx-get="/edms/{{ edm.id }}/execute?kind=suite"
+                hx-get="{{ execute_url }}?kind=suite"
                 hx-include="[name='portfolio_ids']"
                 hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
         <button class="btn-sm" type="button" :disabled="count === 0"
-                hx-get="/edms/{{ edm.id }}/execute?kind=template"
+                hx-get="{{ execute_url }}?kind=template"
                 hx-include="[name='portfolio_ids']"
                 hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
         {% endif %}
