@@ -290,6 +290,8 @@ def test_reconciler_preserves_original_chain(iteration2_db):
 _EXPECTED_QUEUE_NAMES = [
     "backfill_edm_detail",
     "backfill_rdm_analyses",
+    "dummy_fail",
+    "dummy_wait",
     "run_breakout_country",
     "run_breakout_custom",
     "run_breakout_lob",
