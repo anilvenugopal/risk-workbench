@@ -172,6 +172,12 @@ at a checkpoint for the approver to click the running feature before the next be
 - [X] T053 [P-18/FR-022] Analyses grid: `analysis_service` read model gains `template_name`/`inserted_at`/`irp_id`/`rm_url`/`group_key`/`is_deletable`; `executed_analyses_section.html` groups Failed / In progress / Ready with a `?status=` filter baked into the poll URL; `executed_analysis_row.html` gains checkbox, RM ↗ link, Template and Submitted cells; `analysisPicks()` + tick/reopen restore in `app/static/js/app.js`
 - [X] T054 [P-19/FR-023/FR-024] Multi-select delete: `irp_gateway.delete_analysis` (+ FakeIRP), `analysis_service.delete_executed_analyses` (validate batch up front, RM-first cascade, per-row failure isolation, local soft delete), `POST .../analyses/delete` routes (both page variants, `analyses-changed` HX-Trigger), retry-batch guard in `app/poller/run.py` (`deleted_at IS NULL` join); unit tests for the service and the poller guard
 
+## Phase 11: ID-based completion backfill (T-10 as amended, FR-022 — added 2026-08-26)
+
+- [X] T055 [T-10] Poller passes RM's `analysisId`: `_analysis_created_id` in `app/poller/run.py` extracts `tasks[].output.log.analysisId` from the FINISHED completion body; `_handle_analysis_terminal` adds it to the backfill's `input_data` as `rm_analysis_id`; unit tests for the present and absent cases
+- [X] T056 [T-10] `backfill_analysis_detail` resolves by id in `app/workers/analysis_jobs.py`: drop the name/edm_name lookup for a row-exists guard, fail the `rwb_job` when `rm_analysis_id` is missing, fetch `get_analysis_metadata(int(rm_analysis_id))`, write `irp_id` + `irp_app_analysis_id` + `settings_metadata` + `exposure_resource_id`; delete `get_analysis_by_name` from `app/services/irp_gateway.py` and FakeIRP; rewrite the worker unit tests
+- [X] T057 [FR-022] `irp_analysis.irp_app_analysis_id` (NVARCHAR(64) NULL) in `alembic/versions/0001_initial.py` + `tests/iteration1_mirror.py` + the `tests/sqlserver/test_job_tables_migration.py` column set; `analysis_service` selects it and `_rm_analysis_url` takes `appAnalysisId` (the RM web UI id) instead of `irp_id`; unit tests updated; `tests/irp/test_analysis_execution_roundtrip.py` extracts the id from the job body and asserts `appAnalysisId` is present
+
 ---
 
 ## Dependencies & Execution Order

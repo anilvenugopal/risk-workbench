@@ -83,7 +83,8 @@ def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
 
 def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
     a = _submitted_analysis(iteration2_db, fake_irp)
-    fake_irp.finish(a["irp_id"])
+    fake_irp.finish(a["irp_id"], result={
+        "tasks": [{"output": {"log": {"analysisId": "9001"}}}]})
 
     poller.poll_once()
 
@@ -91,10 +92,25 @@ def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
         "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'backfill_analysis_detail'",
         {}, connection="WORKBENCH")
     assert head is not None
-    assert json.loads(head["input_data"])["analysis_id"] == a["id"]
+    input_data = json.loads(head["input_data"])
+    assert input_data["analysis_id"] == a["id"]
+    assert input_data["rm_analysis_id"] == "9001"
     status = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
                          {"id": a["id"]}, connection="WORKBENCH")
     assert status["status_code"] == "running"  # untouched — backfill flips it to ready
+
+
+def test_finished_without_analysis_id_passes_none(iteration2_db, fake_irp):
+    a = _submitted_analysis(iteration2_db, fake_irp)
+    fake_irp.finish(a["irp_id"])  # completion body with no tasks[].output.log
+
+    poller.poll_once()
+
+    head = execute_one(
+        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'backfill_analysis_detail'",
+        {}, connection="WORKBENCH")
+    assert head is not None
+    assert json.loads(head["input_data"])["rm_analysis_id"] is None
 
 
 def test_failed_extracts_reason_and_flips_analysis_to_error(iteration2_db, fake_irp):

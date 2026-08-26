@@ -307,7 +307,8 @@ erDiagram
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
     string name "≤64-char name, exact string sent to RM (own); IRP analysis name (broker)"
     string full_name "nullable; untruncated CRE_{portfolio}_{template} name incl. rerun suffix — own analyses only (spec 010 T-04)"
-    int irp_id "nullable; resolves only after FINISHED"
+    int irp_id "nullable; RM's API analysisId — resolves only after FINISHED"
+    string irp_app_analysis_id "nullable; RM appAnalysisId — the RM web UI's analysis id; the grid's link-out uses it, irp_id stays the API analysisId"
     bool is_group "true → this row IS a group"
     string status_code FK "irp_analysis_status_kind"
     string created_by_irp_job_irp_id "nullable; the creating job"
@@ -531,7 +532,7 @@ erDiagram
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
 | `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | — |
 | `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
-| `backfill_analysis_detail` | Resolve one own analysis by name after FINISHED; write `irp_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
+| `backfill_analysis_detail` | Fetch one own analysis' details after FINISHED by the job body's `analysisId`; write `irp_id`/`irp_app_analysis_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
 | `retrieve_analysis_results` | `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` | `download_export_file` |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |

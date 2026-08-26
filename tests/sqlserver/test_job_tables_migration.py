@@ -126,7 +126,8 @@ class TestJobTablesMigration:
             "WHERE TABLE_NAME = 'irp_analysis'", {}, connection="WORKBENCH")}
         assert "customer_id" not in cols  # Article 6
         assert "package_id" not in cols
-        assert {"rdm_id", "edm_id", "irp_id", "source_rdm_name", "deleted_at",
+        assert {"rdm_id", "edm_id", "irp_id", "irp_app_analysis_id",
+                "source_rdm_name", "deleted_at",
                 "full_name", "irp_portfolio_id", "analysis_template_id",
                 "execution_id", "execution_item_no", "failure_reason"} <= cols
 

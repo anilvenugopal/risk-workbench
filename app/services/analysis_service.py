@@ -127,7 +127,8 @@ class ExecutedAnalysis:
     template_name: str | None = None
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
-    rm_url: str | None = None   # Risk Modeler link-out; None without irp_id
+    irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
+    rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
     job_status: str | None = None       # latest irp_job.status; None before submit
@@ -318,7 +319,7 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 
 _EXECUTED_SELECT = """
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
-           a.settings_metadata, a.inserted_at, a.irp_id,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            p.name AS portfolio_name, t.name AS template_name
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
@@ -328,16 +329,18 @@ _EXECUTED_SELECT = """
 """
 
 
-def _rm_analysis_url(irp_id: Any) -> str | None:
+def _rm_analysis_url(irp_app_analysis_id: Any) -> str | None:
     """The Risk Modeler web UI page for one analysis — plain navigation, never
-    an API call (Article 11). ``None`` without an ``irp_id`` or when the RM UI
-    origin is not configured. The trailing ``/0`` is part of the RM UI route."""
-    if not irp_id:
+    an API call (Article 11). The RM UI route takes ``appAnalysisId``, not the
+    API ``analysisId``. ``None`` without an ``irp_app_analysis_id`` or when the RM
+    UI origin is not configured. The trailing ``/0`` is part of the RM UI
+    route."""
+    if not irp_app_analysis_id:
         return None
     root = _rm_ui_root()
     if root is None:
         return None
-    return f"{root}/riskmodeler/datasources/analysis/{irp_id}/0"
+    return f"{root}/riskmodeler/datasources/analysis/{irp_app_analysis_id}/0"
 
 
 def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
@@ -349,12 +352,15 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
     for r in rows:
         parsed = _parse_settings(r["settings_metadata"])
         irp_id = str(r["irp_id"]) if r["irp_id"] is not None else None
+        irp_app_analysis_id = (str(r["irp_app_analysis_id"])
+                           if r["irp_app_analysis_id"] is not None else None)
         analyses.append(ExecutedAnalysis(
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
             failure_reason=r["failure_reason"],
             template_name=r["template_name"], inserted_at=r["inserted_at"],
-            irp_id=irp_id, rm_url=_rm_analysis_url(irp_id), settings=parsed,
+            irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
+            rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed)))
     if not analyses:
         return analyses

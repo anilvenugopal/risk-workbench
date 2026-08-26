@@ -283,7 +283,7 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
 
 # ── backfill_analysis_detail ──────────────────────────────────────────────────────
 
-def test_backfill_resolves_by_exact_submitted_name(iteration2_db, fake_irp):
+def test_backfill_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm("EDM One")
     portfolio_id = _seed_portfolio(edm_id)
@@ -293,10 +293,11 @@ def test_backfill_resolves_by_exact_submitted_name(iteration2_db, fake_irp):
     analysis_jobs.run_pending(worker_id="w1")
     analysis = _analyses_for(edm_id)[0]
 
-    fake_irp.add_own_analysis(name=analysis["name"], edm_name="EDM One",
-                              analysis_id="9001",
-                              exposure_resource_id="res-1",
-                              exposure_resource_type="PORTFOLIO")
+    fake_irp.add_analysis(analysis_id="9001", source_rdm_name="-",
+                          exposure_name="EDM One",
+                          exposure_resource_id="res-1",
+                          exposure_resource_type="PORTFOLIO",
+                          metadata={"appAnalysisId": 41867})
 
     job_id = str(uuid.uuid4())
     execute_command(
@@ -304,22 +305,49 @@ def test_backfill_resolves_by_exact_submitted_name(iteration2_db, fake_irp):
         "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
         "'backfill_analysis_detail', 'pending', :input)",
         {"id": job_id, "rid": str(uuid.uuid4()),
-         "input": json.dumps({"analysis_id": analysis["id"]})},
+         "input": json.dumps({"analysis_id": analysis["id"],
+                              "rm_analysis_id": "9001"})},
         connection="WORKBENCH")
     analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_analysis_detail",
                           worker_id="w1")
 
     updated = execute_one(
-        "SELECT irp_id, status_code, exposure_resource_id FROM irp_analysis "
-        "WHERE id = :id", {"id": analysis["id"]}, connection="WORKBENCH")
+        "SELECT irp_id, irp_app_analysis_id, status_code, exposure_resource_id "
+        "FROM irp_analysis WHERE id = :id",
+        {"id": analysis["id"]}, connection="WORKBENCH")
     assert updated["irp_id"] == "9001"
+    assert updated["irp_app_analysis_id"] == "41867"
     assert updated["status_code"] == "ready"
     # copied from the resourceUri captured at submit (irp_job_resource) — never
-    # re-resolved (T-02) — not the search-hit's own exposure_resource_id.
+    # re-resolved (T-02) — not the metadata's own exposure_resource_id.
     assert updated["exposure_resource_id"] == f"/irp/analysis/1"
 
 
-def test_backfill_resolve_failure_fails_the_rwb_job(iteration2_db, fake_irp):
+def _run_backfill(input_data: dict) -> str:
+    job_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
+        "'backfill_analysis_detail', 'pending', :input)",
+        {"id": job_id, "rid": str(uuid.uuid4()),
+         "input": json.dumps(input_data)},
+        connection="WORKBENCH")
+    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_analysis_detail",
+                          worker_id="w1")
+    return job_id
+
+
+def _assert_backfill_failed(job_id, analysis_id) -> None:
+    job = execute_one("SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert job["status_code"] == "failed"
+    assert job["error_detail"]
+    still = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
+                        {"id": analysis_id}, connection="WORKBENCH")
+    assert still["status_code"] == "running"  # untouched — "completed, details pending"
+
+
+def test_backfill_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp):
     _seed_currency()
     edm_id = _seed_edm("EDM One")
     portfolio_id = _seed_portfolio(edm_id)
@@ -328,23 +356,24 @@ def test_backfill_resolve_failure_fails_the_rwb_job(iteration2_db, fake_irp):
                   template_ids=[template_id], actor_id=iteration2_db.user_a)
     analysis_jobs.run_pending(worker_id="w1")
     analysis = _analyses_for(edm_id)[0]
-    # no add_own_analysis seeded -> get_analysis_by_name raises
 
-    job_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
-        "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
-        "'backfill_analysis_detail', 'pending', :input)",
-        {"id": job_id, "rid": str(uuid.uuid4()),
-         "input": json.dumps({"analysis_id": analysis["id"]})},
-        connection="WORKBENCH")
-    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_analysis_detail",
-                          worker_id="w1")
+    # completion payload carried no tasks[].output.log.analysisId
+    job_id = _run_backfill({"analysis_id": analysis["id"],
+                            "rm_analysis_id": None})
+    _assert_backfill_failed(job_id, analysis["id"])
 
-    job = execute_one("SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
-                      {"id": job_id}, connection="WORKBENCH")
-    assert job["status_code"] == "failed"
-    assert job["error_detail"]
-    still = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
-                        {"id": analysis["id"]}, connection="WORKBENCH")
-    assert still["status_code"] == "running"  # untouched — "completed, details pending"
+
+def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
+    _seed_currency()
+    edm_id = _seed_edm("EDM One")
+    portfolio_id = _seed_portfolio(edm_id)
+    template_id = _seed_template()
+    _run_execution(edm_id=edm_id, portfolio_id=portfolio_id,
+                  template_ids=[template_id], actor_id=iteration2_db.user_a)
+    analysis_jobs.run_pending(worker_id="w1")
+    analysis = _analyses_for(edm_id)[0]
+    fake_irp.raise_on_analysis_metadata = True
+
+    job_id = _run_backfill({"analysis_id": analysis["id"],
+                            "rm_analysis_id": "9001"})
+    _assert_backfill_failed(job_id, analysis["id"])

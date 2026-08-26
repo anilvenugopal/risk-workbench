@@ -183,25 +183,28 @@ def execute_analysis_batch(rwb_job_id: str) -> None:
 # ── backfill_analysis_detail (US1, FR-009) ──────────────────────────────────────
 
 def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Resolve a FINISHED own-executed analysis by its exact submitted name
-    (Article 2 — name-based coupling) and fill in ``irp_id`` + ``settings_metadata``.
-    ``exposure_resource_id`` is copied from the ``resourceUri`` already captured at
-    submit (``irp_job_resource``) — never re-resolved (T-02)."""
+    """Fill in a FINISHED own-executed analysis' ``irp_id`` (RM's ``analysisId``,
+    extracted by the poller from the completion body), ``irp_app_analysis_id`` (the
+    web-UI id for deep links) and ``settings_metadata``. ``exposure_resource_id``
+    is copied from the ``resourceUri`` already captured at submit
+    (``irp_job_resource``) — never re-resolved (T-02)."""
     ctx = _load_input(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
-        "SELECT a.name, e.name AS edm_name FROM irp_analysis a "
-        "JOIN irp_edm e ON e.id = a.edm_id WHERE a.id = :id",
+        "SELECT 1 AS present FROM irp_analysis WHERE id = :id",
         {"id": analysis_id}, connection="WORKBENCH") if analysis_id else None
     if row is None:
         return runtime.JobResult.ok(skipped="analysis missing")
 
+    rm_id = ctx.get("rm_analysis_id")
+    if not rm_id:
+        return runtime.JobResult.fail("completion payload had no analysisId")
+
     try:
-        hit = irp_gateway.get_analysis_by_name(row["name"], row["edm_name"])
-        meta = irp_gateway.get_analysis_metadata(analysis_id=int(hit.analysis_id))
+        meta = irp_gateway.get_analysis_metadata(analysis_id=int(rm_id))
     except Exception as exc:  # noqa: BLE001 — resolution failed, recoverable rwb_job failure
-        logger.warning("backfill_analysis_detail: resolve failed for %s (%s): %s",
-                       analysis_id, row["name"], exc)
+        logger.warning("backfill_analysis_detail: metadata fetch failed for %s "
+                       "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return runtime.JobResult.fail(f"analysis resolve failed: {exc}")
 
     resource = execute_one(
@@ -211,18 +214,21 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         "ORDER BY j.inserted_at",
         {"id": analysis_id}, connection="WORKBENCH")
 
+    irp_app_analysis_id = (meta.payload or {}).get("appAnalysisId")
     execute_command(
-        "UPDATE irp_analysis SET irp_id = :irp, settings_metadata = :sm, "
+        "UPDATE irp_analysis SET irp_id = :irp, irp_app_analysis_id = :app, "
+        "settings_metadata = :sm, "
         "exposure_resource_id = :x, status_code = 'ready', updated_at = :now "
         "WHERE id = :id",
-        {"irp": hit.analysis_id,
+        {"irp": str(rm_id),
+         "app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
          "sm": (json.dumps(meta.payload) if meta.payload else None),
          "x": (resource["resource_uri"] if resource else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
     logger.info("backfill_analysis_detail resolved analysis=%s -> irp_id=%s",
-               analysis_id, hit.analysis_id)
-    return runtime.JobResult.ok(irp_id=hit.analysis_id)
+               analysis_id, rm_id)
+    return runtime.JobResult.ok(irp_id=str(rm_id))
 
 
 @dramatiq.actor(max_retries=0)

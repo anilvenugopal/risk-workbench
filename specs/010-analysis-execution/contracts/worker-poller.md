@@ -94,8 +94,10 @@ reclaim — accepted (research T-01).
 - `_TERMINAL_HANDLERS["analysis"]` (inside the tracking transaction):
   - `FINISHED` → enqueue head `rwb_job` `backfill_analysis_detail`
     (`requestor_type='irp_job'`, `requestor_id=job.id`,
-    `input_data={"analysis_id": ...}`). Only success path (US4-4: no retrieval for
-    failures).
+    `input_data={"analysis_id": ..., "rm_analysis_id": ...}` — `rm_analysis_id` is
+    RM's `analysisId`, extracted from the completion body's
+    `tasks[].output.log.analysisId`, `null` when absent). Only success path (US4-4:
+    no retrieval for failures).
   - `FAILED` / `CANCELLED` → `irp_analysis.status_code='error'`,
     `failure_reason` = the message extracted from the completion body (fallback: the raw
     summary) (FR-011; CANCELLED is a failure — edge case list).
@@ -103,10 +105,12 @@ reclaim — accepted (research T-01).
 
 ## 4. `backfill_analysis_detail` worker (FR-009)
 
-Body: resolve the RM analysis by its exact submitted name —
-`get_analysis_by_name(irp_analysis.name, edm_name)` (Article 2 name-based coupling) —
-then update `irp_analysis`: `irp_id`, `settings_metadata` (the `backfill_rdm_analyses`
-shape), `exposure_resource_id` (from `irp_job_resource`), `status_code='ready'`.
+Body: fetch the analysis details by the `rm_analysis_id` the poller extracted from the
+completion body — `get_analysis_metadata(analysis_id=int(rm_analysis_id))`; a missing
+`rm_analysis_id` fails the `rwb_job` — then update `irp_analysis`: `irp_id`
+(= `rm_analysis_id`), `irp_app_analysis_id` (the payload's `appAnalysisId`, NULL when
+absent), `settings_metadata` (the `backfill_rdm_analyses` shape),
+`exposure_resource_id` (from `irp_job_resource`), `status_code='ready'`.
 On success, loss phase only: chain `retrieve_analysis_results` via
 `ensure_pending_rwb_job(requestor_type='rwb_job', requestor_id=own id)` + dispatch.
 Actor follows the standard pattern (`max_retries=0`). Resolution failure → `rwb_job`

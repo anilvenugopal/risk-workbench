@@ -14,6 +14,7 @@ Today the table is broker-shaped. Changed/added columns:
 | `rdm_id` | NOT NULL → **NULL** | Executed analyses have no RDM |
 | `source_rdm_name` | NOT NULL → **NULL** | Broker-only |
 | `irp_id` | NOT NULL → **NULL** | RM analysisId exists only after the job finishes; backfilled by `backfill_analysis_detail` |
+| `irp_app_analysis_id` | **new** NVARCHAR(64) NULL | RM `appAnalysisId` from the analysis-details payload — the id the RM web UI route takes; feeds the grid's Risk Modeler link (FR-022). NULL until backfilled |
 | `name` | unchanged (NVARCHAR(256) NULL) | For executed rows: the exact ≤64-char name sent to RM (suffix included) |
 | `full_name` | **new** NVARCHAR(256) NULL | Untruncated `CRE_{portfolio}_{template}` (+ suffix); set for executed rows, NULL for broker rows (P-05/P-10) |
 | `irp_portfolio_id` | **new** Uuid NULL FK → `irp_portfolio.id` | The portfolio the analysis ran against (trustworthy — workbench submitted it) |

@@ -132,6 +132,27 @@ def _analysis_failure_reason(result: dict | None) -> str:
     return f"Risk Modeler status: {result.get('status', 'unknown')}"
 
 
+def _analysis_created_id(result: dict | None) -> str | None:
+    """RM's ``analysisId`` for the analysis a FINISHED job created, read from
+    ``tasks[].output.log.analysisId`` (observed 2026-08-25: both tasks carry
+    it). Fields are read defensively — the shape is RM's, not ours. ``None``
+    when absent."""
+    if not isinstance(result, dict):
+        return None
+    tasks = result.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        output = task.get("output")
+        log = output.get("log") if isinstance(output, dict) else None
+        value = log.get("analysisId") if isinstance(log, dict) else None
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return None
+
+
 def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     """FINISHED → enqueue the completion backfill (only success path — US4-4: no
     retrieval for failures). FAILED/CANCELLED → the analysis moves to ``error``
@@ -140,7 +161,8 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_analysis_detail",
-            input_data={"analysis_id": str(job["irp_analysis_id"])},
+            input_data={"analysis_id": str(job["irp_analysis_id"]),
+                        "rm_analysis_id": _analysis_created_id(resolved.get("result"))},
             conn=conn,
         )
     else:

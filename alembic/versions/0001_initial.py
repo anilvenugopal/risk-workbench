@@ -458,6 +458,8 @@ def upgrade() -> None:
         sa.Column("rdm_id", sa.Uuid, nullable=True),
         sa.Column("edm_id", sa.Uuid, nullable=True),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # Moody's analysisId
+        # RM appAnalysisId — web-UI id for deep links
+        sa.Column("irp_app_analysis_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
         # Untruncated "portfolio + template" (+ rerun suffix) for own-executed rows
         # (T-04); NULL for broker rows.

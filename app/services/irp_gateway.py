@@ -170,11 +170,9 @@ class EdmCatalogEntry:
 
 @dataclass(frozen=True)
 class AnalysisHit:
-    """One analysis — a broker analysis returned by ``search_analyses`` (D2), or
-    an own-executed analysis resolved by exact name via ``get_analysis_by_name``
-    (spec 010, worker-only). ``analysis_id`` is Moody's ``analysisId`` as a
-    string. The source names are echoed back so the backfill worker can persist
-    lineage on ``irp_analysis``.
+    """One broker analysis returned by ``search_analyses`` (D2).
+    ``analysis_id`` is Moody's ``analysisId`` as a string. The source names are
+    echoed back so the backfill worker can persist lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -367,8 +365,6 @@ class IRPGateway(Protocol):
     ) -> tuple[str, dict]: ...
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
-
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
 
@@ -985,20 +981,6 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
-        # Raises IRPIntegrationError (IRPAPIError) on 0 or >1 matches — Article 2
-        # name-based coupling; the caller resolves an own-executed analysis by
-        # the exact ≤64-char name it submitted.
-        r = self._client().analysis.get_analysis_by_name(analysis_name, edm_name)
-        return AnalysisHit(
-            analysis_id=str(r["analysisId"]),
-            name=r.get("analysisName"),
-            source_rdm_name=r.get("sourceRdmName"),
-            exposure_name=r.get("exposureName"),
-            exposure_resource_id=(str(r["exposureResourceId"])
-                                  if r.get("exposureResourceId") is not None else None),
-            exposure_resource_type=r.get("exposureResourceType"))
-
     def delete_analysis(self, irp_id: str) -> None:
         # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
         # Failures raise IRPIntegrationError; the caller keeps the local row.
@@ -1285,10 +1267,6 @@ def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
 
 
-def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
-    return _active().get_analysis_by_name(analysis_name, edm_name)
-
-
 def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
@@ -1358,7 +1336,7 @@ __all__ = [
     "search_treaties", "get_analysis_metadata", "list_model_profiles",
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
-    "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
+    "submit_portfolio_analysis", "get_analysis_job",
     "delete_analysis",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",

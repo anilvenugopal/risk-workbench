@@ -32,13 +32,9 @@ Never wrapped: `submit_portfolio_analysis_jobs` (drops request bodies, ignores c
 
 ## Backfill phase
 
-```python
-def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
-    """client.analysis.get_analysis_by_name — raises on 0 or >1 matches.
-    Feeds irp_analysis.irp_id + settings_metadata (existing AnalysisMetadata shape)."""
-```
-
-(Existing `search_analyses` / `get_analysis_metadata` reused where they already fit.)
+No new gateway method: the backfill calls the existing
+`get_analysis_metadata(analysis_id=...)` with the `analysisId` the poller extracted
+from the FINISHED job body.
 
 ## Loss phase
 
@@ -58,6 +54,7 @@ layer reads `analysis_result_meta` and Parquet, never these.
 
 Per-name programmable outcomes so unit tests cover: successful submit (returns job id +
 body with `resourceUri`), submit raising `IRPIntegrationError` (FR-010 path), job status
-sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_by_name`
-resolution, and per-perspective result payloads including the empty-perspective and
-HD/PLT cases.
+sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_metadata`
+by-id resolution (seeded via `add_analysis`, forced failure via
+`raise_on_analysis_metadata`), and per-perspective result payloads including the
+empty-perspective and HD/PLT cases.

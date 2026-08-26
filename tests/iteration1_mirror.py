@@ -141,7 +141,8 @@ ITERATION2_SCHEMA = [
     # execution_item_no/failure_reason are new (data-model §1).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
-        irp_id TEXT, name TEXT, full_name TEXT, source_rdm_name TEXT,
+        irp_id TEXT, irp_app_analysis_id TEXT, name TEXT, full_name TEXT,
+        source_rdm_name TEXT,
         status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,

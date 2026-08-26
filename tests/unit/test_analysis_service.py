@@ -47,13 +47,15 @@ def _portfolio(edm_id: str, name: str = "Portfolio A") -> str:
 
 def _executed(*, edm_id: str, portfolio_id: str | None = None, name="Portfolio A Template A",
               full_name=None, status_code="pending", failure_reason=None,
-              settings=None, template_id=None, irp_id=None) -> str:
+              settings=None, template_id=None, irp_id=None,
+              irp_app_analysis_id=None) -> str:
     return _mk(
         "irp_analysis", edm_id=edm_id, irp_portfolio_id=portfolio_id, name=name,
         full_name=(full_name or name), status_code=status_code,
         failure_reason=failure_reason,
         settings_metadata=(json.dumps(settings) if settings else None),
         analysis_template_id=template_id, irp_id=irp_id,
+        irp_app_analysis_id=irp_app_analysis_id,
         execution_id=str(uuid.uuid4()), execution_item_no=0)
 
 
@@ -132,17 +134,17 @@ def test_inserted_at_and_irp_id_populated(iteration2_db):
     assert row.irp_id == "9001"
 
 
-def test_rm_url_needs_irp_id_and_a_configured_rm_ui(iteration2_db, monkeypatch):
+def test_rm_url_needs_irp_app_analysis_id_and_a_configured_rm_ui(iteration2_db, monkeypatch):
     monkeypatch.setattr(app_settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com/")
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "acme")
     edm = _edm()
-    _executed(edm_id=edm, name="A", irp_id="9001")
+    _executed(edm_id=edm, name="A", irp_id="9001", irp_app_analysis_id="41867")
     _executed(edm_id=edm, name="B")  # not yet backfilled
 
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
     assert rows["A"].rm_url == (
-        "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/9001/0")
+        "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert rows["B"].rm_url is None
 
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "")

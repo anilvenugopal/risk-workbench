@@ -110,9 +110,10 @@ modal, one fragment, three workers, one poller job type
 Articles that shaped the design:
 
 - **Article 2 (sequencing derived, not stored)** — no run/batch table: a run is its
-  execution UUID on the jobs it created; RM coupling stays name-based (submit resolves
-  names; backfill resolves by exact submitted name). The plan JSON is an approved input
-  snapshot, not a stored DAG.
+  execution UUID on the jobs it created; submit resolves names, but completion is
+  ID-based (the backfill uses the `analysisId` the poller extracts from the FINISHED
+  job body — names are display-only). The plan JSON is an approved input snapshot, not
+  a stored DAG.
 - **Article 3 (kind tables; external-status carve-out)** — new categoricals are kind
   tables (`execute_analysis_batch`/`backfill_analysis_detail` rows in
   `rwb_job_type_kind`; new `analysis_perspective_kind`); RM's job vocabulary stays only
