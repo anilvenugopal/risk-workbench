@@ -27,7 +27,6 @@ from app.services._common import _uid
 from app.workers import dispatch
 from db import execute
 
-
 # ── currency picker reference data (modal presentation) ─────────────────────────
 
 def currency_options() -> list[dict]:
