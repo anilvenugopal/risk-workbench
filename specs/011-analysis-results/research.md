@@ -118,7 +118,34 @@ Decided 2026-08-25 (plan phase), against the shipped nav/shell machinery.
 - **Route**: one page, `GET /results/analyses?ids=<uuid,uuid,…>[&submission=<id>][&edm=<id>][&perspective=GR]`, a hidden child node of the `results` rail root (`results.analyses` — the pattern `submissions.detail` already uses). One nav node + one handler + one template (Article 1). The View button is a `target="_blank"` GET form, so the page has a real, shareable URL (Article 8) and lands in a new browser tab (FR-014); after submit the originating table clears its checkboxes (spec O-10, Approved 2026-08-26).
 - **Breadcrumbs**: the manifest chain renders structure ("Results"); entity crumbs (submission name, and EDM name when `edm=` is present) are appended via a new optional `extra_crumbs` list in the page context, rendered by `shell.html` after the manifest chain. Structure still derives solely from the manifest — `extra_crumbs` is display context, the same information today's detail pages put in their header band. `{% block title %}` carries the submission/EDM name (FR-014's tab title; the pattern every detail page already uses).
 - **Ordering (FR-016)**: the `ids` query-param order is the column order. Reorder controls rewrite the param and re-request — no stored ordering state.
-- **Perspective (FR-012)**: a query param on the page and on the merged-section fragment URL (riding the section URL exactly like the existing status filter, so the 3s poll never resets it). Switching is an HTMX fragment re-render — screen-wide by construction.
+- **Perspective (FR-012)**: a query param on the dedicated page. Switching is an HTMX fragment re-render — screen-wide by construction. (Superseded for the merged table by R8: the toggle moved into the expanded row, and the section URL carries no `perspective`.)
 - **Units / copy (FR-017/FR-018)**: display-only client slivers. Cells carry the raw stored value in a data attribute; Alpine formats for the ones/thousands/millions selector (millions default) and the copy button serializes the rendered table with headers as TSV to the clipboard. The server never reformats or recomputes stored numbers.
 - **Soft cap (O-09/FR-015)**: no selection block; the table sits in the existing `overflow-x` shell (see docs/ui_previews/results_ep_table.html) and scrolls horizontally past ~10 columns.
 - **T-08 (Assumed)**: a perspective the analysis did not produce returns an empty list from `get_stats`/`get_ep` (the endpoints return row arrays; the GU capture returns rows for a produced perspective). The worker treats an empty list as "fetched, nothing there" (explicit null in the extract, FR-004) and any non-2xx as a retrieval failure. If the sandbox shows RM instead errors on unproduced perspectives, the specific error class moves to the explicitly-empty branch — a one-branch change quarantined in the worker.
+
+## R8 — Merged table preview: what the expanded row shows and where it comes from (O-11, O-12, T-09, T-10)
+
+Preview `docs/ui_previews/merged_analyses_table.html` approved 2026-08-26 (EDM page, submission page, the AAL cell's four results states, the section summary line, three empty states, and the two-column expanded row). It settled three things the plan had drawn differently.
+
+- **The perspective toggle moved off the table and into the expanded row (O-12).** The AAL column reads Gross in millions and nothing more. A section-wide select made the table's one summary number ambiguous at a glance and duplicated the control the dedicated page needs anyway; the row-level toggle sits next to the numbers it changes. The units selector went the same way — it belongs where analyses sit side by side, not on a single-number column.
+- **The expanded row is two named groups plus the condensed table (O-11).** Rejected: one undifferentiated settings grid, which is what the analysis-detail expansion does today. Region, line of business, term and PLA were dropped from the group list — Region has its own column, and the other three were not asked for.
+- **Blank vs. absent.** A field the origin cannot supply stays listed and reads *not returned* (FR-022). Hiding it makes two analyses of different origins look like they were configured differently rather than reported differently.
+
+Where the fields come from:
+
+| Field group | Own analyses | Broker analyses |
+|---|---|---|
+| Metadata (engine version, analysis type, peril, subperil, framework, event rate scheme) | `settings_metadata` — the RM analysis payload | same payload, same fields |
+| Analysis template | `analysis_template_id` join | not returned |
+| Analysis settings (currency code/scheme/vintage, min loss threshold, franchise deductible, unrecognized construction/occupancy) | `submitted_settings` (T-09) | not returned — RM returns none of them; only `currencyCode` |
+| Submitted | `inserted_at` (submit request time) | `createDate` from the payload |
+| Risk Modeler link | `rm_url` | new `BrokerAnalysis.rm_url`, built the same way |
+
+`AnalysisSettings` needs a `framework` field: `_to_display` currently folds `analysisFramework` into `analysis_mode` alongside `analysisMode`/`mode`, so ELT and the mode compete for one slot.
+
+**T-09 — where the Analysis settings values are read from.** Chosen: a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the plan item it is about to submit.
+
+- Rejected: **read `analysis_template` through `analysis_template_id`.** Templates are editable. A template edited after a run would silently change what a finished analysis reports it ran with — the failure Article 8 exists to prevent. It also cannot supply currency scheme and vintage, which are chosen per suite at submit time (spec 009 P-11) and live on no template.
+- Rejected: **read the `execute_analysis_batch` job's `input_data`.** The values are there, keyed by the analysis row's `execution_id` + `execution_item_no`, so it is correct — but a work order is not a display source, and every expanded row would cost a two-hop JSON index lookup into a queue table.
+
+**T-10 — Submitted renders client-side.** The server writes UTC into `<time datetime="…Z">`; a JS sliver formats it with `toLocaleString` to date, time to the second, and AM/PM in the reader's zone (FR-024), and sets the cell's `title` to the full value. The server has no way to know the reader's timezone, and nothing downstream reads the formatted string. The column is 180px so a two-digit hour does not clip.

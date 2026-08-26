@@ -19,14 +19,22 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    FINISHED (~minutes, 3s self-poll).
 2. Expect, with **no further action**: the row's Currency and AAL columns fill
    in (≤10 min, SC-001). Until then the row shows results-pending.
-3. Expand the row: OEP + AEP at 50/100/250/500/1000/10000, perspective toggle
-   GR/RL/WX/QS/GU, Gross default; a perspective the analysis did not produce
-   shows as absent, not as an error.
-4. Failure path: point the sandbox creds at an invalid tenant (or kill the
+3. Expand the row. Left: the source line, then Metadata (engine version,
+   analysis type, peril, subperil, framework, event rate scheme, analysis
+   template) and Analysis settings (currency code/scheme/vintage, min loss
+   threshold, franchise deductible, unrecognized construction and occupancy) —
+   the settings match what the run was submitted with, and editing the template
+   afterwards does not change them. Right: OEP + AEP at
+   50/100/250/500/1000/10000 with the perspective toggle GR/RL/WX/QS/GU, Gross
+   default; a perspective the analysis did not produce shows as absent, not as
+   an error.
+4. Narrow the window until the two columns stack, and check that a long event
+   rate scheme name wraps instead of clipping (FR-023).
+5. Failure path: point the sandbox creds at an invalid tenant (or kill the
    worker mid-retrieval and let the reconciler reclaim) — the analysis stays
    FINISHED/ready, the retrieval `rwb_job` ends `failed` with `error_detail`,
    and the row keeps showing results-pending with the reason (SC-005).
-5. Re-trigger check: re-run the RDM sync / re-fire the backfill — no second
+6. Re-trigger check: re-run the RDM sync / re-fire the backfill — no second
    retrieval job, no changed `loss_results` (FR-006):
    `SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results' AND requestor_id='<analysis-id>'` → 1.
 
@@ -40,19 +48,25 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    numbers on both copies (SC-002) —
    `SELECT rdm_id, irp_id, loss_results FROM irp_analysis WHERE rdm_id='<rdm>'`
    shows one row per source analysis.
-4. No broker row anywhere names a portfolio (FR-020).
+4. Expand a broker row: the analysis template and all four analysis settings are
+   listed and read as not returned (FR-022); the row carries a Risk Modeler link
+   and a Submitted date from the broker's own run (FR-024/FR-025).
+5. No broker row anywhere names a portfolio (FR-020).
 
 ## US3 — merged table (P2)
 
 1. Open the EDM detail: **one** Analyses section — own rows directly (`CRE_`
-   prefix, no RDM), broker rows under expandable RDM group rows.
+   prefix, no RDM), broker rows under expandable RDM group rows. Columns read
+   Analysis · Type · Peril · Region · Engine · Currency · AAL · Status ·
+   Submitted · Risk Modeler, with no perspective and no units control on the
+   table.
 2. Open the submission detail: the new Results section lists the same merged
-   shape across all the submission's EDMs and RDMs.
-3. Switch the section perspective: AAL column and every expanded inline block
-   follow; the 3s poll does not reset the selection.
-4. Copy: the table lands in Excel with headers intact (SC-006). Units
-   selector: values never auto-switch; ones/thousands/millions apply
-   on selection (millions default).
+   shape across all the submission's EDMs and RDMs, with an EDM column after
+   Analysis.
+3. Submitted reads in your own timezone with seconds and AM/PM; change the
+   machine's timezone and reload to confirm it follows (FR-024).
+4. Nothing outside the analyses sections changed on either page.
+5. Copy: the table lands in Excel with headers intact (SC-006).
 
 ## US4 — dedicated results page (P3)
 
@@ -64,7 +78,9 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    tab are cleared.
 3. Reorder columns via the controls — the `ids` param and the columns move.
 4. Switch perspective — every column follows (screen-wide).
-5. Select >10 analyses: nothing blocks; the table scrolls horizontally
+5. Units selector: values never auto-switch; ones/thousands/millions apply on
+   selection (millions default) — this page is the only place it exists.
+6. Select >10 analyses: nothing blocks; the table scrolls horizontally
    (FR-015).
 
 Contracts: [contracts/routes.md](contracts/routes.md),

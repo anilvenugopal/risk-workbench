@@ -7,33 +7,42 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 
 `GET /edms/{edm_id}/analyses` (existing section endpoint, extended)
 
-- Query: `status` (existing filter), **`perspective`** (new; default `GR`).
-  Both ride the section/poll URL so the 3s self-poll never resets them.
+- Query: `status` (existing filter) only. It rides the section/poll URL so the
+  3s self-poll never resets it. No `perspective` param: the toggle lives inside
+  the expanded row (O-12).
 - Renders the **merged** section replacing today's separate "Analyses" and
   "Broker analyses" sections (FR-009): own rows (existing
   `executed_analysis_row` behavior: checkbox, status, failure reason, delete,
   settings expansion) plus one expandable group row per submission RDM whose
   broker rows lazy-load exactly as today
-  (`/submissions/{sid}/edms/{eid}/rdms/{rid}/analyses`, now carrying
-  `perspective` through).
-- New columns on every analysis row: **Currency**, **AAL** (selected
-  perspective; `—` when the perspective is empty); no return-period column
-  (FR-010). Results state per row: ready (AAL shown) / results-pending /
-  results-pending + failure reason tooltip (SC-005).
-- Row expansion adds the inline condensed block (FR-011): OEP and AEP at
-  50/100/250/500/1000/10000, section-wide perspective, no display toggle.
-- Toolbar: perspective select (labels/order from `analysis_perspective_kind`),
-  **View** button — a `target="_blank"` GET form to the dedicated page with
-  the checked ids in check order; after submit the checkboxes reset (O-10).
-  Existing Execute/Delete/status-filter controls carry over unchanged.
+  (`/submissions/{sid}/edms/{eid}/rdms/{rid}/analyses`).
+- Columns: Analysis · Type · Peril · Region · Engine · **Currency** · **AAL** ·
+  Status · Submitted · Risk Modeler; no return-period column (FR-010). AAL is
+  Gross in millions and carries the row's results state: the number when ready,
+  `retrieving…` while the retrieval is queued or running, `retrieval failed`
+  with the reason beside the status chip (SC-005), `—` when the run has not
+  finished or the perspective is empty.
+- Submitted is emitted as `<time datetime="…Z">` in UTC and formatted in the
+  browser — date, time to the second, AM/PM in the reader's zone (FR-024,
+  T-10).
+- Row expansion is two columns (FR-011/FR-022): left the source line and the
+  Metadata and Analysis settings groups (O-11), right OEP and AEP at
+  50/100/250/500/1000/10000 with the perspective toggle in the row and no
+  display toggle.
+- Section summary line: status filter, **Copy table**, **Delete**, **View**.
+  View is a `target="_blank"` GET form to the dedicated page with the checked
+  ids in check order; after submit the checkboxes reset (O-10). Delete disables
+  whenever a broker row is ticked. Existing Execute and status-filter controls
+  carry over unchanged.
 
 ## 2. Submission Results section
 
 `GET /submissions/{submission_id}/analyses` (new fragment endpoint)
 
 - Same merged partial, submission-wide: own analyses across every EDM of the
-  submission (rows gain an EDM column here), broker groups for every related
-  RDM. Same `perspective` param, same View form (`submission=` context only).
+  submission (an **EDM** column is inserted after Analysis here; broker rows
+  read `—`), broker groups for every related RDM. Same `status` param, same
+  View form (`submission=` context only).
 - Included in `submission_detail.html` as a new Results section; self-polls
   every 3s only while any listed analysis or retrieval is live (same pattern
   as the EDM section).

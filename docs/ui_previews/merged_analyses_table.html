@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merged analyses table · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+
+/* ============================================================================
+   details.css — the .dtable component and its section chrome, VERBATIM.
+   ============================================================================ */
+details.sec { margin-bottom: var(--space-6); }
+details.sec > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: var(--space-2); margin-bottom: 10px; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-faint); flex-wrap: wrap; }
+details.sec > summary::-webkit-details-marker { display: none; }
+.sec__caret { color: var(--text-tertiary); font-size: 11px; transition: transform var(--dur-fast) ease; }
+details.sec[open] > summary .sec__caret { transform: rotate(90deg); }
+.sec__title { font-size: 14px; color: var(--text-primary); font-weight: var(--fw-semibold); }
+.sec__spacer { margin-left: auto; }
+.sec__note { font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-regular); }
+
+.dtable-shell { overflow: auto; container-type: inline-size; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); }
+.dtable { width: 100%; font-size: var(--fs-label); }
+.dtable__head, .drow > summary { display: grid; grid-template-columns: var(--cols); align-items: center; }
+.dtable__head { position: sticky; top: 0; z-index: 6; background: var(--surface-recessed); border-bottom: 1px solid var(--border-default); }
+.dtable__head > span { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); padding: var(--space-2) var(--space-3); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dtable__head > span.l { text-align: left; }
+.drow { border-bottom: 1px solid var(--c-border-faint); }
+.drow:last-child { border-bottom: none; }
+.drow > summary { list-style: none; cursor: pointer; }
+.drow > summary::-webkit-details-marker { display: none; }
+.drow > summary:hover { background: var(--surface-recessed); }
+.drow > summary > span { padding: var(--space-2) var(--space-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drow > summary > span.l { text-align: left; }
+.dtable__head > :first-child, .drow > summary > :first-child { position: sticky; left: 0; z-index: 1; background: var(--surface-panel); box-shadow: 1px 0 0 var(--border-default); }
+.dtable__head > :first-child { z-index: 7; background: var(--surface-recessed); }
+.drow > summary:hover > :first-child { background: var(--surface-recessed); }
+.dtable--selectable { --pick-w: 42px; }
+.dtable--selectable .dtable__head > :nth-child(2),
+.dtable--selectable .drow > summary > :nth-child(2) {
+  position: sticky; left: var(--pick-w); z-index: 1; background: var(--surface-panel);
+  box-shadow: 1px 0 0 var(--border-default);
+}
+.dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
+.dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
+.dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
+.geohaz-pick { display: flex; justify-content: center; align-items: center; }
+.geohaz-pick input { margin: 0; }
+.dt-name { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.dt-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
+.drow[open] > summary .dt-caret { transform: rotate(90deg); }
+.drow[open] > summary, .drow[open] > summary > :first-child { background: var(--color-brand-faint); }
+.dt-title { font-weight: var(--fw-semibold); color: var(--text-primary); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; }
+.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
+details.dtable__rdm > summary { list-style: none; cursor: pointer; }
+details.dtable__rdm > summary::-webkit-details-marker { display: none; }
+details.dtable__rdm .grp-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
+details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
+.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
+.dtable__group .kind { font-size: .65rem; font-weight: var(--fw-bold); color: var(--text-tertiary); letter-spacing: .04em; }
+.dtable__group .name { font-weight: var(--fw-semibold); font-size: var(--fs-label); color: var(--text-primary); }
+.dtable__group .ref { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); }
+.dtable__group .link { margin-left: auto; font-size: var(--fs-caption); color: var(--color-brand); font-weight: var(--fw-medium); }
+.drow--group > summary { background: var(--color-brand-faint); }
+.drow--group > summary:hover, .drow--group > summary:hover > :first-child { background: var(--color-brand-wash); }
+.drow--group > summary > :first-child { background: var(--color-brand-faint); }
+.drow__body { border-top: 1px solid var(--border-faint); border-left: 3px solid var(--color-brand); background: var(--surface-panel); padding: var(--space-3) var(--space-4); position: sticky; left: 0; width: 100cqw;
+  display: flex; align-items: flex-start; gap: var(--space-6); flex-wrap: wrap; }
+.attr-grid, .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
+.attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+/* long values wrap rather than truncate — event rate scheme names run past any column width */
+.attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.attr-grid .blank, .settings-grid .blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
+.state-box { border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--surface-recessed); padding: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-label); text-align: center; }
+.state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
+.na { color: var(--text-disabled); }
+.exec-reason { display: block; margin-top: 2px; font-size: var(--fs-caption); color: var(--color-negative); white-space: normal; }
+
+/* submissions.css — .status-chip and the entity table's rm-link, VERBATIM subset. */
+.status-chip { display: inline-block; font-size: var(--fs-caption); font-weight: var(--fw-medium);
+  letter-spacing: .03em; text-transform: uppercase; padding: 1px var(--space-2);
+  border-radius: var(--radius-pill); border: 1px solid var(--border-default);
+  color: var(--text-secondary); background: var(--surface-recessed); }
+.status-chip--importing { background: var(--c-navy-050); color: var(--c-navy-600); border-color: var(--c-navy-200); }
+.status-chip--ready { background: var(--c-green-050); color: var(--c-green-700); border-color: var(--c-green-200); }
+.status-chip--error, .status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700); border-color: var(--c-red-200); }
+.rm-link { font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--color-brand); text-decoration: none; }
+.rm-link:hover { text-decoration: underline; }
+
+/* components.css — badges + small buttons, approximated for the preview. */
+.badge { display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2); border-radius: var(--radius-pill); font-size: var(--fs-caption); font-weight: var(--fw-medium); border: 1px solid transparent; white-space: nowrap; }
+.badge--neutral { background: var(--color-neutral-bg); color: var(--color-neutral-text); border-color: var(--color-neutral-border); }
+.badge--info { background: var(--color-info-bg); color: var(--color-info); border-color: var(--color-info-border); }
+.badge--sm { font-size: 10px; padding: 0 6px; }
+.btn-sm { font-size: var(--fs-caption); font-weight: var(--fw-medium); padding: 3px var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.btn-sm--primary { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: var(--btn-primary-fg); }
+.btn-sm:disabled { color: var(--text-disabled); border-color: var(--border-default); cursor: default; background: var(--surface-recessed); }
+select.wf-field__input { font: inherit; font-size: var(--fs-label); padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); }
+
+/* ── EP table inside the expanded row — from the approved results_ep_table.html ── */
+.ep-shell{overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.ep{border-collapse:collapse;width:100%;font-size:var(--fs-label)}
+.ep th,.ep td{padding:var(--space-1) var(--space-3);white-space:nowrap}
+.ep thead th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;border-bottom:1px solid var(--border-default)}
+.ep thead th.l{text-align:left}
+.ep thead th.gsep,.ep td.gsep{border-left:1px solid var(--border-default)}
+.ep tbody td{font-family:var(--font-mono);font-size:var(--fs-mono);font-variant-numeric:tabular-nums;text-align:right;border-bottom:1px solid var(--border-faint)}
+.ep tbody td.rp{font-family:var(--font-ui);font-size:var(--fs-label);font-weight:var(--fw-medium);text-align:left;color:var(--text-secondary)}
+.ep tr.aal td{border-top:2px solid var(--border-strong);border-bottom:none;font-weight:var(--fw-medium);background:var(--surface-recessed)}
+.ep tr.aal td.rp{font-weight:var(--fw-semibold);color:var(--text-primary)}
+.ep tr.sd td{border-bottom:none;background:var(--surface-recessed);color:var(--text-secondary)}
+
+/* ============================================================================
+   NET-NEW — the rules this iteration adds.
+   ============================================================================ */
+/* the AAL cell carries the results state, so no extra column is needed */
+.aal-num { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: var(--fw-medium); }
+.aal-state { font-size: var(--fs-caption); font-style: italic; color: var(--text-disabled); }
+.aal-state--failed { color: var(--color-negative); font-style: normal; }
+/* the expanded row splits in two: named field groups on the left, condensed results on the right */
+.row-meta { flex: 1 1 380px; min-width: 300px; }
+.row-results { flex: 0 1 460px; min-width: 320px; }
+.row-src { font-size: var(--fs-caption); color: var(--text-tertiary); margin: 0 0 var(--space-3); }
+.row-src b { font-weight: var(--fw-medium); color: var(--text-secondary); }
+.row-group + .row-group { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-faint); }
+.row-group__head, .row-results__head { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-2); }
+.row-group__title, .row-results__title { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.row-results__ccy { font-size: var(--fs-caption); color: var(--text-tertiary); margin-left: auto; }
+select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--space-1); border-radius: var(--radius-sm); border: 1px solid var(--border-default); background: var(--surface-panel); color: var(--text-secondary); }
+.pick-note { font-size: var(--fs-caption); color: var(--color-warning); background: var(--color-warning-bg); border: 1px solid var(--color-warning-border); border-radius: var(--radius-sm); padding: 1px var(--space-2); }
+.sec__picked { font-size: var(--fs-caption); color: var(--text-secondary); }
+.sec__picked strong { color: var(--text-primary); }
+
+/* preview chrome (not app CSS) */
+.pv-wrap{max-width:1400px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:105ch}
+.pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
+.pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:105ch}
+.pv-cap b{color:var(--text-primary)}
+.pv-page{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);padding:var(--space-5);box-shadow:var(--shadow-sm)}
+.pv-pagehead{display:flex;align-items:baseline;gap:var(--space-3);margin-bottom:var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint)}
+.pv-pagehead .t{font-size:var(--fs-title);font-weight:var(--fw-semibold)}
+.pv-pagehead .s{font-size:var(--fs-label);color:var(--text-tertiary)}
+.pv-note{background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);max-width:105ch;margin-bottom:var(--space-4)}
+.pv-contract{border-collapse:collapse;font-size:var(--fs-label);margin:var(--space-4) 0 0;width:100%}
+.pv-contract th,.pv-contract td{border:1px solid var(--border-faint);padding:var(--space-2) var(--space-3);text-align:left;vertical-align:top}
+.pv-contract th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.pv-contract code{font-family:var(--font-mono);font-size:var(--fs-mono)}
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <div class="pv-hero">Merged analyses table — one column set, two pages</div>
+  <div class="pv-sub">
+    The EDM detail page's <b>Analyses</b> and <b>Broker analyses</b> sections become one table (FR-009), and
+    the submission Results section renders the same partial over a wider row set. Type, Peril, Region, Engine
+    and Currency all come from <code>AnalysisSettings</code> — the display model own and broker rows already
+    share — so the two origins fill the same columns. Analysis names carry no sub-line. The Risk Modeler link
+    is its own column at the end, following the EDM/RDM tables on the submission page, so it is not a
+    misclick trap next to the name. No status sections: the status filter already does that. No perspective
+    or units controls: the AAL column is Gross in millions, and switching belongs on the dedicated results
+    page where analyses sit side by side.
+  </div>
+
+  <table class="pv-contract">
+    <thead><tr><th></th><th>EDM detail page</th><th>Submission Results section</th></tr></thead>
+    <tbody>
+      <tr><td>Columns</td><td colspan="2" style="text-align:center">Analysis · Type · Peril · Region · Engine · Currency · AAL · Status · Submitted · Risk Modeler<br><span style="color:var(--text-tertiary)">the submission page inserts EDM after Analysis — the one flag, exactly like <code>show_edm</code> on today's broker row</span></td></tr>
+      <tr><td>Own analyses</td><td>Executed against <em>this</em> EDM's portfolios</td><td>Every own analysis in the deal, across all its EDMs</td></tr>
+      <tr><td>Broker analyses</td><td>Every RDM in the submission (unchanged from today)</td><td>Every RDM in the submission (identical)</td></tr>
+      <tr><td>Order</td><td colspan="2" style="text-align:center">Own rows most-recent-first, then one expandable group row per RDM</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">1 · EDM detail page — the merged Analyses section</div>
+  <p class="pv-cap">Own rows run straight down, newest first, red chip where a run failed with its reason
+  inline. RDM group rows follow, expanding to their broker analyses (05 §1 relocated into the one table, not
+  retired). Controls stay on the section summary line where the status filter and Delete already live —
+  <b>Copy table</b> and <b>View</b> join them. Expanding a row gives two columns. On the left, the source
+  line (portfolio or RDM, analysis id) then two named groups — <b>Metadata</b> (engine version, analysis
+  type, peril, subperil, framework, event rate scheme, analysis template) and <b>Analysis settings</b>
+  (currency code/scheme/vintage, min loss threshold, franchise deductible, unrecognized construction and
+  occupancy). On the right, the condensed results: both EP types at the 6 return periods, perspective
+  toggle <em>in the row</em> (FR-011). The columns stack when the row is too narrow to hold both.
+  Group values wrap to as many lines as they need — the event rate scheme name below is a real-length one —
+  and every value carries a <code>title</code>, as does each summary cell that truncates.</p>
+
+  <div class="pv-page">
+    <div class="pv-pagehead"><span class="t">Coastal HO 2026 · EDM</span>
+      <span class="s">SUB-2026-0142 · Coastal Re HO 2026 · 3 portfolios · ready</span></div>
+
+    <details class="sec" open>
+      <summary>
+        <span class="sec__caret">&#9657;</span>
+        <span class="sec__title">Analyses</span>
+        <span class="badge badge--neutral">5 own &middot; 9 broker</span>
+        <span class="sec__spacer"></span>
+        <span class="sec__picked"><strong>2</strong> selected</span>
+        <select class="wf-field__input"><option>All statuses</option><option>Failed</option><option>In progress</option><option>Ready</option></select>
+        <button class="btn-sm">&#8942; Copy table</button>
+        <button class="btn-sm">Delete</button>
+        <button class="btn-sm btn-sm--primary">View 2 &#8599;</button>
+      </summary>
+
+      <div class="dtable-shell">
+        <div class="dtable dtable--selectable" style="--cols:42px minmax(240px,1.6fr) minmax(150px,1.1fr) 80px 80px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1410px">
+          <div class="dtable__head">
+            <span class="l"><span class="geohaz-pick"><input type="checkbox" title="Select all — untick to exclude"></span></span>
+            <span class="l">Analysis</span><span class="l">Type</span><span class="l">Peril</span>
+            <span class="l">Region</span><span class="l">Engine</span><span class="l">Currency</span>
+            <span>AAL &middot; Gross</span><span class="l">Status</span><span class="l">Submitted</span>
+            <span class="l">Risk Modeler</span>
+          </div>
+
+          <details class="drow">
+            <summary>
+              <span class="l"></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_FL_US HU HD v23">CRE_HO_FL_US HU HD v23</span></span></span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span>
+              <span class="l">US</span>
+              <span class="l">HD &middot; 23.0</span>
+              <span class="l">USD</span>
+              <span><span class="na">&mdash;</span></span>
+              <span class="l"><span class="status-chip status-chip--importing">Running</span></span>
+              <span class="l">2026-08-25 14:06</span>
+              <span class="l"><span class="na">&mdash;</span></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_TX_Coastal Flood HD v3">CRE_HO_TX_Coastal Flood HD v3</span></span></span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">FL</span>
+              <span class="l">US</span>
+              <span class="l">HD &middot; 23.0</span>
+              <span class="l">USD</span>
+              <span><span class="na">&mdash;</span></span>
+              <span class="l"><span class="status-chip status-chip--error">Failed</span>
+                <span class="exec-reason">ENGINE-400:Exposure failed to process. No valid locations for the peril region.</span></span>
+              <span class="l">2026-08-24 09:31</span>
+              <span class="l"><span class="na">&mdash;</span></span>
+            </summary>
+          </details>
+
+          <details class="drow" open>
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_FL_v25 DLM HU">CRE_HO_FL_v25 DLM HU</span></span></span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span>
+              <span class="l">US</span>
+              <span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span>
+              <span><span class="aal-num">4.1M</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+            <div class="drow__body">
+              <div class="row-meta">
+                <p class="row-src">Portfolio: <b>HO_FL</b> &middot; Analysis: <b>91442</b></p>
+
+                <div class="row-group">
+                  <div class="row-group__head"><span class="row-group__title">Metadata</span></div>
+                  <dl class="settings-grid">
+                    <div><dt>Engine version</dt><dd>RL25 &middot; DLM</dd></div>
+                    <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+                    <div><dt>Peril</dt><dd>Hurricane</dd></div>
+                    <div><dt>Subperil</dt><dd>Wind + Storm surge</dd></div>
+                    <div><dt>Framework</dt><dd>ELT</dd></div>
+                    <div><dt>Event rate scheme</dt><dd title="RMS North Atlantic Hurricane Medium-Term Rates 2025 (LTR blend)">RMS North Atlantic Hurricane Medium-Term Rates 2025 (LTR blend)</dd></div>
+                    <div><dt>Analysis template</dt><dd title="v25 DLM HU">v25 DLM HU</dd></div>
+                  </dl>
+                </div>
+
+                <div class="row-group">
+                  <div class="row-group__head"><span class="row-group__title">Analysis settings</span></div>
+                  <dl class="settings-grid">
+                    <div><dt>Currency</dt><dd>USD &middot; RMS &middot; RL25</dd></div>
+                    <div><dt>Min loss threshold</dt><dd>1.0</dd></div>
+                    <div><dt>Franchise deductible</dt><dd>Off</dd></div>
+                    <div><dt>Unrecognized construction / occupancy</dt><dd>Treat as unknown</dd></div>
+                  </dl>
+                </div>
+              </div>
+
+              <div class="row-results">
+                <div class="row-results__head">
+                  <span class="row-results__title">Condensed results</span>
+                  <select class="persp"><option>Gross</option><option>Ground Up</option><option>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option></select>
+                  <span class="row-results__ccy">USD, millions</span>
+                </div>
+                <div class="ep-shell">
+                  <table class="ep">
+                    <thead><tr><th class="l">Return period</th><th class="gsep">OEP</th><th>AEP</th></tr></thead>
+                    <tbody>
+                      <tr><td class="rp">10,000</td><td class="gsep">326.7M</td><td>341.0M</td></tr>
+                      <tr><td class="rp">1,000</td><td class="gsep">152.8M</td><td>163.9M</td></tr>
+                      <tr><td class="rp">500</td><td class="gsep">112.7M</td><td>122.4M</td></tr>
+                      <tr><td class="rp">250</td><td class="gsep">83.1M</td><td>91.2M</td></tr>
+                      <tr><td class="rp">100</td><td class="gsep">52.8M</td><td>59.3M</td></tr>
+                      <tr><td class="rp">50</td><td class="gsep">35.5M</td><td>40.8M</td></tr>
+                      <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">4.1M</td></tr>
+                      <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">14.9M</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_GA_v25 DLM HU">CRE_HO_GA_v25 DLM HU</span></span></span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span>
+              <span class="l">US</span>
+              <span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span>
+              <span><span class="aal-state">retrieving&hellip;</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_SC_v25 DLM HU">CRE_HO_SC_v25 DLM HU</span></span></span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span>
+              <span class="l">US</span>
+              <span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span>
+              <span><span class="aal-state aal-state--failed">retrieval failed</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span>
+                <span class="exec-reason">Results: RM returned 500 on EP curve (GR) — retried 3&times;</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="dtable__rdm" open>
+            <summary><div class="dtable__group">
+              <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+              <span class="name">Acme Re 2026 Broker RDM</span>
+              <span class="ref">#4821</span><span class="ref">6 analyses</span>
+              <a class="link" href="#">Open RDM &rarr;</a>
+            </div></summary>
+
+            <details class="drow">
+              <summary>
+                <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+                <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                  <span class="dt-title" title="FL HU Gross 2026">FL HU Gross 2026</span></span></span>
+                <span class="l">Exceedance Probability</span>
+                <span class="l">HU</span>
+                <span class="l">US</span>
+                <span class="l">DLM &middot; 23.0</span>
+                <span class="l">USD</span>
+                <span><span class="aal-num">3.9M</span></span>
+                <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+              </summary>
+            </details>
+
+            <details class="drow" open>
+              <summary>
+                <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+                <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                  <span class="dt-title" title="GA HU Gross 2026">GA HU Gross 2026</span></span></span>
+                <span class="l">Exceedance Probability</span>
+                <span class="l">HU</span>
+                <span class="l">US</span>
+                <span class="l">DLM &middot; 23.0</span>
+                <span class="l">USD</span>
+                <span><span class="aal-num">16,204</span></span>
+                <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+              </summary>
+              <div class="drow__body">
+                <div class="row-meta">
+                  <p class="row-src">RDM: <b>Acme Re 2026 Broker RDM</b> &middot; Analysis: <b>88215</b></p>
+
+                  <div class="row-group">
+                    <div class="row-group__head"><span class="row-group__title">Metadata</span></div>
+                    <dl class="settings-grid">
+                      <div><dt>Engine version</dt><dd>RL23 &middot; DLM</dd></div>
+                      <div><dt>Analysis type</dt><dd>Exceedance Probability</dd></div>
+                      <div><dt>Peril</dt><dd>Hurricane</dd></div>
+                      <div><dt>Subperil</dt><dd class="blank">not returned</dd></div>
+                      <div><dt>Framework</dt><dd>ELT</dd></div>
+                      <div><dt>Event rate scheme</dt><dd class="blank">not returned</dd></div>
+                      <div><dt>Analysis template</dt><dd class="blank">none &mdash; not run here</dd></div>
+                    </dl>
+                  </div>
+
+                  <div class="row-group">
+                    <div class="row-group__head"><span class="row-group__title">Analysis settings</span></div>
+                    <dl class="settings-grid">
+                      <div><dt>Currency</dt><dd>USD <span class="blank">&middot; scheme and vintage not returned</span></dd></div>
+                      <div><dt>Min loss threshold</dt><dd class="blank">not returned</dd></div>
+                      <div><dt>Franchise deductible</dt><dd class="blank">not returned</dd></div>
+                      <div><dt>Unrecognized construction / occupancy</dt><dd class="blank">not returned</dd></div>
+                    </dl>
+                  </div>
+                </div>
+                <div class="row-results">
+                  <div class="row-results__head">
+                    <span class="row-results__title">Condensed results</span>
+                    <select class="persp"><option>Gross</option><option>Ground Up</option><option>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option></select>
+                    <span class="row-results__ccy">USD, millions</span>
+                  </div>
+                  <div class="ep-shell">
+                    <table class="ep">
+                      <thead><tr><th class="l">Return period</th><th class="gsep">OEP</th><th>AEP</th></tr></thead>
+                      <tbody>
+                        <tr><td class="rp">10,000</td><td class="gsep">3.2M</td><td>3.4M</td></tr>
+                        <tr><td class="rp">1,000</td><td class="gsep">1.4M</td><td>1.5M</td></tr>
+                        <tr><td class="rp">500</td><td class="gsep">947,007</td><td>1.0M</td></tr>
+                        <tr><td class="rp">250</td><td class="gsep">623,953</td><td>701,884</td></tr>
+                        <tr><td class="rp">100</td><td class="gsep">322,871</td><td>371,004</td></tr>
+                        <tr><td class="rp">50</td><td class="gsep">167,579</td><td>201,338</td></tr>
+                        <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">16,204</td></tr>
+                        <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">81,442</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details class="drow drow--group">
+              <summary>
+                <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+                <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                  <span class="dt-title">Combined SE Wind
+                    <span class="badge badge--info badge--sm">group</span></span></span></span>
+                <span class="l">Group</span>
+                <span class="l">HU</span>
+                <span class="l">US</span>
+                <span class="l">DLM &middot; 23.0</span>
+                <span class="l">USD</span>
+                <span><span class="aal-num">21.4M</span></span>
+                <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+              </summary>
+            </details>
+
+            <div class="dtable__groupempty">3 more analyses in this RDM &mdash; the group renders them all; the preview trims for length.</div>
+          </details>
+
+          <details class="dtable__rdm">
+            <summary><div class="dtable__group">
+              <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+              <span class="name">CIC Prior Year HO RDM</span>
+              <span class="ref">#4102</span><span class="ref">3 analyses</span>
+              <a class="link" href="#">Open RDM &rarr;</a>
+            </div></summary>
+            <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+          </details>
+
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">2 · Submission Results section — same table, EDM column, wider row set</div>
+  <p class="pv-cap">Own rows come from every EDM in the deal, so an <b>EDM</b> column sits after Analysis —
+  the same <code>show_edm</code> flag today's broker row already takes. Broker rows read
+  <span class="na">&mdash;</span> there: an RDM analysis is not attributed to an EDM (FR-020). This is the
+  only place cross-EDM selection exists, so <b>View</b> here puts HO_FL from one EDM beside CO_MULTI from
+  another.</p>
+
+  <div class="pv-page">
+    <div class="pv-pagehead"><span class="t">Coastal Re HO 2026</span>
+      <span class="s">SUB-2026-0142 · Coastal Re · Property Cat XOL · inception 2026-06-01</span></div>
+
+    <details class="sec" open>
+      <summary>
+        <span class="sec__caret">&#9657;</span>
+        <span class="sec__title">Results</span>
+        <span class="badge badge--neutral">8 own &middot; 9 broker</span>
+        <span class="sec__spacer"></span>
+        <span class="sec__picked"><strong>3</strong> selected</span>
+        <select class="wf-field__input"><option>All statuses</option><option>Failed</option><option>In progress</option><option>Ready</option></select>
+        <button class="btn-sm">&#8942; Copy table</button>
+        <button class="btn-sm" disabled title="Delete applies to workbench analyses only — untick the broker row">Delete</button>
+        <button class="btn-sm btn-sm--primary">View 3 &#8599;</button>
+      </summary>
+
+      <div class="dtable-shell">
+        <div class="dtable dtable--selectable" style="--cols:42px minmax(240px,1.6fr) minmax(140px,1fr) minmax(150px,1.1fr) 80px 80px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1550px">
+          <div class="dtable__head">
+            <span class="l"><span class="geohaz-pick"><input type="checkbox" title="Select all — untick to exclude"></span></span>
+            <span class="l">Analysis</span><span class="l">EDM</span><span class="l">Type</span><span class="l">Peril</span>
+            <span class="l">Region</span><span class="l">Engine</span><span class="l">Currency</span>
+            <span>AAL &middot; Gross</span><span class="l">Status</span><span class="l">Submitted</span>
+            <span class="l">Risk Modeler</span>
+          </div>
+
+          <details class="drow">
+            <summary>
+              <span class="l"></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_FL_US HU HD v23">CRE_HO_FL_US HU HD v23</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span><span class="l">US</span><span class="l">HD &middot; 23.0</span>
+              <span class="l">USD</span><span><span class="na">&mdash;</span></span>
+              <span class="l"><span class="status-chip status-chip--importing">Running</span></span>
+              <span class="l">2026-08-25 14:06</span>
+              <span class="l"><span class="na">&mdash;</span></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_TX_Coastal Flood HD v3">CRE_HO_TX_Coastal Flood HD v3</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">FL</span><span class="l">US</span><span class="l">HD &middot; 23.0</span>
+              <span class="l">USD</span><span><span class="na">&mdash;</span></span>
+              <span class="l"><span class="status-chip status-chip--error">Failed</span>
+                <span class="exec-reason">ENGINE-400:Exposure failed to process. No valid locations for the peril region.</span></span>
+              <span class="l">2026-08-24 09:31</span>
+              <span class="l"><span class="na">&mdash;</span></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_FL_v25 DLM HU">CRE_HO_FL_v25 DLM HU</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span><span><span class="aal-num">4.1M</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_GA_v25 DLM HU">CRE_HO_GA_v25 DLM HU</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span><span><span class="aal-state">retrieving&hellip;</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_SC_v25 DLM HU">CRE_HO_SC_v25 DLM HU</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span><span><span class="aal-state aal-state--failed">retrieval failed</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span>
+                <span class="exec-reason">Results: RM returned 500 on EP curve (GR) — retried 3&times;</span></span>
+              <span class="l"><time datetime="2026-08-24T18:02:37Z">2026-08-24 2:02:37 PM</time></span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_CO_MULTI_v25 DLM EQ">CRE_CO_MULTI_v25 DLM EQ</span></span></span>
+              <span class="l">Inland HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">EQ</span><span class="l">US</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span><span><span class="aal-num">1.2M</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l">2026-08-23 11:47</span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_CO_MULTI_v25 DLM WS">CRE_CO_MULTI_v25 DLM WS</span></span></span>
+              <span class="l">Inland HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">WS</span><span class="l">CA</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">CAD</span><span><span class="aal-num">840,119</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l">2026-08-23 11:47</span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="drow">
+            <summary>
+              <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+              <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                <span class="dt-title" title="CRE_HO_FL_v25 DLM HU_2">CRE_HO_FL_v25 DLM HU_2</span></span></span>
+              <span class="l">Coastal HO 2026</span>
+              <span class="l">Exceedance Probability</span>
+              <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 25.0</span>
+              <span class="l">USD</span><span><span class="aal-num">4.3M</span></span>
+              <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+              <span class="l">2026-08-22 16:20</span>
+              <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+            </summary>
+          </details>
+
+          <details class="dtable__rdm" open>
+            <summary><div class="dtable__group">
+              <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+              <span class="name">Acme Re 2026 Broker RDM</span>
+              <span class="ref">#4821</span><span class="ref">6 analyses</span>
+              <a class="link" href="#">Open RDM &rarr;</a>
+            </div></summary>
+
+            <details class="drow">
+              <summary>
+                <span class="l"><span class="geohaz-pick"><input type="checkbox" checked></span></span>
+                <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                  <span class="dt-title" title="FL HU Gross 2026">FL HU Gross 2026</span></span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l">Exceedance Probability</span>
+                <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 23.0</span>
+                <span class="l">USD</span><span><span class="aal-num">3.9M</span></span>
+                <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+              </summary>
+            </details>
+
+            <details class="drow">
+              <summary>
+                <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+                <span class="l"><span class="dt-name"><span class="dt-caret">&#9657;</span>
+                  <span class="dt-title" title="GA HU Gross 2026">GA HU Gross 2026</span></span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l">Exceedance Probability</span>
+                <span class="l">HU</span><span class="l">US</span><span class="l">DLM &middot; 23.0</span>
+                <span class="l">USD</span><span><span class="aal-num">16,204</span></span>
+                <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+                <span class="l"><span class="na">&mdash;</span></span>
+                <span class="l"><a class="rm-link" href="#" target="_blank" rel="noopener">Open &#8599;</a></span>
+              </summary>
+            </details>
+
+            <div class="dtable__groupempty">4 more analyses in this RDM &mdash; trimmed for the preview.</div>
+          </details>
+
+          <details class="dtable__rdm">
+            <summary><div class="dtable__group">
+              <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+              <span class="name">CIC Prior Year HO RDM</span>
+              <span class="ref">#4102</span><span class="ref">3 analyses</span>
+              <a class="link" href="#">Open RDM &rarr;</a>
+            </div></summary>
+            <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+          </details>
+
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">3 · The AAL cell carries every results state</div>
+  <p class="pv-cap">Four states, one cell, no extra column and no perspective control on the table. A retrieval
+  that failed keeps the run reading <b>Finished</b> (SC-005) and puts its reason on the same line the run's own
+  failure reason uses.</p>
+
+  <div class="pv-page">
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:minmax(250px,1.4fr) 120px minmax(200px,1.4fr) minmax(300px,1.7fr);min-width:920px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span>AAL &middot; Gross</span><span class="l">Status</span><span class="l">What it means</span>
+        </div>
+        <div class="drow"><div style="display:grid;grid-template-columns:var(--cols)">
+          <span class="l" style="padding:var(--space-2) var(--space-3)">CRE_HO_FL_v25 DLM HU</span>
+          <span style="padding:var(--space-2) var(--space-3);text-align:right"><span class="aal-num">4.1M</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3)"><span class="status-chip status-chip--ready">Finished</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3);color:var(--text-tertiary)">Results stored. Expanding shows the condensed table.</span>
+        </div></div>
+        <div class="drow"><div style="display:grid;grid-template-columns:var(--cols)">
+          <span class="l" style="padding:var(--space-2) var(--space-3)">CRE_HO_GA_v25 DLM HU</span>
+          <span style="padding:var(--space-2) var(--space-3);text-align:right"><span class="aal-state">retrieving&hellip;</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3)"><span class="status-chip status-chip--ready">Finished</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3);color:var(--text-tertiary)">Run finished, retrieval queued or running (FR-008). The section's 3s poll fills it in.</span>
+        </div></div>
+        <div class="drow"><div style="display:grid;grid-template-columns:var(--cols)">
+          <span class="l" style="padding:var(--space-2) var(--space-3)">CRE_HO_SC_v25 DLM HU</span>
+          <span style="padding:var(--space-2) var(--space-3);text-align:right"><span class="aal-state aal-state--failed">retrieval failed</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3)"><span class="status-chip status-chip--ready">Finished</span>
+            <span class="exec-reason">Results: RM returned 500 on EP curve (GR) — retried 3&times;</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3);color:var(--text-tertiary)">The run succeeded; only the fetch failed (FR-007). Reason inline, no expand needed.</span>
+        </div></div>
+        <div class="drow"><div style="display:grid;grid-template-columns:var(--cols)">
+          <span class="l" style="padding:var(--space-2) var(--space-3)">CRE_HO_FL_US HU HD v23</span>
+          <span style="padding:var(--space-2) var(--space-3);text-align:right"><span class="na">&mdash;</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3)"><span class="status-chip status-chip--importing">Running</span></span>
+          <span class="l" style="padding:var(--space-2) var(--space-3);color:var(--text-tertiary)">Not finished — nothing to retrieve yet. Plain em dash, not a pending state.</span>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">4 · Section summary line — the only controls the table needs</div>
+  <p class="pv-cap">Status filter, Copy table, Delete, View. The header checkbox selects everything the filter
+  currently shows — select-all then untick (O19-11). Past the ~10 guideline nothing is blocked (O-09); the
+  note says the results table will scroll and View still opens. Delete disables whenever a broker row is
+  ticked rather than silently acting on the deletable subset.</p>
+
+  <div class="pv-page">
+    <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint);margin-bottom:var(--space-5)">
+      <span class="sec__caret">&#9657;</span><span class="sec__title">Analyses</span>
+      <span class="badge badge--neutral">5 own &middot; 9 broker</span>
+      <span class="sec__spacer"></span>
+      <span class="sec__picked">None selected</span>
+      <select class="wf-field__input"><option>All statuses</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <button class="btn-sm" disabled>Delete</button>
+      <button class="btn-sm" disabled>View &#8599;</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint);margin-bottom:var(--space-5)">
+      <span class="sec__caret">&#9657;</span><span class="sec__title">Analyses</span>
+      <span class="badge badge--neutral">5 own &middot; 9 broker</span>
+      <span class="sec__spacer"></span>
+      <span class="sec__picked"><strong>4</strong> selected &middot; all workbench runs</span>
+      <select class="wf-field__input"><option>Ready</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <button class="btn-sm">Delete</button>
+      <button class="btn-sm btn-sm--primary">View 4 &#8599;</button>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint)">
+      <span class="sec__caret">&#9657;</span><span class="sec__title">Results</span>
+      <span class="badge badge--neutral">8 own &middot; 9 broker</span>
+      <span class="sec__spacer"></span>
+      <span class="sec__picked"><strong>14</strong> selected</span>
+      <span class="pick-note">Past 10 columns the results table scrolls sideways</span>
+      <select class="wf-field__input"><option>All statuses</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <button class="btn-sm" disabled title="Delete applies to workbench analyses only">Delete</button>
+      <button class="btn-sm btn-sm--primary">View 14 &#8599;</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">5 · Empty states</div>
+  <p class="pv-cap">Three ways the merged table can be empty, each naming what would fill it.</p>
+
+  <div class="pv-page">
+    <p class="pv-cap" style="margin-bottom:var(--space-2)"><b>Nothing at all</b> — no runs, no RDMs.</p>
+    <div class="state-box" style="margin-bottom:var(--space-6)">No analyses in this deal yet. Run a suite or template
+      from an EDM, or import a broker RDM.</div>
+
+    <p class="pv-cap" style="margin-bottom:var(--space-2)"><b>Broker only</b> — the RDM arrived before any run.</p>
+    <div class="dtable-shell" style="margin-bottom:var(--space-6)">
+      <div class="dtable dtable--selectable" style="--cols:42px minmax(240px,1.6fr) minmax(150px,1.1fr) 80px 80px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1410px">
+        <div class="dtable__head">
+          <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+          <span class="l">Analysis</span><span class="l">Type</span><span class="l">Peril</span>
+          <span class="l">Region</span><span class="l">Engine</span><span class="l">Currency</span>
+          <span>AAL &middot; Gross</span><span class="l">Status</span><span class="l">Submitted</span>
+          <span class="l">Risk Modeler</span>
+        </div>
+        <div class="dtable__groupempty">No analyses executed from this EDM yet. Select portfolios above and choose
+          <strong>Execute Suite</strong> or <strong>Execute Template</strong>.</div>
+        <details class="dtable__rdm">
+          <summary><div class="dtable__group">
+            <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+            <span class="name">Acme Re 2026 Broker RDM</span><span class="ref">#4821</span><span class="ref">6 analyses</span>
+            <a class="link" href="#">Open RDM &rarr;</a>
+          </div></summary>
+          <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+        </details>
+      </div>
+    </div>
+
+    <p class="pv-cap" style="margin-bottom:var(--space-2)"><b>Filtered to nothing</b> — the status filter excludes every own row.</p>
+    <div class="dtable-shell">
+      <div class="dtable dtable--selectable" style="--cols:42px minmax(240px,1.6fr) minmax(150px,1.1fr) 80px 80px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:1410px">
+        <div class="dtable__head">
+          <span class="l"><span class="geohaz-pick"><input type="checkbox"></span></span>
+          <span class="l">Analysis</span><span class="l">Type</span><span class="l">Peril</span>
+          <span class="l">Region</span><span class="l">Engine</span><span class="l">Currency</span>
+          <span>AAL &middot; Gross</span><span class="l">Status</span><span class="l">Submitted</span>
+          <span class="l">Risk Modeler</span>
+        </div>
+        <div class="dtable__groupempty">No analyses match this status filter. Broker analyses are unaffected by it.</div>
+        <details class="dtable__rdm">
+          <summary><div class="dtable__group">
+            <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
+            <span class="name">Acme Re 2026 Broker RDM</span><span class="ref">#4821</span><span class="ref">6 analyses</span>
+            <a class="link" href="#">Open RDM &rarr;</a>
+          </div></summary>
+          <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Where the expanded-row fields come from</div>
+  <div class="pv-note">
+    <strong>Metadata reads from the Risk Modeler analysis payload</strong> and fills in for both origins:
+    <code>engineVersion</code>/<code>engineType</code>, <code>analysisType</code>,
+    <code>peril</code>, <code>subperil</code>, <code>analysisFramework</code> (the Framework field — the
+    workbench parses it into <code>analysis_mode</code> today and needs its own field), plus the analysis
+    template, which only workbench runs have.<br>
+    <strong>Analysis settings are template values, and Risk Modeler does not return them.</strong> Min loss
+    threshold, franchise deductible and unrecognized construction/occupancy live on
+    <code>analysis_template</code>, and currency scheme + vintage are chosen at submit time (009 P-11). Own
+    rows read them from the record of the run; broker rows read <span class="na">not returned</span> for all
+    four and carry only <code>currencyCode</code>. Event rate scheme is the same story in reverse: documented
+    on neither payload, so it shows for own runs and stays blank for broker ones.<br>
+    <strong>Submitted is rendered in the browser.</strong> The column shows date, time to the second, and
+    AM/PM, in the reader's own zone — <code>2026-08-24 2:02:37 PM</code>. The server writes UTC into
+    <code>&lt;time datetime="…Z"&gt;</code> and a small script formats it with
+    <code>toLocaleString</code>, because the server has no way to know the reader's zone. The column is
+    180px so nothing clips at a two-digit hour.<br>
+    <strong>Two additions to <code>BrokerAnalysis</code>.</strong> <code>rm_url</code>, built from the
+    underlying analysis id rather than the user-facing one (O19-3), and <code>createDate</code> — it
+    <em>is</em> documented on the analysis payload, so the Submitted column can carry the broker's own run
+    date instead of the <span class="na">&mdash;</span> the broker rows show here. Confirm both.
+  </div>
+
+  <div style="height:var(--space-9)"></div>
+</div>
+<script>
+// Submitted column: the server writes UTC into <time datetime>, the browser renders the reader's zone.
+for (const el of document.querySelectorAll('time[datetime]')) {
+  const d = new Date(el.dateTime);
+  const pad = (n) => String(n).padStart(2, '0');
+  el.textContent = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+    + d.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit', second: '2-digit'});
+  el.title = d.toLocaleString();
+}
+</script>
+</body>
+</html>

@@ -317,6 +317,7 @@ erDiagram
     int execution_item_no "nullable; the plan item's ordinal — (execution_id, irp_portfolio_id, execution_item_no) is the worker's resume key (spec 010)"
     string failure_reason "nullable; RM run-failure message or submit exception message"
     string loss_results "nullable JSON; per-perspective viewing extract (spec 011)"
+    string submitted_settings "nullable JSON; own analyses only — the approved plan item the run was submitted with (spec 011)"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
@@ -341,6 +342,7 @@ erDiagram
 - **Own analysis identity is (`edm_id`, `name`) among live rows**, backed by a second filtered unique index (`uq_irp_analysis_live_edm_name`, `WHERE edm_id IS NOT NULL AND deleted_at IS NULL`) — the local rerun-collision check spec 010 T-05 relies on; the run submits with `skip_duplicate_check=True` on the RM side.
 - **`status_code` is a kind table** (app-defined vocabulary), unlike the plain-string EDM/RDM `status`.
 - **`loss_results` is the viewing extract** (spec 011): JSON holding, per financial perspective (GR / RL / WX / QS / GU), the AAL, standard deviation, and OEP/AEP losses at the 11 stored return periods (5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000). Written whole by the `retrieve_analysis_results` worker (§8); a perspective the analysis did not produce is present with an explicitly empty value, distinguishing "fetched, nothing there" from `loss_results IS NULL` ("not fetched yet"). Because broker analyses are single rows keyed (`rdm_id`, `irp_id`), the once-per-RDM storage rule needs no extra machinery. Row-level results (ELT, PLT, full EP curves) are never stored for viewing — see §9.
+- **`submitted_settings` is the run's own record of how it was submitted** (spec 011): the approved plan item — currency (code, scheme, vintage, `asOfDate`), event rate scheme, min loss threshold, max loss event count, franchise deductible, unrecognized construction/occupancy — written verbatim by `_claim_analysis` in the INSERT that claims the row, and never updated afterwards. Own analyses only; `NULL` on broker rows, because Risk Modeler returns none of these fields. It is not read back from `analysis_template`: templates are editable, and a finished run must keep reporting what it actually ran with (Article 8). Currency scheme and vintage exist nowhere else — they are chosen per suite at submit time (spec 009 P-11).
 
 ---
 

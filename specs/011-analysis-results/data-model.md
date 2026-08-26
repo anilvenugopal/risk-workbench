@@ -22,6 +22,27 @@ loss_results  NVARCHAR(MAX)  NULL
   once-per-RDM storage (spec non-negotiable 3) needs no further machinery.
 - No index: always read via the row's PK / existing list queries.
 
+## 1b. `irp_analysis.submitted_settings` — new column (T-09)
+
+```text
+submitted_settings  NVARCHAR(MAX)  NULL
+```
+
+- The approved plan item this analysis was submitted with, stored verbatim by
+  `_claim_analysis` in the same INSERT that claims the row
+  (`app/workers/analysis_jobs.py`): `currency` (code, scheme, vintage,
+  `asOfDate`), `event_rate_scheme_name`, `min_loss_threshold`,
+  `num_max_loss_event`, `franchise_deductible`,
+  `treat_construction_occupancy_as_unknown`, `template_name`, and the profile
+  names. The expanded row's **Analysis settings** group reads it (FR-022).
+- Own analyses only. `NULL` on broker rows, which is what the expanded row
+  renders as *not returned* — Risk Modeler returns none of these fields, and
+  currency scheme and vintage exist nowhere else (they are chosen at submit
+  time per suite, spec 009 P-11).
+- Written once at claim time and never updated: a template edited after the run
+  must not change what a finished analysis reports (Article 8).
+- No index: read via the row's PK on expansion.
+
 ## 2. `analysis_perspective_kind` — new kind table (T-06, Article 3)
 
 ```text
@@ -87,3 +108,7 @@ Computed in `analysis_service` from existing columns:
 | AAL (per selected perspective) | `loss_results` JSON |
 | results state | `loss_results IS NOT NULL` → ready; else retrieval job row `failed` → failed + `error_detail`; else pending |
 | condensed / expanded extract | `loss_results` JSON filtered to the §4 sets |
+| Metadata group (engine version, analysis type, peril, subperil, framework, event rate scheme) | `settings_metadata` via `AnalysisSettings`, which gains a `framework` field — `_to_display` folds `analysisFramework` into `analysis_mode` today |
+| analysis template | `analysis_template_id` join (own rows); broker rows blank |
+| Analysis settings group | `submitted_settings` JSON (§1b); broker rows blank |
+| broker Risk Modeler link / Submitted | `BrokerAnalysis` gains `rm_url` (built like the own-row link) and `created_at` from the payload's `createDate` |

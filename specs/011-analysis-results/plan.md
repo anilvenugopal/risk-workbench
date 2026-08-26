@@ -34,9 +34,9 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
   (exact match — all present in the 10,004-point curve, research R3), and
   writes `loss_results` in one UPDATE. Empty response for a perspective →
   explicitly-empty entry (FR-004); any call failure → job `failed` with
-  `error_detail`, `loss_results` untouched, analysis stays FINISHED (O-06).
-- The extract snapshots `engineType`/`engineVersion` from the analysis
-  metadata payload (FR-021).
+  `error_detail`, `loss_results` untouched, analysis stays FINISHED (O-06). The
+  extract snapshots `engineType`/`engineVersion` from the analysis metadata
+  payload (FR-021).
 - Triggers are worker-side chains, poller untouched: own —
   `backfill_analysis_detail` enqueues retrieval on success; broker —
   `backfill_rdm_analyses` enqueues one retrieval per captured live analysis
@@ -53,35 +53,54 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
   a new submission-scoped merged read lists own analyses across the
   submission's EDMs plus its RDM broker groups.
 - EDM detail: the "Analyses" and "Broker analyses" sections merge into one
-  table — own rows plus expandable RDM group rows (FR-009), Currency and AAL
-  columns added (FR-010), a section-wide perspective select riding the section
-  URL like the existing status filter, and multi-select **View** posting to the
-  dedicated page in a new tab. Delete, status filter, and the 3s self-poll
-  carry over unchanged.
+  table — own rows plus expandable RDM group rows (FR-009), one column set for
+  both origins (FR-010), and multi-select **View** posting to the dedicated
+  page in a new tab. The section summary line gains **Copy table** and **View**
+  next to the status filter and Delete; no perspective and no units control
+  ride the table (O-12). Delete, status filter, and the 3s self-poll carry over
+  unchanged. Nothing outside the analyses sections changes on either page.
 - Submission detail gains a Results section rendering the same merged partial
-  submission-wide (the only place cross-EDM selection exists, FR-013).
-- Expanded row body renders the condensed results inline: both EP types × the
-  6 condensed return periods, no display toggle (FR-011).
+  submission-wide (the only place cross-EDM selection exists, FR-013), with an
+  EDM column after Analysis — the same `show_edm` flag the broker row takes.
+- Expanded row body is two flex columns that stack when narrow: on the left the
+  source line then the **Metadata** and **Analysis settings** groups (O-11,
+  FR-022); on the right the condensed results — both EP types × the 6 condensed
+  return periods with the perspective toggle in the row, no display toggle
+  (FR-011). Values wrap and carry `title` tooltips (FR-023).
+- Gathering what the expanded row reads (FR-022/FR-024/FR-025): `AnalysisSettings`
+  gains `framework` — `_to_display` folds `analysisFramework` into
+  `analysis_mode` today, so ELT and the mode compete for one slot;
+  `BrokerAnalysis` gains `rm_url` and `created_at` (RM `createDate`) so broker
+  rows fill the Risk Modeler and Submitted columns; and own runs get a
+  submitted-settings snapshot (T-09) for the four template settings and the
+  currency scheme/vintage, which Risk Modeler never returns.
 - Dedicated page: `GET /results/analyses?ids=…[&submission=…][&edm=…]` — a
   hidden nav child of `results`; ids order = column order (FR-016, reorder
   controls rewrite the param); perspective is a query param re-rendered over
   HTMX (screen-wide, FR-012); `<title>` carries the submission/EDM name; the
   shell gains an `extra_crumbs` context hook so the page appends
   submission/EDM name crumbs after the manifest chain (FR-014).
-- Units selector (ones/thousands/millions, millions default) and
-  copy-with-headers are Alpine/JS display slivers over data-value attributes —
-  no server round trip, no recomputation of stored numbers (FR-017/FR-018).
-- UI-first: the EP table preview exists (docs/ui_previews/results_ep_table.html);
-  the merged-grid preview is derivative of the existing analyses grid — built
-  directly; the dedicated page reuses the approved EP-table layout.
+- Copy-with-headers (both pages) and the units selector (dedicated page only,
+  millions default, FR-017) are Alpine/JS display slivers over `data-value`
+  attributes — no server round trip, no recomputation of stored numbers
+  (FR-018). The Submitted column is the third such sliver (T-10).
+- UI-first: both previews are approved —
+  `docs/ui_previews/results_ep_table.html` (EP table, reused by the dedicated
+  page) and `docs/ui_previews/merged_analyses_table.html` (merged table,
+  expanded row, results states, section summary line, empty states). **Both are
+  guidance, not markup to paste.** Build against the real components and CSS —
+  `.dtable` in `app/static/css/details.css`, the status chips, `btn-sm`, the
+  section summary line — and extend those when the preview needs something they
+  do not have, rather than adding preview-only classes.
 
 ## Material changes
 
 | Area | Change |
 |---|---|
-| Database | `irp_analysis.loss_results` (NVARCHAR(MAX), nullable); new `analysis_perspective_kind` + 5 seeds; `rwb_job_requestor_type_kind` + `irp_analysis` seed. Alembic 0001 + seed_db + iteration1_mirror. |
-| Worker | New `retrieve_analysis_results` actor; chain enqueues in `backfill_analysis_detail` and `backfill_rdm_analyses`; dispatch registration. |
-| UI | Merged analyses partial on EDM detail + new submission Results section; inline condensed results; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. |
+| Database | `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), nullable); new `analysis_perspective_kind` + 5 seeds; `rwb_job_requestor_type_kind` + `irp_analysis` seed. Alembic 0001 + seed_db + iteration1_mirror. |
+| Worker | New `retrieve_analysis_results` actor; chain enqueues in `backfill_analysis_detail` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
+| Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL, currency, condensed extract, and the submitted-settings read. |
+| UI | Merged analyses partial on EDM detail + new submission Results section; two-column expanded row; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. Nothing outside the analyses sections is touched. |
 | Library | irp-integration: widen `PERSPECTIVE_CODES` (T-02). Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
 
 ## High-risk technical decisions
@@ -96,6 +115,8 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
 | T-06 | Perspectives are a kind table (`analysis_perspective_kind`), not code constants — Article 3 default; worker request list and UI toggles read from it; Gross default = first sort_order | Approved | [data-model.md](data-model.md) |
 | T-07 | Dedicated page is one route (`/results/analyses`) under the `results` nav root; entity breadcrumbs are an `extra_crumbs` shell extension appended after the manifest chain; column order = `ids` param order | Approved | [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08); [contracts/routes.md](contracts/routes.md) |
 | T-08 | An unproduced perspective returns an empty list from `get_stats`/`get_ep` (treated as explicitly empty); any non-2xx is a retrieval failure | Assumed | Sandbox tier confirms; the worker's branch is one `if not rows` either way — [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08) |
+| T-09 | The expanded row's Analysis settings read a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the approved plan item it submits. Not the `analysis_template` row: templates are editable, so a later edit would misreport a finished run (Article 8). Not the `execute_analysis_batch` `input_data` either — a work order is not a display source, and the read would be a two-hop JSON index lookup per row | Approved | [data-model.md](data-model.md) §1b |
+| T-10 | Submitted renders client-side: the server writes UTC into `<time datetime="…Z">` and a JS sliver formats it with `toLocaleString` (FR-024). The server has no way to know the reader's timezone, and the value is display-only | Approved | preview `docs/ui_previews/merged_analyses_table.html` |
 
 ---
 
