@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/010-analysis-execution/plan.md` for the current
+When present, read `specs/011-analysis-results/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 

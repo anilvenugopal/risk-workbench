@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Results EP Table · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-md:0 2px 6px rgba(15,22,41,0.08),0 1px 2px rgba(15,22,41,0.05);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-7) 0 var(--space-3)}
+.hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:90ch}
+.cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:95ch}
+
+.badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
+.badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--info{background:var(--color-info-bg);color:var(--color-info);border-color:var(--color-info-border)}
+.badge--warning{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
+.btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:1px solid transparent}
+.btn--secondary{color:var(--text-secondary);border-color:var(--border-default);background:transparent}
+.btn--secondary:hover{background:var(--surface-hover)}
+.card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:var(--space-4)}
+
+/* ── results toolbar ──────────────────────────────────────────────────────── */
+.rtool{display:flex;flex-wrap:wrap;align-items:flex-end;gap:var(--space-4);margin-bottom:var(--space-3)}
+.rtool .ctl{display:flex;flex-direction:column;gap:2px}
+.rtool label{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.rtool select{border:1px solid var(--border-default);border-radius:var(--radius-sm);background:var(--surface-panel);padding:4px var(--space-2);font:inherit;font-size:var(--fs-label);color:var(--text-primary);height:30px}
+.rtool .spacer{flex:1}
+
+/* ── EP table ─────────────────────────────────────────────────────────────── */
+.ep-shell{overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.ep{border-collapse:collapse;width:100%;font-size:var(--fs-label)}
+.ep th,.ep td{padding:var(--space-1) var(--space-3);white-space:nowrap}
+.ep thead th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;border-bottom:1px solid var(--border-default)}
+.ep thead th.l{text-align:left}
+.ep thead tr.grp th{border-bottom:1px solid var(--border-faint);text-align:center;color:var(--text-secondary);font-size:var(--fs-caption);text-transform:none;letter-spacing:0}
+.ep thead th.gsep,.ep td.gsep{border-left:1px solid var(--border-default)}
+.ep tbody td{font-family:var(--font-mono);font-size:var(--fs-mono);font-variant-numeric:tabular-nums;text-align:right;border-bottom:1px solid var(--border-faint)}
+.ep tbody td.rp{font-family:var(--font-ui);font-size:var(--fs-label);font-weight:var(--fw-medium);text-align:left;color:var(--text-secondary)}
+.ep tbody tr:hover td{background:var(--c-surface-2)}
+.ep tr.aal td{border-top:2px solid var(--border-strong);border-bottom:none;font-weight:var(--fw-medium);background:var(--surface-recessed)}
+.ep tr.aal td.rp{font-weight:var(--fw-semibold);color:var(--text-primary)}
+.ep td.chg{color:var(--text-tertiary)}
+.ep td.pending,.ep th.pending{color:var(--text-disabled);font-style:italic;font-family:var(--font-ui)}
+
+/* ── .dtable expandable rows — details.css conventions, VERBATIM subset ──── */
+.dtable-shell{overflow:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.dtable{width:100%;font-size:var(--fs-label)}
+.dtable__head,.drow>summary{display:grid;grid-template-columns:var(--cols);align-items:center}
+.dtable__head{background:var(--surface-recessed);border-bottom:1px solid var(--border-default)}
+.dtable__head>span{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);padding:var(--space-2) var(--space-3);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtable__head>span.l{text-align:left}
+.drow>summary{cursor:pointer;list-style:none;border-bottom:1px solid var(--border-faint)}
+.drow>summary::-webkit-details-marker{display:none}
+.drow>summary:hover{background:var(--surface-hover)}
+.drow>summary>span{padding:var(--space-2) var(--space-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;font-variant-numeric:tabular-nums}
+.drow>summary>span.l{text-align:left}
+.drow>summary .num{font-family:var(--font-mono);font-size:var(--fs-mono)}
+.dt-name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.dt-caret{color:var(--text-tertiary);font-size:10px;transition:transform 120ms}
+.drow[open]>summary .dt-caret{transform:rotate(90deg)}
+.dt-title{font-weight:var(--fw-medium)}
+.drow__body{padding:var(--space-3) var(--space-4);background:var(--c-surface-0);border-bottom:1px solid var(--border-faint);display:flex;gap:var(--space-6);flex-wrap:wrap;align-items:flex-start}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--space-3) var(--space-4);margin:0;flex:1;min-width:340px}
+.settings-grid dt{font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.settings-grid dd{margin:2px 0 0;font-size:var(--fs-label);font-weight:var(--fw-medium);font-variant-numeric:tabular-nums}
+.status-chip{display:inline-flex;align-items:center;padding:1px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium)}
+.status-chip--positive{background:var(--color-positive-wash);color:var(--color-positive);border:1px solid var(--color-positive-border)}
+
+/* states board */
+.board{display:flex;flex-direction:column;gap:var(--space-7);margin-top:var(--space-4)}
+.tile{display:flex;flex-direction:column;gap:var(--space-2)}
+.tile__label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold);letter-spacing:.04em;text-transform:uppercase}
+.note{background:var(--color-warning-wash);border:1px solid var(--color-warning-border);color:var(--color-warning);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);max-width:95ch}
+.ccy{font-size:var(--fs-caption);color:var(--text-tertiary);margin-left:auto;align-self:center}
+.pgctx{display:flex;align-items:baseline;gap:var(--space-3);margin-bottom:var(--space-3)}
+.pgctx .t{font-size:var(--fs-title);font-weight:var(--fw-semibold)}
+.pgctx .s{font-size:var(--fs-label);color:var(--text-tertiary)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">Analysis Results — EP table</div>
+  <div class="sub">
+    Layout adapted from the users' “CRe Loss Output Example.xlsx” (2026-08-21, O-08). Return periods as rows,
+    AAL as the bottom row, one column per analysis. Placement: the multi-analysis pivot lives on the
+    <strong>Results page</strong> (the rail section that is a stub today); the EDM/RDM detail pages keep their
+    expandable analysis rows, gaining inline summary numbers in the collapsed row and the single-analysis EP
+    table in the expansion. Values ≥ $1M render in millions; smaller values render in full. Currency: the code
+    shows with the numbers — one caption when every column shares it, per-column when mixed — and the full
+    submit-time block (code · scheme · vintage · as-of) sits in the analysis metadata.
+  </div>
+
+  <div class="board">
+
+  <!-- ── 1. EDM detail rows ─────────────────────────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">1 · EDM detail — executed-analyses rows (FR-013): summary inline, full numbers on expand</div>
+    <p class="cap">The existing <code>executed_analysis_row.html</code> component with two numeric columns added
+    (AAL and 250-yr OEP, Gross). Expanding shows the settings grid it has today — Currency already a field —
+    plus the analysis's own EP table. Same shape reused for broker rows on the EDM/RDM pages (FR-014).</p>
+    <div class="dtable-shell">
+      <div class="dtable" style="--cols:minmax(200px,1.5fr) minmax(110px,1fr) minmax(120px,1fr) 90px minmax(110px,.9fr) minmax(110px,.9fr) 120px;min-width:900px">
+        <div class="dtable__head">
+          <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Template</span>
+          <span class="l">Status</span><span>AAL</span><span>250yr OEP</span><span class="l">Submitted</span>
+        </div>
+        <details class="drow">
+          <summary>
+            <span class="l"><span class="dt-name"><span class="dt-caret">▸</span><span class="dt-title">HO_FL · v25 DLM HU</span></span></span>
+            <span class="l">HO_FL</span><span class="l">v25 DLM HU</span>
+            <span class="l"><span class="status-chip status-chip--positive">Finished</span></span>
+            <span class="num">4.1M</span><span class="num">83.1M</span>
+            <span class="l">2026-08-24 14:02</span>
+          </summary>
+          <div class="drow__body">
+            <dl class="settings-grid">
+              <div><dt>Engine</dt><dd>DLM · RiskLink 25</dd></div>
+              <div><dt>Peril</dt><dd>HU</dd></div>
+              <div><dt>Currency</dt><dd>USD · RMS scheme · 2025a · as-of 2026-06-30</dd></div>
+              <div><dt>Event rate</dt><dd>LTR</dd></div>
+              <div><dt>Std dev</dt><dd>14.9M</dd></div>
+              <div><dt>Max event loss</dt><dd>402.3M</dd></div>
+              <div><dt>ELT records</dt><dd>41,238</dd></div>
+            </dl>
+            <div style="min-width:300px">
+              <div class="rtool" style="margin-bottom:var(--space-2)">
+                <div class="ctl"><label>Perspective</label><select><option>Gross</option><option>Ground-Up</option><option>Reinsurance Layer</option></select></div>
+                <div class="ctl"><label>Display</label><select><option>Condensed</option><option>Expanded</option></select></div>
+                <span class="ccy">USD</span>
+              </div>
+              <div class="ep-shell">
+                <table class="ep">
+                  <thead><tr><th class="l">RP</th><th class="gsep">OEP</th><th>AEP</th></tr></thead>
+                  <tbody>
+                    <tr><td class="rp">10,000</td><td class="gsep">326.7M</td><td>341.0M</td></tr>
+                    <tr><td class="rp">1,000</td><td class="gsep">152.8M</td><td>163.9M</td></tr>
+                    <tr><td class="rp">500</td><td class="gsep">112.7M</td><td>122.4M</td></tr>
+                    <tr><td class="rp">250</td><td class="gsep">83.1M</td><td>91.2M</td></tr>
+                    <tr><td class="rp">100</td><td class="gsep">52.8M</td><td>59.3M</td></tr>
+                    <tr><td class="rp">50</td><td class="gsep">35.5M</td><td>40.8M</td></tr>
+                    <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">4.1M</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </details>
+        <details class="drow" open>
+          <summary>
+            <span class="l"><span class="dt-name"><span class="dt-caret">▸</span><span class="dt-title">HO_GA · v25 DLM HU</span></span></span>
+            <span class="l">HO_GA</span><span class="l">v25 DLM HU</span>
+            <span class="l"><span class="status-chip status-chip--positive">Finished</span></span>
+            <span class="num" style="color:var(--text-disabled);font-style:italic">pending</span>
+            <span class="num" style="color:var(--text-disabled);font-style:italic">pending</span>
+            <span class="l">2026-08-24 14:02</span>
+          </summary>
+          <div class="drow__body">
+            <p class="cap" style="margin:0;color:var(--text-tertiary)">Results pending — the run finished; loss numbers are being retrieved.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2. Results page, condensed (default) ───────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">2 · Results page (rail section) — condensed, the default display (011 scope: own results, no comparison)</div>
+    <p class="cap">Submission-scoped. Columns are the suite's analyses — here two breakout portfolios, same
+    template. The workbook's condensed RP set: 10,000 / 1,000 / 500 / 250 / 100 / 50. All columns share a
+    currency here, so one caption carries it; mixed currencies would move the code into each column header.</p>
+    <div class="card">
+      <div class="pgctx"><span class="t">Results</span><span class="s">SUB-2026-0142 · Coastal Re HO 2026 · 2 analyses</span></div>
+      <div class="rtool">
+        <div class="ctl"><label>Perspective</label><select><option>Gross</option><option>Ground-Up</option><option>Reinsurance Layer</option></select></div>
+        <div class="ctl"><label>EP type</label><select><option>OEP</option><option>AEP</option></select></div>
+        <div class="ctl"><label>Display</label><select><option>Condensed</option><option>Expanded</option><option>AAL only</option></select></div>
+        <div class="ctl"><label>Values</label><select><option>Millions</option><option>Full</option></select></div>
+        <div class="spacer"></div>
+        <span class="ccy">All values USD (RMS scheme · 2025a · as-of 2026-06-30)</span>
+        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
+      </div>
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l">RP</th>
+              <th class="gsep">HO_FL · v25 DLM</th>
+              <th class="gsep">HO_GA · v25 DLM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">326.7M</td><td class="gsep">3.4M</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">152.8M</td><td class="gsep">1.5M</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">112.7M</td><td class="gsep">1.1M</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">83.1M</td><td class="gsep">743,012</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">52.8M</td><td class="gsep">406,657</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">35.5M</td><td class="gsep">230,971</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1M</td><td class="gsep">17,826</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 2. Expanded ────────────────────────────────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">3 · Results page — expanded, full return-period set</div>
+    <p class="cap">Eleven return periods: 10,000 / 5,000 / 2,000 / 1,000 / 500 / 250 / 100 / 50 / 25 / 10 / 5.
+    Small values show in full even in millions mode.</p>
+    <div class="card">
+      <div class="rtool">
+        <div class="ctl"><label>Perspective</label><select><option>Gross</option></select></div>
+        <div class="ctl"><label>EP type</label><select><option>OEP</option></select></div>
+        <div class="ctl"><label>Display</label><select><option>Expanded</option></select></div>
+        <div class="ctl"><label>Values</label><select><option>Millions</option></select></div>
+        <div class="spacer"></div>
+        <span class="ccy">All values USD</span>
+        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
+      </div>
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l">RP</th>
+              <th class="gsep">HO_FL · v25 DLM</th>
+              <th class="gsep">HO_GA · v25 DLM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">326.7M</td><td class="gsep">3.4M</td></tr>
+            <tr><td class="rp">5,000</td><td class="gsep">271.0M</td><td class="gsep">2.8M</td></tr>
+            <tr><td class="rp">2,000</td><td class="gsep">203.9M</td><td class="gsep">2.1M</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">152.8M</td><td class="gsep">1.5M</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">112.7M</td><td class="gsep">1.1M</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">83.1M</td><td class="gsep">743,012</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">52.8M</td><td class="gsep">406,657</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">35.5M</td><td class="gsep">230,971</td></tr>
+            <tr><td class="rp">25</td><td class="gsep">22.5M</td><td class="gsep">103,563</td></tr>
+            <tr><td class="rp">10</td><td class="gsep">10.1M</td><td class="gsep">10,134</td></tr>
+            <tr><td class="rp">5</td><td class="gsep">3.8M</td><td class="gsep">3</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1M</td><td class="gsep">17,826</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3. AAL only ────────────────────────────────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">4 · Results page — AAL only</div>
+    <div class="card">
+      <div class="rtool">
+        <div class="ctl"><label>Perspective</label><select><option>Gross</option></select></div>
+        <div class="ctl"><label>EP type</label><select><option>OEP</option></select></div>
+        <div class="ctl"><label>Display</label><select><option>AAL only</option></select></div>
+        <div class="ctl"><label>Values</label><select><option>Millions</option></select></div>
+        <div class="spacer"></div>
+        <span class="ccy">All values USD</span>
+        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
+      </div>
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l">&nbsp;</th>
+              <th class="gsep">HO_FL · v25 DLM</th>
+              <th class="gsep">HO_GA · v25 DLM</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1M</td><td class="gsep">17,826</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 4. Pending / failed columns ────────────────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">5 · Results page — mixed readiness: one column pending, one failed (FR-009, SC-005)</div>
+    <p class="cap">A FINISHED analysis whose retrieval has not completed shows results-pending in its column.
+    A failed retrieval keeps the column, flags the failure, and the analysis stays FINISHED.</p>
+    <div class="card">
+      <div class="rtool">
+        <div class="ctl"><label>Perspective</label><select><option>Gross</option></select></div>
+        <div class="ctl"><label>EP type</label><select><option>OEP</option></select></div>
+        <div class="ctl"><label>Display</label><select><option>Condensed</option></select></div>
+        <div class="ctl"><label>Values</label><select><option>Millions</option></select></div>
+        <div class="spacer"></div>
+        <span class="ccy">All values USD</span>
+        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
+      </div>
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l">RP</th>
+              <th class="gsep">HO_FL · v25 DLM</th>
+              <th class="gsep">HO_GA · v25 DLM <span class="badge badge--info">results pending</span></th>
+              <th class="gsep">HO_SC · v25 DLM <span class="badge badge--negative">retrieval failed</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">326.7M</td><td class="gsep pending" rowspan="7" style="vertical-align:middle;text-align:center">retrieving…</td><td class="gsep pending" rowspan="7" style="vertical-align:middle;text-align:center">RM result endpoint<br>returned 500</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">152.8M</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">112.7M</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">83.1M</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">52.8M</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">35.5M</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1M</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 5. Iteration 10 extension ──────────────────────────────────────────── -->
+  <div class="tile">
+    <div class="tile__label">6 · Where the layout goes next — Iteration 10 comparison (NOT in 011)</div>
+    <div class="note"><strong>Out of scope for 011.</strong> Shown only to confirm the 011 layout extends to the
+    workbook's real target: Broker vs CRe with % Chg, per column group. Building the 011 table this shape means
+    Iteration 10 adds columns, not a new screen.</div>
+    <div class="card">
+      <div class="rtool">
+        <div class="ctl"><label>Perspective</label><select><option>Gross</option></select></div>
+        <div class="ctl"><label>EP type</label><select><option>OEP</option></select></div>
+        <div class="ctl"><label>Display</label><select><option>Condensed</option></select></div>
+        <div class="ctl"><label>Values</label><select><option>Millions</option></select></div>
+        <div class="spacer"></div>
+        <span class="ccy">All values USD</span>
+        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
+      </div>
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr class="grp">
+              <th class="l"></th>
+              <th class="gsep" colspan="3">FL</th>
+              <th class="gsep" colspan="3">GA</th>
+            </tr>
+            <tr>
+              <th class="l">RP</th>
+              <th class="gsep">Broker</th><th>CRe</th><th>% Chg</th>
+              <th class="gsep">Broker</th><th>CRe</th><th>% Chg</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">317.2M</td><td>326.7M</td><td class="chg">+3.0%</td><td class="gsep">3.2M</td><td>3.4M</td><td class="chg">+6.7%</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">146.7M</td><td>152.8M</td><td class="chg">+4.2%</td><td class="gsep">1.4M</td><td>1.5M</td><td class="chg">+12.8%</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">107.0M</td><td>112.7M</td><td class="chg">+5.3%</td><td class="gsep">947,007</td><td>1.1M</td><td class="chg">+15.8%</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">77.8M</td><td>83.1M</td><td class="chg">+6.8%</td><td class="gsep">623,953</td><td>743,012</td><td class="chg">+19.1%</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">48.1M</td><td>52.8M</td><td class="chg">+9.8%</td><td class="gsep">322,871</td><td>406,657</td><td class="chg">+26.0%</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">31.6M</td><td>35.5M</td><td class="chg">+12.3%</td><td class="gsep">167,579</td><td>230,971</td><td class="chg">+37.8%</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">3.6M</td><td>4.1M</td><td class="chg">+14.7%</td><td class="gsep">13,341</td><td>17,826</td><td class="chg">+33.6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  </div>
+</div>
+</body>
+</html>

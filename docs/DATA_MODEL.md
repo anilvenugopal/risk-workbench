@@ -316,6 +316,7 @@ erDiagram
     uniqueidentifier execution_id "nullable; own analyses only — the execute_analysis_batch run's requestor_id"
     int execution_item_no "nullable; the plan item's ordinal — (execution_id, irp_portfolio_id, execution_item_no) is the worker's resume key (spec 010)"
     string failure_reason "nullable; RM run-failure message or submit exception message"
+    string loss_results "nullable JSON; per-perspective viewing extract (spec 011)"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
@@ -339,6 +340,7 @@ erDiagram
   `rdm_id`.
 - **Own analysis identity is (`edm_id`, `name`) among live rows**, backed by a second filtered unique index (`uq_irp_analysis_live_edm_name`, `WHERE edm_id IS NOT NULL AND deleted_at IS NULL`) — the local rerun-collision check spec 010 T-05 relies on; the run submits with `skip_duplicate_check=True` on the RM side.
 - **`status_code` is a kind table** (app-defined vocabulary), unlike the plain-string EDM/RDM `status`.
+- **`loss_results` is the viewing extract** (spec 011): JSON holding, per financial perspective (GR / RL / WX / QS / GU), the AAL, standard deviation, and OEP/AEP losses at the 11 stored return periods (5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000). Written whole by the `retrieve_analysis_results` worker (§8); a perspective the analysis did not produce is present with an explicitly empty value, distinguishing "fetched, nothing there" from `loss_results IS NULL` ("not fetched yet"). Because broker analyses are single rows keyed (`rdm_id`, `irp_id`), the once-per-RDM storage rule needs no extra machinery. Row-level results (ELT, PLT, full EP curves) are never stored for viewing — see §9.
 
 ---
 
@@ -529,10 +531,10 @@ erDiagram
 | `upload_edm` | Submit `import_edm` for one EDM | `backfill_edm_detail` on FINISHED |
 | `upload_rdm` | Submit one standalone `import_rdm` for one RDM | `backfill_rdm_analyses` on FINISHED |
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
-| `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | — |
+| `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | `retrieve_analysis_results` (one per broker analysis) |
 | `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
 | `backfill_analysis_detail` | Resolve one own analysis by name after FINISHED; write `irp_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
-| `retrieve_analysis_results` | `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` | `download_export_file` |
+| `retrieve_analysis_results` | `get_stats()`/`get_ep()` per perspective (GR/RL/WX/QS/GU); write the `irp_analysis.loss_results` extract (spec 011) | — |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |
 | `notify_analyst` | Teams webhook and/or email | — |
@@ -549,7 +551,9 @@ never starts RDM upload work. Association detach is request-path SQL only.
 
 ## 9. Analysis results
 
-Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files; SQL stores only the metadata needed for list views and summaries.
+**Viewing does not read this section.** Results viewing reads `irp_analysis.loss_results` (§6) — the bounded per-perspective extract the `retrieve_analysis_results` worker writes (§8). Design note 19 D5 (2026-08-25) removed ELTs from viewing scope: they exist only for export to the Loss Repository. The tables and Parquet layout below are therefore the **export** design; whether and when they are built — and whether ELT retrieval is eager or export-triggered — is decided by the 8/26 export-requirements session (design note 19 O19-12). Nothing below is built until then.
+
+Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files; SQL stores only the metadata needed for export lineage.
 
 ```mermaid
 erDiagram
@@ -563,7 +567,7 @@ erDiagram
     uniqueidentifier analysis_id FK "nullable; own results → irp_analysis; exactly one of analysis_id/rdm_id set (CHECK)"
     uniqueidentifier rdm_id FK "nullable; broker results dedup key — one row per (rdm_id, analysis_name, perspective)"
     string analysis_name "IRP analysis name at retrieval time (snapshot)"
-    string perspective_code "GR / GU / RL"
+    string perspective_code "GR / RL / WX / QS / GU (spec 011 O-07)"
     float aal "Average Annual Loss; from get_stats()"
     int elt_record_count "from get_elt() response"
     bool has_plt "true for HD analyses"
@@ -594,7 +598,7 @@ erDiagram
 ```
 
 - **`analysis_name` is a deliberate snapshot** at retrieval time — a later rename does not change what this row says it was called. Names are never a key (Moody's allows duplicates and lets them be edited).
-- **Broker results are deduplicated by `rdm_id`, not stored per EDM.** A broker RDM applied across M EDMs produces M `irp_analysis` rows (§5/§6), but its result data is the broker's *static* numbers — identical across those M copies. So result data is retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: broker `analysis_result_meta` sets `rdm_id` and leaves `analysis_id` null; the `retrieve_analysis_results` job fires **once per `rdm_id`**; and an idempotent upsert on `(rdm_id, analysis_name, perspective_code)` collapses the M EDM-copies into one row + one set of Parquet files. The M per-EDM `irp_analysis` rows resolve their results through this shared record. (The exact within-RDM source-analysis discriminator is confirmed against the live library when the Iteration-6 retrieval worker is built — `analysis_name` is the working key.)
+- **Broker results are deduplicated by `rdm_id`, not stored per EDM.** A broker RDM applied across M EDMs produces one `irp_analysis` row per source analysis, keyed (`rdm_id`, `irp_id`) with `edm_id` null (§6) — so the viewing extract (`irp_analysis.loss_results`) is once-per-RDM automatically. For **export**, row-level data is likewise retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: broker `analysis_result_meta` sets `rdm_id` and leaves `analysis_id` null, with an idempotent upsert on `(rdm_id, analysis_name, perspective_code)` producing one row + one set of Parquet files. (The exact within-RDM source-analysis discriminator is confirmed against the live library when the export worker is built — `analysis_name` is the working key.)
 - **Exactly one of `analysis_id` / `rdm_id` is set** (DB CHECK): `analysis_id` for **own** results (one meta per analysis + perspective — own analyses have genuinely distinct results, no dedup); `rdm_id` for **broker** results (deduped as above).
 - **Parquet location:** own results at `{submission_outputs_dir}/{analysis_id}/{perspective_code}/{result_type}.parquet`; broker results at an RDM-keyed, submission-independent path `{OUTPUTS_BASE_DIR}/rdm/{rdm_id}/{analysis_name}/{perspective_code}/{result_type}.parquet` because an RDM can relate to several submissions. `result_type ∈ elt|ep|plt|stats`. Exact column schemas come from the live `get_elt/ep/stats/plt()` DataFrames.
 
@@ -800,7 +804,7 @@ erDiagram
 
 - Confirm `role_kind` codes and the `treaty_type_kind` seed list with the team.
 - Exposure and Loss repository schemas — defined in this project (`db/bootstrap/*.sql`); columns coordinated with the reporting/downstream teams.
-- Exact IRP REST response columns for ELT/EP/PLT/stats — confirm against the live library when `retrieve_analysis_results` is built.
+- Exact IRP REST response columns for ELT/PLT — confirm against the live library when the export worker is built (EP curve and stats shapes captured 2026-08-25, spec 011 `research.md#R3`).
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - Whether `analysis_result_meta` should carry an `irp_portfolio` FK (which portfolio the result was run against).
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker
