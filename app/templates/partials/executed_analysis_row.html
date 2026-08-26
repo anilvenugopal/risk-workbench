@@ -1,37 +1,62 @@
-{# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013),
-   with Portfolio / Template / Submitted columns and a delete checkbox on
-   terminal rows (P-18/P-19). The expansion is the spec-011 two-column body
-   (partials/analysis_results_inline.html): field groups left, condensed
-   results right. Context: `a` — analysis_service.ExecutedAnalysis. The failure
-   reason (when present) is shown inline in the collapsed row — visible without
-   expanding. #}
+{# One workbench-executed analysis as a merged-table .dtable row (spec 011 US3,
+   FR-009/FR-010): Analysis · [EDM] · Type · Peril · Region · Engine · Currency ·
+   AAL · Status · Submitted · Risk Modeler. The AAL cell is Gross in millions and
+   carries the row's results state; `data-value` carries the raw stored number
+   for the copy sliver (FR-018, spec non-negotiable 5). Submitted is UTC in
+   <time datetime>, localized in the browser (FR-024, T-10). The expansion is the
+   spec-011 two-column body (partials/analysis_results_inline.html). Context:
+   `a` — analysis_service.ExecutedAnalysis; `show_edm` — submission page only. #}
+{%- macro cell(v) -%}
+  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
+{%- endmacro -%}
+{%- set d = a.display -%}
+{%- set peril_cell = d.peril ~ (' + ' ~ d.peril_secondary if d.peril_secondary else '') if d.peril else d.peril_secondary -%}
+{%- set gross = a.results[0] if a.results else none -%}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
     <span class="l">
       {% if a.is_deletable %}
-      <input type="checkbox" name="analysis_ids" value="{{ a.id }}"
-             onclick="event.stopPropagation()" @change="onChange()">
+      <span class="geohaz-pick"><input type="checkbox" name="analysis_ids" value="{{ a.id }}"
+             onclick="event.stopPropagation()" @change="onChange()"></span>
       {% endif %}
     </span>
     <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-      <span class="dt-namecol">
-        <span class="dt-title">{{ a.full_name or a.name }}</span>
-        {% if a.rm_url %}
-        <a class="dt-sub" href="{{ a.rm_url }}" target="_blank" rel="noopener"
-           onclick="event.stopPropagation()"
-           title="Open this analysis in Risk Modeler (new tab)">RM ↗</a>
-        {% endif %}
-      </span></span></span>
-    <span class="l">{{ a.portfolio_name or '—' }}</span>
-    <span class="l">{{ a.template_name or '—' }}</span>
+      <span class="dt-title" title="{{ a.full_name or a.name }}"
+            data-value="{{ a.full_name or a.name }}">{{ a.full_name or a.name }}</span></span></span>
+    {% if show_edm %}<span class="l">{{ cell(a.edm_name) }}</span>{% endif %}
+    <span class="l">{{ cell(d.analysis_type) }}</span>
+    <span class="l">{{ cell(peril_cell) }}</span>
+    <span class="l">{{ cell(d.region) }}</span>
+    <span class="l">{{ cell(d.engine) }}</span>
+    <span class="l">{{ cell(d.currency) }}</span>
+    <span>
+      {%- if gross and gross.produced and gross.aal is not none -%}
+      <span class="aal-num" title="{{ gross.aal }}" data-value="{{ gross.aal }}">{{ gross.aal_display }}</span>
+      {%- elif a.results_state == 'failed' -%}
+      <span class="aal-state aal-state--failed">retrieval failed</span>
+      {%- elif a.results_state == 'pending' and a.status_code == 'ready' -%}
+      <span class="aal-state">retrieving&hellip;</span>
+      {%- else -%}
+      <span class="na">&mdash;</span>
+      {%- endif -%}
+    </span>
     <span class="l">
       <span class="status-chip status-chip--{{ a.status_chip }}">{{ a.status_label }}</span>
       {% if a.failure_reason %}<span class="exec-reason">{{ a.failure_reason }}</span>{% endif %}
+      {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
     </span>
     <span class="l">
       {% if a.inserted_at %}
-      <time data-utc="{{ a.inserted_at }}" title="{{ a.inserted_at }} UTC">{{ a.inserted_at }}</time>
-      {% else %}—{% endif %}
+      <time datetime="{{ a.inserted_at }}" data-value="{{ a.inserted_at }}"
+            title="{{ a.inserted_at }} UTC">{{ a.inserted_at }}</time>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
+    </span>
+    <span class="l">
+      {% if a.rm_url %}
+      <a class="rm-link" href="{{ a.rm_url }}" target="_blank" rel="noopener"
+         onclick="event.stopPropagation()"
+         title="Open this analysis in Risk Modeler (new tab)">Open ↗</a>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
     </span>
   </summary>
   <div class="drow__body drow__body--split">

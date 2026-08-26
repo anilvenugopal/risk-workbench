@@ -525,6 +525,72 @@ def test_submitted_settings_parsed_for_display(iteration2_db):
             blank.construction_occupancy) == (None, None, None, None)
 
 
+# ── spec 011 US3: submission-scoped merged read model (T030) ─────────────────
+
+
+def _submission(user_id: str, name: str = "Deal A") -> str:
+    from app.services import submission_service
+    return submission_service.create_submission(
+        name=name, cedant_name=name, treaty_type_code="cat_xol",
+        inception_date="2026-01-01", treaty_year=2026,
+        actor_id=user_id, confirmed=True).submission_id
+
+
+def _attach_edm(submission_id: str, edm_id: str) -> None:
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+
+
+def test_submission_read_spans_every_edm_with_edm_name(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    coastal, inland, foreign = _edm("Coastal HO"), _edm("Inland HO"), _edm("F")
+    _attach_edm(submission, coastal)
+    _attach_edm(submission, inland)
+    older = _executed(edm_id=coastal, name="A")
+    execute_command(
+        "UPDATE irp_analysis SET inserted_at = :t WHERE id = :i",
+        {"t": _utcnow() - timedelta(minutes=5), "i": older},
+        connection="WORKBENCH")
+    _executed(edm_id=inland, name="B")
+    _executed(edm_id=foreign, name="C")  # EDM not in this submission
+
+    rows = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    # newest first, with the EDM column value; the foreign EDM's row excluded
+    assert [(a.name, a.edm_name) for a in rows] == [
+        ("B", "Inland HO"), ("A", "Coastal HO")]
+
+
+def test_submission_read_derives_origin_from_rdm_id(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    rdm = _mk("irp_rdm", name="R", status="ready")
+    own = _executed(edm_id=edm, name="Own")
+    _broker(rdm_id=rdm, edm_id=edm, irp_id="9")  # broker handle on the same EDM
+
+    rows = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert [a.id for a in rows] == [own.lower()]
+
+
+def test_submission_read_carries_results_state_and_job_status(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001",
+                         loss_results=_extract())
+    _job(analysis_id=analysis, status="FINISHED")
+
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.status_label == "Finished"
+    assert row.results_state == "ready"
+    assert row.results[0].aal == 38270.59
+
+
 def test_framework_no_longer_competes_with_analysis_mode(iteration2_db):
     edm = _edm()
     _executed(edm_id=edm, name="A", settings={

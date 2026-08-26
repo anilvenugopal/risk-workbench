@@ -760,16 +760,42 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Analysis multi-select in the executed-analyses section (spec 010 P-19) —
-  // counts ticked rows so the Delete button enables; the boxes themselves are
-  // read straight off the DOM by hx-include at click time. init() recounts
-  // after each 3s swap (the swap hook below restores the ticks by value).
+  // Analysis multi-select in the merged analyses section (spec 010 P-19,
+  // spec 011 US3) — counts ticked rows for the summary line and the Delete
+  // button, which disables whenever a broker row (data-broker) is ticked; the
+  // boxes themselves are read straight off the DOM by hx-include at click
+  // time. init() recounts after each 3s swap (the swap hook below restores the
+  // ticks by value); the MutationObserver recounts when an RDM group lazy-loads
+  // its broker rows, which fires no change event.
   Alpine.data('analysisPicks', () => ({
     count: 0,
-    init() { this.onChange(); },
+    total: 0,
+    brokerCount: 0,
+    observer: null,
+    init() {
+      this.onChange();
+      this.observer = new MutationObserver(() => this.onChange());
+      this.observer.observe(this.$root, { childList: true, subtree: true });
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
+    boxes() {
+      return this.$root.querySelectorAll('input[name="analysis_ids"]');
+    },
     onChange() {
-      this.count = this.$root.querySelectorAll(
-        'input[name="analysis_ids"]:checked').length;
+      const boxes = Array.from(this.boxes());
+      this.total = boxes.length;
+      const checked = boxes.filter((box) => box.checked);
+      this.count = checked.length;
+      this.brokerCount = checked.filter(
+        (box) => box.dataset.broker !== undefined).length;
+      const selectAll = this.$refs.selectAll;
+      if (!selectAll) return;
+      selectAll.checked = this.total > 0 && this.count === this.total;
+      selectAll.indeterminate = this.count > 0 && this.count < this.total;
+    },
+    all(checked) {
+      this.boxes().forEach((box) => { box.checked = checked; });
+      this.onChange();
     },
   }));
 
@@ -852,23 +878,38 @@ document.addEventListener('click', (e) => {
 // (second granularity — fractional seconds dropped). The raw UTC value stays in
 // the title tooltip. Runs at load and again on htmx:load, so stamps swapped in by
 // the live #edm-detail poll stay localized.
+// "2026-07-24 18:03:11.482910" → a Date parsed as UTC; values that already
+// carry a zone are parsed as-is. Returns null when the value isn't a date.
+function parseUtcStamp(raw) {
+  const trimmed = (raw || '').trim();
+  const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(trimmed)
+    ? trimmed.replace(' ', 'T')
+    : trimmed.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
+  const d = new Date(iso);
+  return isNaN(d) ? null : d;
+}
+
+function formatLocalStamp(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const time = d.toLocaleTimeString(undefined, {
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+  return `${date} ${time}`;
+}
+
 function localizeUtcTimes(root) {
   const scope = root instanceof Element ? root : document;
   scope.querySelectorAll('time[data-utc]').forEach((el) => {
-    const raw = (el.dataset.utc || '').trim();
-    // "2026-07-24 18:03:11.482910" → ISO with an explicit Z; values that already
-    // carry a zone are parsed as-is.
-    const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(raw)
-      ? raw.replace(' ', 'T')
-      : raw.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
-    const d = new Date(iso);
-    if (isNaN(d)) return;
-    const pad = (n) => String(n).padStart(2, '0');
-    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const time = d.toLocaleTimeString(undefined, {
-      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
-    });
-    el.textContent = `${date} ${time}`;
+    const d = parseUtcStamp(el.dataset.utc);
+    if (d) el.textContent = formatLocalStamp(d);
+  });
+  // Submitted columns (spec 011 FR-024, T-10): the server writes UTC into
+  // <time datetime>; render date, time to the second, AM/PM in the reader's
+  // own zone. The raw value stays in data-value for the copy sliver.
+  scope.querySelectorAll('time[datetime]').forEach((el) => {
+    const d = parseUtcStamp(el.getAttribute('datetime'));
+    if (d) el.textContent = formatLocalStamp(d);
   });
 }
 if (document.readyState !== 'loading') {
@@ -967,7 +1008,7 @@ document.addEventListener('rwb:toast', (e) => {
 
 // Analysis execution submit (spec 010): the execute modal's POST fires this
 // alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
-// section refetches on its own (executed_analyses_section.html) — this only
+// section refetches on its own (analyses_merged_section.html) — this only
 // clears the portfolio picks that were just submitted, so Execute Suite /
 // Execute Template disable again (checkPicks reads checked boxes off the
 // DOM, so a real 'change' event is what makes it recompute).
@@ -994,39 +1035,82 @@ document.addEventListener('execution-submitted', () => {
   }, 2000);
 });
 
-// Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
-// from scratch, so an expanded row's <details open> and a ticked delete
+// Swapping a merged analyses section (outerHTML, on every poll) rebuilds every
+// row from scratch, so an expanded row's <details open> and a ticked
 // checkbox would otherwise reset — losing the analyst's place mid-inspection
 // or mid-selection. Remember both just before the swap and restore them once
 // the fresh content lands (a row deleted or no longer deletable simply has no
 // box to restore); one bubbling change event makes analysisPicks() recount.
-let _analysesReopenIds = null;
-let _analysesCheckedIds = null;
+// Keyed by the section's own id (data-analyses-section marks both the EDM
+// page's Analyses section and the submission page's Results section).
+let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
-  if (e.detail.target.id !== 'edm-executed-analyses') return;
-  _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
-    .map((row) => row.id).filter(Boolean);
-  _analysesCheckedIds = [...e.detail.target.querySelectorAll(
-    'input[name="analysis_ids"]:checked')].map((box) => box.value);
+  const target = e.detail.target;
+  if (!target || !target.hasAttribute
+      || !target.hasAttribute('data-analyses-section')) return;
+  _analysesRestore = {
+    id: target.id,
+    openIds: [...target.querySelectorAll('.drow[open]')]
+      .map((row) => row.id).filter(Boolean),
+    checkedIds: [...target.querySelectorAll(
+      'input[name="analysis_ids"]:checked')].map((box) => box.value),
+  };
 });
 document.addEventListener('htmx:afterSwap', () => {
-  if (_analysesReopenIds === null && _analysesCheckedIds === null) return;
-  const section = document.getElementById('edm-executed-analyses');
+  if (_analysesRestore === null) return;
+  const section = document.getElementById(_analysesRestore.id);
   if (section) {
-    (_analysesReopenIds || []).forEach((id) => {
+    _analysesRestore.openIds.forEach((id) => {
       const row = document.getElementById(id);
       if (row) row.open = true;
     });
     let restored = null;
-    (_analysesCheckedIds || []).forEach((value) => {
+    _analysesRestore.checkedIds.forEach((value) => {
       const box = section.querySelector(
         `input[name="analysis_ids"][value="${value}"]`);
       if (box) { box.checked = true; restored = box; }
     });
     if (restored) restored.dispatchEvent(new Event('change', { bubbles: true }));
   }
-  _analysesReopenIds = null;
-  _analysesCheckedIds = null;
+  _analysesRestore = null;
+});
+
+// ── Copy table (spec 011 FR-018/SC-006) ───────────────────────────────────────
+// Serializes the section's .dtable to TSV — headers first — and writes it to
+// the clipboard, so a paste lands in Excel as columns. Cell values come from
+// data-value where a cell carries one (the raw stored number, the UTC
+// timestamp), textContent otherwise — no server round trip, no recomputation
+// of stored numbers. The checkbox column is skipped; group divider rows carry
+// no data cells and are skipped by the .drow selector. Delegated from the
+// document: the button arrives with every 3s section swap.
+function tableToTsv(dtable) {
+  const cellValue = (cell) => {
+    const holder = cell.hasAttribute('data-value')
+      ? cell : cell.querySelector('[data-value]');
+    const value = holder ? holder.getAttribute('data-value') : null;
+    return (value !== null ? value : cell.textContent.trim())
+      .replace(/\s+/g, ' ');
+  };
+  const rows = [];
+  const head = dtable.querySelector('.dtable__head');
+  if (head) {
+    rows.push([...head.children].slice(1).map((c) => c.textContent.trim()));
+  }
+  dtable.querySelectorAll('.drow > summary').forEach((summary) => {
+    rows.push([...summary.children].slice(1).map(cellValue));
+  });
+  return rows.map((r) => r.join('\t')).join('\n');
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element
+    && e.target.closest('[data-copy-table]');
+  if (!btn) return;
+  const scope = btn.closest('details.sec');
+  const dtable = scope && scope.querySelector('.dtable');
+  if (!dtable) { showToast('Nothing to copy yet.', 'warning'); return; }
+  navigator.clipboard.writeText(tableToTsv(dtable)).then(
+    () => showToast('Table copied — paste into Excel.', 'success'),
+    () => showToast('Couldn’t reach the clipboard.', 'error'));
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

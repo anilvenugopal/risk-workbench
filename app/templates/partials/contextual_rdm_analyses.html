@@ -1,6 +1,69 @@
+{# Broker analyses as merged-table rows (spec 011 US3, FR-009/FR-010) — the
+   lazy-loaded innerHTML of one RDM group row in the merged analyses section on
+   the EDM detail page and the submission Results section. Same column set as
+   own rows; `show_edm` adds the EDM column, which broker rows read as an em
+   dash — an RDM analysis is never attributed to an EDM or a portfolio
+   (FR-020). Every captured broker run is finished in Risk Modeler, so the
+   Status column reads Finished; the AAL cell carries the results state, and
+   Submitted is the broker's own RM create date (FR-024). The RDM detail page
+   keeps its own table (partials/broker_analysis_row.html). Context:
+   `analyses` — list of analysis_service.BrokerAnalysis; `rdm` — its group. #}
+{%- macro cell(v) -%}
+  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
+{%- endmacro -%}
 {% if analyses %}
   {% for a in analyses %}
-  {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+  {%- set d = a.display -%}
+  {%- set peril_cell = d.peril ~ (' + ' ~ d.peril_secondary if d.peril_secondary else '') if d.peril else d.peril_secondary -%}
+  {%- set gross = a.results[0] if a.results else none -%}
+  {%- set display_name = a.name or 'Analysis ' ~ a.irp_id -%}
+  <details class="drow{% if a.is_group %} drow--group{% endif %}" id="broker-row-{{ a.id }}">
+    <summary>
+      <span class="l"><span class="geohaz-pick"><input type="checkbox" name="analysis_ids"
+             value="{{ a.id }}" data-broker
+             onclick="event.stopPropagation()" @change="onChange()"></span></span>
+      <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+        <span class="dt-title" title="{{ display_name }}" data-value="{{ display_name }}">{{ display_name }}
+          {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span></span></span>
+      {% if show_edm|default(false) %}<span class="l"><span class="na">&mdash;</span></span>{% endif %}
+      <span class="l">{{ cell('Group' if a.is_group and not d.analysis_type else d.analysis_type) }}</span>
+      <span class="l">{{ cell(peril_cell) }}</span>
+      <span class="l">{{ cell(d.region) }}</span>
+      <span class="l">{{ cell(d.engine) }}</span>
+      <span class="l">{{ cell(d.currency) }}</span>
+      <span>
+        {%- if gross and gross.produced and gross.aal is not none -%}
+        <span class="aal-num" title="{{ gross.aal }}" data-value="{{ gross.aal }}">{{ gross.aal_display }}</span>
+        {%- elif a.results_state == 'failed' -%}
+        <span class="aal-state aal-state--failed">retrieval failed</span>
+        {%- elif a.results_state == 'pending' -%}
+        <span class="aal-state">retrieving&hellip;</span>
+        {%- else -%}
+        <span class="na">&mdash;</span>
+        {%- endif -%}
+      </span>
+      <span class="l">
+        <span class="status-chip status-chip--ready">Finished</span>
+        {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
+      </span>
+      <span class="l">
+        {% if a.created_at %}
+        <time datetime="{{ a.created_at }}" data-value="{{ a.created_at }}"
+              title="{{ a.created_at }} UTC">{{ a.created_at }}</time>
+        {% else %}<span class="na">&mdash;</span>{% endif %}
+      </span>
+      <span class="l">
+        {% if a.rm_url %}
+        <a class="rm-link" href="{{ a.rm_url }}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()"
+           title="Open this analysis in Risk Modeler (new tab)">Open ↗</a>
+        {% else %}<span class="na">&mdash;</span>{% endif %}
+      </span>
+    </summary>
+    <div class="drow__body drow__body--split">
+      {% include "partials/analysis_results_inline.html" %}
+    </div>
+  </details>
   {% endfor %}
 {% elif rdm.status in ('pending_import', 'importing') %}
 <div class="dtable__groupempty">Analysis metadata is not available yet.</div>

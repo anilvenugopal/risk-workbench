@@ -48,7 +48,7 @@ router = APIRouter()
 _NAV_KEY = "irp.edm_library"  # list / import / detail all activate this node (T060)
 
 # Fired on the execute modal's successful POST: the Analyses section refetches
-# itself (executed_analyses_section.html's own hx-trigger) and app.js clears the
+# itself (analyses_merged_section.html's own hx-trigger) and app.js clears the
 # submitted portfolio picks; rwb:toast surfaces the existing toast pattern.
 _EXECUTION_SUBMITTED_HEADERS = {
     "HX-Trigger": json.dumps({
@@ -351,8 +351,10 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
             '<div class="state-box state-box--warn">'
             'This EDM is no longer related to the submission.</div></details>')
     return _partial(
-        request, "partials/executed_analyses_section.html",
+        request, "partials/analyses_merged_section.html",
         {"edm": context.edm,
+         "source_submission": context.submission,
+         "submission_rdms": context.rdms,
          "status_filter": _analyses_status_filter(request),
          "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
 
@@ -614,10 +616,11 @@ def _analyses_status_filter(request: Request) -> str:
 
 
 def _analyses_section_partial(request: Request, edm_id: str):
-    """The Analyses section's own fragment (executed_analyses_section.html) —
-    its polling unit, separate from the rest of the detail body (T-11
+    """The merged Analyses section's own fragment (analyses_merged_section.html)
+    — its polling unit, separate from the rest of the detail body (T-11
     refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page."""
+    expanded elsewhere on the page. The plain library page has no submission
+    context, so this variant renders no RDM group rows."""
     edm = edm_service.get_edm_detail(edm_id)
     if edm is None:
         # EDM hard-gone mid-poll: a terminal notice with no trigger ends polling.
@@ -626,8 +629,8 @@ def _analyses_section_partial(request: Request, edm_id: str):
             '<summary><span class="sec__title">Analyses</span></summary>'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></details>')
-    return _partial(request, "partials/executed_analyses_section.html",
-                    {"edm": edm,
+    return _partial(request, "partials/analyses_merged_section.html",
+                    {"edm": edm, "groups": [],
                      "status_filter": _analyses_status_filter(request)})
 
 

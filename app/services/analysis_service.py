@@ -231,6 +231,7 @@ class ExecutedAnalysis:
     status_code: str            # pending | running | ready | error
     failure_reason: str | None
     template_name: str | None = None
+    edm_name: str | None = None  # submission-wide reads only (FR-009 EDM column)
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
     rm_url: str | None = None   # Risk Modeler link-out; None without irp_id
@@ -498,11 +499,10 @@ def _rm_analysis_url(irp_id: Any) -> str | None:
     return f"{root}/riskmodeler/analyses/{irp_id}"
 
 
-def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
-    """The EDM detail page's user-executed section (FR-013): every analysis the
-    workbench submitted against this EDM, newest first, each with its live
-    status derived from its latest tracked ``irp_job`` (T-07)."""
-    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
+    """Own-executed rows as display models: parsed settings, the stored
+    extract, the latest tracked ``irp_job`` status (T-07), and the failed
+    retrieval join (SC-005)."""
     analyses = []
     perspectives = list_analysis_perspectives() if rows else []
     for r in rows:
@@ -514,6 +514,7 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
             failure_reason=r["failure_reason"],
             template_name=r["template_name"], inserted_at=r["inserted_at"],
+            edm_name=r.get("edm_name"),
             irp_id=irp_id, rm_url=_rm_analysis_url(irp_id), settings=parsed,
             display=_to_display(parsed),
             results_state=("ready" if results else "pending"), results=results,
@@ -537,6 +538,43 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
             a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
     _mark_failed_retrievals(analyses)
     return analyses
+
+
+def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
+    """The EDM detail page's user-executed section (FR-013): every analysis the
+    workbench submitted against this EDM, newest first, each with its live
+    status derived from its latest tracked ``irp_job`` (T-07)."""
+    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+    return _executed_models([dict(r) for r in rows])
+
+
+_SUBMISSION_EXECUTED_SELECT = """
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id,
+           a.loss_results, a.submitted_settings,
+           p.name AS portfolio_name, t.name AS template_name,
+           e.name AS edm_name
+    FROM irp_analysis a
+    JOIN submission_edm se ON se.edm_id = a.edm_id
+    JOIN irp_edm e ON e.id = a.edm_id
+    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
+      AND e.deleted_at IS NULL AND a.deleted_at IS NULL
+    ORDER BY a.inserted_at DESC
+"""
+
+
+def list_submission_executed_analyses(
+    *, submission_id: Any,
+) -> list[ExecutedAnalysis]:
+    """The submission Results section's own rows (spec 011 FR-009): every own
+    analysis across every EDM of the submission, newest first, each with its
+    EDM name for the section's EDM column. Origin is derived — own is
+    ``rdm_id IS NULL``; broker rows come from ``list_submission_rdms``."""
+    rows = execute(_SUBMISSION_EXECUTED_SELECT,
+                   {"submission_id": str(submission_id)}, connection="WORKBENCH")
+    return _executed_models([dict(r) for r in rows])
 
 
 @dataclass(frozen=True)
@@ -641,6 +679,6 @@ __all__ = [
     "ExecutedAnalysis", "PerspectiveResults", "SubmittedSettings",
     "delete_executed_analyses", "list_analysis_perspectives",
     "list_broker_analyses", "list_edm_analyses",
-    "list_executed_analyses", "list_submission_rdms",
-    "list_submission_rdm_analyses",
+    "list_executed_analyses", "list_submission_executed_analyses",
+    "list_submission_rdms", "list_submission_rdm_analyses",
 ]

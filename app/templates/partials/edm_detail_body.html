@@ -141,54 +141,10 @@
     {% endif %}
   </details>
 
-  {# ── Analyses (US2, spec 010) — its own polling unit (T-11 refinement): an
-     in-flight execution no longer re-swaps the whole page every 3s, so it never
-     collapses portfolio/treaty/broker-analysis rows the analyst has expanded
-     elsewhere. See partials/executed_analyses_section.html. ── #}
-  {% include "partials/executed_analyses_section.html" %}
-
-  {% if source_submission %}
-  {% set analysis_total = submission_rdms | map(attribute='analysis_count') | sum %}
-  <details class="sec" open id="edm-broker-analyses">
-    <summary>
-      <span class="sec__caret">&#9657;</span>
-      <span class="sec__title">Broker analyses</span>
-      <span class="badge badge--neutral">{{ submission_rdms|length }} RDMs &middot; {{ analysis_total }} analyses</span>
-      <span class="sec__spacer"></span>
-      <span class="sec__note">Every RDM in {{ source_submission.name }} &middot; settings &amp; metadata only &middot; no loss numbers</span>
-    </summary>
-    {% if submission_rdms %}
-    <div class="dtable-shell">
-      <div class="dtable" style="--cols:230px minmax(110px,1fr) minmax(120px,1fr) minmax(110px,1fr) 80px minmax(120px,1fr) 80px 70px 130px;min-width:1050px">
-        <div class="dtable__head">
-          <span class="l">Analysis</span><span class="l">Type</span>
-          <span class="l">Peril</span><span class="l">Region</span>
-          <span class="l">Currency</span><span class="l">Engine</span>
-          <span class="l">Term</span><span class="l">PLA</span>
-          <span class="l">Rate</span>
-        </div>
-        {% for rdm in submission_rdms %}
-        <details class="dtable__rdm"
-          hx-get="/submissions/{{ source_submission.id }}/edms/{{ edm.id }}/rdms/{{ rdm.rdm_id }}/analyses"
-          hx-trigger="toggle[event.target.open] once"
-          hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
-          <summary><div class="dtable__group">
-            <span class="grp-caret">&#9657;</span><span class="kind">RDM</span>
-            <span class="name">{{ rdm.rdm_name }}</span>
-            {% if rdm.rdm_irp_id %}<span class="ref">#{{ rdm.rdm_irp_id }}</span>{% endif %}
-            <span class="ref">{{ rdm.analysis_count }} analyses</span>
-            <a class="link" href="/submissions/{{ source_submission.id }}/rdms/{{ rdm.rdm_id }}"
-               onclick="event.stopPropagation()">Open RDM &rarr;</a>
-          </div></summary>
-          <div id="rdm-analyses-{{ rdm.rdm_id }}" class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
-        </details>
-        {% endfor %}
-      </div>
-    </div>
-    {% else %}
-    <div class="state-box">No RDMs are related to {{ source_submission.name }}.</div>
-    {% endif %}
-  </details>
-  {% endif %}
+  {# ── Analyses (spec 011 US3) — the merged section: own rows plus one group
+     row per submission RDM, in its own polling unit (T-11 refinement) so an
+     in-flight execution never re-swaps rows the analyst has expanded elsewhere.
+     See partials/analyses_merged_section.html. ── #}
+  {% include "partials/analyses_merged_section.html" %}
 
 </div>

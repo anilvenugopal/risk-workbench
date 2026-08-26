@@ -300,9 +300,10 @@ def _render_rows(monkeypatch, analyses) -> str:
 def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
     html = _render_rows(monkeypatch, [_broker_row()])
 
-    # Risk Modeler link and the broker's own run date (FR-024/FR-025)
+    # Risk Modeler link (its own column since the US3 merged table) and the
+    # broker's own run date (FR-024/FR-025)
     assert 'href="https://acme.rms-ppe.com/riskmodeler/analyses/88215"' in html
-    assert ">RM ↗</a>" in html
+    assert ">Open ↗</a>" in html
     assert '<time data-utc="2026-08-20T14:02:11.000Z"' in html
     # results still pending
     assert "Results pending — retrieval is queued or running." in html

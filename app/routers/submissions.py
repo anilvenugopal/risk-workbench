@@ -31,6 +31,7 @@ from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
+    analysis_service,
     edm_service,
     rdm_service,
     shared_drive,
@@ -288,6 +289,84 @@ def _entity_sort_links(
     return links
 
 
+# The merged analyses section's status filter (spec 011 FR-009) — the same
+# three group keys the EDM page's section clamps to.
+_ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
+
+
+def _results_status_filter(request: Request) -> str:
+    status = (request.query_params.get("status") or "").strip()
+    return status if status in _ANALYSES_STATUS_FILTERS else ""
+
+
+def _results_groups(submission_id: str) -> list:
+    """The submission's RDM group rows with their capture liveness, so the
+    Results section keeps polling while an RDM's analyses are still landing."""
+    groups = analysis_service.list_submission_rdms(submission_id=submission_id)
+    for group in groups:
+        group.sync_running = rdm_service.latest_backfill_status(
+            group.rdm_id) in ("pending", "running")
+    return groups
+
+
+def _results_section_context(request: Request, submission_id: str,
+                             submission) -> dict:
+    """Render context for the submission-wide merged analyses partial
+    (spec 011 FR-009/FR-013): own rows across every EDM plus RDM groups, an
+    EDM column after Analysis, no Delete (deletion stays on the EDM page)."""
+    return {
+        "analyses": analysis_service.list_submission_executed_analyses(
+            submission_id=submission_id),
+        "groups": _results_groups(submission_id),
+        "source_submission": submission,
+        "show_edm": True,
+        "section_id": "submission-analyses",
+        "section_title": "Results",
+        "analyses_table_url": f"/submissions/{submission_id}/analyses",
+        "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
+        "delete_url": None,
+        "status_filter": _results_status_filter(request),
+        "own_empty_text": "No analyses executed in this deal yet. Run a suite "
+                          "or template from one of its EDMs.",
+        "all_empty_text": "No analyses in this deal yet. Run a suite or "
+                          "template from an EDM, or import a broker RDM.",
+    }
+
+
+@router.get("/submissions/{submission_id}/analyses", response_class=HTMLResponse)
+def submission_analyses(request: Request, submission_id: str):
+    """The Results section's own polling fragment (spec 011 FR-009/FR-013).
+    Read-only — no writes, no Risk Modeler call (Article 11)."""
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        # Submission hard-gone mid-poll: a terminal notice with no trigger
+        # ends polling (the EDM section's precedent).
+        return HTMLResponse(
+            '<details class="sec" open id="submission-analyses">'
+            '<summary><span class="sec__title">Results</span></summary>'
+            '<div class="state-box state-box--warn">This submission no longer '
+            'exists.</div></details>')
+    return _partial(request, "partials/analyses_merged_section.html",
+                    _results_section_context(request, submission_id, submission))
+
+
+@router.get("/submissions/{submission_id}/rdms/{rdm_id}/analyses",
+            response_class=HTMLResponse)
+def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
+    """One RDM group's broker rows for the Results section's lazy load —
+    merged-table columns with the EDM column reading an em dash (FR-020)."""
+    analyses = analysis_service.list_submission_rdm_analyses(
+        submission_id=submission_id, rdm_id=rdm_id)
+    if analyses is None:
+        return _not_found(request)
+    groups = analysis_service.list_submission_rdms(submission_id=submission_id)
+    rdm = next((g for g in groups if g.rdm_id == rdm_id.lower()), None)
+    if rdm is None:
+        return _not_found(request)
+    return _partial(request, "partials/contextual_rdm_analyses.html",
+                    {"analyses": analyses, "rdm": rdm, "show_edm": True})
+
+
 def _detail_context(request: Request, submission_id: str) -> dict | None:
     """Assemble the full detail-view context, or None if the id is unknown."""
     submission = submission_service.get_submission(submission_id)
@@ -319,6 +398,8 @@ def _detail_context(request: Request, submission_id: str) -> dict | None:
         "analysts": analysts,
         "treaty_types": TREATY_TYPES,
         "is_active": submission.status_code == submission_service.ACTIVE,
+        "results_section": _results_section_context(
+            request, submission_id, submission),
     }
 
 

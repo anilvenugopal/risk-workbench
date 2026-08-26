@@ -132,15 +132,17 @@ def _seed_edm(name="EDM One") -> str:
 
 
 def _seed_executed(*, edm_id: str, name: str, loss_results=None,
-                   settings=None, submitted=None, job_status="FINISHED") -> str:
+                   settings=None, submitted=None, job_status="FINISHED",
+                   status_code="ready") -> str:
     analysis_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
         "irp_id, execution_id, execution_item_no, settings_metadata, "
         "loss_results, submitted_settings, inserted_at) "
-        "VALUES (:id, :edm, :n, :n, 'ready', '9001', :x, 0, :sm, :lr, :ss, "
+        "VALUES (:id, :edm, :n, :n, :sc, '9001', :x, 0, :sm, :lr, :ss, "
         "'2026-08-26T00:00:00')",
         {"id": analysis_id, "edm": edm_id, "n": name, "x": str(uuid.uuid4()),
+         "sc": status_code,
          "sm": (json.dumps(settings) if settings else None),
          "lr": (json.dumps(loss_results) if loss_results else None),
          "ss": (json.dumps(submitted) if submitted else None)},
@@ -212,3 +214,102 @@ def test_expanded_row_shows_results_pending_while_retrieval_runs(client):
 
     assert "Results pending" in html
     assert "Condensed results" in html  # the block is present, with the state inside
+
+
+# ── the merged analyses section (spec 011 US3, T031) ──────────────────────────
+
+
+def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve"):
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'failed', :detail)",
+        {"id": str(uuid.uuid4()), "rid": analysis_id, "detail": detail},
+        connection="WORKBENCH")
+
+
+def test_merged_section_columns_and_the_four_aal_states(client):
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="With results", loss_results=_extract())
+    _seed_executed(edm_id=edm_id, name="Awaiting retrieval")
+    failed = _seed_executed(edm_id=edm_id, name="Retrieval failed")
+    _failed_retrieval(failed)
+    _seed_executed(edm_id=edm_id, name="Still running", job_status="RUNNING", status_code="running")
+
+    html = client.get(f"/edms/{edm_id}/analyses").text
+
+    # one column set (FR-010) — no EDM column on the EDM page
+    for header in (">Analysis</span>", ">Type</span>", ">Peril</span>",
+                   ">Region</span>", ">Engine</span>", ">Currency</span>",
+                   ">AAL &middot; Gross</span>", ">Status</span>",
+                   ">Submitted</span>", ">Risk Modeler</span>"):
+        assert header in html
+    assert ">EDM</span>" not in html
+    # the AAL cell carries all four results states
+    assert 'data-value="4100000.0"' in html and "4.1M" in html   # ready
+    assert "retrieving&hellip;" in html                          # pending, run done
+    assert "retrieval failed" in html                            # failed + reason
+    assert "RM returned 500 on EP curve" in html
+    assert html.count('class="aal-state"') == 1  # the running row reads — instead
+    # Submitted is UTC in <time datetime> for the browser sliver (FR-024, T-10)
+    assert '<time datetime="2026-08-26T00:00:00"' in html
+    # the copy sliver's hooks (FR-018): the button and the data-value attributes
+    assert "data-copy-table" in html
+    assert 'data-value="With results"' in html
+    assert "data-analyses-section" in html
+
+
+def test_merged_section_status_filter_rides_the_poll_url(client):
+    edm_id = _seed_edm()
+    _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract())
+    _seed_executed(edm_id=edm_id, name="Running one", job_status="RUNNING", status_code="running")
+
+    html = client.get(f"/edms/{edm_id}/analyses?status=ready").text
+
+    assert f'hx-get="/edms/{edm_id}/analyses?status=ready"' in html
+    assert "Ready one" in html
+    assert "Running one" not in html
+
+
+def _seed_contextual(db) -> tuple[str, str, str]:
+    """A submission with one attached EDM and one related RDM."""
+    submission_id = _submission(db, "Context A")
+    edm_id = _seed_edm("Coastal HO 2026")
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+    rdm_id = _rdm("Acme Broker RDM", 4821)
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": rdm_id}, connection="WORKBENCH")
+    return submission_id, edm_id, rdm_id
+
+
+def test_contextual_merged_section_holds_both_origins(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _seed_executed(edm_id=edm_id, name="CRE_HO_FL_v25", loss_results=_extract())
+    _analysis(rdm_id, "88215", "FL HU Gross 2026")
+
+    html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/analyses").text
+
+    # one section: the own row plus the RDM group row, lazy-loading as before
+    assert 'id="edm-executed-analyses"' in html
+    assert "CRE_HO_FL_v25" in html
+    assert "Acme Broker RDM" in html
+    assert (f'hx-get="/submissions/{submission_id}/edms/{edm_id}'
+            f'/rdms/{rdm_id}/analyses"') in html
+    assert "Broker analyses" not in html  # the separate section is gone (FR-009)
+
+
+def test_contextual_rdm_lazy_rows_use_the_merged_columns(client, iteration2_db):
+    submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
+    _analysis(rdm_id, "88215", "FL HU Gross 2026")
+
+    html = client.get(
+        f"/submissions/{submission_id}/edms/{edm_id}/rdms/{rdm_id}/analyses").text
+
+    # broker rows tick with data-broker (Delete disables on them) and read
+    # Finished; no broker row names a portfolio (FR-020)
+    assert 'name="analysis_ids"' in html and "data-broker" in html
+    assert ">Finished</span>" in html
+    assert "Portfolio" not in html

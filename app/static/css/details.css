@@ -81,15 +81,16 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dt-subline { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
 .dt-frommark { flex: none; font-size: var(--fs-caption); line-height: 1; color: var(--text-tertiary); }
 .dt-geo-sub { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
-/* group divider row within a table (broker analyses grouped by source RDM) */
-.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
+/* group divider row within a table (broker analyses grouped by source RDM) —
+   pinned to the visible width so it never scrolls off the wide merged table */
+.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
 
 /* nested per-RDM expander in the broker-analyses table (8/5 D16) */
 details.dtable__rdm > summary { list-style: none; cursor: pointer; }
 details.dtable__rdm > summary::-webkit-details-marker { display: none; }
 details.dtable__rdm .grp-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
 details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
-.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); }
+.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
 .dtable__group .kind { font-size: .65rem; font-weight: var(--fw-bold); color: var(--text-tertiary); letter-spacing: .04em; }
 .dtable__group .name { font-weight: var(--fw-semibold); font-size: var(--fs-label); color: var(--text-primary); }
 .dtable__group .ref { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); }
@@ -147,6 +148,17 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
 .ep tr.aal td.rp { font-weight: var(--fw-semibold); color: var(--text-primary); }
 .ep tr.sd td { border-bottom: none; background: var(--surface-recessed); color: var(--text-secondary); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
+
+/* spec 011 (US3) — the merged analyses table: the AAL cell carries the results
+   state (O-12, no extra column), the summary line counts the selection, and
+   the Risk Modeler link is its own column */
+.aal-num { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: var(--fw-medium); }
+.aal-state { font-size: var(--fs-caption); font-style: italic; color: var(--text-disabled); }
+.aal-state--failed { color: var(--color-negative); font-style: normal; }
+.sec__picked { font-size: var(--fs-caption); color: var(--text-secondary); }
+.sec__picked strong { color: var(--text-primary); }
+.dtable .rm-link { font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--color-brand); text-decoration: none; }
+.dtable .rm-link:hover { text-decoration: underline; }
 
 /* rate / event-rate detail — the ONE default-closed nested sub-drill (FR-031) */
 .drill { margin-top: var(--space-3); border-top: 1px solid var(--border-faint); padding-top: var(--space-2); }
