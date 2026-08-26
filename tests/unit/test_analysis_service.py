@@ -602,3 +602,46 @@ def test_framework_no_longer_competes_with_analysis_mode(iteration2_db):
     assert rows["A"].display.analysis_mode == "Standard"
     assert rows["B"].display.framework == "ELT"
     assert rows["B"].display.analysis_mode is None
+
+
+# ── spec 011 US4: the dedicated page's columns (T033) ────────────────────────
+
+
+def test_results_columns_follow_ids_order_and_count_missing(iteration2_db):
+    edm = _edm()
+    a = _executed(edm_id=edm, name="A", status_code="ready",
+                  loss_results=_extract(), settings={"currencyCode": "USD"})
+    b = _executed(edm_id=edm, name="B", status_code="ready")
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[b, str(uuid.uuid4()), a, "not-a-uuid"])
+
+    assert [c.name for c in columns] == ["B", "A"]
+    assert missing == 2
+    assert columns[0].results_state == "pending"
+    ready = columns[1]
+    assert ready.currency == "USD"
+    assert ready.results_state == "ready"
+    gr = ready.for_code("GR")
+    assert gr.produced is True
+    assert [r["rp"] for r in gr.rows] == [
+        "10,000", "5,000", "2,000", "1,000", "500", "250", "100", "50",
+        "25", "10", "5"]
+    assert ready.for_code("GU").produced is False
+
+
+def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
+    edm = _edm()
+    rdm = _mk("irp_rdm", name="Acme RDM", status="ready")
+    broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="88215",
+                 name="FL HU Gross 2026", status_code="ready")
+    _failed_retrieval(broker)
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[broker])
+
+    assert missing == 0
+    [col] = columns
+    assert col.name == "FL HU Gross 2026"
+    assert col.results_state == "failed"
+    assert col.results_error == "RM returned 500 on EP curve (GR)"

@@ -1101,16 +1101,111 @@ function tableToTsv(dtable) {
   });
   return rows.map((r) => r.join('\t')).join('\n');
 }
+// The dedicated results page's matrix is a real <table class="ep"> with
+// colspan/rowspan headers and message cells — serialize via an occupancy
+// matrix so spanned cells pad with blanks and every TSV row stays aligned.
+function epToTsv(table) {
+  const matrix = [];
+  [...table.querySelectorAll('tr')].forEach((tr, r) => {
+    matrix[r] = matrix[r] || [];
+    let c = 0;
+    [...tr.children].forEach((cell) => {
+      while (matrix[r][c] !== undefined) c += 1;
+      const holder = cell.hasAttribute('data-value')
+        ? cell : cell.querySelector('[data-value]');
+      const value = holder ? holder.getAttribute('data-value')
+        : cell.textContent.trim().replace(/\s+/g, ' ');
+      for (let i = 0; i < (cell.rowSpan || 1); i += 1) {
+        for (let j = 0; j < (cell.colSpan || 1); j += 1) {
+          matrix[r + i] = matrix[r + i] || [];
+          matrix[r + i][c + j] = (i === 0 && j === 0) ? value : '';
+        }
+      }
+      c += cell.colSpan || 1;
+    });
+  });
+  return matrix.map((row) => [...row].map((v) => v === undefined ? '' : v)
+    .join('\t')).join('\n');
+}
 document.addEventListener('click', (e) => {
   const btn = e.target instanceof Element
     && e.target.closest('[data-copy-table]');
   if (!btn) return;
-  const scope = btn.closest('details.sec');
-  const dtable = scope && scope.querySelector('.dtable');
-  if (!dtable) { showToast('Nothing to copy yet.', 'warning'); return; }
-  navigator.clipboard.writeText(tableToTsv(dtable)).then(
+  const scope = btn.closest('details.sec') || btn.closest('.page-pad') || document;
+  const dtable = scope.querySelector('.dtable');
+  const ep = dtable ? null : scope.querySelector('table.ep');
+  if (!dtable && !ep) { showToast('Nothing to copy yet.', 'warning'); return; }
+  navigator.clipboard.writeText(dtable ? tableToTsv(dtable) : epToTsv(ep)).then(
     () => showToast('Table copied — paste into Excel.', 'success'),
     () => showToast('Couldn’t reach the clipboard.', 'error'));
+});
+
+// ── View → dedicated results page (spec 011 US4, FR-013/FR-016/O-10) ─────────
+// The checked ids travel in tick order — kept per section by a document-level
+// listener, because Alpine's analysisPicks is re-instantiated by every 3s poll
+// swap. Boxes ticked by select-all fire no per-box change event and append in
+// DOM order at submit. After the new tab opens, the originating selection
+// resets (O-10); one bubbling change event makes analysisPicks recount.
+const analysisPickOrder = new Map();
+document.addEventListener('change', (e) => {
+  const box = e.target;
+  if (!(box instanceof HTMLInputElement) || box.name !== 'analysis_ids') return;
+  const section = box.closest('[data-analyses-section]');
+  if (!section) return;
+  const order = (analysisPickOrder.get(section.id) || [])
+    .filter((v) => v !== box.value);
+  if (box.checked) order.push(box.value);
+  analysisPickOrder.set(section.id, order);
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element
+    && e.target.closest('[data-view-analyses]');
+  if (!btn) return;
+  const section = btn.closest('[data-analyses-section]');
+  if (!section) return;
+  const checked = [...section.querySelectorAll(
+    'input[name="analysis_ids"]:checked')].map((b) => b.value);
+  const ids = (analysisPickOrder.get(section.id) || [])
+    .filter((v) => checked.includes(v));
+  checked.forEach((v) => { if (!ids.includes(v)) ids.push(v); });
+  if (!ids.length) return;
+  const base = btn.dataset.viewUrl;
+  window.open(base + (base.includes('?') ? '&' : '?') + 'ids=' + ids.join(','),
+    '_blank');
+  analysisPickOrder.set(section.id, []);
+  let last = null;
+  section.querySelectorAll('input[name="analysis_ids"]:checked').forEach((b) => {
+    b.checked = false; last = b;
+  });
+  if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
+// ── Units selector (dedicated results page, FR-017/O-12) ─────────────────────
+// The server renders millions (the default, never auto-switching); picking a
+// unit rewrites every [data-unit-value] cell from the raw stored number —
+// display scaling only, never a recomputation (spec non-negotiable 5). The
+// htmx:load hook re-applies the picked unit after a perspective swap
+// re-renders the table in millions.
+function formatUnitValue(v, unit) {
+  if (unit === 'thousands') return (v / 1e3).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (unit === 'ones') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (v / 1e6).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+function applyUnits() {
+  const sel = document.querySelector('[data-units-select]');
+  if (!sel) return;
+  document.querySelectorAll('[data-unit-value]').forEach((el) => {
+    const v = Number(el.dataset.unitValue);
+    if (Number.isFinite(v)) el.textContent = formatUnitValue(v, sel.value);
+  });
+}
+document.addEventListener('change', (e) => {
+  if (e.target instanceof Element
+      && e.target.hasAttribute('data-units-select')) applyUnits();
+});
+document.addEventListener('htmx:load', () => {
+  const sel = document.querySelector('[data-units-select]');
+  if (sel && sel.value !== 'millions') applyUnits();
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

@@ -30,6 +30,10 @@
      else ('/submissions/' ~ source_submission.id ~ '/edms/' ~ edm.id ~ '/rdms'
            if source_submission is defined and source_submission else none) %}
 {% set status_filter = status_filter|default('') %}
+{% set view_url = '/results/analyses'
+     ~ ('?submission=' ~ source_submission.id if source_submission is defined and source_submission else '')
+     ~ ((('&' if source_submission is defined and source_submission else '?') ~ 'edm=' ~ edm.id)
+        if edm is defined and edm else '') %}
 {% set analyses_url = analyses_base ~ ('?status=' ~ status_filter if status_filter else '') %}
 {% set broker_total = groups|map(attribute='analysis_count')|sum %}
 {% set live = analyses|selectattr('is_live')|list|length > 0
@@ -69,8 +73,9 @@
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
     {% endif %}
-    <button class="btn-sm" type="button" disabled onclick="event.stopPropagation()"
-            title="Side-by-side viewing opens on the dedicated results page (next story)">View ↗</button>
+    <button class="btn-sm btn-sm--primary" type="button" onclick="event.stopPropagation()"
+            :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
+            title="Open the selected analyses side by side (new tab)">View ↗</button>
     {% endif %}
   </summary>
   {% if analyses or groups %}

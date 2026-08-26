@@ -149,6 +149,22 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
 .ep tr.sd td { border-bottom: none; background: var(--surface-recessed); color: var(--text-secondary); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
 
+/* spec 011 (US4) — the dedicated results page: toolbar, per-analysis column
+   headers with reorder links, and the message cell a pending / failed /
+   not-produced column holds its place with */
+.res-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.res-toolbar label { font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.res-count { font-size: var(--fs-caption); color: var(--text-tertiary); margin: 0 0 var(--space-2); }
+.ep th.an { white-space: normal; min-width: 150px; max-width: 220px; vertical-align: bottom; text-align: right; }
+.an__order { display: flex; justify-content: flex-end; gap: 2px; margin-bottom: 2px; }
+.an__btn { font-size: 10px; line-height: 1; padding: 1px 5px; border: 1px solid var(--border-default); border-radius: var(--radius-xs); background: var(--surface-panel); color: var(--text-tertiary); text-decoration: none; }
+a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.an__btn[aria-disabled="true"] { opacity: .4; }
+.an__name { display: block; font-size: var(--fs-caption); letter-spacing: 0; text-transform: none; color: var(--text-primary); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.an__sub { display: block; font-size: var(--fs-eyebrow); letter-spacing: .05em; color: var(--text-tertiary); font-weight: var(--fw-regular); }
+.ep td.colmsg { white-space: normal; font-family: var(--font-ui); font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; text-align: center; vertical-align: middle; max-width: 220px; }
+.ep td.colmsg .exec-reason { font-style: normal; text-align: center; }
+
 /* spec 011 (US3) — the merged analyses table: the AAL cell carries the results
    state (O-12, no extra column), the summary line counts the selection, and
    the Risk Modeler link is its own column */

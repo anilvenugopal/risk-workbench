@@ -1,0 +1,130 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ page_name or 'Analyses' }}{% endblock %}
+
+{# The dedicated results page (spec 011 US4): one column per selected analysis
+   in ids order (FR-016), all 11 return periods × both EP types, then AAL and
+   Std dev (FR-015). The perspective select re-renders #results-view over HTMX
+   screen-wide (FR-012); the units selector and Copy table are client-side
+   over data attributes (FR-017/FR-018, app.js) — the one page a units control
+   exists (O-12). Reorder arrows are server-built links that swap neighbouring
+   ids. Numbers and tables only (FR-019); broker columns never name a
+   portfolio (FR-020). Pending/failed columns hold their place (FR-008). #}
+
+{%- macro num(v) -%}
+  {%- if v is none -%}<span class="na">&mdash;</span>
+  {%- else -%}<span data-unit-value="{{ v }}" data-value="{{ v }}" title="{{ v }}">{{ '{:,.1f}'.format(v / 1000000) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{% block main %}
+<div class="page-pad">
+  {% if view_columns %}
+  <div class="res-toolbar">
+    <label for="res-persp">Perspective</label>
+    <select id="res-persp" name="perspective" class="wf-field__input"
+            hx-get="{{ perspective_base_url }}"
+            hx-target="#results-view" hx-select="#results-view" hx-swap="outerHTML">
+      {% for p in perspectives %}
+      <option value="{{ p.code }}" {% if p.code == active_perspective %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-units">Units</label>
+    <select id="res-units" class="wf-field__input" data-units-select>
+      <option value="ones">Ones</option>
+      <option value="thousands">Thousands</option>
+      <option value="millions" selected>Millions</option>
+    </select>
+    <button class="btn-sm" type="button" data-copy-table
+            title="Copy the table with headers — pastes into Excel">&#8942; Copy table</button>
+  </div>
+  {% endif %}
+
+  <div id="results-view">
+    {% if missing %}
+    <div class="state-box state-box--warn" style="margin-bottom:var(--space-3)">
+      {{ missing }} of the selected analyses no longer exist{{ 's' if missing == 1 }} — they may have
+      been deleted since this view was opened.{% if view_columns %} The remaining
+      {{ view_columns|length }} {{ 'is' if view_columns|length == 1 else 'are' }} shown.{% endif %}
+    </div>
+    {% endif %}
+    {% if view_columns %}
+    <p class="res-count">{{ view_columns|length }} analys{{ 'is' if view_columns|length == 1 else 'es' }} &middot; {{ active_label }}</p>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" rowspan="2" style="vertical-align:bottom">Return period</th>
+            {% for vc in view_columns %}
+            <th class="an gsep" colspan="2">
+              {% if view_columns|length > 1 %}
+              <span class="an__order">
+                {% if vc.left %}<a class="an__btn" href="{{ vc.left }}" title="Move left">&#9664;</a>
+                {% else %}<span class="an__btn" aria-disabled="true">&#9664;</span>{% endif %}
+                {% if vc.right %}<a class="an__btn" href="{{ vc.right }}" title="Move right">&#9654;</a>
+                {% else %}<span class="an__btn" aria-disabled="true">&#9654;</span>{% endif %}
+              </span>
+              {% endif %}
+              <span class="an__name" title="{{ vc.col.name }}" data-value="{{ vc.col.name }}">{{ vc.col.name }}</span>
+              <span class="an__sub">{{ vc.col.currency or '&mdash;'|safe }} &middot;
+                {%- if vc.col.results_state == 'ready' %} ready
+                {%- elif vc.col.results_state == 'failed' %} <span class="aal-state aal-state--failed">retrieval failed</span>
+                {%- else %} <span class="aal-state">retrieving&hellip;</span>{% endif %}</span>
+            </th>
+            {% endfor %}
+          </tr>
+          <tr>
+            {% for vc in view_columns %}<th class="gsep">OEP</th><th>AEP</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for rp in rp_labels %}
+          {% set ri = loop.index0 %}
+          <tr>
+            <td class="rp">{{ rp }}</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            {% set r = pr.rows[ri] %}
+            <td class="gsep">{{ num(r.oep) }}</td><td>{{ num(r.aep) }}</td>
+            {% elif ri == 0 %}
+            <td class="colmsg gsep" colspan="2" rowspan="{{ rp_labels|length + 2 }}">
+              {%- if vc.col.results_state == 'failed' -%}
+              Results retrieval failed.
+              {%- if vc.col.results_error %}<span class="exec-reason">{{ vc.col.results_error }}</span>{% endif %}
+              {%- elif vc.col.results_state == 'pending' -%}
+              Results pending — retrieval is queued or running.
+              {%- else -%}
+              The analysis did not produce this perspective.
+              {%- endif -%}
+            </td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          <tr class="aal">
+            <td class="rp">AAL</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td class="gsep" colspan="2">{{ num(pr.aal) }}</td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+          <tr class="sd">
+            <td class="rp">Std dev</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td class="gsep" colspan="2">{{ num(pr.std_dev) }}</td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="state-box">No analyses to display. Select analyses on a submission or EDM page and
+    choose <strong>View</strong>.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

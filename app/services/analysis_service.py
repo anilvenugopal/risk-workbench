@@ -39,6 +39,7 @@ delete — everything else here is read-only.
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -148,15 +149,20 @@ def list_analysis_perspectives() -> list[dict]:
         {}, connection="WORKBENCH")]
 
 
-def _perspective_results(loss_results_raw: Any,
-                         perspectives: list[dict]) -> list[PerspectiveResults]:
-    """The stored extract as display-ready perspectives, condensed to the
-    50/100/250/500/1000/10000 subset (FR-005). Empty when not fetched yet."""
+def _perspective_results(loss_results_raw: Any, perspectives: list[dict],
+                         return_periods: tuple | None = None,
+                         ) -> list[PerspectiveResults]:
+    """The stored extract as display-ready perspectives, filtered to
+    ``return_periods`` — the condensed 50/100/250/500/1000/10000 subset by
+    default (FR-005); the dedicated page passes the full stored set. Empty
+    when not fetched yet."""
     doc = _parse_json_dict(loss_results_raw, "loss_results")
     if not doc:
         return []
-    # lazy: the worker module owns the return-period sets (data-model.md §4)
-    from app.workers.analysis_jobs import CONDENSED_RETURN_PERIODS  # noqa: PLC0415
+    if return_periods is None:
+        # lazy: the worker module owns the return-period sets (data-model.md §4)
+        from app.workers.analysis_jobs import CONDENSED_RETURN_PERIODS  # noqa: PLC0415
+        return_periods = CONDENSED_RETURN_PERIODS
     stored = doc.get("perspectives") or {}
     out: list[PerspectiveResults] = []
     for p in perspectives:
@@ -170,7 +176,7 @@ def _perspective_results(loss_results_raw: Any,
                  "oep": oep.get(str(rp)), "aep": aep.get(str(rp)),
                  "oep_display": _fmt_loss(oep.get(str(rp))),
                  "aep_display": _fmt_loss(aep.get(str(rp)))}
-                for rp in sorted(CONDENSED_RETURN_PERIODS, reverse=True)]
+                for rp in sorted(return_periods, reverse=True)]
         out.append(PerspectiveResults(
             code=p["code"], label=p["label"], produced=True,
             aal=data.get("aal"), std_dev=data.get("std_dev"), rows=rows))
@@ -631,6 +637,76 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
     return DeleteOutcome(deleted=deleted, failed=failed)
 
 
+@dataclass
+class ResultsColumn:
+    """One analysis column on the dedicated results page (spec 011 US4,
+    FR-015): the expanded extract (all 11 return periods), the display name,
+    currency, and the same results state the merged table derives. Neither
+    origin carries a portfolio here (FR-020)."""
+    id: str
+    name: str | None
+    currency: str | None
+    results_state: str = "pending"      # pending | failed | ready
+    results_error: str | None = None
+    results: list[PerspectiveResults] = field(default_factory=list)
+
+    def for_code(self, code: str) -> PerspectiveResults | None:
+        return next((p for p in self.results if p.code == code), None)
+
+
+def expanded_return_periods() -> list[str]:
+    """The dedicated page's row labels — the 11 stored return periods, largest
+    first (FR-005/FR-015), matching the row order ``_perspective_results``
+    builds."""
+    from app.workers.analysis_jobs import STORED_RETURN_PERIODS  # noqa: PLC0415
+    return [f"{rp:,}" for rp in sorted(STORED_RETURN_PERIODS, reverse=True)]
+
+
+def list_results_columns(*, analysis_ids: list[Any],
+                         ) -> tuple[list[ResultsColumn], int]:
+    """The dedicated page's columns (contracts/routes.md §3): one per resolved
+    id, in the caller's order, both origins in one read. Returns the columns
+    and the count of ids that did not resolve — an unknown or deleted id is a
+    notice on the page, never an error."""
+    from app.workers.analysis_jobs import STORED_RETURN_PERIODS  # noqa: PLC0415
+    requested: list[str | None] = []
+    for raw in analysis_ids:
+        try:
+            requested.append(str(uuid.UUID(str(raw))))
+        except (ValueError, AttributeError, TypeError):
+            requested.append(None)
+    valid = [i for i in requested if i]
+    rows_by_id: dict[str, dict] = {}
+    if valid:
+        params = {f"a{n}": i for n, i in enumerate(dict.fromkeys(valid))}
+        placeholders = ", ".join(f":a{n}" for n in range(len(params)))
+        rows = execute(
+            f"SELECT a.id, a.name, a.full_name, "
+            f"a.settings_metadata, a.loss_results "
+            f"FROM irp_analysis a "
+            f"WHERE a.deleted_at IS NULL AND a.id IN ({placeholders})",
+            params, connection="WORKBENCH")
+        rows_by_id = {_uid(r["id"]): dict(r) for r in rows}
+    perspectives = list_analysis_perspectives() if rows_by_id else []
+    columns: list[ResultsColumn] = []
+    missing = 0
+    for rid in requested:
+        row = rows_by_id.get(rid) if rid else None
+        if row is None:
+            missing += 1
+            continue
+        results = _perspective_results(row["loss_results"], perspectives,
+                                       STORED_RETURN_PERIODS)
+        columns.append(ResultsColumn(
+            id=_uid(row["id"]),
+            name=row["full_name"] or row["name"],
+            currency=_to_display(_parse_settings(row["settings_metadata"])).currency,
+            results_state=("ready" if results else "pending"),
+            results=results))
+    _mark_failed_retrievals(columns)
+    return columns, missing
+
+
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
     """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
@@ -676,9 +752,12 @@ def list_submission_rdm_analyses(
 
 __all__ = [
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
-    "ExecutedAnalysis", "PerspectiveResults", "SubmittedSettings",
-    "delete_executed_analyses", "list_analysis_perspectives",
+    "ExecutedAnalysis", "PerspectiveResults", "ResultsColumn",
+    "SubmittedSettings",
+    "delete_executed_analyses", "expanded_return_periods",
+    "list_analysis_perspectives",
     "list_broker_analyses", "list_edm_analyses",
-    "list_executed_analyses", "list_submission_executed_analyses",
+    "list_executed_analyses", "list_results_columns",
+    "list_submission_executed_analyses",
     "list_submission_rdms", "list_submission_rdm_analyses",
 ]
