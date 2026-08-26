@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import log_context
 from app.services.rwb_job_service import (
+    cancel_rwb_job,
     claim_rwb_job,
     complete_rwb_job,
     enqueue_rwb_job,
@@ -329,3 +330,116 @@ def test_queue_names_returns_current_actors():
     from app.workers.queues import queue_names
 
     assert queue_names() == _EXPECTED_QUEUE_NAMES
+
+
+# ── cancel (CR-004a): pending -> cancelled, same race-safety as claim ────────
+
+def test_cancel_pending_row_succeeds(iteration2_db):
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert cancel_rwb_job(rwb_job_id=job_id) is True
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "cancelled"
+
+
+def test_cancel_non_pending_row_is_noop(iteration2_db):
+    for target_status in ("running", "succeeded", "failed", "cancelled"):
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # pending -> running
+        if target_status == "running":
+            pass  # already there
+        elif target_status == "cancelled":
+            # Reach 'cancelled' the only way a row can: cancel it while
+            # still pending. Re-enqueue fresh rather than reuse the
+            # already-claimed row above.
+            job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                     requestor_id=str(uuid.uuid4()),
+                                     rwb_job_type="upload_edm")
+            cancel_rwb_job(rwb_job_id=job_id)
+        else:
+            complete_rwb_job(rwb_job_id=job_id, status=target_status)
+
+        before = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                             {"id": job_id}, connection="WORKBENCH")["status_code"]
+        assert before == target_status  # sanity: we set up the state we meant to
+
+        assert cancel_rwb_job(rwb_job_id=job_id) is False
+        after = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                            {"id": job_id}, connection="WORKBENCH")["status_code"]
+        assert after == target_status  # unchanged
+
+
+def test_claim_racing_cancel_resolves_to_one_winner(iteration2_db):
+    # Whichever of claim_rwb_job / cancel_rwb_job runs first against a
+    # pending row wins; the other's UPDATE matches zero rows and is a
+    # no-op — same shape as two claims racing (test_atomic_claim_wins_once_
+    # then_loses above), just the second contender is cancel instead of a
+    # second claim.
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
+    assert cancel_rwb_job(rwb_job_id=job_id) is False  # lost the race — already running
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "running"
+
+    job_id_2 = enqueue_rwb_job(requestor_type="analyst_request",
+                               requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert cancel_rwb_job(rwb_job_id=job_id_2) is True
+    assert claim_rwb_job(rwb_job_id=job_id_2, worker_id="w1") is False  # lost — already cancelled
+    row_2 = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                        {"id": job_id_2}, connection="WORKBENCH")
+    assert row_2["status_code"] == "cancelled"
+
+
+# ── resubmit (CR-004a): ensure_pending_rwb_job is unchanged, same row reused ─
+
+def test_resubmit_via_ensure_pending_resets_same_row(iteration2_db):
+    # Regression check, not new behavior: CR-004a's Resubmit action calls
+    # ensure_pending_rwb_job as-is. This pins the exact contract the
+    # monitoring page depends on — same id, attempt_count incremented,
+    # error_detail cleared — so an accidental future change to that
+    # function is caught here, not discovered from the UI.
+    rid = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm")
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    before = execute_one(
+        "SELECT status_code, attempt_count, error_detail FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert before["status_code"] == "failed"
+    assert before["attempt_count"] == 0
+    assert before["error_detail"] == "boom"
+
+    resubmitted_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                            requestor_id=rid, rwb_job_type="upload_edm")
+    # Compared case-insensitively, not by exact string equality: confirmed
+    # directly against the real SQL Server tier that a uniqueidentifier
+    # round-trips with different letter casing than the lowercase string
+    # Python's uuid.uuid4() generated it as — same row, different casing.
+    # A plain "==" here would falsely fail on SQL Server despite being the
+    # same id (see test_ensure_pending_restamps_on_retry above for the
+    # pre-existing test that has this same latent risk, untested against
+    # SQL Server for this specific comparison).
+    assert str(resubmitted_id).lower() == str(job_id).lower()  # same row, not a new one
+
+    after = execute_one(
+        "SELECT status_code, attempt_count, error_detail, output_data, completed_at "
+        "FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 1
+    assert after["error_detail"] is None
+    assert after["output_data"] is None
+    assert after["completed_at"] is None
+
+    # No second row was created for this (requestor_type, requestor_id, rwb_job_type).
+    count = execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE requestor_type = 'analyst_request' "
+        "AND requestor_id = :rid AND rwb_job_type = 'upload_edm'",
+        {"rid": rid}, connection="WORKBENCH")
+    assert count == 1
