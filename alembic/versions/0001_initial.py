@@ -462,8 +462,9 @@ def upgrade() -> None:
         sa.Column("irp_app_analysis_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
         # Untruncated "portfolio + template" (+ rerun suffix) for own-executed rows
-        # (T-04); NULL for broker rows.
-        sa.Column("full_name", sa.NVARCHAR(256), nullable=True),
+        # (T-04); NULL for broker rows. 512 fits CRE_ + a 256-char portfolio name
+        # + _ + a 200-char template name — only `name` is truncated (to RM's 64).
+        sa.Column("full_name", sa.NVARCHAR(512), nullable=True),
         sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=True),
         # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
@@ -525,6 +526,17 @@ def upgrade() -> None:
         "uq_irp_analysis_live_edm_name", "irp_analysis", ["edm_id", "name"],
         unique=True, mssql_where=irp_analysis_live_edm_name,
         sqlite_where=irp_analysis_live_edm_name,
+    )
+    # The worker's resume key (spec 010, data-model §1): _submit_one reads it as a
+    # scalar subquery, which raises on a duplicate. uq_irp_analysis_live_edm_name
+    # does not prevent one — a rerun landing on a different _n suffix passes it.
+    # Filtered: all three columns are NULL for broker rows.
+    irp_analysis_execution_item = sa.text("execution_id IS NOT NULL")
+    op.create_index(
+        "uq_irp_analysis_execution_item", "irp_analysis",
+        ["execution_id", "irp_portfolio_id", "execution_item_no"],
+        unique=True, mssql_where=irp_analysis_execution_item,
+        sqlite_where=irp_analysis_execution_item,
     )
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -913,7 +925,9 @@ def upgrade() -> None:
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
         "('run_geohaz', 'Run GeoHaz', 28), "
+        "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
+        "('backfill_analysis_detail', 'Backfill Analysis Detail', 31), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "

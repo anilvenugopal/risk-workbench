@@ -150,6 +150,12 @@ ITERATION2_SCHEMA = [
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",
+    # The worker's resume key (spec 010) — _submit_one reads it as a scalar
+    # subquery, which raises on a duplicate. Filtered: all three columns are
+    # NULL for broker rows.
+    """CREATE UNIQUE INDEX uq_irp_analysis_execution_item
+        ON irp_analysis (execution_id, irp_portfolio_id, execution_item_no)
+        WHERE execution_id IS NOT NULL""",
 ]
 
 # ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
@@ -271,9 +277,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
                      ("run_geohaz", "Run GeoHaz", 28),
-                     ("execute_analysis_batch", "Execute Analysis Batch", 28),  # spec 010
-                     ("backfill_analysis_detail", "Backfill Analysis Detail", 29),  # spec 010
+                     ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
+                     ("backfill_analysis_detail", "Backfill Analysis Detail", 31),  # spec 010
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),

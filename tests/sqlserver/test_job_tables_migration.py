@@ -82,7 +82,8 @@ class TestJobTablesMigration:
         codes = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
         assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses",
-                "notify_analyst"} <= codes
+                "notify_analyst", "execute_analysis_batch",
+                "backfill_analysis_detail"} <= codes
         assert {"delete_edm", "delete_rdm"}.isdisjoint(codes)
 
     def test_irp_analysis_status_kind_seeds(self):
@@ -94,14 +95,25 @@ class TestJobTablesMigration:
         # spec 010: uq_irp_analysis_rdm_irp is now a FILTERED unique index (not a
         # key constraint) — a plain UNIQUE would treat own-analysis rows' shared
         # NULL rdm_id/irp_id as colliding (data-model §1). Backfill idempotency
-        # (§6a) plus the new rerun-collision index on (edm_id, name) (T-05).
-        for name in ("uq_irp_analysis_rdm_irp", "uq_irp_analysis_live_edm_name"):
+        # (§6a), the rerun-collision index on (edm_id, name) (T-05), and the
+        # worker's resume key (execution_id, irp_portfolio_id, execution_item_no).
+        for name in ("uq_irp_analysis_rdm_irp", "uq_irp_analysis_live_edm_name",
+                     "uq_irp_analysis_execution_item"):
             n = execute_scalar(
                 "SELECT COUNT(*) FROM sys.indexes "
                 "WHERE name = :n AND object_id = OBJECT_ID('dbo.irp_analysis') "
                 "AND is_unique = 1",
                 {"n": name}, connection="WORKBENCH")
             assert n == 1, name
+
+    def test_irp_analysis_full_name_holds_an_untruncated_name(self):
+        # CRE_ + a 256-char portfolio name + _ + a 200-char template name; only
+        # the submitted `name` is truncated (to Risk Modeler's 64).
+        n = execute_scalar(
+            "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_analysis' AND COLUMN_NAME = 'full_name'",
+            {}, connection="WORKBENCH")
+        assert n == 512
 
     def test_irp_analysis_origin_check_present(self):
         n = execute_scalar(
