@@ -40,7 +40,8 @@ submitted_settings  NVARCHAR(MAX)  NULL
   currency scheme and vintage exist nowhere else (they are chosen at submit
   time per suite, spec 009 P-11).
 - Written once at claim time and never updated: a template edited after the run
-  must not change what a finished analysis reports (Article 8).
+  must not change what a finished analysis reports (AGENTS.md architecture
+  rule 8 — approved plans are immutable).
 - No index: read via the row's PK on expansion.
 
 ## 2. `analysis_perspective_kind` — new kind table (T-06, Article 3)
@@ -104,8 +105,8 @@ Computed in `analysis_service` from existing columns:
 | Field | Source |
 |---|---|
 | origin (own / broker) | `rdm_id IS NULL` (existing §6 rule; no stored column) |
-| currency | `settings_metadata ->> 'currencyCode'` (T-05); NULL → `—` |
-| AAL (per selected perspective) | `loss_results` JSON |
+| currency | `currencyCode` from the parsed `settings_metadata` — Python, not SQL (T-05); NULL or absent → `—` |
+| AAL and standard deviation (per selected perspective) | `loss_results` JSON — AAL also feeds the merged table's AAL column; standard deviation renders only in the expanded row and on the dedicated page |
 | results state | `loss_results IS NOT NULL` → ready; else retrieval job row `failed` → failed + `error_detail`; else pending |
 | condensed / expanded extract | `loss_results` JSON filtered to the §4 sets |
 | Metadata group (engine version, analysis type, peril, subperil, framework, event rate scheme) | `settings_metadata` via `AnalysisSettings`, which gains a `framework` field — `_to_display` folds `analysisFramework` into `analysis_mode` today |

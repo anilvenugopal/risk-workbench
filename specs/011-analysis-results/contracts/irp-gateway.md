@@ -3,7 +3,7 @@
 Two new worker-only functions in `app/services/irp_gateway.py` (protocol +
 `_RealGateway` + module-level wrappers), mirrored in
 `tests/unit/fakes/fake_irp.py`. Signatures confirmed against the **active**
-wheel, irp-integration 0.6.0rc2 (`AnalysisManager`); re-confirm at
+wheel, irp-integration 0.6.2 (`AnalysisManager`); re-confirm at
 implementation — the wheel is pre-release and moves.
 
 ## `get_analysis_stats(*, analysis_id: int, perspective_code: str, exposure_resource_id: int) -> list[dict]`
@@ -27,11 +27,10 @@ capture `ep_curve_response`).
 
 - **Worker-only** (Article 11): callable from `retrieve_analysis_results`
   only; never from a route handler.
-- **T-02 prerequisite**: the wheel validates `perspective_code` against
-  `PERSPECTIVE_CODES = ['GR', 'GU', 'RL']` client-side and raises
-  `IRPValidationError` for WX/QS. irp-integration must widen the list before
-  the sandbox tier can pass; the gateway does not (and must not) bypass the
-  wheel.
+- **Perspective validation (T-02)**: the wheel checks `perspective_code`
+  against `PERSPECTIVE_CODES` client-side and raises `IRPValidationError` for
+  anything outside it. Since 0.6.2 that list is RM's full vocabulary, so all
+  five codes pass; the gateway does not (and must not) bypass the wheel.
 - The verbatim row lists are the gateway boundary; extraction into the
   [loss-results.md](loss-results.md) shape happens in the worker's pure
   builder, so response-shape knowledge stays in one testable place.

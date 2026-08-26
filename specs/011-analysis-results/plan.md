@@ -9,9 +9,7 @@
 ## Plan status
 
 **Ready for tasks:** Yes
-**Blocked by:** Nothing. One external prerequisite rides as a task: T-02's
-irp-integration change (widen `PERSPECTIVE_CODES`) must ship before the IRP
-sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
+**Blocked by:** Nothing.
 
 ## Design summary
 
@@ -44,11 +42,13 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
   once-per-RDM storage and EDM-copy dedup are automatic (US2).
 - Retrieval inputs: `analysis_id` = `irp_analysis.irp_id`;
   `exposure_resource_id` = `irp_portfolio.irp_id` for own rows, the stored
-  `exposure_resource_id` for broker rows, with one `get_analysis_by_id` re-read
-  when it is NULL (T-03 — closes spec O-02 by design).
-- Currency column reads `settings_metadata ->> 'currencyCode'` in the read
-  model — already captured at both backfills; no new column (T-05).
-- `analysis_service` read models gain currency, per-perspective AAL, results
+  `exposure_resource_id` for broker rows, with one `get_analysis_metadata`
+  re-read when it is NULL (T-03 — closes spec O-02 by design).
+- Currency column reads `currencyCode` out of the parsed `settings_metadata` in
+  the read model — already captured at both backfills; no new column, and no
+  JSON extraction in SQL (T-05).
+- `analysis_service` read models gain currency, per-perspective AAL and
+  standard deviation, results
   state (`pending` / `failed` + reason / `ready`), and the condensed extract;
   a new submission-scoped merged read lists own analyses across the
   submission's EDMs plus its RDM broker groups.
@@ -65,8 +65,9 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
 - Expanded row body is two flex columns that stack when narrow: on the left the
   source line then the **Metadata** and **Analysis settings** groups (O-11,
   FR-022); on the right the condensed results — both EP types × the 6 condensed
-  return periods with the perspective toggle in the row, no display toggle
-  (FR-011). Values wrap and carry `title` tooltips (FR-023).
+  return periods, then AAL and standard deviation as the last two rows, with the
+  perspective toggle in the row and no display toggle (FR-011). Values wrap and
+  carry `title` tooltips (FR-023).
 - Gathering what the expanded row reads (FR-022/FR-024/FR-025): `AnalysisSettings`
   gains `framework` — `_to_display` folds `analysisFramework` into
   `analysis_mode` today, so ELT and the mode compete for one slot;
@@ -84,10 +85,12 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
   millions default, FR-017) are Alpine/JS display slivers over `data-value`
   attributes — no server round trip, no recomputation of stored numbers
   (FR-018). The Submitted column is the third such sliver (T-10).
-- UI-first: both previews are approved —
-  `docs/ui_previews/results_ep_table.html` (EP table, reused by the dedicated
-  page) and `docs/ui_previews/merged_analyses_table.html` (merged table,
-  expanded row, results states, section summary line, empty states). **Both are
+- UI-first: `docs/ui_previews/merged_analyses_table.html` is approved (merged
+  table, expanded row, results states, section summary line, empty states).
+  `results_ep_table.html` is superseded — its Display and EP-type selectors, its
+  Millions/Full units selector, its three-perspective dropdowns and its ELT
+  metrics were all dropped on 8/25–8/26; the dedicated page gets its own preview
+  approved at the start of Phase 6. **An approved preview is
   guidance, not markup to paste.** Build against the real components and CSS —
   `.dtable` in `app/static/css/details.css`, the status chips, `btn-sm`, the
   section summary line — and extend those when the preview needs something they
@@ -99,23 +102,23 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
 |---|---|
 | Database | `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), nullable); new `analysis_perspective_kind` + 5 seeds; `rwb_job_requestor_type_kind` + `irp_analysis` seed. Alembic 0001 + seed_db + iteration1_mirror. |
 | Worker | New `retrieve_analysis_results` actor; chain enqueues in `backfill_analysis_detail` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
-| Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL, currency, condensed extract, and the submitted-settings read. |
+| Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL and standard deviation, currency, condensed extract, and the submitted-settings read. |
 | UI | Merged analyses partial on EDM detail + new submission Results section; two-column expanded row; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. Nothing outside the analyses sections is touched. |
-| Library | irp-integration: widen `PERSPECTIVE_CODES` (T-02). Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
+| Library | Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
 
 ## High-risk technical decisions
 
 | ID | Decision | Status | Detail |
 |---|---|---|---|
 | T-01 | Retrieval triggers are worker-side chains with queue-level dedup: own analyses chain from `backfill_analysis_detail`, broker from `backfill_rdm_analyses`; jobs keyed `(irp_analysis, analysis_id, retrieve_analysis_results)`; worker skips when `loss_results IS NOT NULL` | Approved | [research.md#R4](research.md#r4--retrieval-trigger-dedup-and-failure-handling-t-01) |
-| T-02 | The active wheel (0.6.0rc2) hard-rejects WX/QS client-side (`PERSPECTIVE_CODES = ['GR','GU','RL']`) — irp-integration must widen the list to the full RM perspective vocabulary; no app-side workaround exists (Article 11 forbids bypassing the wheel) | Approved | [research.md#R5](research.md#r5--the-wheel-rejects-wx-and-qs-t-02); filed as [irp-integration#28](https://github.com/premiumiq/irp-integration/issues/28) — the one external dependency of this iteration |
-| T-03 | `exposure_resource_id` for result calls: own rows use `irp_portfolio.irp_id` (the RM portfolioId the analysis ran against); broker rows use stored `exposure_resource_id`, one `get_analysis_by_id` re-read when NULL — closes spec O-02 by design; sandbox verifies | Approved | [research.md#R2](research.md#r2--broker-exposure-pointer-o-02) |
+| T-02 | All five perspectives are requested through the wheel, never around it (Article 11). irp-integration 0.6.2 validates `perspective_code` against the full RM vocabulary, so WX and QS pass client-side | Approved | [research.md#R5](research.md#r5--the-wheel-rejects-wx-and-qs-t-02) — the earlier `['GR','GU','RL']` list and the widening that closed it |
+| T-03 | `exposure_resource_id` for result calls: own rows use `irp_portfolio.irp_id` (the RM portfolioId the analysis ran against); broker rows use stored `exposure_resource_id`, one `get_analysis_metadata` re-read when NULL (the gateway function, which wraps the wheel's `get_analysis_by_id`) — closes spec O-02 by design; sandbox verifies | Approved | [research.md#R2](research.md#r2--broker-exposure-pointer-o-02) |
 | T-04 | `loss_results` is written whole, once, as one JSON document: all 5 perspective keys always present, unproduced perspectives explicitly `null`, `engine_type`/`engine_version` snapshotted (FR-021) | Approved | [contracts/loss-results.md](contracts/loss-results.md) |
-| T-05 | Currency comes from `settings_metadata.currencyCode` (documented field, captured at both backfills) — read-model extraction, no new column | Approved | [research.md#R6](research.md#r6--currency-and-engine-version-sources-t-05) |
+| T-05 | Currency comes from `settings_metadata.currencyCode` (documented field, captured at both backfills) — parsed in Python by the read model like every other `settings_metadata` field, never extracted in SQL; no new column | Approved | [research.md#R6](research.md#r6--currency-and-engine-version-sources-t-05) |
 | T-06 | Perspectives are a kind table (`analysis_perspective_kind`), not code constants — Article 3 default; worker request list and UI toggles read from it; Gross default = first sort_order | Approved | [data-model.md](data-model.md) |
 | T-07 | Dedicated page is one route (`/results/analyses`) under the `results` nav root; entity breadcrumbs are an `extra_crumbs` shell extension appended after the manifest chain; column order = `ids` param order | Approved | [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08); [contracts/routes.md](contracts/routes.md) |
 | T-08 | An unproduced perspective returns an empty list from `get_stats`/`get_ep` (treated as explicitly empty); any non-2xx is a retrieval failure | Assumed | Sandbox tier confirms; the worker's branch is one `if not rows` either way — [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08) |
-| T-09 | The expanded row's Analysis settings read a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the approved plan item it submits. Not the `analysis_template` row: templates are editable, so a later edit would misreport a finished run (Article 8). Not the `execute_analysis_batch` `input_data` either — a work order is not a display source, and the read would be a two-hop JSON index lookup per row | Approved | [data-model.md](data-model.md) §1b |
+| T-09 | The expanded row's Analysis settings read a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the approved plan item it submits. Not the `analysis_template` row: templates are editable, so a later edit would misreport a finished run (AGENTS.md architecture rule 8 — approved plans are immutable). Not the `execute_analysis_batch` `input_data` either — a work order is not a display source, and the read would be a two-hop JSON index lookup per row | Approved | [data-model.md](data-model.md) §1b |
 | T-10 | Submitted renders client-side: the server writes UTC into `<time datetime="…Z">` and a JS sliver formats it with `toLocaleString` (FR-024). The server has no way to know the reader's timezone, and the value is display-only | Approved | preview `docs/ui_previews/merged_analyses_table.html` |
 
 ---
@@ -126,9 +129,8 @@ sandbox tier can pass for WX/QS; app work proceeds against FakeIRP meanwhile.
      docs/PRD.md §3 (Technology stack & environment); architecture rules in
      .specify/memory/constitution.md. Do not restate either. -->
 
-**New dependencies**: None app-side. irp-integration needs one change
-(T-02, widen `PERSPECTIVE_CODES`) and a new build; source-switchable via
-`make irp-local` / `make irp-testpypi` during development.
+**New dependencies**: None. The active irp-integration build is 0.6.2
+(TestPyPI pin), which accepts every perspective this iteration requests.
 **Databases touched**: `rwb_workbench` only — the extract lives on
 `irp_analysis`; `rwb_exposure`/`rwb_loss`/DATABRIDGE untouched (results are
 REST-only; no Parquet this iteration).
@@ -143,11 +145,11 @@ violations**.
 Material interactions — where an article actively shapes this design:
 
 - **Article 11 (IRP result work behind an interface)**: `get_analysis_stats` /
-  `get_analysis_ep` / the `get_analysis_by_id` fallback run only in the
+  `get_analysis_ep` / the `get_analysis_metadata` fallback run only in the
   `retrieve_analysis_results` worker. Every results view reads
   `irp_analysis.loss_results`; no Risk Modeler call serves a page render
-  (spec non-negotiable 1). The wheel's perspective validation is why T-02 is a
-  wheel change, not an app bypass.
+  (spec non-negotiable 1). WX and QS reach RM through the wheel's own
+  perspective validation, never around it (T-02).
 - **Article 5 (mechanical follow-up auto-fires)**: retrieval is the mechanical
   consequence of "run finished" / "RDM imported" — enqueued by the backfill
   workers with no analyst click. Viewing N-up is the judgment step and waits
@@ -232,13 +234,13 @@ No constitution violations to justify.
   `purePremium`/`totalStdDev`; EP epType filtering incl. TCE-drop; 11-point
   lookup; empty perspective → explicit null); worker idempotency
   (`loss_results` set → skip; enqueue dedup on re-fired triggers); chain
-  enqueues from both backfills; read models (currency, per-perspective AAL,
-  results state incl. failed-with-reason join); routes render merged table,
+  enqueues from both backfills; read models (currency, per-perspective AAL and
+  standard deviation, results state incl. failed-with-reason join); routes render merged table,
   inline condensed block, results-pending, and the dedicated page with ids
   ordering and perspective param. FakeIRP gains stats/EP fixtures.
 - **SQL Server integration**: migration + seeds land (`loss_results`,
   `analysis_perspective_kind`, requestor kind row); retrieval enqueue dedup
   under the real UNIQUE key; extract write/read round-trip on NVARCHAR(MAX).
-- **IRP sandbox**: one own analysis end-to-end — all five perspectives after
-  the T-02 wheel change (WX/QS acceptance), the T-08 empty-perspective shape,
+- **IRP sandbox**: one own analysis end-to-end — all five perspectives
+  (RM's own WX/QS acceptance, T-02), the T-08 empty-perspective shape,
   and the broker pointer (T-03/O-02) against an RDM-imported analysis.

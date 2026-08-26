@@ -126,6 +126,35 @@ h1,h2,h3{margin:0}
 <div class="wrap">
 
   <div class="hero">Analysis Results — EP table</div>
+
+  <div style="margin:var(--space-4) 0;padding:var(--space-4);border:2px solid var(--color-danger-border);
+              background:var(--color-danger-bg);border-radius:var(--radius-md)">
+    <div style="font-weight:600;color:var(--color-danger);margin-bottom:var(--space-2)">
+      SUPERSEDED 2026-08-26 — do not build from this preview
+    </div>
+    <p style="margin:0 0 var(--space-2)">
+      Approved 2026-08-25, then contradicted by the 8/25–8/26 decisions in
+      <code>specs/011-analysis-results/spec.md</code>. Five things below are wrong:
+    </p>
+    <ul style="margin:0 0 var(--space-2);padding-left:1.4em">
+      <li>The <strong>Display</strong> selector, including <strong>AAL only</strong> — dropped (FR-010, FR-011).
+          There is no condensed/expanded toggle: the expanded row is always condensed, the dedicated page always expanded.</li>
+      <li>The <strong>EP type</strong> selector serving one type at a time — OEP and AEP now render together (FR-011, FR-015).</li>
+      <li>The <strong>Values</strong> selector reading Millions/Full — it is ones/thousands/millions, millions default,
+          and it exists only on the dedicated page (FR-017, O-12).</li>
+      <li>Perspective dropdowns listing three codes — there are five: GR, RL, WX, QS, GU (O-07).</li>
+      <li><strong>Std dev</strong> sits in the settings grid beside <strong>Max event loss</strong> and
+          <strong>ELT records</strong>. Those two are out of scope (no ELT retention), and standard deviation belongs
+          with AAL at the foot of the EP table — as
+          <a href="merged_analyses_table.html">merged_analyses_table.html</a> draws it.</li>
+    </ul>
+    <p style="margin:0">
+      For the expanded analysis row, build from <a href="merged_analyses_table.html">merged_analyses_table.html</a>
+      (approved 2026-08-26). For the dedicated results page, a fresh preview gets cut and approved when Phase 6
+      starts; until then this file is history, kept for the Excel-derived table shape it came from.
+    </p>
+  </div>
+
   <div class="sub">
     Layout adapted from the users' “CRe Loss Output Example.xlsx” (2026-08-21, O-08). Return periods as rows,
     AAL as the bottom row, one column per analysis. Placement: the multi-analysis pivot lives on the

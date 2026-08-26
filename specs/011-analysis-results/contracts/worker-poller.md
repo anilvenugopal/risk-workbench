@@ -51,7 +51,9 @@ Body, in order:
 4. Build the extract ([loss-results.md](loss-results.md)) — pure function,
    unit-tested against the captured fixtures — and write it with one UPDATE
    (`loss_results`, `updated_at`).
-5. `ok(perspectives_with_data=n)`.
+5. `ok(perspectives_with_data=n, stats_rows={code: len(rows)})` — the stats row
+   count per perspective, so a response carrying more than one row is visible in
+   `rwb_job.output_data` (contracts/loss-results.md).
 
 Failure semantics (O-06 / spec 010 P-14): the rwb_job row ends `failed` with
 `error_detail`; `irp_analysis.status_code` and the FINISHED run status are

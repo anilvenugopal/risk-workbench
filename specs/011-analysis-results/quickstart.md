@@ -2,8 +2,7 @@
 
 Prerequisites: the Docker stack up (`make dev-up`, developer-run), DB rebuilt
 after the schema edits (`make db-rebuild` — destructive, developer's call),
-and for live retrieval an irp-integration build carrying the T-02
-`PERSPECTIVE_CODES` widening (`make irp-status` to confirm the source).
+and irp-integration 0.6.2 or newer for live retrieval (`make irp-status`).
 
 ## Test tiers
 
@@ -17,23 +16,29 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 
 1. From an EDM with portfolios, Execute Template (spec 010) and wait for
    FINISHED (~minutes, 3s self-poll).
-2. Expect, with **no further action**: the row's Currency and AAL columns fill
-   in (≤10 min, SC-001). Until then the row shows results-pending.
-3. Expand the row. Left: the source line, then Metadata (engine version,
+2. Expand the row. Expect, with **no further action** in between, the loss
+   numbers already there (≤10 min from FINISHED, SC-001) — expanding is the only
+   click, and nothing on the page asked for a retrieval. Until they arrive the
+   expansion reads results-pending. (The Currency and AAL *columns* come with the
+   merged table in US3; the collapsed row is unchanged in US1.)
+3. In the expansion — left: the source line, then Metadata (engine version,
    analysis type, peril, subperil, framework, event rate scheme, analysis
    template) and Analysis settings (currency code/scheme/vintage, min loss
    threshold, franchise deductible, unrecognized construction and occupancy) —
    the settings match what the run was submitted with, and editing the template
-   afterwards does not change them. Right: OEP + AEP at
-   50/100/250/500/1000/10000 with the perspective toggle GR/RL/WX/QS/GU, Gross
-   default; a perspective the analysis did not produce shows as absent, not as
-   an error.
+   afterwards does not change them. Four fields today's expansion shows are
+   gone by decision (O-11): Construction, Line of business, Term, Loss
+   amplification (PLA). Engine type and Region are not gone — they read from the
+   merged table's Engine and Region columns. Right: OEP + AEP at
+   50/100/250/500/1000/10000, then AAL and Std dev, with the perspective toggle
+   GR/RL/WX/QS/GU, Gross default; a perspective the analysis did not produce
+   shows as absent, not as an error.
 4. Narrow the window until the two columns stack, and check that a long event
    rate scheme name wraps instead of clipping (FR-023).
 5. Failure path: point the sandbox creds at an invalid tenant (or kill the
    worker mid-retrieval and let the reconciler reclaim) — the analysis stays
    FINISHED/ready, the retrieval `rwb_job` ends `failed` with `error_detail`,
-   and the row keeps showing results-pending with the reason (SC-005).
+   and the expansion keeps showing results-pending with the reason (SC-005).
 6. Re-trigger check: re-run the RDM sync / re-fire the backfill — no second
    retrieval job, no changed `loss_results` (FR-006):
    `SELECT COUNT(*) FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results' AND requestor_id='<analysis-id>'` → 1.
@@ -42,8 +47,9 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 
 1. Import a broker RDM (or bundle) into a submission.
 2. Expect: after `backfill_rdm_analyses` completes, one
-   `retrieve_analysis_results` job per broker analysis, then AAL/currency on
-   every broker row — zero clicks.
+   `retrieve_analysis_results` job per broker analysis, then the same loss
+   numbers in every broker row's expansion — no click but the expand itself.
+   (AAL and currency as *columns* arrive with the merged table in US3.)
 3. Import a second EDM copy of the same RDM: no new retrieval jobs, identical
    numbers on both copies (SC-002) —
    `SELECT rdm_id, irp_id, loss_results FROM irp_analysis WHERE rdm_id='<rdm>'`
@@ -59,10 +65,14 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    prefix, no RDM), broker rows under expandable RDM group rows. Columns read
    Analysis · Type · Peril · Region · Engine · Currency · AAL · Status ·
    Submitted · Risk Modeler, with no perspective and no units control on the
-   table.
+   table. The Currency and AAL columns now carry the numbers US1 and US2 put in
+   the expansions — Gross, in millions — and read `retrieving…` /
+   `retrieval failed` / `—` for the other three results states.
 2. Open the submission detail: the new Results section lists the same merged
    shape across all the submission's EDMs and RDMs, with an EDM column after
-   Analysis.
+   Analysis. Add up the analyses listed on each of the submission's EDM detail
+   pages and expand every RDM group here: the Results section lists all of them,
+   with no cap, no pagination and no "showing N of M" (SC-004).
 3. Submitted reads in your own timezone with seconds and AM/PM; change the
    machine's timezone and reload to confirm it follows (FR-024).
 4. Nothing outside the analyses sections changed on either page.
@@ -72,7 +82,8 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 
 1. Multi-select 3–5 analyses (mix own + broker) on either page → **View**.
 2. Expect: new browser tab, URL `/results/analyses?ids=…`, one column per
-   analysis in selection order, all 11 return periods, both EP types; the tab
+   analysis in selection order, all 11 return periods, both EP types, and AAL +
+   Std dev as the last two rows; the tab
    title is the submission/EDM name; breadcrumbs = submission (+ EDM when
    entered from the EDM page) and link back; selections in the originating
    tab are cleared.

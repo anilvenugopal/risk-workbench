@@ -27,8 +27,8 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
   T-10).
 - Row expansion is two columns (FR-011/FR-022): left the source line and the
   Metadata and Analysis settings groups (O-11), right OEP and AEP at
-  50/100/250/500/1000/10000 with the perspective toggle in the row and no
-  display toggle.
+  50/100/250/500/1000/10000 followed by AAL and standard deviation as the last
+  two rows, with the perspective toggle in the row and no display toggle.
 - Section summary line: status filter, **Copy table**, **Delete**, **View**.
   View is a `target="_blank"` GET form to the dedicated page with the checked
   ids in check order; after submit the checkboxes reset (O-10). Delete disables
@@ -56,7 +56,8 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 - `ids` order = column order (FR-016); reorder controls rewrite the param and
   re-request. No hard count limit — past ~10 columns the table scrolls
   horizontally in its `overflow-x` shell (FR-015 / O-09).
-- Expanded return periods (all 11), both EP types, one column per analysis;
+- Expanded return periods (all 11), both EP types, then AAL and standard
+  deviation as the last two rows, one column per analysis;
   per-analysis header shows name, currency, and results state
   (pending/failed rows render as a pending column, never dropped — FR-008).
 - `perspective` re-renders over HTMX, screen-wide (FR-012). Units selector

@@ -71,7 +71,7 @@ Assessment (2026-08-25): low risk — solvable with business logic if the captur
 ### Decision (T-03, 2026-08-25)
 
 - **Own rows**: pass `irp_portfolio.irp_id` — the RM portfolioId the analysis was submitted against. The wheel's own docstring defines the parameter as "portfolio ID from analysis", and the live stats capture echoes `exposureResourceId: 8` with `exposureResourceType: PORTFOLIO` — the portfolio id. The `irp_analysis.exposure_resource_id` column is NOT used for own rows: spec 010's backfill stores the submit-time `resource_uri` (a URI string) there, not a numeric id.
-- **Broker rows**: pass the stored `irp_analysis.exposure_resource_id` — numeric, promoted at RDM backfill from RM's own `search_analyses`/`get_analysis_by_id` response for that analysis (spec 004 R9, PORTFOLIO type only). When it is NULL (metadata read failed at backfill, or non-PORTFOLIO exposure), the retrieval worker does one `get_analysis_by_id(irp_id)` re-read and uses its pointer; still NULL after that → retrieval failure with reason.
+- **Broker rows**: pass the stored `irp_analysis.exposure_resource_id` — numeric, promoted at RDM backfill from RM's own `search_analyses`/`get_analysis_by_id` response for that analysis (spec 004 R9, PORTFOLIO type only). When it is NULL (metadata read failed at backfill, or non-PORTFOLIO exposure), the retrieval worker does one `get_analysis_metadata(analysis_id=irp_id)` re-read through the gateway (Article 11) and uses its pointer; still NULL after that → retrieval failure with reason.
 
 Why this closes O-02: the pointer handed to the result endpoints is the one RM itself reports for the analysis, not a workbench guess — the "will RM accept it" question reduces to "does RM accept its own identifier", verified in the IRP-sandbox tier rather than a separate spike.
 
@@ -100,16 +100,18 @@ PERSPECTIVE_CODES = ['GR', 'GU', 'RL']   # irp_integration.constants
 
 `AnalysisManager.get_stats` / `get_ep` / `get_elt` / `get_plt` all call `_validate_perspective_code`, which raises `IRPValidationError` for any other code **client-side, before any HTTP request**. Spec O-07's approved set is GR, RL, WX, QS, GU — so WX and QS cannot be fetched with the current wheel, and Article 11 forbids going around it (no raw RM calls from app code).
 
-**Decision:** widen `PERSPECTIVE_CODES` in irp-integration to the full Risk Modeler perspective-code list (Ben supplies the authoritative codes; WX and QS are the two this iteration needs) and cut a new build — filed as [irp-integration#28](https://github.com/premiumiq/irp-integration/issues/28) (2026-08-26). The workbench takes no pin change beyond the usual source switch (`make irp-local` while developing, TestPyPI build to verify). App-side work proceeds against FakeIRP, which accepts all five codes from day one; the IRP-sandbox tier is the proof that RM itself serves WX/QS.
+**Decision:** widen `PERSPECTIVE_CODES` in irp-integration to the full Risk Modeler perspective-code list rather than bypass the wheel — filed as [irp-integration#28](https://github.com/premiumiq/irp-integration/issues/28) (2026-08-26).
 
-Risk: if RM turns out to reject WX/QS server-side (they are CIC's requested codes, so unlikely but unproven), those perspectives come back as failures, not empties — the sandbox run settles it before US1 ships.
+**Closed 2026-08-26:** irp-integration 0.6.2 (the TestPyPI pin in `pyproject.toml`, installed and checked) ships all 64 RM perspective codes, WX and QS among them. The workbench takes no pin change beyond the usual source switch. The IRP-sandbox tier remains the proof that RM itself serves WX/QS.
+
+Open risk: if RM rejects WX/QS server-side (they are CIC's requested codes, so unlikely but unproven), those perspectives come back as failures, not empties — the sandbox run settles it before US1 ships.
 
 ## R6 — Currency and engine-version sources (T-05, FR-021)
 
 From `docs/IRP_INTEGRATION_FOLLOWUPS.md` (documented `search_analyses` / `get_analysis_by_id` response fields, confidence 0.99): the analysis metadata payload carries `currencyCode`, `currencyName`, `engineType`, `engineVersion`, `engineSubTypeCode`.
 
 - **Currency (FR-010)**: both origins already store this payload verbatim in `irp_analysis.settings_metadata` — own rows at `backfill_analysis_detail`, broker rows at `backfill_rdm_analyses` (spec 004). The merged table's Currency column is read-model extraction of `currencyCode`; no new column, no new capture. A NULL `settings_metadata` (failed metadata read) renders as `—`, the existing graceful-blank rule.
-- **Engine/model version (FR-021)**: the retrieval worker snapshots `engineType` + `engineVersion` out of the same payload into the `loss_results` extract, so the stored result records what produced it even if the analysis row's snapshot is later refreshed. When `settings_metadata` is NULL at retrieval time, the T-03 `get_analysis_by_id` re-read supplies the same fields.
+- **Engine/model version (FR-021)**: the retrieval worker snapshots `engineType` + `engineVersion` out of the same payload into the `loss_results` extract, so the stored result records what produced it even if the analysis row's snapshot is later refreshed. When `settings_metadata` is NULL at retrieval time, the T-03 `get_analysis_metadata` re-read supplies the same fields.
 
 ## R7 — Dedicated page route, breadcrumbs, and controls (T-07, T-08)
 
@@ -145,7 +147,7 @@ Where the fields come from:
 
 **T-09 — where the Analysis settings values are read from.** Chosen: a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the plan item it is about to submit.
 
-- Rejected: **read `analysis_template` through `analysis_template_id`.** Templates are editable. A template edited after a run would silently change what a finished analysis reports it ran with — the failure Article 8 exists to prevent. It also cannot supply currency scheme and vintage, which are chosen per suite at submit time (spec 009 P-11) and live on no template.
+- Rejected: **read `analysis_template` through `analysis_template_id`.** Templates are editable. A template edited after a run would silently change what a finished analysis reports it ran with — the failure AGENTS.md architecture rule 8 (approved plans are immutable) exists to prevent. It also cannot supply currency scheme and vintage, which are chosen per suite at submit time (spec 009 P-11) and live on no template.
 - Rejected: **read the `execute_analysis_batch` job's `input_data`.** The values are there, keyed by the analysis row's `execution_id` + `execution_item_no`, so it is correct — but a work order is not a display source, and every expanded row would cost a two-hop JSON index lookup into a queue table.
 
 **T-10 — Submitted renders client-side.** The server writes UTC into `<time datetime="…Z">`; a JS sliver formats it with `toLocaleString` to date, time to the second, and AM/PM in the reader's zone (FR-024), and sets the cell's `title` to the full value. The server has no way to know the reader's timezone, and nothing downstream reads the formatted string. The column is 180px so a two-digit hour does not clip.

@@ -40,8 +40,20 @@ Rules:
   the EP curve response (`value.returnPeriods` / `value.positionValues`).
 - **EP types**: `oep` from the `epType == "OEP"` element, `aep` from
   `"AEP"`; `TCE-OEP` / `TCE-AEP` elements are discarded (spec O-04).
-- **`aal`** = stats `purePremium`; **`std_dev`** = stats `totalStdDev`
-  (capture: `ep_stats-aal_response`).
+- **`aal`** = stats `purePremium`; **`std_dev`** = stats `totalStdDev`, both from
+  the stats row whose `epType` is `OEP`. No such row → both are `null` and the
+  perspective reads as explicitly empty (FR-004), the same as an empty response.
+  The `OEP` match is named rather than positional because `purePremium` is the
+  same mean annual loss in any row while `totalStdDev` describes the loss
+  distribution, which differs between occurrence and aggregate — reading
+  whichever row came first would change the standard deviation and leave AAL
+  looking correct.
+  Every capture so far (`ep_stats-aal_response`) is a single-element array with
+  `epType: "OEP"`. A response carrying more than one stats row is **unobserved
+  and undecided**: the worker takes the `OEP` row and nothing else, and the
+  job's `output_data` records how many stats rows arrived (T011) so the first
+  real occurrence is a queryable fact in `rwb_job` instead of an assumption
+  made here.
 - **`engine_type` / `engine_version`** come from the analysis metadata payload
   (`settings_metadata`, or the T-03 re-read when that is NULL); absent fields
   are stored as `null`, never omitted.
