@@ -45,6 +45,8 @@
 | T-11 | Worker start/stop scripts: extend the existing `nohup`+PID-file shape (dev's `start-all.sh`/`stop-all.sh`, RHEL9's `rhel9-start.sh`/`rhel9-stop.sh`) to loop per queue now. Systemd units for the worker (or for all four RHEL9 processes together) are separate, later work — not built by this feature. | Approved | `docs/CR/CR_04_DEV_PLAN.md` Decision A, option 1; owner sign-off 2026-08-25 |
 | T-12 | `rhel9-ssh-deploy.sh` does not itself stop or start any process today (confirmed by reading the script — its final message states worker/poller restart is still manual); the new drain-check step assumes an operator has already stopped the worker processes before running the deploy | Assumed | `docs/CR/CR_04_DEV_PLAN.md` §8 |
 | T-13 | `Makefile`'s `logs-worker` target tails one fixed `worker.log`; changed to require `QUEUE=<name>` and tail `worker-<queue>.log`, rather than a multi-file tail | Approved | `research.md#R2` |
+| T-14 | The repo grew 7 more Dramatiq actors since this feature was scoped (`portfolio_jobs.py`'s 5 breakout actors, `geohaz_jobs.py`'s `run_geohaz`, `metadata_jobs.py`'s `sync_irp_metadata`) — discovered live during T001/T002 implementation via `python -m app.workers.queues`. All 11 actors converted to `@rwb_actor`, not just the original 4, so no actor is left sharing the un-isolated `"default"` queue. | Approved | Owner sign-off 2026-08-25 (conversation record) |
+| T-15 | `wsl-worker` (Makefile target, native WSL2 one-process-per-terminal dev path) was a third, previously-missed place starting the worker with no queue split — not covered by the original T004–T009 script list. Changed to require `QUEUE=<name>`, matching `wsl-app`/`wsl-poller`'s existing pattern. | Approved | Owner sign-off 2026-08-25 (conversation record) |
 
 ---
 
@@ -65,7 +67,7 @@ Material interactions — where an article actively shapes this design:
 - **Article 4 (Status Is Event-Sourced Where It Earns It)**: `rwb_job.status_code` is explicitly listed as plain in-place update, not event-sourced (only `submission.status_code` is event-sourced). Cancel and resubmit both use plain `UPDATE`s, consistent with that.
 - **Article 7 (One Data-Access Package)**: `cancel_rwb_job` and the monitoring page's reads go through `db.execute`/`execute_command`, the same safe bound-parameter path every other `rwb_job_service.py` function already uses. No trusted-script path involved.
 - **Article 8 (Server-Rendered; No SPA)**: the monitoring page is a FastAPI + Jinja route with HTMX for the Cancel/Resubmit actions (partial row swap on success), not a client-side app. Needs a rendered HTML preview and approval before the template is built, per the UI workflow.
-- **Article 10 (The SQL Table Is the Queue) — amended by this feature.** Current text says "single worker by default." This feature is the change that exercises the documented "concurrency-safe claim query" upgrade path and makes per-queue concurrency the new default text (CR-004 §5.4 has the exact replacement wording). The claim query itself is not modified — only the article's description of the default worker topology changes, from "one worker" to "one worker per queue."
+- **Article 10 (The SQL Table Is the Queue) — amended by this feature (T012, done).** Retitled "Concurrency Is Per-Queue, Not Per-Row"; the "single worker by default" text is replaced with per-queue concurrency as the default, per CR-004 §5.4. This is a MAJOR version bump (`3.2.0 → 4.0.0`), not the MINOR the CR doc assumed — the constitution's own precedent scores an article's title/core-rule redefinition as MAJOR (matching CR-002/CR-003), reserving MINOR for a carve-out added alongside an otherwise-unchanged rule. The claim query itself is not modified — only the article's description of the default worker topology changes, from "one worker" to "one worker per queue."
 - **Article 11 (IRP Polling and Result Work Behind an Interface)**: unaffected. This feature does not touch `irp_gateway`, the poller, or any IRP submission path — it only changes how `rwb_job` rows are dispatched to worker processes.
 - **Article 12 (Test-First)**: the `rwb_job` claim/heartbeat/reconciler state machine is explicitly a required-test item; this feature adds `cancel_rwb_job` as a new state transition on the same state machine and extends the unit-tier tests accordingly (see Testing below). No SQL-Server-tier or IRP-tier test is added or changed.
 
@@ -73,7 +75,10 @@ Material interactions — where an article actively shapes this design:
 
 ```text
 app/workers/queues.py              # new — rwb_actor, queue_names(), CLI entry point
-app/workers/entity_jobs.py         # @dramatiq.actor -> @rwb_actor on all four actors
+app/workers/entity_jobs.py         # @dramatiq.actor -> @rwb_actor (4 actors)
+app/workers/portfolio_jobs.py      # @dramatiq.actor -> @rwb_actor (5 breakout actors; time_limit kwarg preserved)
+app/workers/geohaz_jobs.py         # @dramatiq.actor -> @rwb_actor (run_geohaz)
+app/workers/metadata_jobs.py       # @dramatiq.actor -> @rwb_actor (sync_irp_metadata)
 app/workers/loader.py              # no functional change; test lives alongside discover_jobs()
 app/services/rwb_job_service.py    # new: cancel_rwb_job()
 app/routers/shell.py               # replace the workflows_rwb_jobs stub handler with the real GET/POST cancel/POST resubmit routes
@@ -82,12 +87,17 @@ alembic/versions/                  # new migration: add 'cancelled' to rwb_job_s
 infra/scripts/start-all.sh         # loop over `python -m app.workers.queues`, one dramatiq process per queue
 infra/scripts/stop-all.sh          # loop over the same list
 infra/scripts/rhel9/rhel9-start.sh # same per-queue loop, RHEL9 nohup style
-infra/scripts/rhel9/rhel9-stop.sh  # same per-queue loop
+infra/scripts/rhel9/rhel9-stop.sh  # same per-queue loop; now requires APP_DIR (didn't before)
+infra/scripts/rhel9/rhel9-worker-health.sh # new — RHEL9 equivalent of wsl-worker-health.sh
 infra/scripts/rhel9/rhel9-drain-check.sh   # new
 infra/scripts/rhel9/rhel9-ssh-deploy.sh    # add drain-check step before install/migrate
+infra/scripts/wsl-worker-health.sh # new — repeatable live/dead check per queue (PID-file + process-scan), added during T004/T005 verification
 infra/.env.example                 # comment: RWB_WORKER_PROCESSES/THREADS now apply per queue
-Makefile                           # logs-worker target shape (pending T-13)
-docs/RHEL9_DEPLOYMENT.md           # remove two resolved open items
+Makefile                           # logs-worker target shape (pending T-13); wsl-worker requires QUEUE=; new wsl-worker-list, wsl-worker-health
+docs/RHEL9/RHEL9_QUICKSTART.md     # APP_DIR now required for rhel9-stop.sh; multi-queue start/stop description; rhel9-worker-health.sh, rhel9-logs-worker.sh, rhel9-logs-poller.sh usage
+infra/scripts/rhel9/rhel9-logs-worker.sh   # new — RHEL9 equivalent of `make logs-worker QUEUE=`
+infra/scripts/rhel9/rhel9-logs-poller.sh   # new — RHEL9 equivalent of `make logs-poller`
+docs/RHEL9/RHEL9_DEPLOYMENT.md     # worker isolation marked done; drain-check and systemd items stay open
 docs/SCAFFOLDING.md                # "same five processes" line no longer holds
 .specify/memory/constitution.md    # Article 10 replacement text (CR-004 §5.4)
 tests/unit/test_rwb_job_queue.py   # extend: queue_name == actor_name; queue_names() contents; cancel_rwb_job

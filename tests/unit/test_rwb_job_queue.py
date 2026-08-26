@@ -275,3 +275,55 @@ def test_reconciler_preserves_original_chain(iteration2_db):
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated → stale
     assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
     assert _correlation_of(job_id) == "chain-1"
+
+
+# ── per-queue worker isolation (CR-004): queue_name derivation ───────────────────
+#
+# No database fixture — these only check Dramatiq's in-memory actor registry
+# after app.workers.loader.discover_jobs() runs. No Redis command is sent:
+# RedisBroker(url=...) only constructs a lazy redis.Redis client at import time
+# (app.workers.broker), and discover_jobs()'s importlib.import_module calls are
+# no-ops against an already-imported module, so calling it more than once in one
+# test process never re-registers (and never raises "already registered" on) an
+# actor.
+
+_EXPECTED_QUEUE_NAMES = [
+    "backfill_edm_detail",
+    "backfill_rdm_analyses",
+    "run_breakout_country",
+    "run_breakout_custom",
+    "run_breakout_lob",
+    "run_breakout_peril",
+    "run_breakout_state",
+    "run_geohaz",
+    "sync_irp_metadata",
+    "upload_edm",
+    "upload_rdm",
+]
+
+
+def test_every_actor_queue_name_matches_actor_name():
+    # Catches a future actor declared with a raw @dramatiq.actor instead of
+    # @app.workers.queues.rwb_actor, in ANY *_jobs.py module — not just the
+    # ones this feature was originally scoped around.
+    import dramatiq
+
+    from app.workers import loader
+
+    loader.discover_jobs()
+    for name, actor in dramatiq.get_broker().actors.items():
+        assert actor.queue_name == name, (
+            f"actor {name!r} has queue_name {actor.queue_name!r} — "
+            "every actor must use @rwb_actor, never a raw @dramatiq.actor"
+        )
+
+
+def test_queue_names_returns_current_actors():
+    # Exact list, not membership-only: a real job type silently disappearing
+    # from the queue list must fail this test, not just an unexpected new one
+    # appearing. Update _EXPECTED_QUEUE_NAMES when a job type is intentionally
+    # added or removed — that one-line update is the cost of catching a
+    # silent drop immediately instead of only in production.
+    from app.workers.queues import queue_names
+
+    assert queue_names() == _EXPECTED_QUEUE_NAMES

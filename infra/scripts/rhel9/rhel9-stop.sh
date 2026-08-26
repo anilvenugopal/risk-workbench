@@ -18,7 +18,14 @@ set -uo pipefail
 # script should attempt to stop every service and report on all of them,
 # not halt after the first one that has a problem.
 
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
 PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
+
+# Needed so `.venv/bin/python -m app.workers.queues` (per-queue stop loop
+# below) resolves both the venv binary and the `app` package by relative
+# path — this script previously only read PID files by absolute path and
+# never needed a working directory.
+cd "$APP_DIR"
 
 # Checks whether a systemd unit of this name exists AND has a restart
 # policy that isn't "no" — if so, a plain kill/shutdown command would be
@@ -90,7 +97,9 @@ stop_and_verify() {
 
 echo "=== Stopping Risk Workbench processes on RHEL9 ==="
 stop_and_verify uvicorn 8000
-stop_and_verify worker ""
+while read -r queue; do
+    stop_and_verify "worker-$queue" ""
+done < <(.venv/bin/python -m app.workers.queues)
 stop_and_verify poller ""
 
 echo ""

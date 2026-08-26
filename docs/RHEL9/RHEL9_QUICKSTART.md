@@ -154,13 +154,44 @@ already on disk. Must be run from inside `/opt/risk-workbench`.
 ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
     "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-start.sh"
 ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
-    "bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-stop.sh"
+    "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-stop.sh"
 ```
 
-Starts/stops Valkey, uvicorn, the Dramatiq worker, and the poller.
+Starts/stops Valkey, uvicorn, one Dramatiq worker process per queue (one per
+`rwb_job_type` — CR-004; each queue gets its own PID file
+`worker-<queue>.pid` and log `worker-<queue>.log`), and the poller.
 Refuses to start if a port is already occupied; verifies ports are free
 after stopping. nginx is left alone (managed separately via `systemctl`
 and the deploy script's reload step).
+
+`rhel9-stop.sh` now requires `APP_DIR` (it didn't before this feature) —
+stopping the per-queue workers means running `.venv/bin/python -m
+app.workers.queues` to get the current queue list, which needs to resolve
+both the venv and the `app` package from the checkout.
+
+Check worker health at any point (before/after start or stop) with:
+
+```bash
+ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47 \
+    "APP_DIR=/opt/risk-workbench bash /opt/risk-workbench/infra/scripts/rhel9/rhel9-worker-health.sh"
+```
+
+Lists every queue with its PID-file status and an independent process-scan
+status side by side — useful to confirm a start actually brought up all
+queues, or a stop actually took all of them down, rather than assuming from
+the start/stop script's own output alone.
+
+Tail one queue's worker log or the poller log directly on the host (no
+Makefile on RHEL9 — plain scripts, same as `rhel9-start.sh`/`rhel9-stop.sh`):
+
+```bash
+APP_DIR=/opt/risk-workbench bash infra/scripts/rhel9/rhel9-logs-worker.sh upload_edm
+bash infra/scripts/rhel9/rhel9-logs-poller.sh
+```
+
+Run `rhel9-logs-worker.sh` with no queue name to list the available queues.
+Both scripts report a clear error (not a raw `tail` failure) if the log file
+doesn't exist yet — usually meaning that worker/the poller isn't running.
 
 ## 9. (Optional, WSL2-only) Start/stop the local SQL Server container
 

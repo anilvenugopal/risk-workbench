@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import asdict
 
-import dramatiq
 from sqlalchemy import text
 
 from app.services import irp_gateway
 from app.services._common import _utcnow
 from app.workers import broker, runtime
+from app.workers.queues import rwb_actor
 from db import get_connection
 
 _ = broker.redis_broker
@@ -140,7 +140,7 @@ def _sync_irp_metadata_body() -> runtime.JobResult:
     )
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def sync_irp_metadata(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
                     body=_sync_irp_metadata_body)
