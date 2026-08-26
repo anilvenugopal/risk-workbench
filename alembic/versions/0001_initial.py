@@ -881,7 +881,8 @@ def upgrade() -> None:
         "('pending', 'Pending', 10), "
         "('running', 'Running', 20), "
         "('succeeded', 'Succeeded', 30), "
-        "('failed', 'Failed', 40)"
+        "('failed', 'Failed', 40), "
+        "('cancelled', 'Cancelled', 50)"
     ))
     # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
     op.execute(sa.text(

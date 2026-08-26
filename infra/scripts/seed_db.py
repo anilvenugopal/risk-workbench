@@ -170,7 +170,8 @@ def main() -> int:
                     ('pending',   'Pending',   10),
                     ('running',   'Running',   20),
                     ('succeeded', 'Succeeded', 30),
-                    ('failed',    'Failed',    40)
+                    ('failed',    'Failed',    40),
+                    ('cancelled', 'Cancelled', 50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

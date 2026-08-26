@@ -443,3 +443,89 @@ def test_resubmit_via_ensure_pending_resets_same_row(iteration2_db):
         "AND requestor_id = :rid AND rwb_job_type = 'upload_edm'",
         {"rid": rid}, connection="WORKBENCH")
     assert count == 1
+
+
+# ── monitoring page reads and by-id resubmit (CR-004a) ───────────────────────
+
+def test_list_rwb_jobs_for_monitoring_returns_all_types_and_fields(iteration2_db):
+    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
+
+    wait_id = enqueue_rwb_job(requestor_type="analyst_request",
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    fail_id = enqueue_rwb_job(requestor_type="analyst_request",
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_rdm")
+    claim_rwb_job(rwb_job_id=fail_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=fail_id, status="failed", error_detail="boom")
+
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    assert wait_id in rows_by_id
+    assert fail_id in rows_by_id
+    assert rows_by_id[wait_id]["status_code"] == "pending"
+    assert rows_by_id[wait_id]["submitted_at"] is None  # never claimed
+    assert rows_by_id[fail_id]["status_code"] == "failed"
+    assert rows_by_id[fail_id]["error_detail"] == "boom"
+
+
+def test_list_rwb_jobs_for_monitoring_orders_by_type_then_status_then_recency(iteration2_db):
+    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
+
+    # Two rows of the SAME type, both pending — updated_at DESC within the
+    # group means the more-recently-touched one (job_b, cancelled after
+    # job_a was enqueued) sorts first.
+    job_a = enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    job_b = enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    cancel_rwb_job(rwb_job_id=job_b)  # touches job_b's updated_at
+
+    rows = [r for r in list_rwb_jobs_for_monitoring()
+            if r["id"] in (job_a, job_b)]
+    # Different status_code ('cancelled' vs 'pending') sorts by status_code
+    # first (alphabetical: 'cancelled' < 'pending'), so job_b comes first
+    # here for that reason, not recency — this pins the actual ORDER BY
+    # clause (rwb_job_type, status_code, updated_at DESC), not just "newest
+    # first" in general.
+    assert [r["id"] for r in rows] == [job_b, job_a]
+
+
+def test_resubmit_rwb_job_by_id_matches_ensure_pending_contract(iteration2_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    rid = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    input_data={"edm_id": "e1"})
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    resubmitted_id = resubmit_rwb_job(rwb_job_id=job_id)
+    assert str(resubmitted_id).lower() == str(job_id).lower()  # same row (see casing note above)
+
+    after = execute_one(
+        "SELECT status_code, attempt_count, error_detail, input_data "
+        "FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 1
+    assert after["error_detail"] is None
+    assert after["input_data"] == '{"edm_id": "e1"}'  # the row's OWN input, carried forward
+
+
+def test_resubmit_rwb_job_unknown_id_returns_none(iteration2_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    assert resubmit_rwb_job(rwb_job_id=str(uuid.uuid4())) is None
+
+
+def test_resubmit_rwb_job_non_terminal_row_returns_none(iteration2_db):
+    # ensure_pending_rwb_job's own contract: pending/running rows are
+    # skipped (already in flight), not resubmitted — resubmit_rwb_job
+    # inherits that unchanged.
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert resubmit_rwb_job(rwb_job_id=job_id) is None
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "pending"  # untouched
