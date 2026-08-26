@@ -18,6 +18,7 @@ from datetime import datetime
 
 import pytest
 
+from app.services import rwb_job_service
 from db import execute, execute_command, execute_scalar
 
 pytestmark = pytest.mark.sqlserver
@@ -108,3 +109,31 @@ def test_loss_results_round_trips_as_json(scratch_analysis):
         "FROM irp_analysis WHERE id = :i",
         {"i": scratch_analysis}, connection="WORKBENCH",
     ) == "38270.5904752427"
+
+
+def test_retrieval_enqueue_dedups_under_the_real_unique_key(scratch_analysis):
+    """FR-006: a re-fired retrieval trigger is a no-op insert against the real
+    ``UNIQUE(requestor_type, requestor_id, rwb_job_type)`` key."""
+    try:
+        first = rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_analysis", requestor_id=scratch_analysis,
+            rwb_job_type="retrieve_analysis_results",
+            input_data={"analysis_id": scratch_analysis})
+        assert first is not None
+
+        second = rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_analysis", requestor_id=scratch_analysis,
+            rwb_job_type="retrieve_analysis_results",
+            input_data={"analysis_id": scratch_analysis})
+        assert second is None
+
+        count = execute_scalar(
+            "SELECT COUNT(*) FROM rwb_job WHERE requestor_type = 'irp_analysis' "
+            "AND requestor_id = :a AND rwb_job_type = 'retrieve_analysis_results'",
+            {"a": scratch_analysis}, connection="WORKBENCH")
+        assert count == 1
+    finally:
+        execute_command(
+            "DELETE FROM rwb_job WHERE requestor_type = 'irp_analysis' "
+            "AND requestor_id = :a",
+            {"a": scratch_analysis}, connection="WORKBENCH")

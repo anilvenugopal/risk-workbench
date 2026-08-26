@@ -1,11 +1,10 @@
-{# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013) —
-   modeled on broker_analysis_row.html: the identical settings-grid expansion
-   (shared partials/_analysis_metadata_fields.html / _analysis_rate_detail.html,
-   so the two views can't drift), plus Portfolio / Template / Submitted columns
-   and a delete checkbox on terminal rows (P-18/P-19). Context: `a` —
-   analysis_service.ExecutedAnalysis. The failure reason (when present) is
-   shown inline in the collapsed row — visible without expanding (FR-011). #}
-{%- set d = a.display -%}
+{# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013),
+   with Portfolio / Template / Submitted columns and a delete checkbox on
+   terminal rows (P-18/P-19). The expansion is the spec-011 two-column body
+   (partials/analysis_results_inline.html): field groups left, condensed
+   results right. Context: `a` — analysis_service.ExecutedAnalysis. The failure
+   reason (when present) is shown inline in the collapsed row — visible without
+   expanding. #}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
     <span class="l">
@@ -35,21 +34,7 @@
       {% else %}—{% endif %}
     </span>
   </summary>
-  <div class="drow__body">
-    {% if a.settings %}
-    <dl class="settings-grid">
-      {% include "partials/_analysis_metadata_fields.html" %}
-    </dl>
-    {% if d.has_rate_detail %}
-    <details class="drill">
-      <summary>▾ Rate / event-rate detail</summary>
-      <div class="drill__body">
-        {% include "partials/_analysis_rate_detail.html" %}
-      </div>
-    </details>
-    {% endif %}
-    {% else %}
-    <p class="tag-empty" style="margin:0">Settings appear once this analysis finishes running.</p>
-    {% endif %}
+  <div class="drow__body drow__body--split">
+    {% include "partials/analysis_results_inline.html" %}
   </div>
 </details>
