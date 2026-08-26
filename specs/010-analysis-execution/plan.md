@@ -66,7 +66,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   (`max_retries=0`, failure → `failed` + `error_detail`, reconciler recovers
   interruption); the P-14 backoff retry and retrieval-failed display are deferred.
 
-**Risk.** The wheel is pre-release (0.6.0rc2) and moves: signatures in
+**Risk.** The wheel moves: signatures in
 [contracts/irp-gateway.md](contracts/irp-gateway.md) must be re-confirmed against the
 active wheel at implementation; the IRP-sandbox tier is the proof.
 
@@ -77,7 +77,7 @@ active wheel at implementation; the IRP-sandbox tier is the proof.
 **Language/Version**: Python ≥3.12
 
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX 2 + Alpine.js (server-rendered, no SPA);
-Dramatiq[redis]; `irp-integration==0.6.0rc2` (TestPyPI, source-switchable); SQLAlchemy
+Dramatiq[redis]; `irp-integration==0.6.0` (TestPyPI, source-switchable); SQLAlchemy
 Core via the `/db` package (pyodbc, ODBC 18); `pyarrow` (new, loss phase)
 
 **Storage**: SQL Server — `rwb_workbench` (Alembic single revision, drop-create-seed);

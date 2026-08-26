@@ -14,7 +14,7 @@
 
 **What this feature does NOT do.** No grouping (Iteration 8), no broker side-by-side comparison (Iteration 9), **no broker (RDM) loss-number retrieval** (P-12 — own executed analyses only; broker retrieval lands with the work that consumes it), no Loss Repository export (Iteration 10), no hazard lookup (shipped separately, Iteration 5 — and never an analysis prerequisite), no in-app treaty editor (pass-through only), no EP-curve graph, no editing of templates or suites (executed as defined by spec 009), **no workbench cancellation** (P-13 — a submitted run executes in full; jobs are cancelled in Risk Modeler's own UI and mirrored back as CANCELLED).
 
-**Delivery is phased** (P-09): suite execution first, single-template execution second, loss-number retrieval third, and the job-monitor listing as the final phase. Each phase is separately verifiable.
+**Delivery is phased** (P-09): suite execution first, single-template execution second, loss-number retrieval third, and the job-monitor listing as the final phase. Each phase is separately verifiable. The first two phases and the job-monitor listing shipped; loss-number retrieval (FR-016/FR-017) is deferred and re-specified against design session note 19 — see the note under those requirements.
 
 **Business rules that shape the design** (PRD §11.3a, §14, design note D13/D14):
 
@@ -192,6 +192,16 @@ After an executed analysis finishes, the workbench retrieves its loss results au
 - **FR-024**: Deleting an analysis MUST delete it in Risk Modeler first (synchronously, on the request path) and soft-delete the local record only on success, freeing the name for reruns. A row whose Risk Modeler delete fails MUST stay visible for retry, and a deleted failed-to-submit analysis MUST never be resubmitted by the automatic retry (P-19).
 
 **Loss-number retrieval (US4 — last phase, P-09)**
+
+> **Deferred and superseded for the view path.** Design session note 19
+> ([`docs/design_session_notes/19_loss_results_viewing_no_elt_live_fetch_view_vs_compare_merged_grid.md`](../../docs/design_session_notes/19_loss_results_viewing_no_elt_live_fetch_view_vs_compare_merged_grid.md)) makes ELTs export-only (D5), does **not**
+> store loss results for viewing (D6 — live fetch of EP stats + the EP curve), renders
+> condensed results inline in the expanded analysis row (D9), and merges the broker and
+> user-executed tables (D11). FR-016 and FR-017 as written below assume stored Parquet
+> plus `analysis_result_meta` and are **not** what will be built. Re-specify them with
+> Phase 6 once **O19-1** (what the view path fetches), **O19-2** (whether the AAL grid
+> column re-introduces an eager retrieval) and **O19-4** (the perspective vocabulary)
+> close. Everything above this line is unaffected and shipped.
 
 - **FR-016**: When an executed analysis reaches FINISHED, the workbench MUST retrieve its loss results automatically in the background, per financial perspective (Gross, Ground-Up, Reinsurance Layer), and store a per-perspective summary plus the row-level data. No analyst action triggers retrieval. Retrieval covers own executed analyses only; broker (RDM) results are out of this spec (P-12). A failed retrieval follows the standard background-job handling: the retrieval job is marked failed with its reason, interrupted work recovers per FR-015, and the detail view shows results-pending until the numbers arrive — automatic backoff retry is deferred to a later iteration (P-14). The analysis status stays FINISHED throughout.
 - **FR-017**: The executed-analysis detail views MUST show the retrieved numbers — ELT summary (AAL / pure premium, max event loss, record count), standard deviation, return-period losses (indicative set 1000 / 500 / 250 / 100 / ~20–25 year), and OEP and AEP — switchable by perspective; PLT MUST be shown for HD analyses only. No EP-curve graph is required.

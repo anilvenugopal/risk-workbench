@@ -40,8 +40,8 @@ at a checkpoint for the approver to click the running feature before the next be
 - [X] T005 Mirror T002/T003 in `tests/iteration1_mirror.py`: SQLite DDL, seeds, `EXACT_MATCH_TABLES` (depends on T002–T004)
 - [X] T006 [P] Flip the `irp_portfolio_id`-absent assertion at `tests/sqlserver/test_job_tables_migration.py:53`; add SQL Server tier assertions for the reshaped `irp_analysis` (origin CHECK, both filtered uniques) and the new `irp_job` columns in `tests/sqlserver/`
 - [X] T007 [P] Reconcile `docs/DATA_MODEL.md` §6 (own-analysis shape now enforced) and §8 (`irp_job.irp_portfolio_id` landed)
-- [X] T008 [P] Add submission/backfill gateway functions to `app/services/irp_gateway.py` per contracts/irp-gateway.md: `submit_portfolio_analysis` (explicit `currency`, `skip_duplicate_check=True`, returns `(job_id, request_body)`), `get_analysis_job`, `get_analysis_by_name` — protocol + `_RealGateway`; confirm signatures against the active wheel first (`make irp-status`, TestPyPI `0.6.0rc2`)
-- [X] T009 [P] Add FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: per-name programmable submit success (job id + body with `resourceUri`) and `IRPIntegrationError`, job-status sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_by_name` resolution
+- [X] T008 [P] Add submission/backfill gateway functions to `app/services/irp_gateway.py` per contracts/irp-gateway.md: `submit_portfolio_analysis` (explicit `currency`, `skip_duplicate_check=True`, returns `(job_id, request_body)`), `get_analysis_job` — protocol + `_RealGateway`; confirm signatures against the active wheel first (`make irp-status`, TestPyPI `0.6.0`)
+- [X] T009 [P] Add FakeIRP counterparts in `tests/unit/fakes/fake_irp.py`: per-name programmable submit success (job id + body with `resourceUri`) and `IRPIntegrationError`, job-status sequences ending FINISHED / FAILED-with-reason / CANCELLED
 - [X] T010 Extend `app/services/irp_job_service.py`: `record_submitted_irp_job` / `record_submission_failure` accept `irp_portfolio_id`, `irp_analysis_id`, `request_params`; `resource_uri` written to `irp_job_resource` from `request_body["resourceUri"]` (depends on T003)
 - [X] T050 Add `irp_analysis.execution_item_no` (INT NULL) to `alembic/versions/0001_initial.py` per data-model.md §1, mirror it in `tests/iteration1_mirror.py`, and add its column assertion to the T006 `irp_analysis` checks in `tests/sqlserver/` — the exact resume key now that a template can appear once per chosen suite *(added 2026-08-20, P-02 amended)*
 
@@ -65,10 +65,10 @@ at a checkpoint for the approver to click the running feature before the next be
 - [X] T013 [US1] New `app/services/analysis_execution_service.py`: gate validation (EDM `ready`, portfolios belong, posted templates live and belonging to their suite, `kind=suite` ⇒ ≥1 suite with ≥1 template selected, every currency block complete and cache-valid — `code` in `irp_currency`, `scheme` in `irp_currency_scheme`, `(scheme, vintage)` in `irp_currency_scheme_vintage` (FR-019/FR-020), treaty names exist); name rule helpers (`full = f"{p.name} {t.name}"`, right-truncate to 64, `" (n)"` suffix re-clipping the base — T-04/T-05); plan composition per contracts/worker-poller.md §1 — one `item_no`-ordinaled item per suite×template selection carrying its suite's currency block with `asOfDate` from the chosen vintage's `effective_date` (T-03, P-15), `tag_names` extended with the submission name when a submission context exists (FR-021, T-20); `request_execution` persists the plan via `enqueue_rwb_job(requestor_type='analyst_request', requestor_id=execution_id, rwb_job_type='execute_analysis_batch', input_data=plan)` + dispatch (FR-012)
 - [X] T014 [US1] Modal fragment `app/templates/partials/execute_analysis_modal.html` (`submission_entity_add_modal` pattern): search (300ms debounce re-GET with `q`), suite checkbox rows expanding via `<details>` into template lists checked by default (FR-003), per-suite currency block (code/scheme/vintage selects, vintage options scoped to the chosen scheme, pre-filled from the T049 defaults, blank when a default is unset/cache-absent — FR-019/FR-020), treaty picker from `irp_treaty` (zero valid — FR-004), read-only selected portfolios as hidden inputs, Alpine Submit-disable until ≥1 suite chosen, ≥1 template remains, and every currency block is complete (FR-002/FR-020)
 - [X] T015 [US1] `GET`/`POST .../edms/{edm_id}/execute` in `app/routers/edms.py`, standalone + submission-contextual variants per contracts/routes.md: GET renders the fragment or the blocking message; POST validates CSRF, runs the T013 gate (422 re-renders the modal), composes + persists the plan, responds 204 with `HX-Trigger: execution-submitted` — no IRP call on the request path
-- [X] T016 [US1] New `app/workers/analysis_jobs.py` with `execute_analysis_batch` actor (`_BODIES` registration, `max_retries=0`, `time_limit=60*60*1000` — T-17) per contracts/worker-poller.md §2: iterate portfolios × plan items with per-item isolation; resume check on `(execution_id, portfolio, item_no)` via `irp_analysis.execution_item_no` (T050); transaction A inserts the `irp_analysis` row claiming the name (`status_code='pending'`, FR-008); submit outside any transaction via T008 gateway with exactly the plan item's values including its currency block (FR-006); transaction B records the `irp_job` (`request_params`, `resource_uri`) and flips `status_code='running'`, or on `IRPIntegrationError` calls `record_submission_failure` and writes `irp_analysis.failure_reason` (FR-010); `output_data = {"submitted": n, "submission_failed": m}`
+- [X] T016 [US1] New `app/workers/analysis_jobs.py` with `execute_analysis_batch` actor (`_BODIES` registration, `max_retries=0`, `time_limit=60*60*1000` — T-17) per contracts/worker-poller.md §2: iterate portfolios × plan items with per-item isolation; resume check on `(execution_id, portfolio, item_no)` via `irp_analysis.execution_item_no` (T050); transaction A inserts the `irp_analysis` row claiming the name (`status_code='pending'`, FR-008); submit outside any transaction via T008 gateway with exactly the plan item's values including its currency block (FR-006); transaction B records the `irp_job` (`request_params`, `resource_uri`) — `status_code` stays `pending`, `irp_job.status` carries the progress — or on `IRPIntegrationError` calls `record_submission_failure` and writes `irp_analysis.failure_reason` (FR-010); `output_data = {"submitted": n, "submission_failed": m}`
 - [X] T017 [US1] Port the `TimeLimitExceeded` handling fix into `app/workers/runtime.py` (from `origin/007-geohaz-execution`, plan.md source list)
 - [X] T018 [US1] Poller `analysis` job type in `app/poller/run.py`: `_GETTERS["analysis"] = irp_gateway.get_analysis_job`; terminal handler — FINISHED enqueues head `rwb_job` `backfill_analysis_detail` (`requestor_type='irp_job'`, `requestor_id=job.id`); FAILED/CANCELLED set `irp_analysis.status_code='error'` + `failure_reason` from the completion body (FR-011, T-08)
-- [X] T019 [US1] `backfill_analysis_detail` worker in `app/workers/analysis_jobs.py` per contracts/worker-poller.md §4 (standard actor pattern, `max_retries=0`): resolve by exact submitted name via `get_analysis_by_name(irp_analysis.name, edm_name)`; write `irp_id`, `settings_metadata`, `exposure_resource_id`; `status_code='ready'`; failure → `rwb_job` `failed` with `error_detail` (FR-009)
+- [X] T019 [US1] `backfill_analysis_detail` worker in `app/workers/analysis_jobs.py` per contracts/worker-poller.md §4 (standard actor pattern, `max_retries=0`): write `irp_id`, `settings_metadata`, `status_code='ready'`; failure → `rwb_job` `failed` with `error_detail` (FR-009). Resolution is by `analysisId` — see T056
 - [X] T020 [US1] Implement the `_submission_retry` scaffold in `app/poller/run.py` per contracts/worker-poller.md §6 (T-09): newest `SUBMISSION FAILED` row per `irp_analysis_id`, eligible when `now > completed_at + IRP_SUBMISSION_RETRY_BASE_SECS * 2^attempts` and attempts < `IRP_SUBMISSION_MAX_RETRIES`; resubmit verbatim from `irp_job.request_params`; success updates the row in place (`irp_id`, `QUEUED`, attempts+1) and clears `failure_reason`; at the maximum `irp_analysis.status_code` flips to `error` — entity imports keep insert-per-failure
 
 ### Tests for User Story 1
@@ -111,14 +111,26 @@ at a checkpoint for the approver to click the running feature before the next be
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] `kind=template` variant in `app/templates/partials/execute_analysis_modal.html` and the `GET`/`POST .../execute` routes in `app/routers/edms.py`: template checkbox rows (no suites offered, no expansion), same search and treaty picker, one currency block for the whole execution (FR-019), Submit disabled until ≥1 template and the currency block is complete (FR-002/FR-020); POST gate accepts `kind=template` with flat `template_ids` + a single currency block
-- [ ] T031 [P] [US3] Unit tests in `tests/unit/test_analysis_execution_service.py`: template-kind gate (no suites required, suites rejected), identical naming/plan/failure behavior, kinds never mixed
+- [X] T030 [US3] `kind=template` variant in `app/templates/partials/execute_analysis_modal.html` and the `GET`/`POST .../execute` routes in `app/routers/edms.py`: template checkbox rows (no suites offered, no expansion), same search and treaty picker, one currency block for the whole execution (FR-019), Submit disabled until ≥1 template and the currency block is complete (FR-002/FR-020); POST gate accepts `kind=template` with flat `template_ids` + a single currency block
+- [X] T031 [P] [US3] Unit tests in `tests/unit/test_analysis_execution_service.py`: template-kind gate (no suites required, suites rejected), identical naming/plan/failure behavior, kinds never mixed
 
 **Checkpoint**: Both execution kinds work. **STOP** for approver click-through.
 
 ---
 
 ## Phase 6: User Story 4 — View loss numbers for executed analyses (Priority: P4)
+
+> **Deferred — re-task before building.** T032–T044 below assume the stored-Parquet
+> design: `retrieve_analysis_results` materializes ELT/EP/PLT/stats and
+> `analysis_result_meta` feeds the views. Design session note 19
+> (`docs/design_session_notes/19_loss_results_viewing_no_elt_live_fetch_view_vs_compare_merged_grid.md`)
+> replaced that for the **view** path: ELTs are export-only (D5), loss results are not
+> stored for viewing (D6 — live fetch of EP stats + the EP curve), condensed results
+> render inline in the expanded analysis row (D9), and the broker and user-executed
+> tables merge into one (D11). §9's Parquet machinery survives but narrows to export,
+> and its trigger — eager on completion vs lazy on export — is undecided. **O19-1,
+> O19-2 and O19-4 stay open**; nothing here is ready for tasks until they close.
+> FR-016 and FR-017 (`spec.md`) are deferred with this phase.
 
 **Goal**: Automatic background retrieval of loss results per perspective (GR/GU/RL) for FINISHED analyses — Parquet row data + `analysis_result_meta` summary — shown on the analysis detail views with perspective tabs, PLT for HD only, results-pending until numbers arrive. Retrieval failure follows the standard job handling (`failed` + `error_detail`); backoff retry is deferred (P-14).
 
@@ -156,7 +168,7 @@ at a checkpoint for the approver to click the running feature before the next be
 
 **Purpose**: Story-independent requirement; no tracked job, no job-monitor entry.
 
-- [ ] T046 "Add / edit in Risk Modeler ↗" link (`_rm_datasource_url(edm.name, "treaties")`, `target="_blank"`, offered for create as well) in the treaty section of `app/templates/partials/edm_detail_body.html`, plus an Alpine sliver in `app/static/js/app.js` that marks the page on link click and POSTs the existing `.../sync` route once on the next `window` focus (T-16); verify per quickstart "Treaty pass-through"
+- [ ] T046 **Deferred** — "Add / edit in Risk Modeler ↗" link (`_rm_datasource_url(edm.name, "treaties")`, `target="_blank"`, offered for create as well) in the treaty section of `app/templates/partials/edm_detail_body.html`, plus an Alpine sliver in `app/static/js/app.js` that marks the page on link click and POSTs the existing `.../sync` route once on the next `window` focus (T-16); verify per quickstart "Treaty pass-through"
 
 ---
 
@@ -175,7 +187,7 @@ at a checkpoint for the approver to click the running feature before the next be
 ## Phase 11: ID-based completion backfill (T-10 as amended, FR-022 — added 2026-08-26)
 
 - [X] T055 [T-10] Poller passes RM's `analysisId`: `_analysis_created_id` in `app/poller/run.py` extracts `tasks[].output.log.analysisId` from the FINISHED completion body; `_handle_analysis_terminal` adds it to the backfill's `input_data` as `rm_analysis_id`; unit tests for the present and absent cases
-- [X] T056 [T-10] `backfill_analysis_detail` resolves by id in `app/workers/analysis_jobs.py`: drop the name/edm_name lookup for a row-exists guard, fail the `rwb_job` when `rm_analysis_id` is missing, fetch `get_analysis_metadata(int(rm_analysis_id))`, write `irp_id` + `irp_app_analysis_id` + `settings_metadata` + `exposure_resource_id`; delete `get_analysis_by_name` from `app/services/irp_gateway.py` and FakeIRP; rewrite the worker unit tests
+- [X] T056 [T-10] `backfill_analysis_detail` resolves by id in `app/workers/analysis_jobs.py`: drop the name/edm_name lookup for a row-exists guard, fail the `rwb_job` when `rm_analysis_id` is missing, fetch `get_analysis_metadata(int(rm_analysis_id))`, write `irp_id` + `irp_app_analysis_id` + `settings_metadata`; delete `get_analysis_by_name` from `app/services/irp_gateway.py` and FakeIRP; rewrite the worker unit tests
 - [X] T057 [FR-022] `irp_analysis.irp_app_analysis_id` (NVARCHAR(64) NULL) in `alembic/versions/0001_initial.py` + `tests/iteration1_mirror.py` + the `tests/sqlserver/test_job_tables_migration.py` column set; `analysis_service` selects it and `_rm_analysis_url` takes `appAnalysisId` (the RM web UI id) instead of `irp_id`; unit tests updated; `tests/irp/test_analysis_execution_roundtrip.py` extracts the id from the job body and asserts `appAnalysisId` is present
 
 ---
@@ -233,7 +245,7 @@ Treaty pass-through (T046) slots into any pause. Commit after each task or logic
   (`max_retries=0`, failure → `failed` + `error_detail`, reconciler recovers
   interruption). The P-14 backoff retry, its config settings, and a retrieval-failed
   display are deferred — do not build them here (research.md "P-14 amended").
-- Gateway signatures (T008, T036) are against pre-release wheel `0.6.0rc2` — re-confirm
-  with `make irp-status` before implementing; the IRP sandbox tier is the proof.
+- Gateway signatures (T008, T036) are against wheel `0.6.0` — re-confirm with
+  `make irp-status` before implementing; the IRP sandbox tier is the proof.
 - Never start/stop containers to run a tier; if `linux-box` is down, report which tiers
   ran and stop.

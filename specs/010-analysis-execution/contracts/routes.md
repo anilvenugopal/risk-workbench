@@ -28,8 +28,9 @@ Fragment contents:
   select lists only the chosen scheme's vintages (`irp_currency_scheme_vintage` rows for
   that `currency_scheme_code`); a default that is unset or absent from the cache leaves
   that picker unselected.
-- `kind=template`: one checkbox row per live template, plus a single currency block for
-  the execution (same pre-fill rules).
+- `kind=template`: one checkbox row per live template, none checked (AS3 — the modal
+  opens with Submit disabled), plus a single currency block for the execution (same
+  pre-fill rules).
 - Treaty picker: checkbox per `irp_treaty` row of this EDM (names from the local cache;
   zero selected is valid — gross run, FR-004).
 - Selected portfolios shown read-only and carried as hidden `portfolio_ids` inputs.
@@ -39,6 +40,13 @@ Fragment contents:
 
 Errors: EDM not `ready`, no portfolios given, or no live suites/templates → the fragment
 renders the blocking message in place of the form (prerequisite gate, FR-001).
+
+### `GET /edms/execute/vintage-options?scheme={code}`
+
+The currency block's scheme→vintage cascade: `<option>` rows for that scheme's
+`irp_currency_scheme_vintage` entries, newest `effective_date` first, swapped into the
+vintage select. One route for both page variants and every suite's block — the block's
+ids are scoped by `suite_id`, the options are not. Empty `scheme` renders no options.
 
 ### `POST .../edms/{edm_id}/execute`
 
@@ -77,15 +85,18 @@ No IRP call happens on this request path.
 Rendered inside `partials/edm_detail_body.html` on both page variants; the section is
 its own polling fragment (`GET /edms/{edm_id}/analyses` and
 `GET /submissions/{submission_id}/edms/{edm_id}/analyses`), self-polling every 3s while
-`live` — any `irp_analysis` of this EDM whose joined latest `irp_job` is non-terminal,
-or whose `status_code` is `pending`/`running`. Both GETs accept `?status=` clamped to
+`live` — any `irp_analysis` of this EDM still `status_code='pending'`, which is the only
+non-terminal value. Because that poll re-runs every 3s, both GETs read only what the
+fragment renders (`edm_service.get_edm_analyses`), never the whole detail page. Both
+GETs accept `?status=` clamped to
 `failed` / `in_progress` / `ready` (P-18); the filter is baked into the poll URL so a
 swap never resets it. Rows render in three fixed groups — Failed, In progress, Ready —
 date-descending within each.
 
 Row contract (`partials/executed_analysis_row.html`, modeled on
 `broker_analysis_row.html`): delete checkbox on `is_deletable` rows, full name
-(`full_name`) with an "RM ↗" link once `irp_id` is backfilled, portfolio name, template
+(`full_name`) with an "RM ↗" link once `irp_app_analysis_id` is backfilled — the RM web
+UI route takes `appAnalysisId`, not the API `analysisId` — portfolio name, template
 name, status chip (derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as
 "Failed to submit · attempt n/max") with the `failure_reason` when failed, and the
 localized submit time. Expanded: the settings grid once `settings_metadata` is
@@ -107,14 +118,10 @@ post-execute re-fire loop.
 
 ## Loss numbers fragment (loss phase)
 
-### `GET /analyses/{analysis_id}/losses?perspective=GR|GU|RL`
-
-Lazy-loaded into the expanded executed-analysis row (`hx-trigger="toggle[...] once"`
-pattern), with perspective tabs re-GETting the fragment. Renders from
-`analysis_result_meta` plus the EP Parquet read on demand (T-13): ELT summary (AAL,
-max event loss, record count), standard deviation, return-period losses, OEP and AEP
-tables; a PLT block only when `has_plt` (FR-017). Perspectives with no meta row render
-as absent tabs, not errors (T-15). Numbers only — no chart.
+Not specified here. Design session note 19 replaced the stored-Parquet view path with a
+live fetch of EP stats plus the EP curve, rendered condensed inline in the expanded
+analysis row (D5/D6/D9), and merged the broker and user-executed tables (D11). The route
+and fragment are re-specified when Phase 6 is re-tasked — see `tasks.md`.
 
 ## Treaty pass-through (FR-018, P-08)
 

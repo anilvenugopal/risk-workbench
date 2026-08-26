@@ -68,7 +68,8 @@ Per work unit (portfolio *p*, item *i*):
    Transaction A: insert `irp_analysis` (`edm_id`, `irp_portfolio_id`,
    `analysis_template_id`, `execution_id`, `execution_item_no=i.item_no`, `name=rm`,
    `full_name=full`, `status_code='pending'`, `inserted_by=actor_id`) — the row is
-   visible immediately (FR-008) and claims the name.
+   visible immediately (FR-008) and claims the name. `uq_irp_analysis_execution_item`
+   makes step 1's read of the resume key single-row by construction.
 3. **Submit** (outside any transaction): `irp_gateway.submit_portfolio_analysis(...)`
    with exactly the plan's snapshot values and explicit `currency` (FR-006, T-02/T-03),
    `treaty_names` from the plan (FR-004/US1-5), `skip_duplicate_check=True`.
@@ -76,8 +77,9 @@ Per work unit (portfolio *p*, item *i*):
    - Success: `record_submitted_irp_job` — `irp_job_type='analysis'`, `status='QUEUED'`,
      `irp_id=job_id`, `irp_edm_id`, `irp_portfolio_id`, `irp_analysis_id`,
      `requested_from_submission_id`, `request_params` = the submit kwargs JSON,
-     `resource_uri = request_body["resourceUri"]` (→ `irp_job_resource`); set
-     `irp_analysis.status_code='running'`.
+     `resource_uri = request_body["resourceUri"]` (→ `irp_job_resource`).
+     `irp_analysis.status_code` stays `pending`: `irp_job.status` carries the
+     progress and the poller keeps it current.
    - `IRPIntegrationError`: `record_submission_failure` (same linkage columns,
      `status='SUBMISSION FAILED'`, `submission_attempt_count=1`, `request_params` set) and
      write the message to `irp_analysis.failure_reason` (status stays `pending` while
@@ -110,18 +112,22 @@ completion body — `get_analysis_metadata(analysis_id=int(rm_analysis_id))`; a 
 `rm_analysis_id` fails the `rwb_job` — then update `irp_analysis`: `irp_id`
 (= `rm_analysis_id`), `irp_app_analysis_id` (the payload's `appAnalysisId`, NULL when
 absent), `settings_metadata` (the `backfill_rdm_analyses` shape),
-`exposure_resource_id` (from `irp_job_resource`), `status_code='ready'`.
+`status_code='ready'`. `exposure_resource_id` is not written — it holds RM's numeric
+`exposureResourceId` for broker rows (R9/FR-036), while the portfolio `resourceUri`
+this analysis was submitted against stays in `irp_job_resource`.
 On success, loss phase only: chain `retrieve_analysis_results` via
 `ensure_pending_rwb_job(requestor_type='rwb_job', requestor_id=own id)` + dispatch.
 Actor follows the standard pattern (`max_retries=0`). Resolution failure → `rwb_job`
-`failed` with `error_detail`; the analysis keeps `running` + its job row shows FINISHED,
-which the section renders as "completed, details pending". The reconciler recovers an
-*interrupted* backfill; a genuinely failed one stays `failed` until re-dispatched —
-automatic retry is deferred (P-14 amendment, research.md).
+`failed` with `error_detail`, **and** `irp_analysis.status_code='error'` with the same
+reason: the `irp_job` already reads FINISHED, so leaving the analysis `pending` would
+keep the EDM page's 3s poll running for a row that is never coming back. The reconciler
+recovers an *interrupted* backfill; a genuinely failed one stays `failed` until
+re-dispatched — automatic retry is deferred (P-14 amendment, research.md).
 
 ## 5. `retrieve_analysis_results` worker (loss phase, FR-016)
 
-Input: `analysis_id`. Reads `irp_analysis.irp_id` + `exposure_resource_id`; engine type
+Input: `analysis_id`. Reads `irp_analysis.irp_id` + the portfolio `resource_uri` from
+`irp_job_resource` (`resource_type='portfolio'`); engine type
 from `settings_metadata` (HD ⇒ PLT). For each perspective `GR`, `GU`, `RL`:
 
 1. Skip if an `analysis_result_meta` row exists for `(analysis_id, perspective)` —
@@ -149,8 +155,9 @@ Implements the existing scaffold. Single-threaded, inside `poll_once()`:
 2. Resubmit from `irp_job.request_params` verbatim (same name, same values — never
    recomposed from live rows).
 3. Success → update that row in place: `irp_id`, `status='QUEUED'`,
-   `submission_attempt_count += 1`; `irp_analysis.status_code='running'`, clear
-   `failure_reason`.
+   `submission_attempt_count += 1`, `completed_at = NULL` (it is the backoff clock, and
+   the job is back in flight); clear `irp_analysis.failure_reason`. `status_code` is
+   already `pending`.
 4. Failure → `submission_attempt_count += 1`, refresh `last_submission_response` and
    `irp_analysis.failure_reason`. At the maximum the row stays `SUBMISSION FAILED` and
    `irp_analysis.status_code` flips to `error` — visible, never dropped (SC-004).
