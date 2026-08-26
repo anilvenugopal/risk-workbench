@@ -170,3 +170,54 @@ def test_lazy_route_matches_rdm_id_case_insensitively(monkeypatch):
 
     assert response.status_code == 200
     assert "Stored analysis" in response.text
+
+
+# ── the Analyses section's own 3s poll (spec 010, T-11) ───────────────────────
+
+
+def _analyses_section(edm_id: str = "edm-1") -> edm_service.EdmAnalysesSection:
+    live = analysis_service.ExecutedAnalysis(
+        id="analysis-1", name="CRE_Portfolio A_Template A",
+        full_name="CRE_Portfolio A_Template A", portfolio_name="Portfolio A",
+        status_code="pending", failure_reason=None, template_name="Template A",
+        job_status="QUEUED")
+    return edm_service.EdmAnalysesSection(id=edm_id, executed_analyses=[live])
+
+
+def test_analyses_poll_renders_the_section_without_the_rest_of_the_page(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    response = _client().get("/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert 'hx-get="/edms/edm-1/analyses"' in response.text
+    assert "every 3s" in response.text  # a pending row keeps the poll running
+    assert "CRE_Portfolio A_Template A" in response.text
+    assert "Portfolios" not in response.text  # section only, never the detail body
+
+
+def test_contextual_analyses_poll_keeps_the_submission_in_its_own_url(monkeypatch):
+    captured = {}
+
+    def _section(**kwargs):
+        captured.update(kwargs)
+        return _analyses_section()
+
+    monkeypatch.setattr(edm_service, "get_edm_analyses", _section)
+
+    response = _client().get("/submissions/submission-a/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert captured == {"edm_id": "edm-1", "submission_id": "submission-a"}
+    assert 'hx-get="/submissions/submission-a/edms/edm-1/analyses"' in response.text
+
+
+def test_contextual_analyses_poll_stops_when_the_edm_leaves_the_submission(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: None)
+
+    response = _client().get("/submissions/submission-a/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert "no longer related to the submission" in response.text
+    assert "hx-trigger" not in response.text  # a terminal notice ends the poll

@@ -18,12 +18,7 @@ from typing import Any, Callable
 import dramatiq
 from sqlalchemy import text
 
-from app.services import (
-    analysis_execution_service,
-    irp_gateway,
-    irp_job_service,
-    rwb_job_service,
-)
+from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _utcnow
 from app.workers import broker, runtime
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
@@ -31,6 +26,25 @@ from db import execute, execute_command, execute_one, get_connection, is_unique_
 logger = logging.getLogger(__name__)
 
 _ = broker.redis_broker
+
+# Risk Modeler truncates a submitted analysis name at 64 characters.
+NAME_MAX_LEN = 64
+
+
+def build_full_name(portfolio_name: str, template_name: str) -> str:
+    return f"CRE_{portfolio_name}_{template_name}"
+
+
+def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
+    """The (full_name, submitted_name) pair for collision attempt ``attempt``
+    (0 = no suffix; attempt n ≥ 1 gets ``_{n+1}`` — the unsuffixed original is
+    implicitly #1). ``submitted_name`` is right-truncated to ``NAME_MAX_LEN``,
+    the suffix re-clipping the base so it always fits."""
+    if attempt == 0:
+        return full_name, full_name[:NAME_MAX_LEN]
+    suffix = f"_{attempt + 1}"
+    return (full_name + suffix,
+            full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 
 
 # ── execute_analysis_batch (US1, T-01/T-04/T-05) ────────────────────────────────
@@ -49,11 +63,10 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
     if existing is not None:
         return existing
 
-    full = analysis_execution_service.build_full_name(
-        portfolio["name"], item["template_name"])
+    full = build_full_name(portfolio["name"], item["template_name"])
     attempt = 0
     while True:
-        full_name, name = analysis_execution_service.name_attempt(full, attempt)
+        full_name, name = name_attempt(full, attempt)
         taken = execute_one(
             "SELECT 1 FROM irp_analysis "
             "WHERE edm_id = :e AND name = :n AND deleted_at IS NULL",
@@ -188,9 +201,7 @@ def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
 def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     """Fill in a FINISHED own-executed analysis' ``irp_id`` (RM's ``analysisId``,
     extracted by the poller from the completion body), ``irp_app_analysis_id`` (the
-    web-UI id for deep links) and ``settings_metadata``. ``exposure_resource_id``
-    is copied from the ``resourceUri`` already captured at submit
-    (``irp_job_resource``) — never re-resolved (T-02)."""
+    web-UI id for deep links) and ``settings_metadata``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
@@ -210,23 +221,14 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
-    resource = execute_one(
-        "SELECT r.resource_uri FROM irp_job j "
-        "JOIN irp_job_resource r ON r.irp_job_id = j.id "
-        "WHERE j.irp_analysis_id = :id AND r.resource_type = 'portfolio' "
-        "ORDER BY j.inserted_at",
-        {"id": analysis_id}, connection="WORKBENCH")
-
     irp_app_analysis_id = (meta.payload or {}).get("appAnalysisId")
     execute_command(
         "UPDATE irp_analysis SET irp_id = :irp, irp_app_analysis_id = :app, "
-        "settings_metadata = :sm, "
-        "exposure_resource_id = :x, status_code = 'ready', updated_at = :now "
+        "settings_metadata = :sm, status_code = 'ready', updated_at = :now "
         "WHERE id = :id",
         {"irp": str(rm_id),
          "app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
          "sm": (json.dumps(meta.payload) if meta.payload else None),
-         "x": (resource["resource_uri"] if resource else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
     logger.info("backfill_analysis_detail resolved analysis=%s -> irp_id=%s",

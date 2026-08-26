@@ -5,10 +5,8 @@ stored state (never Risk Modeler — Article 11), compose the run's plan **once*
 (AGENTS.md rule 8 — approved plans are immutable), persist it as the sole
 ``execute_analysis_batch`` ``rwb_job`` for a fresh ``execution_id``, and dispatch.
 The worker (``app/workers/analysis_jobs.py``) reads nothing else at execution time.
-
-``build_full_name``/``name_attempt`` are pure naming helpers (T-04/T-05): the
-worker calls them in its per-work-unit loop, where the live-name collision check
-against ``irp_analysis`` actually happens (this module never touches that table).
+It also owns the analysis naming (T-04/T-05) — this module never touches
+``irp_analysis``.
 """
 
 from __future__ import annotations
@@ -28,8 +26,6 @@ from app.services import (
 from app.services._common import _uid
 from app.workers import dispatch
 from db import execute
-
-NAME_MAX_LEN = 64
 
 
 # ── currency picker reference data (modal presentation) ─────────────────────────
@@ -92,24 +88,6 @@ class SuitePick:
     currency_code: str = ""
     currency_scheme: str = ""
     currency_vintage: str = ""
-
-
-# ── naming helpers (T-04/T-05) — pure; the worker owns the live-collision loop ──
-
-def build_full_name(portfolio_name: str, template_name: str) -> str:
-    return f"CRE_{portfolio_name}_{template_name}"
-
-
-def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
-    """The (full_name, submitted_name) pair for collision attempt ``attempt``
-    (0 = no suffix; attempt n ≥ 1 gets ``_{n+1}`` — the unsuffixed original is
-    implicitly #1). ``submitted_name`` is right-truncated to ``NAME_MAX_LEN``,
-    the suffix re-clipping the base so it always fits."""
-    if attempt == 0:
-        return full_name, full_name[:NAME_MAX_LEN]
-    suffix = f"_{attempt + 1}"
-    return (full_name + suffix,
-            full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 
 
 # ── template snapshot reads (gate membership + plan-item values) ───────────────
@@ -343,11 +321,8 @@ def request_execution(
 
 
 __all__ = [
-    "NAME_MAX_LEN",
     "ExecutionGateError",
     "SuitePick",
-    "build_full_name",
-    "name_attempt",
     "currency_options",
     "currency_scheme_options",
     "vintage_options",

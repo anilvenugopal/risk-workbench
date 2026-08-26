@@ -8,7 +8,6 @@ FAILED/CANCELLED extract a failure reason) and the ``_submission_retry`` batch
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.config import settings
@@ -16,53 +15,21 @@ from app.poller import run as poller
 from app.services import analysis_execution_service as svc
 from app.workers import analysis_jobs
 from db import execute, execute_command, execute_one
-
-
-def _seed_currency():
-    execute_command(
-        "INSERT INTO irp_currency (id, code, name) VALUES (:id, 'USD', 'US Dollar')",
-        {"id": str(uuid.uuid4())}, connection="WORKBENCH")
-    execute_command(
-        "INSERT INTO irp_currency_scheme (id, code, name) VALUES (:id, 'RMS', 'RMS')",
-        {"id": str(uuid.uuid4())}, connection="WORKBENCH")
-    execute_command(
-        "INSERT INTO irp_currency_scheme_vintage (id, vintage, "
-        "currency_scheme_code, effective_date) VALUES (:id, 'RL25', 'RMS', "
-        "'2025-05-28')", {"id": str(uuid.uuid4())}, connection="WORKBENCH")
-
-
-def _seed_edm(name="EDM One") -> str:
-    edm_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_edm (id, name, status) VALUES (:id, :name, 'ready')",
-        {"id": edm_id, "name": name}, connection="WORKBENCH")
-    return edm_id
-
-
-def _seed_portfolio(edm_id: str, name="Portfolio A") -> str:
-    portfolio_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :edm, :name)",
-        {"id": portfolio_id, "edm": edm_id, "name": name}, connection="WORKBENCH")
-    return portfolio_id
-
-
-def _seed_template(name="Template A") -> str:
-    template_id = str(uuid.uuid4())
-    execute_command(
-        "INSERT INTO analysis_template (id, name, analysis_profile_name, "
-        "output_profile_name) VALUES (:id, :name, 'Profile', 'Output')",
-        {"id": template_id, "name": name}, connection="WORKBENCH")
-    return template_id
+from tests.unit.analysis_rows import (
+    seed_currency,
+    seed_edm,
+    seed_portfolio,
+    seed_template,
+)
 
 
 def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
     """Drive one analysis through a real submit so its irp_job/irp_analysis rows
     are realistic, and return the analysis row."""
-    _seed_currency()
-    edm_id = _seed_edm(edm_name)
-    portfolio_id = _seed_portfolio(edm_id)
-    template_id = _seed_template()
+    seed_currency()
+    edm_id = seed_edm(edm_name)
+    portfolio_id = seed_portfolio(edm_id)
+    template_id = seed_template()
     svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],
         treaty_names=[], template_ids=[template_id],
@@ -191,10 +158,10 @@ def test_failed_with_nested_task_errors_stores_the_engine_message(
 def _submission_failed_row(iteration2_db, fake_irp) -> dict:
     """One analysis whose submit was forced to fail — a SUBMISSION FAILED irp_job
     with request_params ready for the retry batch."""
-    _seed_currency()
-    edm_id = _seed_edm()
-    portfolio_id = _seed_portfolio(edm_id)
-    template_id = _seed_template()
+    seed_currency()
+    edm_id = seed_edm()
+    portfolio_id = seed_portfolio(edm_id)
+    template_id = seed_template()
     fake_irp.raise_on_submit_analysis_for.add("CRE_Portfolio A_Template A")
     svc.request_execution(
         edm_id=edm_id, kind="template", portfolio_ids=[portfolio_id],

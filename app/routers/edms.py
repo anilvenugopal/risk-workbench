@@ -342,9 +342,9 @@ def contextual_detail_body(request: Request, submission_id: str, edm_id: str):
 def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str):
     """Contextual variant of ``detail_analyses`` — the Analyses section's own
     polling fragment. No writes, no Risk Modeler call (Article 11)."""
-    context = edm_service.get_contextual_edm_detail(
-        submission_id=submission_id, edm_id=edm_id)
-    if context is None:
+    section = edm_service.get_edm_analyses(
+        edm_id=edm_id, submission_id=submission_id)
+    if section is None:
         return HTMLResponse(
             '<details class="sec" open id="edm-executed-analyses">'
             '<summary><span class="sec__title">Analyses</span></summary>'
@@ -352,7 +352,7 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
             'This EDM is no longer related to the submission.</div></details>')
     return _partial(
         request, "partials/executed_analyses_section.html",
-        {"edm": context.edm,
+        {"edm": section,
          "status_filter": _analyses_status_filter(request),
          "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
 
@@ -618,8 +618,8 @@ def _analyses_section_partial(request: Request, edm_id: str):
     its polling unit, separate from the rest of the detail body (T-11
     refinement) so an in-flight execution never re-swaps rows the analyst has
     expanded elsewhere on the page."""
-    edm = edm_service.get_edm_detail(edm_id)
-    if edm is None:
+    section = edm_service.get_edm_analyses(edm_id=edm_id)
+    if section is None:
         # EDM hard-gone mid-poll: a terminal notice with no trigger ends polling.
         return HTMLResponse(
             '<details class="sec" open id="edm-executed-analyses">'
@@ -627,7 +627,7 @@ def _analyses_section_partial(request: Request, edm_id: str):
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></details>')
     return _partial(request, "partials/executed_analyses_section.html",
-                    {"edm": edm,
+                    {"edm": section,
                      "status_filter": _analyses_status_filter(request)})
 
 

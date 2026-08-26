@@ -417,6 +417,13 @@ class ContextualEdmDetail:
     rdms: list[BrokerAnalysisGroup]
 
 
+@dataclass
+class EdmAnalysesSection:
+    """Exactly what ``partials/executed_analyses_section.html`` reads."""
+    id: str
+    executed_analyses: list[ExecutedAnalysis]
+
+
 def latest_backfill_status(edm_id: str) -> str | None:
     """The newest ``backfill_edm_detail`` job status for this EDM across its
     three enqueue keys — ``rwb_job_service.backfill_edm_detail_rows`` owns the
@@ -555,6 +562,27 @@ def get_contextual_edm_detail(
     )
 
 
+def get_edm_analyses(
+    *, edm_id: Any, submission_id: Any | None = None,
+) -> EdmAnalysesSection | None:
+    """The Analyses section's own read (T-11). Its 3s self-poll re-renders that
+    one fragment, so it must not pay for the whole detail page — portfolios,
+    geohaz, treaties, breakout page state and the submission's RDMs are all
+    unread by the fragment. ``None`` when the EDM is gone, or (with
+    ``submission_id``) no longer related to that submission."""
+    eid = str(edm_id)
+    if submission_id is not None and _submission_entity_context(
+            "edm", submission_id=submission_id, entity_id=eid) is None:
+        return None
+    row = execute_one("SELECT id FROM irp_edm WHERE id = :id",
+                      {"id": eid}, connection="WORKBENCH")
+    if row is None:
+        return None
+    return EdmAnalysesSection(
+        id=_uid(row["id"]),
+        executed_analyses=analysis_service.list_executed_analyses(edm_id=eid))
+
+
 def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     """Analyst-triggered re-run of ``backfill_edm_detail`` for one EDM (FR-003 as
     amended 2026-07-23) — the recovery path for pre-capability EDMs and failed
@@ -663,6 +691,7 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
 
 __all__ = [
     "ImportResult", "EdmRow", "EdmDetail", "ContextualEdmDetail",
+    "EdmAnalysesSection",
     "AdoptableEdm", "AdoptablePage",
     "AdoptResult",
     "PENDING", "IMPORTING", "READY", "ERROR",
@@ -671,7 +700,8 @@ __all__ = [
     "list_adoptable_edms", "adopt_edms",
     "latest_import_error", "latest_backfill_status", "latest_backfill_statuses",
     "get_edm_detail",
-    "get_contextual_edm_detail", "sync_detail", "sync_contextual_detail",
+    "get_contextual_edm_detail", "get_edm_analyses",
+    "sync_detail", "sync_contextual_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal",
 ]
