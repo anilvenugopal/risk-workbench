@@ -61,7 +61,10 @@
       <option value="in_progress" {% if status_filter == 'in_progress' %}selected{% endif %}>In progress</option>
       <option value="ready" {% if status_filter == 'ready' %}selected{% endif %}>Ready</option>
     </select>
-    <button class="btn-sm" type="button" data-copy-table onclick="event.stopPropagation()"
+    {# preventDefault, not stopPropagation: both buttons are handled by
+       document-level listeners in app.js, which stopPropagation would never
+       reach. preventDefault still keeps the click from toggling the section. #}
+    <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
             title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
@@ -73,7 +76,7 @@
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
     {% endif %}
-    <button class="btn-sm btn-sm--primary" type="button" onclick="event.stopPropagation()"
+    <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
             title="Open the selected analyses side by side (new tab)">View ↗</button>
     {% endif %}
