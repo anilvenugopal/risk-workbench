@@ -281,8 +281,7 @@ class TestResultsAnalysesPage:
         assert 'data-unit-value="4100000.0"' in oep
         assert 'data-unit-value="4100000.0"' in aep
 
-    def test_no_cell_is_merged(self, monkeypatch):
-        """D11: a merged cell offsets the paste in Excel."""
+    def test_no_cell_spans_columns(self, monkeypatch):
         client = self._client(monkeypatch, {
             AN_A: _column(AN_A, "Alpha Analysis"),
             AN_B: _column(AN_B, "Beta Analysis", produced=("GU",))})

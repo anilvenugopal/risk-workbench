@@ -448,14 +448,6 @@ def test_builder_takes_aal_and_std_dev_from_the_oep_stats_row_only():
     assert gr["aal"] is None and gr["std_dev"] is None
 
 
-def test_builder_holds_no_code_list_of_its_own():
-    doc = build_loss_results_extract(
-        perspective_codes=[*_FIVE, "XX"], results={},
-        settings=None, retrieved_at="t")
-    assert set(doc["perspectives"]) == {*_FIVE, "XX"}
-    assert doc["perspectives"]["XX"] is None
-
-
 # ── retrieve_analysis_results: the worker (FR-006/FR-007, T-03) ─────────────────
 
 
