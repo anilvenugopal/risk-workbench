@@ -1,30 +1,8 @@
-{# One broker analysis as a merged-table .dtable row — the same column set and
-   cell markup own executed rows use (partials/executed_analysis_row.html), so
-   the two origins cannot drift. Rendered by the RDM detail page and, through
-   partials/contextual_rdm_analyses.html, by the merged analyses section on the
-   EDM detail page and the submission Results section. Context:
-     `a`          — analysis_service.BrokerAnalysis
-     `show_edm`   — hold the own rows' EDM column open with an em dash (the
-                    caller's --cols must match); an RDM is related to an EDM
-                    only through a submission, so a broker analysis names none
-     `selectable` — render the pick checkbox cell; needs the merged section's
-                    analysisPicks() Alpine data
-   A broker analysis carries one name where own rows carry Portfolio +
-   Template, and no portfolio is shown — an RDM analysis is never attributed to
-   an EDM portfolio (FR-020, 8/4 D8). So the name cell spans both name tracks
-   and an empty hidden span follows it: tableToTsv counts summary children, and
-   the hidden span is what keeps copied broker rows aligned with own rows.
-   Every captured broker run is finished in Risk Modeler, so Status reads
-   Finished; the AAL cell carries the row's results state and Submitted is the
-   broker's own Risk Modeler create date (FR-024). Analysis type and event rate
-   scheme live in the expansion — the two-column body shared with own
-   rows (partials/analysis_results_inline.html), where a field Risk Modeler does
-   not return for a broker analysis reads "not returned" (FR-022). #}
-{%- macro cell(v) -%}
-  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
-{%- endmacro -%}
-{%- set d = a.display -%}
-{%- set default_persp = a.results | selectattr('code', 'eq', default_perspective) | first -%}
+{# Context: `a` — analysis_service.BrokerAnalysis; `show_edm` — hold the own
+   rows' EDM column open with an em dash, so the caller's --cols must match;
+   `selectable` — render the pick checkbox cell, which needs the merged
+   section's analysisPicks() Alpine data. #}
+{% import "partials/analysis_row_macros.html" as row %}
 {%- set display_name = a.name or 'Analysis ' ~ a.irp_id -%}
 <details class="drow{% if a.is_group %} drow--group{% endif %}" id="broker-row-{{ a.id }}">
   <summary>
@@ -36,40 +14,16 @@
     <span class="l dt-span2"><span class="dt-name"><span class="dt-caret">▸</span>
       <span class="dt-title" title="{{ display_name }}" data-value="{{ display_name }}">{{ display_name }}
         {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span></span></span>
+    {# The name cell spans both name tracks; tableToTsv slices summary children
+       positionally, so this empty span is what keeps a copied broker row
+       aligned with own rows. #}
     <span hidden></span>
     {% if show_edm|default(false) %}<span class="l"><span class="na">&mdash;</span></span>{% endif %}
-    <span class="l">{{ cell(d.peril) }}</span>
-    <span class="l">{{ cell(d.region) }}</span>
-    <span class="l">{{ cell(d.engine) }}</span>
-    <span class="l">{{ cell(d.currency) }}</span>
-    <span>
-      {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
-      <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
-      {%- elif a.results_state == 'failed' -%}
-      <span class="aal-state aal-state--failed">retrieval failed</span>
-      {%- elif a.results_state == 'pending' -%}
-      <span class="aal-state">retrieving&hellip;</span>
-      {%- else -%}
-      <span class="na">&mdash;</span>
-      {%- endif -%}
-    </span>
-    <span class="l">
-      <span class="status-chip status-chip--ready">Finished</span>
-      {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
-    </span>
-    <span class="l">
-      {% if a.created_at %}
-      <time data-utc="{{ a.created_at }}" data-value="{{ a.created_at }}"
-            title="{{ a.created_at }} UTC">{{ (a.created_at | string)[:19] }}</time>
-      {% else %}<span class="na">&mdash;</span>{% endif %}
-    </span>
-    <span class="l">
-      {% if a.rm_url %}
-      <a class="rm-link" href="{{ a.rm_url }}" target="_blank" rel="noopener"
-         onclick="event.stopPropagation()"
-         title="Open this analysis in Risk Modeler (new tab)">Open ↗</a>
-      {% else %}<span class="na">&mdash;</span>{% endif %}
-    </span>
+    {{ row.settings_cells(a) }}
+    {{ row.aal_cell(a, true) }}
+    {{ row.status_cell(a, 'ready', 'Finished') }}
+    {{ row.submitted_cell(a.created_at) }}
+    {{ row.rm_cell(a.rm_url) }}
   </summary>
   <div class="drow__body drow__body--split">
     {% include "partials/analysis_results_inline.html" %}
