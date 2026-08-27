@@ -44,7 +44,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
 - `irp_job` gains `irp_portfolio_id` (reconciling DATA_MODEL §8), `irp_analysis_id`
   (status join + retry key), `request_params` (retry resubmits from it verbatim) (T-07/T-09).
 - Poller: `_GETTERS["analysis"] = get_analysis_job`; terminal handler stores RM's failure
-  reason on the analysis, enqueues `backfill_analysis_detail` on FINISHED (T-08/T-10).
+  reason on the analysis, enqueues `finalize_analysis` on FINISHED (T-08/T-10).
 - `_submission_retry` implemented: per-analysis newest `SUBMISSION FAILED` row, exponential
   backoff, update-in-place; `IRP_SUBMISSION_MAX_RETRIES` default becomes 3 (T-09).
 - Live updates are the existing HTMX 3s body self-poll — no SSE exists in the app; FR-014's
@@ -115,7 +115,7 @@ Articles that shaped the design:
   job body — names are display-only). The plan JSON is an approved input snapshot, not
   a stored DAG.
 - **Article 3 (kind tables; external-status carve-out)** — new categoricals are kind
-  tables (`execute_analysis_batch`/`backfill_analysis_detail` rows in
+  tables (`execute_analysis_batch`/`finalize_analysis` rows in
   `rwb_job_type_kind`; new `analysis_perspective_kind`); RM's job vocabulary stays only
   on the carved-out `irp_job.status`; `irp_analysis_status_kind` deliberately not widened
   (T-07).
@@ -163,7 +163,7 @@ app/
 ├── services/analysis_service.py     # user-executed read model (+ loss read, loss phase)
 ├── services/irp_job_service.py      # linkage columns, retry helpers
 ├── services/irp_gateway.py          # submit/get/backfill/result functions
-├── workers/analysis_jobs.py         # execute_analysis_batch, backfill_analysis_detail,
+├── workers/analysis_jobs.py         # execute_analysis_batch, finalize_analysis,
 │                                    # retrieve_analysis_results (new)
 ├── workers/runtime.py               # TimeLimitExceeded handling (007-branch fix)
 ├── poller/run.py                    # analysis getter/handler, _submission_retry
