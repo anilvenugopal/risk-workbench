@@ -16,8 +16,8 @@
    the hidden span is what keeps copied broker rows aligned with own rows.
    Every captured broker run is finished in Risk Modeler, so Status reads
    Finished; the AAL cell carries the row's results state and Submitted is the
-   broker's own Risk Modeler create date (FR-024). Analysis type, term, PLA and
-   event rate scheme live in the expansion — the two-column body shared with own
+   broker's own Risk Modeler create date (FR-024). Analysis type and event rate
+   scheme live in the expansion — the two-column body shared with own
    rows (partials/analysis_results_inline.html), where a field Risk Modeler does
    not return for a broker analysis reads "not returned" (FR-022). #}
 {%- macro cell(v) -%}

@@ -462,9 +462,6 @@ def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
     assert '<a class="rm-link" href="https://rm/a/5521"' in html
     # an RDM is related to an EDM only through a submission, so no EDM column
     assert ">EDM</span>" not in html
-    # term and PLA moved off the summary row into the shared expansion
-    assert "<dt>Term</dt>" in html and "<dd title=\"STD\">STD</dd>" in html
-    assert "<dt>PLA</dt>" in html
 
 
 def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):

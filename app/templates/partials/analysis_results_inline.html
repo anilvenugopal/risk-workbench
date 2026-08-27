@@ -2,11 +2,9 @@
    shared by own and broker rows so the two origins can't drift. Left: the
    source line — the full analysis name on own rows, the RDM on broker rows —
    then the metadata fields; a field the origin does not supply is listed and
-   reads "not returned", never hidden. Term and PLA are listed here because
-   the RDM detail page carried them as summary columns before its rows moved
-   to the merged column set, and no other view shows them. Engine version is
-   not listed — the merged table's Engine column carries it, and a collapsed
-   value is never restated here (8/26 design session D3). Right: the condensed
+   reads "not returned", never hidden. Engine version is not listed — the
+   merged table's Engine column carries it, and a collapsed value is never
+   restated here (8/26 design session D3). Right: the condensed
    results (the selected EP type at 50/100/250/500/1000/10000, then AAL and
    Std dev, which sit outside that selection) with the row's perspective and
    EP-type toggles — Pre-Cat Net = default (FR-012), OEP first; no units
@@ -32,8 +30,6 @@
       ('Subperil', d.peril_secondary),
       ('Framework', d.framework),
       ('Event rate scheme', d.event_rate_scheme),
-      ('Term', d.term),
-      ('PLA', d.pla),
       ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
       ('Run by', a.run_by if a.run_by is defined else None),
     ] %}
