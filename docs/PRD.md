@@ -981,7 +981,8 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 **`irp_job.status` vocabulary** (plain string; future RM statuses never crash the poller):
 - RM-mirrored non-terminal: `PENDING`, `QUEUED`, `RUNNING`, `CANCEL_REQUESTED`, `CANCELLING`
 - RM-mirrored terminal: `FINISHED` (only success), `FAILED`, `CANCELLED` (**two-L** spellings, per RM — see `irp_integration.constants.WORKFLOW_COMPLETED_STATUSES`, which cites the Moody's workflow-engine docs)
-- App-local: `UNSUBMITTED`, `SUBMITTING`, `BLOCKED` (non-terminal); `SUBMISSION FAILED` (terminal; poller skips these, no `irp_id`)
+- App-local: `UNSUBMITTED`, `SUBMITTING`, `BLOCKED`, `SUBMISSION RETRYING` (non-terminal); `SUBMISSION FAILED` (terminal; poller skips these, no `irp_id`)
+- `SUBMISSION RETRYING` is the `submission_retry` batch's claim on a row. The status tracker skips it too (no `irp_id`), so the poller reclaims a row left there longer than `IRP_SUBMISSION_RETRY_STALE_SECS` back to `SUBMISSION FAILED`, spending one attempt (FR-015)
 
 ### 14.5 RWB jobs & Dramatiq workers
 

@@ -1,6 +1,6 @@
 """IRP job poller — standalone process, never imported by the web layer (Article 11).
 
-One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
+One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does five things:
 
 1. **Track in-flight ``irp_job`` rows** — batched by type, one single-status-check
    ``get_*_job`` each, mirror the status in place, and on a terminal status backfill
@@ -13,9 +13,11 @@ One ``poll_once`` pass per ``POLL_INTERVAL_SECS`` does four things:
    ``backfill_edm_detail``) are never dispatched at enqueue time (the poller is a
    separate process from the worker), so without this the EDM→RDM chain stalls; this
    also delivers the rows step 2 reset.
-4. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
-   under the configured max (a single-threaded batch, not a Dramatiq actor; scaffold
-   here, wired in US6 T053).
+4. **Reclaim abandoned retry claims** — return ``SUBMISSION RETRYING`` ``irp_job``
+   rows untouched for ``IRP_SUBMISSION_RETRY_STALE_SECS`` to ``SUBMISSION FAILED``,
+   so a poller that died mid-retry does not strand them (FR-015).
+5. **``submission_retry`` batch** — re-attempt ``SUBMISSION FAILED`` ``irp_job`` rows
+   under the configured max (a single-threaded batch, not a Dramatiq actor).
 
 ``poll_*_to_completion`` is forbidden everywhere — this loop only ever uses
 single-status ``get_*`` checks.
@@ -473,6 +475,31 @@ def _claim_submission_retry(row: dict) -> bool:
     return claimed == 1
 
 
+def _reclaim_stale_retrying(*, stale_secs: int, now: datetime | None = None) -> int:
+    """Reclaim rows a dead poller left at ``SUBMISSION RETRYING`` (FR-015). Neither
+    the status tracker (``irp_id`` is still NULL) nor the retry batch (it selects
+    ``SUBMISSION FAILED``) reaches such a row, so without this it never recovers and
+    ``is_deletable`` keeps the analyst from clearing it either.
+
+    ``updated_at`` is the staleness key: the claim stamps it and nothing else writes
+    the row while it sits in ``SUBMISSION RETRYING``. Reclaiming to ``SUBMISSION
+    FAILED`` hands the row back to the normal backoff machinery; the attempt
+    increment is what stops a poller that dies on the same row every pass from
+    retrying it forever. Returns the number reclaimed."""
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff = now - timedelta(seconds=stale_secs)
+    reason = json.dumps({"error": "Poller stopped before the retry completed."})
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        return conn.execute(text(
+            "UPDATE irp_job SET status = 'SUBMISSION FAILED', "
+            "submission_attempt_count = submission_attempt_count + 1, "
+            "last_submission_response = :reason, completed_at = :now, "
+            "updated_at = :now "
+            "WHERE irp_job_type = 'analysis' AND status = 'SUBMISSION RETRYING' "
+            "AND updated_at < :cutoff"
+        ), {"reason": reason, "now": now, "cutoff": cutoff}).rowcount
+
+
 def _submission_retry() -> None:
     """Re-attempt ``SUBMISSION FAILED`` analysis submits under the configured max,
     with exponential backoff (FR-029/FR-010, T-09). A single-threaded poller batch,
@@ -545,6 +572,14 @@ def poll_once() -> None:
         _dispatch_pending()
     except Exception:
         logger.exception("poll_once: dispatch_pending failed")
+    try:
+        reclaimed = _reclaim_stale_retrying(
+            stale_secs=settings.irp_submission_retry_stale_secs)
+        if reclaimed:
+            logger.info("submission_retry: reclaimed %d abandoned retry claim(s)",
+                        reclaimed)
+    except Exception:
+        logger.exception("poll_once: reclaim_stale_retrying failed")
     try:
         _submission_retry()
     except Exception:

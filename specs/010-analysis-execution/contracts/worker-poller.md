@@ -174,7 +174,20 @@ Pre-010 entity imports keep their insert-per-failure behavior; this batch touche
 
 ## 7. Recovery summary (FR-015)
 
-Unchanged machinery, no new code: heartbeat thread + `reconcile_stale_rwb_jobs` re-pends
-a dead worker's job; `_dispatch_pending` redelivers; `execute_analysis_batch` resumes via
+Mostly unchanged machinery: heartbeat thread + `reconcile_stale_rwb_jobs` re-pends a
+dead worker's job; `_dispatch_pending` redelivers; `execute_analysis_batch` resumes via
 §2 step 1; `retrieve_analysis_results` resumes via §5 step 1; a poller crash loses
-nothing (next pass re-reads non-terminal jobs).
+nothing for a submitted job (the next pass re-reads non-terminal rows).
+
+One case needs its own reclaim. A poller that dies between claiming a retry (§6 step 2)
+and recording its outcome leaves the `irp_job` at `SUBMISSION RETRYING` with a NULL
+`irp_id`, which neither the status tracker (it requires `irp_id`) nor the retry batch (it
+selects `SUBMISSION FAILED`) reads — and `is_deletable` excludes it, so the analyst
+cannot clear it either. `_reclaim_stale_retrying` runs each pass and returns a row whose
+`updated_at` is older than `IRP_SUBMISSION_RETRY_STALE_SECS` to `SUBMISSION FAILED`,
+incrementing `submission_attempt_count` so a poller dying on the same row every pass
+still walks it to the ceiling instead of retrying forever.
+
+Known gap: if Risk Modeler accepted the submit before the poller died, the reclaim
+resubmits and creates a duplicate RM analysis. Trading that for a permanently stuck row
+is deliberate.

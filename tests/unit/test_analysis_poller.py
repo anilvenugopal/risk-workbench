@@ -307,6 +307,9 @@ def test_delete_after_retry_claim_is_rejected(iteration2_db, fake_irp):
     row = _submission_failed_row(iteration2_db, fake_irp)
 
     assert poller._claim_submission_retry(row) is True
+    # The claim lands before the batch reads the row, so up-front validation
+    # refuses the whole batch. The mid-loop race is covered in
+    # test_analysis_service.py.
     with pytest.raises(ValueError, match="still in progress"):
         analysis_service.delete_executed_analyses(
             edm_id=row["edm_id"], analysis_ids=[row["analysis_id"]],
@@ -328,3 +331,88 @@ def test_retry_ignores_rows_already_at_the_max(iteration2_db, fake_irp):
     poller._submission_retry()
 
     assert len(fake_irp.analysis_submits) == 1  # never resubmitted
+
+
+# ── reclaiming abandoned retry claims (FR-015) ───────────────────────────────────
+
+def _age_updated_at(job_id: str, seconds_ago: int) -> None:
+    then = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=seconds_ago)
+    execute_command(
+        "UPDATE irp_job SET updated_at = :t WHERE id = :id",
+        {"t": then, "id": job_id}, connection="WORKBENCH")
+
+
+def _stranded_row(iteration2_db, fake_irp) -> dict:
+    """A row the poller claimed for a retry and then died on, leaving it at
+    SUBMISSION RETRYING with no path back."""
+    row = _submission_failed_row(iteration2_db, fake_irp)
+    assert poller._claim_submission_retry(row) is True
+    return row
+
+
+def test_reclaim_returns_a_stale_retrying_row_to_submission_failed(
+        iteration2_db, fake_irp):
+    row = _stranded_row(iteration2_db, fake_irp)
+    _age_updated_at(row["job_id"],
+                    seconds_ago=settings.irp_submission_retry_stale_secs + 5)
+
+    assert poller._reclaim_stale_retrying(
+        stale_secs=settings.irp_submission_retry_stale_secs) == 1
+
+    job = execute_one(
+        "SELECT status, submission_attempt_count, completed_at FROM irp_job "
+        "WHERE id = :id", {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "SUBMISSION FAILED"
+    # The attempt is spent, so a poller dying on the same row every pass still
+    # walks the row to the ceiling instead of retrying it forever.
+    assert job["submission_attempt_count"] == row["submission_attempt_count"] + 1
+    assert job["completed_at"] is not None
+
+
+def test_reclaim_leaves_a_retry_still_in_flight_alone(iteration2_db, fake_irp):
+    row = _stranded_row(iteration2_db, fake_irp)
+
+    assert poller._reclaim_stale_retrying(
+        stale_secs=settings.irp_submission_retry_stale_secs) == 0
+
+    job = execute_one("SELECT status FROM irp_job WHERE id = :id",
+                      {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "SUBMISSION RETRYING"
+
+
+def test_reclaimed_row_is_retried_once_its_backoff_elapses(iteration2_db, fake_irp):
+    row = _stranded_row(iteration2_db, fake_irp)
+    _age_updated_at(row["job_id"],
+                    seconds_ago=settings.irp_submission_retry_stale_secs + 5)
+    poller._reclaim_stale_retrying(
+        stale_secs=settings.irp_submission_retry_stale_secs)
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+    _age_completed_at(row["job_id"], seconds_ago=10_000_000)
+
+    poller._submission_retry()
+
+    job = execute_one("SELECT status, irp_id FROM irp_job WHERE id = :id",
+                      {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "QUEUED"
+    assert job["irp_id"] is not None
+    assert len(fake_irp.analysis_submits) == 2  # the original, then the retry
+
+
+def test_reclaim_past_the_ceiling_stops_retrying_and_frees_the_row(
+        iteration2_db, fake_irp):
+    row = _stranded_row(iteration2_db, fake_irp)
+    execute_command(
+        "UPDATE irp_job SET submission_attempt_count = :n WHERE id = :id",
+        {"n": settings.irp_submission_max_retries - 1, "id": row["job_id"]},
+        connection="WORKBENCH")
+    _age_updated_at(row["job_id"],
+                    seconds_ago=settings.irp_submission_retry_stale_secs + 5)
+
+    poller._reclaim_stale_retrying(
+        stale_secs=settings.irp_submission_retry_stale_secs)
+    _age_completed_at(row["job_id"], seconds_ago=10_000_000)
+    poller._submission_retry()
+
+    assert len(fake_irp.analysis_submits) == 1  # the ceiling holds — never resubmitted
+    analysis = analysis_service.list_executed_analyses(edm_id=row["edm_id"])[0]
+    assert analysis.is_deletable  # and the analyst can clear it
