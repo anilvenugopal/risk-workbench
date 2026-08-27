@@ -12,7 +12,6 @@
   "actor_id": "<uuid>",
   "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25", "asOfDate": "2026-05-28"},
   "propagate_detailed_losses": true,
-  "create_independent_groups": false,
   "members": [
     {"analysis_id": "<uuid>", "name": "<submitted ≤64 name>", "kind": "own",    "edm_name": "<EDM name>"},
     {"analysis_id": "<uuid>", "name": "<name>",               "kind": "broker", "edm_name": null},
@@ -34,29 +33,27 @@ CR-04 `rwb_actor`; queue name `submit_grouping`; `max_retries=0`.
    `submitted_settings` = plan). PK hit → resume. Local name collision →
    increment attempt (same loop as `_claim_analysis`). INSERT the
    `irp_analysis_group_member` rows.
-2. **Resolve** — member `irp_id`s for `build_region_peril_simulation_set` come
-   from the members' `irp_analysis.irp_id` (all finished ⇒ populated). A
-   resolution error from the wheel fails the `rwb_job`
-   (`error_detail` = exception text), stamps the group row
-   `status_code='error'`, `failure_reason`, and **returns without submitting**
-   (T-03). Nothing reaches the platform.
-3. **Submit** — `irp_gateway.submit_analysis_grouping(...)` (below). On the
-   wheel's duplicate-name `IRPAPIError`: increment the name attempt, update
-   the group row's `name`/`full_name`, retry (bounded, as in the claim loop).
-   On any other exception: `irp_job_service.record_submission_failure(...)`
-   (`irp_job_type='grouping'`, status `SUBMISSION FAILED`) + group row
-   `failure_reason`; no automatic retry (T-11).
-4. **Record** — one transaction: `record_submitted_irp_job`
+2. **Submit** — one gateway call: `irp_gateway.submit_analysis_grouping(...)`
+   (below). The wheel resolves member names to URIs and auto-builds the
+   region/peril simulation set internally; with `skip_missing=False` a
+   missing or ambiguous member raises before the POST. The Workbench passes
+   names only and never calls `build_region_peril_simulation_set` (T-03).
+   Error handling mirrors the analysis worker:
+   - Duplicate group name — the `IRPAPIError` whose message starts
+     `Analysis Group with this name already exists` (the wheel's tenant-wide
+     pre-POST check): increment the name attempt, update the group row's
+     `name`/`full_name`, retry (bounded, as in the claim loop).
+   - Any other exception (missing/ambiguous member, fan-out transport error,
+     rejected POST): `irp_job_service.record_submission_failure(...)`
+     (`irp_job_type='grouping'`, status `SUBMISSION FAILED`) + group row
+     `status_code='error'`, `failure_reason` = the exception text; no
+     automatic retry (T-11). Scheme resolution has no pre-submit failure mode
+     in wheel 0.6.2 (lookups fall back; an unresolvable set is rejected by
+     the platform) — spec O-09.
+3. **Record** — one transaction: `record_submitted_irp_job`
    (`irp_job_type='grouping'`, `irp_analysis_id=group_analysis_id`,
    `requested_from_submission_id`, `irp_id`, payload, response) + group row
    `status_code='running'`.
-5. **Independent groups** (plan flag ON, T-08): repeat 1–4 once per member
-   with a single-member list; group name
-   `name_attempt(f"{member_name}_Group", …)`; each independent group gets its
-   own minted row id (carried in the plan as
-   `independent_group_analysis_ids[member_analysis_id]`), membership row, and
-   `irp_job`. Per-member isolation: one failure does not stop the rest; the
-   `rwb_job` fails only if the combined group submit failed.
 
 ## Gateway additions (`app/services/irp_gateway.py` — Protocol, `_RealGateway`, module functions, `FakeIRP`)
 
@@ -76,7 +73,10 @@ Wraps `client.analysis.submit_analysis_grouping_job(..., skip_missing=False)`
 (T-10). Wheel-managed and not exposed: `simulate_to_plt`, `num_simulations`,
 window dates, `region_peril_simulation_set` (auto-built), `description` (empty).
 The wheel result's `job_id` is returned with `http_request_body`; a `skipped`
-result cannot occur with `skip_missing=False`.
+result cannot occur with `skip_missing=False`. Every wheel failure —
+duplicate name, member resolution, fan-out transport, the POST itself —
+raises the same `IRPAPIError`; only the duplicate-name message prefix is
+distinguished (worker step 2).
 
 ```python
 def get_grouping_job(job_id: str) -> JobStatus:
@@ -92,9 +92,11 @@ def get_analysis_by_name_only(name: str) -> AnalysisSearchHit:
 ```
 
 `search_analyses(filter='analysisName = "<name>"')`; raises unless exactly one
-hit. Used by the group branch of `backfill_analysis_detail` (groups have no
-EDM to disambiguate with; the per-submission unique name plus the `CRE_`
-prefix makes a duplicate a tenant hygiene error worth failing loudly on).
+hit. Used by the group branch of `backfill_analysis_detail`. Groups have no
+EDM to disambiguate with, but the wheel's tenant-wide duplicate pre-check
+plus the worker's `_n` retry guarantee the group's own name was unique at
+submit; a duplicate appearing between submit and backfill is a tenant hygiene
+error worth failing loudly on.
 
 ## Poller (`app/poller/run.py`)
 

@@ -81,8 +81,7 @@ The compose POST enqueues exactly one row:
 | `input_data` | the approved plan — see [contracts/grouping-worker.md](contracts/grouping-worker.md) |
 
 `uq_rwb_job_requestor_type` gives resubmit-idempotency per request as on every
-other op. When Create independent groups is ON, the same job submits the
-per-member grouping jobs (T-08) — one `rwb_job`, N+1 `irp_job`s.
+other op.
 
 ## 5. `irp_job` usage (no schema change)
 

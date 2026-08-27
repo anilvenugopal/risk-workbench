@@ -19,7 +19,7 @@ An analyst combines finished analyses and groups within a submission into a sing
 
 - Compose flow: pick finished analyses or groups scoped to the current submission, configure, run (replaces Risk Modeler's three-dot "enter analysis to group" entry)
 - Currency / currency scheme / vintage chosen at group-submit time — same picker and env-var defaults as analysis submission
-- Propagate detailed output (default ON) and Create independent groups (default OFF) settings
+- Propagate detailed output setting (default ON)
 - Automated event-rate-scheme resolution across members, including differing DLM schemes and DLM+HD mixes
 - Groupability validation with error messaging for unresolvable member sets
 - Prerequisite gate: members must exist and be finished
@@ -50,13 +50,14 @@ An analyst combines finished analyses and groups within a submission into a sing
 | ID | Decision | Status | Where |
 |---|---|---|---|
 | O-01 | Group names follow the `CRE_` analysis-naming conventions (underscore delimiter, `_n` collision suffix), auto-generated from the deal, prefilled in the compose dialog and editable before submit | Approved | PRD §16.4; decided 2026-08-27 |
-| O-02 | Exactly what detail "propagate detailed output" retains (state-level, per-treaty) | Deferred | PRD O11-1 — the setting is passed through; definition owed with the CIC walkthrough |
+| O-02 | Exactly what detail "propagate detailed output" retains (state-level, per-treaty) | Deferred | PRD O11-1 — the setting is passed through; definition owed at the CIC walkthrough, which gates the US2 checkpoint (tasks.md) |
 | O-03 | Compose starts from the merged analyses grid on both the submission page and the EDM detail page (the grids are identical; the pick-list is submission-scoped either way) | Approved | note 17 §4, note 20 D1; decided 2026-08-27 |
 | O-04 | This spec owns group rows in the existing results views only; the ordering rework (drag-and-drop) and the O20-10 presentation defects stay with the results-view work | Approved | note 19 D15, note 20 O20-10; decided 2026-08-27 |
 | O-05 | The submission-level IRP tag value is the bare submission name — 011's current behavior kept for now; a structured `submission:<name>` prefix may be revisited | Approved | research.md T-06 and Clarifications, decided 2026-08-27 |
-| O-06 | CIC sign-off on the automated event-rate-scheme resolution | Deferred | PRD O11-2 / O15-7 — validated against manual Risk Modeler grouping; walkthrough owed |
+| O-06 | CIC sign-off on the automated event-rate-scheme resolution | Deferred | PRD O11-2 / O15-7 — validated against manual Risk Modeler grouping; the walkthrough gates the US2 checkpoint (tasks.md) |
 | O-07 | Groups are submitted without the submission tag: the platform grouping job schema has no tag field and no endpoint tags an analysis after creation. Member analyses still carry the tag. Revisit if Moody's adds a tagging endpoint | Approved | research.md T-07 and Clarifications, decided 2026-08-27 |
-| O-08 | If the platform rejects single-member grouping jobs (the emulation for Create independent groups ON), the setting is dropped from the compose dialog entirely | Approved | research.md T-08 and Clarifications, decided 2026-08-27 |
+| O-08 | Risk Modeler's Create independent groups checkbox is not carried over: CIC never enables it, and the results views already show a group beside its member analyses. The compose settings are the currency block and Propagate detailed output only | Approved | research.md T-08 and Clarifications, decided 2026-08-27 |
+| O-09 | Groupability validation is delegated to irp-integration: member and name failures stop before the platform POST; scheme resolution has no pre-submit failure mode in wheel 0.6.2 (lookups fall back), so an unresolvable scheme set surfaces as a failed grouping job with the named cause | Approved | research.md T-03 (wheel source verified 2026-08-27); decided 2026-08-27 |
 
 ---
 
@@ -64,11 +65,11 @@ An analyst combines finished analyses and groups within a submission into a sing
 
 ### 1. Compose and run a group (P1)
 
-The analyst opens a submission whose analyses have finished, selects two or more of them with checkboxes, and starts the group compose. The dialog shows currency, currency scheme, and vintage prefilled from defaults, Propagate detailed output ON, and Create independent groups OFF. The analyst confirms and submits. The grouping appears in job monitoring; when it completes, the group appears among the submission's analyses as a finished analysis.
+The analyst opens a submission whose analyses have finished, selects two or more of them with checkboxes, and starts the group compose. The dialog shows currency, currency scheme, and vintage prefilled from defaults, and Propagate detailed output ON. The analyst confirms and submits. The grouping appears in job monitoring; when it completes, the group appears among the submission's analyses as a finished analysis.
 
 **Acceptance**
 
-1. **Given** a submission with two or more finished analyses, **When** the analyst selects them and opens the group compose, **Then** currency, scheme, and vintage are prefilled from the env-var defaults, Propagate detailed output is ON, and Create independent groups is OFF.
+1. **Given** a submission with two or more finished analyses, **When** the analyst selects them and opens the group compose, **Then** currency, scheme, and vintage are prefilled from the env-var defaults and Propagate detailed output is ON.
 2. **Given** an analysis that is running or failed, **When** the analyst builds the member selection, **Then** that analysis cannot be selected as a member.
 3. **Given** a submitted grouping, **When** it reaches a terminal status, **Then** the job's success or failure (with reason) is visible in job monitoring.
 4. **Given** a grouping that finished, **When** the analyst views the submission's analyses, **Then** the group is listed as a finished analysis.
@@ -82,7 +83,7 @@ CIC's common case: two North-America windstorm DLM analyses run under different 
 
 1. **Given** two finished DLM analyses with different event-rate schemes, **When** the analyst groups them, **Then** the group submits and finishes without the analyst choosing a scheme or performing any pre-step.
 2. **Given** a finished DLM analysis and a finished HD analysis, **When** the analyst groups them, **Then** the group submits and finishes.
-3. **Given** a member set whose event-rate schemes cannot be resolved, **When** the analyst attempts to submit, **Then** an error names the cause and nothing is submitted.
+3. **Given** a member set whose event-rate schemes cannot be resolved, **When** the grouping runs, **Then** the job fails with a failure reason naming the cause, visible in job monitoring, and no grouped result is produced (O-09).
 
 ### 3. Groups in the results views (P3)
 
@@ -108,11 +109,11 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-002**: The member pick-list is scoped to the current submission; members may span EDMs and RDMs within the submission.
 - **FR-003**: Only finished members are selectable; a grouping submitted with unmet prerequisites is blocked and the blocked state is visible to the analyst.
 - **FR-004**: Currency, currency scheme, and vintage are chosen at group-submit time with the same picker and env-var defaults as analysis submission.
-- **FR-005**: Propagate detailed output is a compose-time setting, default ON.
-- **FR-006**: Create independent groups is a compose-time setting, default OFF. ON is emulated with one single-member grouping job per member (research T-08); if the sandbox check finds the platform rejects single-member grouping jobs, the setting is dropped from the compose dialog entirely (O-08).
+- **FR-005**: Propagate detailed output is a compose-time setting, default ON; the setting is passed through to the platform, and what detail it retains is deferred to O-02.
+- **FR-006**: The compose-time settings are the currency block and Propagate detailed output only; Risk Modeler's Create independent groups checkbox is not carried over (O-08).
 - **FR-007**: Event-rate schemes are resolved automatically across members; the analyst never picks one.
 - **FR-008**: DLM and HD analyses may be mixed in one grouping.
-- **FR-009**: A member set whose event-rate schemes cannot be resolved is rejected with an error naming the cause, before anything is submitted.
+- **FR-009**: An invalid grouping is stopped with an error naming the cause: unfinished, foreign, or missing members are blocked before anything reaches the platform; a member set whose event-rate schemes the platform cannot resolve fails as a grouping job whose failure reason names the cause (O-09).
 - **FR-010**: The group name is auto-generated from the deal following the `CRE_` naming conventions, prefilled in the compose dialog, and editable by the analyst before submit (O-01).
 - **FR-011**: A grouping runs as a tracked job: its status, completion, and failure reason are visible in the same job monitoring views as imports and analyses.
 - **FR-012**: A finished group is recorded as an analysis of the submission and listed in the analyses grid like any other finished analysis.
@@ -135,4 +136,4 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **SC-002**: Grouping members with differing event-rate schemes — including a DLM+HD mix — requires zero manual pre-steps (versus Risk Modeler's copy-and-convert step today).
 - **SC-003**: 100% of individual analyses submitted from the Workbench after this feature ships are findable in the Moody's platform by their submission tag.
 - **SC-004**: A finished group's results are reachable through the same views, in the same number of steps, as an individual analysis's results.
-- **SC-005**: Every invalid grouping attempt (unfinished members, unresolvable schemes) is stopped before submission with an error that names the cause.
+- **SC-005**: Every invalid grouping attempt fails with an error naming the cause: unfinished, foreign, or missing members are stopped before submission; an unresolvable scheme set fails the grouping job with the cause in its failure reason.

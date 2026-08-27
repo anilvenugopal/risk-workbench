@@ -26,9 +26,9 @@ uv run pytest tests/unit
 ```
 
 Covers: compose gate, group naming and collision suffix, plan composition,
-worker submit paths against `FakeIRP` (success / resolution failure before
-submit / duplicate-name retry / independent-groups fan-out / submission
-failure), poller grouping routing, group read models.
+worker submit paths against `FakeIRP` (success / duplicate-name retry /
+uniform submission-failure recording), poller grouping routing, group read
+models.
 
 ## 2. SQL Server tier
 
@@ -47,18 +47,21 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    absent from the compose pick-list (US-1 acceptance 2).
 2. Click Group. The dialog shows the pick-list with your rows pre-checked, the
    name prefilled `CRE_<submission>_Group`, currency/scheme/vintage prefilled
-   from the env defaults, Propagate detailed output ON, Create independent
-   groups OFF (US-1 acceptance 1).
-3. Submit. A `submit_grouping` job appears; the grid shows the group row
-   `pending → running`. On completion the row turns `ready`, Engine column
-   reads **Group** (US-1 acceptance 3–4, US-3 acceptance 2).
+   from the env defaults, Propagate detailed output ON (US-1 acceptance 1).
+3. Submit. The `submit_grouping` job appears immediately in the RWB jobs
+   monitor; the group row appears in the grid when the worker claims the job
+   (normally within seconds) and shows `pending → running`. On completion the
+   row turns `ready`, Engine column reads **Group** (US-1 acceptance 3–4,
+   US-3 acceptance 2).
 4. Pick two finished DLM analyses run under different event-rate schemes (or a
    DLM + an HD): group them with no scheme choice anywhere in the dialog; the
    group finishes (US-2 acceptance 1–2, SC-002).
-5. Force a resolution failure (e.g. a member whose region rows resolve no
-   simulation set in the sandbox): the job fails with the cause in
-   `failure_reason` / job monitoring, and no grouping job appears in Risk
-   Modeler (US-2 acceptance 3, SC-005).
+5. Force a member-resolution failure (e.g. delete a member analysis in Risk
+   Modeler between compose and worker pickup): the job records
+   `SUBMISSION FAILED` with the cause in `failure_reason` / job monitoring,
+   and no grouping job appears in Risk Modeler. An unresolvable scheme set is
+   rejected by the platform instead — the grouping job fails with the cause
+   (US-2 acceptance 3, SC-005, spec O-09).
 6. Tick the finished group plus an analysis → **View**: both open on
    `/results/analyses`; the ◀/▶ controls move the group column to either end
    (US-3 acceptance 1, 3).
@@ -79,10 +82,3 @@ Submits a real grouping of two finished sandbox analyses, polls
 `get_grouping_job` to `FINISHED`, then asserts `get_analysis_stats` /
 `get_analysis_ep` return data for the group's `analysisId`. Until this passes,
 T-11 is an assumption, not a validated claim.
-
-## 5. IRP sandbox tier — T-08 verification (independent groups)
-
-Same suite, single-member case: submit a grouping job whose `resourceUris`
-holds one analysis. If the platform accepts it (201 + FINISHED), enable the
-Create independent groups checkbox; if it rejects, the checkbox is dropped
-from the compose dialog entirely (spec O-08).

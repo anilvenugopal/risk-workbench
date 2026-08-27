@@ -22,8 +22,9 @@ per-queue worker framework this feature extends (T-01).
   (finished own analyses, broker analyses, finished groups — ticked rows
   pre-checked), the prefilled editable group name
   (`CRE_<submission name>_Group`, T-09), the reused currency/scheme/vintage
-  `currency_block` macro with env-var defaults, Propagate detailed output ON,
-  Create independent groups OFF.
+  `currency_block` macro with env-var defaults, and Propagate detailed output
+  ON — the dialog's only settings (O-08 drops Risk Modeler's Create
+  independent groups checkbox).
 - `POST /submissions/{sid}/analyses/group` runs the compose gate in a new
   `app/services/grouping_service.py` (members exist, finished, belong to the
   submission, ≥2 — `ExecutionGateError` pattern, 422 re-render), then persists
@@ -34,15 +35,15 @@ per-queue worker framework this feature extends (T-01).
 - The new `submit_grouping` actor (`app/workers/grouping_jobs.py`, own CR-04
   queue) claims the group `irp_analysis` row (`is_group=1`,
   `submission_id` set, `edm_id`/`rdm_id` NULL — T-04) plus its
-  `irp_analysis_group_member` rows (T-05), resolves the event-rate schemes via
-  the wheel's `build_region_peril_simulation_set` — a resolution failure fails
-  the job with the named cause **before** anything is submitted (T-03) — then
-  calls `submit_analysis_grouping_job` with `skip_missing=False` (T-10),
-  explicit currency, and the plan's propagate flag, and records the `irp_job`
-  (`irp_job_type = grouping`, already seeded) exactly as the analysis worker
-  does. Duplicate-name `IRPAPIError` retries with the `_n` suffix.
-- Create independent groups ON additionally submits one single-member grouping
-  job per member (T-08, sandbox-verified before the toggle is enabled).
+  `irp_analysis_group_member` rows (T-05), then makes one gateway call:
+  `submit_analysis_grouping` with `skip_missing=False` (T-10), explicit
+  currency, and the plan's propagate flag. The wheel resolves member names
+  and auto-builds the region/peril simulation set internally — the Workbench
+  never calls `build_region_peril_simulation_set` (T-03). The duplicate-name
+  `IRPAPIError` (matched by its message prefix) retries with the `_n` suffix;
+  every other exception records `SUBMISSION FAILED` + `failure_reason`, and
+  success records the `irp_job` (`irp_job_type = grouping`, already seeded) —
+  both exactly as the analysis worker does (T-03, spec O-09).
 - The poller gains a `grouping` getter (`get_grouping_job`, single-status) and
   terminal handler: FINISHED → `backfill_analysis_detail`, which resolves a
   group's platform id by name-only search (groups have no EDM) and then runs
@@ -74,12 +75,12 @@ per-queue worker framework this feature extends (T-01).
 |---|---|---|---|
 | T-01 | Implement after 010 + 011 merge to main; contracts written against the merged shape (011 code + CR-04 per-queue actors) | Approved | [research.md](research.md) T-01 |
 | T-02 | Grouping submit runs in the `submit_grouping` worker — the wheel's per-member read fan-out disqualifies the request path | Approved | research T-02 |
-| T-03 | Two-stage validation: local compose gate on the request path; event-rate resolution worker-side, failing the job before the POST | Approved | research T-03 |
+| T-03 | Validation split: local compose gate on the request path; everything platform-side delegated to the wheel's single submit call — member/name failures raise before the POST, scheme resolution never fails pre-submit in 0.6.2, and the worker records every submit exception uniformly as `SUBMISSION FAILED` with the cause | Approved | research T-03 (wheel source verified 2026-08-27), spec O-09 |
 | T-04 | Group rows: `irp_analysis.submission_id`, origin CHECK relaxed, filtered unique group name per submission | Approved | research T-04, [data-model.md](data-model.md) |
 | T-05 | Membership = `irp_analysis_group_member` child table; `group_parent_id` stays deferred (cannot model many-groups-per-analysis) | Approved | research T-05 |
 | T-06 | Submission tag value is the bare submission name, via the existing `tag_names` submit path — no change to 011's behavior | Approved | research T-06, spec O-05 |
 | T-07 | Groups ship untagged — the platform grouping settings schema has no tag field and no post-hoc tag endpoint exists; spec amended (O-07) | Approved | research T-07 (API verified 2026-08-27) |
-| T-08 | Independent-groups ON emulated as one single-member grouping job per member; toggle enabled only after a sandbox verification, dropped from the dialog if it fails (O-08) | Assumed | research T-08, quickstart step 5 |
+| T-08 | Create independent groups is dropped entirely — no checkbox, no emulation; the per-member design is recorded in research.md if the alignment reverses | Approved | research T-08, spec O-08 (decided 2026-08-27) |
 | T-09 | Group name default `CRE_<submission name>_Group`; `_n` collision suffix and 64-char truncation via the existing `name_attempt` | Approved | research T-09 |
 | T-10 | `skip_missing=False` — a member that fails name resolution fails the job; own members resolve name+EDM, groups name-only, broker name-only | Approved | research T-10 |
 | T-11 | Group completion reuses `backfill_analysis_detail` → `retrieve_analysis_results`; stats/EP endpoints assumed to serve group ids | Assumed | research T-11, quickstart step 4 |
@@ -90,8 +91,7 @@ per-queue worker framework this feature extends (T-01).
 ## Technical Context
 
 **New dependencies**: None. irp-integration 0.6.2 (the pin 010/011 carry)
-already ships `submit_analysis_grouping_job`, `get_analysis_grouping_job`, and
-`build_region_peril_simulation_set`.
+already ships `submit_analysis_grouping_job` and `get_analysis_grouping_job`.
 **Databases touched**: `rwb_workbench` only (new column, new table, one kind
 row). No EXPOSURE/LOSS/DATABRIDGE work.
 
@@ -153,9 +153,9 @@ No constitution violations to justify.
 
 - **Unit**: compose gate (unfinished member, foreign member, <2 members,
   nested-group eligibility), group naming and `_n` collision retry, plan
-  composition, `submit_grouping` worker against `FakeIRP` (success; resolution
-  failure fails before submit; duplicate-name retry; independent-groups
-  fan-out; submission-failure recording), poller `grouping` routing and
+  composition, `submit_grouping` worker against `FakeIRP` (success;
+  duplicate-name retry; uniform `SUBMISSION FAILED` recording with the cause
+  in `failure_reason`), poller `grouping` routing and
   terminal handling, group rows in submission read models and results
   columns.
 - **SQL Server integration**: schema drift guard for `submission_id`, the
@@ -163,5 +163,5 @@ No constitution violations to justify.
   `irp_analysis_group_member`, and the `submit_grouping` kind row.
 - **IRP sandbox** (opt-in, `--run-irp`): submit a real grouping of two
   finished sandbox analyses; poll `get_grouping_job` to terminal; verify
-  stats/EP retrieval against the group id (T-11) and the single-member
-  grouping submit (T-08). See [quickstart.md](quickstart.md).
+  stats/EP retrieval against the group id (T-11). See
+  [quickstart.md](quickstart.md).

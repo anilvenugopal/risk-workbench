@@ -20,10 +20,9 @@ Context:
 - Currency block: the `currency_block` macro from
   `execute_analysis_modal.html` with `currency_defaults()` prefill and the
   existing `/edms/execute/vintage-options` cascade (FR-004).
-- `propagate_detailed_output`: checkbox, checked (FR-005).
-- `create_independent_groups`: checkbox, unchecked (FR-006); rendered only
-  after the T-08 sandbox verification passes — if the platform rejects
-  single-member grouping jobs the checkbox is dropped entirely (O-08).
+- `propagate_detailed_output`: checkbox, checked (FR-005). The only setting
+  besides the currency block — Risk Modeler's Create independent groups
+  checkbox is not carried over (FR-006, O-08).
 - `blocking` message instead of the form when the submission has fewer than
   two eligible members.
 
@@ -31,8 +30,7 @@ Context:
 
 Form fields: `csrf_token`, `member_ids` (repeated, ≥2), `group_name`,
 `currency_code`, `currency_scheme`, `currency_vintage`,
-`propagate_detailed_output` (checkbox), `create_independent_groups`
-(checkbox).
+`propagate_detailed_output` (checkbox).
 
 Behavior:
 
@@ -45,8 +43,11 @@ Behavior:
   (`HX-Retarget: #group-modal`), nothing persisted (SC-005).
 - Success: persist the approved plan as one `submit_grouping` `rwb_job`,
   dispatch, respond `204` with
-  `HX-Trigger: {"grouping-submitted": true, "rwb:toast": …}`. The merged grid
-  and job views pick the new rows up through their existing polling.
+  `HX-Trigger: {"grouping-submitted": true, "rwb:toast": …}`. The toast is
+  the analyst's immediate confirmation, and the `rwb_job` is visible in the
+  RWB jobs monitor at once; the group `irp_analysis` row does not exist until
+  the worker claims the job (normally within seconds), so the merged grid
+  shows it from claim onward through its existing polling.
 
 ## Merged grid changes (`analyses_merged_section.html`)
 

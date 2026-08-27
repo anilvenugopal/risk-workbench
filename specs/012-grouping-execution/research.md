@@ -59,28 +59,46 @@ precedent is also worker-side via `execute_analysis_batch`, so there is no
 request-path precedent to match); pre-building the simulation set on the
 request path and passing it to the worker — same fan-out, wrong tier.
 
-## T-03 — Groupability validation is two-stage; a scheme-resolution failure fails the job before anything is submitted
+## T-03 — Groupability validation: local compose gate; everything platform-side delegated to the wheel's single submit call
 
 **Decision**: The compose gate (request path) checks only what the Workbench
 already knows: two or more members selected, every member exists, is not
 deleted, belongs to the submission, and is finished (`status_code = 'ready'`).
-Event-rate-scheme resolution — the expensive groupability check — runs in the
-`submit_grouping` worker as the first step, before the grouping POST. If
-`build_region_peril_simulation_set` raises, the worker fails the `rwb_job`
-with the exception text, stamps the group row `status_code = 'error'` with
-`failure_reason`, and **does not call the grouping endpoint** — nothing is
-submitted to Risk Modeler (FR-009, SC-005). The failure is visible in the
-grid's failed group and in job monitoring (FR-011).
+The worker then makes one call — `submit_analysis_grouping_job` with
+`skip_missing=False` — and reimplements nothing from irp-integration: the
+wheel resolves member names to URIs, auto-builds `regionPerilSimulationSet`
+from the resolved ids, and POSTs. Every submit exception except the
+duplicate-name case (T-09) is recorded exactly as the analysis worker records
+a submit failure: `SUBMISSION FAILED` `irp_job` + group row
+`status_code = 'error'` + `failure_reason` = the exception text, visible in
+the grid and job monitoring (FR-011). Spec amended (O-09): FR-009's "before
+anything is submitted" narrows to member/name failures.
 
-**Rationale**: Resolution requires the same per-member RM read fan-out as
-T-02; it cannot run on the request path. The spec's "before anything is
-submitted" is satisfied worker-side: the resolution failure precedes the POST.
+**Evidence** (wheel 0.6.2 source, read 2026-08-27): every failure mode of
+`submit_analysis_grouping_job` raises the same `IRPAPIError` — tenant-wide
+duplicate group name (message prefix `Analysis Group with this name already
+exists`), missing or ambiguous members with `skip_missing=False`, fan-out
+transport errors, and the POST wrapper (`Failed to submit analysis group
+job`). Member/name failures raise **before** the POST.
+`build_region_peril_simulation_set` never raises past input validation:
+conflicting schemes per peril/region just trigger building the set, failed
+reference lookups fall back (scheme id 0, engine-string parsing,
+analysis-level codes), and an analysis with no regions is skipped — so there
+is no pre-submit "unresolvable schemes" failure mode; an unresolvable set is
+rejected by the platform (a rejected POST creates nothing; a created grouping
+job that fails is stamped `error` by the poller).
 
-**Alternatives considered**: Full resolution on the request path — rejected per
-T-02. Local plausibility checks from stored `settings_metadata`
-(engineType/perilCode) — rejected: the library's resolution consults RM region
-rows and reference tables the Workbench does not cache; a local pre-check
-could only duplicate a subset and would still miss real failures.
+**Alternatives considered**: A separate worker-side
+`build_region_peril_simulation_set` call as a pre-submit validation step —
+rejected: the function has no failure mode to surface (it falls back), the
+wheel rebuilds the set inside the submit call anyway (double fan-out), and
+distinguishing "resolution" from "submit" errors would mean matching wheel
+message text beyond the one duplicate-name prefix the `_n` retry needs. Full
+resolution on the request path — rejected per T-02. Local plausibility checks
+from stored `settings_metadata` (engineType/perilCode) — rejected: the
+library's resolution consults RM region rows and reference tables the
+Workbench does not cache; a local pre-check could only duplicate a subset and
+would still miss real failures.
 
 ## T-04 — Group rows get `irp_analysis.submission_id`; the origin CHECK gains a third leg
 
@@ -169,30 +187,35 @@ endpoints are GET/POST `/platform/referencedata/v1/tags` only).
 group post-hoc — no platform endpoint exists to attach a tag to an analysis
 after creation, so there is nothing to wrap. Revisit if Moody's adds one.
 
-## T-08 — "Create independent groups" ON is emulated with one single-member grouping job per member
+## T-08 — "Create independent groups" is dropped entirely
 
-**Decision**: The compose dialog shows the setting, default OFF (FR-006). When
-ON, the worker submits, after the combined group, one additional grouping job
-per member with that member as the sole `resourceUris` entry — each producing
-its own `irp_analysis` group row and membership row. Status **Assumed**: the
-single-member submit must be verified against the sandbox before the toggle is
-enabled (quickstart step); if the platform rejects single-member grouping
-jobs, the setting is dropped from the compose dialog entirely (O-08,
-clarified 2026-08-27).
+**Decision** (2026-08-27, superseding the emulation below): the compose dialog
+carries no Create independent groups setting and the worker submits only the
+combined group. The compose settings are the currency block and Propagate
+detailed output (spec O-08, FR-006).
 
-**Rationale — verified 2026-08-27**: the platform grouping `settings` schema
-(see T-07) has **no independent-groups field**. "Create independent group"
-exists only as a distinct legacy `/riskmodeler` Analysis Groups endpoint
-(banned in this project). In Risk Modeler's grouping dialog the checkbox
-creates each input as its own single-analysis group alongside the combined
-group — the per-member emulation reproduces that. CIC: "we're never going to
-want to turn those on" (PRD §16.4), so the ON path is cheap insurance, not a
-hot path.
+**Rationale**: CIC never enables it — "we're never going to want to turn those
+on" (PRD §16.4) — and its purpose in Risk Modeler (each input also becomes a
+one-analysis group so it can sit beside the combined group in results) is
+already served in the Workbench: the results views take individual analysis
+ids, so a group and its member analyses render side by side with no extra
+groups. Carrying the checkbox would have cost the largest speculative branch
+in the feature: a plan field, a per-member worker fan-out with its own
+isolation semantics, a FakeIRP mode, unit tests, and a mandatory sandbox
+verification gating whether the checkbox even rendered.
 
-**Alternatives considered**: Rejecting ON at submit — a setting that only
-errors is worse than no setting. Shipping the checkbox disabled with a
-"not supported by the platform" note — rejected in clarification (O-08): a
-control that can never be used is dropped, not displayed.
+**Rejected alternative — the per-member emulation** (the design to revive if
+the alignment reverses): the platform grouping `settings` schema (see T-07,
+verified 2026-08-27) has **no independent-groups field**; "Create independent
+group" exists only on the legacy `/riskmodeler` Analysis Groups endpoint
+(banned in this project). ON would have been emulated by submitting, after the
+combined group, one additional grouping job per member with that member as the
+sole `resourceUris` entry — each with its own `irp_analysis` group row,
+membership row, and `irp_job`, per-member isolation, the `rwb_job` failing
+only if the combined submit failed. The single-member submit was never
+sandbox-verified. Also rejected earlier: a checkbox that only errors, and a
+disabled checkbox with a "not supported" note — a control that can never be
+used is dropped, not displayed.
 
 ## T-09 — Group name defaults to `CRE_<submission name>_Group`, reusing `name_attempt`
 
@@ -226,7 +249,13 @@ Member resolution is name-based per Article 2: own analyses pass
 `analysisName + exposureName`; group members pass through `group_names`
 (name-only lookup); broker-analysis members resolve name-only — if a broker
 name is ambiguous in the tenant the submit fails loudly and the analyst
-renames or excludes it.
+renames or excludes it. The same applies to a nested-group member whose name
+is duplicated tenant-wide (`Duplicate groups exist with name`): possible only
+for names created outside the Workbench, since the wheel's tenant-wide
+duplicate pre-check and the worker's `_n` retry keep every Workbench group
+name unique at submit. No compose-gate name check is added for these — the
+wheel already names the cause and the failure is recorded
+`SUBMISSION FAILED` with `failure_reason` (T-03).
 
 ## T-11 — Group completion reuses the analysis chain, with name-only resolution
 
@@ -299,4 +328,7 @@ the EDM-page case where eligible members live in other EDMs.
 
 - Q: The platform grouping job schema has no tag field and no post-creation tagging endpoint exists (T-07) — how does the spec resolve FR-017's "including groups" and User Story 4 acceptance 2? → A: Amend the spec (O-07): groups are submitted without the tag; FR-017 and SC-003 scope to individual analyses; User Story 4 acceptance 2 removed. Revisit if Moody's adds a tagging endpoint.
 - Q: O-05 was Assumed — what is the submission tag's exact value? → A: The bare submission name (011's current behavior kept for now; the structured `submission:<name>` prefix from note 18 D12 may be revisited). O-05 → Approved; T-06 rewritten.
-- Q: If the sandbox check finds the platform rejects single-member grouping jobs (the T-08 emulation for Create independent groups ON), what ships? → A: The setting is dropped from the compose dialog entirely (O-08); FR-006 amended with the contingency.
+- Q: If the sandbox check finds the platform rejects single-member grouping jobs (the T-08 emulation for Create independent groups ON), what ships? → A: The setting is dropped from the compose dialog entirely (O-08); FR-006 amended with the contingency. *(Superseded the same day by the next entry.)*
+- Q: The worker contract had a separate pre-submit "Resolve" step calling `build_region_peril_simulation_set`, but the gateway exposes one submit call — which is it? → A: One call; the wheel resolves members and builds the simulation set internally, and the Workbench reimplements nothing from irp-integration. T-03 rewritten with the wheel-source evidence.
+- Q: Wheel 0.6.2 raises the same `IRPAPIError` for every failure and its scheme resolution never fails pre-submit — how does the worker classify errors, and does FR-009's "before anything is submitted" hold? → A: Uniform handling — the duplicate-name message prefix retries with `_n`; every other exception records `SUBMISSION FAILED` + `failure_reason` like the analysis worker. Spec amended (O-09): the pre-submit guarantee narrows to member/name failures; an unresolvable scheme set surfaces as a failed job with the named cause. FR-009, US2 acceptance 3, and SC-005 rewritten.
+- Q: Does the Workbench carry Risk Modeler's Create independent groups checkbox at all? → A: No — dropped entirely, no checkbox and no emulation (O-08 and FR-006 rewritten): CIC never enables it and the results views already show a group beside its member analyses. The per-member emulation stays recorded in T-08 as the rejected alternative.
