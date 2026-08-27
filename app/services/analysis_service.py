@@ -8,6 +8,13 @@ Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
     ``is_group`` (FR-035).
   • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
     submission RDM context and therefore returns no groups.
+  • ``list_executed_analyses(edm_id)`` — the EDM detail page's user-executed
+    section (spec 010 US2, FR-013): every analysis the workbench itself
+    submitted against this EDM (``execution_id`` set), with live status
+    derived from the latest tracked ``irp_job`` per analysis (T-07) and the
+    same curated ``AnalysisSettings`` view once ``settings_metadata`` is
+    backfilled. No RDM grouping — this is exactly the portfolio the trust
+    rule (8/4 D8) exempts, since the workbench submitted these itself.
 
 **No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
 way to tie an RDM analysis to an EDM portfolio, and every analysis here is
@@ -21,16 +28,26 @@ fields defensively (``analysisType``/``engineType``/``engineVersion``/
 2026-07-24); term / PLA / event-rate fields have NO documented source and stay
 blank until the sandbox confirms their spelling (IRP_INTEGRATION_FOLLOWUPS.md).
 
-Read-only; no loss numbers (FR-033); no row scoping (Article 6).
+No loss numbers (FR-033); no row scoping (Article 6). The one write is
+``delete_executed_analyses`` (spec 010 P-19): a synchronous request-path delete
+of terminal own-executed analyses — Risk Modeler first, then a local soft
+delete — everything else here is read-only.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.services._common import _parse_json_dict, _uid
-from db import execute
+from sqlalchemy import text
+
+from app.config import settings
+from app.services import irp_gateway
+from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from db import execute, execute_command, get_connection
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -96,6 +113,78 @@ class BrokerAnalysisGroup:
     def edm_count(self) -> int:
         return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
+
+@dataclass
+class ExecutedAnalysis:
+    """One workbench-submitted analysis for the EDM detail page's user-executed
+    section (spec 010 US2, FR-013). Status is derived from the latest tracked
+    ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
+    status_code`` keeps only the three coarse lifecycle codes."""
+    id: str
+    name: str | None            # the ≤64-char name submitted to Risk Modeler
+    full_name: str | None       # untruncated portfolio + template (+ suffix)
+    portfolio_name: str | None
+    status_code: str            # pending | ready | error
+    failure_reason: str | None
+    template_name: str | None = None
+    inserted_at: Any = None     # submit request time (Submitted column)
+    irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
+    irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
+    rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
+    settings: dict | None = None
+    display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    irp_job_id: str | None = None       # latest linked irp_job
+    job_status: str | None = None       # latest irp_job.status; None before submit
+    submission_attempt_count: int = 0
+
+    @property
+    def is_live(self) -> bool:
+        """Drives the EDM page's 3s self-poll (T-11): still moving toward a
+        terminal outcome. ``pending`` is the only in-flight value — every write
+        that leaves it is terminal."""
+        return self.status_code == "pending"
+
+    @property
+    def status_label(self) -> str:
+        if self.job_status is None:
+            return "Submitting…"
+        if self.job_status == "SUBMISSION FAILED":
+            return (f"Failed to submit · attempt {self.submission_attempt_count}/"
+                    f"{settings.irp_submission_max_retries}")
+        return self.job_status.capitalize()
+
+    @property
+    def status_chip(self) -> str:
+        """One of the existing import-status chip variants (submissions.css) —
+        no new CSS, keyed off the derived label rather than a stored status."""
+        if self.job_status in (None, "QUEUED", "RUNNING", "SUBMISSION RETRYING"):
+            return "importing"
+        if self.job_status == "FINISHED":
+            return "ready"
+        if self.job_status == "SUBMISSION FAILED":
+            return "submission-failed"
+        return "error"  # FAILED, CANCELLED
+
+    @property
+    def group_key(self) -> str:
+        """The Analyses grid's group: ``failed`` / ``in_progress`` / ``ready``.
+        Derived, not raw ``status_code`` — a failed-to-submit row is
+        ``status_code='pending'`` but belongs under Failed."""
+        if self.status_code == "error" or self.status_chip in (
+                "error", "submission-failed"):
+            return "failed"
+        if self.status_code == "ready":
+            return "ready"
+        return "in_progress"
+
+    @property
+    def is_deletable(self) -> bool:
+        """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
+        chip turns ready at job FINISHED, seconds before the backfill writes
+        ``irp_id`` — deleting in that window would orphan the RM analysis."""
+        return (self.job_status != "SUBMISSION RETRYING"
+                and (self.status_code in ("ready", "error")
+                     or self.status_chip == "submission-failed"))
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -231,6 +320,161 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     return []
 
 
+_EXECUTED_SELECT = """
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
+           p.name AS portfolio_name, t.name AS template_name,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
+    FROM irp_analysis a
+    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN (
+        SELECT id, irp_analysis_id, status, submission_attempt_count,
+               ROW_NUMBER() OVER (
+                   PARTITION BY irp_analysis_id
+                   ORDER BY inserted_at DESC, id DESC
+               ) AS row_num
+        FROM irp_job
+        WHERE irp_analysis_id IS NOT NULL
+    ) j ON j.irp_analysis_id = a.id AND j.row_num = 1
+    WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
+    ORDER BY a.inserted_at DESC
+"""
+
+
+def _rm_analysis_url(irp_app_analysis_id: Any) -> str | None:
+    """The Risk Modeler web UI page for one analysis — plain navigation, never
+    an API call (Article 11). The RM UI route takes ``appAnalysisId``, not the
+    API ``analysisId``. ``None`` without an ``irp_app_analysis_id`` or when the RM
+    UI origin is not configured. The trailing ``/0`` is part of the RM UI
+    route."""
+    if not irp_app_analysis_id:
+        return None
+    root = _rm_ui_root()
+    if root is None:
+        return None
+    return f"{root}/riskmodeler/datasources/analysis/{irp_app_analysis_id}/0"
+
+
+def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
+    """The EDM detail page's user-executed section (FR-013): every analysis the
+    workbench submitted against this EDM, newest first, each with its live
+    status derived from its latest tracked ``irp_job`` (T-07)."""
+    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+    analyses = []
+    for r in rows:
+        parsed = _parse_settings(r["settings_metadata"])
+        irp_id = str(r["irp_id"]) if r["irp_id"] is not None else None
+        irp_app_analysis_id = (str(r["irp_app_analysis_id"])
+                           if r["irp_app_analysis_id"] is not None else None)
+        analyses.append(ExecutedAnalysis(
+            id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
+            portfolio_name=r["portfolio_name"], status_code=r["status_code"],
+            failure_reason=r["failure_reason"],
+            template_name=r["template_name"], inserted_at=r["inserted_at"],
+            irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
+            rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
+            display=_to_display(parsed),
+            irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
+            job_status=r["job_status"],
+            submission_attempt_count=int(r["submission_attempt_count"] or 0)))
+    return analyses
+
+
+def execution_batch_is_live(execution_id: Any | None) -> bool:
+    if not execution_id:
+        return False
+    rows = execute(
+        "SELECT status_code FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :id "
+        "AND rwb_job_type = 'execute_analysis_batch' "
+        "AND status_code IN ('pending', 'running')",
+        {"id": str(execution_id)}, connection="WORKBENCH")
+    return bool(rows)
+
+
+@dataclass(frozen=True)
+class DeleteOutcome:
+    deleted: int
+    failed: list[str]  # display names whose Risk Modeler delete failed
+    retrying: list[str]  # display names the poller claimed for a submission retry
+
+
+_SOFT_DELETE_ANALYSIS = (
+    "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+    "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
+)
+
+
+def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
+                             actor_id: Any) -> DeleteOutcome:
+    """Delete terminal own-executed analyses (spec 010 P-19): validate the
+    whole batch up front (every posted id must resolve on this EDM and be
+    ``is_deletable``, else ``ValueError``), then per row cascade to Risk
+    Modeler first and soft-delete locally on success. A row whose RM delete
+    fails is recorded in ``failed`` and kept visible for retry; a row the poller
+    claimed for a submission retry mid-batch is recorded in ``retrying`` and left
+    alone. Neither aborts the batch — the rows already deleted stay deleted, and
+    the caller reports all three counts. RM-first order: a crash between the two
+    calls leaves a visible row with a dangling ``irp_id`` — recoverable by
+    retrying — rather than a hidden RM analysis."""
+    ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
+    if not ids:
+        raise ValueError("No analyses selected.")
+    rows = {a.id: a for a in list_executed_analyses(edm_id=edm_id)}
+    picked = []
+    for analysis_id in ids:
+        row = rows.get(analysis_id)
+        if row is None:
+            raise ValueError(
+                "A selected analysis no longer belongs to this EDM.")
+        if not row.is_deletable:
+            raise ValueError(
+                f"'{row.full_name or row.name}' is still in progress "
+                "and cannot be deleted.")
+        picked.append(row)
+
+    deleted = 0
+    failed: list[str] = []
+    retrying: list[str] = []
+    for row in picked:
+        if row.irp_id is not None:
+            # Outside any transaction (Article 11 — never hold a txn across
+            # a Risk Modeler round-trip).
+            try:
+                irp_gateway.delete_analysis(row.irp_id)
+            except Exception:  # noqa: BLE001 — per-row isolation; row stays for retry
+                logger.exception("Risk Modeler delete failed for analysis %s "
+                                 "(irp_id=%s)", row.id, row.irp_id)
+                failed.append(row.full_name or row.name or row.id)
+                continue
+        soft_delete = {"now": _utcnow(), "id": row.id,
+                       "by": (str(actor_id) if actor_id is not None else None)}
+        if row.job_status == "SUBMISSION FAILED" and row.irp_job_id:
+            with get_connection("WORKBENCH") as conn, conn.begin():
+                locked = conn.execute(text(
+                    "UPDATE irp_job SET updated_at = :now "
+                    "WHERE id = :job_id AND status = 'SUBMISSION FAILED' "
+                    "AND EXISTS (SELECT 1 FROM irp_analysis "
+                    "WHERE id = :analysis_id AND deleted_at IS NULL)"
+                ), {"now": soft_delete["now"], "job_id": row.irp_job_id,
+                    "analysis_id": row.id}).rowcount
+                if locked != 1:
+                    # The poller claimed this submit for a retry after the read
+                    # above. Nothing was deleted for this row — its irp_id is
+                    # NULL, so Risk Modeler was never called — and raising here
+                    # would discard the rows already deleted earlier in the loop.
+                    retrying.append(row.full_name or row.name or row.id)
+                    continue
+                conn.execute(text(_SOFT_DELETE_ANALYSIS), soft_delete)
+        else:
+            execute_command(_SOFT_DELETE_ANALYSIS, soft_delete,
+                            connection="WORKBENCH")
+        deleted += 1
+    return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
+
+
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
     """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
@@ -275,7 +519,10 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
-    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
-    "list_broker_analyses", "list_edm_analyses", "list_submission_rdms",
+    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
+    "ExecutedAnalysis",
+    "delete_executed_analyses", "execution_batch_is_live",
+    "list_broker_analyses", "list_edm_analyses",
+    "list_executed_analyses", "list_submission_rdms",
     "list_submission_rdm_analyses",
 ]

@@ -381,9 +381,9 @@ idna==3.18 \
     # via
     #   anyio
     #   requests
-irp-integration==0.6.0rc2 \
-    --hash=sha256:650b21cda9416660fa4d6a2f5060066d4a76093f0c2eb56a1c31f635a3cc1fe6 \
-    --hash=sha256:bf43818a6747caa10d93901c5f8e73972e1b648efd1dd499047503dc056d3e63
+irp-integration==0.6.2 \
+    --hash=sha256:2ac415526f7f2ed2b9fb3b886ab4a002b24caa9eb9dd6aaaf1721c4032b8729a \
+    --hash=sha256:de186f54a212374fb7dc16f68ee5797fe8fe0190bb7be50cdb5b7fe5303fdee9
 itsdangerous==2.2.0 \
     --hash=sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef \
     --hash=sha256:e0050c0b7da1eea53ffaf149c0cfbb5c6e2e2b69c4bef22c81fa6eb73e5f6173

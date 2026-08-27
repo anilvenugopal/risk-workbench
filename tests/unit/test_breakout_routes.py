@@ -39,6 +39,7 @@ from tests.iteration1_mirror import (
     ITERATION1_SCHEMA,
     ITERATION2_SCHEMA,
     ITERATION3_SCHEMA,
+    ITERATION4_SCHEMA,
     RWB_JOB_REQUESTOR_TYPE_SEED,
     RWB_JOB_STATUS_SEED,
     RWB_JOB_TYPE_SEED,
@@ -66,7 +67,8 @@ def routes_db() -> SimpleNamespace:
     engine = create_engine("sqlite://", poolclass=StaticPool,
                            connect_args={"check_same_thread": False})
     with engine.begin() as conn:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA,
+                    *ITERATION4_SCHEMA):
             conn.execute(text(ddl))
         conn.execute(text(
             "INSERT INTO app_user (id, email, display_name) "

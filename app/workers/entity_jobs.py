@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import text
 
@@ -46,7 +46,6 @@ from app.services._common import _utcnow
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
 from db import (
-    execute,
     execute_command,
     execute_scalar,
     get_connection,
@@ -472,7 +471,7 @@ def backfill_edm_detail(rwb_job_id: str) -> None:
 
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
-_BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
+_BODIES: runtime.JobBodies = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
@@ -481,31 +480,12 @@ _BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
 
 
 def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") -> bool:
-    """Claim + run a single ``rwb_job`` through its body. Returns ``run_job``'s result
-    (``False`` if the row was already claimed / the type has no body yet)."""
-    body = _BODIES.get(rwb_job_type)
-    if body is None:
-        logger.debug("no body for rwb_job_type %s — skipping", rwb_job_type)
-        return False
-    return runtime.run_job(rwb_job_id=rwb_job_id, worker_id=worker_id,
-                           body=lambda: body(rwb_job_id))
+    return runtime.run_one(_BODIES, rwb_job_id=rwb_job_id,
+                           rwb_job_type=rwb_job_type, worker_id=worker_id)
 
 
 def run_pending(*, worker_id: str = "worker") -> int:
-    """Claim + run every currently-``pending`` ``rwb_job`` once. Snapshot-based (rows a
-    body enqueues are picked up on the next call), so tests advance the queue by
-    calling this after each poller pass. Returns the number of rows run."""
-    rows = execute(
-        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending' "
-        "ORDER BY inserted_at, id",
-        {}, connection="WORKBENCH",
-    )
-    count = 0
-    for row in rows:
-        if run_one(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"],
-                   worker_id=worker_id):
-            count += 1
-    return count
+    return runtime.run_pending(_BODIES, worker_id=worker_id)
 
 
 __all__ = [

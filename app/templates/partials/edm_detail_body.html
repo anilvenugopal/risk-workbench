@@ -141,6 +141,12 @@
     {% endif %}
   </details>
 
+  {# ── Analyses (US2, spec 010) — its own polling unit (T-11 refinement): an
+     in-flight execution no longer re-swaps the whole page every 3s, so it never
+     collapses portfolio/treaty/broker-analysis rows the analyst has expanded
+     elsewhere. See partials/executed_analyses_section.html. ── #}
+  {% include "partials/executed_analyses_section.html" %}
+
   {% if source_submission %}
   {% set analysis_total = submission_rdms | map(attribute='analysis_count') | sum %}
   <details class="sec" open id="edm-broker-analyses">

@@ -1,0 +1,85 @@
+{# The EDM detail page's user-executed Analyses section (US2, spec 010,
+   FR-013/P-18/P-19) — every analysis the workbench itself submitted against
+   this EDM; no RDM grouping. Its own self-poll unit, separate from the rest of
+   edm_detail_body.html (T-11 refinement): swapping only this fragment means
+   an in-flight execution never collapses a portfolio/treaty/broker-analysis
+   row the analyst has expanded elsewhere on the page.
+
+   ``execution-submitted`` (fired by the execute modal's POST, HX-Trigger
+   header) makes app.js fetch this fragment once with the execution id. The
+   fragment polls while that batch or any analysis is in progress, including
+   before the first analysis row exists. ``analyses-changed``
+   (fired by the delete POST) refetches after a delete without touching
+   portfolio picks. The status filter rides on the poll URL so a 3s swap
+   never resets it; ``live`` stays computed from the unfiltered list. #}
+{% set live = execution_live|default(false) or edm.executed_analyses|selectattr('is_live')|list|length > 0 %}
+{% set analyses_base = analyses_table_url|default('/edms/' ~ edm.id ~ '/analyses') %}
+{% set status_filter = status_filter|default('') %}
+{% set execution_id = execution_id|default('') %}
+{% set query = ('status=' ~ status_filter if status_filter else '') %}
+{% if execution_id %}{% set query = query ~ ('&' if query else '') ~ 'execution_id=' ~ execution_id %}{% endif %}
+{% set analyses_url = analyses_base ~ ('?' ~ query if query else '') %}
+{% set filter_url = analyses_base ~ ('?execution_id=' ~ execution_id if execution_id else '') %}
+<details class="sec" open id="edm-executed-analyses" x-data="analysisPicks()"
+  hx-get="{{ analyses_url }}"
+  hx-trigger="analyses-changed from:body{% if live %}, every 3s{% endif %}"
+  hx-target="this" hx-swap="outerHTML">
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">Analyses</span>
+    {% if edm.executed_analyses %}
+    <span class="badge badge--neutral">{{ edm.executed_analyses | length }}</span>
+    {% endif %}
+    <span class="sec__spacer"></span>
+    {% if edm.executed_analyses %}
+    <select name="status" class="wf-field__input" style="width:auto"
+            onclick="event.stopPropagation()"
+            hx-get="{{ filter_url }}" hx-trigger="change"
+            hx-target="#edm-executed-analyses" hx-swap="outerHTML">
+      <option value="">All statuses</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      <option value="in_progress" {% if status_filter == 'in_progress' %}selected{% endif %}>In progress</option>
+      <option value="ready" {% if status_filter == 'ready' %}selected{% endif %}>Ready</option>
+    </select>
+    <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm" type="button" :disabled="!count" onclick="event.stopPropagation()"
+            hx-post="{{ analyses_base }}/delete"
+            hx-include="[name='analysis_ids'], #analyses-csrf" hx-swap="none"
+            hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
+      Delete</button>
+    {% endif %}
+    <span class="sec__note">Submitted from this EDM &middot; no RDM grouping</span>
+  </summary>
+  {% if edm.executed_analyses %}
+  <div class="dtable-shell">
+    <div class="dtable" style="--cols:28px minmax(200px,1.5fr) minmax(130px,1fr) minmax(130px,1fr) minmax(200px,1.4fr) 200px;min-width:1040px">
+      <div class="dtable__head">
+        <span></span><span class="l">Analysis</span><span class="l">Portfolio</span>
+        <span class="l">Template</span><span class="l">Status</span><span class="l">Submitted</span>
+      </div>
+      {% set shown = namespace(n=0) %}
+      {% for key, label in [('failed', 'Failed'), ('in_progress', 'In progress'), ('ready', 'Ready')] %}
+      {% if not status_filter or status_filter == key %}
+      {% set group = edm.executed_analyses|selectattr('group_key', 'equalto', key)|list %}
+      {% if group %}
+      {% set shown.n = shown.n + group|length %}
+      <div class="dtable__group">
+        <span class="name">{{ label }}</span>
+        <span class="ref">{{ group|length }}</span>
+      </div>
+      {% for a in group %}
+      {% include "partials/executed_analysis_row.html" %}
+      {% endfor %}
+      {% endif %}
+      {% endif %}
+      {% endfor %}
+      {% if shown.n == 0 %}
+      <div class="dtable__groupempty">No analyses match this status filter.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="state-box">No analyses executed against this EDM yet. Select portfolios above and
+    choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.</div>
+  {% endif %}
+</details>

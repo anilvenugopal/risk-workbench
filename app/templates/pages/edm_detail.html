@@ -14,9 +14,11 @@
 <div class="form-banner form-banner--error">{{ geohaz_error }}</div>
 {% endif %}
 {% include "partials/edm_detail_body.html" %}
-{# Breakout modal mount (spec 005) — OUTSIDE the self-polling #edm-detail
-   wrapper, so the 3-second poll never removes an open modal (the
-   #package-modal-mount precedent). The hx-on handler lets the modal's 404
+{# Both modal mounts sit OUTSIDE the self-polling #edm-detail wrapper — same
+   reason submission_detail.html keeps #submission-entity-modal outside its
+   polled sections: an open modal must never be wiped by the 3s poll. #}
+<div id="execute-modal"></div>
+{# Breakout modal mount (spec 005). The hx-on handler lets the modal's 404
    (portfolio gone) and 409 (confirm refused) fragments swap in — htmx drops
    non-2xx bodies by default — and mutes the generic error toast for them. #}
 <div id="breakout-modal-mount"
