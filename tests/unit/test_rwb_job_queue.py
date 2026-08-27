@@ -304,12 +304,12 @@ def test_reconciler_preserves_original_chain(iteration2_db):
 # actor.
 
 _EXPECTED_QUEUE_NAMES = [
-    "backfill_analysis_detail",
     "backfill_edm_detail",
     "backfill_rdm_analyses",
     "dummy_fail",
     "dummy_wait",
     "execute_analysis_batch",
+    "finalize_analysis",
     "retrieve_analysis_results",
     "run_breakout_country",
     "run_breakout_custom",

@@ -3,7 +3,7 @@
 Covers ``execute_analysis_batch`` (per-item isolation, a template shared by two
 suites submitting once per suite with each suite's own currency and a suffixed
 name, resume skip after reclaim keyed on ``execution_item_no``, submission-failure
-recording), ``backfill_analysis_detail`` (resolution by RM's ``analysisId``), and
+recording), ``finalize_analysis`` (detail resolved by RM's ``analysisId``), and
 the naming helpers (T-04/T-05).
 """
 
@@ -268,9 +268,9 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
     assert rows[0]["status_code"] == "pending"
 
 
-# ── backfill_analysis_detail ──────────────────────────────────────────────────────
+# ── finalize_analysis ─────────────────────────────────────────────────────────
 
-def test_backfill_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
+def test_finalize_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     seed_currency()
     edm_id = seed_edm("EDM One")
     portfolio_id = seed_portfolio(edm_id)
@@ -290,12 +290,12 @@ def test_backfill_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
         "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
-        "'backfill_analysis_detail', 'pending', :input)",
+        "'finalize_analysis', 'pending', :input)",
         {"id": job_id, "rid": str(uuid.uuid4()),
          "input": json.dumps({"analysis_id": analysis["id"],
                               "rm_analysis_id": "9001"})},
         connection="WORKBENCH")
-    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_analysis_detail",
+    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="finalize_analysis",
                           worker_id="w1")
 
     updated = execute_one(
@@ -317,21 +317,21 @@ def test_backfill_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     assert resource["resource_uri"] == "/irp/analysis/1"
 
 
-def _run_backfill(input_data: dict) -> str:
+def _run_finalize(input_data: dict) -> str:
     job_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
         "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
-        "'backfill_analysis_detail', 'pending', :input)",
+        "'finalize_analysis', 'pending', :input)",
         {"id": job_id, "rid": str(uuid.uuid4()),
          "input": json.dumps(input_data)},
         connection="WORKBENCH")
-    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_analysis_detail",
+    analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="finalize_analysis",
                           worker_id="w1")
     return job_id
 
 
-def _assert_backfill_failed(job_id, analysis_id, reason_fragment: str) -> None:
+def _assert_finalize_failed(job_id, analysis_id, reason_fragment: str) -> None:
     job = execute_one("SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
                       {"id": job_id}, connection="WORKBENCH")
     assert job["status_code"] == "failed"
@@ -345,7 +345,7 @@ def _assert_backfill_failed(job_id, analysis_id, reason_fragment: str) -> None:
     assert reason_fragment in ended["failure_reason"]
 
 
-def test_backfill_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp):
+def test_finalize_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp):
     seed_currency()
     edm_id = seed_edm("EDM One")
     portfolio_id = seed_portfolio(edm_id)
@@ -356,12 +356,12 @@ def test_backfill_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp)
     analysis = _analyses_for(edm_id)[0]
 
     # completion payload carried no tasks[].output.log.analysisId
-    job_id = _run_backfill({"analysis_id": analysis["id"],
+    job_id = _run_finalize({"analysis_id": analysis["id"],
                             "rm_analysis_id": None})
-    _assert_backfill_failed(job_id, analysis["id"], "no analysisId")
+    _assert_finalize_failed(job_id, analysis["id"], "no analysisId")
 
 
-def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
+def test_finalize_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
     seed_currency()
     edm_id = seed_edm("EDM One")
     portfolio_id = seed_portfolio(edm_id)
@@ -372,9 +372,9 @@ def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
     analysis = _analyses_for(edm_id)[0]
     fake_irp.raise_on_analysis_metadata = True
 
-    job_id = _run_backfill({"analysis_id": analysis["id"],
+    job_id = _run_finalize({"analysis_id": analysis["id"],
                             "rm_analysis_id": "9001"})
-    _assert_backfill_failed(job_id, analysis["id"], "analysis resolve failed")
+    _assert_finalize_failed(job_id, analysis["id"], "analysis resolve failed")
     retained = execute_one(
         "SELECT irp_id FROM irp_analysis WHERE id = :id",
         {"id": analysis["id"]}, connection="WORKBENCH")
@@ -636,7 +636,7 @@ def _retrieval_jobs_for(analysis_id: str) -> list[dict]:
         {"a": analysis_id}, connection="WORKBENCH")
 
 
-def test_backfill_success_chains_one_retrieval_and_a_refire_is_a_noop(
+def test_finalize_success_chains_one_retrieval_and_a_refire_is_a_noop(
         iteration2_db, fake_irp):
     seed_currency()
     edm_id = seed_edm("EDM One")
@@ -650,11 +650,11 @@ def test_backfill_success_chains_one_retrieval_and_a_refire_is_a_noop(
                           exposure_name="EDM One",
                           metadata={"appAnalysisId": 41867})
 
-    _run_backfill({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
     assert len(_retrieval_jobs_for(analysis["id"])) == 1
 
     # re-fired trigger: the UNIQUE key makes the insert a no-op (FR-006)
-    _run_backfill({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
     assert len(_retrieval_jobs_for(analysis["id"])) == 1
 
 

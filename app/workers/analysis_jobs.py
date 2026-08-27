@@ -3,7 +3,7 @@
 ``execute_analysis_batch`` submits one Risk Modeler analysis per (portfolio,
 plan item) — the plan is the approved snapshot from
 ``analysis_execution_service.request_execution``; this module reads nothing else
-(AGENTS.md rule 8). ``backfill_analysis_detail`` fills in a FINISHED analysis' Risk
+(AGENTS.md rule 8). ``finalize_analysis`` fills in a FINISHED analysis' Risk
 Modeler detail, resolved by the ``analysisId`` the poller extracted from the
 completion body, and chains ``retrieve_analysis_results`` (spec 011), which stores
 the bounded loss-results extract on ``irp_analysis.loss_results``.
@@ -199,10 +199,11 @@ def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
     return runtime.JobResult.fail(reason)
 
 
-def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Fill in a FINISHED own-executed analysis' ``irp_id`` (RM's ``analysisId``,
-    extracted by the poller from the completion body), ``irp_app_analysis_id`` (the
-    web-UI id for deep links) and ``settings_metadata``."""
+def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Take a FINISHED own-executed analysis to ``ready``: store ``irp_id`` (RM's
+    ``analysisId``, extracted by the poller from the completion body),
+    ``irp_app_analysis_id`` (the web-UI id for deep links) and
+    ``settings_metadata``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
@@ -226,7 +227,7 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     try:
         meta = irp_gateway.get_analysis_metadata(analysis_id=int(rm_id))
     except Exception as exc:  # noqa: BLE001 — resolution failed, recoverable rwb_job failure
-        logger.warning("backfill_analysis_detail: metadata fetch failed for %s "
+        logger.warning("finalize_analysis: metadata fetch failed for %s "
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
@@ -240,22 +241,22 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
     # Chain the results retrieval: the queue's UNIQUE key dedups, so a re-fired
-    # backfill is a no-op insert.
+    # finalize_analysis is a no-op insert.
     retrieval_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_analysis", requestor_id=analysis_id,
         rwb_job_type="retrieve_analysis_results",
         input_data={"analysis_id": analysis_id})
     dispatch.dispatch(rwb_job_id=retrieval_id,
                       rwb_job_type="retrieve_analysis_results")
-    logger.info("backfill_analysis_detail resolved analysis=%s -> irp_id=%s",
+    logger.info("finalize_analysis resolved analysis=%s -> irp_id=%s",
                analysis_id, rm_id)
     return runtime.JobResult.ok(irp_id=str(rm_id))
 
 
 @rwb_actor(max_retries=0)
-def backfill_analysis_detail(rwb_job_id: str) -> None:
+def finalize_analysis(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
-                    body=lambda: _backfill_analysis_detail_body(rwb_job_id))
+                    body=lambda: _finalize_analysis_body(rwb_job_id))
 
 
 def _curve_points(element: dict | None) -> dict | None:
@@ -390,7 +391,7 @@ def retrieve_analysis_results(rwb_job_id: str) -> None:
 
 _BODIES: runtime.JobBodies = {
     "execute_analysis_batch": _execute_analysis_batch_body,
-    "backfill_analysis_detail": _backfill_analysis_detail_body,
+    "finalize_analysis": _finalize_analysis_body,
     "retrieve_analysis_results": _retrieve_analysis_results_body,
 }
 
@@ -405,7 +406,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "execute_analysis_batch", "backfill_analysis_detail",
+    "execute_analysis_batch", "finalize_analysis",
     "retrieve_analysis_results", "build_loss_results_extract",
     "run_one", "run_pending",
 ]

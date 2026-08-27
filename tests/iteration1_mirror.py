@@ -287,7 +287,7 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("run_geohaz", "Run GeoHaz", 28),
                      ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
-                     ("backfill_analysis_detail", "Backfill Analysis Detail", 31),  # spec 010
+                     ("finalize_analysis", "Finalize Analysis", 31),  # spec 010
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
