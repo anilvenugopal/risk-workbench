@@ -257,6 +257,21 @@ def test_ensure_pending_in_flight_skip_keeps_original_chain(iteration2_db):
     assert _correlation_of(job_id) == "original"
 
 
+def test_ensure_pending_does_not_revive_cancelled_job(iteration2_db):
+    rid = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm")
+    assert cancel_rwb_job(rwb_job_id=job_id) is True
+
+    assert ensure_pending_rwb_job(requestor_type="analyst_request",
+                                  requestor_id=rid,
+                                  rwb_job_type="upload_edm") is None
+    row = execute_one(
+        "SELECT status_code, attempt_count FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert row == {"status_code": "cancelled", "attempt_count": 0}
+
+
 def test_get_rwb_job_returns_row_or_none(iteration2_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
@@ -529,3 +544,27 @@ def test_resubmit_rwb_job_non_terminal_row_returns_none(iteration2_db):
     row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
                       {"id": job_id}, connection="WORKBENCH")
     assert row["status_code"] == "pending"  # untouched
+
+
+def test_resubmit_rwb_job_rejects_succeeded_and_cancelled_rows(iteration2_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    succeeded_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                   requestor_id=str(uuid.uuid4()),
+                                   rwb_job_type="upload_edm")
+    claim_rwb_job(rwb_job_id=succeeded_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=succeeded_id, status="succeeded")
+
+    cancelled_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                   requestor_id=str(uuid.uuid4()),
+                                   rwb_job_type="upload_edm")
+    cancel_rwb_job(rwb_job_id=cancelled_id)
+
+    assert resubmit_rwb_job(rwb_job_id=succeeded_id) is None
+    assert resubmit_rwb_job(rwb_job_id=cancelled_id) is None
+    for job_id, status in ((succeeded_id, "succeeded"),
+                           (cancelled_id, "cancelled")):
+        row = execute_one(
+            "SELECT status_code, attempt_count FROM rwb_job WHERE id = :id",
+            {"id": job_id}, connection="WORKBENCH")
+        assert row == {"status_code": status, "attempt_count": 0}
