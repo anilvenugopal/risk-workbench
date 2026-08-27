@@ -914,11 +914,11 @@ def upgrade() -> None:
                             name="uq_template_suite_item_template"),
     )
 
-    # ── analysis_perspective_kind (kind, Article 3 — Iteration 8, spec 011) ─────
     # The financial perspectives the retrieval worker requests and every
-    # perspective toggle offers. First sort_order is the screen-wide default
-    # (Gross). No FK from loss_results — its JSON keys mirror RM's
-    # perspectiveCode vocabulary verbatim.
+    # perspective toggle offers. sort_order is dropdown order; the screen-wide
+    # default is analysis_service.DEFAULT_PERSPECTIVE (RL). No FK from
+    # loss_results — its JSON keys mirror RM's perspectiveCode vocabulary
+    # verbatim.
     op.create_table(
         "analysis_perspective_kind",
         sa.Column("code", sa.NVARCHAR(10), primary_key=True),
@@ -987,8 +987,6 @@ def upgrade() -> None:
         "('breakout_group', 'Breakout Group', 40), "
         "('irp_analysis', 'IRP Analysis', 50)"
     ))
-    # analysis_perspective_kind — spec 011 O-07. sort_order is dropdown order;
-    # the screen-wide default is analysis_service.DEFAULT_PERSPECTIVE (RL).
     op.execute(sa.text(
         "INSERT INTO analysis_perspective_kind (code, label, sort_order) VALUES "
         "('GR', 'Gross', 10), "

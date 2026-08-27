@@ -124,7 +124,7 @@ The analyst multi-selects analyses — from the submission page (which alone can
 - **FR-020**: Broker analyses are never attributed to a portfolio in results views.
 - **FR-021**: Every stored result records the engine and model version that produced it — for broker analyses captured during retrieval, since nothing else supplies it. The comparison iteration must show which software version each side was run in (design note 18 O18-10); this iteration is the only chance to capture it.
 - **FR-022**: The expanded row lists every O-11 field for both origins. A field the origin does not supply — run by and unrecognized construction and occupancy on a broker analysis — is listed and reads as not returned, never hidden.
-- **FR-023**: A value longer than its column wraps to as many lines as it needs; every cell that truncates carries the full value as a tooltip.
+- **FR-023**: Every merged-table cell that truncates carries the full value as a tooltip; the twelve column tracks stay aligned across rows, so no cell wraps. The expanded row is where a long value wraps to as many lines as it needs.
 - **FR-024**: Submitted reads as date, time to the second, and AM/PM in the reader's own timezone. Own rows show the submit request time; broker rows show the analysis's Risk Modeler create date.
 - **FR-025**: Broker analysis rows carry a Risk Modeler link built the same way own rows build theirs. (Which of Risk Modeler's two analysis identifiers that link uses is design note 19 O19-3 and is not settled here — fixing it fixes both origins at once.)
 

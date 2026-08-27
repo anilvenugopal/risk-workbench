@@ -311,7 +311,8 @@ BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-mod
                            ("country", "Geography - Country", 25),
                            ("peril", "Peril", 30),
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
-# spec 011 O-07 — Gross first is the screen-wide default perspective.
+# sort_order is dropdown order; the screen-wide default is
+# analysis_service.DEFAULT_PERSPECTIVE (RL).
 ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
                              ("RL", "Pre-Cat Net", 20),
                              ("WX", "Working Excess", 30),

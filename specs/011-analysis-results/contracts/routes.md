@@ -62,8 +62,10 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
   horizontally in its `overflow-x` shell (FR-015 / O-09).
 - Expanded return periods (all 11) for the selected `ep_type` (`OEP` default,
   `AEP`), then AAL and standard deviation as the last two rows, one column per
-  analysis — one cell per column per row, no merged cells;
-  per-analysis header shows name, currency, and results state
+  analysis. No cell spans columns, so every analysis keeps its own column;
+  the Return period header and a column's results-state message do span rows
+  (`rowspan`), and copy-with-headers pads spanned cells so the TSV stays
+  aligned. Per-analysis header shows name, currency, and results state
   (pending/failed rows render as a pending column, never dropped — FR-008).
 - `perspective` and `ep_type` each re-render over HTMX, screen-wide
   (FR-011/FR-012); each select includes the other's value so a swap keeps both. Units selector

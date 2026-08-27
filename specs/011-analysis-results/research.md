@@ -5,7 +5,7 @@
 ### Session 2026-08-26
 
 - Q: O-09 — keep ~10 as the soft N-up guideline on the dedicated results page, and how does the view degrade past it? → A: Keep ~10 as the soft guideline; past it the table scrolls horizontally (no pagination, no selection block).
-- Q: O-10 — after the dedicated view opens in a new browser tab, do the selections in the originating tab reset? → A: Yes, the selection resets once the dedicated page opens.
+- Q: O-10 — after the dedicated view opens in a new browser tab, do the selections in the originating tab reset? → A: Yes, the selection resets once the dedicated page opens. This resolves design note 20's O20-10(b) and the `19` O19-7 sub-question it answers: session 20 recorded the reset as a defect, and the answer here makes it the intended behaviour, built in `app.js`.
 
 ## R3 — Retrieval model decided: REST endpoints, bounded extract stored per analysis (closes O-01 for viewing)
 
@@ -122,7 +122,7 @@ Decided 2026-08-25 (plan phase), against the shipped nav/shell machinery.
 - **Ordering (FR-016)**: the `ids` query-param order is the column order. Reorder controls rewrite the param and re-request — no stored ordering state. They re-render `#results-view` rather than navigate, because the units selector sits outside that region and a full navigation reset it to millions on every move.
 - **Perspective (FR-012)**: a query param on the dedicated page. Switching is an HTMX fragment re-render — screen-wide by construction. (Superseded for the merged table by R8: the toggle moved into the expanded row, and the section URL carries no `perspective`.)
 - **Units / copy (FR-017/FR-018)**: display-only client slivers. Cells carry the raw stored value in a data attribute; Alpine formats for the ones/thousands/millions selector (millions default) and the copy button serializes the rendered table with headers as TSV to the clipboard. The server never reformats or recomputes stored numbers.
-- **Soft cap (O-09/FR-015)**: no selection block; the table sits in the existing `overflow-x` shell (see docs/ui_previews/results_ep_table.html) and scrolls horizontally past ~10 columns.
+- **Soft cap (O-09/FR-015)**: no selection block; the table sits in the existing `overflow-x` shell and scrolls horizontally past ~10 columns.
 - **T-08 (Assumed)**: a perspective the analysis did not produce returns an empty list from `get_stats`/`get_ep` (the endpoints return row arrays; the GU capture returns rows for a produced perspective). The worker treats an empty list as "fetched, nothing there" (explicit null in the extract, FR-004) and any non-2xx as a retrieval failure. If the sandbox shows RM instead errors on unproduced perspectives, the specific error class moves to the explicitly-empty branch — a one-branch change quarantined in the worker.
 
 ## R8 — Merged table preview: what the expanded row shows and where it comes from (O-11, O-12, T-09, T-10)
