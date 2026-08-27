@@ -15,12 +15,12 @@ import logging
 import uuid
 from typing import Any, Callable
 
-import dramatiq
 from sqlalchemy import text
 
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.services._common import _utcnow
 from app.workers import broker, runtime
+from app.workers.queues import rwb_actor
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
@@ -179,9 +179,9 @@ def _execute_analysis_batch_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(**output)
 
 
-@dramatiq.actor(max_retries=0, time_limit=60 * 60 * 1000)
+@rwb_actor(max_retries=0, time_limit=60 * 60 * 1000)
 def execute_analysis_batch(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _execute_analysis_batch_body(rwb_job_id))
 
 
@@ -236,9 +236,9 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_id=str(rm_id))
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def backfill_analysis_detail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_analysis_detail_body(rwb_job_id))
 
 
