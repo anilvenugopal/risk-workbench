@@ -174,3 +174,32 @@ def test_gate_rejects_template_foreign_to_its_suite(iteration2_db):
                 currency_code="USD", currency_scheme="RMS", currency_vintage="RL25")],
             actor_id=iteration2_db.user_a)
     assert any("belong" in e.lower() for e in exc_info.value.errors)
+
+
+def test_gate_rejects_a_second_suite_with_an_incomplete_currency_block(
+        iteration2_db):
+    """One valid suite must not carry an incomplete one past the gate (FR-020)."""
+    seed_currency(scheme="RMS", vintage="RL25", effective_date="2025-05-28")
+    edm_id = seed_edm()
+    portfolio_id = seed_portfolio(edm_id)
+    t1 = seed_template("Template A")
+    t2 = seed_template("Template B")
+    complete = seed_suite("Suite One", [t1])
+    incomplete = seed_suite("Suite Two", [t2])
+
+    with pytest.raises(svc.ExecutionGateError) as exc_info:
+        svc.request_execution(
+            edm_id=edm_id, kind="suite", portfolio_ids=[portfolio_id],
+            treaty_names=[],
+            suite_picks=[
+                svc.SuitePick(suite_id=complete, template_ids=[t1],
+                             currency_code="USD", currency_scheme="RMS",
+                             currency_vintage="RL25"),
+                svc.SuitePick(suite_id=incomplete, template_ids=[t2],
+                             currency_code="USD", currency_scheme="RMS",
+                             currency_vintage=""),
+            ],
+            actor_id=iteration2_db.user_a)
+    assert any("currency" in e.lower() for e in exc_info.value.errors)
+    assert execute_one("SELECT id FROM rwb_job", {},
+                       connection="WORKBENCH") is None  # nothing dispatched

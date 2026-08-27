@@ -820,15 +820,15 @@ document.addEventListener('alpine:init', () => {
     recompute() {
       const root = this.$root;
       if (root.dataset.kind === 'suite') {
-        let ok = false;
-        root.querySelectorAll('.exec-row').forEach((row) => {
-          const chosen = row.querySelector('input[name="chosen_suite_ids"]');
-          if (!chosen || !chosen.checked) return;
-          const hasTemplates = row.querySelectorAll(
-            '.exec-tpl-list input[type="checkbox"]:checked').length > 0;
-          if (hasTemplates && this.currencyComplete(row)) ok = true;
+        // Every chosen suite must be complete, not just one: the gate posts them
+        // all, and a 422 re-render loses the analyst's picks (FR-020).
+        const chosen = Array.from(root.querySelectorAll('.exec-row')).filter((row) => {
+          const box = row.querySelector('input[name="chosen_suite_ids"]');
+          return box && box.checked;
         });
-        this.canSubmit = ok;
+        this.canSubmit = chosen.length > 0 && chosen.every((row) => (
+          row.querySelectorAll('.exec-tpl-list input[type="checkbox"]:checked').length > 0
+          && this.currencyComplete(row)));
       } else {
         const hasTemplates = root.querySelectorAll(
           '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
