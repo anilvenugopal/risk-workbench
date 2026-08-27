@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -221,3 +223,43 @@ def test_contextual_analyses_poll_stops_when_the_edm_leaves_the_submission(monke
     assert response.status_code == 200
     assert "no longer related to the submission" in response.text
     assert "hx-trigger" not in response.text  # a terminal notice ends the poll
+
+
+def test_empty_analyses_poll_tracks_the_selected_execution(monkeypatch):
+    empty = edm_service.EdmAnalysesSection(id="edm-1", executed_analyses=[])
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: empty)
+    state = {"live": True}
+    monkeypatch.setattr(
+        analysis_service, "execution_batch_is_live",
+        lambda execution_id: execution_id == "execution-1" and state["live"])
+
+    pending = _client().get(
+        "/edms/edm-1/analyses?status=ready&execution_id=execution-1")
+    assert "No analyses executed" in pending.text
+    assert "every 3s" in pending.text
+    assert "execution_id=execution-1" in pending.text
+    assert "status=ready" in pending.text
+
+    state["live"] = False
+    terminal = _client().get(
+        "/edms/edm-1/analyses?status=ready&execution_id=execution-1")
+    assert "every 3s" not in terminal.text
+    assert "execution_id=execution-1" in terminal.text
+
+
+def test_successful_execute_response_carries_execution_id(monkeypatch):
+    from app.auth.csrf import generate_csrf_token
+    from app.services import analysis_execution_service
+
+    monkeypatch.setattr(
+        analysis_execution_service, "request_execution",
+        lambda **kwargs: "execution-1")
+    response = _client().post(
+        "/edms/edm-1/execute",
+        data={"csrf_token": generate_csrf_token(), "kind": "template",
+              "portfolio_ids": "portfolio-1", "template_ids": "template-1"},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 204
+    event = json.loads(response.headers["HX-Trigger"])["execution-submitted"]
+    assert event == {"execution_id": "execution-1"}

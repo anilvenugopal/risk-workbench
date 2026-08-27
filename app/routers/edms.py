@@ -47,15 +47,16 @@ router = APIRouter()
 
 _NAV_KEY = "irp.edm_library"  # list / import / detail all activate this node (T060)
 
-# Fired on the execute modal's successful POST: the Analyses section refetches
-# itself (executed_analyses_section.html's own hx-trigger) and app.js clears the
-# submitted portfolio picks; rwb:toast surfaces the existing toast pattern.
-_EXECUTION_SUBMITTED_HEADERS = {
-    "HX-Trigger": json.dumps({
-        "execution-submitted": True,
-        "rwb:toast": {"message": "Analysis submission started.", "type": "success"},
-    }),
-}
+# Fired on the execute modal's successful POST: app.js clears the submitted
+# portfolio picks and fetches the Analyses section with the execution id.
+def _execution_submitted_headers(execution_id: str) -> dict[str, str]:
+    return {
+        "HX-Trigger": json.dumps({
+            "execution-submitted": {"execution_id": execution_id},
+            "rwb:toast": {
+                "message": "Analysis submission started.", "type": "success"},
+        }),
+    }
 
 
 def _templates(request: Request):
@@ -350,10 +351,13 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
             '<summary><span class="sec__title">Analyses</span></summary>'
             '<div class="state-box state-box--warn">'
             'This EDM is no longer related to the submission.</div></details>')
+    execution_id = (request.query_params.get("execution_id") or "").strip() or None
     return _partial(
         request, "partials/executed_analyses_section.html",
         {"edm": section,
          "status_filter": _analyses_status_filter(request),
+         "execution_id": execution_id,
+         "execution_live": analysis_service.execution_batch_is_live(execution_id),
          "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
 
 
@@ -468,7 +472,7 @@ async def contextual_execute_submit(request: Request, submission_id: str, edm_id
         return _contextual_not_found(request)
     parsed = _parse_execute_form(form)
     try:
-        analysis_execution_service.request_execution(
+        execution_id = analysis_execution_service.request_execution(
             edm_id=edm_id, actor_id=request.state.user.id,
             submission_id=submission_id, submission_name=context.submission.name,
             **parsed)
@@ -477,7 +481,8 @@ async def contextual_execute_submit(request: Request, submission_id: str, edm_id
             request, edm_id=edm_id, action_url=f"{url}/execute",
             kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
             errors=exc.errors)
-    return Response(status_code=204, headers=_EXECUTION_SUBMITTED_HEADERS)
+    return Response(status_code=204,
+                    headers=_execution_submitted_headers(execution_id))
 
 
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
@@ -593,14 +598,15 @@ async def execute_submit(request: Request, edm_id: str):
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
     parsed = _parse_execute_form(form)
     try:
-        analysis_execution_service.request_execution(
+        execution_id = analysis_execution_service.request_execution(
             edm_id=edm_id, actor_id=request.state.user.id, **parsed)
     except analysis_execution_service.ExecutionGateError as exc:
         return _execute_error_response(
             request, edm_id=edm_id, action_url=f"/edms/{edm_id}/execute",
             kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
             errors=exc.errors)
-    return Response(status_code=204, headers=_EXECUTION_SUBMITTED_HEADERS)
+    return Response(status_code=204,
+                    headers=_execution_submitted_headers(execution_id))
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
@@ -626,9 +632,13 @@ def _analyses_section_partial(request: Request, edm_id: str):
             '<summary><span class="sec__title">Analyses</span></summary>'
             '<div class="state-box state-box--warn">This EDM no longer exists.'
             '</div></details>')
+    execution_id = (request.query_params.get("execution_id") or "").strip() or None
     return _partial(request, "partials/executed_analyses_section.html",
                     {"edm": section,
-                     "status_filter": _analyses_status_filter(request)})
+                     "status_filter": _analyses_status_filter(request),
+                     "execution_id": execution_id,
+                     "execution_live": analysis_service.execution_batch_is_live(
+                         execution_id)})
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)

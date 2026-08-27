@@ -75,8 +75,10 @@ Server behavior (`analysis_execution_service.request_execution`):
    EDM name, optional submission id.
 3. `enqueue_rwb_job(requestor_type='analyst_request', requestor_id=execution_id,
    rwb_job_type='execute_analysis_batch', input_data=plan)` + `dispatch(...)`.
-4. Respond 204 with `HX-Trigger: execution-submitted`; the modal closes and the
-   user-executed section re-polls (P-11 — no waiting in the modal).
+4. Respond 204 with
+   `HX-Trigger: {"execution-submitted":{"execution_id":"..."}}`; the modal closes
+   and JavaScript fetches the analyses fragment once with that `execution_id`
+   (P-11 — no waiting in the modal).
 
 No IRP call happens on this request path.
 
@@ -85,20 +87,30 @@ No IRP call happens on this request path.
 Rendered inside `partials/edm_detail_body.html` on both page variants; the section is
 its own polling fragment (`GET /edms/{edm_id}/analyses` and
 `GET /submissions/{submission_id}/edms/{edm_id}/analyses`), self-polling every 3s while
-`live` — any `irp_analysis` of this EDM still `status_code='pending'`, which is the only
-non-terminal value. Because that poll re-runs every 3s, both GETs read only what the
+`live` — any `irp_analysis` of this EDM still `status_code='pending'`, or the matching
+`execute_analysis_batch` `rwb_job` selected by the optional `execution_id` query
+parameter is `pending` or `running`. The fragment preserves `execution_id` in its poll
+and status-filter URLs, so polling starts before the worker inserts an `irp_analysis`
+row and stops only after the batch is terminal and no analysis is live. Because that
+poll re-runs every 3s, both GETs read only what the
 fragment renders (`edm_service.get_edm_analyses`), never the whole detail page. Both
 GETs accept `?status=` clamped to
 `failed` / `in_progress` / `ready` (P-18); the filter is baked into the poll URL so a
 swap never resets it. Rows render in three fixed groups — Failed, In progress, Ready —
 date-descending within each.
 
+`list_executed_analyses` returns one row per analysis by left-joining the latest
+linked `irp_job` through `ROW_NUMBER() OVER (PARTITION BY irp_analysis_id ORDER BY
+inserted_at DESC, id DESC)`. The row includes the latest job id, status, and attempt
+count; the query never builds an `IN` parameter for each analysis.
+
 Row contract (`partials/executed_analysis_row.html`, modeled on
 `broker_analysis_row.html`): delete checkbox on `is_deletable` rows, full name
 (`full_name`) with an "RM ↗" link once `irp_app_analysis_id` is backfilled — the RM web
 UI route takes `appAnalysisId`, not the API `analysisId` — portfolio name, template
 name, status chip (derived: latest `irp_job.status`, with `SUBMISSION FAILED` shown as
-"Failed to submit · attempt n/max") with the `failure_reason` when failed, and the
+"Failed to submit · attempt n/max" and `SUBMISSION RETRYING` treated as in progress)
+with the `failure_reason` when failed, and the
 localized submit time. Expanded: the settings grid once `settings_metadata` is
 backfilled; the loss-numbers fragment (below) once results exist. No RDM grouping
 (FR-013). Visible to every analyst (Article 6).
