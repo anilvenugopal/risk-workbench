@@ -263,3 +263,82 @@ def test_successful_execute_response_carries_execution_id(monkeypatch):
     assert response.status_code == 204
     event = json.loads(response.headers["HX-Trigger"])["execution-submitted"]
     assert event == {"execution_id": "execution-1"}
+
+
+def _stub_execute_modal(monkeypatch):
+    """Enough reference data for the modal to render its form rather than one of
+    _execute_context's blocking messages."""
+    from app.services import (
+        analysis_execution_service,
+        portfolio_service,
+        template_service,
+        treaty_service,
+    )
+
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: _context())
+    monkeypatch.setattr(edm_service, "get_edm", lambda edm_id: _edm())
+    monkeypatch.setattr(portfolio_service, "list_portfolios", lambda **kwargs: [
+        portfolio_service.PortfolioRow(
+            id="portfolio-1", edm_id="edm-1", name="US Wind", irp_id="9",
+            exposure_detail=None, as_of=None)])
+    monkeypatch.setattr(template_service, "list_templates", lambda **kwargs: [
+        {"id": "template-1", "name": "US HU DLM"}])
+    monkeypatch.setattr(treaty_service, "list_treaties", lambda **kwargs: [])
+    monkeypatch.setattr(analysis_execution_service, "currency_defaults",
+                        lambda: {"code": "USD", "scheme": "RMS", "vintage": ""})
+    monkeypatch.setattr(analysis_execution_service, "currency_options",
+                        lambda: [{"code": "USD", "name": "US Dollar"}])
+    monkeypatch.setattr(analysis_execution_service, "currency_scheme_options",
+                        lambda: [{"code": "RMS", "name": "RMS"}])
+    monkeypatch.setattr(analysis_execution_service, "vintage_options",
+                        lambda scheme: [])
+
+
+def test_contextual_execute_modal_posts_back_to_its_submission_url(monkeypatch):
+    _stub_execute_modal(monkeypatch)
+
+    response = _client().get(
+        "/submissions/submission-a/edms/edm-1/execute"
+        "?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert ('action="/submissions/submission-a/edms/edm-1/execute"'
+            in response.text)
+    assert 'action="/edms/edm-1/execute"' not in response.text
+
+
+def test_direct_execute_modal_posts_back_to_the_library_url(monkeypatch):
+    _stub_execute_modal(monkeypatch)
+
+    response = _client().get(
+        "/edms/edm-1/execute?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert 'action="/edms/edm-1/execute"' in response.text
+    assert "/submissions/" not in response.text
+
+
+def test_execute_gate_failure_re_renders_the_modal_on_the_same_url(monkeypatch):
+    from app.auth.csrf import generate_csrf_token
+    from app.services import analysis_execution_service
+
+    _stub_execute_modal(monkeypatch)
+
+    def _refuse(**kwargs):
+        raise analysis_execution_service.ExecutionGateError(
+            ["Choose at least one portfolio."])
+
+    monkeypatch.setattr(analysis_execution_service, "request_execution", _refuse)
+
+    response = _client().post(
+        "/submissions/submission-a/edms/edm-1/execute",
+        data={"csrf_token": generate_csrf_token(), "kind": "template",
+              "portfolio_ids": "portfolio-1"},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 422
+    assert response.headers["HX-Retarget"] == "#execute-modal"
+    assert "Choose at least one portfolio." in response.text
+    assert ('action="/submissions/submission-a/edms/edm-1/execute"'
+            in response.text)
