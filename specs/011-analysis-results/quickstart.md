@@ -87,7 +87,8 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    title is the submission/EDM name; breadcrumbs = submission (+ EDM when
    entered from the EDM page) and link back; selections in the originating
    tab are cleared.
-3. Reorder columns via the controls — the `ids` param and the columns move.
+3. Set Units to Thousands, then reorder columns via the controls — the `ids`
+   param and the columns move and the values stay in thousands.
 4. Switch perspective, then EP type — every column follows both (screen-wide),
    and AAL and Std dev stay put across the EP-type switch.
 5. Units selector: values never auto-switch; ones/thousands/millions apply on

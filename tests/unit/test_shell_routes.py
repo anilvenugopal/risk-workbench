@@ -232,6 +232,21 @@ class TestResultsAnalysesPage:
         # reorder links rewrite the ids param with the neighbours swapped
         assert f"ids={AN_A}%2C{AN_B}" in resp.text
 
+    def test_reorder_swaps_the_table_and_leaves_the_units_select(self, monkeypatch):
+        """A move re-renders #results-view over HTMX instead of navigating, so
+        #res-units keeps the picked unit; the two selects come back out of band
+        because they carry the ids order in their own hx-get."""
+        client = self._client(monkeypatch, {
+            AN_A: _column(AN_A, "Alpha Analysis"),
+            AN_B: _column(AN_B, "Beta Analysis")})
+        text = client.get(f"/results/analyses?ids={AN_A},{AN_B}").text
+        assert f'hx-get="/results/analyses?ids={AN_B}%2C{AN_A}' in text
+        assert 'hx-target="#results-view" hx-select="#results-view"' in text
+        assert 'hx-select-oob="#res-persp,#res-ep"' in text
+        assert text.count('hx-push-url="true"') == 2
+        # the units select sits ahead of the swapped region, so no move touches it
+        assert text.index("data-units-select") < text.index('id="results-view"')
+
     def test_perspective_param_rerenders_every_column(self, monkeypatch):
         client = self._client(monkeypatch, {
             AN_A: _column(AN_A, "Alpha Analysis", produced=("GR",)),

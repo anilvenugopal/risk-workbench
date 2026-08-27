@@ -7,9 +7,24 @@
    and EP-type selects each re-render #results-view over HTMX screen-wide
    (FR-011/FR-012); the units selector and Copy table are client-side
    over data attributes (FR-017/FR-018, app.js) — the one page a units control
-   exists (O-12). Reorder arrows are server-built links that swap neighbouring
-   ids. Numbers and tables only (FR-019); broker columns never name a
+   exists (O-12). Reorder arrows swap neighbouring ids and re-render
+   #results-view the same way, so the picked unit survives a move; they carry
+   the two selects out of band because those hold the ids order in their own
+   hx-get. Numbers and tables only (FR-019); broker columns never name a
    portfolio (FR-020). Pending/failed columns hold their place (FR-008). #}
+
+{#- One reorder arrow. `url` is the ids-swapped URL the route built, or none
+    at the ends of the row. The out-of-band selects keep the toolbar's ids order
+    in step without touching the units select, which sits beside them and must
+    not reset (FR-017). A real href as well, so a move works without HTMX. -#}
+{%- macro arrow(url, label, glyph) -%}
+  {%- if url %}<a class="an__btn" href="{{ url }}" title="{{ label }}"
+     hx-get="{{ url }}" hx-target="#results-view" hx-select="#results-view"
+     hx-swap="outerHTML" hx-select-oob="#res-persp,#res-ep"
+     hx-push-url="true">{{ glyph|safe }}</a>
+  {%- else %}<span class="an__btn" aria-disabled="true">{{ glyph|safe }}</span>
+  {%- endif -%}
+{%- endmacro -%}
 
 {%- macro num(v) -%}
   {%- if v is none -%}<span class="na">&mdash;</span>
@@ -66,10 +81,8 @@
             <th class="an gsep">
               {% if view_columns|length > 1 %}
               <span class="an__order">
-                {% if vc.left %}<a class="an__btn" href="{{ vc.left }}" title="Move left">&#9664;</a>
-                {% else %}<span class="an__btn" aria-disabled="true">&#9664;</span>{% endif %}
-                {% if vc.right %}<a class="an__btn" href="{{ vc.right }}" title="Move right">&#9654;</a>
-                {% else %}<span class="an__btn" aria-disabled="true">&#9654;</span>{% endif %}
+                {{ arrow(vc.left, 'Move left', '&#9664;') }}
+                {{ arrow(vc.right, 'Move right', '&#9654;') }}
               </span>
               {% endif %}
               <span class="an__name" title="{{ vc.col.name }}" data-value="{{ vc.col.name }}">{{ vc.col.name }}</span>

@@ -58,7 +58,7 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 - Nav: hidden child node `results.analyses` under the `results` rail root
   (pattern: `submissions.detail`). One node + one handler + one template.
 - `ids` order = column order (FR-016); reorder controls rewrite the param and
-  re-request. No hard count limit — past ~10 columns the table scrolls
+  re-request `#results-view` over HTMX, pushing the new URL. No hard count limit — past ~10 columns the table scrolls
   horizontally in its `overflow-x` shell (FR-015 / O-09).
 - Expanded return periods (all 11) for the selected `ep_type` (`OEP` default,
   `AEP`), then AAL and standard deviation as the last two rows, one column per

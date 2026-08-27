@@ -164,9 +164,10 @@ Material interactions — where an article actively shapes this design:
   recovers automatically". A failed retrieval stays terminal (never
   resurrected by dedup), which is exactly O-06's contract.
 - **Article 8 (server-rendered)**: perspective switching is an HTMX fragment
-  re-render with a query param (screen-wide by construction); Alpine covers
-  only units formatting, clipboard copy, and column reorder; the dedicated
-  page has a real URL whose `ids` order is the display order.
+  re-render with a query param (screen-wide by construction), and so is a
+  column reorder; the client slivers are units formatting and clipboard copy
+  only; the dedicated page has a real URL whose `ids` order is the display
+  order.
 - **Article 1 (nav manifest)**: the dedicated page is one nav node + one
   handler + one template; the `extra_crumbs` hook is a shell-template
   extension, not a second breadcrumb source (structure still derives from the
@@ -210,7 +211,7 @@ app/
 ├── templates/pages/results_analyses.html        # dedicated page (new)
 ├── templates/partials/              # merged analyses section + row partials,
 │                                    # inline condensed results, results toolbar
-└── static/js/app.js                 # units/copy/reorder slivers
+└── static/js/app.js                 # units/copy slivers
 
 alembic/versions/0001_initial.py     # loss_results, analysis_perspective_kind, requestor seed
 infra/scripts/seed_db.py             # same seeds
