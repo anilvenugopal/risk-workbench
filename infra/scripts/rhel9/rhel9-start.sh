@@ -68,6 +68,14 @@ echo "=== 3. Starting uvicorn (background) ==="
 set -a
 source infra/.env
 set +a
+if ! QUEUES="$(.venv/bin/python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     > /var/lib/risk-workbench/uvicorn.log 2>&1 &
 echo $! > "$PID_DIR/uvicorn.pid"
@@ -80,12 +88,14 @@ else
 fi
 
 echo ""
-echo "=== 4. Starting Dramatiq worker (background) ==="
-nohup .venv/bin/dramatiq app.workers.entrypoint \
-    --processes "${RWB_WORKER_PROCESSES:-1}" --threads "${RWB_WORKER_THREADS:-2}" \
-    > /var/lib/risk-workbench/worker.log 2>&1 &
-echo $! > "$PID_DIR/worker.pid"
-echo "  Started (PID $(cat "$PID_DIR/worker.pid")). Log: /var/lib/risk-workbench/worker.log"
+echo "=== 4. Starting Dramatiq workers (one process per queue — CR-004) ==="
+while read -r queue; do
+    nohup .venv/bin/dramatiq app.workers.entrypoint -Q "$queue" \
+        --processes "${RWB_WORKER_PROCESSES:-1}" --threads "${RWB_WORKER_THREADS:-2}" \
+        > "/var/lib/risk-workbench/worker-$queue.log" 2>&1 &
+    echo $! > "$PID_DIR/worker-$queue.pid"
+    echo "  Started $queue (PID $(cat "$PID_DIR/worker-$queue.pid")). Log: /var/lib/risk-workbench/worker-$queue.log"
+done <<< "$QUEUES"
 
 echo ""
 echo "=== 5. Starting poller (background) ==="

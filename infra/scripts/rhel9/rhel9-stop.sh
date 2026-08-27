@@ -18,7 +18,32 @@ set -uo pipefail
 # script should attempt to stop every service and report on all of them,
 # not halt after the first one that has a problem.
 
+APP_DIR="${APP_DIR:?set APP_DIR, e.g. /opt/risk-workbench}"
 PID_DIR="${PID_DIR:-/var/lib/risk-workbench/pids}"
+
+# Needed so `.venv/bin/python -m app.workers.queues` (per-queue stop loop
+# below) resolves both the venv binary and the `app` package by relative
+# path — this script previously only read PID files by absolute path and
+# never needed a working directory.
+cd "$APP_DIR"
+
+# `.venv/bin/python -m app.workers.queues` imports app.config, which needs
+# every setting env var (e.g. session_secret_key) to be set — confirmed
+# directly: without this, that import fails with a pydantic
+# ValidationError before it ever gets to listing queue names. rhel9-start.sh
+# already does this; this script previously never needed to import
+# app code at all, so it never had this line.
+set -a
+source infra/.env
+set +a
+if ! QUEUES="$(.venv/bin/python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 
 # Checks whether a systemd unit of this name exists AND has a restart
 # policy that isn't "no" — if so, a plain kill/shutdown command would be
@@ -61,18 +86,30 @@ stop_and_verify() {
     echo "[$name] sending stop signal to PID $pid..."
     kill -TERM "$pid"
 
-    # Give it a real moment to shut down before checking — matches the
-    # graceful-stop pattern used for Dramatiq elsewhere in this project,
-    # though this is a short fixed wait, not the drain-and-poll mechanism
-    # planned separately for the worker.
-    sleep 2
+    # Poll instead of one fixed sleep: a single Dramatiq worker's graceful
+    # shutdown can legitimately take several seconds (default
+    # --worker-shutdown-timeout is 30s — it lets in-flight messages finish
+    # before exiting), and with one process per queue (CR-004) several
+    # workers shut down at the same time, competing for CPU. Confirmed
+    # directly: a fixed 2s sleep reported 5 of 13 workers as "still
+    # running" when every one of them had actually exited within a few
+    # more seconds — a false positive, not a real stuck process. Exiting
+    # the loop as soon as the PID is actually gone (rather than always
+    # waiting the full ceiling) keeps a normal, fast stop just as quick as
+    # the old fixed sleep was.
+    local waited=0
+    local max_wait=35
+    while [ "$waited" -lt "$max_wait" ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 1
+        waited=$((waited + 1))
+    done
 
     if kill -0 "$pid" 2>/dev/null; then
-        echo "[$name] WARNING: PID $pid still running after stop signal."
+        echo "[$name] WARNING: PID $pid still running ${max_wait}s after stop signal."
         echo "         It may need more time, or 'kill -9 $pid' if truly stuck."
     else
         rm -f "$pidfile"
-        echo "[$name] stopped."
+        echo "[$name] stopped (after ${waited}s)."
     fi
 
     if [ -n "$port" ]; then
@@ -90,7 +127,9 @@ stop_and_verify() {
 
 echo "=== Stopping Risk Workbench processes on RHEL9 ==="
 stop_and_verify uvicorn 8000
-stop_and_verify worker ""
+while read -r queue; do
+    stop_and_verify "worker-$queue" ""
+done <<< "$QUEUES"
 stop_and_verify poller ""
 
 echo ""

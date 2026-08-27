@@ -109,7 +109,7 @@ class TestJobTablesMigration:
                        "breakout_group"}
         st = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_status_kind", {}, connection="WORKBENCH")}
-        assert st == {"pending", "running", "succeeded", "failed"}
+        assert st == {"pending", "running", "succeeded", "failed", "cancelled"}
 
     def test_rwb_job_unique_constraint_present(self):
         n = execute_scalar(

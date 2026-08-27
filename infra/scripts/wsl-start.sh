@@ -36,6 +36,7 @@ fi
 
 echo ""
 echo "Infrastructure is running. Open 3 more terminals:"
-echo "  make wsl-app      ← web app on :8000 (uvicorn --reload)"
-echo "  make wsl-worker   ← Dramatiq background workers"
-echo "  make wsl-poller   ← IRP job poller"
+echo "  make wsl-app           ← web app on :8000 (uvicorn --reload)"
+echo "  make wsl-poller        ← IRP job poller"
+echo "  make wsl-workers && make wsl-worker-logs"
+echo "                         ← one worker per queue, backgrounded, live combined log"

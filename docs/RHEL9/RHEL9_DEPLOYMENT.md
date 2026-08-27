@@ -261,20 +261,32 @@ unbuilt — see Open items).
 
 ## Open items — not yet resolved
 
-- **Dramatiq queue drain before a redeploy**: stopping the worker
-  mid-job (rather than letting it finish first) is not yet handled by any
-  script. The mechanism itself is understood — SIGTERM to the worker
-  process, then poll `SELECT COUNT(*) FROM rwb_job WHERE status_code =
-  'running'` until it reaches zero (or a timeout) instead of guessing a
-  fixed wait — but it isn't built yet. Deliberately deferred; revisit
-  before any script actually restarts a live deployment's worker process.
+**Resolved by CR-004 (worker isolation + queue drain):** `rhel9-start.sh`/
+`rhel9-stop.sh` now run one Dramatiq worker process per `rwb_job_type`
+(`-Q <queue>` each), not one process handling every job type — a
+long-running job of one type can no longer delay a job of a different type.
+Each queue gets its own `worker-<queue>.pid`/`worker-<queue>.log`. The queue
+list is derived from the code (`python -m app.workers.queues`), never
+hand-copied into either script. `rhel9-worker-health.sh` reports each
+queue's live/dead state (PID-file + independent process-scan) for
+before/after inspection around a start or stop. `rhel9-ssh-deploy.sh` now
+drain-checks `rwb_job` (`rhel9-drain-check.sh`, step 2.5) before installing
+new code — an operator still stops the workers (`rhel9-stop.sh`) beforehand
+and starts them again (`rhel9-start.sh`) afterward; the deploy script itself
+still does not stop/start them.
+
+- **A "successful" migration doesn't always mean the schema is current.** This project keeps one migration file, edited in place, instead of a new file per change. On a database that already has that migration recorded as applied, `alembic upgrade head` does nothing — even if the file gained new tables or seed rows since. If a job or query fails with "Invalid object name" for a table that clearly exists in the code, this is why. Fix: rebuild the database — `python infra/scripts/reset_db.py`, then `python -m alembic upgrade head`, then `python infra/scripts/seed_db.py` (same three steps as `make db-rebuild`; RHEL9 has no Make target for this yet, run them directly).
 - **systemd unit files** for uvicorn, Dramatiq workers, the poller, and
   Valkey — not yet written; Steps 5-6 above run them in the
-  foreground/manually as a proof of concept only. nginx's privilege problem
-  (Step 7) is resolved in principle by Step 0's one-time infra setup — a
-  pre-authorized `systemctl reload nginx` — but the other four processes
-  need the same treatment: real unit files, owned and started by infra
-  under the service account, not run ad hoc by the deployment account.
+  foreground/manually as a proof of concept only. Deliberately deferred for
+  the worker specifically (CR-004): converting the worker to systemd ahead of
+  the other three processes would split RHEL9's process model across two
+  supervision styles; systemd conversion is planned for all four processes
+  together, as later, separate work. nginx's privilege problem (Step 7) is
+  resolved in principle by Step 0's one-time infra setup — a pre-authorized
+  `systemctl reload nginx` — but the other four processes need the same
+  treatment: real unit files, owned and started by infra under the service
+  account, not run ad hoc by the deployment account.
 - **Service account**: this runbook uses a personal account as a
   placeholder. Production needs a dedicated, non-personal service account —
   get the real name from infra before finalizing any unit file that

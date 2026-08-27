@@ -851,7 +851,9 @@ def upgrade() -> None:
         "('run_breakout_country', 'Portfolio breakout by country', 105), "
         "('run_breakout_peril', 'Portfolio breakout by peril', 107), "
         "('run_breakout_custom', 'Portfolio breakout by custom group', 110), "
-        "('sync_irp_metadata', 'Sync IRP metadata', 120)"
+        "('sync_irp_metadata', 'Sync IRP metadata', 120), "
+        "('dummy_wait', 'Dummy: wait (dev/test only)', 900), "
+        "('dummy_fail', 'Dummy: fail (dev/test only)', 910)"
     ))
     # breakout_dimension_kind — the four value dimensions (spec 005
     # data-model §2) plus custom, the grouping pane's lineage code (generated
@@ -879,7 +881,8 @@ def upgrade() -> None:
         "('pending', 'Pending', 10), "
         "('running', 'Running', 20), "
         "('succeeded', 'Succeeded', 30), "
-        "('failed', 'Failed', 40)"
+        "('failed', 'Failed', 40), "
+        "('cancelled', 'Cancelled', 50)"
     ))
     # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
     op.execute(sa.text(

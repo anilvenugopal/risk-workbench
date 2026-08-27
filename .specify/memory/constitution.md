@@ -2,6 +2,32 @@
   Sync Impact Report
   ==================
 
+  --- CR-004 (2026-08-25) ---
+  Version change: 3.2.0 → 4.0.0  (MAJOR — CR-004: Article 10 redefined in
+  place; "Single Worker by Default" replaced by "Concurrency Is Per-Queue,
+  Not Per-Row" — same MAJOR class as CR-002/CR-003's article redefinitions,
+  since the article's title and core rule change, not just a carve-out added
+  alongside the existing rule. 13-article numbering stable.)
+
+  Applies CR-004 (docs/CR/CR_04__PER_QUEUE_WORKERS.md §5.4). Each
+  `rwb_job_type` now runs in its own Dramatiq queue and worker process
+  (`app/workers/queues.py`'s `rwb_actor`, deriving `queue_name` from the
+  actor's own function name) — a long-running job of one type can no longer
+  starve a job of a different type sharing the same worker pool. The claim
+  query (`UPDATE rwb_job SET status_code='running' ... WHERE
+  status_code='pending'`) and the heartbeat/reconciler (CR-001) are
+  unchanged — this redefinition only changes how many worker processes may
+  claim from `rwb_job` concurrently, not the claim mechanism itself.
+
+  Removed: the "single worker" default. A single worker process per queue
+  remains the default — this is per-queue, not a general declaration that
+  concurrency is now unbounded — and scaling one queue's worker count
+  requires an observed contention problem in that queue, not anticipated
+  scale (ties to Article 1's maintainability contract).
+
+  Templates: no plan-template Constitution Check title changes (no per-article
+  title table exists there to sync).
+
   --- 2026-08-12 (spec 005 follow-on, note 12 §1.2) ---
   Version change: 3.1.0 → 3.2.0  (MINOR — the Article 11 DataBridge clause
   gains a request-path carve-out; no article redefined or removed; 13-article
@@ -271,18 +297,22 @@ correct ITCSS layers.
 - No flat append-sheets outside the ITCSS layer structure.
 - No overriding the system where a token would do.
 
-### Article 10 — The SQL Table Is the Queue; Single Worker by Default
+### Article 10 — The SQL Table Is the Queue; Concurrency Is Per-Queue, Not Per-Row
 
-App-side work (`rwb_job`) MUST use a SQL-backed queue with a single worker and
-plain dequeue (IRP already queues/executes its own jobs; `irp_job` is *tracked*
-by the poller, not dequeued). Documented upgrade paths exist for:
+App-side work (`rwb_job`) MUST use a SQL-backed queue with plain dequeue (IRP
+already queues/executes its own jobs; `irp_job` is *tracked* by the poller, not
+dequeued). The claim query (`UPDATE ... WHERE status_code='pending'`) already
+works correctly with any number of concurrent workers claiming from it (CR-004).
 
-- A concurrency-safe claim query.
-- Idempotent IRP submission.
+Each `rwb_job_type` MUST run in its own Dramatiq queue, named identically to
+the `rwb_job_type` (CR-004). A single worker process per queue remains the
+default; adding more processes or threads to one queue requires an observed
+contention problem in that queue, not anticipated scale.
 
-These are documented upgrades, not default complexity. The stale-`running`
-reclaim (heartbeat + reconciler) MUST be retained regardless of worker
-concurrency level.
+The stale-`running` reclaim (heartbeat + reconciler, CR-001) MUST be retained
+regardless of worker concurrency level, and MUST NOT be made queue-aware.
+
+Documented upgrade path that remains open: idempotent IRP submission.
 
 ### Article 11 — IRP Polling and Result Work Behind an Interface; Submission on Request Path Permitted
 
@@ -389,4 +419,4 @@ research begins.
 
 ---
 
-**Version**: 3.2.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-08-12
+**Version**: 4.0.0 | **Ratified**: 2026-06-28 | **Last Amended**: 2026-08-25
