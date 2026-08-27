@@ -26,7 +26,7 @@ from app import log_context
 from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _utcnow
-from db import get_connection
+from db import execute, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -212,8 +212,47 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
         log_context.clear(token)
 
 
+# ── synchronous drain (unit tier) ───────────────────────────────────────────────
+
+JobBodies = dict[str, Callable[[Any], "JobResult | dict | None"]]
+
+
+def run_one(bodies: JobBodies, *, rwb_job_id: Any, rwb_job_type: str,
+            worker_id: str = "worker") -> bool:
+    """Claim + run a single ``rwb_job`` through the body ``bodies`` maps its type to.
+    Returns ``run_job``'s result (``False`` if the row was already claimed, or
+    ``bodies`` has no body for the type)."""
+    body = bodies.get(rwb_job_type)
+    if body is None:
+        logger.debug("no body for rwb_job_type %s — skipping", rwb_job_type)
+        return False
+    return run_job(rwb_job_id=rwb_job_id, worker_id=worker_id,
+                   body=lambda: body(rwb_job_id))
+
+
+def run_pending(bodies: JobBodies, *, worker_id: str = "worker") -> int:
+    """Claim + run every currently-``pending`` ``rwb_job`` once, skipping the types
+    ``bodies`` has no body for. Snapshot-based (rows a body enqueues are picked up on
+    the next call), so tests advance the queue by calling this after each poller pass.
+    Returns the number of rows run."""
+    rows = execute(
+        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending' "
+        "ORDER BY inserted_at, id",
+        {}, connection="WORKBENCH",
+    )
+    count = 0
+    for row in rows:
+        if run_one(bodies, rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"],
+                   worker_id=worker_id):
+            count += 1
+    return count
+
+
 __all__ = [
+    "JobBodies",
     "JobResult",
     "run_job",
+    "run_one",
+    "run_pending",
     "worker_id",
 ]
