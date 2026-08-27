@@ -1,6 +1,9 @@
+{# The lazy-loaded innerHTML of one RDM group row in the merged analyses
+   section. Context: `analyses` — list of analysis_service.BrokerAnalysis;
+   `rdm` — its group; `show_edm` — passed through to the row. #}
 {% if analyses %}
   {% for a in analyses %}
-  {% with show_edm = false %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
+  {% with selectable = true %}{% include "partials/broker_analysis_row.html" %}{% endwith %}
   {% endfor %}
 {% elif rdm.status in ('pending_import', 'importing') %}
 <div class="dtable__groupempty">Analysis metadata is not available yet.</div>

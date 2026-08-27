@@ -49,7 +49,7 @@ def _portfolio(edm_id: str, name: str = "Portfolio A") -> str:
 def _executed(*, edm_id: str, portfolio_id: str | None = None, name="Portfolio A Template A",
               full_name=None, status_code="pending", failure_reason=None,
               settings=None, template_id=None, irp_id=None,
-              irp_app_analysis_id=None) -> str:
+              irp_app_analysis_id=None, loss_results=None, submitted=None) -> str:
     return _mk(
         "irp_analysis", edm_id=edm_id, irp_portfolio_id=portfolio_id, name=name,
         full_name=(full_name or name), status_code=status_code,
@@ -57,6 +57,8 @@ def _executed(*, edm_id: str, portfolio_id: str | None = None, name="Portfolio A
         settings_metadata=(json.dumps(settings) if settings else None),
         analysis_template_id=template_id, irp_id=irp_id,
         irp_app_analysis_id=irp_app_analysis_id,
+        loss_results=(json.dumps(loss_results) if loss_results else None),
+        submitted_settings=(json.dumps(submitted) if submitted else None),
         execution_id=str(uuid.uuid4()), execution_item_no=0)
 
 
@@ -193,9 +195,11 @@ def test_queued_and_running_are_live_importing(iteration2_db):
         assert row.is_live is True
 
 
-def test_finished_reads_ready_and_not_live(iteration2_db):
+def test_finished_reads_ready_and_not_live_once_results_stored(iteration2_db):
     edm = _edm()
-    analysis = _executed(edm_id=edm, status_code="ready")
+    # spec 011: a ready row stays live until its retrieval lands (SC-001), so
+    # the not-live assertion needs stored results
+    analysis = _executed(edm_id=edm, status_code="ready", loss_results=_extract())
     _job(analysis_id=analysis, status="FINISHED")
 
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
@@ -489,3 +493,240 @@ def test_delete_keeps_earlier_rows_when_the_poller_claims_a_later_one(
     assert _deleted_at(first) is not None
     assert _deleted_at(raced) is None
     assert fake_irp.deleted_analyses == ["1"]
+
+
+# ── spec 011: results state, extract, and submitted settings (T013) ──────────
+
+
+_ELEVEN = (5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000)
+
+
+def _extract(gr_aal=38270.59, gr_std=2645726.19):
+    """A stored loss_results document: GR produced with all 11 points, the
+    other four perspectives explicitly empty."""
+    oep = {str(rp): float(rp) for rp in _ELEVEN}
+    aep = {str(rp): float(rp) * 2 for rp in _ELEVEN}
+    return {
+        "engine_type": "DLM", "engine_version": "23.0",
+        "retrieved_at": "2026-08-26T00:00:00Z",
+        "perspectives": {
+            "GR": {"aal": gr_aal, "std_dev": gr_std, "oep": oep, "aep": aep},
+            "RL": None, "WX": None, "QS": None, "GU": None,
+        },
+    }
+
+
+def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve (GR)"):
+    execute_command(
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'retrieve_analysis_results', 'failed', :detail)",
+        {"id": str(uuid.uuid4()), "rid": analysis_id, "detail": detail},
+        connection="WORKBENCH")
+
+
+def test_results_ready_carries_all_five_perspectives_in_kind_order(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001",
+                         loss_results=_extract())
+    _job(analysis_id=analysis, status="FINISHED")
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    assert row.results_state == "ready"
+    assert row.is_live is False
+    assert [(p.code, p.label) for p in row.results] == [
+        ("GR", "Gross"), ("RL", "Pre-Cat Net"), ("WX", "Working Excess"),
+        ("QS", "Quota Share"), ("GU", "Ground Up")]
+    gr = row.results[0]
+    assert gr.produced is True
+    assert gr.aal == 38270.59
+    assert gr.std_dev == 2645726.19
+    assert all(p.produced is False for p in row.results[1:])
+
+
+def test_condensed_filter_keeps_six_points_largest_first(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, status_code="ready", loss_results=_extract())
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    gr = row.results[0]
+    assert [r["rp"] for r in gr.rows] == [
+        "10,000", "1,000", "500", "250", "100", "50"]
+    assert [r["oep"] for r in gr.rows] == [10000.0, 1000.0, 500.0, 250.0, 100.0, 50.0]
+    assert gr.rows[0]["aep"] == 20000.0
+    # display formatting: ≥1M reads in millions, smaller values in full
+    assert gr.rows[0]["oep_display"] == "10,000"
+    assert gr.std_dev_display == "2.6M"
+    assert gr.aal_display == "38,271"
+
+
+def test_failed_retrieval_reads_failed_with_reason_and_run_stays_finished(
+        iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    _job(analysis_id=analysis, status="FINISHED")
+    _failed_retrieval(analysis)
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    assert row.results_state == "failed"
+    assert row.results_error == "RM returned 500 on EP curve (GR)"
+    assert row.status_chip == "ready"   # SC-005: the run still reads successful
+    assert row.is_live is False         # a failed retrieval is terminal (O-06)
+    assert row.results == []
+
+
+def test_pending_results_keep_a_ready_row_live(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
+    _job(analysis_id=analysis, status="FINISHED")
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+    assert row.results_state == "pending"
+    assert row.is_live is True  # the 3s poll keeps going until the numbers land
+
+
+def test_currency_reads_from_settings_metadata_or_blank(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, name="A", settings={"currencyCode": "USD"})
+    _executed(edm_id=edm, name="B", settings={"peril": "Windstorm"})
+
+    rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    assert rows["A"].display.currency == "USD"
+    assert rows["B"].display.currency is None
+
+
+def test_submitted_settings_parsed_for_display(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, name="A", submitted={
+        "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25",
+                    "asOfDate": "2025-05-28"},
+        "min_loss_threshold": 1.0, "franchise_deductible": False,
+        "treat_construction_occupancy_as_unknown": True,
+    })
+    _executed(edm_id=edm, name="B")  # no snapshot — every field blank
+
+    rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    assert rows["A"].submitted.construction_occupancy == "Treat as unknown"
+    assert rows["B"].submitted.construction_occupancy is None
+
+
+# ── spec 011 US3: submission-scoped merged read model (T030) ─────────────────
+
+
+def _submission(user_id: str, name: str = "Deal A") -> str:
+    from app.services import submission_service
+    return submission_service.create_submission(
+        name=name, cedant_name=name, treaty_type_code="cat_xol",
+        inception_date="2026-01-01", treaty_year=2026,
+        actor_id=user_id, confirmed=True).submission_id
+
+
+def _attach_edm(submission_id: str, edm_id: str) -> None:
+    execute_command(
+        "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+        {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+
+
+def test_submission_read_spans_every_edm_with_edm_name(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    coastal, inland, foreign = _edm("Coastal HO"), _edm("Inland HO"), _edm("F")
+    _attach_edm(submission, coastal)
+    _attach_edm(submission, inland)
+    older = _executed(edm_id=coastal, name="A")
+    execute_command(
+        "UPDATE irp_analysis SET inserted_at = :t WHERE id = :i",
+        {"t": _utcnow() - timedelta(minutes=5), "i": older},
+        connection="WORKBENCH")
+    _executed(edm_id=inland, name="B")
+    _executed(edm_id=foreign, name="C")  # EDM not in this submission
+
+    rows = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    # newest first, with the EDM column value; the foreign EDM's row excluded
+    assert [(a.name, a.edm_name) for a in rows] == [
+        ("B", "Inland HO"), ("A", "Coastal HO")]
+
+
+def test_submission_read_derives_origin_from_rdm_id(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    rdm = _mk("irp_rdm", name="R", status="ready")
+    own = _executed(edm_id=edm, name="Own")
+    _broker(rdm_id=rdm, edm_id=edm, irp_id="9")  # broker handle on the same EDM
+
+    rows = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert [a.id for a in rows] == [own.lower()]
+
+
+def test_submission_read_carries_results_state_and_job_status(iteration2_db):
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001",
+                         loss_results=_extract())
+    _job(analysis_id=analysis, status="FINISHED")
+
+    [row] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+    assert row.status_label == "Finished"
+    assert row.results_state == "ready"
+    assert row.results[0].aal == 38270.59
+
+
+def test_framework_no_longer_competes_with_analysis_mode(iteration2_db):
+    edm = _edm()
+    _executed(edm_id=edm, name="A", settings={
+        "analysisFramework": "ELT", "analysisMode": "Standard"})
+    _executed(edm_id=edm, name="B", settings={"analysisFramework": "ELT"})
+
+    rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
+    assert rows["A"].display.framework == "ELT"
+    assert rows["A"].display.analysis_mode == "Standard"
+    assert rows["B"].display.framework == "ELT"
+    assert rows["B"].display.analysis_mode is None
+
+
+# ── spec 011 US4: the dedicated page's columns (T033) ────────────────────────
+
+
+def test_results_columns_follow_ids_order_and_count_missing(iteration2_db):
+    edm = _edm()
+    a = _executed(edm_id=edm, name="A", status_code="ready",
+                  loss_results=_extract(), settings={"currencyCode": "USD"})
+    b = _executed(edm_id=edm, name="B", status_code="ready")
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[b, str(uuid.uuid4()), a, "not-a-uuid"])
+
+    assert [c.name for c in columns] == ["B", "A"]
+    assert missing == 2
+    assert columns[0].results_state == "pending"
+    ready = columns[1]
+    assert ready.currency == "USD"
+    assert ready.results_state == "ready"
+    gr = ready.for_code("GR")
+    assert gr.produced is True
+    assert [r["rp"] for r in gr.rows] == [
+        "10,000", "5,000", "2,000", "1,000", "500", "250", "100", "50",
+        "25", "10", "5"]
+    assert ready.for_code("GU").produced is False
+
+
+def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
+    edm = _edm()
+    rdm = _mk("irp_rdm", name="Acme RDM", status="ready")
+    broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="88215",
+                 name="FL HU Gross 2026", status_code="ready")
+    _failed_retrieval(broker)
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[broker])
+
+    assert missing == 0
+    [col] = columns
+    assert col.name == "FL HU Gross 2026"
+    assert col.results_state == "failed"
+    assert col.results_error == "RM returned 500 on EP curve (GR)"

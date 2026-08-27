@@ -138,7 +138,9 @@ ITERATION2_SCHEMA = [
     # exposure_resource_id detail columns (data-model §4). Spec 010: rdm_id/irp_id/
     # source_rdm_name are no longer required (own-executed rows have none);
     # full_name/irp_portfolio_id/analysis_template_id/execution_id/
-    # execution_item_no/failure_reason are new (data-model §1).
+    # execution_item_no/failure_reason are new (data-model §1). Spec 011:
+    # loss_results (the retrieval extract) and submitted_settings (the approved
+    # plan item snapshot, T-09).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
         irp_id TEXT, irp_app_analysis_id TEXT, name TEXT, full_name TEXT,
@@ -146,7 +148,8 @@ ITERATION2_SCHEMA = [
         status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
-        execution_item_no INTEGER, failure_reason TEXT, deleted_at TEXT,
+        execution_item_no INTEGER, failure_reason TEXT,
+        loss_results TEXT, submitted_settings TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",
@@ -266,6 +269,11 @@ ITERATION4_SCHEMA = [
         inserted_at TEXT, inserted_by TEXT,
         UNIQUE (suite_id, template_id)
     )""",
+    # Iteration 8 (spec 011 T-06): the perspectives the retrieval worker
+    # requests and every perspective toggle offers.
+    """CREATE TABLE analysis_perspective_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
 ]
 
 IRP_JOB_TYPE_SEED = [("import_edm", "Import EDM", 10), ("import_rdm", "Import RDM", 20),
@@ -292,7 +300,8 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
 RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("analyst_request", "Analyst Request", 20),
                                ("rwb_job", "RWB Job", 30),
-                               ("breakout_group", "Breakout Group", 40)]  # T-13
+                               ("breakout_group", "Breakout Group", 40),  # T-13
+                               ("irp_analysis", "IRP Analysis", 50)]  # spec 011 T-01
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
@@ -302,6 +311,13 @@ BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-mod
                            ("country", "Geography - Country", 25),
                            ("peril", "Peril", 30),
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
+# sort_order is dropdown order; the screen-wide default is
+# analysis_service.DEFAULT_PERSPECTIVE (RL).
+ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
+                             ("RL", "Pre-Cat Net", 20),
+                             ("WX", "Working Excess", 30),
+                             ("QS", "Quota Share", 40),
+                             ("GU", "Ground Up", 50)]
 
 # ── Drift-guard contract (tests/sqlserver/test_schema_drift.py) ──────────────────
 # Tables whose mirror must match the real migrated schema column-for-column. A new
@@ -324,6 +340,8 @@ EXACT_MATCH_TABLES = (
     "irp_currency", "irp_currency_scheme", "irp_currency_scheme_vintage",
     "analysis_template", "analysis_template_tag",
     "template_suite", "template_suite_item",
+    # Iteration 8 — the perspective kind table (spec 011).
+    "analysis_perspective_kind",
 )
 # irp_edm/irp_rdm are intentionally trimmed to the structure-only columns the
 # unit services touch; the real tables carry extra Iteration-2 IRP columns

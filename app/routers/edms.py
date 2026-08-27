@@ -613,7 +613,7 @@ def _analyses_status_filter(request: Request) -> str:
 
 def _analyses_gone_notice(message: str) -> HTMLResponse:
     """The Analyses section with nothing left to poll. Not
-    ``executed_analyses_section.html``: that template always emits the ``hx-get``
+    ``analyses_merged_section.html``: that template always emits the ``hx-get``
     and ``hx-trigger`` the 3s poll runs on, and this notice must omit them so the
     poll stops instead of refetching a section that no longer resolves."""
     return HTMLResponse(
@@ -625,12 +625,12 @@ def _analyses_gone_notice(message: str) -> HTMLResponse:
 
 def _analyses_section_partial(request: Request, edm_id: str,
                               *, submission_id: str | None = None):
-    """The Analyses section's own fragment (executed_analyses_section.html) —
-    its polling unit, separate from the rest of the detail body (T-11
+    """The merged Analyses section's own fragment (analyses_merged_section.html)
+    — its polling unit, separate from the rest of the detail body (T-11
     refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page. With ``submission_id`` the fragment polls
-    and deletes against its submission-scoped URL, so a swap never drops the
-    analyst out of the submission context."""
+    expanded elsewhere on the page. With ``submission_id`` the fragment polls and
+    deletes against its submission-scoped URL and renders the submission's RDM
+    group rows; the plain library page has neither."""
     section = edm_service.get_edm_analyses(edm_id=edm_id,
                                            submission_id=submission_id)
     if section is None:
@@ -640,8 +640,9 @@ def _analyses_section_partial(request: Request, edm_id: str,
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
     base = f"/edms/{edm_id}/analyses" if submission_id is None else (
         f"/submissions/{submission_id}/edms/{edm_id}/analyses")
-    return _partial(request, "partials/executed_analyses_section.html",
-                    {"edm": section,
+    return _partial(request, "partials/analyses_merged_section.html",
+                    {"edm": section, "groups": section.rdms,
+                     "source_submission": section.submission,
                      "status_filter": _analyses_status_filter(request),
                      "execution_id": execution_id,
                      "execution_live": analysis_service.execution_batch_is_live(

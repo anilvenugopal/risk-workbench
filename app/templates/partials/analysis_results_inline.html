@@ -1,0 +1,85 @@
+{# Engine version is not listed among the metadata fields — the merged
+   table's Engine column carries it, and a collapsed value is never restated
+   here. #}
+{%- set d = a.display -%}
+{%- set s = a.submitted if a.submitted is defined else None -%}
+<div class="row-meta">
+  <p class="row-src">
+    {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
+    {%- else %}<b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>{% endif %}
+    &middot; Analysis: <b>{{ a.irp_id or '—' }}</b>
+    {%- if a.created_at is defined and a.created_at %}
+    &middot; Submitted: <b><time data-utc="{{ a.created_at }}"
+      title="{{ a.created_at }}">{{ a.created_at }}</time></b>{% endif %}</p>
+
+  <dl class="settings-grid">
+    {% for label, val in [
+      ('Analysis type', d.analysis_type),
+      ('Subperil', d.peril_secondary),
+      ('Framework', d.framework),
+      ('Event rate scheme', d.event_rate_scheme),
+      ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
+      ('Run by', a.run_by if a.run_by is defined else None),
+    ] %}
+    {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
+    {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
+    {% endif %}
+    {% endfor %}
+  </dl>
+</div>
+
+<div class="row-results">
+  {% if a.results %}
+  <div x-data="{ p: '{{ default_perspective }}', ep: 'OEP' }">
+    <div class="row-results__head">
+      <span class="row-results__title">Condensed results</span>
+      <select class="persp" x-model="p" onclick="event.stopPropagation()">
+        {% for pr in a.results %}
+        <option value="{{ pr.code }}"{% if pr.code == default_perspective %} selected{% endif %}>{{ pr.label }}</option>
+        {% endfor %}
+      </select>
+      <select class="persp" x-model="ep" onclick="event.stopPropagation()">
+        <option value="OEP">OEP</option>
+        <option value="AEP">AEP</option>
+      </select>
+      <span class="row-results__ccy">{{ (d.currency ~ ', millions') if d.currency else 'millions' }}</span>
+    </div>
+    {% for pr in a.results %}
+    <div x-show="p === '{{ pr.code }}'"{% if pr.code != default_perspective %} style="display:none"{% endif %}>
+      {% if pr.produced %}
+      <div class="ep-shell">
+        <table class="ep">
+          <thead><tr><th class="l">Return period</th><th class="gsep" x-text="ep">OEP</th></tr></thead>
+          <tbody>
+            {% for r in pr.rows %}
+            <tr><td class="rp">{{ r.rp }}</td>
+              <td class="gsep" x-show="ep === 'OEP'" title="{{ r.oep if r.oep is not none else '' }}">{{ r.oep_display }}</td>
+              <td class="gsep" x-show="ep === 'AEP'" style="display:none" title="{{ r.aep if r.aep is not none else '' }}">{{ r.aep_display }}</td></tr>
+            {% endfor %}
+            <tr class="aal"><td class="rp">AAL</td>
+              <td class="gsep" title="{{ pr.aal if pr.aal is not none else '' }}">{{ pr.aal_display }}</td></tr>
+            <tr class="sd"><td class="rp">Std dev</td>
+              <td class="gsep" title="{{ pr.std_dev if pr.std_dev is not none else '' }}">{{ pr.std_dev_display }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="row-results__empty">The analysis did not produce this perspective.</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="row-results__head"><span class="row-results__title">Condensed results</span></div>
+  {% if a.results_state is defined and a.results_state == 'failed' %}
+  <p class="row-results__empty">Results retrieval failed.
+    {%- if a.results_error %}<span class="exec-reason">{{ a.results_error }}</span>{% endif %}</p>
+  {% elif a.status_code is defined and a.status_code == 'error' %}
+  <p class="row-results__empty">The run failed — there are no results.</p>
+  {% elif a.status_code is defined and a.status_code != 'ready' %}
+  <p class="row-results__empty">Results appear once the analysis finishes.</p>
+  {% else %}
+  <p class="row-results__empty">Results pending — retrieval is queued or running.</p>
+  {% endif %}
+  {% endif %}
+</div>

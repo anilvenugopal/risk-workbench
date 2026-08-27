@@ -1,42 +1,22 @@
-"""Analysis service — the broker-analysis read models (spec 004 US3).
+"""Analysis service — the read models over ``irp_analysis``.
 
-Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
-
-  • ``list_broker_analyses(rdm_id)`` — the RDM page (FR-030/FR-031, R8):
-    grouped by ``rdm_id``; each with its parsed
-    ``settings_metadata`` (missing/partial → blank, never error) and
-    ``is_group`` (FR-035).
-  • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
-    submission RDM context and therefore returns no groups.
-  • ``list_executed_analyses(edm_id)`` — the EDM detail page's user-executed
-    section (spec 010 US2, FR-013): every analysis the workbench itself
-    submitted against this EDM (``execution_id`` set), with live status
-    derived from the latest tracked ``irp_job`` per analysis (T-07) and the
-    same curated ``AnalysisSettings`` view once ``settings_metadata`` is
-    backfilled. No RDM grouping — this is exactly the portfolio the trust
-    rule (8/4 D8) exempts, since the workbench submitted these itself.
-
-**No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
-way to tie an RDM analysis to an EDM portfolio, and every analysis here is
-broker-provided (``rdm_id`` NOT NULL). ``irp_analysis.exposure_resource_id`` is
-still captured by the worker — it is defensible only for analyses CIC runs
-itself — but nothing reads or displays it.
+**No analysis is attributed to a portfolio**: there is no trustworthy way to tie
+an RDM analysis to an EDM portfolio, and every broker-provided analysis carries
+``rdm_id`` NOT NULL. ``irp_analysis.exposure_resource_id`` is still captured by
+the worker — it is defensible only for analyses CIC runs itself — but nothing
+reads or displays it.
 
 The curated ``AnalysisSettings`` view model reads the documented RM payload
 fields defensively (``analysisType``/``engineType``/``engineVersion``/
-``peril``/``subperil``/``region``/``currencyCode``/… — IRP knowledge base
-2026-07-24); term / PLA / event-rate fields have NO documented source and stay
-blank until the sandbox confirms their spelling (IRP_INTEGRATION_FOLLOWUPS.md).
-
-No loss numbers (FR-033); no row scoping (Article 6). The one write is
-``delete_executed_analyses`` (spec 010 P-19): a synchronous request-path delete
-of terminal own-executed analyses — Risk Modeler first, then a local soft
-delete — everything else here is read-only.
+``peril``/``subperil``/``region``/``currencyCode``/…); term / PLA / event-rate
+fields have NO documented source and stay blank until the sandbox confirms
+their spelling.
 """
 
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,7 +24,14 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.services import irp_gateway
-from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from app.services._common import (
+    CONDENSED_RETURN_PERIODS,
+    STORED_RETURN_PERIODS,
+    _parse_json_dict,
+    _rm_ui_root,
+    _uid,
+    _utcnow,
+)
 from db import execute, execute_command, get_connection
 
 logger = logging.getLogger(__name__)
@@ -52,9 +39,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AnalysisSettings:
-    """The curated FR-031 settings view — every field blank-on-missing."""
     analysis_type: str | None = None
     analysis_mode: str | None = None
+    framework: str | None = None
     engine_type: str | None = None
     engine_version: str | None = None
     peril: str | None = None
@@ -74,9 +61,99 @@ class AnalysisSettings:
         parts = [p for p in (self.engine_type, self.engine_version) if p]
         return " · ".join(parts) if parts else None
 
+
+def _fmt_loss(value: Any) -> str:
+    """Display formatting for a stored loss number: values ≥ 1M read ``4.1M``,
+    smaller values read as thousands-separated integers, missing values read
+    ``—``. Never a recomputation — the verbatim number rides beside it in
+    ``title``/``data-value``."""
+    if value is None:
+        return "—"
+    if abs(value) >= 1_000_000:
+        return f"{value / 1_000_000:,.1f}M"
+    return f"{value:,.0f}"
+
+
+@dataclass
+class PerspectiveResults:
+    code: str
+    label: str
+    produced: bool
+    aal: float | None = None
+    std_dev: float | None = None
+    # condensed rows, largest return period first:
+    # {rp, oep, aep, oep_display, aep_display}
+    rows: list[dict] = field(default_factory=list)
+
     @property
-    def has_rate_detail(self) -> bool:
-        return bool(self.event_rate_scheme or self.rate_vintage or self.term)
+    def aal_display(self) -> str:
+        return _fmt_loss(self.aal)
+
+    @property
+    def std_dev_display(self) -> str:
+        return _fmt_loss(self.std_dev)
+
+
+@dataclass
+class SubmittedSettings:
+    """The expanded row's Analysis settings group, read from the submit-time
+    snapshot ``irp_analysis.submitted_settings``. Broker rows have no snapshot
+    at all, which the row renders as *not returned*."""
+    construction_occupancy: str | None = None
+
+
+def _submitted_view(raw: Any) -> SubmittedSettings:
+    p = _parse_json_dict(raw, "submitted_settings")
+    if not p:
+        return SubmittedSettings()
+    unknown = p.get("treat_construction_occupancy_as_unknown")
+    return SubmittedSettings(
+        construction_occupancy=("Treat as unknown" if unknown
+                                else _text(unknown)),
+    )
+
+
+# The perspective every results view opens on. The label repeats the
+# analysis_perspective_kind seed so the merged analyses grid can name the
+# perspective its AAL column holds without a query per render.
+DEFAULT_PERSPECTIVE = "RL"
+DEFAULT_PERSPECTIVE_LABEL = "Pre-Cat Net"
+
+
+def list_analysis_perspectives() -> list[dict]:
+    """The five perspective codes/labels in dropdown order. ``sort_order`` is
+    that dropdown order, not the default — ``DEFAULT_PERSPECTIVE`` names it."""
+    return [dict(r) for r in execute(
+        "SELECT code, label FROM analysis_perspective_kind ORDER BY sort_order",
+        {}, connection="WORKBENCH")]
+
+
+def _perspective_results(loss_results_raw: Any, perspectives: list[dict],
+                         return_periods: tuple | None = None,
+                         ) -> list[PerspectiveResults]:
+    doc = _parse_json_dict(loss_results_raw, "loss_results")
+    if not doc:
+        return []
+    if return_periods is None:
+        return_periods = CONDENSED_RETURN_PERIODS
+    stored = doc.get("perspectives") or {}
+    out: list[PerspectiveResults] = []
+    for p in perspectives:
+        data = stored.get(p["code"])
+        if not data:
+            out.append(PerspectiveResults(code=p["code"], label=p["label"],
+                                          produced=False))
+            continue
+        oep, aep = data.get("oep") or {}, data.get("aep") or {}
+        rows = [{"rp": f"{rp:,}",
+                 "oep": oep.get(str(rp)), "aep": aep.get(str(rp)),
+                 "oep_display": _fmt_loss(oep.get(str(rp))),
+                 "aep_display": _fmt_loss(aep.get(str(rp)))}
+                for rp in sorted(return_periods, reverse=True)]
+        out.append(PerspectiveResults(
+            code=p["code"], label=p["label"], produced=True,
+            aal=data.get("aal"), std_dev=data.get("std_dev"), rows=rows))
+    return out
 
 
 @dataclass
@@ -87,11 +164,15 @@ class BrokerAnalysis:
     name: str | None
     rdm_id: str
     rdm_name: str | None         # source-RDM name
-    edm_name: str | None         # representative handle's EDM
-    edm_names: list[str] = field(default_factory=list)  # every EDM it spans
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
+                                 # appAnalysisId, as own rows build theirs (FR-025)
+    created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
+    results_state: str = "pending"      # pending | failed | ready
+    results_error: str | None = None    # failed retrieval's error_detail
+    results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
 
 
 @dataclass
@@ -109,17 +190,9 @@ class BrokerAnalysisGroup:
     # backfill still lands without a manual refresh.
     sync_running: bool = False
 
-    @property
-    def edm_count(self) -> int:
-        return len({n for a in self.analyses for n in (a.edm_names or []) if n})
-
 
 @dataclass
 class ExecutedAnalysis:
-    """One workbench-submitted analysis for the EDM detail page's user-executed
-    section (spec 010 US2, FR-013). Status is derived from the latest tracked
-    ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
-    status_code`` keeps only the three coarse lifecycle codes."""
     id: str
     name: str | None            # the ≤64-char name submitted to Risk Modeler
     full_name: str | None       # untruncated portfolio + template (+ suffix)
@@ -127,6 +200,8 @@ class ExecutedAnalysis:
     status_code: str            # pending | ready | error
     failure_reason: str | None
     template_name: str | None = None
+    run_by: str | None = None   # app_user.display_name of the submitting analyst
+    edm_name: str | None = None  # submission-wide reads only (FR-009 EDM column)
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
     irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
@@ -136,13 +211,21 @@ class ExecutedAnalysis:
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
+    results_state: str = "pending"      # pending | failed | ready
+    results_error: str | None = None    # failed retrieval's error_detail
+    results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
+    submitted: SubmittedSettings = field(default_factory=SubmittedSettings)
 
     @property
     def is_live(self) -> bool:
-        """Drives the EDM page's 3s self-poll (T-11): still moving toward a
-        terminal outcome. ``pending`` is the only in-flight value — every write
-        that leaves it is terminal."""
-        return self.status_code == "pending"
+        """Drives the EDM page's 3s self-poll: still moving toward a terminal
+        outcome. ``pending`` is the only in-flight run status — every write that
+        leaves it is terminal. A ready run whose retrieval is still pending
+        keeps polling so the loss numbers land with no analyst action; a failed
+        retrieval is terminal."""
+        return (self.status_code == "pending"
+                or (self.status_code == "ready"
+                    and self.results_state == "pending"))
 
     @property
     def status_label(self) -> str:
@@ -200,14 +283,14 @@ def _first(payload: dict, *keys: str) -> Any:
 
 
 def _text(value: Any) -> str | None:
-    """A display string from a defensive read: dicts collapse to their code/
-    name (the live payload's ``currency`` object is keyed ``currencyCode``/
-    ``currencyName`` — confirmed 2026-07-24); lists join, empty → blank
-    (``eventRateSchemeNames``); bools to On/Off."""
+    """A display string from a defensive read: a reference object collapses to
+    its ``name``, then its ``code``; the ``currency`` object is keyed
+    ``currencyCode``/``currencyName`` and collapses to its code. Lists join,
+    empty → blank; bools to On/Off."""
     if value is None:
         return None
     if isinstance(value, dict):
-        return (value.get("code") or value.get("name")
+        return (value.get("name") or value.get("code")
                 or value.get("currencyCode") or value.get("currencyName")
                 or None)
     if isinstance(value, (list, tuple)):
@@ -219,26 +302,23 @@ def _text(value: Any) -> str | None:
 
 
 def _to_display(settings: dict | None) -> AnalysisSettings:
-    """The curated FR-031 view from the raw RM payload — documented camelCase
-    fields first, plausible fallbacks second, blank when absent (US3 acc. 3)."""
     p = settings or {}
     return AnalysisSettings(
         analysis_type=_text(_first(p, "analysisType", "type")),
-        analysis_mode=_text(_first(p, "analysisMode", "mode", "analysisFramework")),
+        analysis_mode=_text(_first(p, "analysisMode", "mode")),
+        framework=_text(_first(p, "analysisFramework")),
         engine_type=_text(_first(p, "engineType")),
         engine_version=_text(_first(p, "engineVersion", "modelVersion")),
-        peril=_text(_first(p, "peril", "perilCode")),
+        peril=_text(_first(p, "perilCode", "peril")),
         peril_secondary=_text(_first(p, "subperil", "subPeril", "secondaryPeril")),
-        region=_text(_first(p, "region", "regionCode")),
+        region=_text(_first(p, "regionCode", "region")),
         currency=_text(_first(p, "currencyCode", "currencyName", "currency")),
         construction=_text(_first(p, "construction")),
         line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
         term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
         pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        # eventRateSchemeNames (a LIST) is the live spelling (2026-07-24);
-        # the scalar guesses stay first so a truthy scalar wins if both appear.
-        event_rate_scheme=_text(_first(p, "eventRateScheme", "rateScheme",
-                                       "eventRateSchemeNames")),
+        # eventRateSchemeNames: a LIST of {id, code, name} reference objects.
+        event_rate_scheme=_text(p.get("eventRateSchemeNames")),
         rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
     )
 
@@ -246,44 +326,77 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
 # One row per (RDM×EDM) handle.
 _HANDLE_SELECT = """
     SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
-           e.name AS edm_name,
-           r.name AS rdm_name, r.irp_id AS rdm_irp_id
+           a.loss_results, r.name AS rdm_name, r.irp_id AS rdm_irp_id
     FROM irp_analysis a
-    LEFT JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_rdm r ON r.id = a.rdm_id
     WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
 """
 
 
+def _mark_failed_retrievals(analyses: list) -> None:
+    """Flip still-pending rows whose retrieval ``rwb_job`` ended ``failed`` to
+    failed + reason while the run status stays untouched. A terminal failed row
+    is never resurrected by the dedup key, so the join is exact, not
+    latest-of-many."""
+    pending = [a for a in analyses if a.results_state == "pending"]
+    if not pending:
+        return
+    params = {f"a{i}": a.id for i, a in enumerate(pending)}
+    placeholders = ", ".join(f":a{i}" for i in range(len(pending)))
+    failed = execute(
+        f"SELECT requestor_id, error_detail FROM rwb_job "
+        f"WHERE requestor_type = 'irp_analysis' "
+        f"AND rwb_job_type = 'retrieve_analysis_results' "
+        f"AND status_code = 'failed' "
+        f"AND requestor_id IN ({placeholders})",
+        params, connection="WORKBENCH")
+    by_id = {_uid(row["requestor_id"]): row["error_detail"] for row in failed}
+    for a in pending:
+        if a.id in by_id:
+            a.results_state = "failed"
+            a.results_error = by_id[a.id]
+
+
 def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
     """Collapse the M (RDM×EDM) handle rows sharing one ``irp_id`` into ONE
-    display row (R8): the representative handle is the first seen;
-    ``edm_names`` collects every EDM spanned; settings come from any handle that
-    has them (the snapshot is per-analysis)."""
+    display row (R8): the representative handle is the first seen; settings and
+    results come from any handle that has them (both snapshots are
+    per-analysis). No EDM is read off the handles — an RDM is related to an EDM
+    only through a submission, so a broker analysis names no EDM."""
     out: list[BrokerAnalysis] = []
     by_key: dict[tuple, BrokerAnalysis] = {}
+    perspectives = list_analysis_perspectives() if rows else []
     for r in rows:
         key = (_uid(r["rdm_id"]), str(r["irp_id"]))
         existing = by_key.get(key)
         if existing is None:
             settings = _parse_settings(r["settings_metadata"])
+            results = _perspective_results(r["loss_results"], perspectives)
             entry = BrokerAnalysis(
                 id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
                 rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
-                edm_name=r["edm_name"],
-                edm_names=[r["edm_name"]] if r["edm_name"] else [],
                 is_group=bool(r["is_group"]), settings=settings,
-                display=_to_display(settings))
+                display=_to_display(settings),
+                rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
+                created_at=(settings or {}).get("createDate"),
+                results_state=("ready" if results else "pending"),
+                results=results)
             by_key[key] = entry
             out.append(entry)
             continue
-        if r["edm_name"] and r["edm_name"] not in existing.edm_names:
-            existing.edm_names.append(r["edm_name"])
         if existing.settings is None:
             settings = _parse_settings(r["settings_metadata"])
             if settings is not None:
                 existing.settings = settings
                 existing.display = _to_display(settings)
+                existing.rm_url = _rm_analysis_url(settings.get("appAnalysisId"))
+                existing.created_at = settings.get("createDate")
+        if not existing.results:
+            results = _perspective_results(r["loss_results"], perspectives)
+            if results:
+                existing.results = results
+                existing.results_state = "ready"
+    _mark_failed_retrievals(out)
     return out
 
 
@@ -306,9 +419,6 @@ def _group_by_rdm(rows: list[dict]) -> list[BrokerAnalysisGroup]:
 
 
 def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The RDM page's read (FR-030/FR-031/R8): this RDM's broker analyses,
-    deduped across their M EDM handles (shown once), each with parsed settings
-    and ``is_group``. No scoping (Article 6)."""
     rows = execute(
         f"{_HANDLE_SELECT} AND a.rdm_id = :r ORDER BY a.name, a.irp_id, a.id",
         {"r": str(rdm_id)}, connection="WORKBENCH")
@@ -320,15 +430,9 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     return []
 
 
-_EXECUTED_SELECT = """
-    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
-           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
-           p.name AS portfolio_name, t.name AS template_name,
-           j.id AS irp_job_id, j.status AS job_status,
-           j.submission_attempt_count
-    FROM irp_analysis a
-    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
-    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+# The analysis' latest tracked irp_job (T-07) — the row that carries the status
+# label and the submission attempt count. Joined by both own-executed reads.
+_LATEST_JOB_JOIN = """
     LEFT JOIN (
         SELECT id, irp_analysis_id, status, submission_attempt_count,
                ROW_NUMBER() OVER (
@@ -338,6 +442,21 @@ _EXECUTED_SELECT = """
         FROM irp_job
         WHERE irp_analysis_id IS NOT NULL
     ) j ON j.irp_analysis_id = a.id AND j.row_num = 1
+"""
+
+_EXECUTED_SELECT = f"""
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
+           a.loss_results, a.submitted_settings,
+           p.name AS portfolio_name, t.name AS template_name,
+           u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
+    FROM irp_analysis a
+    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
 """
@@ -357,29 +476,69 @@ def _rm_analysis_url(irp_app_analysis_id: Any) -> str | None:
     return f"{root}/riskmodeler/datasources/analysis/{irp_app_analysis_id}/0"
 
 
-def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
-    """The EDM detail page's user-executed section (FR-013): every analysis the
-    workbench submitted against this EDM, newest first, each with its live
-    status derived from its latest tracked ``irp_job`` (T-07)."""
-    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
+    """Own-executed rows as display models: parsed settings, the stored
+    extract, the latest tracked ``irp_job`` status (T-07), and the failed
+    retrieval join (SC-005)."""
     analyses = []
+    perspectives = list_analysis_perspectives() if rows else []
     for r in rows:
         parsed = _parse_settings(r["settings_metadata"])
         irp_id = str(r["irp_id"]) if r["irp_id"] is not None else None
         irp_app_analysis_id = (str(r["irp_app_analysis_id"])
-                           if r["irp_app_analysis_id"] is not None else None)
+                               if r["irp_app_analysis_id"] is not None else None)
+        results = _perspective_results(r["loss_results"], perspectives)
         analyses.append(ExecutedAnalysis(
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
             failure_reason=r["failure_reason"],
-            template_name=r["template_name"], inserted_at=r["inserted_at"],
+            template_name=r["template_name"], run_by=r["run_by"],
+            inserted_at=r["inserted_at"],
+            edm_name=r.get("edm_name"),
             irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed),
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
             job_status=r["job_status"],
-            submission_attempt_count=int(r["submission_attempt_count"] or 0)))
+            submission_attempt_count=int(r["submission_attempt_count"] or 0),
+            results_state=("ready" if results else "pending"), results=results,
+            submitted=_submitted_view(r["submitted_settings"])))
+    _mark_failed_retrievals(analyses)
     return analyses
+
+
+def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
+    rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
+    return _executed_models([dict(r) for r in rows])
+
+
+_SUBMISSION_EXECUTED_SELECT = f"""
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
+           a.loss_results, a.submitted_settings,
+           p.name AS portfolio_name, t.name AS template_name,
+           e.name AS edm_name, u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
+    FROM irp_analysis a
+    JOIN submission_edm se ON se.edm_id = a.edm_id
+    JOIN irp_edm e ON e.id = a.edm_id
+    LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
+    LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
+    WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
+      AND e.deleted_at IS NULL AND a.deleted_at IS NULL
+    ORDER BY a.inserted_at DESC
+"""
+
+
+def list_submission_executed_analyses(
+    *, submission_id: Any,
+) -> list[ExecutedAnalysis]:
+    rows = execute(_SUBMISSION_EXECUTED_SELECT,
+                   {"submission_id": str(submission_id)}, connection="WORKBENCH")
+    return _executed_models([dict(r) for r in rows])
 
 
 def execution_batch_is_live(execution_id: Any | None) -> bool:
@@ -475,6 +634,69 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
     return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
 
 
+@dataclass
+class ResultsColumn:
+    id: str
+    name: str | None
+    currency: str | None
+    results_state: str = "pending"      # pending | failed | ready
+    results_error: str | None = None
+    results: list[PerspectiveResults] = field(default_factory=list)
+
+    def for_code(self, code: str) -> PerspectiveResults | None:
+        return next((p for p in self.results if p.code == code), None)
+
+
+def expanded_return_periods() -> list[str]:
+    """The dedicated page's row labels — the 11 stored return periods, largest
+    first, matching the row order ``_perspective_results`` builds."""
+    return [f"{rp:,}" for rp in sorted(STORED_RETURN_PERIODS, reverse=True)]
+
+
+def list_results_columns(*, analysis_ids: list[Any],
+                         ) -> tuple[list[ResultsColumn], int]:
+    """The dedicated page's columns: one per resolved id, in the caller's
+    order, both origins in one read. Returns the columns and the count of ids
+    that did not resolve — an unknown or deleted id is a notice on the page,
+    never an error."""
+    requested: list[str | None] = []
+    for raw in analysis_ids:
+        try:
+            requested.append(str(uuid.UUID(str(raw))))
+        except (ValueError, AttributeError, TypeError):
+            requested.append(None)
+    valid = [i for i in requested if i]
+    rows_by_id: dict[str, dict] = {}
+    if valid:
+        params = {f"a{n}": i for n, i in enumerate(dict.fromkeys(valid))}
+        placeholders = ", ".join(f":a{n}" for n in range(len(params)))
+        rows = execute(
+            f"SELECT a.id, a.name, a.full_name, "
+            f"a.settings_metadata, a.loss_results "
+            f"FROM irp_analysis a "
+            f"WHERE a.deleted_at IS NULL AND a.id IN ({placeholders})",
+            params, connection="WORKBENCH")
+        rows_by_id = {_uid(r["id"]): dict(r) for r in rows}
+    perspectives = list_analysis_perspectives() if rows_by_id else []
+    columns: list[ResultsColumn] = []
+    missing = 0
+    for rid in requested:
+        row = rows_by_id.get(rid) if rid else None
+        if row is None:
+            missing += 1
+            continue
+        results = _perspective_results(row["loss_results"], perspectives,
+                                       STORED_RETURN_PERIODS)
+        columns.append(ResultsColumn(
+            id=_uid(row["id"]),
+            name=row["full_name"] or row["name"],
+            currency=_to_display(_parse_settings(row["settings_metadata"])).currency,
+            results_state=("ready" if results else "pending"),
+            results=results))
+    _mark_failed_retrievals(columns)
+    return columns, missing
+
+
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
     """List one submission's RDMs and stored counts without loading analyses."""
     rows = execute(
@@ -519,10 +741,14 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
+    "DEFAULT_PERSPECTIVE", "DEFAULT_PERSPECTIVE_LABEL",
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
-    "ExecutedAnalysis",
+    "ExecutedAnalysis", "PerspectiveResults", "ResultsColumn",
+    "SubmittedSettings",
     "delete_executed_analyses", "execution_batch_is_live",
+    "expanded_return_periods", "list_analysis_perspectives",
     "list_broker_analyses", "list_edm_analyses",
-    "list_executed_analyses", "list_submission_rdms",
-    "list_submission_rdm_analyses",
+    "list_executed_analyses", "list_results_columns",
+    "list_submission_executed_analyses",
+    "list_submission_rdms", "list_submission_rdm_analyses",
 ]

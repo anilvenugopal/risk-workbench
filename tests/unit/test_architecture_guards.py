@@ -153,6 +153,19 @@ def test_every_seeded_breakout_dimension_has_its_vocabulary():
     assert absent == [], f"registered script missing from sql/databridge: {absent}"
 
 
+def test_result_reads_are_worker_side_only():
+    """Article 11 (spec 011): ``get_analysis_stats`` / ``get_analysis_ep`` are
+    the retrieval worker's calls. No results view fetches from Risk Modeler —
+    every one reads the stored ``irp_analysis.loss_results`` — so the two names
+    appear only in the gateway that defines them and under app/workers/."""
+    allowed = {_GATEWAY, *(_APP / "workers").rglob("*.py")}
+    offenders = _offenders(
+        (p for p in _APP.rglob("*.py") if p not in allowed),
+        re.compile(r"get_analysis_(?:stats|ep)\b"))
+    assert offenders == [], (
+        f"result reads must stay worker-side (Article 11): {offenders}")
+
+
 def test_no_databridge_on_request_path():
     """The web layer never opens a DataBridge connection itself and never runs a
     trusted script: the summary the modal renders is the STORED one, and the one
