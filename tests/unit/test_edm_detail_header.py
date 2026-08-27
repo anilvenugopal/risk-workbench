@@ -146,7 +146,7 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
 def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
     analysis = analysis_service.BrokerAnalysis(
         id="analysis-1", irp_id="301", name="Stored analysis", rdm_id="rdm-1",
-        rdm_name="Submission A RDM", edm_name=None)
+        rdm_name="Submission A RDM")
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: _context())
     monkeypatch.setattr(
@@ -165,7 +165,7 @@ def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
 def test_lazy_route_matches_rdm_id_case_insensitively(monkeypatch):
     analysis = analysis_service.BrokerAnalysis(
         id="analysis-1", irp_id="301", name="Stored analysis", rdm_id="rdm-1",
-        rdm_name="Submission A RDM", edm_name=None)
+        rdm_name="Submission A RDM")
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: _context())
     monkeypatch.setattr(

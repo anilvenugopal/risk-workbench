@@ -200,8 +200,6 @@ class BrokerAnalysis:
     name: str | None
     rdm_id: str
     rdm_name: str | None         # source-RDM name
-    edm_name: str | None         # representative handle's EDM
-    edm_names: list[str] = field(default_factory=list)  # every EDM it spans
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
@@ -228,10 +226,6 @@ class BrokerAnalysisGroup:
     # carries this, so an RDM's own capture finishing after the EDM's own
     # backfill still lands without a manual refresh.
     sync_running: bool = False
-
-    @property
-    def edm_count(self) -> int:
-        return len({n for a in self.analyses for n in (a.edm_names or []) if n})
 
 
 @dataclass
@@ -378,10 +372,8 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
 # One row per (RDM×EDM) handle.
 _HANDLE_SELECT = """
     SELECT a.id, a.rdm_id, a.irp_id, a.name, a.is_group, a.settings_metadata,
-           a.loss_results, e.name AS edm_name,
-           r.name AS rdm_name, r.irp_id AS rdm_irp_id
+           a.loss_results, r.name AS rdm_name, r.irp_id AS rdm_irp_id
     FROM irp_analysis a
-    LEFT JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_rdm r ON r.id = a.rdm_id
     WHERE a.deleted_at IS NULL AND a.rdm_id IS NOT NULL
 """
@@ -413,9 +405,10 @@ def _mark_failed_retrievals(analyses: list) -> None:
 
 def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
     """Collapse the M (RDM×EDM) handle rows sharing one ``irp_id`` into ONE
-    display row (R8): the representative handle is the first seen;
-    ``edm_names`` collects every EDM spanned; settings and results come from
-    any handle that has them (both snapshots are per-analysis)."""
+    display row (R8): the representative handle is the first seen; settings and
+    results come from any handle that has them (both snapshots are
+    per-analysis). No EDM is read off the handles — an RDM is related to an EDM
+    only through a submission, so a broker analysis names no EDM."""
     out: list[BrokerAnalysis] = []
     by_key: dict[tuple, BrokerAnalysis] = {}
     perspectives = list_analysis_perspectives() if rows else []
@@ -428,8 +421,6 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             entry = BrokerAnalysis(
                 id=_uid(r["id"]), irp_id=str(r["irp_id"]), name=r["name"],
                 rdm_id=_uid(r["rdm_id"]), rdm_name=r["rdm_name"],
-                edm_name=r["edm_name"],
-                edm_names=[r["edm_name"]] if r["edm_name"] else [],
                 is_group=bool(r["is_group"]), settings=settings,
                 display=_to_display(settings),
                 rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
@@ -439,8 +430,6 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             by_key[key] = entry
             out.append(entry)
             continue
-        if r["edm_name"] and r["edm_name"] not in existing.edm_names:
-            existing.edm_names.append(r["edm_name"])
         if existing.settings is None:
             settings = _parse_settings(r["settings_metadata"])
             if settings is not None:

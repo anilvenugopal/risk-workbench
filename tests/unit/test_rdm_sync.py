@@ -433,6 +433,40 @@ def test_detail_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
     assert "Check the broker results." in html
 
 
+def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
+    # The RDM page renders partials/broker_analysis_row.html, the same row the
+    # merged analyses section renders, so a broker row reads exactly like a
+    # workbench-executed one.
+    grp = analysis_service.BrokerAnalysisGroup(
+        rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
+        analyses=[analysis_service.BrokerAnalysis(
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
+            rm_url="https://rm/a/5521",
+            created_at="2026-08-20T14:02:11.000Z",
+            display=analysis_service.AnalysisSettings(
+                peril="EQ", region="NA", currency="USD", engine_type="DLM",
+                engine_version="23.0", term="STD", pla="Enabled"))])
+    _stub_reads(monkeypatch, analyses=[grp])
+
+    html = _client().get("/rdms/rdm-1").text
+
+    for header in ("Peril", "Region", "Engine", "Currency", "Status",
+                   "Submitted", "Risk Modeler"):
+        assert f'<span class="l">{header}</span>' in html
+    assert "AAL &middot;" in html
+    assert '<span class="l dt-span2">Analysis</span>' in html
+    # no checkbox column — selection lives in the merged section, not here
+    assert 'name="analysis_ids"' not in html
+    assert 'class="status-chip status-chip--ready">Finished' in html
+    assert '<time data-utc="2026-08-20T14:02:11.000Z"' in html
+    assert '<a class="rm-link" href="https://rm/a/5521"' in html
+    # an RDM is related to an EDM only through a submission, so no EDM column
+    assert ">EDM</span>" not in html
+    # term and PLA moved off the summary row into the shared expansion
+    assert "<dt>Term</dt>" in html and "<dd title=\"STD\">STD</dd>" in html
+    assert "<dt>PLA</dt>" in html
+
+
 def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
     # Re-syncing an already-populated page: a 3s outerHTML swap would collapse
     # every open <details> (analysis drills), so the poll target answers 204
@@ -440,8 +474,7 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
     grp = analysis_service.BrokerAnalysisGroup(
         rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
         analyses=[analysis_service.BrokerAnalysis(
-            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
-            edm_name="E1")])
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R")])
     _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
     r = _client().get("/rdms/rdm-1/body")
     assert r.status_code == 204

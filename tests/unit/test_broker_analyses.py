@@ -292,7 +292,7 @@ def _context() -> edm_service.ContextualEdmDetail:
 def _broker_row(**over) -> analysis_service.BrokerAnalysis:
     base = dict(
         id="analysis-1", irp_id="88215", name="Broker AEP", rdm_id="rdm-1",
-        rdm_name="Acme Broker RDM", edm_name=None,
+        rdm_name="Acme Broker RDM",
         rm_url="https://acme.rms-ppe.com/riskmodeler/analyses/88215",
         created_at="2026-08-20T14:02:11.000Z")
     base.update(over)

@@ -353,8 +353,10 @@ def submission_analyses(request: Request, submission_id: str):
 @router.get("/submissions/{submission_id}/rdms/{rdm_id}/analyses",
             response_class=HTMLResponse)
 def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
-    """One RDM group's broker rows for the Results section's lazy load —
-    merged-table columns with the EDM column reading an em dash (FR-020)."""
+    """One RDM group's broker rows for the Results section's lazy load — the
+    same merged-table columns own executed rows use, with the EDM column
+    reading an em dash: an RDM is related to an EDM only through a submission,
+    so a broker analysis names no EDM."""
     analyses = analysis_service.list_submission_rdm_analyses(
         submission_id=submission_id, rdm_id=rdm_id)
     if analyses is None:
