@@ -100,14 +100,45 @@ class TestSimpleShellRoutes:
     def test_workflows_review(self, client):
         assert client.get("/workflows/review").status_code == 200
 
-    def test_workflows_irp_jobs(self, client):
-        assert client.get("/workflows/irp-jobs").status_code == 200
-
     def test_workflows_rwb_jobs(self, client):
         assert client.get("/workflows/rwb-jobs").status_code == 200
 
     def test_workflows_exceptions(self, client):
         assert client.get("/workflows/exceptions").status_code == 200
+
+
+class TestWorkflowsIrpJobs:
+    """The job monitor (T-12) reads real irp_job rows — irp_job_service.list_recent
+    is monkeypatched here so the route test stays DB-free."""
+
+    def test_lists_rows(self, monkeypatch):
+        from app.services import irp_job_service
+
+        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [{
+            "id": "1", "irp_job_type": "analysis", "type_label": "Analysis",
+            "status": "SUBMISSION FAILED", "attempts": 1,
+            "submitted_at": "2026-08-21 10:00:00", "submitted_by": "Test User",
+            "entity_name": "Portfolio A DLM",
+        }])
+        resp = TestClient(_make_app()).get("/workflows/irp-jobs")
+        assert resp.status_code == 200
+        assert "Portfolio A DLM" in resp.text
+
+    def test_empty_state(self, monkeypatch):
+        from app.services import irp_job_service
+
+        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [])
+        resp = TestClient(_make_app()).get("/workflows/irp-jobs")
+        assert resp.status_code == 200
+        assert "No IRP jobs yet." in resp.text
+
+    def test_table_fragment(self, monkeypatch):
+        from app.services import irp_job_service
+
+        monkeypatch.setattr(irp_job_service, "list_recent", lambda: [])
+        resp = TestClient(_make_app()).get("/workflows/irp-jobs/table")
+        assert resp.status_code == 200
+        assert "No IRP jobs yet." in resp.text
 
 
 class TestShellNavContext:

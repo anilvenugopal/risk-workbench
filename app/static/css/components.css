@@ -290,6 +290,11 @@
   border-color: var(--color-warning-border);
   color: var(--color-warning);
 }
+.toast--success {
+  background: var(--color-positive-bg);
+  border-color: var(--color-positive-border);
+  color: var(--color-positive);
+}
 .toast--out {
   opacity: 0;
   transform: translateY(8px);

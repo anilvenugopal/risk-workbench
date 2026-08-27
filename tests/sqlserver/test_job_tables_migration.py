@@ -45,13 +45,24 @@ class TestJobTablesMigration:
     def test_job_table_exists(self, name):
         assert _table_exists(name) == 1
 
-    def test_irp_job_columns(self):
+    def test_irp_job_has_analysis_execution_columns(self):
+        # spec 010: irp_analysis_id/request_params added by ALTER once
+        # irp_analysis exists; irp_portfolio_id is inline (data-model §2).
         cols = {r["COLUMN_NAME"] for r in execute(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
             "WHERE TABLE_NAME = 'irp_job'", {}, connection="WORKBENCH")}
-        assert {"irp_edm_id", "irp_portfolio_id", "irp_rdm_id",
-                "requested_from_submission_id", "status"} <= cols
+        assert {"irp_edm_id", "irp_rdm_id", "requested_from_submission_id",
+                "status", "irp_portfolio_id", "irp_analysis_id",
+                "request_params"} <= cols
         assert "package_id" not in cols
+
+    def test_irp_job_irp_analysis_id_index_present(self):
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.indexes "
+            "WHERE name = 'ix_irp_job_irp_analysis_id' "
+            "AND object_id = OBJECT_ID('dbo.irp_job')",
+            {}, connection="WORKBENCH")
+        assert n == 1
 
     def test_no_scope_column_on_job_tables(self):
         for table in ("irp_job", "rwb_job"):
@@ -71,28 +82,57 @@ class TestJobTablesMigration:
         codes = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
         assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses",
-                "notify_analyst"} <= codes
+                "notify_analyst", "execute_analysis_batch",
+                "backfill_analysis_detail"} <= codes
         assert {"delete_edm", "delete_rdm"}.isdisjoint(codes)
 
     def test_irp_analysis_status_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM irp_analysis_status_kind", {}, connection="WORKBENCH")}
-        assert codes == {"pending", "running", "ready", "error"}  # D2, data-model §6
+        # No 'running': irp_job.status carries progress, and every write that
+        # leaves 'pending' is terminal (spec 010, data-model §6).
+        assert codes == {"pending", "ready", "error"}
 
-    def test_irp_analysis_unique_constraint_present(self):
+    def test_irp_analysis_filtered_unique_indexes_present(self):
+        # spec 010: uq_irp_analysis_rdm_irp is now a FILTERED unique index (not a
+        # key constraint) — a plain UNIQUE would treat own-analysis rows' shared
+        # NULL rdm_id/irp_id as colliding (data-model §1). Backfill idempotency
+        # (§6a), the rerun-collision index on (edm_id, name) (T-05), and the
+        # worker's resume key (execution_id, irp_portfolio_id, execution_item_no).
+        for name in ("uq_irp_analysis_rdm_irp", "uq_irp_analysis_live_edm_name",
+                     "uq_irp_analysis_execution_item"):
+            n = execute_scalar(
+                "SELECT COUNT(*) FROM sys.indexes "
+                "WHERE name = :n AND object_id = OBJECT_ID('dbo.irp_analysis') "
+                "AND is_unique = 1",
+                {"n": name}, connection="WORKBENCH")
+            assert n == 1, name
+
+    def test_irp_analysis_full_name_holds_an_untruncated_name(self):
+        # CRE_ + a 256-char portfolio name + _ + a 200-char template name; only
+        # the submitted `name` is truncated (to Risk Modeler's 64).
         n = execute_scalar(
-            "SELECT COUNT(*) FROM sys.key_constraints "
-            "WHERE name = 'uq_irp_analysis_rdm_irp' "
+            "SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_analysis' AND COLUMN_NAME = 'full_name'",
+            {}, connection="WORKBENCH")
+        assert n == 512
+
+    def test_irp_analysis_origin_check_present(self):
+        n = execute_scalar(
+            "SELECT COUNT(*) FROM sys.check_constraints "
+            "WHERE name = 'ck_irp_analysis_origin' "
             "AND parent_object_id = OBJECT_ID('dbo.irp_analysis')",
             {}, connection="WORKBENCH")
-        assert n == 1  # UNIQUE(rdm_id, edm_id, irp_id) — backfill idempotency (§6a)
+        assert n == 1  # edm_id IS NOT NULL OR rdm_id IS NOT NULL (data-model §1)
 
     def test_irp_analysis_foreign_keys_present(self):
         n = execute_scalar(
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.irp_analysis')",
             {}, connection="WORKBENCH")
-        assert n >= 3  # rdm_id, edm_id, status_code (+ user FKs)
+        # rdm_id, edm_id, status_code, irp_portfolio_id, analysis_template_id
+        # (+ user FKs)
+        assert n >= 5
 
     def test_irp_analysis_no_scope_column(self):
         cols = {r["COLUMN_NAME"] for r in execute(
@@ -100,7 +140,20 @@ class TestJobTablesMigration:
             "WHERE TABLE_NAME = 'irp_analysis'", {}, connection="WORKBENCH")}
         assert "customer_id" not in cols  # Article 6
         assert "package_id" not in cols
-        assert {"rdm_id", "edm_id", "irp_id", "source_rdm_name", "deleted_at"} <= cols
+        assert {"rdm_id", "edm_id", "irp_id", "irp_app_analysis_id",
+                "source_rdm_name", "deleted_at",
+                "full_name", "irp_portfolio_id", "analysis_template_id",
+                "execution_id", "execution_item_no", "failure_reason"} <= cols
+
+    def test_irp_analysis_own_row_columns_nullable(self):
+        # spec 010: rdm_id/source_rdm_name/irp_id must accept NULL for own-executed
+        # rows (data-model §1) — CHECK ck_irp_analysis_origin is the only guard.
+        cols = {r["COLUMN_NAME"]: r["IS_NULLABLE"] for r in execute(
+            "SELECT COLUMN_NAME, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_NAME = 'irp_analysis'", {}, connection="WORKBENCH")}
+        assert cols["rdm_id"] == "YES"
+        assert cols["source_rdm_name"] == "YES"
+        assert cols["irp_id"] == "YES"
 
     def test_rwb_job_requestor_and_status_seeds(self):
         req = {r["code"] for r in execute(
@@ -131,7 +184,9 @@ class TestJobTablesMigration:
             "SELECT COUNT(*) FROM sys.foreign_keys "
             "WHERE parent_object_id = OBJECT_ID('dbo.irp_job')",
             {}, connection="WORKBENCH")
-        assert n >= 4  # submission, irp_edm, irp_rdm, irp_job_type (+ user FKs)
+        # submission, irp_edm, irp_rdm, irp_job_type, irp_portfolio_id,
+        # irp_analysis_id (+ user FKs)
+        assert n >= 6
 
 
 # ── behavioral: atomic claim + idempotent chained insert ──────────────────────

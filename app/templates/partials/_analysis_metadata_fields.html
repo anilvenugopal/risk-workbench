@@ -1,0 +1,21 @@
+{# The curated FR-031 settings fields, shared verbatim by broker_analysis_row.html
+   and executed_analysis_row.html (spec 010 US2) so the two views can never drift.
+   Context: `d` — analysis_service.AnalysisSettings. Caller wraps this in its own
+   <dl class="settings-grid">. #}
+{% for label, val in [
+  ('Engine / model version', d.engine_version),
+  ('Engine type', d.engine_type),
+  ('Analysis type / mode', d.analysis_type ~ (' · ' ~ d.analysis_mode if d.analysis_mode else '') if d.analysis_type else d.analysis_mode),
+  ('Peril (primary)', d.peril),
+  ('Peril (secondary)', d.peril_secondary),
+  ('Region', d.region),
+  ('Currency', d.currency),
+  ('Construction', d.construction),
+  ('Line of business', d.line_of_business),
+  ('Term', d.term),
+  ('Loss amplification (PLA)', d.pla),
+] %}
+{% if val %}<div><dt>{{ label }}</dt><dd>{{ val }}</dd></div>
+{% else %}<div><dt>{{ label }}</dt><dd class="blank">not provided</dd></div>
+{% endif %}
+{% endfor %}

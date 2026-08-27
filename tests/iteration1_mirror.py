@@ -102,13 +102,15 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE irp_analysis_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    # irp_portfolio_id / irp_analysis_id / request_params (spec 010, data-model §2).
     """CREATE TABLE irp_job (
         id TEXT PRIMARY KEY, requested_from_submission_id TEXT,
-        irp_edm_id TEXT, irp_portfolio_id TEXT, irp_rdm_id TEXT,
+        irp_edm_id TEXT, irp_rdm_id TEXT, irp_portfolio_id TEXT, irp_analysis_id TEXT,
         irp_job_type TEXT, irp_id TEXT, status TEXT, correlation_id TEXT,
         request_params TEXT, completion_summary TEXT,
         last_submission_payload TEXT, last_submission_response TEXT,
-        last_completion_result TEXT, submission_attempt_count INTEGER,
+        last_completion_result TEXT,
+        submission_attempt_count INTEGER,
         submitted_at TEXT, completed_at TEXT, last_tracked_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT
     )""",
@@ -130,17 +132,30 @@ ITERATION2_SCHEMA = [
     )""",
     # irp_analysis (D2) — captured broker analyses for delete-enumeration (§6a).
     # UNIQUE(rdm_id, edm_id, irp_id) is kept — the backfill idempotency backbone is
-    # exercised on the unit tier. Iteration 3 (spec 004): settings_metadata /
-    # is_group / exposure_resource_id detail columns (data-model §4).
+    # exercised on the unit tier (both rdm_id/irp_id are NULL for own-executed
+    # rows, which SQLite — like SQL Server's filtered index — never treats as
+    # colliding). Iteration 3 (spec 004): settings_metadata / is_group /
+    # exposure_resource_id detail columns (data-model §4). Spec 010: rdm_id/irp_id/
+    # source_rdm_name are no longer required (own-executed rows have none);
+    # full_name/irp_portfolio_id/analysis_template_id/execution_id/
+    # execution_item_no/failure_reason are new (data-model §1).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
-        irp_id TEXT, name TEXT, source_rdm_name TEXT, status_code TEXT,
-        created_by_irp_job_irp_id TEXT,
+        irp_id TEXT, irp_app_analysis_id TEXT, name TEXT, full_name TEXT,
+        source_rdm_name TEXT,
+        status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
-        deleted_at TEXT,
+        irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
+        execution_item_no INTEGER, failure_reason TEXT, deleted_at TEXT,
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",
+    # The worker's resume key (spec 010) — _submit_one reads it as a scalar
+    # subquery, which raises on a duplicate. Filtered: all three columns are
+    # NULL for broker rows.
+    """CREATE UNIQUE INDEX uq_irp_analysis_execution_item
+        ON irp_analysis (execution_id, irp_portfolio_id, execution_item_no)
+        WHERE execution_id IS NOT NULL""",
 ]
 
 # ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
@@ -262,7 +277,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
                      ("run_geohaz", "Run GeoHaz", 28),
+                     ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
+                     ("backfill_analysis_detail", "Backfill Analysis Detail", 31),  # spec 010
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
@@ -278,8 +295,8 @@ RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("breakout_group", "Breakout Group", 40)]  # T-13
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
-IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
-                            ("ready", "Ready", 30), ("error", "Error", 40)]
+IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
+                            ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
                            ("state", "Geography - State", 20),
                            ("country", "Geography - Country", 25),

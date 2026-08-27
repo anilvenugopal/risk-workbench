@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.nav import get_nav_context
+from app.services import irp_job_service
 
 router = APIRouter()
 
@@ -63,9 +64,31 @@ def workflows_review(request: Request):
     return _render(request, "pages/workflows_review.html", "workflows.review")
 
 
+def _irp_jobs_context() -> dict:
+    """Shared context for the job monitor page and its polled table fragment."""
+    rows = irp_job_service.list_recent()
+    return {
+        "rows": rows,
+        # Any row still moving at IRP → keep polling; all-terminal → the fragment
+        # stops emitting the trigger and the poll ends on its own.
+        "live": any(r["status"] not in irp_job_service.TERMINAL for r in rows),
+    }
+
+
 @router.get("/workflows/irp-jobs", response_class=HTMLResponse)
 def workflows_irp_jobs(request: Request):
-    return _render(request, "pages/workflows_irp_jobs.html", "workflows.irp_jobs")
+    return _render(request, "pages/workflows_irp_jobs.html", "workflows.irp_jobs",
+                   _irp_jobs_context())
+
+
+@router.get("/workflows/irp-jobs/table", response_class=HTMLResponse)
+def workflows_irp_jobs_table(request: Request):
+    """Read-only table render for HTMX polling — no shell, no nav (Article 11:
+    display only, this issues no Risk Modeler call)."""
+    return _templates(request).TemplateResponse(
+        request, "partials/irp_jobs_table.html",
+        {"current_user": request.state.user, **_irp_jobs_context()},
+    )
 
 
 @router.get("/workflows/rwb-jobs", response_class=HTMLResponse)

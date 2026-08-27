@@ -69,12 +69,24 @@
     </div>
 
     <div class="section-head"><h2>Templates in this suite</h2></div>
-    <input class="wf-field__input" id="suite-item-filter" type="text"
-           placeholder="Filter templates…" autocomplete="off"
-           oninput="document.querySelectorAll('#suite-item-picker .picker-item').forEach(function(row){ row.style.display = row.dataset.name.indexOf(this.value.toLowerCase()) === -1 ? 'none' : ''; }, this)"
-           style="margin-bottom: var(--space-2); max-width: 320px;">
-    <div id="suite-item-picker" class="picker-list">
-      {% include "partials/suite_item_rows.html" %}
+    <div x-data="checkPicks({ name: 'template_ids', visibleOnly: true })"
+         @change="onChange()">
+      <input class="wf-field__input" id="suite-item-filter" type="text"
+             placeholder="Filter templates…" autocomplete="off"
+             oninput="document.querySelectorAll('#suite-item-picker .picker-item').forEach(function(row){ row.style.display = row.dataset.name.indexOf(this.value.toLowerCase()) === -1 ? 'none' : ''; }, this)"
+             @input="onChange()"
+             style="margin-bottom: var(--space-2); max-width: 320px;">
+      <label class="picker-head">
+        <input type="checkbox" x-ref="selectAll" :disabled="total === 0"
+               @click.stop="all($event.target.checked)">
+        <span>Select all shown</span>
+        <template x-if="count">
+          <span class="muted">· <span x-text="count"></span> selected</span>
+        </template>
+      </label>
+      <div id="suite-item-picker" class="picker-list">
+        {% include "partials/suite_item_rows.html" %}
+      </div>
     </div>
 
     <div class="form-actions">

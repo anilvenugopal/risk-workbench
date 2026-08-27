@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from irp_integration.analysis_validation import (
-    classify_model_profile,
-    validate_analysis_settings,
+    analysis_type_for_software_version,
+    validate_event_rate_scheme_settings,
 )
 from sqlalchemy import text
 
@@ -99,7 +99,7 @@ def profile_family(
         return "Accumulation"
     if software_version_code is None:
         return None
-    return classify_model_profile(software_version_code)
+    return analysis_type_for_software_version(software_version_code)
 
 
 def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
@@ -121,21 +121,15 @@ def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
             """,
             {"name": params["scheme"]},
         )
-    pair_known = (
-        scheme is not None
-        and profile["peril_code"] is not None
-        and profile["model_region_code"] is not None
-    )
-    return validate_analysis_settings(
+    error = validate_event_rate_scheme_settings(
         software_version_code=version,
         scheme_provided=bool(params["scheme"]),
-        profile_peril_code=profile["peril_code"] or "",
-        profile_model_region_code=profile["model_region_code"] or "",
-        scheme_peril_code=scheme["peril_code"] if pair_known else None,
-        scheme_model_region_code=(
-            scheme["model_region_code"] if pair_known else None
-        ),
+        profile_peril_code=profile["peril_code"],
+        profile_model_region_code=profile["model_region_code"],
+        scheme_peril_code=scheme["peril_code"] if scheme else None,
+        scheme_model_region_code=scheme["model_region_code"] if scheme else None,
     )
+    return [error] if error else []
 
 
 def _validate_template(conn, params: dict) -> list[str]:

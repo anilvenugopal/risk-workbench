@@ -721,7 +721,7 @@ document.addEventListener('alpine:init', () => {
   // `observe` adds a MutationObserver because the geohaz-cell poll disables and
   // enables a checkbox by OOB-swapping its whole <span> on job completion, and a
   // DOM replacement fires no native change event.
-  Alpine.data('checkPicks', ({ name, observe = false } = {}) => ({
+  Alpine.data('checkPicks', ({ name, observe = false, visibleOnly = false } = {}) => ({
     count: 0,
     total: 0,
     observer: null,
@@ -734,7 +734,11 @@ document.addEventListener('alpine:init', () => {
     },
     destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
-      return this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      const boxes = this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      // The suite builder's filter hides non-matching rows: select-all and the
+      // count then cover only the templates the analyst can see.
+      if (!visibleOnly) return boxes;
+      return Array.from(boxes).filter((box) => box.offsetParent !== null);
     },
     onChange() {
       const boxes = this.boxes();
@@ -757,6 +761,79 @@ document.addEventListener('alpine:init', () => {
       if (!box) return;
       box.checked = !box.checked;
       this.onChange();
+    },
+  }));
+
+  // Analysis multi-select in the executed-analyses section (spec 010 P-19) —
+  // counts ticked rows so the Delete button enables; the boxes themselves are
+  // read straight off the DOM by hx-include at click time. init() recounts
+  // after each 3s swap (the swap hook below restores the ticks by value).
+  Alpine.data('analysisPicks', () => ({
+    count: 0,
+    init() { this.onChange(); },
+    onChange() {
+      this.count = this.$root.querySelectorAll(
+        'input[name="analysis_ids"]:checked').length;
+    },
+  }));
+
+  // Execute Suite / Execute Template modal (spec 010). All state lives in the DOM
+  // (checkboxes, selects) — this component only reads it, matching syncPicks: no
+  // duplicated selection state to drift out of sync with the real form.
+  Alpine.data('executeModal', () => ({
+    canSubmit: false,
+    init() { this.recompute(); },
+    onSearch(e) {
+      const term = e.target.value.trim().toLowerCase();
+      const scope = this.$root.querySelector('#exec-candidates');
+      if (!scope) return;
+      scope.querySelectorAll('[data-exec-name]').forEach((row) => {
+        row.hidden = !!term && !(row.dataset.execName || '').includes(term);
+      });
+    },
+    onChange(e) {
+      const target = e.target;
+      if (target.name === 'chosen_suite_ids') {
+        const details = target.closest('details');
+        const fieldset = details && details.querySelector('.exec-row__body');
+        if (details) details.open = target.checked;
+        if (fieldset) fieldset.disabled = !target.checked;
+      }
+      const tpl = target.closest('.exec-tpl');
+      if (tpl) tpl.classList.toggle('exec-tpl--off', !target.checked);
+      const row = target.closest('.exec-row');
+      if (row && target.closest('.exec-tpl-list')) {
+        const counter = row.querySelector('.exec-row__count-n');
+        if (counter) {
+          counter.textContent = row.querySelectorAll(
+            '.exec-tpl-list input[type="checkbox"]:checked').length;
+        }
+      }
+      this.recompute();
+    },
+    currencyComplete(scope) {
+      const block = scope.querySelector('.exec-currency');
+      if (!block) return true;
+      return Array.from(block.querySelectorAll('select'))
+        .every((select) => select.value !== '');
+    },
+    recompute() {
+      const root = this.$root;
+      if (root.dataset.kind === 'suite') {
+        // Every chosen suite must be complete, not just one: the gate posts them
+        // all, and a 422 re-render loses the analyst's picks (FR-020).
+        const chosen = Array.from(root.querySelectorAll('.exec-row')).filter((row) => {
+          const box = row.querySelector('input[name="chosen_suite_ids"]');
+          return box && box.checked;
+        });
+        this.canSubmit = chosen.length > 0 && chosen.every((row) => (
+          row.querySelectorAll('.exec-tpl-list input[type="checkbox"]:checked').length > 0
+          && this.currencyComplete(row)));
+      } else {
+        const hasTemplates = root.querySelectorAll(
+          '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
+        this.canSubmit = hasTemplates && this.currencyComplete(root);
+      }
     },
   }));
 });
@@ -890,6 +967,63 @@ window.showToast = showToast;
 document.addEventListener('rwb:toast', (e) => {
   const d = e.detail || {};
   showToast(d.message || 'Something needs your attention.', d.type || 'warning');
+});
+
+// Analysis execution submit (spec 010): the execute modal's POST fires this
+// alongside rwb:toast (HX-Trigger header) and closes itself. Clear the
+// portfolio picks that were just submitted so Execute Suite / Execute Template
+// disable again (checkPicks reads checked boxes off the DOM, so a real 'change'
+// event is what makes it recompute). Fetch the Analyses section once with the
+// execution id; the returned fragment polls while the batch or an analysis is
+// still in progress, including before the first analysis row exists.
+document.addEventListener('execution-submitted', (e) => {
+  const checked = document.querySelectorAll('input[name="portfolio_ids"]:checked');
+  checked.forEach((box) => { box.checked = false; });
+  if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
+
+  const executionId = e.detail && e.detail.execution_id;
+  const section = document.getElementById('edm-executed-analyses');
+  if (!executionId || !section) return;
+  const url = new URL(section.getAttribute('hx-get'), window.location.origin);
+  url.searchParams.set('execution_id', executionId);
+  htmx.ajax('GET', url.pathname + url.search, {
+    target: '#edm-executed-analyses', swap: 'outerHTML',
+  });
+});
+
+// Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
+// from scratch, so an expanded row's <details open> and a ticked delete
+// checkbox would otherwise reset — losing the analyst's place mid-inspection
+// or mid-selection. Remember both just before the swap and restore them once
+// the fresh content lands (a row deleted or no longer deletable simply has no
+// box to restore); one bubbling change event makes analysisPicks() recount.
+let _analysesReopenIds = null;
+let _analysesCheckedIds = null;
+document.addEventListener('htmx:beforeSwap', (e) => {
+  if (e.detail.target.id !== 'edm-executed-analyses') return;
+  _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
+    .map((row) => row.id).filter(Boolean);
+  _analysesCheckedIds = [...e.detail.target.querySelectorAll(
+    'input[name="analysis_ids"]:checked')].map((box) => box.value);
+});
+document.addEventListener('htmx:afterSwap', () => {
+  if (_analysesReopenIds === null && _analysesCheckedIds === null) return;
+  const section = document.getElementById('edm-executed-analyses');
+  if (section) {
+    (_analysesReopenIds || []).forEach((id) => {
+      const row = document.getElementById(id);
+      if (row) row.open = true;
+    });
+    let restored = null;
+    (_analysesCheckedIds || []).forEach((value) => {
+      const box = section.querySelector(
+        `input[name="analysis_ids"][value="${value}"]`);
+      if (box) { box.checked = true; restored = box; }
+    });
+    if (restored) restored.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  _analysesReopenIds = null;
+  _analysesCheckedIds = null;
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

@@ -28,6 +28,7 @@ from app.services.irp_gateway import (
     EntityHit,
     EventRateSchemeEntry,
     ExposureDetail,
+    IRPIntegrationError,
     JobStatus,
     ModelProfileEntry,
     OutputProfileEntry,
@@ -151,6 +152,16 @@ class FakeIRP:
             CurrencySchemeVintageEntry("RL24", "DT", "2024-05-28T00:00:00.000Z"),
         ]
         self.raise_on_reference_data = False
+        # ── spec-010 analysis execution (worker-only) ────────────────────────
+        # recorded submit_portfolio_analysis calls, in order
+        self.analysis_submits: list[dict] = []
+        # job_name -> forced IRPIntegrationError on the next submit for that name
+        self.raise_on_submit_analysis_for: set[str] = set()
+        # recorded delete_analysis calls, in order
+        self.deleted_analyses: list[str] = []
+        # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
+        # mirrors raise_on_submit_analysis_for)
+        self.raise_on_delete_analysis: set[str] = set()
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -488,6 +499,61 @@ class FakeIRP:
     def get_import_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
+
+    # ── spec-010 analysis execution (worker-only) ────────────────────────────
+
+    def submit_portfolio_analysis(
+        self, *, edm_name: str, portfolio_name: str, job_name: str,
+        analysis_profile_name: str, output_profile_name: str,
+        event_rate_scheme_name: str | None, treaty_names: list[str],
+        tag_names: list[str], currency: dict,
+        min_loss_threshold: float, num_max_loss_event: int,
+        franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+    ) -> tuple[str, dict]:
+        self.analysis_submits.append({
+            "edm_name": edm_name, "portfolio_name": portfolio_name,
+            "job_name": job_name,
+            "analysis_profile_name": analysis_profile_name,
+            "output_profile_name": output_profile_name,
+            "event_rate_scheme_name": event_rate_scheme_name,
+            "treaty_names": list(treaty_names), "tag_names": list(tag_names),
+            "currency": dict(currency),
+            "min_loss_threshold": min_loss_threshold,
+            "num_max_loss_event": num_max_loss_event,
+            "franchise_deductible": franchise_deductible,
+            "treat_construction_occupancy_as_unknown": (
+                treat_construction_occupancy_as_unknown),
+        })
+        if job_name in self.raise_on_submit_analysis_for:
+            raise IRPIntegrationError(
+                f"fake IRP: forced analysis submit failure for '{job_name}'")
+        irp_id = self._next_id()
+        self.jobs[irp_id] = "QUEUED"
+        request_body = {
+            "resourceUri": f"/irp/analysis/{irp_id}",
+            "resourceType": "portfolio",
+            "type": "DLM" if event_rate_scheme_name else "HD",
+            "settings": {
+                "name": job_name,
+                "currency": currency,
+                "minLossThreshold": min_loss_threshold,
+                "numMaxLossEvent": num_max_loss_event,
+                "franchiseDeductible": franchise_deductible,
+                "treatConstructionOccupancyAsUnknown": (
+                    treat_construction_occupancy_as_unknown),
+            },
+        }
+        return irp_id, request_body
+
+    def get_analysis_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
+                         result=self.results.get(irp_id))
+
+    def delete_analysis(self, irp_id: str) -> None:
+        if str(irp_id) in self.raise_on_delete_analysis:
+            raise IRPIntegrationError(
+                f"fake IRP: forced analysis delete failure for '{irp_id}'")
+        self.deleted_analyses.append(str(irp_id))
 
     def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
