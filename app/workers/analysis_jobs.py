@@ -214,6 +214,9 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     if not rm_id:
         return _fail_analysis(analysis_id, "completion payload had no analysisId")
 
+    # Written before the metadata fetch so a fetch failure still leaves the RM
+    # pointer behind — delete_executed_analyses needs it to reach the analysis
+    # Risk Modeler did create.
     execute_command(
         "UPDATE irp_analysis SET irp_id = :irp, updated_at = :now WHERE id = :id",
         {"irp": str(rm_id), "now": _utcnow(), "id": analysis_id},
@@ -228,11 +231,10 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
 
     irp_app_analysis_id = (meta.payload or {}).get("appAnalysisId")
     execute_command(
-        "UPDATE irp_analysis SET irp_id = :irp, irp_app_analysis_id = :app, "
+        "UPDATE irp_analysis SET irp_app_analysis_id = :app, "
         "settings_metadata = :sm, status_code = 'ready', updated_at = :now "
         "WHERE id = :id",
-        {"irp": str(rm_id),
-         "app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
+        {"app": (str(irp_app_analysis_id) if irp_app_analysis_id is not None else None),
          "sm": (json.dumps(meta.payload) if meta.payload else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
