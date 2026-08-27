@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 from app import log_context
 from app.services.rwb_job_service import (
+    cancel_rwb_job,
     claim_rwb_job,
     complete_rwb_job,
     enqueue_rwb_job,
@@ -275,3 +276,256 @@ def test_reconciler_preserves_original_chain(iteration2_db):
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated → stale
     assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
     assert _correlation_of(job_id) == "chain-1"
+
+
+# ── per-queue worker isolation (CR-004): queue_name derivation ───────────────────
+#
+# No database fixture — these only check Dramatiq's in-memory actor registry
+# after app.workers.loader.discover_jobs() runs. No Redis command is sent:
+# RedisBroker(url=...) only constructs a lazy redis.Redis client at import time
+# (app.workers.broker), and discover_jobs()'s importlib.import_module calls are
+# no-ops against an already-imported module, so calling it more than once in one
+# test process never re-registers (and never raises "already registered" on) an
+# actor.
+
+_EXPECTED_QUEUE_NAMES = [
+    "backfill_edm_detail",
+    "backfill_rdm_analyses",
+    "dummy_fail",
+    "dummy_wait",
+    "run_breakout_country",
+    "run_breakout_custom",
+    "run_breakout_lob",
+    "run_breakout_peril",
+    "run_breakout_state",
+    "run_geohaz",
+    "sync_irp_metadata",
+    "upload_edm",
+    "upload_rdm",
+]
+
+
+def test_every_actor_queue_name_matches_actor_name():
+    # Catches a future actor declared with a raw @dramatiq.actor instead of
+    # @app.workers.queues.rwb_actor, in ANY *_jobs.py module — not just the
+    # ones this feature was originally scoped around.
+    import dramatiq
+
+    from app.workers import loader
+
+    loader.discover_jobs()
+    for name, actor in dramatiq.get_broker().actors.items():
+        assert actor.queue_name == name, (
+            f"actor {name!r} has queue_name {actor.queue_name!r} — "
+            "every actor must use @rwb_actor, never a raw @dramatiq.actor"
+        )
+
+
+def test_queue_names_returns_current_actors():
+    # Exact list, not membership-only: a real job type silently disappearing
+    # from the queue list must fail this test, not just an unexpected new one
+    # appearing. Update _EXPECTED_QUEUE_NAMES when a job type is intentionally
+    # added or removed — that one-line update is the cost of catching a
+    # silent drop immediately instead of only in production.
+    from app.workers.queues import queue_names
+
+    assert queue_names() == _EXPECTED_QUEUE_NAMES
+
+
+# ── cancel (CR-004a): pending -> cancelled, same race-safety as claim ────────
+
+def test_cancel_pending_row_succeeds(iteration2_db):
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert cancel_rwb_job(rwb_job_id=job_id) is True
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "cancelled"
+
+
+def test_cancel_non_pending_row_is_noop(iteration2_db):
+    for target_status in ("running", "succeeded", "failed", "cancelled"):
+        job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                 requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+        claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # pending -> running
+        if target_status == "running":
+            pass  # already there
+        elif target_status == "cancelled":
+            # Reach 'cancelled' the only way a row can: cancel it while
+            # still pending. Re-enqueue fresh rather than reuse the
+            # already-claimed row above.
+            job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                                     requestor_id=str(uuid.uuid4()),
+                                     rwb_job_type="upload_edm")
+            cancel_rwb_job(rwb_job_id=job_id)
+        else:
+            complete_rwb_job(rwb_job_id=job_id, status=target_status)
+
+        before = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                             {"id": job_id}, connection="WORKBENCH")["status_code"]
+        assert before == target_status  # sanity: we set up the state we meant to
+
+        assert cancel_rwb_job(rwb_job_id=job_id) is False
+        after = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                            {"id": job_id}, connection="WORKBENCH")["status_code"]
+        assert after == target_status  # unchanged
+
+
+def test_claim_racing_cancel_resolves_to_one_winner(iteration2_db):
+    # Whichever of claim_rwb_job / cancel_rwb_job runs first against a
+    # pending row wins; the other's UPDATE matches zero rows and is a
+    # no-op — same shape as two claims racing (test_atomic_claim_wins_once_
+    # then_loses above), just the second contender is cancel instead of a
+    # second claim.
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
+    assert cancel_rwb_job(rwb_job_id=job_id) is False  # lost the race — already running
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "running"
+
+    job_id_2 = enqueue_rwb_job(requestor_type="analyst_request",
+                               requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert cancel_rwb_job(rwb_job_id=job_id_2) is True
+    assert claim_rwb_job(rwb_job_id=job_id_2, worker_id="w1") is False  # lost — already cancelled
+    row_2 = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                        {"id": job_id_2}, connection="WORKBENCH")
+    assert row_2["status_code"] == "cancelled"
+
+
+# ── resubmit (CR-004a): ensure_pending_rwb_job is unchanged, same row reused ─
+
+def test_resubmit_via_ensure_pending_resets_same_row(iteration2_db):
+    # Regression check, not new behavior: CR-004a's Resubmit action calls
+    # ensure_pending_rwb_job as-is. This pins the exact contract the
+    # monitoring page depends on — same id, attempt_count incremented,
+    # error_detail cleared — so an accidental future change to that
+    # function is caught here, not discovered from the UI.
+    rid = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm")
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    before = execute_one(
+        "SELECT status_code, attempt_count, error_detail FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert before["status_code"] == "failed"
+    assert before["attempt_count"] == 0
+    assert before["error_detail"] == "boom"
+
+    resubmitted_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                            requestor_id=rid, rwb_job_type="upload_edm")
+    # Compared case-insensitively, not by exact string equality: confirmed
+    # directly against the real SQL Server tier that a uniqueidentifier
+    # round-trips with different letter casing than the lowercase string
+    # Python's uuid.uuid4() generated it as — same row, different casing.
+    # A plain "==" here would falsely fail on SQL Server despite being the
+    # same id (see test_ensure_pending_restamps_on_retry above for the
+    # pre-existing test that has this same latent risk, untested against
+    # SQL Server for this specific comparison).
+    assert str(resubmitted_id).lower() == str(job_id).lower()  # same row, not a new one
+
+    after = execute_one(
+        "SELECT status_code, attempt_count, error_detail, output_data, completed_at "
+        "FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 1
+    assert after["error_detail"] is None
+    assert after["output_data"] is None
+    assert after["completed_at"] is None
+
+    # No second row was created for this (requestor_type, requestor_id, rwb_job_type).
+    count = execute_scalar(
+        "SELECT COUNT(*) FROM rwb_job WHERE requestor_type = 'analyst_request' "
+        "AND requestor_id = :rid AND rwb_job_type = 'upload_edm'",
+        {"rid": rid}, connection="WORKBENCH")
+    assert count == 1
+
+
+# ── monitoring page reads and by-id resubmit (CR-004a) ───────────────────────
+
+def test_list_rwb_jobs_for_monitoring_returns_all_types_and_fields(iteration2_db):
+    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
+
+    wait_id = enqueue_rwb_job(requestor_type="analyst_request",
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    fail_id = enqueue_rwb_job(requestor_type="analyst_request",
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_rdm")
+    claim_rwb_job(rwb_job_id=fail_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=fail_id, status="failed", error_detail="boom")
+
+    rows_by_id = {r["id"]: r for r in list_rwb_jobs_for_monitoring()}
+    assert wait_id in rows_by_id
+    assert fail_id in rows_by_id
+    assert rows_by_id[wait_id]["status_code"] == "pending"
+    assert rows_by_id[wait_id]["submitted_at"] is None  # never claimed
+    assert rows_by_id[fail_id]["status_code"] == "failed"
+    assert rows_by_id[fail_id]["error_detail"] == "boom"
+
+
+def test_list_rwb_jobs_for_monitoring_orders_by_type_then_status_then_recency(iteration2_db):
+    from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
+
+    # Two rows of the SAME type, both pending — updated_at DESC within the
+    # group means the more-recently-touched one (job_b, cancelled after
+    # job_a was enqueued) sorts first.
+    job_a = enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    job_b = enqueue_rwb_job(requestor_type="analyst_request",
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    cancel_rwb_job(rwb_job_id=job_b)  # touches job_b's updated_at
+
+    rows = [r for r in list_rwb_jobs_for_monitoring()
+            if r["id"] in (job_a, job_b)]
+    # Different status_code ('cancelled' vs 'pending') sorts by status_code
+    # first (alphabetical: 'cancelled' < 'pending'), so job_b comes first
+    # here for that reason, not recency — this pins the actual ORDER BY
+    # clause (rwb_job_type, status_code, updated_at DESC), not just "newest
+    # first" in general.
+    assert [r["id"] for r in rows] == [job_b, job_a]
+
+
+def test_resubmit_rwb_job_by_id_matches_ensure_pending_contract(iteration2_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    rid = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    input_data={"edm_id": "e1"})
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    resubmitted_id = resubmit_rwb_job(rwb_job_id=job_id)
+    assert str(resubmitted_id).lower() == str(job_id).lower()  # same row (see casing note above)
+
+    after = execute_one(
+        "SELECT status_code, attempt_count, error_detail, input_data "
+        "FROM rwb_job WHERE id = :id",
+        {"id": job_id}, connection="WORKBENCH")
+    assert after["status_code"] == "pending"
+    assert after["attempt_count"] == 1
+    assert after["error_detail"] is None
+    assert after["input_data"] == '{"edm_id": "e1"}'  # the row's OWN input, carried forward
+
+
+def test_resubmit_rwb_job_unknown_id_returns_none(iteration2_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    assert resubmit_rwb_job(rwb_job_id=str(uuid.uuid4())) is None
+
+
+def test_resubmit_rwb_job_non_terminal_row_returns_none(iteration2_db):
+    # ensure_pending_rwb_job's own contract: pending/running rows are
+    # skipped (already in flight), not resubmitted — resubmit_rwb_job
+    # inherits that unchanged.
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+    assert resubmit_rwb_job(rwb_job_id=job_id) is None
+    row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+                      {"id": job_id}, connection="WORKBENCH")
+    assert row["status_code"] == "pending"  # untouched

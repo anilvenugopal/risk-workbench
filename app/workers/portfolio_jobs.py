@@ -26,8 +26,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-import dramatiq
-
 from app.services import (
     breakout_service,
     edm_service,
@@ -37,6 +35,7 @@ from app.services import (
 )
 from app.services._common import _uid
 from app.workers import broker, dispatch, runtime
+from app.workers.queues import rwb_actor
 from db import execute_one
 
 logger = logging.getLogger(__name__)
@@ -389,33 +388,33 @@ def _run_breakout_group_body(rwb_job_id: Any) -> runtime.JobResult:
 _BREAKOUT_TIME_LIMIT_MS = 60 * 60 * 1000
 
 
-@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+@rwb_actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_lob(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
-@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+@rwb_actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_state(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
-@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+@rwb_actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_country(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
-@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+@rwb_actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_peril(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _run_breakout_body(rwb_job_id))
 
 
-@dramatiq.actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
+@rwb_actor(max_retries=0, time_limit=_BREAKOUT_TIME_LIMIT_MS)
 def run_breakout_custom(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _run_breakout_group_body(rwb_job_id))
 
 

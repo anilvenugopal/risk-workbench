@@ -25,7 +25,9 @@ stop_pid() {
     fi
 }
 
-stop_pid worker
+while read -r queue; do
+    stop_pid "worker-$queue"
+done < <(python -m app.workers.queues)
 stop_pid poller
 
 echo "[stop] nginx..."

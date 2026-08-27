@@ -31,7 +31,6 @@ import logging
 import uuid
 from typing import Any, Callable
 
-import dramatiq
 from sqlalchemy import text
 
 from app.services import (
@@ -45,6 +44,7 @@ from app.services import (
 )
 from app.services._common import _utcnow
 from app.workers import broker, dispatch, runtime
+from app.workers.queues import rwb_actor
 from db import (
     execute,
     execute_command,
@@ -104,9 +104,9 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def upload_edm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_edm_body(rwb_job_id))
 
 
@@ -150,9 +150,9 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def upload_rdm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_rdm_body(rwb_job_id))
 
 
@@ -312,9 +312,9 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     return out
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def backfill_rdm_analyses(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
 
 
@@ -464,9 +464,9 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(**out)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def backfill_edm_detail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 

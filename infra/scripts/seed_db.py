@@ -144,7 +144,9 @@ def main() -> int:
                     ('run_breakout_country', 'Portfolio breakout by country', 105),
                     ('run_breakout_peril', 'Portfolio breakout by peril', 107),
                     ('run_breakout_custom', 'Portfolio breakout by custom group', 110),
-                    ('sync_irp_metadata',  'Sync IRP metadata',            120)
+                    ('sync_irp_metadata',  'Sync IRP metadata',            120),
+                    ('dummy_wait', 'Dummy: wait (dev/test only)', 900),
+                    ('dummy_fail', 'Dummy: fail (dev/test only)', 910)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -170,7 +172,8 @@ def main() -> int:
                     ('pending',   'Pending',   10),
                     ('running',   'Running',   20),
                     ('succeeded', 'Succeeded', 30),
-                    ('failed',    'Failed',    40)
+                    ('failed',    'Failed',    40),
+                    ('cancelled', 'Cancelled', 50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN

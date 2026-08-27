@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import dramatiq
-
 from app.services import irp_gateway, irp_job_service, rwb_job_service
 from app.workers import broker, runtime
+from app.workers.queues import rwb_actor
 
 logger = logging.getLogger(__name__)
 _ = broker.redis_broker
@@ -65,11 +64,11 @@ def _run_geohaz_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=result.irp_id)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def run_geohaz(rwb_job_id: str) -> None:
     runtime.run_job(
         rwb_job_id=rwb_job_id,
-        worker_id=runtime.worker_id(__name__),
+        worker_id=runtime.worker_id(),
         body=lambda: _run_geohaz_body(rwb_job_id),
     )
 
