@@ -86,7 +86,8 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
     id_list = [p for p in (s.strip() for s in ids.split(",")) if p]
     perspectives = analysis_service.list_analysis_perspectives()
     codes = [p["code"] for p in perspectives]
-    active = perspective if perspective in codes else (codes[0] if codes else "")
+    active = (perspective if perspective in codes
+              else analysis_service.DEFAULT_PERSPECTIVE)
     active_ep = ep_type if ep_type in EP_TYPES else EP_TYPES[0]
     active_label = next(
         (p["label"] for p in perspectives if p["code"] == active), active)

@@ -46,6 +46,7 @@ def _make_app(user=None):
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import shell
+    from app.services import analysis_service
 
     app = FastAPI()
     templates = Jinja2Templates(directory="app/templates")
@@ -53,6 +54,10 @@ def _make_app(user=None):
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
 
     app.add_middleware(_InjectUser, user=user or _fake_user())
@@ -160,13 +165,13 @@ AN_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
 def _perspectives():
     return [{"code": "GR", "label": "Gross"},
-            {"code": "RL", "label": "Reinsurance Layer"},
+            {"code": "RL", "label": "Pre-Cat Net"},
             {"code": "WX", "label": "Working Excess"},
             {"code": "QS", "label": "Quota Share"},
             {"code": "GU", "label": "Ground Up"}]
 
 
-def _column(analysis_id, name, *, produced=("GR",), state="ready", error=None):
+def _column(analysis_id, name, *, produced=("RL",), state="ready", error=None):
     from app.services import analysis_service
     from app.services.analysis_service import PerspectiveResults, ResultsColumn
 
@@ -239,10 +244,12 @@ class TestResultsAnalysesPage:
         assert 'value="GU" selected' in resp.text
         assert 'data-unit-value="1000000.0"' in resp.text
 
-    def test_default_perspective_is_gross(self, monkeypatch):
+    def test_default_perspective_is_pre_cat_net(self, monkeypatch):
+        """D9: the page opens on RL, not on the first row of the kind table."""
         client = self._client(monkeypatch, {AN_A: _column(AN_A, "Alpha Analysis")})
         resp = client.get(f"/results/analyses?ids={AN_A}")
-        assert 'value="GR" selected' in resp.text
+        assert 'value="RL" selected' in resp.text
+        assert 'data-unit-value="4100000.0"' in resp.text
 
     def test_ep_type_selects_one_curve(self, monkeypatch):
         client = self._client(monkeypatch, {AN_A: _column(AN_A, "Alpha Analysis")})

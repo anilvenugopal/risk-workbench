@@ -55,12 +55,13 @@ analysis_perspective_kind
   inserted_at  DATETIME2      NOT NULL DEFAULT GETUTCDATE()
 ```
 
-Seeds (spec O-07; first sort_order = the screen-wide default, FR-012):
+Seeds (spec O-07; sort_order is dropdown order — the screen-wide default is
+`analysis_service.DEFAULT_PERSPECTIVE`, `RL`, FR-012):
 
 | code | label | sort_order |
 |---|---|---|
 | `GR` | Gross | 10 |
-| `RL` | Reinsurance Layer | 20 |
+| `RL` | Pre-Cat Net | 20 |
 | `WX` | Working Excess | 30 |
 | `QS` | Quota Share | 40 |
 | `GU` | Ground Up | 50 |

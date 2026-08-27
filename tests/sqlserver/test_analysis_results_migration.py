@@ -44,7 +44,7 @@ def test_perspective_seeds_are_gross_first():
         connection="WORKBENCH")
     assert rows == [
         {"code": "GR", "label": "Gross", "sort_order": 10},
-        {"code": "RL", "label": "Reinsurance Layer", "sort_order": 20},
+        {"code": "RL", "label": "Pre-Cat Net", "sort_order": 20},
         {"code": "WX", "label": "Working Excess", "sort_order": 30},
         {"code": "QS", "label": "Quota Share", "sort_order": 40},
         {"code": "GU", "label": "Ground Up", "sort_order": 50},

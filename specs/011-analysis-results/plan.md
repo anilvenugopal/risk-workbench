@@ -18,9 +18,10 @@
   [contracts/loss-results.md](contracts/loss-results.md)). No other results
   storage; §9's Parquet/`analysis_result_meta` machinery stays unbuilt (export
   iteration).
-- New kind table `analysis_perspective_kind` seeds GR / RL / WX / QS / GU
-  (Gross first = default); the retrieval worker and every perspective control
-  read codes, labels, and order from it.
+- New kind table `analysis_perspective_kind` seeds GR / RL / WX / QS / GU; the
+  retrieval worker and every perspective control read codes, labels, and order
+  from it. Order is not the default — `analysis_service.DEFAULT_PERSPECTIVE`
+  (`RL`, Pre-Cat Net) names that, and the templates read it as a Jinja global.
 - `rwb_job_requestor_type_kind` gains `irp_analysis`: retrieval jobs are keyed
   `(irp_analysis, <analysis uuid>, retrieve_analysis_results)`, so the queue's
   UNIQUE key is the FR-006 dedup and views join the same key for the SC-005

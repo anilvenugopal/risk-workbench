@@ -141,9 +141,16 @@ def _submitted_view(raw: Any) -> SubmittedSettings:
     )
 
 
+# The perspective every results view opens on (FR-012, design note 20 D9).
+# The label repeats the analysis_perspective_kind seed so the merged analyses
+# grid can name the perspective its AAL column holds without a query per render.
+DEFAULT_PERSPECTIVE = "RL"
+DEFAULT_PERSPECTIVE_LABEL = "Pre-Cat Net"
+
+
 def list_analysis_perspectives() -> list[dict]:
-    """The five perspective codes/labels in display order (T-06, Article 3) —
-    Gross first, so the first entry is every toggle's default (FR-012)."""
+    """The five perspective codes/labels in dropdown order (T-06, Article 3).
+    Order is not the default — ``DEFAULT_PERSPECTIVE`` names that (FR-012)."""
     return [dict(r) for r in execute(
         "SELECT code, label FROM analysis_perspective_kind ORDER BY sort_order",
         {}, connection="WORKBENCH")]
@@ -754,6 +761,7 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
+    "DEFAULT_PERSPECTIVE", "DEFAULT_PERSPECTIVE_LABEL",
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
     "ExecutedAnalysis", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",

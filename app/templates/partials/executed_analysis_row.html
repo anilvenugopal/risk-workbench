@@ -2,8 +2,9 @@
    FR-009/FR-010): Portfolio · Template · [EDM] · Peril · Region · Engine ·
    Currency · AAL · Status · Submitted · Risk Modeler. The full analysis name
    and the analysis type live in the expanded view, not here. The AAL cell is
-   Gross in millions and carries the row's results state; `data-value` carries
-   the raw stored number for the copy sliver (FR-018, spec non-negotiable 5).
+   the default perspective (Pre-Cat Net) in millions and carries the row's
+   results state; `data-value` carries the raw stored number for the copy
+   sliver (FR-018, spec non-negotiable 5).
    Submitted is UTC in <time datetime>, localized in the browser (FR-024, T-10).
    The expansion is the spec-011 two-column body
    (partials/analysis_results_inline.html). Context:
@@ -12,7 +13,7 @@
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
 {%- set d = a.display -%}
-{%- set gross = a.results[0] if a.results else none -%}
+{%- set default_persp = a.results | selectattr('code', 'eq', default_perspective) | first -%}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
     <span class="l">
@@ -32,8 +33,8 @@
     <span class="l">{{ cell(d.engine) }}</span>
     <span class="l">{{ cell(d.currency) }}</span>
     <span>
-      {%- if gross and gross.produced and gross.aal is not none -%}
-      <span class="aal-num" title="{{ gross.aal }}" data-value="{{ gross.aal }}">{{ gross.aal_display }}</span>
+      {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
+      <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
       {%- elif a.results_state == 'failed' -%}
       <span class="aal-state aal-state--failed">retrieval failed</span>
       {%- elif a.results_state == 'pending' and a.status_code == 'ready' -%}

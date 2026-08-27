@@ -112,6 +112,10 @@ def client(iteration2_db) -> TestClient:
     templates = Jinja2Templates(directory="app/templates")
     templates.env.globals["app_env"] = settings.app_env
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -178,9 +182,11 @@ def _extract():
         "engine_type": "DLM", "engine_version": "25.0",
         "retrieved_at": "2026-08-26T00:00:00Z",
         "perspectives": {
-            "GR": {"aal": 4_100_000.0, "std_dev": 14_900_000.0,
+            # the numbers sit on the default perspective (FR-012, D9), which
+            # is what the grid's AAL column and the expanded row open on
+            "RL": {"aal": 4_100_000.0, "std_dev": 14_900_000.0,
                    "oep": oep, "aep": aep},
-            "RL": None, "WX": None, "QS": None, "GU": None,
+            "GR": None, "WX": None, "QS": None, "GU": None,
         },
     }
 
@@ -222,10 +228,10 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
                   "Min loss threshold", "Franchise deductible"):
         assert label not in html
     assert "USD · RMS · RL25" not in html
-    # the perspective toggle defaults to Gross (FR-012) and lists all five;
-    # the EP-type toggle sits beside it and starts on OEP (D11)
-    assert "x-data=\"{ p: 'GR', ep: 'OEP' }\"" in html
-    for label in ("Gross", "Reinsurance Layer", "Working Excess",
+    # the perspective toggle defaults to Pre-Cat Net (FR-012, D9) and lists
+    # all five; the EP-type toggle sits beside it and starts on OEP (D11)
+    assert "x-data=\"{ p: 'RL', ep: 'OEP' }\"" in html
+    for label in ("Gross", "Pre-Cat Net", "Working Excess",
                   "Quota Share", "Ground Up"):
         assert label in html
     # a long value wraps in CSS; the cell carries the full text as its tooltip
@@ -271,7 +277,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     # one column set (FR-010) — no EDM column on the EDM page
     for header in (">Portfolio</span>", ">Template</span>", ">Peril</span>",
                    ">Region</span>", ">Engine</span>", ">Currency</span>",
-                   ">AAL &middot; Gross</span>", ">Status</span>",
+                   ">AAL &middot; Pre-Cat Net</span>", ">Status</span>",
                    ">Submitted</span>", ">Risk Modeler</span>"):
         assert header in html
     assert ">EDM</span>" not in html

@@ -210,13 +210,13 @@ def main() -> int:
                     VALUES (src.code, src.label, src.sort_order);
             """))
             # analysis_perspective_kind — the five financial perspectives the
-            # retrieval worker requests (spec 011 O-07); Gross first is the
-            # screen-wide default.
+            # retrieval worker requests (spec 011 O-07); sort_order is dropdown
+            # order, not the default (analysis_service.DEFAULT_PERSPECTIVE).
             conn.execute(text("""
                 MERGE analysis_perspective_kind AS target
                 USING (VALUES
                     ('GR', 'Gross',              10),
-                    ('RL', 'Reinsurance Layer',  20),
+                    ('RL', 'Pre-Cat Net',        20),
                     ('WX', 'Working Excess',     30),
                     ('QS', 'Quota Share',        40),
                     ('GU', 'Ground Up',          50)

@@ -18,7 +18,7 @@
 {% if analyses %}
   {% for a in analyses %}
   {%- set d = a.display -%}
-  {%- set gross = a.results[0] if a.results else none -%}
+  {%- set default_persp = a.results | selectattr('code', 'eq', default_perspective) | first -%}
   {%- set display_name = a.name or 'Analysis ' ~ a.irp_id -%}
   <details class="drow{% if a.is_group %} drow--group{% endif %}" id="broker-row-{{ a.id }}">
     <summary>
@@ -35,8 +35,8 @@
       <span class="l">{{ cell(d.engine) }}</span>
       <span class="l">{{ cell(d.currency) }}</span>
       <span>
-        {%- if gross and gross.produced and gross.aal is not none -%}
-        <span class="aal-num" title="{{ gross.aal }}" data-value="{{ gross.aal }}">{{ gross.aal_display }}</span>
+        {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
+        <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
         {%- elif a.results_state == 'failed' -%}
         <span class="aal-state aal-state--failed">retrieval failed</span>
         {%- elif a.results_state == 'pending' -%}

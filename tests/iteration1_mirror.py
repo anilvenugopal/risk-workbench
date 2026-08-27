@@ -306,7 +306,7 @@ BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-mod
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
 # spec 011 O-07 — Gross first is the screen-wide default perspective.
 ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
-                             ("RL", "Reinsurance Layer", 20),
+                             ("RL", "Pre-Cat Net", 20),
                              ("WX", "Working Excess", 30),
                              ("QS", "Quota Share", 40),
                              ("GU", "Ground Up", 50)]

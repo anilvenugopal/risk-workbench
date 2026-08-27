@@ -5,7 +5,7 @@
    reads "not returned", never hidden. Right: the condensed results (the
    selected EP type at 50/100/250/500/1000/10000, then AAL and Std dev, which
    sit outside that selection) with the row's perspective and EP-type toggles
-   — Gross first = default (FR-012), OEP first; no units control here
+   — Pre-Cat Net = default (FR-012), OEP first; no units control here
    (O-12). The columns stack when the row is too narrow
    (`.drow__body--split` wraps). Context: `a` —
    analysis_service.ExecutedAnalysis (own) or BrokerAnalysis (broker, US2). #}
@@ -44,12 +44,12 @@
 
 <div class="row-results">
   {% if a.results %}
-  <div x-data="{ p: '{{ a.results[0].code }}', ep: 'OEP' }">
+  <div x-data="{ p: '{{ default_perspective }}', ep: 'OEP' }">
     <div class="row-results__head">
       <span class="row-results__title">Condensed results</span>
       <select class="persp" x-model="p" onclick="event.stopPropagation()">
         {% for pr in a.results %}
-        <option value="{{ pr.code }}">{{ pr.label }}</option>
+        <option value="{{ pr.code }}"{% if pr.code == default_perspective %} selected{% endif %}>{{ pr.label }}</option>
         {% endfor %}
       </select>
       <select class="persp" x-model="ep" onclick="event.stopPropagation()">
@@ -59,7 +59,7 @@
       <span class="row-results__ccy">{{ (d.currency ~ ', millions') if d.currency else 'millions' }}</span>
     </div>
     {% for pr in a.results %}
-    <div x-show="p === '{{ pr.code }}'"{% if not loop.first %} style="display:none"{% endif %}>
+    <div x-show="p === '{{ pr.code }}'"{% if pr.code != default_perspective %} style="display:none"{% endif %}>
       {% if pr.produced %}
       <div class="ep-shell">
         <table class="ep">

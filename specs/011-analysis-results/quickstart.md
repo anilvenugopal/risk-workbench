@@ -29,10 +29,10 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    are gone by decision (O-11): Construction, Line of business, Term, Loss
    amplification (PLA), currency, min loss threshold, franchise deductible.
    Engine type, Region, Peril, Portfolio and Template are not gone — they read
-   from the merged table's columns. Right: OEP + AEP at
+   from the merged table's columns. Right: the selected EP type at
    50/100/250/500/1000/10000, then AAL and Std dev, with the perspective toggle
-   GR/RL/WX/QS/GU, Gross default; a perspective the analysis did not produce
-   shows as absent, not as an error.
+   GR/RL/WX/QS/GU opening on Pre-Cat Net and the EP-type toggle beside it; a
+   perspective the analysis did not produce shows as absent, not as an error.
 4. Narrow the window until the two columns stack, and check that a long event
    rate scheme name wraps instead of clipping (FR-023).
 5. Failure path: point the sandbox creds at an invalid tenant (or kill the
@@ -66,7 +66,7 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    rows. Columns read Portfolio · Template · Peril · Region · Engine ·
    Currency · AAL · Status · Submitted · Risk Modeler, with no perspective and no units control on the
    table. The Currency and AAL columns now carry the numbers US1 and US2 put in
-   the expansions — Gross, in millions — and read `retrieving…` /
+   the expansions — Pre-Cat Net, in millions — and read `retrieving…` /
    `retrieval failed` / `—` for the other three results states.
 2. Open the submission detail: the new Results section lists the same merged
    shape across all the submission's EDMs and RDMs, with an EDM column after

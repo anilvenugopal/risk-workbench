@@ -444,7 +444,7 @@ def test_results_ready_carries_all_five_perspectives_in_kind_order(iteration2_db
     assert row.results_state == "ready"
     assert row.is_live is False
     assert [(p.code, p.label) for p in row.results] == [
-        ("GR", "Gross"), ("RL", "Reinsurance Layer"), ("WX", "Working Excess"),
+        ("GR", "Gross"), ("RL", "Pre-Cat Net"), ("WX", "Working Excess"),
         ("QS", "Quota Share"), ("GU", "Ground Up")]
     gr = row.results[0]
     assert gr.produced is True

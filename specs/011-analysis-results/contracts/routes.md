@@ -21,7 +21,7 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
   (FR-010). Peril and region are codes; a broker row's one name spans the
   Portfolio and Template tracks and is followed by a hidden span so the
   Copy-table TSV stays rectangular. AAL is
-  Gross in millions and carries the row's results state: the number when ready,
+  Pre-Cat Net in millions and carries the row's results state: the number when ready,
   `retrieving…` while the retrieval is queued or running, `retrieval failed`
   with the reason beside the status chip (SC-005), `—` when the run has not
   finished or the perspective is empty.

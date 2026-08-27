@@ -560,7 +560,7 @@ Analysis metadata list (design note 05 §2): engine / model version · engine ty
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Reinsurance-layer (RL) retained. |
+| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Pre-cat net **is** `RL` — one code, not two perspectives (clarified 8/26, D9). Pre-Cat Net is the default on every results view. |
 | Ground-up is currently included in accumulation output. | Not implemented | A Risk Modeler UI constraint, not a preference; possibly droppable via the API (O7-5). |
 | Accumulation shows how a policy limit allocates by geographic area. | Not implemented | e.g. a $1M policy over $50M of buildings across several states. |
 

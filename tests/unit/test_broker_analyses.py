@@ -255,6 +255,10 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -323,11 +327,12 @@ def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
 def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
     ready = _broker_row(results_state="ready", results=[
         analysis_service.PerspectiveResults(
-            code="GR", label="Gross", produced=True, aal=1234.0, std_dev=99.0,
+            code="GR", label="Gross", produced=False),
+        analysis_service.PerspectiveResults(
+            code="RL", label="Pre-Cat Net", produced=True, aal=1234.0,
+            std_dev=99.0,
             rows=[{"rp": "10,000", "oep": 4.0, "aep": 8.0,
                    "oep_display": "4", "aep_display": "8"}]),
-        analysis_service.PerspectiveResults(
-            code="RL", label="Reinsurance Layer", produced=False),
     ])
     failed = _broker_row(id="analysis-2", irp_id="88216", name="Broker NT",
                          results_state="failed",
@@ -341,6 +346,8 @@ def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
     assert "x-show=\"ep === 'AEP'\"" in html
     assert "colspan" not in html
     assert ">AAL</td>" in html and ">Std dev</td>" in html
+    # the grid's AAL cell reads the default perspective, not the first one (D9)
+    assert 'data-value="1234.0"' in html
     assert "The analysis did not produce this perspective." in html
     assert "Results retrieval failed." in html
     assert "results read failed for WX" in html
