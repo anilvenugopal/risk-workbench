@@ -401,6 +401,12 @@ class DeleteOutcome:
     retrying: list[str]  # display names the poller claimed for a submission retry
 
 
+_SOFT_DELETE_ANALYSIS = (
+    "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+    "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
+)
+
+
 def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                              actor_id: Any) -> DeleteOutcome:
     """Delete terminal own-executed analyses (spec 010 P-19): validate the
@@ -443,7 +449,8 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                                  "(irp_id=%s)", row.id, row.irp_id)
                 failed.append(row.full_name or row.name or row.id)
                 continue
-        now = _utcnow()
+        soft_delete = {"now": _utcnow(), "id": row.id,
+                       "by": (str(actor_id) if actor_id is not None else None)}
         if row.job_status == "SUBMISSION FAILED" and row.irp_job_id:
             with get_connection("WORKBENCH") as conn, conn.begin():
                 locked = conn.execute(text(
@@ -451,7 +458,7 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                     "WHERE id = :job_id AND status = 'SUBMISSION FAILED' "
                     "AND EXISTS (SELECT 1 FROM irp_analysis "
                     "WHERE id = :analysis_id AND deleted_at IS NULL)"
-                ), {"now": now, "job_id": row.irp_job_id,
+                ), {"now": soft_delete["now"], "job_id": row.irp_job_id,
                     "analysis_id": row.id}).rowcount
                 if locked != 1:
                     # The poller claimed this submit for a retry after the read
@@ -460,19 +467,10 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                     # would discard the rows already deleted earlier in the loop.
                     retrying.append(row.full_name or row.name or row.id)
                     continue
-                conn.execute(text(
-                    "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
-                    "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
-                ), {"now": now,
-                    "by": (str(actor_id) if actor_id is not None else None),
-                    "id": row.id})
+                conn.execute(text(_SOFT_DELETE_ANALYSIS), soft_delete)
         else:
-            execute_command(
-                "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
-                "updated_by = :by WHERE id = :id AND deleted_at IS NULL",
-                {"now": now,
-                 "by": (str(actor_id) if actor_id is not None else None),
-                 "id": row.id}, connection="WORKBENCH")
+            execute_command(_SOFT_DELETE_ANALYSIS, soft_delete,
+                            connection="WORKBENCH")
         deleted += 1
     return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
 
