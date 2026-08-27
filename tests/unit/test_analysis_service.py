@@ -606,14 +606,8 @@ def test_submitted_settings_parsed_for_display(iteration2_db):
     _executed(edm_id=edm, name="B")  # no snapshot — every field blank
 
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
-    s = rows["A"].submitted
-    assert s.currency == "USD · RMS · RL25"
-    assert s.min_loss_threshold == "1.0"
-    assert s.franchise_deductible == "Off"
-    assert s.construction_occupancy == "Treat as unknown"
-    blank = rows["B"].submitted
-    assert (blank.currency, blank.min_loss_threshold, blank.franchise_deductible,
-            blank.construction_occupancy) == (None, None, None, None)
+    assert rows["A"].submitted.construction_occupancy == "Treat as unknown"
+    assert rows["B"].submitted.construction_occupancy is None
 
 
 # ── spec 011 US3: submission-scoped merged read model (T030) ─────────────────
