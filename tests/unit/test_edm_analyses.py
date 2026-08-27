@@ -199,7 +199,8 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
         inserted_by=iteration2_db.user_a,
         settings={"analysisType": "Exceedance Probability",
                   "analysisFramework": "ELT", "currencyCode": "USD",
-                  "eventRateSchemeNames": [_LONG_SCHEME]},
+                  "eventRateSchemeNames": [
+                      {"id": 0, "code": "0", "name": _LONG_SCHEME}]},
         submitted={"currency": {"code": "USD", "scheme": "RMS",
                                "vintage": "RL25"},
                    "min_loss_threshold": 1.0, "franchise_deductible": False,

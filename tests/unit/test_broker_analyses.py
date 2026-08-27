@@ -38,10 +38,11 @@ SETTINGS_FULL = {
 }
 SETTINGS_PARTIAL = {"analysisType": "EP", "peril": "Wind"}
 
-# The LIVE payload shape confirmed 2026-07-24 (first real sync against the RM
-# tenant): currency arrives as an OBJECT keyed currencyCode/currencyName, the
-# event-rate scheme as the eventRateSchemeNames LIST, and PLA as the
-# lossAmplification label. The curated view must read all three.
+# The LIVE get-analysis-by-id payload (2026-08-26): currency arrives as an
+# OBJECT keyed currencyCode/currencyName, the event-rate scheme as an
+# eventRateSchemeNames LIST of {id, code, name} where code is "0" and only name
+# carries the scheme, and PLA as the lossAmplification label. The curated view
+# must read all three.
 SETTINGS_LIVE = {
     "analysisType": "Exceedance Probability", "analysisFramework": "ELT",
     "engineType": "DLM", "engineVersion": "RL23",
@@ -49,7 +50,9 @@ SETTINGS_LIVE = {
     "region": "North Atlantic (including Hawaii)",
     "currency": {"currencyName": "US Dollar", "currencyCode": "USD"},
     "lossAmplification": "Building, Contents, BI",
-    "eventRateSchemeNames": ["LT 2026"],
+    "eventRateSchemeNames": [
+        {"id": 0, "code": "0",
+         "name": "RMS 17.0 NA Atten Sensitivity for Lower than Avg Model"}],
     "analysisMode": "Distributed",
     "exposureResourceId": 3, "exposureResourceType": "PORTFOLIO",
 }
@@ -135,7 +138,9 @@ def test_live_payload_shape_currency_object_rate_list_pla_label(iteration2_db):
     a = by_irp["1"]
     assert a.display.currency == "USD"                # object → its code
     assert a.display.pla == "Building, Contents, BI"  # the real label field
-    assert a.display.event_rate_scheme == "LT 2026"   # list → joined
+    # the scheme NAME, never the "0" code beside it (design session 20 O20-10c)
+    assert a.display.event_rate_scheme == (
+        "RMS 17.0 NA Atten Sensitivity for Lower than Avg Model")
     assert a.display.peril_secondary == "Surge Only"
     assert a.display.engine == "DLM · RL23"
     assert a.display.analysis_mode == "Distributed"

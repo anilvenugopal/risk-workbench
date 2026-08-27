@@ -331,14 +331,16 @@ def _first(payload: dict, *keys: str) -> Any:
 
 
 def _text(value: Any) -> str | None:
-    """A display string from a defensive read: dicts collapse to their code/
-    name (the live payload's ``currency`` object is keyed ``currencyCode``/
-    ``currencyName`` — confirmed 2026-07-24); lists join, empty → blank
-    (``eventRateSchemeNames``); bools to On/Off."""
+    """A display string from a defensive read: a reference object collapses to
+    its ``name`` — an ``eventRateSchemeNames`` entry carries ``code`` "0" and the
+    scheme name in ``name`` (get-analysis-by-id payload, 2026-08-26), so reading
+    ``code`` first printed a number; the ``currency`` object is keyed
+    ``currencyCode``/``currencyName`` and collapses to its code. Lists join,
+    empty → blank; bools to On/Off."""
     if value is None:
         return None
     if isinstance(value, dict):
-        return (value.get("code") or value.get("name")
+        return (value.get("name") or value.get("code")
                 or value.get("currencyCode") or value.get("currencyName")
                 or None)
     if isinstance(value, (list, tuple)):
@@ -367,10 +369,8 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
         line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
         term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
         pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        # eventRateSchemeNames (a LIST) is the live spelling (2026-07-24);
-        # the scalar guesses stay first so a truthy scalar wins if both appear.
-        event_rate_scheme=_text(_first(p, "eventRateScheme", "rateScheme",
-                                       "eventRateSchemeNames")),
+        # eventRateSchemeNames: a LIST of {id, code, name} reference objects.
+        event_rate_scheme=_text(p.get("eventRateSchemeNames")),
         rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
     )
 
