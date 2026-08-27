@@ -465,17 +465,37 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 ## 6. Grouping
 
-Combining and breaking out results across dimensions.
+Combining and breaking out results across dimensions. A group is an analysis in
+Risk Modeler (`irp_analysis` with `is_group = true`), created by
+`submit_analysis_grouping_job`.
+
+> **Design record (2026-08-10 → 08-27; design notes 11 §3, 15 §4, 17 §4).**
+> Grouping is a first-class flow — pick finished analyses, configure, run —
+> replacing Risk Modeler's three-dot "enter analysis to group" entry.
+> Event-rate-scheme reconciliation is automated by irp-integration
+> (`build_region_peril_simulation_set`; write-up:
+> `grouping-and-event-rate-schemes.md` in the IRP workspace root, next to this
+> repo). **CIC has not reviewed the grouping implementation** — the walkthrough
+> Ben owes (design note 11 O11-2, note 15 O15-7) is still open.
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| The analyst selects which analyses to group. | Not implemented |  |
-| Invalid groupings show error messaging. | Not implemented | e.g. mixing DLM and HD analyses. |
+| The analyst selects which finished analyses or groups to combine. | Not implemented | Prerequisite gate: members exist and are `FINISHED`. |
+| The grouping pick-list is scoped to the current submission. | Not implemented | Checkboxes on the EDM detail page. **Corrected 8/20** from EDM-scoped to submission-scoped; members can span EDMs and RDMs within the submission. |
+| Analyses carry a submission-level IRP tag, applied at submit time. | Not implemented | **Decided 8/27**: an IRP tag (queryable in the platform and via API), not a Workbench-only association — grouping candidates stay findable when the analyst isn't in the Workbench. Extends §4 "Tags can be set per analysis." |
+| Currency, currency scheme, and vintage are chosen at group-submit time. | Not implemented | Same picker and env-var defaults as analysis submission (§5, spec 009 P-11). |
+| Event-rate-scheme selection is automated — the analyst never picks a scheme. | Partial | irp-integration resolves `regionPerilSimulationSet` across members, covering differing DLM schemes and DLM+HD mixes; Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, note 15 §4.3). Library-side built; CIC review pending (O11-2 / O15-7). |
+| Mixing DLM and HD analyses in one group is supported. | Partial | **Reversed 8/27** — previously listed as an invalid grouping. irp-integration reconciles ELT and PLT members in one `regionPerilSimulationSet` and forces `simulateToPLT`. |
+| "Propagate detailed output" defaults ON; the analyst may turn it off. | Not implemented | Exactly what detail is retained (state-level, per-treaty) is still open — note 11 O11-1. |
+| "Create independent groups" defaults OFF. | Not implemented | "We're never going to want to turn those on." |
+| Invalid groupings show error messaging. | Not implemented | e.g. an event-rate scheme that cannot be resolved across members. |
 | Nested grouping (groups of groups) is supported. | Not implemented |  |
-| A group is treated like any other analysis. | Not implemented | Viewed and exported the same way. |
-| Group names are auto-generated from the deal. | Not implemented |  |
+| A group is treated like any other analysis. | Not implemented | Viewed and exported the same way; the results grid discloses a group via the Engine column, not the name (note 20 D8). |
+| Group names are auto-generated from the deal. | Not implemented | Exact shape open — whether the `CRE` prefix / `_n` conventions (§5) apply. |
+| Groups appear on the submission-level results page. | Not implemented | Groups (and cross-EDM analyses) exist only at submission level (note 19 D14). |
+| The analyst controls the left-to-right ordering of analyses and groups in the results view. | Not implemented | Note 19 D15 — "I want to see my analyses left to right and my group at the end, or my group at the beginning." |
 
-**Out of scope for MVP:** create ELTs by zone / county / country (done in SQL or the old tool today).
+**Out of scope for MVP:** create ELTs by zone / county / country (done in SQL or the old tool today); **opt-in end-of-suite auto-grouping** (Wendy, 8/20) — offer to auto-group a suite run's results in the suite's currency; deferred, the mixed-currency case is unresolved.
 
 ---
 

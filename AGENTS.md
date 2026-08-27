@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/009-template-suites/plan.md` for the current
+When present, read `specs/012-grouping-execution/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
