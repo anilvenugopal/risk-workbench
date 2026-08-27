@@ -40,10 +40,12 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy import text
+
 from app.config import settings
 from app.services import irp_gateway
 from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
-from db import execute, execute_command
+from db import execute, execute_command, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +133,7 @@ class ExecutedAnalysis:
     rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
 
@@ -154,7 +157,7 @@ class ExecutedAnalysis:
     def status_chip(self) -> str:
         """One of the existing import-status chip variants (submissions.css) —
         no new CSS, keyed off the derived label rather than a stored status."""
-        if self.job_status in (None, "QUEUED", "RUNNING"):
+        if self.job_status in (None, "QUEUED", "RUNNING", "SUBMISSION RETRYING"):
             return "importing"
         if self.job_status == "FINISHED":
             return "ready"
@@ -179,8 +182,9 @@ class ExecutedAnalysis:
         """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
         chip turns ready at job FINISHED, seconds before the backfill writes
         ``irp_id`` — deleting in that window would orphan the RM analysis."""
-        return (self.status_code in ("ready", "error")
-                or self.status_chip == "submission-failed")
+        return (self.job_status != "SUBMISSION RETRYING"
+                and (self.status_code in ("ready", "error")
+                     or self.status_chip == "submission-failed"))
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -319,10 +323,21 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
 _EXECUTED_SELECT = """
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
-           p.name AS portfolio_name, t.name AS template_name
+           p.name AS portfolio_name, t.name AS template_name,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
     LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN (
+        SELECT id, irp_analysis_id, status, submission_attempt_count,
+               ROW_NUMBER() OVER (
+                   PARTITION BY irp_analysis_id
+                   ORDER BY inserted_at DESC, id DESC
+               ) AS row_num
+        FROM irp_job
+        WHERE irp_analysis_id IS NOT NULL
+    ) j ON j.irp_analysis_id = a.id AND j.row_num = 1
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
 """
@@ -360,25 +375,23 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
             template_name=r["template_name"], inserted_at=r["inserted_at"],
             irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
             rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
-            display=_to_display(parsed)))
-    if not analyses:
-        return analyses
-    params = {f"a{i}": a.id for i, a in enumerate(analyses)}
-    placeholders = ", ".join(f":a{i}" for i in range(len(analyses)))
-    jobs = execute(
-        f"SELECT irp_analysis_id, status, submission_attempt_count "
-        f"FROM irp_job WHERE irp_analysis_id IN ({placeholders}) "
-        "ORDER BY inserted_at DESC",
-        params, connection="WORKBENCH")
-    latest_job: dict[str, dict] = {}
-    for job in jobs:
-        latest_job.setdefault(_uid(job["irp_analysis_id"]), job)
-    for a in analyses:
-        job = latest_job.get(a.id)
-        if job is not None:
-            a.job_status = job["status"]
-            a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
+            display=_to_display(parsed),
+            irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
+            job_status=r["job_status"],
+            submission_attempt_count=int(r["submission_attempt_count"] or 0)))
     return analyses
+
+
+def execution_batch_is_live(execution_id: Any | None) -> bool:
+    if not execution_id:
+        return False
+    rows = execute(
+        "SELECT status_code FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :id "
+        "AND rwb_job_type = 'execute_analysis_batch' "
+        "AND status_code IN ('pending', 'running')",
+        {"id": str(execution_id)}, connection="WORKBENCH")
+    return bool(rows)
 
 
 @dataclass(frozen=True)
@@ -426,11 +439,32 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                 failed.append(row.full_name or row.name or row.id)
                 continue
         now = _utcnow()
-        execute_command(
-            "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
-            "updated_by = :by WHERE id = :id AND deleted_at IS NULL",
-            {"now": now, "by": (str(actor_id) if actor_id is not None else None),
-             "id": row.id}, connection="WORKBENCH")
+        if row.job_status == "SUBMISSION FAILED" and row.irp_job_id:
+            with get_connection("WORKBENCH") as conn, conn.begin():
+                locked = conn.execute(text(
+                    "UPDATE irp_job SET updated_at = :now "
+                    "WHERE id = :job_id AND status = 'SUBMISSION FAILED' "
+                    "AND EXISTS (SELECT 1 FROM irp_analysis "
+                    "WHERE id = :analysis_id AND deleted_at IS NULL)"
+                ), {"now": now, "job_id": row.irp_job_id,
+                    "analysis_id": row.id}).rowcount
+                if locked != 1:
+                    raise ValueError(
+                        f"'{row.full_name or row.name}' is still in progress "
+                        "and cannot be deleted.")
+                conn.execute(text(
+                    "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+                    "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
+                ), {"now": now,
+                    "by": (str(actor_id) if actor_id is not None else None),
+                    "id": row.id})
+        else:
+            execute_command(
+                "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+                "updated_by = :by WHERE id = :id AND deleted_at IS NULL",
+                {"now": now,
+                 "by": (str(actor_id) if actor_id is not None else None),
+                 "id": row.id}, connection="WORKBENCH")
         deleted += 1
     return DeleteOutcome(deleted=deleted, failed=failed)
 
@@ -481,7 +515,8 @@ def list_submission_rdm_analyses(
 __all__ = [
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
     "ExecutedAnalysis",
-    "delete_executed_analyses", "list_broker_analyses", "list_edm_analyses",
+    "delete_executed_analyses", "execution_batch_is_live",
+    "list_broker_analyses", "list_edm_analyses",
     "list_executed_analyses", "list_submission_rdms",
     "list_submission_rdm_analyses",
 ]

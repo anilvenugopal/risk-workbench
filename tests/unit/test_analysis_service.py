@@ -12,11 +12,12 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import text
 
 from app.config import settings as app_settings
 from app.services import analysis_service
 from app.services._common import _utcnow
-from db import execute_command
+from db import execute_command, get_connection
 
 SETTINGS_FULL = {
     "analysisType": "Exceedance Probability", "engineType": "DLM",
@@ -256,6 +257,50 @@ def test_latest_job_wins_when_more_than_one_row(iteration2_db):
     assert row.status_label == "Running"
 
 
+def test_more_than_2100_analyses_use_each_newest_job(iteration2_db):
+    edm = _edm()
+    now = _utcnow()
+    older = now - timedelta(minutes=5)
+    analysis_rows = []
+    job_rows = []
+    expected_job_ids = set()
+    for i in range(2101):
+        analysis_id = str(uuid.uuid4())
+        old_job_id = str(uuid.uuid4())
+        new_job_id = str(uuid.uuid4())
+        analysis_rows.append({
+            "id": analysis_id, "edm": edm, "name": f"Analysis {i}",
+            "execution": str(uuid.uuid4()), "now": now,
+        })
+        job_rows.extend([
+            {"id": old_job_id, "analysis": analysis_id, "status": "QUEUED",
+             "attempts": 1, "inserted": older, "updated": older},
+            {"id": new_job_id, "analysis": analysis_id, "status": "RUNNING",
+             "attempts": 2, "inserted": now, "updated": now},
+        ])
+        expected_job_ids.add(new_job_id)
+
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        conn.execute(text(
+            "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
+            "execution_id, execution_item_no, inserted_at, updated_at) "
+            "VALUES (:id, :edm, :name, :name, 'pending', :execution, 0, :now, :now)"
+        ), analysis_rows)
+        conn.execute(text(
+            "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+            "submission_attempt_count, inserted_at, updated_at) "
+            "VALUES (:id, :analysis, 'analysis', :status, :attempts, "
+            ":inserted, :updated)"
+        ), job_rows)
+
+    rows = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert len(rows) == 2101
+    assert {row.irp_job_id for row in rows} == expected_job_ids
+    assert all(row.job_status == "RUNNING" for row in rows)
+    assert all(row.submission_attempt_count == 2 for row in rows)
+
+
 # ── group_key / is_deletable (P-18/P-19) ─────────────────────────────────────
 
 
@@ -306,6 +351,19 @@ def test_is_deletable_truth_table(iteration2_db):
     # chip already reads ready (job FINISHED) but the backfill hasn't written
     # irp_id yet — deleting now would orphan the RM analysis.
     assert rows[seeded["finished_unbackfilled"]].is_deletable is False
+
+
+def test_submission_retrying_is_in_progress_and_not_deletable(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="pending")
+    job_id = _job(analysis_id=analysis, status="SUBMISSION RETRYING", attempts=1)
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert row.irp_job_id == job_id
+    assert row.group_key == "in_progress"
+    assert row.is_live is True
+    assert row.is_deletable is False
 
 
 # ── delete_executed_analyses (P-19) ──────────────────────────────────────────

@@ -214,6 +214,11 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     if not rm_id:
         return _fail_analysis(analysis_id, "completion payload had no analysisId")
 
+    execute_command(
+        "UPDATE irp_analysis SET irp_id = :irp, updated_at = :now WHERE id = :id",
+        {"irp": str(rm_id), "now": _utcnow(), "id": analysis_id},
+        connection="WORKBENCH")
+
     try:
         meta = irp_gateway.get_analysis_metadata(analysis_id=int(rm_id))
     except Exception as exc:  # noqa: BLE001 — resolution failed, recoverable rwb_job failure

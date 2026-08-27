@@ -371,3 +371,7 @@ def test_backfill_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
     job_id = _run_backfill({"analysis_id": analysis["id"],
                             "rm_analysis_id": "9001"})
     _assert_backfill_failed(job_id, analysis["id"], "analysis resolve failed")
+    retained = execute_one(
+        "SELECT irp_id FROM irp_analysis WHERE id = :id",
+        {"id": analysis["id"]}, connection="WORKBENCH")
+    assert retained["irp_id"] == "9001"

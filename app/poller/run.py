@@ -411,18 +411,19 @@ def _retry_submission(row: dict) -> None:
     (the approved-plans rule — never recomposed from live rows) and update it
     IN PLACE (T-09: ``record_submission_failure``'s insert-per-failure design
     makes per-row attempt counting meaningless)."""
-    params = json.loads(row["request_params"])
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     try:
+        params = json.loads(row["request_params"])
         irp_id, request_body = irp_gateway.submit_portfolio_analysis(**params)
     except Exception as exc:  # noqa: BLE001 — stays SUBMISSION FAILED, retried again later
         attempts = row["submission_attempt_count"] + 1
         exhausted = attempts >= settings.irp_submission_max_retries
         with get_connection("WORKBENCH") as conn, conn.begin():
             conn.execute(text(
-                "UPDATE irp_job SET submission_attempt_count = :n, "
+                "UPDATE irp_job SET status = 'SUBMISSION FAILED', "
+                "submission_attempt_count = :n, "
                 "last_submission_response = :r, completed_at = :now, updated_at = :now "
-                "WHERE id = :id"
+                "WHERE id = :id AND status = 'SUBMISSION RETRYING'"
             ), {"n": attempts, "r": json.dumps({"error": str(exc)}),
                 "now": now, "id": row["id"]})
             conn.execute(text(
@@ -439,7 +440,7 @@ def _retry_submission(row: dict) -> None:
             "UPDATE irp_job SET irp_id = :irp, status = 'QUEUED', "
             "submission_attempt_count = submission_attempt_count + 1, "
             "last_submission_response = :resp, completed_at = NULL, "
-            "updated_at = :now WHERE id = :id"
+            "updated_at = :now WHERE id = :id AND status = 'SUBMISSION RETRYING'"
         ), {"irp": irp_id, "resp": json.dumps(request_body), "now": now,
             "id": row["id"]})
         resource_uri = request_body.get("resourceUri")
@@ -458,6 +459,20 @@ def _retry_submission(row: dict) -> None:
                row["id"], irp_id)
 
 
+def _claim_submission_retry(row: dict) -> bool:
+    """Claim a failed submit only while its analysis remains live locally."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        claimed = conn.execute(text(
+            "UPDATE irp_job SET status = 'SUBMISSION RETRYING', updated_at = :now "
+            "WHERE id = :id AND status = 'SUBMISSION FAILED' "
+            "AND EXISTS (SELECT 1 FROM irp_analysis "
+            "WHERE id = :analysis_id AND deleted_at IS NULL)"
+        ), {"now": now, "id": row["id"],
+            "analysis_id": row["irp_analysis_id"]}).rowcount
+    return claimed == 1
+
+
 def _submission_retry() -> None:
     """Re-attempt ``SUBMISSION FAILED`` analysis submits under the configured max,
     with exponential backoff (FR-029/FR-010, T-09). A single-threaded poller batch,
@@ -467,16 +482,20 @@ def _submission_retry() -> None:
         """
         SELECT j.id, j.irp_analysis_id, j.request_params,
                j.submission_attempt_count, j.completed_at
-        FROM irp_job j
+        FROM (
+          SELECT id, irp_analysis_id, request_params, submission_attempt_count,
+                 completed_at,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY irp_analysis_id
+                   ORDER BY inserted_at DESC, id DESC
+                 ) AS row_num
+          FROM irp_job
+          WHERE irp_job_type = 'analysis' AND status = 'SUBMISSION FAILED'
+            AND irp_analysis_id IS NOT NULL
+        ) j
         JOIN irp_analysis a ON a.id = j.irp_analysis_id AND a.deleted_at IS NULL
-        WHERE j.irp_job_type = 'analysis' AND j.status = 'SUBMISSION FAILED'
-          AND j.irp_analysis_id IS NOT NULL
+        WHERE j.row_num = 1
           AND j.submission_attempt_count < :max_retries
-          AND j.inserted_at = (
-            SELECT MAX(j2.inserted_at) FROM irp_job j2
-            WHERE j2.irp_analysis_id = j.irp_analysis_id
-              AND j2.irp_job_type = 'analysis' AND j2.status = 'SUBMISSION FAILED'
-          )
         """,
         {"max_retries": settings.irp_submission_max_retries},
         connection="WORKBENCH",
@@ -495,6 +514,8 @@ def _submission_retry() -> None:
             seconds=settings.irp_submission_retry_base_secs
                     * (2 ** row["submission_attempt_count"]))
         if now < eligible_at:
+            continue
+        if not _claim_submission_retry(row):
             continue
         token = log_context.bind(irp_job_id=str(row["id"]),
                                  irp_analysis_id=str(row["irp_analysis_id"]))

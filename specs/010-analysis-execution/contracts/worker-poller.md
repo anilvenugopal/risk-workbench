@@ -107,10 +107,10 @@ reclaim — accepted (research T-01).
 
 ## 4. `backfill_analysis_detail` worker (FR-009)
 
-Body: fetch the analysis details by the `rm_analysis_id` the poller extracted from the
-completion body — `get_analysis_metadata(analysis_id=int(rm_analysis_id))`; a missing
-`rm_analysis_id` fails the `rwb_job` — then update `irp_analysis`: `irp_id`
-(= `rm_analysis_id`), `irp_app_analysis_id` (the payload's `appAnalysisId`, NULL when
+Body: validate the `rm_analysis_id` the poller extracted from the completion body and
+write it to `irp_analysis.irp_id` immediately. A missing `rm_analysis_id` fails the
+`rwb_job`. Then fetch `get_analysis_metadata(analysis_id=int(rm_analysis_id))` and
+update `irp_analysis`: `irp_app_analysis_id` (the payload's `appAnalysisId`, NULL when
 absent), `settings_metadata` (the `backfill_rdm_analyses` shape),
 `status_code='ready'`. `exposure_resource_id` is not written — it holds RM's numeric
 `exposureResourceId` for broker rows (R9/FR-036), while the portfolio `resourceUri`
@@ -119,7 +119,9 @@ On success, loss phase only: chain `retrieve_analysis_results` via
 `ensure_pending_rwb_job(requestor_type='rwb_job', requestor_id=own id)` + dispatch.
 Actor follows the standard pattern (`max_retries=0`). Resolution failure → `rwb_job`
 `failed` with `error_detail`, **and** `irp_analysis.status_code='error'` with the same
-reason: the `irp_job` already reads FINISHED, so leaving the analysis `pending` would
+reason while retaining `irp_analysis.irp_id`, so deletion can remove the known Risk
+Modeler analysis. The `irp_job` already reads FINISHED, so leaving the analysis
+`pending` would
 keep the EDM page's 3s poll running for a row that is never coming back. The reconciler
 recovers an *interrupted* backfill; a genuinely failed one stays `failed` until
 re-dispatched — automatic retry is deferred (P-14 amendment, research.md).
@@ -152,13 +154,18 @@ Implements the existing scaffold. Single-threaded, inside `poll_once()`:
    (`irp_job_type='analysis'`, `irp_analysis_id IS NOT NULL`) where
    `submission_attempt_count < IRP_SUBMISSION_MAX_RETRIES` and
    `now > completed_at + IRP_SUBMISSION_RETRY_BASE_SECS * 2^submission_attempt_count`.
-2. Resubmit from `irp_job.request_params` verbatim (same name, same values — never
+2. Atomically claim the row as `SUBMISSION RETRYING`, requiring the job to remain
+   `SUBMISSION FAILED` and its linked analysis to remain undeleted. A delete that
+   commits first makes the claim a no-op; a claim that commits first makes deletion
+   fail. `SUBMISSION RETRYING` is in progress and cannot be deleted.
+3. Resubmit from `irp_job.request_params` verbatim (same name, same values — never
    recomposed from live rows).
-3. Success → update that row in place: `irp_id`, `status='QUEUED'`,
+4. Success → update that row in place: `irp_id`, `status='QUEUED'`,
    `submission_attempt_count += 1`, `completed_at = NULL` (it is the backoff clock, and
    the job is back in flight); clear `irp_analysis.failure_reason`. `status_code` is
    already `pending`.
-4. Failure → `submission_attempt_count += 1`, refresh `last_submission_response` and
+5. Failure → restore `status='SUBMISSION FAILED'`, increment
+   `submission_attempt_count`, refresh `last_submission_response` and
    `irp_analysis.failure_reason`. At the maximum the row stays `SUBMISSION FAILED` and
    `irp_analysis.status_code` flips to `error` — visible, never dropped (SC-004).
 

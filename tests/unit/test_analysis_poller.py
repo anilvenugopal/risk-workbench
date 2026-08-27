@@ -10,9 +10,11 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.config import settings
 from app.poller import run as poller
-from app.services import analysis_execution_service as svc
+from app.services import analysis_execution_service as svc, analysis_service
 from app.workers import analysis_jobs
 from db import execute, execute_command, execute_one
 from tests.unit.analysis_rows import (
@@ -175,7 +177,8 @@ def _submission_failed_row(iteration2_db, fake_irp) -> dict:
         "SELECT id, submission_attempt_count FROM irp_job WHERE irp_analysis_id = :a",
         {"a": analysis["id"]}, connection="WORKBENCH")
     return {"edm_id": edm_id, "analysis_id": analysis["id"], "name": analysis["name"],
-           "job_id": job["id"],
+           "job_id": job["id"], "id": job["id"],
+           "irp_analysis_id": analysis["id"],
            "submission_attempt_count": job["submission_attempt_count"]}
 
 
@@ -281,6 +284,37 @@ def test_retry_skips_a_soft_deleted_analysis(iteration2_db, fake_irp):
     poller._submission_retry()
 
     assert len(fake_irp.analysis_submits) == 1  # only the original attempt
+
+
+def test_delete_before_retry_claim_prevents_submission(iteration2_db, fake_irp):
+    row = _submission_failed_row(iteration2_db, fake_irp)
+    _age_completed_at(row["job_id"], seconds_ago=10_000_000)
+    fake_irp.raise_on_submit_analysis_for.discard("CRE_Portfolio A_Template A")
+
+    outcome = analysis_service.delete_executed_analyses(
+        edm_id=row["edm_id"], analysis_ids=[row["analysis_id"]],
+        actor_id=iteration2_db.user_a)
+    poller._submission_retry()
+
+    assert outcome.deleted == 1
+    assert len(fake_irp.analysis_submits) == 1
+    job = execute_one("SELECT status FROM irp_job WHERE id = :id",
+                      {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "SUBMISSION FAILED"
+
+
+def test_delete_after_retry_claim_is_rejected(iteration2_db, fake_irp):
+    row = _submission_failed_row(iteration2_db, fake_irp)
+
+    assert poller._claim_submission_retry(row) is True
+    with pytest.raises(ValueError, match="still in progress"):
+        analysis_service.delete_executed_analyses(
+            edm_id=row["edm_id"], analysis_ids=[row["analysis_id"]],
+            actor_id=iteration2_db.user_a)
+
+    job = execute_one("SELECT status FROM irp_job WHERE id = :id",
+                      {"id": row["job_id"]}, connection="WORKBENCH")
+    assert job["status"] == "SUBMISSION RETRYING"
 
 
 def test_retry_ignores_rows_already_at_the_max(iteration2_db, fake_irp):
