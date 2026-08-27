@@ -130,7 +130,8 @@
           <a class="link" href="/submissions/{{ source_submission.id }}/rdms/{{ rdm.rdm_id }}"
              onclick="event.stopPropagation()">Open RDM &rarr;</a>
         </div></summary>
-        <div id="rdm-analyses-{{ rdm.rdm_id }}" class="dtable__groupempty">Analysis rows load when this RDM opens.</div>
+        <div id="rdm-analyses-{{ rdm.rdm_id }}">
+          <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></div>
       </details>
       {% endfor %}
     </div>

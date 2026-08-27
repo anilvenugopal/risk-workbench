@@ -83,6 +83,18 @@ def test_contextual_page_names_source_submission_and_preserves_it_in_picker(
     assert "Analysis rows load when this RDM opens." in response.text
 
 
+def test_lazy_broker_rows_land_in_an_unstyled_target(monkeypatch):
+    """The swap target must not carry .dtable__groupempty: its caption font,
+    tertiary color and 100cqw width would restyle every broker row HTMX drops
+    into it, so broker rows would stop matching own rows."""
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: _context())
+
+    response = _client().get("/submissions/submission-a/edms/edm-1")
+
+    assert '<div id="rdm-analyses-rdm-1">' in response.text
+
+
 def test_contextual_page_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
     context = _context()
     context.edm.notes = "Review the treaty mapping."
