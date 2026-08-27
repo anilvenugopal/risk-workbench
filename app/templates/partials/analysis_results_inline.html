@@ -1,16 +1,6 @@
-{# The expanded analysis row's two columns (spec 011, FR-011/FR-022/O-11),
-   shared by own and broker rows so the two origins can't drift. Left: the
-   source line — the full analysis name on own rows, the RDM on broker rows —
-   then the metadata fields; a field the origin does not supply is listed and
-   reads "not returned", never hidden. Engine version is not listed — the
-   merged table's Engine column carries it, and a collapsed value is never
-   restated here (8/26 design session D3). Right: the condensed
-   results (the selected EP type at 50/100/250/500/1000/10000, then AAL and
-   Std dev, which sit outside that selection) with the row's perspective and
-   EP-type toggles — Pre-Cat Net = default (FR-012), OEP first; no units
-   control here (O-12). The columns stack when the row is too narrow
-   (`.drow__body--split` wraps). Context: `a` —
-   analysis_service.ExecutedAnalysis (own) or BrokerAnalysis (broker, US2). #}
+{# Engine version is not listed among the metadata fields — the merged
+   table's Engine column carries it, and a collapsed value is never restated
+   here. #}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
 <div class="row-meta">
@@ -18,8 +8,6 @@
     {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
     {%- else %}<b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>{% endif %}
     &middot; Analysis: <b>{{ a.irp_id or '—' }}</b>
-    {#- broker rows: the broker's own RM run date (FR-024), localized by the
-        data-utc sliver; own rows carry Submitted as a table column #}
     {%- if a.created_at is defined and a.created_at %}
     &middot; Submitted: <b><time data-utc="{{ a.created_at }}"
       title="{{ a.created_at }}">{{ a.created_at }}</time></b>{% endif %}</p>

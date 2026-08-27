@@ -1065,7 +1065,6 @@ document.addEventListener('htmx:afterSwap', () => {
   _analysesRestore = null;
 });
 
-// ── Copy table (spec 011 FR-018/SC-006) ───────────────────────────────────────
 // Serializes the section's .dtable to TSV — headers first — and writes it to
 // the clipboard, so a paste lands in Excel as columns. Cell values come from
 // data-value where a cell carries one (the raw stored number, the UTC
@@ -1130,12 +1129,11 @@ document.addEventListener('click', (e) => {
     () => showToast('Couldn’t reach the clipboard.', 'error'));
 });
 
-// ── View → dedicated results page (spec 011 US4, FR-013/FR-016/O-10) ─────────
 // The checked ids travel in tick order — kept per section by a document-level
 // listener, because Alpine's analysisPicks is re-instantiated by every 3s poll
 // swap. Boxes ticked by select-all fire no per-box change event and append in
 // DOM order at submit. After the new tab opens, the originating selection
-// resets (O-10); one bubbling change event makes analysisPicks recount.
+// resets; one bubbling change event makes analysisPicks recount.
 const analysisPickOrder = new Map();
 document.addEventListener('change', (e) => {
   const box = e.target;
@@ -1170,10 +1168,9 @@ document.addEventListener('click', (e) => {
   if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
 });
 
-// ── Units selector (dedicated results page, FR-017/O-12) ─────────────────────
 // The server renders millions (the default, never auto-switching); picking a
 // unit rewrites every [data-unit-value] cell from the raw stored number —
-// display scaling only, never a recomputation (spec non-negotiable 5). The
+// display scaling only, never a recomputation. The
 // htmx:load hook re-applies the picked unit after a perspective swap
 // re-renders the table in millions.
 function formatUnitValue(v, unit) {

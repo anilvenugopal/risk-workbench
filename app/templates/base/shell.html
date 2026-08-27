@@ -73,8 +73,8 @@
             <span class="crumb crumb--current">{{ crumb.label }}</span>
             {% endif %}
             {% endfor %}
-            {# Entity crumbs appended after the manifest chain (spec 011 T-07/FR-014):
-               display context only — nav structure still derives from the manifest. #}
+            {# Entity crumbs are display context only — nav structure still
+               derives from the manifest. #}
             {% for crumb in extra_crumbs|default([]) %}
             <span class="crumb__sep">/</span>
             <a class="crumb" href="{{ crumb.route }}">{{ crumb.label }}</a>

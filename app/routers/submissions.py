@@ -289,8 +289,6 @@ def _entity_sort_links(
     return links
 
 
-# The merged analyses section's status filter (spec 011 FR-009) — the same
-# three group keys the EDM page's section clamps to.
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
 
 
@@ -311,9 +309,6 @@ def _results_groups(submission_id: str) -> list:
 
 def _results_section_context(request: Request, submission_id: str,
                              submission) -> dict:
-    """Render context for the submission-wide merged analyses partial
-    (spec 011 FR-009/FR-013): own rows across every EDM plus RDM groups, an
-    EDM column after Analysis, no Delete (deletion stays on the EDM page)."""
     return {
         "analyses": analysis_service.list_submission_executed_analyses(
             submission_id=submission_id),
@@ -335,8 +330,6 @@ def _results_section_context(request: Request, submission_id: str,
 
 @router.get("/submissions/{submission_id}/analyses", response_class=HTMLResponse)
 def submission_analyses(request: Request, submission_id: str):
-    """The Results section's own polling fragment (spec 011 FR-009/FR-013).
-    Read-only — no writes, no Risk Modeler call (Article 11)."""
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         # Submission hard-gone mid-poll: a terminal notice with no trigger
