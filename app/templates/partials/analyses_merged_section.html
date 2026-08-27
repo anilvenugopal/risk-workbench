@@ -83,14 +83,14 @@
   {% if analyses or groups %}
   <div class="dtable-shell">
     <div class="dtable dtable--selectable"
-         style="--cols:42px minmax(240px,1.6fr) {% if show_edm %}minmax(140px,1fr) {% endif %}minmax(150px,1.1fr) 80px 80px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:{{ '1550px' if show_edm else '1410px' }}">
+         style="--cols:42px minmax(210px,1.4fr) minmax(210px,1.4fr) {% if show_edm %}minmax(140px,1fr) {% endif %}70px 70px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:{{ '1560px' if show_edm else '1420px' }}">
       <div class="dtable__head">
         <span class="l"><span class="geohaz-pick">
           <input type="checkbox" x-ref="selectAll" title="Select all — untick to exclude"
                  @change="all($event.target.checked)"></span></span>
-        <span class="l">Analysis</span>
+        <span class="l">Portfolio</span><span class="l">Template</span>
         {% if show_edm %}<span class="l">EDM</span>{% endif %}
-        <span class="l">Type</span><span class="l">Peril</span>
+        <span class="l">Peril</span>
         <span class="l">Region</span><span class="l">Engine</span>
         <span class="l">Currency</span>
         <span>AAL &middot; Gross</span><span class="l">Status</span>

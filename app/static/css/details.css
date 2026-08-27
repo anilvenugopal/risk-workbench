@@ -66,6 +66,9 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
 .dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
 .dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
+/* broker rows in the merged analyses grid have one name where own rows have
+   Portfolio + Template, so their name cell takes both tracks. */
+.dtable .dt-span2 { grid-column: span 2; }
 .geohaz-pick { display: flex; justify-content: center; align-items: center; }
 .geohaz-pick input { margin: 0; }
 /* name cell (caret + title + sub) */

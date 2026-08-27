@@ -61,7 +61,7 @@
   unchanged. Nothing outside the analyses sections changes on either page.
 - Submission detail gains a Results section rendering the same merged partial
   submission-wide (the only place cross-EDM selection exists, FR-013), with an
-  EDM column after Analysis — the same `show_edm` flag the broker row takes.
+  EDM column after Template — the same `show_edm` flag the broker row takes.
 - Expanded row body is two flex columns that stack when narrow: on the left the
   source line then the **Metadata** and **Analysis settings** groups (O-11,
   FR-022); on the right the condensed results — both EP types × the 6 condensed

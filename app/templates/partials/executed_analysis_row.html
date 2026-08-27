@@ -1,16 +1,17 @@
 {# One workbench-executed analysis as a merged-table .dtable row (spec 011 US3,
-   FR-009/FR-010): Analysis · [EDM] · Type · Peril · Region · Engine · Currency ·
-   AAL · Status · Submitted · Risk Modeler. The AAL cell is Gross in millions and
-   carries the row's results state; `data-value` carries the raw stored number
-   for the copy sliver (FR-018, spec non-negotiable 5). Submitted is UTC in
-   <time datetime>, localized in the browser (FR-024, T-10). The expansion is the
-   spec-011 two-column body (partials/analysis_results_inline.html). Context:
+   FR-009/FR-010): Portfolio · Template · [EDM] · Peril · Region · Engine ·
+   Currency · AAL · Status · Submitted · Risk Modeler. The full analysis name
+   and the analysis type live in the expanded view, not here. The AAL cell is
+   Gross in millions and carries the row's results state; `data-value` carries
+   the raw stored number for the copy sliver (FR-018, spec non-negotiable 5).
+   Submitted is UTC in <time datetime>, localized in the browser (FR-024, T-10).
+   The expansion is the spec-011 two-column body
+   (partials/analysis_results_inline.html). Context:
    `a` — analysis_service.ExecutedAnalysis; `show_edm` — submission page only. #}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
 {%- set d = a.display -%}
-{%- set peril_cell = d.peril ~ (' + ' ~ d.peril_secondary if d.peril_secondary else '') if d.peril else d.peril_secondary -%}
 {%- set gross = a.results[0] if a.results else none -%}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
@@ -21,11 +22,12 @@
       {% endif %}
     </span>
     <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-      <span class="dt-title" title="{{ a.full_name or a.name }}"
-            data-value="{{ a.full_name or a.name }}">{{ a.full_name or a.name }}</span></span></span>
+      <span class="dt-title"{% if a.portfolio_name %} title="{{ a.portfolio_name }}"
+            data-value="{{ a.portfolio_name }}"{% endif %}>{{ cell(a.portfolio_name) }}</span></span></span>
+    <span class="l"{% if a.template_name %} title="{{ a.template_name }}"
+          data-value="{{ a.template_name }}"{% endif %}>{{ cell(a.template_name) }}</span>
     {% if show_edm %}<span class="l">{{ cell(a.edm_name) }}</span>{% endif %}
-    <span class="l">{{ cell(d.analysis_type) }}</span>
-    <span class="l">{{ cell(peril_cell) }}</span>
+    <span class="l">{{ cell(d.peril) }}</span>
     <span class="l">{{ cell(d.region) }}</span>
     <span class="l">{{ cell(d.engine) }}</span>
     <span class="l">{{ cell(d.currency) }}</span>

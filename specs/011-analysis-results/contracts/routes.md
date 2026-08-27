@@ -16,8 +16,11 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
   settings expansion) plus one expandable group row per submission RDM whose
   broker rows lazy-load exactly as today
   (`/submissions/{sid}/edms/{eid}/rdms/{rid}/analyses`).
-- Columns: Analysis · Type · Peril · Region · Engine · **Currency** · **AAL** ·
-  Status · Submitted · Risk Modeler; no return-period column (FR-010). AAL is
+- Columns: Portfolio · Template · Peril · Region · Engine · **Currency** ·
+  **AAL** · Status · Submitted · Risk Modeler; no return-period column
+  (FR-010). Peril and region are codes; a broker row's one name spans the
+  Portfolio and Template tracks and is followed by a hidden span so the
+  Copy-table TSV stays rectangular. AAL is
   Gross in millions and carries the row's results state: the number when ready,
   `retrieving…` while the retrieval is queued or running, `retrieval failed`
   with the reason beside the status chip (SC-005), `—` when the run has not
@@ -40,7 +43,7 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 `GET /submissions/{submission_id}/analyses` (new fragment endpoint)
 
 - Same merged partial, submission-wide: own analyses across every EDM of the
-  submission (an **EDM** column is inserted after Analysis here; broker rows
+  submission (an **EDM** column is inserted after Template here; broker rows
   read `—`), broker groups for every related RDM. Same `status` param, same
   View form (`submission=` context only).
 - Included in `submission_detail.html` as a new Results section; self-polls

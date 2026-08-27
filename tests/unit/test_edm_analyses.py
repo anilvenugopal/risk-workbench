@@ -133,16 +133,31 @@ def _seed_edm(name="EDM One") -> str:
 
 def _seed_executed(*, edm_id: str, name: str, loss_results=None,
                    settings=None, submitted=None, job_status="FINISHED",
-                   status_code="ready") -> str:
+                   status_code="ready", portfolio_name=None,
+                   template_name=None) -> str:
+    portfolio_id = template_id = None
+    if portfolio_name:
+        portfolio_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :edm, :n)",
+            {"id": portfolio_id, "edm": edm_id, "n": portfolio_name},
+            connection="WORKBENCH")
+    if template_name:
+        template_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO analysis_template (id, name, analysis_profile_name, "
+            "output_profile_name) VALUES (:id, :n, 'Profile', 'Output')",
+            {"id": template_id, "n": template_name}, connection="WORKBENCH")
     analysis_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
         "irp_id, execution_id, execution_item_no, settings_metadata, "
-        "loss_results, submitted_settings, inserted_at) "
+        "loss_results, submitted_settings, inserted_at, irp_portfolio_id, "
+        "analysis_template_id) "
         "VALUES (:id, :edm, :n, :n, :sc, '9001', :x, 0, :sm, :lr, :ss, "
-        "'2026-08-26T00:00:00')",
+        "'2026-08-26T00:00:00', :p, :t)",
         {"id": analysis_id, "edm": edm_id, "n": name, "x": str(uuid.uuid4()),
-         "sc": status_code,
+         "sc": status_code, "p": portfolio_id, "t": template_id,
          "sm": (json.dumps(settings) if settings else None),
          "lr": (json.dumps(loss_results) if loss_results else None),
          "ss": (json.dumps(submitted) if submitted else None)},
@@ -230,7 +245,10 @@ def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve"):
 
 def test_merged_section_columns_and_the_four_aal_states(client):
     edm_id = _seed_edm()
-    _seed_executed(edm_id=edm_id, name="With results", loss_results=_extract())
+    _seed_executed(edm_id=edm_id, name="With results", loss_results=_extract(),
+                   portfolio_name="US Southeast Wind", template_name="HU DLM",
+                   settings={"perilCode": "WS", "peril": "Windstorm",
+                             "regionCode": "NA", "region": "North America"})
     _seed_executed(edm_id=edm_id, name="Awaiting retrieval")
     failed = _seed_executed(edm_id=edm_id, name="Retrieval failed")
     _failed_retrieval(failed)
@@ -239,12 +257,18 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     html = client.get(f"/edms/{edm_id}/analyses").text
 
     # one column set (FR-010) — no EDM column on the EDM page
-    for header in (">Analysis</span>", ">Type</span>", ">Peril</span>",
+    for header in (">Portfolio</span>", ">Template</span>", ">Peril</span>",
                    ">Region</span>", ">Engine</span>", ">Currency</span>",
                    ">AAL &middot; Gross</span>", ">Status</span>",
                    ">Submitted</span>", ">Risk Modeler</span>"):
         assert header in html
     assert ">EDM</span>" not in html
+    assert ">Type</span>" not in html            # analysis type moved to the expansion
+    # the split name (D4) and the abbreviated peril/region (D2)
+    assert 'data-value="US Southeast Wind"' in html
+    assert 'data-value="HU DLM"' in html
+    assert ">WS<" in html and "Windstorm" not in html
+    assert ">NA<" in html and "North America" not in html
     # the AAL cell carries all four results states
     assert 'data-value="4100000.0"' in html and "4.1M" in html   # ready
     assert "retrieving&hellip;" in html                          # pending, run done
@@ -255,20 +279,21 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert '<time datetime="2026-08-26T00:00:00"' in html
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
-    assert 'data-value="With results"' in html
     assert "data-analyses-section" in html
 
 
 def test_merged_section_status_filter_rides_the_poll_url(client):
     edm_id = _seed_edm()
-    _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract())
-    _seed_executed(edm_id=edm_id, name="Running one", job_status="RUNNING", status_code="running")
+    _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract(),
+                   portfolio_name="Ready portfolio")
+    _seed_executed(edm_id=edm_id, name="Running one", job_status="RUNNING",
+                   status_code="running", portfolio_name="Running portfolio")
 
     html = client.get(f"/edms/{edm_id}/analyses?status=ready").text
 
     assert f'hx-get="/edms/{edm_id}/analyses?status=ready"' in html
-    assert "Ready one" in html
-    assert "Running one" not in html
+    assert "Ready portfolio" in html
+    assert "Running portfolio" not in html
 
 
 def _seed_contextual(db) -> tuple[str, str, str]:
@@ -287,14 +312,15 @@ def _seed_contextual(db) -> tuple[str, str, str]:
 
 def test_contextual_merged_section_holds_both_origins(client, iteration2_db):
     submission_id, edm_id, rdm_id = _seed_contextual(iteration2_db)
-    _seed_executed(edm_id=edm_id, name="CRE_HO_FL_v25", loss_results=_extract())
+    _seed_executed(edm_id=edm_id, name="CRE_HO_FL_v25", loss_results=_extract(),
+                   portfolio_name="HO FL", template_name="CRE v25")
     _analysis(rdm_id, "88215", "FL HU Gross 2026")
 
     html = client.get(f"/submissions/{submission_id}/edms/{edm_id}/analyses").text
 
     # one section: the own row plus the RDM group row, lazy-loading as before
     assert 'id="edm-executed-analyses"' in html
-    assert "CRE_HO_FL_v25" in html
+    assert "HO FL" in html and "CRE v25" in html
     assert "Acme Broker RDM" in html
     assert (f'hx-get="/submissions/{submission_id}/edms/{edm_id}'
             f'/rdms/{rdm_id}/analyses"') in html

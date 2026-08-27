@@ -313,8 +313,12 @@ def test_broker_row_renders_link_date_and_not_returned_fields(monkeypatch):
     assert "Franchise deductible" in html
     assert "Unrecognized construction / occupancy" in html
     assert html.count("not returned") >= 5
-    # no broker row names a portfolio (FR-020)
+    # no broker row names a portfolio (FR-020) — its one name takes both the
+    # Portfolio and Template tracks, and the hidden sibling keeps the copied
+    # row rectangular against the own rows (D5)
     assert "Portfolio" not in html
+    assert 'class="l dt-span2"' in html
+    assert "<span hidden></span>" in html
 
 
 def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):

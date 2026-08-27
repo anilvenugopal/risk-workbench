@@ -192,6 +192,31 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
 <div class="pv-wrap">
 
   <div class="pv-hero">Merged analyses table — one column set, two pages</div>
+
+  <div style="margin:var(--space-4) 0;padding:var(--space-4);border:2px solid var(--color-danger-border);
+              background:var(--color-danger-bg);border-radius:var(--radius-md)">
+    <div style="font-weight:600;color:var(--color-danger);margin-bottom:var(--space-2)">
+      COLUMN SET SUPERSEDED 2026-08-26 — the grid below draws the old columns
+    </div>
+    <p style="margin:0 0 var(--space-2)">
+      Approved 2026-08-26, then changed by the 8/26 design session
+      (<code>docs/design_session_notes/20_results_views_demoed_grid_columns_name_split_ep_type_selection_export_first_requirements.md</code>).
+      The grid shape, the group rows, the AAL states, and the expanded row are all still right. Three things
+      in the header row are not:
+    </p>
+    <ul style="margin:0 0 var(--space-2);padding-left:1.4em">
+      <li>The single <strong>Analysis</strong> column is now <strong>Portfolio</strong> + <strong>Template</strong> (D4).
+          The full <code>CRE_</code>-prefixed name moved into the expanded row.</li>
+      <li><strong>Type</strong> is gone from the table — analysis type reads in the expanded row (D2/D3).</li>
+      <li><strong>Peril</strong> and <strong>Region</strong> read as codes: <code>WS</code>, <code>NA</code> (D2).
+          The peril cell no longer appends the sub-peril.</li>
+    </ul>
+    <p style="margin:0">
+      A broker analysis has one name, so its name cell spans both new tracks and is followed by a hidden span
+      that keeps the Copy-table paste rectangular (D5). Build from
+      <code>app/templates/partials/analyses_merged_section.html</code>, not from the header below.
+    </p>
+  </div>
   <div class="pv-sub">
     The EDM detail page's <b>Analyses</b> and <b>Broker analyses</b> sections become one table (FR-009), and
     the submission Results section renders the same partial over a wider row set. Type, Peril, Region, Engine

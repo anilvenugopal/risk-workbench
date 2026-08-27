@@ -1427,6 +1427,11 @@ def _seed_results_data(client) -> tuple[str, str, str]:
     created = client.post("/submissions", data=_payload(name="Results deal"))
     submission_id = created.headers["location"].rsplit("/", 1)[-1]
     edm_ids = []
+    template_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO analysis_template (id, name, analysis_profile_name, "
+        "output_profile_name) VALUES (:id, 'CRE v25', 'Profile', 'Output')",
+        {"id": template_id}, connection="WORKBENCH")
     for index, edm_name in enumerate(("Coastal HO 2026", "Inland HO 2026")):
         edm_id = str(uuid.uuid4())
         execute_command(
@@ -1437,12 +1442,19 @@ def _seed_results_data(client) -> tuple[str, str, str]:
         execute_command(
             "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
             {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+        portfolio_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :edm, :n)",
+            {"id": portfolio_id, "edm": edm_id, "n": f"{edm_name.split()[0]} HO"},
+            connection="WORKBENCH")
         execute_command(
             "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
-            "inserted_at) VALUES (:id, :edm, :n, :n, 'ready', :at)",
+            "inserted_at, irp_portfolio_id, analysis_template_id) "
+            "VALUES (:id, :edm, :n, :n, 'ready', :at, :p, :t)",
             {"id": str(uuid.uuid4()), "edm": edm_id,
              "n": f"CRE_{edm_name.split()[0]}_v25",
-             "at": f"2026-08-2{index + 1}T00:00:00"},
+             "at": f"2026-08-2{index + 1}T00:00:00",
+             "p": portfolio_id, "t": template_id},
             connection="WORKBENCH")
         edm_ids.append(edm_id)
     rdm_id = str(uuid.uuid4())
@@ -1471,7 +1483,10 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # the EDM column sits after Analysis on this page only (FR-010)
     assert ">EDM</span>" in html
     assert "Coastal HO 2026" in html and "Inland HO 2026" in html
-    assert "CRE_Coastal_v25" in html and "CRE_Inland_v25" in html
+    # the split name columns (D4) — the full CRE_ name moved to the expansion
+    assert "Coastal HO" in html and "Inland HO" in html
+    assert ">Portfolio</span>" in html and ">Template</span>" in html
+    assert "CRE_Coastal_v25" not in html
     # the RDM group row lazy-loads from the submission-scoped fragment route
     assert "Acme Broker RDM" in html
     assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html
@@ -1479,7 +1494,7 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     assert "Delete</button>" not in html
     # copy sliver hooks and the Submitted <time datetime> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
-    assert 'data-value="CRE_Coastal_v25"' in html
+    assert 'data-value="Coastal HO"' in html
     assert '<time datetime="2026-08-21T00:00:00"' in html
 
 
@@ -1518,4 +1533,4 @@ def test_detail_page_includes_the_results_section(client):
 
     assert 'id="submission-analyses"' in html
     assert ">Results</span>" in html
-    assert "CRE_Coastal_v25" in html
+    assert "Coastal HO" in html

@@ -61,16 +61,16 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 
 ## US3 — merged table (P2)
 
-1. Open the EDM detail: **one** Analyses section — own rows directly (`CRE_`
-   prefix, no RDM), broker rows under expandable RDM group rows. Columns read
-   Analysis · Type · Peril · Region · Engine · Currency · AAL · Status ·
-   Submitted · Risk Modeler, with no perspective and no units control on the
+1. Open the EDM detail: **one** Analyses section — own rows directly (their
+   portfolio and template, no RDM), broker rows under expandable RDM group
+   rows. Columns read Portfolio · Template · Peril · Region · Engine ·
+   Currency · AAL · Status · Submitted · Risk Modeler, with no perspective and no units control on the
    table. The Currency and AAL columns now carry the numbers US1 and US2 put in
    the expansions — Gross, in millions — and read `retrieving…` /
    `retrieval failed` / `—` for the other three results states.
 2. Open the submission detail: the new Results section lists the same merged
    shape across all the submission's EDMs and RDMs, with an EDM column after
-   Analysis. Add up the analyses listed on each of the submission's EDM detail
+   Template. Add up the analyses listed on each of the submission's EDM detail
    pages and expand every RDM group here: the Results section lists all of them,
    with no cap, no pagination and no "showing N of M" (SC-004).
 3. Submitted reads in your own timezone with seconds and AM/PM; change the
