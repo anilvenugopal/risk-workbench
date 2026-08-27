@@ -127,34 +127,16 @@ h1,h2,h3{margin:0}
 
   <div class="hero">Analysis Results — EP table</div>
 
-  <div style="margin:var(--space-4) 0;padding:var(--space-4);border:2px solid var(--color-danger-border);
-              background:var(--color-danger-bg);border-radius:var(--radius-md)">
-    <div style="font-weight:600;color:var(--color-danger);margin-bottom:var(--space-2)">
-      SUPERSEDED 2026-08-26 — do not build from this preview
-    </div>
-    <p style="margin:0 0 var(--space-2)">
-      Approved 2026-08-25, then contradicted by the 8/25–8/26 decisions in
-      <code>specs/011-analysis-results/spec.md</code>. Five things below are wrong:
-    </p>
-    <ul style="margin:0 0 var(--space-2);padding-left:1.4em">
-      <li>The <strong>Display</strong> selector, including <strong>AAL only</strong> — dropped (FR-010, FR-011).
-          There is no condensed/expanded toggle: the expanded row is always condensed, the dedicated page always expanded.</li>
-      <li>The <strong>EP type</strong> selector was dropped on 8/25 and <strong>restored on 8/26 (D11)</strong> — one type
-          at a time is right again, but it sits beside Perspective in the toolbar and on each expanded row, not here
-          (FR-011, FR-015).</li>
-      <li>The <strong>Values</strong> selector reading Millions/Full — it is ones/thousands/millions, millions default,
-          and it exists only on the dedicated page (FR-017, O-12).</li>
-      <li>Perspective dropdowns listing three codes — there are five: GR, RL, WX, QS, GU (O-07).</li>
-      <li><strong>Std dev</strong> sits in the settings grid beside <strong>Max event loss</strong> and
-          <strong>ELT records</strong>. Those two are out of scope (no ELT retention), and standard deviation belongs
-          with AAL at the foot of the EP table — as
-          <a href="merged_analyses_table.html">merged_analyses_table.html</a> draws it.</li>
-    </ul>
-    <p style="margin:0">
-      For the expanded analysis row, build from <a href="merged_analyses_table.html">merged_analyses_table.html</a>
-      (approved 2026-08-26). For the dedicated results page, a fresh preview gets cut and approved when Phase 6
-      starts; until then this file is history, kept for the Excel-derived table shape it came from.
-    </p>
+  <div class="note" style="margin:var(--space-4) 0;max-width:105ch">
+    <strong>Closed out 2026-08-27 — history only, built elsewhere.</strong> Approved 2026-08-25, then
+    contradicted by the 8/25–8/26 decisions in <code>specs/011-analysis-results/spec.md</code> (Display
+    selector dropped; EP type one-at-a-time beside Perspective; ones/thousands/millions units on the
+    dedicated page only; five perspectives GR/RL/WX/QS/GU; Std dev at the foot of the EP table, no ELT
+    metrics). The expanded row shipped per <a href="merged_analyses_table.html">merged_analyses_table.html</a>
+    and the dedicated page per <a href="results_analyses.html">results_analyses.html</a>
+    (<code>app/templates/pages/results_analyses.html</code> is the reference). Kept for the Excel-derived
+    table shape it came from. The Iteration-10 comparison preview is
+    <a href="analysis_comparison.html">analysis_comparison.html</a>.
   </div>
 
   <div class="sub">
@@ -393,46 +375,11 @@ h1,h2,h3{margin:0}
 
   <!-- ── 5. Iteration 10 extension ──────────────────────────────────────────── -->
   <div class="tile">
-    <div class="tile__label">6 · Where the layout goes next — Iteration 10 comparison (NOT in 011)</div>
-    <div class="note"><strong>Out of scope for 011.</strong> Shown only to confirm the 011 layout extends to the
-    workbook's real target: Broker vs CRe with % Chg, per column group. Building the 011 table this shape means
-    Iteration 10 adds columns, not a new screen.</div>
-    <div class="card">
-      <div class="rtool">
-        <div class="ctl"><label>Perspective</label><select><option>Gross</option></select></div>
-        <div class="ctl"><label>EP type</label><select><option>OEP</option></select></div>
-        <div class="ctl"><label>Display</label><select><option>Condensed</option></select></div>
-        <div class="ctl"><label>Values</label><select><option>Millions</option></select></div>
-        <div class="spacer"></div>
-        <span class="ccy">All values USD</span>
-        <button class="btn btn--secondary" style="margin-left:var(--space-3)">⧉ Copy for Excel</button>
-      </div>
-      <div class="ep-shell">
-        <table class="ep">
-          <thead>
-            <tr class="grp">
-              <th class="l"></th>
-              <th class="gsep" colspan="3">FL</th>
-              <th class="gsep" colspan="3">GA</th>
-            </tr>
-            <tr>
-              <th class="l">RP</th>
-              <th class="gsep">Broker</th><th>CRe</th><th>% Chg</th>
-              <th class="gsep">Broker</th><th>CRe</th><th>% Chg</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td class="rp">10,000</td><td class="gsep">317.2M</td><td>326.7M</td><td class="chg">+3.0%</td><td class="gsep">3.2M</td><td>3.4M</td><td class="chg">+6.7%</td></tr>
-            <tr><td class="rp">1,000</td><td class="gsep">146.7M</td><td>152.8M</td><td class="chg">+4.2%</td><td class="gsep">1.4M</td><td>1.5M</td><td class="chg">+12.8%</td></tr>
-            <tr><td class="rp">500</td><td class="gsep">107.0M</td><td>112.7M</td><td class="chg">+5.3%</td><td class="gsep">947,007</td><td>1.1M</td><td class="chg">+15.8%</td></tr>
-            <tr><td class="rp">250</td><td class="gsep">77.8M</td><td>83.1M</td><td class="chg">+6.8%</td><td class="gsep">623,953</td><td>743,012</td><td class="chg">+19.1%</td></tr>
-            <tr><td class="rp">100</td><td class="gsep">48.1M</td><td>52.8M</td><td class="chg">+9.8%</td><td class="gsep">322,871</td><td>406,657</td><td class="chg">+26.0%</td></tr>
-            <tr><td class="rp">50</td><td class="gsep">31.6M</td><td>35.5M</td><td class="chg">+12.3%</td><td class="gsep">167,579</td><td>230,971</td><td class="chg">+37.8%</td></tr>
-            <tr class="aal"><td class="rp">AAL</td><td class="gsep">3.6M</td><td>4.1M</td><td class="chg">+14.7%</td><td class="gsep">13,341</td><td>17,826</td><td class="chg">+33.6%</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <div class="tile__label">6 · Iteration 10 comparison — closed out 2026-08-27</div>
+    <div class="note">The placeholder comparison mock that lived here is superseded by
+    <code>analysis_comparison.html</code>, the Iteration-10 preview: pairwise cart via the Compare modal,
+    the dedicated comparison page, % Chg following selection order, and the mixed-currency guard. Its
+    premise held — the comparison table is the 011 table grown a % Chg column per pair, not a new layout.</div>
   </div>
 
   </div>
