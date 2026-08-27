@@ -458,3 +458,34 @@ def test_delete_rejects_finished_but_unbackfilled_row(iteration2_db, fake_irp):
         analysis_service.delete_executed_analyses(
             edm_id=edm, analysis_ids=[analysis], actor_id=iteration2_db.user_a)
     assert _deleted_at(analysis) is None
+
+
+def test_delete_keeps_earlier_rows_when_the_poller_claims_a_later_one(
+        iteration2_db, fake_irp, monkeypatch):
+    """The poller's retry claim lands mid-batch, after the rows were read.
+
+    The claimed row must be reported separately and left alone, without
+    discarding the rows the batch already deleted.
+    """
+    edm = _edm()
+    first = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
+    raced = _executed(edm_id=edm, name="B", status_code="pending")
+    raced_job = _job(analysis_id=raced, status="SUBMISSION FAILED", attempts=1)
+    _job(analysis_id=first, status="FINISHED")
+
+    snapshot = analysis_service.list_executed_analyses(edm_id=edm)
+    execute_command(
+        "UPDATE irp_job SET status = 'SUBMISSION RETRYING' WHERE id = :id",
+        {"id": raced_job}, connection="WORKBENCH")
+    monkeypatch.setattr(analysis_service, "list_executed_analyses",
+                        lambda **_: snapshot)
+
+    outcome = analysis_service.delete_executed_analyses(
+        edm_id=edm, analysis_ids=[first, raced], actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 1
+    assert outcome.failed == []
+    assert outcome.retrying == ["B"]
+    assert _deleted_at(first) is not None
+    assert _deleted_at(raced) is None
+    assert fake_irp.deleted_analyses == ["1"]

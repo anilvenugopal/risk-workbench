@@ -668,6 +668,10 @@ def _delete_analyses_response(request: Request, edm_id: str, form) -> Response:
         message += (f" {len(outcome.failed)} could not be deleted in "
                     "Risk Modeler.")
         toast_type = "warning"
+    if outcome.retrying:
+        message += (f" {len(outcome.retrying)} could not be deleted — a "
+                    "submission retry is in progress.")
+        toast_type = "warning"
     return Response(status_code=204, headers={
         "HX-Trigger": json.dumps({
             "analyses-changed": True,

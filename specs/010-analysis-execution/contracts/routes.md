@@ -123,7 +123,9 @@ must resolve on this EDM and be deletable) — any violation, or an empty select
 returns 422 whose banner text surfaces as a toast. Per row: Risk Modeler delete first
 (synchronous, `irp_gateway.delete_analysis` — permitted on the request path like
 submits, Article 11), local soft delete (`deleted_at`) on success; a row whose RM
-delete fails is kept and counted in the warning toast. Success → 204 with
+delete fails is kept and counted in the warning toast, as is a row the poller
+claimed for a submission retry between the read and the delete — the batch never
+aborts partway, so rows already deleted stay deleted. Success → 204 with
 `HX-Trigger: {"analyses-changed": true, "rwb:toast": …}` — a distinct event from
 `execution-submitted`, so a delete never clears portfolio ticks or starts the
 post-execute re-fire loop.

@@ -398,6 +398,7 @@ def execution_batch_is_live(execution_id: Any | None) -> bool:
 class DeleteOutcome:
     deleted: int
     failed: list[str]  # display names whose Risk Modeler delete failed
+    retrying: list[str]  # display names the poller claimed for a submission retry
 
 
 def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
@@ -406,9 +407,12 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
     whole batch up front (every posted id must resolve on this EDM and be
     ``is_deletable``, else ``ValueError``), then per row cascade to Risk
     Modeler first and soft-delete locally on success. A row whose RM delete
-    fails is recorded in ``failed`` and kept visible for retry. RM-first
-    order: a crash between the two calls leaves a visible row with a dangling
-    ``irp_id`` — recoverable by retrying — rather than a hidden RM analysis."""
+    fails is recorded in ``failed`` and kept visible for retry; a row the poller
+    claimed for a submission retry mid-batch is recorded in ``retrying`` and left
+    alone. Neither aborts the batch — the rows already deleted stay deleted, and
+    the caller reports all three counts. RM-first order: a crash between the two
+    calls leaves a visible row with a dangling ``irp_id`` — recoverable by
+    retrying — rather than a hidden RM analysis."""
     ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
     if not ids:
         raise ValueError("No analyses selected.")
@@ -427,6 +431,7 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
 
     deleted = 0
     failed: list[str] = []
+    retrying: list[str] = []
     for row in picked:
         if row.irp_id is not None:
             # Outside any transaction (Article 11 — never hold a txn across
@@ -449,9 +454,12 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                 ), {"now": now, "job_id": row.irp_job_id,
                     "analysis_id": row.id}).rowcount
                 if locked != 1:
-                    raise ValueError(
-                        f"'{row.full_name or row.name}' is still in progress "
-                        "and cannot be deleted.")
+                    # The poller claimed this submit for a retry after the read
+                    # above. Nothing was deleted for this row — its irp_id is
+                    # NULL, so Risk Modeler was never called — and raising here
+                    # would discard the rows already deleted earlier in the loop.
+                    retrying.append(row.full_name or row.name or row.id)
+                    continue
                 conn.execute(text(
                     "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
                     "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
@@ -466,7 +474,7 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                  "by": (str(actor_id) if actor_id is not None else None),
                  "id": row.id}, connection="WORKBENCH")
         deleted += 1
-    return DeleteOutcome(deleted=deleted, failed=failed)
+    return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
 
 
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
