@@ -25,9 +25,17 @@ stop_pid() {
     fi
 }
 
+if ! QUEUES="$(python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 while read -r queue; do
     stop_pid "worker-$queue"
-done < <(python -m app.workers.queues)
+done <<< "$QUEUES"
 stop_pid poller
 
 echo "[stop] nginx..."

@@ -49,7 +49,16 @@ for r in rows:
 
 elapsed=0
 while true; do
-    outstanding="$(_check_outstanding)"
+    if ! outstanding="$(_check_outstanding)"; then
+        if [ "$elapsed" -ge "$DRAIN_TIMEOUT_SECS" ]; then
+            echo "ERROR: drain query did not succeed within ${DRAIN_TIMEOUT_SECS}s." >&2
+            exit 1
+        fi
+        echo "[drain-check] query failed; retrying in ${DRAIN_POLL_INTERVAL_SECS}s." >&2
+        sleep "$DRAIN_POLL_INTERVAL_SECS"
+        elapsed=$((elapsed + DRAIN_POLL_INTERVAL_SECS))
+        continue
+    fi
     if [ -z "$outstanding" ]; then
         echo "[drain-check] all queues empty."
         exit 0

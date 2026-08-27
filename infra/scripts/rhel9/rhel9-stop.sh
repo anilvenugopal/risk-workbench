@@ -36,6 +36,14 @@ cd "$APP_DIR"
 set -a
 source infra/.env
 set +a
+if ! QUEUES="$(.venv/bin/python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 
 # Checks whether a systemd unit of this name exists AND has a restart
 # policy that isn't "no" — if so, a plain kill/shutdown command would be
@@ -121,7 +129,7 @@ echo "=== Stopping Risk Workbench processes on RHEL9 ==="
 stop_and_verify uvicorn 8000
 while read -r queue; do
     stop_and_verify "worker-$queue" ""
-done < <(.venv/bin/python -m app.workers.queues)
+done <<< "$QUEUES"
 stop_and_verify poller ""
 
 echo ""

@@ -124,8 +124,8 @@ def ensure_pending_rwb_job(
                     "by": (str(actor_id) if actor_id is not None else None)}, conn):
                     return job_id
                 return None
-            if row["status_code"] in ("pending", "running"):
-                return None  # already in flight — skip
+            if row["status_code"] not in ("succeeded", "failed"):
+                return None
             conn.execute(text(
                 """
                 UPDATE rwb_job
@@ -219,11 +219,10 @@ def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
     ``ensure_pending_rwb_job`` unchanged: resets the SAME row (same ``id``,
     ``attempt_count`` incremented, ``error_detail``/``output_data``/``completed_at``
     cleared) — no new row, no new dedup logic. Returns ``None`` if the row is
-    unknown or (per ``ensure_pending_rwb_job``'s own contract) not in a terminal
-    state to revive."""
+    unknown or is not failed."""
     row = execute_one(
         "SELECT requestor_type, requestor_id, rwb_job_type, input_data "
-        "FROM rwb_job WHERE id = :id",
+        "FROM rwb_job WHERE id = :id AND status_code = 'failed'",
         {"id": str(rwb_job_id)},
         connection="WORKBENCH",
     )
