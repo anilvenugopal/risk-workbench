@@ -208,15 +208,17 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
 
     html = client.get(f"/edms/{edm_id}/analyses").text
 
-    # one named group (O-11) and the condensed results block
-    assert "Metadata" in html
+    # the metadata fields carry no group heading, and engine version is left to
+    # the table's Engine column (8/26 design session D3)
+    assert "Metadata" not in html
     assert "Analysis settings" not in html
+    assert "Engine version" not in html
     assert "Condensed results" in html
     assert ">AAL<" in html
     assert "Std dev" in html
     assert "4.1M" in html          # AAL formatted in millions
     # the full analysis name moved out of the condensed grid into the source line
-    assert "<b>CRE_HO_FL_v25 DLM HU</b>" in html
+    assert '<b class="row-src__name">CRE_HO_FL_v25 DLM HU</b>' in html
     # a field the origin does not supply is listed, never hidden (FR-022):
     # subperil is absent from the settings payload above
     assert "Subperil" in html

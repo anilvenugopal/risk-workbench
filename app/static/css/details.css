@@ -123,17 +123,17 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
 
-/* spec 011 — the expanded analysis row splits in two (FR-011): named field
-   groups on the left, condensed results on the right; the flex wrap stacks
-   them when the row is too narrow to hold both. */
+/* spec 011 — the expanded analysis row splits in two (FR-011): the source line
+   and the metadata fields on the left, condensed results on the right; the flex
+   wrap stacks them when the row is too narrow to hold both. */
 .drow__body--split { display: flex; align-items: flex-start; gap: var(--space-6); flex-wrap: wrap; }
 .row-meta { flex: 1 1 380px; min-width: 300px; }
 .row-results { flex: 0 1 460px; min-width: 320px; }
 .row-src { font-size: var(--fs-caption); color: var(--text-tertiary); margin: 0 0 var(--space-3); }
 .row-src b { font-weight: var(--fw-medium); color: var(--text-secondary); }
-.row-group + .row-group { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border-faint); }
-.row-group__head, .row-results__head { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-2); }
-.row-group__title, .row-results__title { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.row-src b.row-src__name { font-size: var(--fs-h3); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.row-results__head { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-2); }
+.row-results__title { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
 .row-results__ccy { font-size: var(--fs-caption); color: var(--text-tertiary); margin-left: auto; }
 .row-results__empty { margin: 0; font-size: var(--fs-label); color: var(--text-tertiary); }
 select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--space-1); border-radius: var(--radius-sm); border: 1px solid var(--border-default); background: var(--surface-panel); color: var(--text-secondary); }

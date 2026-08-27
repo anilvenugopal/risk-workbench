@@ -159,7 +159,7 @@ def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
     assert response.status_code == 200
     assert "Stored analysis" in response.text
     # the expansion's source line names the RDM (FR-011); nothing else does
-    assert "RDM: <b>Submission A RDM</b>" in response.text
+    assert 'RDM: <b class="row-src__name">Submission A RDM</b>' in response.text
 
 
 def test_lazy_route_matches_rdm_id_case_insensitively(monkeypatch):

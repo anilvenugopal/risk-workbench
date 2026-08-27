@@ -1,8 +1,10 @@
 {# The expanded analysis row's two columns (spec 011, FR-011/FR-022/O-11),
    shared by own and broker rows so the two origins can't drift. Left: the
    source line — the full analysis name on own rows, the RDM on broker rows —
-   then the Metadata group; a field the origin does not supply is listed and
-   reads "not returned", never hidden. Right: the condensed results (the
+   then the metadata fields; a field the origin does not supply is listed and
+   reads "not returned", never hidden. Engine version is not among them — the
+   merged table's Engine column carries it, and a collapsed value is never
+   restated here (8/26 design session D3). Right: the condensed results (the
    selected EP type at 50/100/250/500/1000/10000, then AAL and Std dev, which
    sit outside that selection) with the row's perspective and EP-type toggles
    — Pre-Cat Net = default (FR-012), OEP first; no units control here
@@ -13,8 +15,8 @@
 {%- set s = a.submitted if a.submitted is defined else None -%}
 <div class="row-meta">
   <p class="row-src">
-    {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b>{{ a.rdm_name }}</b>
-    {%- else %}<b>{{ a.full_name or a.name or '—' }}</b>{% endif %}
+    {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b class="row-src__name">{{ a.rdm_name }}</b>
+    {%- else %}<b class="row-src__name">{{ a.full_name or a.name or '—' }}</b>{% endif %}
     &middot; Analysis: <b>{{ a.irp_id or '—' }}</b>
     {#- broker rows: the broker's own RM run date (FR-024), localized by the
         data-utc sliver; own rows carry Submitted as a table column #}
@@ -22,24 +24,20 @@
     &middot; Submitted: <b><time data-utc="{{ a.created_at }}"
       title="{{ a.created_at }}">{{ a.created_at }}</time></b>{% endif %}</p>
 
-  <div class="row-group">
-    <div class="row-group__head"><span class="row-group__title">Metadata</span></div>
-    <dl class="settings-grid">
-      {% for label, val in [
-        ('Engine version', d.engine_version),
-        ('Analysis type', d.analysis_type),
-        ('Subperil', d.peril_secondary),
-        ('Framework', d.framework),
-        ('Event rate scheme', d.event_rate_scheme),
-        ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
-        ('Run by', a.run_by if a.run_by is defined else None),
-      ] %}
-      {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
-      {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
-      {% endif %}
-      {% endfor %}
-    </dl>
-  </div>
+  <dl class="settings-grid">
+    {% for label, val in [
+      ('Analysis type', d.analysis_type),
+      ('Subperil', d.peril_secondary),
+      ('Framework', d.framework),
+      ('Event rate scheme', d.event_rate_scheme),
+      ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
+      ('Run by', a.run_by if a.run_by is defined else None),
+    ] %}
+    {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
+    {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
+    {% endif %}
+    {% endfor %}
+  </dl>
 </div>
 
 <div class="row-results">
