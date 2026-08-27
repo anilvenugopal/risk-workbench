@@ -46,6 +46,14 @@ nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
 echo "[start] Dramatiq workers..."
 PROCESSES=${RWB_WORKER_PROCESSES:-1}
 THREADS=${RWB_WORKER_THREADS:-2}
+if ! QUEUES="$(python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 while read -r queue; do
     dramatiq app.workers.entrypoint -Q "$queue" \
         --processes "$PROCESSES" \
@@ -53,7 +61,7 @@ while read -r queue; do
         --pid-file "$PID_DIR/worker-$queue.pid" \
         >> "$LOG_DIR/worker-$queue.log" 2>&1 &
     echo "       worker[$queue] PID=$! processes=$PROCESSES threads=$THREADS"
-done < <(python -m app.workers.queues)
+done <<< "$QUEUES"
 
 # ── 4. Poller ─────────────────────────────────────────────────────────────────
 echo "[start] Poller..."

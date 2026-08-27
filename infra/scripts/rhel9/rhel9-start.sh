@@ -68,6 +68,14 @@ echo "=== 3. Starting uvicorn (background) ==="
 set -a
 source infra/.env
 set +a
+if ! QUEUES="$(.venv/bin/python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (.venv/bin/python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 \
     > /var/lib/risk-workbench/uvicorn.log 2>&1 &
 echo $! > "$PID_DIR/uvicorn.pid"
@@ -87,7 +95,7 @@ while read -r queue; do
         > "/var/lib/risk-workbench/worker-$queue.log" 2>&1 &
     echo $! > "$PID_DIR/worker-$queue.pid"
     echo "  Started $queue (PID $(cat "$PID_DIR/worker-$queue.pid")). Log: /var/lib/risk-workbench/worker-$queue.log"
-done < <(.venv/bin/python -m app.workers.queues)
+done <<< "$QUEUES"
 
 echo ""
 echo "=== 5. Starting poller (background) ==="
