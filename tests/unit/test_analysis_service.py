@@ -12,11 +12,12 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import text
 
 from app.config import settings as app_settings
 from app.services import analysis_service
 from app.services._common import _utcnow
-from db import execute_command
+from db import execute_command, get_connection
 
 SETTINGS_FULL = {
     "analysisType": "Exceedance Probability", "engineType": "DLM",
@@ -48,13 +49,14 @@ def _portfolio(edm_id: str, name: str = "Portfolio A") -> str:
 def _executed(*, edm_id: str, portfolio_id: str | None = None, name="Portfolio A Template A",
               full_name=None, status_code="pending", failure_reason=None,
               settings=None, template_id=None, irp_id=None,
-              loss_results=None, submitted=None) -> str:
+              irp_app_analysis_id=None, loss_results=None, submitted=None) -> str:
     return _mk(
         "irp_analysis", edm_id=edm_id, irp_portfolio_id=portfolio_id, name=name,
         full_name=(full_name or name), status_code=status_code,
         failure_reason=failure_reason,
         settings_metadata=(json.dumps(settings) if settings else None),
         analysis_template_id=template_id, irp_id=irp_id,
+        irp_app_analysis_id=irp_app_analysis_id,
         loss_results=(json.dumps(loss_results) if loss_results else None),
         submitted_settings=(json.dumps(submitted) if submitted else None),
         execution_id=str(uuid.uuid4()), execution_item_no=0)
@@ -135,16 +137,17 @@ def test_inserted_at_and_irp_id_populated(iteration2_db):
     assert row.irp_id == "9001"
 
 
-def test_rm_url_needs_irp_id_and_a_configured_rm_ui(iteration2_db, monkeypatch):
+def test_rm_url_needs_irp_app_analysis_id_and_a_configured_rm_ui(iteration2_db, monkeypatch):
     monkeypatch.setattr(app_settings, "risk_modeler_base_url",
                         "https://api-euw1.rms-ppe.com/")
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "acme")
     edm = _edm()
-    _executed(edm_id=edm, name="A", irp_id="9001")
+    _executed(edm_id=edm, name="A", irp_id="9001", irp_app_analysis_id="41867")
     _executed(edm_id=edm, name="B")  # not yet backfilled
 
     rows = {a.name: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
-    assert rows["A"].rm_url == "https://acme.rms-ppe.com/riskmodeler/analyses/9001"
+    assert rows["A"].rm_url == (
+        "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert rows["B"].rm_url is None
 
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "")
@@ -179,9 +182,9 @@ def test_no_job_yet_reads_submitting(iteration2_db):
 
 def test_queued_and_running_are_live_importing(iteration2_db):
     edm = _edm()
-    queued = _executed(edm_id=edm, status_code="running")
+    queued = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=queued, status="QUEUED")
-    running = _executed(edm_id=edm, status_code="running")
+    running = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=running, status="RUNNING")
 
     rows = {a.id: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
@@ -249,13 +252,57 @@ def test_submission_failed_exhausted_flips_error_but_label_unchanged(iteration2_
 
 def test_latest_job_wins_when_more_than_one_row(iteration2_db):
     edm = _edm()
-    analysis = _executed(edm_id=edm, status_code="running")
+    analysis = _executed(edm_id=edm, status_code="pending")
     older = _utcnow() - timedelta(minutes=5)
     _job(analysis_id=analysis, status="QUEUED", inserted_at=older)
     _job(analysis_id=analysis, status="RUNNING", inserted_at=_utcnow())
 
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
     assert row.status_label == "Running"
+
+
+def test_more_than_2100_analyses_use_each_newest_job(iteration2_db):
+    edm = _edm()
+    now = _utcnow()
+    older = now - timedelta(minutes=5)
+    analysis_rows = []
+    job_rows = []
+    expected_job_ids = set()
+    for i in range(2101):
+        analysis_id = str(uuid.uuid4())
+        old_job_id = str(uuid.uuid4())
+        new_job_id = str(uuid.uuid4())
+        analysis_rows.append({
+            "id": analysis_id, "edm": edm, "name": f"Analysis {i}",
+            "execution": str(uuid.uuid4()), "now": now,
+        })
+        job_rows.extend([
+            {"id": old_job_id, "analysis": analysis_id, "status": "QUEUED",
+             "attempts": 1, "inserted": older, "updated": older},
+            {"id": new_job_id, "analysis": analysis_id, "status": "RUNNING",
+             "attempts": 2, "inserted": now, "updated": now},
+        ])
+        expected_job_ids.add(new_job_id)
+
+    with get_connection("WORKBENCH") as conn, conn.begin():
+        conn.execute(text(
+            "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
+            "execution_id, execution_item_no, inserted_at, updated_at) "
+            "VALUES (:id, :edm, :name, :name, 'pending', :execution, 0, :now, :now)"
+        ), analysis_rows)
+        conn.execute(text(
+            "INSERT INTO irp_job (id, irp_analysis_id, irp_job_type, status, "
+            "submission_attempt_count, inserted_at, updated_at) "
+            "VALUES (:id, :analysis, 'analysis', :status, :attempts, "
+            ":inserted, :updated)"
+        ), job_rows)
+
+    rows = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert len(rows) == 2101
+    assert {row.irp_job_id for row in rows} == expected_job_ids
+    assert all(row.job_status == "RUNNING" for row in rows)
+    assert all(row.submission_attempt_count == 2 for row in rows)
 
 
 # ── group_key / is_deletable (P-18/P-19) ─────────────────────────────────────
@@ -267,10 +314,10 @@ def _one_of_each_state(edm: str) -> dict[str, str]:
         "failed_run": _executed(edm_id=edm, name="F1", status_code="error"),
         "failed_submit": _executed(edm_id=edm, name="F2", status_code="pending"),
         "submitting": _executed(edm_id=edm, name="P1", status_code="pending"),
-        "running": _executed(edm_id=edm, name="R1", status_code="running"),
-        # job FINISHED but backfill hasn't written irp_id / status ready yet
+        "running": _executed(edm_id=edm, name="R1", status_code="pending"),
+        # job FINISHED but the backfill hasn't written irp_id / status ready yet
         "finished_unbackfilled": _executed(edm_id=edm, name="R2",
-                                           status_code="running"),
+                                           status_code="pending"),
         "ready": _executed(edm_id=edm, name="D1", status_code="ready",
                            irp_id="9001"),
     }
@@ -308,6 +355,19 @@ def test_is_deletable_truth_table(iteration2_db):
     # chip already reads ready (job FINISHED) but the backfill hasn't written
     # irp_id yet — deleting now would orphan the RM analysis.
     assert rows[seeded["finished_unbackfilled"]].is_deletable is False
+
+
+def test_submission_retrying_is_in_progress_and_not_deletable(iteration2_db):
+    edm = _edm()
+    analysis = _executed(edm_id=edm, status_code="pending")
+    job_id = _job(analysis_id=analysis, status="SUBMISSION RETRYING", attempts=1)
+
+    [row] = analysis_service.list_executed_analyses(edm_id=edm)
+
+    assert row.irp_job_id == job_id
+    assert row.group_key == "in_progress"
+    assert row.is_live is True
+    assert row.is_deletable is False
 
 
 # ── delete_executed_analyses (P-19) ──────────────────────────────────────────
@@ -370,7 +430,7 @@ def test_delete_rejects_a_non_terminal_row(iteration2_db, fake_irp):
     edm = _edm()
     ready = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
     _job(analysis_id=ready, status="FINISHED")
-    running = _executed(edm_id=edm, name="B", status_code="running")
+    running = _executed(edm_id=edm, name="B", status_code="pending")
     _job(analysis_id=running, status="RUNNING")
 
     with pytest.raises(ValueError):
@@ -395,13 +455,44 @@ def test_delete_rejects_a_row_of_another_edm(iteration2_db, fake_irp):
 
 def test_delete_rejects_finished_but_unbackfilled_row(iteration2_db, fake_irp):
     edm = _edm()
-    analysis = _executed(edm_id=edm, status_code="running")
+    analysis = _executed(edm_id=edm, status_code="pending")
     _job(analysis_id=analysis, status="FINISHED")
 
     with pytest.raises(ValueError):
         analysis_service.delete_executed_analyses(
             edm_id=edm, analysis_ids=[analysis], actor_id=iteration2_db.user_a)
     assert _deleted_at(analysis) is None
+
+
+def test_delete_keeps_earlier_rows_when_the_poller_claims_a_later_one(
+        iteration2_db, fake_irp, monkeypatch):
+    """The poller's retry claim lands mid-batch, after the rows were read.
+
+    The claimed row must be reported separately and left alone, without
+    discarding the rows the batch already deleted.
+    """
+    edm = _edm()
+    first = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
+    raced = _executed(edm_id=edm, name="B", status_code="pending")
+    raced_job = _job(analysis_id=raced, status="SUBMISSION FAILED", attempts=1)
+    _job(analysis_id=first, status="FINISHED")
+
+    snapshot = analysis_service.list_executed_analyses(edm_id=edm)
+    execute_command(
+        "UPDATE irp_job SET status = 'SUBMISSION RETRYING' WHERE id = :id",
+        {"id": raced_job}, connection="WORKBENCH")
+    monkeypatch.setattr(analysis_service, "list_executed_analyses",
+                        lambda **_: snapshot)
+
+    outcome = analysis_service.delete_executed_analyses(
+        edm_id=edm, analysis_ids=[first, raced], actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 1
+    assert outcome.failed == []
+    assert outcome.retrying == ["B"]
+    assert _deleted_at(first) is not None
+    assert _deleted_at(raced) is None
+    assert fake_irp.deleted_analyses == ["1"]
 
 
 # ── spec 011: results state, extract, and submitted settings (T013) ──────────

@@ -121,24 +121,15 @@ def _validate_profile_scheme_pairing(conn, params: dict) -> list[str]:
             """,
             {"name": params["scheme"]},
         )
-    pair_known = (
-        scheme is not None
-        and profile["peril_code"] is not None
-        and profile["model_region_code"] is not None
-    )
-    # The wheel returns one message or None; the two rules it checks cannot both
-    # fail, and every caller here collects errors as a list.
-    message = validate_event_rate_scheme_settings(
+    error = validate_event_rate_scheme_settings(
         software_version_code=version,
         scheme_provided=bool(params["scheme"]),
-        profile_peril_code=profile["peril_code"] or "",
-        profile_model_region_code=profile["model_region_code"] or "",
-        scheme_peril_code=scheme["peril_code"] if pair_known else None,
-        scheme_model_region_code=(
-            scheme["model_region_code"] if pair_known else None
-        ),
+        profile_peril_code=profile["peril_code"],
+        profile_model_region_code=profile["model_region_code"],
+        scheme_peril_code=scheme["peril_code"] if scheme else None,
+        scheme_model_region_code=scheme["model_region_code"] if scheme else None,
     )
-    return [message] if message else []
+    return [error] if error else []
 
 
 def _validate_template(conn, params: dict) -> list[str]:

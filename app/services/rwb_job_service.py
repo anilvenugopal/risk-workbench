@@ -124,8 +124,8 @@ def ensure_pending_rwb_job(
                     "by": (str(actor_id) if actor_id is not None else None)}, conn):
                     return job_id
                 return None
-            if row["status_code"] in ("pending", "running"):
-                return None  # already in flight — skip
+            if row["status_code"] not in ("succeeded", "failed"):
+                return None
             conn.execute(text(
                 """
                 UPDATE rwb_job
@@ -158,6 +158,24 @@ def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
     return rows == 1
 
 
+def cancel_rwb_job(*, rwb_job_id: Any) -> bool:
+    """Cancel a queued row before a worker claims it: ``pending`` → ``cancelled``.
+    Same atomic-guard shape as ``claim_rwb_job`` — whichever of the two runs first
+    against a given row wins; the other's ``UPDATE`` matches zero rows and is a
+    no-op. Returns ``False`` for a row that is already running or terminal."""
+    now = _utcnow()
+    rows = execute_command(
+        """
+        UPDATE rwb_job
+        SET status_code = 'cancelled', updated_at = :now
+        WHERE id = :id AND status_code = 'pending'
+        """,
+        {"now": now, "id": str(rwb_job_id)},
+        connection="WORKBENCH",
+    )
+    return rows == 1
+
+
 def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     """Read one queue row (post-claim, the worker runtime binds its log context
     from this — ``claim_rwb_job`` deliberately keeps its bool contract). Returns
@@ -170,6 +188,52 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
         """,
         {"id": str(rwb_job_id)},
         connection="WORKBENCH",
+    )
+
+
+def list_rwb_jobs_for_monitoring() -> list[dict]:
+    """Every ``rwb_job`` row for the monitoring page (CR-004a), grouped by
+    ``rwb_job_type`` and ordered by status then most-recently-updated within each
+    group, per ``contracts/job-monitoring-routes.md``. Elapsed-time display (now
+    minus ``submitted_at``/``completed_at``) is computed by the caller, not here —
+    it changes on every render, so baking it into the query would only be correct
+    at the instant the query ran."""
+    return execute(
+        """
+        SELECT id, requestor_type, requestor_id, rwb_job_type, status_code,
+               error_detail, attempt_count, submitted_at, completed_at,
+               inserted_at, updated_at
+        FROM rwb_job
+        ORDER BY rwb_job_type, status_code, updated_at DESC
+        """,
+        {},
+        connection="WORKBENCH",
+    )
+
+
+def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
+    """Resubmit a failed job from the monitoring page (CR-004a), given only its
+    id — the UI doesn't already know a row's ``requestor_type``/``requestor_id``/
+    ``rwb_job_type``/``input_data`` the way a code caller of
+    ``ensure_pending_rwb_job`` normally would, so this looks them up first. Calls
+    ``ensure_pending_rwb_job`` unchanged: resets the SAME row (same ``id``,
+    ``attempt_count`` incremented, ``error_detail``/``output_data``/``completed_at``
+    cleared) — no new row, no new dedup logic. Returns ``None`` if the row is
+    unknown or is not failed."""
+    row = execute_one(
+        "SELECT requestor_type, requestor_id, rwb_job_type, input_data "
+        "FROM rwb_job WHERE id = :id AND status_code = 'failed'",
+        {"id": str(rwb_job_id)},
+        connection="WORKBENCH",
+    )
+    if row is None:
+        return None
+    input_data = json.loads(row["input_data"]) if row["input_data"] else None
+    return ensure_pending_rwb_job(
+        requestor_type=row["requestor_type"],
+        requestor_id=row["requestor_id"],
+        rwb_job_type=row["rwb_job_type"],
+        input_data=input_data,
     )
 
 
@@ -279,7 +343,10 @@ __all__ = [
     "enqueue_rwb_job",
     "ensure_pending_rwb_job",
     "claim_rwb_job",
+    "cancel_rwb_job",
+    "resubmit_rwb_job",
     "get_rwb_job",
+    "list_rwb_jobs_for_monitoring",
     "complete_rwb_job",
     "load_input_data",
     "reconcile_stale_rwb_jobs",

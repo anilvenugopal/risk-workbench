@@ -5,7 +5,7 @@
    the default perspective (Pre-Cat Net) in millions and carries the row's
    results state; `data-value` carries the raw stored number for the copy
    sliver (FR-018, spec non-negotiable 5).
-   Submitted is UTC in <time datetime>, localized in the browser (FR-024, T-10).
+   Submitted is UTC in <time data-utc>, localized in the browser (FR-024, T-10).
    The expansion is the spec-011 two-column body
    (partials/analysis_results_inline.html). Context:
    `a` — analysis_service.ExecutedAnalysis; `show_edm` — submission page only. #}
@@ -50,8 +50,8 @@
     </span>
     <span class="l">
       {% if a.inserted_at %}
-      <time datetime="{{ a.inserted_at }}" data-value="{{ a.inserted_at }}"
-            title="{{ a.inserted_at }} UTC">{{ a.inserted_at }}</time>
+      <time data-utc="{{ a.inserted_at }}" data-value="{{ a.inserted_at }}"
+            title="{{ a.inserted_at }} UTC">{{ (a.inserted_at | string)[:19] }}</time>
       {% else %}<span class="na">&mdash;</span>{% endif %}
     </span>
     <span class="l">

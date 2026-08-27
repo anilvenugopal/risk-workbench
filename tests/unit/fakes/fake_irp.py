@@ -220,9 +220,6 @@ class FakeIRP:
         self.analysis_submits: list[dict] = []
         # job_name -> forced IRPIntegrationError on the next submit for that name
         self.raise_on_submit_analysis_for: set[str] = set()
-        # (analysis_name, edm_name) -> seeded AnalysisHit kwargs (get_analysis_by_name)
-        self._own_analyses: dict[tuple[str, str], dict] = {}
-        self.raise_on_get_analysis_by_name = False
         # recorded delete_analysis calls, in order
         self.deleted_analyses: list[str] = []
         # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
@@ -336,24 +333,6 @@ class FakeIRP:
         self._treaties.setdefault(str(edm_exposure_id), []).append({
             "irp_id": (str(irp_id) if irp_id is not None else None),
             "name": name, "attributes": (attributes or {"treatyName": name})})
-
-    def add_own_analysis(self, *, name: str, edm_name: str,
-                         analysis_id: str | int,
-                         source_rdm_name: str | None = None,
-                         exposure_name: str | None = None,
-                         exposure_resource_id: str | None = None,
-                         exposure_resource_type: str | None = None) -> None:
-        """Seed an own-executed analysis resolvable by ``get_analysis_by_name``
-        (spec 010) — the ``backfill_analysis_detail`` worker's exact-name lookup
-        after FINISHED. Unseeded (name, edm_name) pairs raise, mirroring the real
-        wheel's 0-matches ``IRPAPIError``."""
-        self._own_analyses[(name, edm_name)] = {
-            "analysis_id": str(analysis_id), "name": name,
-            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
-            "exposure_resource_id": (str(exposure_resource_id)
-                                     if exposure_resource_id is not None else None),
-            "exposure_resource_type": exposure_resource_type,
-        }
 
     def set_analysis_results(self, *, analysis_id: str | int,
                              perspective_code: str,
@@ -693,17 +672,6 @@ class FakeIRP:
                            perspective_code=perspective_code,
                            exposure_resource_id=exposure_resource_id,
                            base=default["base"])
-
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
-        if self.raise_on_get_analysis_by_name:
-            raise IRPIntegrationError(
-                "fake IRP: forced get_analysis_by_name failure")
-        hit = self._own_analyses.get((analysis_name, edm_name))
-        if hit is None:
-            raise IRPIntegrationError(
-                f"fake IRP: no analysis named '{analysis_name}' for EDM "
-                f"'{edm_name}'")
-        return AnalysisHit(**hit)
 
     def delete_analysis(self, irp_id: str) -> None:
         if str(irp_id) in self.raise_on_delete_analysis:

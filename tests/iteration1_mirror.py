@@ -143,7 +143,8 @@ ITERATION2_SCHEMA = [
     # plan item snapshot, T-09).
     """CREATE TABLE irp_analysis (
         id TEXT PRIMARY KEY, rdm_id TEXT, edm_id TEXT,
-        irp_id TEXT, name TEXT, full_name TEXT, source_rdm_name TEXT,
+        irp_id TEXT, irp_app_analysis_id TEXT, name TEXT, full_name TEXT,
+        source_rdm_name TEXT,
         status_code TEXT, created_by_irp_job_irp_id TEXT,
         settings_metadata TEXT, is_group INTEGER, exposure_resource_id TEXT,
         irp_portfolio_id TEXT, analysis_template_id TEXT, execution_id TEXT,
@@ -152,6 +153,12 @@ ITERATION2_SCHEMA = [
         inserted_at TEXT, updated_at TEXT, inserted_by TEXT, updated_by TEXT,
         UNIQUE (rdm_id, irp_id)
     )""",
+    # The worker's resume key (spec 010) — _submit_one reads it as a scalar
+    # subquery, which raises on a duplicate. Filtered: all three columns are
+    # NULL for broker rows.
+    """CREATE UNIQUE INDEX uq_irp_analysis_execution_item
+        ON irp_analysis (execution_id, irp_portfolio_id, execution_item_no)
+        WHERE execution_id IS NOT NULL""",
 ]
 
 # ── Iteration-3 mirror: irp_portfolio / irp_treaty (spec 004, data-model §2/§3) ──
@@ -278,9 +285,9 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("backfill_rdm_analyses", "Backfill RDM Analyses", 25),  # D2
                      ("backfill_edm_detail", "Backfill EDM Detail", 27),  # spec 004
                      ("run_geohaz", "Run GeoHaz", 28),
-                     ("execute_analysis_batch", "Execute Analysis Batch", 28),  # spec 010
-                     ("backfill_analysis_detail", "Backfill Analysis Detail", 29),  # spec 010
+                     ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
+                     ("backfill_analysis_detail", "Backfill Analysis Detail", 31),  # spec 010
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
@@ -297,8 +304,8 @@ RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("irp_analysis", "IRP Analysis", 50)]  # spec 011 T-01
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
-IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
-                            ("ready", "Ready", 30), ("error", "Error", 40)]
+IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
+                            ("error", "Error", 40)]
 BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-model §2
                            ("state", "Geography - State", 20),
                            ("country", "Geography - Country", 25),

@@ -133,9 +133,9 @@ def main() -> int:
                     ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
                     ('backfill_edm_detail',       'Backfill EDM Detail',       27),
                     ('run_geohaz',                'Run GeoHaz',                28),
-                    ('execute_analysis_batch',    'Execute Analysis Batch',    28),
-                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  29),
+                    ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
+                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  31),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
@@ -144,7 +144,9 @@ def main() -> int:
                     ('run_breakout_country', 'Portfolio breakout by country', 105),
                     ('run_breakout_peril', 'Portfolio breakout by peril', 107),
                     ('run_breakout_custom', 'Portfolio breakout by custom group', 110),
-                    ('sync_irp_metadata',  'Sync IRP metadata',            120)
+                    ('sync_irp_metadata',  'Sync IRP metadata',            120),
+                    ('dummy_wait', 'Dummy: wait (dev/test only)', 900),
+                    ('dummy_fail', 'Dummy: fail (dev/test only)', 910)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -171,7 +173,8 @@ def main() -> int:
                     ('pending',   'Pending',   10),
                     ('running',   'Running',   20),
                     ('succeeded', 'Succeeded', 30),
-                    ('failed',    'Failed',    40)
+                    ('failed',    'Failed',    40),
+                    ('cancelled', 'Cancelled', 50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -183,7 +186,6 @@ def main() -> int:
                 MERGE irp_analysis_status_kind AS target
                 USING (VALUES
                     ('pending', 'Pending', 10),
-                    ('running', 'Running', 20),
                     ('ready',   'Ready',   30),
                     ('error',   'Error',   40)
                 ) AS src (code, label, sort_order)

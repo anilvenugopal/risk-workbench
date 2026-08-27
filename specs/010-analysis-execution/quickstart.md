@@ -57,12 +57,6 @@ plainly when a tier did not run.
    until one is chosen.
 2. Expect 2 analyses with identical naming/tracking/failure behavior as Phase 1.
 
-## Treaty pass-through (any phase, FR-018)
-
-Click "Add / edit in Risk Modeler ↗" on the treaty section → RM opens in a new window;
-edit and save there; return to the workbench window → the treaty section refreshes
-(focus-triggered sync) and shows the change. No entry appears in the job monitor.
-
 ## Phase 3 — Loss numbers (US4)
 
 1. Run one DLM and one HD analysis to FINISHED. No analyst action: retrieval fires

@@ -31,6 +31,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence, runtime_checkable
 
+# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
+# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
+# raises this on any submit failure (spec 010, contracts/irp-gateway.md).
+from irp_integration.exceptions import IRPIntegrationError
+
 logger = logging.getLogger(__name__)
 
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
@@ -88,16 +93,6 @@ _COVERAGE_SCRIPTS = {
 # A free-text descriptor with more distinct values than this is not saved into
 # the stored summary (8/4 D15 — lines of business is the known case).
 _FREE_TEXT_STORAGE_CAP = 500
-
-# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
-# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
-# raises this on any submit failure (spec 010, contracts/irp-gateway.md); the
-# fallback keeps this module importable without the wheel installed.
-try:
-    from irp_integration.exceptions import IRPIntegrationError
-except ImportError:  # pragma: no cover — the wheel is always installed in dev/CI
-    class IRPIntegrationError(Exception):
-        """Fallback used only when irp-integration isn't installed."""
 
 
 def _peril_code(value: Any) -> str:
@@ -170,11 +165,9 @@ class EdmCatalogEntry:
 
 @dataclass(frozen=True)
 class AnalysisHit:
-    """One analysis — a broker analysis returned by ``search_analyses`` (D2), or
-    an own-executed analysis resolved by exact name via ``get_analysis_by_name``
-    (spec 010, worker-only). ``analysis_id`` is Moody's ``analysisId`` as a
-    string. The source names are echoed back so the backfill worker can persist
-    lineage on ``irp_analysis``.
+    """One broker analysis returned by ``search_analyses`` (D2).
+    ``analysis_id`` is Moody's ``analysisId`` as a string. The source names are
+    echoed back so the backfill worker can persist lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -373,8 +366,6 @@ class IRPGateway(Protocol):
 
     def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
                         exposure_resource_id: int) -> list[dict]: ...
-
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
 
     def delete_analysis(self, irp_id: str) -> None: ...
 
@@ -1009,20 +1000,6 @@ class _RealGateway:
         return self._client().analysis.get_ep(
             analysis_id, perspective_code, exposure_resource_id)
 
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
-        # Raises IRPIntegrationError (IRPAPIError) on 0 or >1 matches — Article 2
-        # name-based coupling; the caller resolves an own-executed analysis by
-        # the exact ≤64-char name it submitted.
-        r = self._client().analysis.get_analysis_by_name(analysis_name, edm_name)
-        return AnalysisHit(
-            analysis_id=str(r["analysisId"]),
-            name=r.get("analysisName"),
-            source_rdm_name=r.get("sourceRdmName"),
-            exposure_name=r.get("exposureName"),
-            exposure_resource_id=(str(r["exposureResourceId"])
-                                  if r.get("exposureResourceId") is not None else None),
-            exposure_resource_type=r.get("exposureResourceType"))
-
     def delete_analysis(self, irp_id: str) -> None:
         # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
         # Failures raise IRPIntegrationError; the caller keeps the local row.
@@ -1323,10 +1300,6 @@ def get_analysis_ep(*, analysis_id: int, perspective_code: str,
         exposure_resource_id=exposure_resource_id)
 
 
-def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
-    return _active().get_analysis_by_name(analysis_name, edm_name)
-
-
 def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
@@ -1396,7 +1369,7 @@ __all__ = [
     "search_treaties", "get_analysis_metadata", "list_model_profiles",
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
-    "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
+    "submit_portfolio_analysis", "get_analysis_job",
     "get_analysis_stats", "get_analysis_ep",
     "delete_analysis",
     "fetch_portfolio_stamp",

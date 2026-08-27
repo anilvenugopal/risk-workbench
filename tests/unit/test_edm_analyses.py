@@ -293,8 +293,8 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert "retrieval failed" in html                            # failed + reason
     assert "RM returned 500 on EP curve" in html
     assert html.count('class="aal-state"') == 1  # the running row reads — instead
-    # Submitted is UTC in <time datetime> for the browser sliver (FR-024, T-10)
-    assert '<time datetime="2026-08-26T00:00:00"' in html
+    # Submitted is UTC in <time data-utc> for the browser sliver (FR-024, T-10)
+    assert '<time data-utc="2026-08-26T00:00:00"' in html
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
     assert "data-analyses-section" in html

@@ -458,10 +458,13 @@ def upgrade() -> None:
         sa.Column("rdm_id", sa.Uuid, nullable=True),
         sa.Column("edm_id", sa.Uuid, nullable=True),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # Moody's analysisId
+        # RM appAnalysisId — web-UI id for deep links
+        sa.Column("irp_app_analysis_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
         # Untruncated "portfolio + template" (+ rerun suffix) for own-executed rows
-        # (T-04); NULL for broker rows.
-        sa.Column("full_name", sa.NVARCHAR(256), nullable=True),
+        # (T-04); NULL for broker rows. 512 fits CRE_ + a 256-char portfolio name
+        # + _ + a 200-char template name — only `name` is truncated (to RM's 64).
+        sa.Column("full_name", sa.NVARCHAR(512), nullable=True),
         sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=True),
         # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
@@ -516,7 +519,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_analysis_rdm_id", "irp_analysis", ["rdm_id"])
     op.create_index("ix_irp_analysis_edm_id", "irp_analysis", ["edm_id"])
-    # Idempotent backfill backbone for broker rows — a duplicate search never
+    # Keeps the broker backfill idempotent — a duplicate search never
     # double-inserts. Filtered (not a plain UNIQUE constraint) because the many
     # own-executed rows share NULL rdm_id/irp_id, which a plain UNIQUE would
     # collide on in SQL Server.
@@ -526,7 +529,7 @@ def upgrade() -> None:
         unique=True, mssql_where=irp_analysis_rdm_irp,
         sqlite_where=irp_analysis_rdm_irp,
     )
-    # Local rerun-collision check + name-claim backbone for own-executed rows
+    # Local rerun-collision check + name claim for own-executed rows
     # (T-05) — live rows only, one EDM's names never collide.
     irp_analysis_live_edm_name = sa.text("edm_id IS NOT NULL AND deleted_at IS NULL")
     op.create_index(
@@ -534,13 +537,12 @@ def upgrade() -> None:
         unique=True, mssql_where=irp_analysis_live_edm_name,
         sqlite_where=irp_analysis_live_edm_name,
     )
-
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
     #  irp_portfolio / irp_treaty: thin §5 identity/lineage records + a JSON
     #  snapshot cache column each (R2 — nullable; null ⇒ graceful empty state).
-    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is the
-    #  idempotent-upsert backbone (service falls back to (edm_id, name) matching).
+    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is what
+    #  makes the upsert idempotent (service falls back to (edm_id, name) matching).
     #  No status column (Article 4), no scope column (Article 6).
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -668,6 +670,19 @@ def upgrade() -> None:
         "fk_irp_analysis_irp_portfolio_id", "irp_analysis", "irp_portfolio",
         ["irp_portfolio_id"], ["id"],
     )
+
+    # The worker's resume key (spec 010, data-model §1): _submit_one reads it as a
+    # scalar subquery, which raises on a duplicate. uq_irp_analysis_live_edm_name
+    # does not prevent one — a rerun landing on a different _n suffix passes it.
+    # Filtered: all three columns are NULL for broker rows.
+    irp_analysis_execution_item = sa.text("execution_id IS NOT NULL")
+    op.create_index(
+        "uq_irp_analysis_execution_item", "irp_analysis",
+        ["execution_id", "irp_portfolio_id", "execution_item_no"],
+        unique=True, mssql_where=irp_analysis_execution_item,
+        sqlite_where=irp_analysis_execution_item,
+    )
+
     op.add_column("irp_job",
                   sa.Column("irp_analysis_id", sa.Uuid, nullable=True))
     op.create_foreign_key(
@@ -935,7 +950,9 @@ def upgrade() -> None:
         "('backfill_rdm_analyses', 'Backfill RDM Analyses', 25), "
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
         "('run_geohaz', 'Run GeoHaz', 28), "
+        "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
+        "('backfill_analysis_detail', 'Backfill Analysis Detail', 31), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
@@ -944,7 +961,9 @@ def upgrade() -> None:
         "('run_breakout_country', 'Portfolio breakout by country', 105), "
         "('run_breakout_peril', 'Portfolio breakout by peril', 107), "
         "('run_breakout_custom', 'Portfolio breakout by custom group', 110), "
-        "('sync_irp_metadata', 'Sync IRP metadata', 120)"
+        "('sync_irp_metadata', 'Sync IRP metadata', 120), "
+        "('dummy_wait', 'Dummy: wait (dev/test only)', 900), "
+        "('dummy_fail', 'Dummy: fail (dev/test only)', 910)"
     ))
     # breakout_dimension_kind — the four value dimensions (spec 005
     # data-model §2) plus custom, the grouping pane's lineage code (generated
@@ -983,13 +1002,15 @@ def upgrade() -> None:
         "('pending', 'Pending', 10), "
         "('running', 'Running', 20), "
         "('succeeded', 'Succeeded', 30), "
-        "('failed', 'Failed', 40)"
+        "('failed', 'Failed', 40), "
+        "('cancelled', 'Cancelled', 50)"
     ))
     # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
+    # `pending` is the only in-flight value: every other write is terminal.
+    # Progress while an analysis runs is irp_job.status, which the poller keeps.
     op.execute(sa.text(
         "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
-        "('running', 'Running', 20), "
         "('ready', 'Ready', 30), "
         "('error', 'Error', 40)"
     ))
@@ -1071,6 +1092,7 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_index("uq_irp_analysis_execution_item", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")

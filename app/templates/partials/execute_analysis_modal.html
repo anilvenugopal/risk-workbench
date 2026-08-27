@@ -114,7 +114,7 @@
           <div class="entity-candidate-list">
             {% for template in templates %}
             <label class="entity-candidate" data-exec-name="{{ template.name|lower }}">
-              <input type="checkbox" name="template_ids" value="{{ template.id }}" checked>
+              <input type="checkbox" name="template_ids" value="{{ template.id }}">
               <span>{{ template.name }}</span>
             </label>
             {% endfor %}

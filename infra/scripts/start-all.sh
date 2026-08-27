@@ -7,14 +7,14 @@
 # Process layout (mirrors production):
 #   redis-server   → background daemon
 #   nginx          → background daemon
-#   dramatiq       → background process (workers)
+#   dramatiq       → background process, one per queue (one per rwb_job_type — CR-004)
 #   app.poller     → background process
 #   uvicorn        → FOREGROUND (keeps the container alive; logs stream to stdout)
 #
 # Environment:
 #   APP_DEBUG=1            → start uvicorn under debugpy on port 5678 instead of direct
-#   RWB_WORKER_PROCESSES   → dramatiq worker OS processes to fork (default: 1)
-#   RWB_WORKER_THREADS     → dramatiq worker threads per process (default: 2)
+#   RWB_WORKER_PROCESSES   → dramatiq worker OS processes to fork, per queue (default: 1)
+#   RWB_WORKER_THREADS     → dramatiq worker threads per process, per queue (default: 2)
 
 set -euo pipefail
 
@@ -42,16 +42,26 @@ echo "[start] nginx..."
 # nginx.conf is volume-mounted so edits take effect on reload (make nginx-reload)
 nginx -c "$WORKSPACE/deploy/nginx/nginx.conf" -g "daemon on;"
 
-# ── 3. Dramatiq workers ───────────────────────────────────────────────────────
+# ── 3. Dramatiq workers (one process per queue — CR-004) ─────────────────────
 echo "[start] Dramatiq workers..."
 PROCESSES=${RWB_WORKER_PROCESSES:-1}
 THREADS=${RWB_WORKER_THREADS:-2}
-dramatiq app.workers.entrypoint \
-    --processes "$PROCESSES" \
-    --threads "$THREADS" \
-    >> "$LOG_DIR/worker.log" 2>&1 &
-echo $! > "$PID_DIR/worker.pid"
-echo "       worker PID=$(cat "$PID_DIR/worker.pid") processes=$PROCESSES threads=$THREADS"
+if ! QUEUES="$(python -m app.workers.queues)"; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues failed)." >&2
+    exit 1
+fi
+if [ -z "$QUEUES" ]; then
+    echo "ERROR: could not list queue names (python -m app.workers.queues returned nothing)." >&2
+    exit 1
+fi
+while read -r queue; do
+    dramatiq app.workers.entrypoint -Q "$queue" \
+        --processes "$PROCESSES" \
+        --threads "$THREADS" \
+        --pid-file "$PID_DIR/worker-$queue.pid" \
+        >> "$LOG_DIR/worker-$queue.log" 2>&1 &
+    echo "       worker[$queue] PID=$! processes=$PROCESSES threads=$THREADS"
+done <<< "$QUEUES"
 
 # ── 4. Poller ─────────────────────────────────────────────────────────────────
 echo "[start] Poller..."

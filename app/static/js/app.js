@@ -721,7 +721,7 @@ document.addEventListener('alpine:init', () => {
   // `observe` adds a MutationObserver because the geohaz-cell poll disables and
   // enables a checkbox by OOB-swapping its whole <span> on job completion, and a
   // DOM replacement fires no native change event.
-  Alpine.data('checkPicks', ({ name, observe = false } = {}) => ({
+  Alpine.data('checkPicks', ({ name, observe = false, visibleOnly = false } = {}) => ({
     count: 0,
     total: 0,
     observer: null,
@@ -734,7 +734,11 @@ document.addEventListener('alpine:init', () => {
     },
     destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
-      return this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      const boxes = this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      // The suite builder's filter hides non-matching rows: select-all and the
+      // count then cover only the templates the analyst can see.
+      if (!visibleOnly) return boxes;
+      return Array.from(boxes).filter((box) => box.offsetParent !== null);
     },
     onChange() {
       const boxes = this.boxes();
@@ -842,15 +846,15 @@ document.addEventListener('alpine:init', () => {
     recompute() {
       const root = this.$root;
       if (root.dataset.kind === 'suite') {
-        let ok = false;
-        root.querySelectorAll('.exec-row').forEach((row) => {
-          const chosen = row.querySelector('input[name="chosen_suite_ids"]');
-          if (!chosen || !chosen.checked) return;
-          const hasTemplates = row.querySelectorAll(
-            '.exec-tpl-list input[type="checkbox"]:checked').length > 0;
-          if (hasTemplates && this.currencyComplete(row)) ok = true;
+        // Every chosen suite must be complete, not just one: the gate posts them
+        // all, and a 422 re-render loses the analyst's picks (FR-020).
+        const chosen = Array.from(root.querySelectorAll('.exec-row')).filter((row) => {
+          const box = row.querySelector('input[name="chosen_suite_ids"]');
+          return box && box.checked;
         });
-        this.canSubmit = ok;
+        this.canSubmit = chosen.length > 0 && chosen.every((row) => (
+          row.querySelectorAll('.exec-tpl-list input[type="checkbox"]:checked').length > 0
+          && this.currencyComplete(row)));
       } else {
         const hasTemplates = root.querySelectorAll(
           '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
@@ -902,13 +906,6 @@ function localizeUtcTimes(root) {
   const scope = root instanceof Element ? root : document;
   scope.querySelectorAll('time[data-utc]').forEach((el) => {
     const d = parseUtcStamp(el.dataset.utc);
-    if (d) el.textContent = formatLocalStamp(d);
-  });
-  // Submitted columns (spec 011 FR-024, T-10): the server writes UTC into
-  // <time datetime>; render date, time to the second, AM/PM in the reader's
-  // own zone. The raw value stays in data-value for the copy sliver.
-  scope.querySelectorAll('time[datetime]').forEach((el) => {
-    const d = parseUtcStamp(el.getAttribute('datetime'));
     if (d) el.textContent = formatLocalStamp(d);
   });
 }
@@ -1007,32 +1004,25 @@ document.addEventListener('rwb:toast', (e) => {
 });
 
 // Analysis execution submit (spec 010): the execute modal's POST fires this
-// alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
-// section refetches on its own (analyses_merged_section.html) — this only
-// clears the portfolio picks that were just submitted, so Execute Suite /
-// Execute Template disable again (checkPicks reads checked boxes off the
-// DOM, so a real 'change' event is what makes it recompute).
-document.addEventListener('execution-submitted', () => {
+// alongside rwb:toast (HX-Trigger header) and closes itself. Clear the
+// portfolio picks that were just submitted so Execute Suite / Execute Template
+// disable again (checkPicks reads checked boxes off the DOM, so a real 'change'
+// event is what makes it recompute). Fetch the Analyses section once with the
+// execution id; the returned fragment polls while the batch or an analysis is
+// still in progress, including before the first analysis row exists.
+document.addEventListener('execution-submitted', (e) => {
   const checked = document.querySelectorAll('input[name="portfolio_ids"]:checked');
   checked.forEach((box) => { box.checked = false; });
   if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
-});
 
-// The freshly-enqueued execute_analysis_batch job writes its first pending
-// irp_analysis row worker-side, moments after the request above returns
-// (Article 5) — the section's own immediate refetch can land before that
-// write happens. Re-fire the event a few times until a row shows up as
-// pending/running (the section's hx-trigger then carries "every 3s" and
-// keeps itself current from there) or we give up.
-document.addEventListener('execution-submitted', () => {
-  let attempts = 0;
-  const poll = window.setInterval(() => {
-    attempts += 1;
-    const section = document.getElementById('edm-executed-analyses');
-    const live = section && (section.getAttribute('hx-trigger') || '').includes('every 3s');
-    if (live || !section || attempts >= 10) { window.clearInterval(poll); return; }
-    htmx.trigger(document.body, 'execution-submitted');
-  }, 2000);
+  const executionId = e.detail && e.detail.execution_id;
+  const section = document.getElementById('edm-executed-analyses');
+  if (!executionId || !section) return;
+  const url = new URL(section.getAttribute('hx-get'), window.location.origin);
+  url.searchParams.set('execution_id', executionId);
+  htmx.ajax('GET', url.pathname + url.search, {
+    target: '#edm-executed-analyses', swap: 'outerHTML',
+  });
 });
 
 // Swapping a merged analyses section (outerHTML, on every poll) rebuilds every

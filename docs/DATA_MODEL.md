@@ -307,10 +307,14 @@ erDiagram
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
     string name "≤64-char name, exact string sent to RM (own); IRP analysis name (broker)"
     string full_name "nullable; untruncated CRE_{portfolio}_{template} name incl. rerun suffix — own analyses only (spec 010 T-04)"
-    int irp_id "nullable; resolves only after FINISHED"
+    string irp_id "nullable; NVARCHAR(64) holding RM's API analysisId — resolves only after FINISHED"
+    string irp_app_analysis_id "nullable; RM appAnalysisId — the RM web UI's analysis id; the grid's link-out uses it, irp_id stays the API analysisId"
     bool is_group "true → this row IS a group"
     string status_code FK "irp_analysis_status_kind"
     string created_by_irp_job_irp_id "nullable; the creating job"
+    string source_rdm_name "nullable; broker analyses only — the RDM name RM reported"
+    string settings_metadata "nullable; JSON snapshot of the RM analysis settings (R2)"
+    string exposure_resource_id "nullable; RM's numeric exposureResourceId, set only when exposureResourceType = PORTFOLIO (R9/FR-036) — broker analyses. Own analyses keep the portfolio resourceUri on irp_job_resource instead"
     uniqueidentifier irp_portfolio_id FK "nullable; own analyses only — the portfolio it ran against"
     uniqueidentifier analysis_template_id FK "nullable; own analyses only — survives template soft-delete"
     uniqueidentifier execution_id "nullable; own analyses only — the execute_analysis_batch run's requestor_id"
@@ -326,7 +330,7 @@ erDiagram
     uniqueidentifier updated_by FK
   }
   irp_analysis_status_kind {
-    string code PK "pending / running / ready / error"
+    string code PK "pending / ready / error — pending is the only non-terminal value; progress while an analysis runs is irp_job.status (spec 010)"
     string label
     int sort_order
     datetime inserted_at
@@ -433,7 +437,6 @@ erDiagram
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
-    string request_params "JSON; analyst parameter snapshot; nullable"
     string completion_summary "Risk Modeler task output summary; nullable"
     string last_submission_payload "JSON; latest submit request"
     string last_submission_response "JSON; RM's response to that submit"
@@ -441,7 +444,7 @@ erDiagram
     string request_params "JSON; submit kwargs snapshot — submission_retry resubmits from it verbatim (spec 010)"
     int submission_attempt_count "default 0"
     datetime submitted_at "nullable"
-    datetime completed_at "nullable"
+    datetime completed_at "nullable; for SUBMISSION FAILED it doubles as the retry backoff clock — cleared by a successful resubmit (spec 010)"
     datetime last_tracked_at "nullable; null until first poll"
     datetime inserted_at
     datetime updated_at
@@ -521,7 +524,7 @@ erDiagram
   `requested_from_submission_id` records which contextual action started the job;
   polling, retry, and worker dispatch never depend on it.
 - **`irp_job_type` is a kind table** (closed, app-defined) but **`status` is a plain string** — RM can add status values at any time, and an unknown value must not crash the poller.
-- **`status` vocabulary:** RM non-terminal `PENDING`/`QUEUED`/`RUNNING`/`CANCEL_REQUESTED`/`CANCELLING`; RM terminal `FINISHED` (only success)/`FAILED`/`CANCELLED`; app-local non-terminal `UNSUBMITTED`/`SUBMITTING`/`BLOCKED`; app-local terminal `SUBMISSION FAILED` (never reached RM — no `irp_id`). `SUBMISSION FAILED` vs `FAILED` distinguishes submit-side failure from RM-ran-it-and-failed.
+- **`status` vocabulary:** RM non-terminal `PENDING`/`QUEUED`/`RUNNING`/`CANCEL_REQUESTED`/`CANCELLING`; RM terminal `FINISHED` (only success)/`FAILED`/`CANCELLED`; app-local non-terminal `UNSUBMITTED`/`SUBMITTING`/`BLOCKED`/`SUBMISSION RETRYING`; app-local terminal `SUBMISSION FAILED` (never reached RM — no `irp_id`). `SUBMISSION FAILED` vs `FAILED` distinguishes submit-side failure from RM-ran-it-and-failed. `SUBMISSION RETRYING` marks a row the `submission_retry` batch has claimed; the status tracker skips it (no `irp_id`), so a poller that dies mid-retry would strand it — a row left there longer than `IRP_SUBMISSION_RETRY_STALE_SECS` is reclaimed to `SUBMISSION FAILED`, spending one attempt.
 - **`irp_job_resource`** carries the typed `(resource_type, resource_uri)` submit payload; the URI must be captured at submit time (RM's completion response omits it).
 
 **`rwb_job`:**
@@ -535,7 +538,7 @@ erDiagram
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
 | `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | `retrieve_analysis_results` (one per broker analysis) |
 | `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
-| `backfill_analysis_detail` | Resolve one own analysis by name after FINISHED; write `irp_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
+| `backfill_analysis_detail` | Fetch one own analysis' details after FINISHED by the job body's `analysisId`; write `irp_id`/`irp_app_analysis_id`/`settings_metadata` (spec 010) | `retrieve_analysis_results` |
 | `retrieve_analysis_results` | `get_stats()`/`get_ep()` per perspective (GR/RL/WX/QS/GU); write the `irp_analysis.loss_results` extract (spec 011) | — |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |

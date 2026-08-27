@@ -219,17 +219,20 @@ def test_broker_rm_url_and_created_at(iteration2_db, monkeypatch):
     monkeypatch.setattr(app_settings, "risk_modeler_tenant_name", "acme")
     rdm, edm = _rdm("R"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="5521",
-              settings=dict(SETTINGS_LIVE, createDate="2026-08-20T14:02:11.000Z"))
+              settings=dict(SETTINGS_LIVE, appAnalysisId=41867,
+                            createDate="2026-08-20T14:02:11.000Z"))
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="5522", settings=None)
 
     [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
     by_irp = {a.irp_id: a for a in g.analyses}
 
-    # built the same way own rows build theirs (FR-025)
+    # built the same way own rows build theirs (FR-025) — off the snapshot's
+    # appAnalysisId, which is what the RM UI route takes
     assert by_irp["5521"].rm_url == (
-        "https://acme.rms-ppe.com/riskmodeler/analyses/5521")
+        "https://acme.rms-ppe.com/riskmodeler/datasources/analysis/41867/0")
     assert by_irp["5521"].created_at == "2026-08-20T14:02:11.000Z"
-    assert by_irp["5522"].created_at is None  # no snapshot → no Submitted value
+    assert by_irp["5522"].rm_url is None       # no snapshot → no link
+    assert by_irp["5522"].created_at is None   # no snapshot → no Submitted value
 
 
 # ── row rendering via the contextual lazy route (T024) ──────────────────────────

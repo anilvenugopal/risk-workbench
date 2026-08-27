@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -175,3 +177,173 @@ def test_lazy_route_matches_rdm_id_case_insensitively(monkeypatch):
 
     assert response.status_code == 200
     assert "Stored analysis" in response.text
+
+
+# ── the Analyses section's own 3s poll (spec 010, T-11) ───────────────────────
+
+
+def _analyses_section(edm_id: str = "edm-1") -> edm_service.EdmAnalysesSection:
+    live = analysis_service.ExecutedAnalysis(
+        id="analysis-1", name="CRE_Portfolio A_Template A",
+        full_name="CRE_Portfolio A_Template A", portfolio_name="Portfolio A",
+        status_code="pending", failure_reason=None, template_name="Template A",
+        job_status="QUEUED")
+    return edm_service.EdmAnalysesSection(id=edm_id, executed_analyses=[live])
+
+
+def test_analyses_poll_renders_the_section_without_the_rest_of_the_page(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses",
+                        lambda **kwargs: _analyses_section())
+
+    response = _client().get("/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert 'hx-get="/edms/edm-1/analyses"' in response.text
+    assert "every 3s" in response.text  # a pending row keeps the poll running
+    assert "CRE_Portfolio A_Template A" in response.text
+    assert "Portfolios" not in response.text  # section only, never the detail body
+
+
+def test_contextual_analyses_poll_keeps_the_submission_in_its_own_url(monkeypatch):
+    captured = {}
+
+    def _section(**kwargs):
+        captured.update(kwargs)
+        return _analyses_section()
+
+    monkeypatch.setattr(edm_service, "get_edm_analyses", _section)
+
+    response = _client().get("/submissions/submission-a/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert captured == {"edm_id": "edm-1", "submission_id": "submission-a"}
+    assert 'hx-get="/submissions/submission-a/edms/edm-1/analyses"' in response.text
+
+
+def test_contextual_analyses_poll_stops_when_the_edm_leaves_the_submission(monkeypatch):
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: None)
+
+    response = _client().get("/submissions/submission-a/edms/edm-1/analyses")
+
+    assert response.status_code == 200
+    assert "no longer related to the submission" in response.text
+    assert "hx-trigger" not in response.text  # a terminal notice ends the poll
+
+
+def test_empty_analyses_poll_tracks_the_selected_execution(monkeypatch):
+    empty = edm_service.EdmAnalysesSection(id="edm-1", executed_analyses=[])
+    monkeypatch.setattr(edm_service, "get_edm_analyses", lambda **kwargs: empty)
+    state = {"live": True}
+    monkeypatch.setattr(
+        analysis_service, "execution_batch_is_live",
+        lambda execution_id: execution_id == "execution-1" and state["live"])
+
+    pending = _client().get(
+        "/edms/edm-1/analyses?status=ready&execution_id=execution-1")
+    assert "No analyses executed" in pending.text
+    assert "every 3s" in pending.text
+    assert "execution_id=execution-1" in pending.text
+    assert "status=ready" in pending.text
+
+    state["live"] = False
+    terminal = _client().get(
+        "/edms/edm-1/analyses?status=ready&execution_id=execution-1")
+    assert "every 3s" not in terminal.text
+    assert "execution_id=execution-1" in terminal.text
+
+
+def test_successful_execute_response_carries_execution_id(monkeypatch):
+    from app.auth.csrf import generate_csrf_token
+    from app.services import analysis_execution_service
+
+    monkeypatch.setattr(
+        analysis_execution_service, "request_execution",
+        lambda **kwargs: "execution-1")
+    response = _client().post(
+        "/edms/edm-1/execute",
+        data={"csrf_token": generate_csrf_token(), "kind": "template",
+              "portfolio_ids": "portfolio-1", "template_ids": "template-1"},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 204
+    event = json.loads(response.headers["HX-Trigger"])["execution-submitted"]
+    assert event == {"execution_id": "execution-1"}
+
+
+def _stub_execute_modal(monkeypatch):
+    """Enough reference data for the modal to render its form rather than one of
+    _execute_context's blocking messages."""
+    from app.services import (
+        analysis_execution_service,
+        portfolio_service,
+        template_service,
+        treaty_service,
+    )
+
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: _context())
+    monkeypatch.setattr(edm_service, "get_edm", lambda edm_id: _edm())
+    monkeypatch.setattr(portfolio_service, "list_portfolios", lambda **kwargs: [
+        portfolio_service.PortfolioRow(
+            id="portfolio-1", edm_id="edm-1", name="US Wind", irp_id="9",
+            exposure_detail=None, as_of=None)])
+    monkeypatch.setattr(template_service, "list_templates", lambda **kwargs: [
+        {"id": "template-1", "name": "US HU DLM"}])
+    monkeypatch.setattr(treaty_service, "list_treaties", lambda **kwargs: [])
+    monkeypatch.setattr(analysis_execution_service, "currency_defaults",
+                        lambda: {"code": "USD", "scheme": "RMS", "vintage": ""})
+    monkeypatch.setattr(analysis_execution_service, "currency_options",
+                        lambda: [{"code": "USD", "name": "US Dollar"}])
+    monkeypatch.setattr(analysis_execution_service, "currency_scheme_options",
+                        lambda: [{"code": "RMS", "name": "RMS"}])
+    monkeypatch.setattr(analysis_execution_service, "vintage_options",
+                        lambda scheme: [])
+
+
+def test_contextual_execute_modal_posts_back_to_its_submission_url(monkeypatch):
+    _stub_execute_modal(monkeypatch)
+
+    response = _client().get(
+        "/submissions/submission-a/edms/edm-1/execute"
+        "?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert ('action="/submissions/submission-a/edms/edm-1/execute"'
+            in response.text)
+    assert 'action="/edms/edm-1/execute"' not in response.text
+
+
+def test_direct_execute_modal_posts_back_to_the_library_url(monkeypatch):
+    _stub_execute_modal(monkeypatch)
+
+    response = _client().get(
+        "/edms/edm-1/execute?kind=template&portfolio_ids=portfolio-1")
+
+    assert response.status_code == 200
+    assert 'action="/edms/edm-1/execute"' in response.text
+    assert "/submissions/" not in response.text
+
+
+def test_execute_gate_failure_re_renders_the_modal_on_the_same_url(monkeypatch):
+    from app.auth.csrf import generate_csrf_token
+    from app.services import analysis_execution_service
+
+    _stub_execute_modal(monkeypatch)
+
+    def _refuse(**kwargs):
+        raise analysis_execution_service.ExecutionGateError(
+            ["Choose at least one portfolio."])
+
+    monkeypatch.setattr(analysis_execution_service, "request_execution", _refuse)
+
+    response = _client().post(
+        "/submissions/submission-a/edms/edm-1/execute",
+        data={"csrf_token": generate_csrf_token(), "kind": "template",
+              "portfolio_ids": "portfolio-1"},
+        headers={"HX-Request": "true"})
+
+    assert response.status_code == 422
+    assert response.headers["HX-Retarget"] == "#execute-modal"
+    assert "Choose at least one portfolio." in response.text
+    assert ('action="/submissions/submission-a/edms/edm-1/execute"'
+            in response.text)

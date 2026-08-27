@@ -51,8 +51,8 @@
       </span>
       <span class="l">
         {% if a.created_at %}
-        <time datetime="{{ a.created_at }}" data-value="{{ a.created_at }}"
-              title="{{ a.created_at }} UTC">{{ a.created_at }}</time>
+        <time data-utc="{{ a.created_at }}" data-value="{{ a.created_at }}"
+              title="{{ a.created_at }} UTC">{{ (a.created_at | string)[:19] }}</time>
         {% else %}<span class="na">&mdash;</span>{% endif %}
       </span>
       <span class="l">

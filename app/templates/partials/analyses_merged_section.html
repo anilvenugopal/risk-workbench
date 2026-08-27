@@ -6,10 +6,14 @@
    state (O-12 — no perspective or units control on the table).
 
    Self-poll contract:
-   ``execution-submitted`` / ``analyses-changed`` refetch, ``every 3s`` while
-   any run or retrieval is live or an RDM capture is running, the status
-   filter riding the poll URL so a swap never resets it. app.js restores
-   expanded rows and ticked checkboxes across swaps via data-analyses-section.
+   ``analyses-changed`` (the delete POST) refetches. ``every 3s`` while any run
+   or retrieval is live, an RDM capture is running, or the named execution batch
+   is still in flight — that last one keeps the section polling before its first
+   analysis row exists. The status filter and ``execution_id`` both ride the
+   poll URL so a swap never resets either. ``execution-submitted`` is handled in
+   app.js, not here: it carries the execution id this section polls on.
+   app.js restores expanded rows and ticked checkboxes across swaps via
+   data-analyses-section.
 
    Callers:
      EDM detail (plain + contextual) — ``edm`` in context; everything else
@@ -29,18 +33,23 @@
      else ('/submissions/' ~ source_submission.id ~ '/edms/' ~ edm.id ~ '/rdms'
            if source_submission is defined and source_submission else none) %}
 {% set status_filter = status_filter|default('') %}
+{% set execution_id = execution_id|default('') %}
 {% set view_url = '/results/analyses'
      ~ ('?submission=' ~ source_submission.id if source_submission is defined and source_submission else '')
      ~ ((('&' if source_submission is defined and source_submission else '?') ~ 'edm=' ~ edm.id)
         if edm is defined and edm else '') %}
-{% set analyses_url = analyses_base ~ ('?status=' ~ status_filter if status_filter else '') %}
+{% set query = ('status=' ~ status_filter if status_filter else '') %}
+{% if execution_id %}{% set query = query ~ ('&' if query else '') ~ 'execution_id=' ~ execution_id %}{% endif %}
+{% set analyses_url = analyses_base ~ ('?' ~ query if query else '') %}
+{% set filter_url = analyses_base ~ ('?execution_id=' ~ execution_id if execution_id else '') %}
 {% set broker_total = groups|map(attribute='analysis_count')|sum %}
-{% set live = analyses|selectattr('is_live')|list|length > 0
+{% set live = execution_live|default(false)
+     or analyses|selectattr('is_live')|list|length > 0
      or groups|selectattr('sync_running')|list|length > 0 %}
 <details class="sec" open id="{{ section_id }}" data-analyses-section
   x-data="analysisPicks()"
   hx-get="{{ analyses_url }}"
-  hx-trigger="execution-submitted from:body, analyses-changed from:body{% if live %}, every 3s{% endif %}"
+  hx-trigger="analyses-changed from:body{% if live %}, every 3s{% endif %}"
   hx-target="this" hx-swap="outerHTML">
   <summary>
     <span class="sec__caret">▸</span>
@@ -53,7 +62,7 @@
     {% if analyses or groups %}
     <select name="status" class="wf-field__input" style="width:auto"
             onclick="event.stopPropagation()"
-            hx-get="{{ analyses_base }}" hx-trigger="change"
+            hx-get="{{ filter_url }}" hx-trigger="change"
             hx-target="#{{ section_id }}" hx-swap="outerHTML">
       <option value="">All statuses</option>
       <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>

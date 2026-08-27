@@ -64,21 +64,25 @@
     {% endif %}
     <div class="section-head">
       <span class="tag-empty">Select one or more available portfolios.</span>
-      <button class="btn-sm btn-sm--primary" type="submit"
-              :disabled="count === 0">Run hazard lookup</button>
-      {# Execute Suite / Execute Template (spec 010) share the geohaz selection:
-         hx-include reads the same portfolio_ids boxes at click time. type=button
-         keeps them from submitting the surrounding geohaz form. #}
-      {% if edm.status == 'ready' %}
-      <button class="btn-sm" type="button" :disabled="count === 0"
-              hx-get="/edms/{{ edm.id }}/execute?kind=suite"
-              hx-include="[name='portfolio_ids']"
-              hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
-      <button class="btn-sm" type="button" :disabled="count === 0"
-              hx-get="/edms/{{ edm.id }}/execute?kind=template"
-              hx-include="[name='portfolio_ids']"
-              hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
-      {% endif %}
+      <div class="section-head__actions">
+        <button class="btn-sm btn-sm--primary" type="submit"
+                :disabled="count === 0">Run hazard lookup</button>
+        {# Execute Suite / Execute Template (spec 010) share the geohaz selection:
+           hx-include reads the same portfolio_ids boxes at click time. type=button
+           keeps them from submitting the surrounding geohaz form. #}
+        {% if edm.status == 'ready' %}
+        {% set execute_url = ('/submissions/' ~ gh_sub if gh_sub else '')
+             ~ '/edms/' ~ edm.id ~ '/execute' %}
+        <button class="btn-sm" type="button" :disabled="count === 0"
+                hx-get="{{ execute_url }}?kind=suite"
+                hx-include="[name='portfolio_ids']"
+                hx-target="#execute-modal" hx-swap="innerHTML">Execute Suite</button>
+        <button class="btn-sm" type="button" :disabled="count === 0"
+                hx-get="{{ execute_url }}?kind=template"
+                hx-include="[name='portfolio_ids']"
+                hx-target="#execute-modal" hx-swap="innerHTML">Execute Template</button>
+        {% endif %}
+      </div>
     </div>
     <div class="dtable-shell">
       <div class="dtable dtable--selectable" style="--cols:var(--pick-w) 230px 92px 84px 84px minmax(130px,1fr) minmax(180px,2fr) 145px 90px 150px 130px;min-width:1357px">

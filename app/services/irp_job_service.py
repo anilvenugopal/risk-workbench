@@ -46,8 +46,6 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         "submission": (str(requested_from_submission_id)
                        if requested_from_submission_id is not None else None),
         "edm": (str(irp_edm_id) if irp_edm_id is not None else None),
-        "portfolio": (str(irp_portfolio_id)
-                      if irp_portfolio_id is not None else None),
         "rdm": (str(irp_rdm_id) if irp_rdm_id is not None else None),
         "portfolio": (str(irp_portfolio_id) if irp_portfolio_id is not None else None),
         "analysis": (str(irp_analysis_id) if irp_analysis_id is not None else None),
@@ -57,7 +55,6 @@ def _insert_irp_job(conn, *, job_id: str, requested_from_submission_id,
         # Inherited from the worker's bound per-job context (issue #28) — both
         # writers (submit + submission-failure) run inside run_job's bind.
         "cid": log_context.correlation_id(),
-        "request_params": _json(request_params),
         "payload": _json(payload),
         "response": _json(response),
         "params": _json(request_params),

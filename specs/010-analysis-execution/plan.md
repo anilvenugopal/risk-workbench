@@ -66,7 +66,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   (`max_retries=0`, failure → `failed` + `error_detail`, reconciler recovers
   interruption); the P-14 backoff retry and retrieval-failed display are deferred.
 
-**Risk.** The wheel is pre-release (0.6.0rc2) and moves: signatures in
+**Risk.** The wheel moves: signatures in
 [contracts/irp-gateway.md](contracts/irp-gateway.md) must be re-confirmed against the
 active wheel at implementation; the IRP-sandbox tier is the proof.
 
@@ -77,7 +77,7 @@ active wheel at implementation; the IRP-sandbox tier is the proof.
 **Language/Version**: Python ≥3.12
 
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX 2 + Alpine.js (server-rendered, no SPA);
-Dramatiq[redis]; `irp-integration==0.6.0rc2` (TestPyPI, source-switchable); SQLAlchemy
+Dramatiq[redis]; `irp-integration==0.6.0` (TestPyPI, source-switchable); SQLAlchemy
 Core via the `/db` package (pyodbc, ODBC 18); `pyarrow` (new, loss phase)
 
 **Storage**: SQL Server — `rwb_workbench` (Alembic single revision, drop-create-seed);
@@ -110,9 +110,10 @@ modal, one fragment, three workers, one poller job type
 Articles that shaped the design:
 
 - **Article 2 (sequencing derived, not stored)** — no run/batch table: a run is its
-  execution UUID on the jobs it created; RM coupling stays name-based (submit resolves
-  names; backfill resolves by exact submitted name). The plan JSON is an approved input
-  snapshot, not a stored DAG.
+  execution UUID on the jobs it created; submit resolves names, but completion is
+  ID-based (the backfill uses the `analysisId` the poller extracts from the FINISHED
+  job body — names are display-only). The plan JSON is an approved input snapshot, not
+  a stored DAG.
 - **Article 3 (kind tables; external-status carve-out)** — new categoricals are kind
   tables (`execute_analysis_batch`/`backfill_analysis_detail` rows in
   `rwb_job_type_kind`; new `analysis_perspective_kind`); RM's job vocabulary stays only

@@ -43,10 +43,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy import text
+
 from app.config import settings
 from app.services import irp_gateway
 from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
-from db import execute, execute_command
+from db import execute, execute_command, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +205,8 @@ class BrokerAnalysis:
     is_group: bool = False
     settings: dict | None = None            # parsed raw snapshot (R2)
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
-    rm_url: str | None = None    # Risk Modeler link-out, built as own rows build theirs (FR-025)
+    rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
+                                 # appAnalysisId, as own rows build theirs (FR-025)
     created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
     # ── spec 011 results (FR-008/SC-005) ──────────────────────────────────────
     results_state: str = "pending"      # pending | failed | ready
@@ -236,21 +239,23 @@ class ExecutedAnalysis:
     """One workbench-submitted analysis for the EDM detail page's user-executed
     section (spec 010 US2, FR-013). Status is derived from the latest tracked
     ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
-    status_code`` keeps only the four coarse lifecycle codes."""
+    status_code`` keeps only the three coarse lifecycle codes."""
     id: str
     name: str | None            # the ≤64-char name submitted to Risk Modeler
     full_name: str | None       # untruncated portfolio + template (+ suffix)
     portfolio_name: str | None
-    status_code: str            # pending | running | ready | error
+    status_code: str            # pending | ready | error
     failure_reason: str | None
     template_name: str | None = None
     run_by: str | None = None   # app_user.display_name of the submitting analyst
     edm_name: str | None = None  # submission-wide reads only (FR-009 EDM column)
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
-    rm_url: str | None = None   # Risk Modeler link-out; None without irp_id
+    irp_app_analysis_id: str | None = None  # RM appAnalysisId; web-UI id
+    rm_url: str | None = None   # Risk Modeler link-out; None without irp_app_analysis_id
     settings: dict | None = None
     display: AnalysisSettings = field(default_factory=AnalysisSettings)
+    irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
     # ── spec 011 results (FR-008/SC-005) ──────────────────────────────────────
@@ -262,12 +267,11 @@ class ExecutedAnalysis:
     @property
     def is_live(self) -> bool:
         """Drives the EDM page's 3s self-poll (T-11): still moving toward a
-        terminal outcome. Equivalent to "joined job non-terminal" — status_code
-        only reaches ready/error once the job (or the exhausted retry batch)
-        already has. A ready run whose retrieval is still pending keeps polling
-        so the loss numbers land with zero analyst actions (SC-001); a failed
-        retrieval is terminal (O-06)."""
-        return (self.status_code in ("pending", "running")
+        terminal outcome. ``pending`` is the only in-flight run status — every
+        write that leaves it is terminal. A ready run whose retrieval is still
+        pending keeps polling so the loss numbers land with zero analyst actions
+        (SC-001); a failed retrieval is terminal (O-06)."""
+        return (self.status_code == "pending"
                 or (self.status_code == "ready"
                     and self.results_state == "pending"))
 
@@ -284,7 +288,7 @@ class ExecutedAnalysis:
     def status_chip(self) -> str:
         """One of the existing import-status chip variants (submissions.css) —
         no new CSS, keyed off the derived label rather than a stored status."""
-        if self.job_status in (None, "QUEUED", "RUNNING"):
+        if self.job_status in (None, "QUEUED", "RUNNING", "SUBMISSION RETRYING"):
             return "importing"
         if self.job_status == "FINISHED":
             return "ready"
@@ -309,8 +313,9 @@ class ExecutedAnalysis:
         """Terminal rows only. Deliberately NOT ``status_chip == 'ready'``: the
         chip turns ready at job FINISHED, seconds before the backfill writes
         ``irp_id`` — deleting in that window would orphan the RM analysis."""
-        return (self.status_code in ("ready", "error")
-                or self.status_chip == "submission-failed")
+        return (self.job_status != "SUBMISSION RETRYING"
+                and (self.status_code in ("ready", "error")
+                     or self.status_chip == "submission-failed"))
 
 
 def _parse_settings(raw: Any) -> dict | None:
@@ -427,7 +432,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
                 edm_names=[r["edm_name"]] if r["edm_name"] else [],
                 is_group=bool(r["is_group"]), settings=settings,
                 display=_to_display(settings),
-                rm_url=_rm_analysis_url(r["irp_id"]),
+                rm_url=_rm_analysis_url((settings or {}).get("appAnalysisId")),
                 created_at=(settings or {}).get("createDate"),
                 results_state=("ready" if results else "pending"),
                 results=results)
@@ -441,6 +446,7 @@ def _dedup_handles(rows: list[dict]) -> list[BrokerAnalysis]:
             if settings is not None:
                 existing.settings = settings
                 existing.display = _to_display(settings)
+                existing.rm_url = _rm_analysis_url(settings.get("appAnalysisId"))
                 existing.created_at = settings.get("createDate")
         if not existing.results:
             results = _perspective_results(r["loss_results"], perspectives)
@@ -484,33 +490,50 @@ def list_edm_analyses(*, edm_id: Any) -> list[BrokerAnalysisGroup]:
     return []
 
 
-_EXECUTED_SELECT = """
+# The analysis' latest tracked irp_job (T-07) — the row that carries the status
+# label and the submission attempt count. Joined by both own-executed reads.
+_LATEST_JOB_JOIN = """
+    LEFT JOIN (
+        SELECT id, irp_analysis_id, status, submission_attempt_count,
+               ROW_NUMBER() OVER (
+                   PARTITION BY irp_analysis_id
+                   ORDER BY inserted_at DESC, id DESC
+               ) AS row_num
+        FROM irp_job
+        WHERE irp_analysis_id IS NOT NULL
+    ) j ON j.irp_analysis_id = a.id AND j.row_num = 1
+"""
+
+_EXECUTED_SELECT = f"""
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
-           a.settings_metadata, a.inserted_at, a.irp_id,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings,
            p.name AS portfolio_name, t.name AS template_name,
-           u.display_name AS run_by
+           u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
     LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
     LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
 """
 
 
-def _rm_analysis_url(irp_id: Any) -> str | None:
+def _rm_analysis_url(irp_app_analysis_id: Any) -> str | None:
     """The Risk Modeler web UI page for one analysis — plain navigation, never
-    an API call (Article 11). ``None`` without an ``irp_id`` or when the RM UI
-    origin is not configured. The ``/riskmodeler/analyses/{id}`` path is
-    unverified against the live RM UI (no per-analysis link existed in the
-    repo before) — confirm during manual testing."""
-    if not irp_id:
+    an API call (Article 11). The RM UI route takes ``appAnalysisId``, not the
+    API ``analysisId``. ``None`` without an ``irp_app_analysis_id`` or when the RM
+    UI origin is not configured. The trailing ``/0`` is part of the RM UI
+    route."""
+    if not irp_app_analysis_id:
         return None
     root = _rm_ui_root()
     if root is None:
         return None
-    return f"{root}/riskmodeler/analyses/{irp_id}"
+    return f"{root}/riskmodeler/datasources/analysis/{irp_app_analysis_id}/0"
 
 
 def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
@@ -522,6 +545,8 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
     for r in rows:
         parsed = _parse_settings(r["settings_metadata"])
         irp_id = str(r["irp_id"]) if r["irp_id"] is not None else None
+        irp_app_analysis_id = (str(r["irp_app_analysis_id"])
+                               if r["irp_app_analysis_id"] is not None else None)
         results = _perspective_results(r["loss_results"], perspectives)
         analyses.append(ExecutedAnalysis(
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
@@ -530,27 +555,14 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             template_name=r["template_name"], run_by=r["run_by"],
             inserted_at=r["inserted_at"],
             edm_name=r.get("edm_name"),
-            irp_id=irp_id, rm_url=_rm_analysis_url(irp_id), settings=parsed,
+            irp_id=irp_id, irp_app_analysis_id=irp_app_analysis_id,
+            rm_url=_rm_analysis_url(irp_app_analysis_id), settings=parsed,
             display=_to_display(parsed),
+            irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
+            job_status=r["job_status"],
+            submission_attempt_count=int(r["submission_attempt_count"] or 0),
             results_state=("ready" if results else "pending"), results=results,
             submitted=_submitted_view(r["submitted_settings"])))
-    if not analyses:
-        return analyses
-    params = {f"a{i}": a.id for i, a in enumerate(analyses)}
-    placeholders = ", ".join(f":a{i}" for i in range(len(analyses)))
-    jobs = execute(
-        f"SELECT irp_analysis_id, status, submission_attempt_count "
-        f"FROM irp_job WHERE irp_analysis_id IN ({placeholders}) "
-        "ORDER BY inserted_at DESC",
-        params, connection="WORKBENCH")
-    latest_job: dict[str, dict] = {}
-    for job in jobs:
-        latest_job.setdefault(_uid(job["irp_analysis_id"]), job)
-    for a in analyses:
-        job = latest_job.get(a.id)
-        if job is not None:
-            a.job_status = job["status"]
-            a.submission_attempt_count = int(job["submission_attempt_count"] or 0)
     _mark_failed_retrievals(analyses)
     return analyses
 
@@ -563,18 +575,21 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
     return _executed_models([dict(r) for r in rows])
 
 
-_SUBMISSION_EXECUTED_SELECT = """
+_SUBMISSION_EXECUTED_SELECT = f"""
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
-           a.settings_metadata, a.inserted_at, a.irp_id,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
            a.loss_results, a.submitted_settings,
            p.name AS portfolio_name, t.name AS template_name,
-           e.name AS edm_name, u.display_name AS run_by
+           e.name AS edm_name, u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
     FROM irp_analysis a
     JOIN submission_edm se ON se.edm_id = a.edm_id
     JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
     LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
     LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
     WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
       AND e.deleted_at IS NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
@@ -593,10 +608,29 @@ def list_submission_executed_analyses(
     return _executed_models([dict(r) for r in rows])
 
 
+def execution_batch_is_live(execution_id: Any | None) -> bool:
+    if not execution_id:
+        return False
+    rows = execute(
+        "SELECT status_code FROM rwb_job "
+        "WHERE requestor_type = 'analyst_request' AND requestor_id = :id "
+        "AND rwb_job_type = 'execute_analysis_batch' "
+        "AND status_code IN ('pending', 'running')",
+        {"id": str(execution_id)}, connection="WORKBENCH")
+    return bool(rows)
+
+
 @dataclass(frozen=True)
 class DeleteOutcome:
     deleted: int
     failed: list[str]  # display names whose Risk Modeler delete failed
+    retrying: list[str]  # display names the poller claimed for a submission retry
+
+
+_SOFT_DELETE_ANALYSIS = (
+    "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
+    "updated_by = :by WHERE id = :id AND deleted_at IS NULL"
+)
 
 
 def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
@@ -605,9 +639,12 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
     whole batch up front (every posted id must resolve on this EDM and be
     ``is_deletable``, else ``ValueError``), then per row cascade to Risk
     Modeler first and soft-delete locally on success. A row whose RM delete
-    fails is recorded in ``failed`` and kept visible for retry. RM-first
-    order: a crash between the two calls leaves a visible row with a dangling
-    ``irp_id`` — recoverable by retrying — rather than a hidden RM analysis."""
+    fails is recorded in ``failed`` and kept visible for retry; a row the poller
+    claimed for a submission retry mid-batch is recorded in ``retrying`` and left
+    alone. Neither aborts the batch — the rows already deleted stay deleted, and
+    the caller reports all three counts. RM-first order: a crash between the two
+    calls leaves a visible row with a dangling ``irp_id`` — recoverable by
+    retrying — rather than a hidden RM analysis."""
     ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
     if not ids:
         raise ValueError("No analyses selected.")
@@ -626,6 +663,7 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
 
     deleted = 0
     failed: list[str] = []
+    retrying: list[str] = []
     for row in picked:
         if row.irp_id is not None:
             # Outside any transaction (Article 11 — never hold a txn across
@@ -637,14 +675,30 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                                  "(irp_id=%s)", row.id, row.irp_id)
                 failed.append(row.full_name or row.name or row.id)
                 continue
-        now = _utcnow()
-        execute_command(
-            "UPDATE irp_analysis SET deleted_at = :now, updated_at = :now, "
-            "updated_by = :by WHERE id = :id AND deleted_at IS NULL",
-            {"now": now, "by": (str(actor_id) if actor_id is not None else None),
-             "id": row.id}, connection="WORKBENCH")
+        soft_delete = {"now": _utcnow(), "id": row.id,
+                       "by": (str(actor_id) if actor_id is not None else None)}
+        if row.job_status == "SUBMISSION FAILED" and row.irp_job_id:
+            with get_connection("WORKBENCH") as conn, conn.begin():
+                locked = conn.execute(text(
+                    "UPDATE irp_job SET updated_at = :now "
+                    "WHERE id = :job_id AND status = 'SUBMISSION FAILED' "
+                    "AND EXISTS (SELECT 1 FROM irp_analysis "
+                    "WHERE id = :analysis_id AND deleted_at IS NULL)"
+                ), {"now": soft_delete["now"], "job_id": row.irp_job_id,
+                    "analysis_id": row.id}).rowcount
+                if locked != 1:
+                    # The poller claimed this submit for a retry after the read
+                    # above. Nothing was deleted for this row — its irp_id is
+                    # NULL, so Risk Modeler was never called — and raising here
+                    # would discard the rows already deleted earlier in the loop.
+                    retrying.append(row.full_name or row.name or row.id)
+                    continue
+                conn.execute(text(_SOFT_DELETE_ANALYSIS), soft_delete)
+        else:
+            execute_command(_SOFT_DELETE_ANALYSIS, soft_delete,
+                            connection="WORKBENCH")
         deleted += 1
-    return DeleteOutcome(deleted=deleted, failed=failed)
+    return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
 
 
 @dataclass
@@ -765,8 +819,8 @@ __all__ = [
     "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
     "ExecutedAnalysis", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",
-    "delete_executed_analyses", "expanded_return_periods",
-    "list_analysis_perspectives",
+    "delete_executed_analyses", "execution_batch_is_live",
+    "expanded_return_periods", "list_analysis_perspectives",
     "list_broker_analyses", "list_edm_analyses",
     "list_executed_analyses", "list_results_columns",
     "list_submission_executed_analyses",

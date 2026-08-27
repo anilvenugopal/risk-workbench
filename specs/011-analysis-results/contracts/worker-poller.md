@@ -28,7 +28,8 @@ skips when results already exist.
 
 ## 2. `retrieve_analysis_results` actor
 
-`@dramatiq.actor(max_retries=0)`, standard `runtime.run_job` wrapper
+`@rwb_actor(max_retries=0)` — its own `retrieve_analysis_results` Dramatiq queue
+and worker process (CR-004) — with the standard `runtime.run_job` wrapper
 (claim → heartbeat → body → complete; reconciler recovers interruption —
 FR-007's automatic recovery).
 
