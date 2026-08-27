@@ -4,9 +4,8 @@
 stored state (never Risk Modeler — Article 11), compose the run's plan **once**
 (AGENTS.md rule 8 — approved plans are immutable), persist it as the sole
 ``execute_analysis_batch`` ``rwb_job`` for a fresh ``execution_id``, and dispatch.
-The worker (``app/workers/analysis_jobs.py``) reads nothing else at execution time.
-It also owns the analysis naming (T-04/T-05) — this module never touches
-``irp_analysis``.
+The worker (``app/workers/analysis_jobs.py``) reads nothing else at execution time,
+and owns the analysis naming (T-04/T-05); this module never touches ``irp_analysis``.
 """
 
 from __future__ import annotations
@@ -122,18 +121,6 @@ def _template_rows(template_ids: list[str]) -> dict[str, dict]:
     return by_id
 
 
-def _suite_template_ids(suite_id: str) -> set[str] | None:
-    """Live template ids belonging to a suite, or ``None`` when the suite itself
-    doesn't exist / is deleted."""
-    suite = template_service.get_suite(suite_id)
-    if suite is None:
-        return None
-    return {
-        item["template_id"] for item in suite["items"]
-        if item["template_name"] is not None and item["template_deleted_at"] is None
-    }
-
-
 def _validate_currency(code: str, scheme: str, vintage: str) -> tuple[dict | None, str | None]:
     """A complete, cache-valid currency block, or an error message (FR-019/FR-020).
     The membership of currency *in* scheme is deliberately unvalidated (edge case
@@ -200,10 +187,15 @@ def _validate(
     if kind == "suite":
         any_templates_selected = False
         for pick in suite_picks:
-            suite_template_ids = _suite_template_ids(pick.suite_id)
-            if suite_template_ids is None:
+            suite = template_service.get_suite(pick.suite_id)
+            if suite is None:
                 errors.append("A selected suite no longer exists.")
                 continue
+            suite_template_ids = {
+                item["template_id"] for item in suite["items"]
+                if item["template_name"] is not None
+                and item["template_deleted_at"] is None
+            }
             picked = [_uid(t) for t in dict.fromkeys(pick.template_ids)]
             foreign = [t for t in picked if t not in suite_template_ids]
             if foreign:
@@ -216,7 +208,6 @@ def _validate(
             if picked:
                 any_templates_selected = True
                 if currency is not None:
-                    suite = template_service.get_suite(pick.suite_id)
                     suite_items.append(_ValidSuiteItem(
                         suite_id=pick.suite_id, suite_name=suite["name"],
                         currency=currency, template_ids=picked))

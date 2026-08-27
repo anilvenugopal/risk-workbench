@@ -31,6 +31,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence, runtime_checkable
 
+# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
+# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
+# raises this on any submit failure (spec 010, contracts/irp-gateway.md).
+from irp_integration.exceptions import IRPIntegrationError
+
 logger = logging.getLogger(__name__)
 
 # Repo-owned, read-only DataBridge scripts — the per-EDM summary aggregates
@@ -88,16 +93,6 @@ _COVERAGE_SCRIPTS = {
 # A free-text descriptor with more distinct values than this is not saved into
 # the stored summary (8/4 D15 — lines of business is the known case).
 _FREE_TEXT_STORAGE_CAP = 500
-
-# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
-# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
-# raises this on any submit failure (spec 010, contracts/irp-gateway.md); the
-# fallback keeps this module importable without the wheel installed.
-try:
-    from irp_integration.exceptions import IRPIntegrationError
-except ImportError:  # pragma: no cover — the wheel is always installed in dev/CI
-    class IRPIntegrationError(Exception):
-        """Fallback used only when irp-integration isn't installed."""
 
 
 def _peril_code(value: Any) -> str:

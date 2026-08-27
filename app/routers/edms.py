@@ -346,11 +346,8 @@ def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str
     section = edm_service.get_edm_analyses(
         edm_id=edm_id, submission_id=submission_id)
     if section is None:
-        return HTMLResponse(
-            '<details class="sec" open id="edm-executed-analyses">'
-            '<summary><span class="sec__title">Analyses</span></summary>'
-            '<div class="state-box state-box--warn">'
-            'This EDM is no longer related to the submission.</div></details>')
+        return _analyses_gone_notice(
+            "This EDM is no longer related to the submission.")
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
     return _partial(
         request, "partials/executed_analyses_section.html",
@@ -619,6 +616,18 @@ def _analyses_status_filter(request: Request) -> str:
     return status if status in _ANALYSES_STATUS_FILTERS else ""
 
 
+def _analyses_gone_notice(message: str) -> HTMLResponse:
+    """The Analyses section with nothing left to poll. Not
+    ``executed_analyses_section.html``: that template always emits the ``hx-get``
+    and ``hx-trigger`` the 3s poll runs on, and this notice must omit them so the
+    poll stops instead of refetching a section that no longer resolves."""
+    return HTMLResponse(
+        '<details class="sec" open id="edm-executed-analyses">'
+        '<summary><span class="sec__title">Analyses</span></summary>'
+        f'<div class="state-box state-box--warn">{escape(message)}'
+        '</div></details>')
+
+
 def _analyses_section_partial(request: Request, edm_id: str):
     """The Analyses section's own fragment (executed_analyses_section.html) —
     its polling unit, separate from the rest of the detail body (T-11
@@ -626,12 +635,7 @@ def _analyses_section_partial(request: Request, edm_id: str):
     expanded elsewhere on the page."""
     section = edm_service.get_edm_analyses(edm_id=edm_id)
     if section is None:
-        # EDM hard-gone mid-poll: a terminal notice with no trigger ends polling.
-        return HTMLResponse(
-            '<details class="sec" open id="edm-executed-analyses">'
-            '<summary><span class="sec__title">Analyses</span></summary>'
-            '<div class="state-box state-box--warn">This EDM no longer exists.'
-            '</div></details>')
+        return _analyses_gone_notice("This EDM no longer exists.")
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
     return _partial(request, "partials/executed_analyses_section.html",
                     {"edm": section,

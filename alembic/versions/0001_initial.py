@@ -509,7 +509,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_analysis_rdm_id", "irp_analysis", ["rdm_id"])
     op.create_index("ix_irp_analysis_edm_id", "irp_analysis", ["edm_id"])
-    # Idempotent backfill backbone for broker rows — a duplicate search never
+    # Keeps the broker backfill idempotent — a duplicate search never
     # double-inserts. Filtered (not a plain UNIQUE constraint) because the many
     # own-executed rows share NULL rdm_id/irp_id, which a plain UNIQUE would
     # collide on in SQL Server.
@@ -519,7 +519,7 @@ def upgrade() -> None:
         unique=True, mssql_where=irp_analysis_rdm_irp,
         sqlite_where=irp_analysis_rdm_irp,
     )
-    # Local rerun-collision check + name-claim backbone for own-executed rows
+    # Local rerun-collision check + name claim for own-executed rows
     # (T-05) — live rows only, one EDM's names never collide.
     irp_analysis_live_edm_name = sa.text("edm_id IS NOT NULL AND deleted_at IS NULL")
     op.create_index(
@@ -531,8 +531,8 @@ def upgrade() -> None:
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
     #  irp_portfolio / irp_treaty: thin §5 identity/lineage records + a JSON
     #  snapshot cache column each (R2 — nullable; null ⇒ graceful empty state).
-    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is the
-    #  idempotent-upsert backbone (service falls back to (edm_id, name) matching).
+    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is what
+    #  makes the upsert idempotent (service falls back to (edm_id, name) matching).
     #  No status column (Article 4), no scope column (Article 6).
     # ══════════════════════════════════════════════════════════════════════════
 
