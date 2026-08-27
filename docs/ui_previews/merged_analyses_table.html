@@ -201,8 +201,8 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
     <p style="margin:0 0 var(--space-2)">
       Approved 2026-08-26, then changed by the 8/26 design session
       (<code>docs/design_session_notes/20_results_views_demoed_grid_columns_name_split_ep_type_selection_export_first_requirements.md</code>).
-      The grid shape, the group rows, the AAL states, and the expanded row are all still right. Three things
-      in the header row are not:
+      The grid shape, the group rows and the AAL states are still right. The header row and the expanded
+      row are not:
     </p>
     <ul style="margin:0 0 var(--space-2);padding-left:1.4em">
       <li>The single <strong>Analysis</strong> column is now <strong>Portfolio</strong> + <strong>Template</strong> (D4).
@@ -210,6 +210,9 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
       <li><strong>Type</strong> is gone from the table — analysis type reads in the expanded row (D2/D3).</li>
       <li><strong>Peril</strong> and <strong>Region</strong> read as codes: <code>WS</code>, <code>NA</code> (D2).
           The peril cell no longer appends the sub-peril.</li>
+      <li>The expanded row keeps one <strong>Metadata</strong> group. Peril and Analysis template leave it
+          (they are columns now), <strong>Analysis settings</strong> is deleted apart from unrecognized
+          construction and occupancy, and <strong>Run by</strong> is added (D4/D10).</li>
     </ul>
     <p style="margin:0">
       A broker analysis has one name, so its name cell spans both new tracks and is followed by a hidden span

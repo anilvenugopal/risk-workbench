@@ -34,7 +34,8 @@ submitted_settings  NVARCHAR(MAX)  NULL
   `asOfDate`), `event_rate_scheme_name`, `min_loss_threshold`,
   `num_max_loss_event`, `franchise_deductible`,
   `treat_construction_occupancy_as_unknown`, `template_name`, and the profile
-  names. The expanded row's **Analysis settings** group reads it (FR-022).
+  names. The expanded row reads *unrecognized construction and occupancy* from
+  it (FR-022); the export iteration is the next reader of the rest.
 - Own analyses only. `NULL` on broker rows, which is what the expanded row
   renders as *not returned* — Risk Modeler returns none of these fields, and
   currency scheme and vintage exist nowhere else (they are chosen at submit
@@ -109,7 +110,7 @@ Computed in `analysis_service` from existing columns:
 | AAL and standard deviation (per selected perspective) | `loss_results` JSON — AAL also feeds the merged table's AAL column; standard deviation renders only in the expanded row and on the dedicated page |
 | results state | `loss_results IS NOT NULL` → ready; else retrieval job row `failed` → failed + `error_detail`; else pending |
 | condensed / expanded extract | `loss_results` JSON filtered to the §4 sets |
-| Metadata group (engine version, analysis type, peril, subperil, framework, event rate scheme) | `settings_metadata` via `AnalysisSettings`, which gains a `framework` field — `_to_display` folds `analysisFramework` into `analysis_mode` today |
-| analysis template | `analysis_template_id` join (own rows); broker rows blank |
-| Analysis settings group | `submitted_settings` JSON (§1b); broker rows blank |
+| Metadata group (engine version, analysis type, subperil, framework, event rate scheme) | `settings_metadata` via `AnalysisSettings`, which gains a `framework` field — `_to_display` folds `analysisFramework` into `analysis_mode` today |
+| unrecognized construction and occupancy | `submitted_settings` JSON (§1b); broker rows blank |
+| run by | `inserted_by` join to `app_user.display_name` (own rows); broker rows never set `inserted_by`, so they read as not returned |
 | broker Risk Modeler link / Submitted | `BrokerAnalysis` gains `rm_url` (built like the own-row link) and `created_at` from the payload's `createDate` |

@@ -63,8 +63,8 @@
   submission-wide (the only place cross-EDM selection exists, FR-013), with an
   EDM column after Template — the same `show_edm` flag the broker row takes.
 - Expanded row body is two flex columns that stack when narrow: on the left the
-  source line then the **Metadata** and **Analysis settings** groups (O-11,
-  FR-022); on the right the condensed results — both EP types × the 6 condensed
+  source line — the full analysis name on own rows — then the **Metadata**
+  group (O-11, FR-022); on the right the condensed results — both EP types × the 6 condensed
   return periods, then AAL and standard deviation as the last two rows, with the
   perspective toggle in the row and no display toggle (FR-011). Values wrap and
   carry `title` tooltips (FR-023).

@@ -1486,7 +1486,8 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # the split name columns (D4) — the full CRE_ name moved to the expansion
     assert "Coastal HO" in html and "Inland HO" in html
     assert ">Portfolio</span>" in html and ">Template</span>" in html
-    assert "CRE_Coastal_v25" not in html
+    assert 'data-value="CRE_Coastal_v25"' not in html
+    assert "<b>CRE_Coastal_v25</b>" in html
     # the RDM group row lazy-loads from the submission-scoped fragment route
     assert "Acme Broker RDM" in html
     assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html

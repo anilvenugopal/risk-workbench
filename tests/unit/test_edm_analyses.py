@@ -134,7 +134,7 @@ def _seed_edm(name="EDM One") -> str:
 def _seed_executed(*, edm_id: str, name: str, loss_results=None,
                    settings=None, submitted=None, job_status="FINISHED",
                    status_code="ready", portfolio_name=None,
-                   template_name=None) -> str:
+                   template_name=None, inserted_by=None) -> str:
     portfolio_id = template_id = None
     if portfolio_name:
         portfolio_id = str(uuid.uuid4())
@@ -153,11 +153,12 @@ def _seed_executed(*, edm_id: str, name: str, loss_results=None,
         "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
         "irp_id, execution_id, execution_item_no, settings_metadata, "
         "loss_results, submitted_settings, inserted_at, irp_portfolio_id, "
-        "analysis_template_id) "
+        "analysis_template_id, inserted_by) "
         "VALUES (:id, :edm, :n, :n, :sc, '9001', :x, 0, :sm, :lr, :ss, "
-        "'2026-08-26T00:00:00', :p, :t)",
+        "'2026-08-26T00:00:00', :p, :t, :by)",
         {"id": analysis_id, "edm": edm_id, "n": name, "x": str(uuid.uuid4()),
          "sc": status_code, "p": portfolio_id, "t": template_id,
+         "by": inserted_by,
          "sm": (json.dumps(settings) if settings else None),
          "lr": (json.dumps(loss_results) if loss_results else None),
          "ss": (json.dumps(submitted) if submitted else None)},
@@ -184,10 +185,12 @@ def _extract():
     }
 
 
-def test_expanded_row_renders_groups_results_and_perspective_toggle(client):
+def test_expanded_row_renders_metadata_results_and_perspective_toggle(
+        client, iteration2_db):
     edm_id = _seed_edm()
     _seed_executed(
         edm_id=edm_id, name="CRE_HO_FL_v25 DLM HU", loss_results=_extract(),
+        inserted_by=iteration2_db.user_a,
         settings={"analysisType": "Exceedance Probability",
                   "analysisFramework": "ELT", "currencyCode": "USD",
                   "eventRateSchemeNames": [_LONG_SCHEME]},
@@ -198,17 +201,27 @@ def test_expanded_row_renders_groups_results_and_perspective_toggle(client):
 
     html = client.get(f"/edms/{edm_id}/analyses").text
 
-    # both named groups (O-11) and the condensed results block
+    # one named group (O-11) and the condensed results block
     assert "Metadata" in html
-    assert "Analysis settings" in html
+    assert "Analysis settings" not in html
     assert "Condensed results" in html
     assert ">AAL<" in html
     assert "Std dev" in html
     assert "4.1M" in html          # AAL formatted in millions
+    # the full analysis name moved out of the condensed grid into the source line
+    assert "<b>CRE_HO_FL_v25 DLM HU</b>" in html
     # a field the origin does not supply is listed, never hidden (FR-022):
     # subperil is absent from the settings payload above
     assert "Subperil" in html
     assert "not returned" in html
+    # who submitted the run (D4)
+    assert "<dt>Run by</dt>" in html
+    assert "Analyst A" in html
+    # the fields the condensed grid or the template now says are gone (O-11)
+    for label in ("<dt>Peril</dt>", "Analysis template", "<dt>Currency</dt>",
+                  "Min loss threshold", "Franchise deductible"):
+        assert label not in html
+    assert "USD · RMS · RL25" not in html
     # the perspective toggle defaults to Gross (FR-012) and lists all five
     assert "x-data=\"{ p: 'GR' }\"" in html
     for label in ("Gross", "Reinsurance Layer", "Working Excess",
@@ -216,8 +229,6 @@ def test_expanded_row_renders_groups_results_and_perspective_toggle(client):
         assert label in html
     # a long value wraps in CSS; the cell carries the full text as its tooltip
     assert f'title="{_LONG_SCHEME}"' in html
-    # submitted settings render from the snapshot
-    assert "USD · RMS · RL25" in html
     assert "Treat as unknown" in html
 
 

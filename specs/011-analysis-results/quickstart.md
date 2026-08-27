@@ -21,15 +21,15 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
    click, and nothing on the page asked for a retrieval. Until they arrive the
    expansion reads results-pending. (The Currency and AAL *columns* come with the
    merged table in US3; the collapsed row is unchanged in US1.)
-3. In the expansion — left: the source line, then Metadata (engine version,
-   analysis type, peril, subperil, framework, event rate scheme, analysis
-   template) and Analysis settings (currency code/scheme/vintage, min loss
-   threshold, franchise deductible, unrecognized construction and occupancy) —
-   the settings match what the run was submitted with, and editing the template
-   afterwards does not change them. Four fields today's expansion shows are
-   gone by decision (O-11): Construction, Line of business, Term, Loss
-   amplification (PLA). Engine type and Region are not gone — they read from the
-   merged table's Engine and Region columns. Right: OEP + AEP at
+3. In the expansion — left: the source line carrying the full analysis name,
+   then Metadata (engine version, analysis type, subperil, framework, event rate
+   scheme, unrecognized construction and occupancy, run by) — the construction
+   and occupancy value matches what the run was submitted with, and editing the
+   template afterwards does not change it. Fields today's expansion shows that
+   are gone by decision (O-11): Construction, Line of business, Term, Loss
+   amplification (PLA), currency, min loss threshold, franchise deductible.
+   Engine type, Region, Peril, Portfolio and Template are not gone — they read
+   from the merged table's columns. Right: OEP + AEP at
    50/100/250/500/1000/10000, then AAL and Std dev, with the perspective toggle
    GR/RL/WX/QS/GU, Gross default; a perspective the analysis did not produce
    shows as absent, not as an error.

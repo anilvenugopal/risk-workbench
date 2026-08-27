@@ -28,8 +28,8 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 - Submitted is emitted as `<time datetime="…Z">` in UTC and formatted in the
   browser — date, time to the second, AM/PM in the reader's zone (FR-024,
   T-10).
-- Row expansion is two columns (FR-011/FR-022): left the source line and the
-  Metadata and Analysis settings groups (O-11), right OEP and AEP at
+- Row expansion is two columns (FR-011/FR-022): left the source line — the full
+  analysis name on own rows — and the Metadata group (O-11), right OEP and AEP at
   50/100/250/500/1000/10000 followed by AAL and standard deviation as the last
   two rows, with the perspective toggle in the row and no display toggle.
 - Section summary line: status filter, **Copy table**, **Delete**, **View**.

@@ -1,18 +1,19 @@
 {# The expanded analysis row's two columns (spec 011, FR-011/FR-022/O-11),
    shared by own and broker rows so the two origins can't drift. Left: the
-   source line, then the Metadata and Analysis settings groups — a field the
-   origin does not supply is listed and reads "not returned", never hidden.
-   Right: the condensed results (OEP + AEP at 50/100/250/500/1000/10000, then
-   AAL and Std dev) with the row's perspective toggle — Gross first = default
-   (FR-012); no units control here (O-12). The columns stack when the row is
-   too narrow (`.drow__body--split` wraps). Context: `a` —
+   source line — the full analysis name on own rows, the RDM on broker rows —
+   then the Metadata group; a field the origin does not supply is listed and
+   reads "not returned", never hidden. Right: the condensed results (OEP + AEP
+   at 50/100/250/500/1000/10000, then AAL and Std dev) with the row's
+   perspective toggle — Gross first = default (FR-012); no units control here
+   (O-12). The columns stack when the row is too narrow
+   (`.drow__body--split` wraps). Context: `a` —
    analysis_service.ExecutedAnalysis (own) or BrokerAnalysis (broker, US2). #}
 {%- set d = a.display -%}
 {%- set s = a.submitted if a.submitted is defined else None -%}
 <div class="row-meta">
   <p class="row-src">
     {%- if a.rdm_name is defined and a.rdm_name %}RDM: <b>{{ a.rdm_name }}</b>
-    {%- else %}Portfolio: <b>{{ a.portfolio_name or '—' }}</b>{% endif %}
+    {%- else %}<b>{{ a.full_name or a.name or '—' }}</b>{% endif %}
     &middot; Analysis: <b>{{ a.irp_id or '—' }}</b>
     {#- broker rows: the broker's own RM run date (FR-024), localized by the
         data-utc sliver; own rows carry Submitted as a table column #}
@@ -26,27 +27,11 @@
       {% for label, val in [
         ('Engine version', d.engine_version),
         ('Analysis type', d.analysis_type),
-        ('Peril', d.peril),
         ('Subperil', d.peril_secondary),
         ('Framework', d.framework),
         ('Event rate scheme', d.event_rate_scheme),
-        ('Analysis template', a.template_name if a.template_name is defined else None),
-      ] %}
-      {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
-      {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
-      {% endif %}
-      {% endfor %}
-    </dl>
-  </div>
-
-  <div class="row-group">
-    <div class="row-group__head"><span class="row-group__title">Analysis settings</span></div>
-    <dl class="settings-grid">
-      {% for label, val in [
-        ('Currency', s.currency if s else None),
-        ('Min loss threshold', s.min_loss_threshold if s else None),
-        ('Franchise deductible', s.franchise_deductible if s else None),
         ('Unrecognized construction / occupancy', s.construction_occupancy if s else None),
+        ('Run by', a.run_by if a.run_by is defined else None),
       ] %}
       {% if val %}<div><dt>{{ label }}</dt><dd title="{{ val }}">{{ val }}</dd></div>
       {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>

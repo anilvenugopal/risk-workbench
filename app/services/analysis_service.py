@@ -237,6 +237,7 @@ class ExecutedAnalysis:
     status_code: str            # pending | running | ready | error
     failure_reason: str | None
     template_name: str | None = None
+    run_by: str | None = None   # app_user.display_name of the submitting analyst
     edm_name: str | None = None  # submission-wide reads only (FR-009 EDM column)
     inserted_at: Any = None     # submit request time (Submitted column)
     irp_id: str | None = None   # RM analysisId; backfilled after FINISHED
@@ -480,10 +481,12 @@ _EXECUTED_SELECT = """
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id,
            a.loss_results, a.submitted_settings,
-           p.name AS portfolio_name, t.name AS template_name
+           p.name AS portfolio_name, t.name AS template_name,
+           u.display_name AS run_by
     FROM irp_analysis a
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
     LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN app_user u ON u.id = a.inserted_by
     WHERE a.edm_id = :edm_id AND a.execution_id IS NOT NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
 """
@@ -517,7 +520,8 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
             failure_reason=r["failure_reason"],
-            template_name=r["template_name"], inserted_at=r["inserted_at"],
+            template_name=r["template_name"], run_by=r["run_by"],
+            inserted_at=r["inserted_at"],
             edm_name=r.get("edm_name"),
             irp_id=irp_id, rm_url=_rm_analysis_url(irp_id), settings=parsed,
             display=_to_display(parsed),
@@ -557,12 +561,13 @@ _SUBMISSION_EXECUTED_SELECT = """
            a.settings_metadata, a.inserted_at, a.irp_id,
            a.loss_results, a.submitted_settings,
            p.name AS portfolio_name, t.name AS template_name,
-           e.name AS edm_name
+           e.name AS edm_name, u.display_name AS run_by
     FROM irp_analysis a
     JOIN submission_edm se ON se.edm_id = a.edm_id
     JOIN irp_edm e ON e.id = a.edm_id
     LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id
     LEFT JOIN analysis_template t ON t.id = a.analysis_template_id
+    LEFT JOIN app_user u ON u.id = a.inserted_by
     WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
       AND e.deleted_at IS NULL AND a.deleted_at IS NULL
     ORDER BY a.inserted_at DESC
