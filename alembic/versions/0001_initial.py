@@ -457,6 +457,10 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("rdm_id", sa.Uuid, nullable=True),
         sa.Column("edm_id", sa.Uuid, nullable=True),
+        # Spec 012 (T-04): set on group rows only — a group belongs to a
+        # submission, not an EDM/RDM. Own analyses keep edm_id, broker rows
+        # keep rdm_id; neither sets submission_id.
+        sa.Column("submission_id", sa.Uuid, nullable=True),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # Moody's analysisId
         # RM appAnalysisId — web-UI id for deep links
         sa.Column("irp_app_analysis_id", sa.NVARCHAR(64), nullable=True),
@@ -506,13 +510,14 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["rdm_id"], ["irp_rdm.id"]),
         sa.ForeignKeyConstraint(["edm_id"], ["irp_edm.id"]),
+        sa.ForeignKeyConstraint(["submission_id"], ["submission.id"]),
         sa.ForeignKeyConstraint(["status_code"], ["irp_analysis_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
         sa.ForeignKeyConstraint(["updated_by"], ["app_user.id"]),
-        # Every row is either a broker capture (rdm_id) or own-executed (edm_id) —
-        # spec 010, data-model §1.
+        # Every row is a broker capture (rdm_id), own-executed (edm_id), or a
+        # group (submission_id) — spec 010 data-model §1, spec 012 T-04.
         sa.CheckConstraint(
-            "edm_id IS NOT NULL OR rdm_id IS NOT NULL",
+            "edm_id IS NOT NULL OR rdm_id IS NOT NULL OR submission_id IS NOT NULL",
             name="ck_irp_analysis_origin",
         ),
         # No scope/customer column (Article 6).
@@ -536,6 +541,33 @@ def upgrade() -> None:
         "uq_irp_analysis_live_edm_name", "irp_analysis", ["edm_id", "name"],
         unique=True, mssql_where=irp_analysis_live_edm_name,
         sqlite_where=irp_analysis_live_edm_name,
+    )
+    op.create_index("ix_irp_analysis_submission_id", "irp_analysis",
+                    ["submission_id"])
+    # One live group per (submission, name) — the group-row mirror of
+    # uq_irp_analysis_live_edm_name (spec 012, T-04).
+    irp_analysis_live_submission_name = sa.text(
+        "submission_id IS NOT NULL AND deleted_at IS NULL")
+    op.create_index(
+        "uq_irp_analysis_live_submission_name", "irp_analysis",
+        ["submission_id", "name"],
+        unique=True, mssql_where=irp_analysis_live_submission_name,
+        sqlite_where=irp_analysis_live_submission_name,
+    )
+    # ── irp_analysis_group_member (spec 012, T-05) ────────────────────────────
+    # Written once by the submit_grouping worker at claim, from the approved
+    # plan; never updated. An analysis may be a member of many groups; a member
+    # may itself be a group (nesting, FR-018). Visibility follows the group
+    # row's deleted_at — member rows are retained.
+    op.create_table(
+        "irp_analysis_group_member",
+        sa.Column("group_analysis_id", sa.Uuid, nullable=False),
+        sa.Column("member_analysis_id", sa.Uuid, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+        sa.PrimaryKeyConstraint("group_analysis_id", "member_analysis_id"),
+        sa.ForeignKeyConstraint(["group_analysis_id"], ["irp_analysis.id"]),
+        sa.ForeignKeyConstraint(["member_analysis_id"], ["irp_analysis.id"]),
     )
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
@@ -953,6 +985,7 @@ def upgrade() -> None:
         "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
         "('backfill_analysis_detail', 'Backfill Analysis Detail', 31), "
+        "('submit_grouping', 'Submit grouping', 33), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
@@ -1009,6 +1042,7 @@ def upgrade() -> None:
     op.execute(sa.text(
         "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
+        "('running', 'Running', 20), "
         "('ready', 'Ready', 30), "
         "('error', 'Error', 40)"
     ))
@@ -1090,7 +1124,11 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_table("irp_analysis_group_member")
     op.drop_index("uq_irp_analysis_execution_item", table_name="irp_analysis")
+    op.drop_index("uq_irp_analysis_live_submission_name",
+                  table_name="irp_analysis")
+    op.drop_index("ix_irp_analysis_submission_id", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")
