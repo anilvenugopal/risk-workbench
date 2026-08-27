@@ -141,6 +141,23 @@
           count_field='analysis_count', count_label='Analysis count' %}
     {% include "partials/submission_entity_table.html" %}
   {% endwith %}
+
+  {# ── Results (spec 011 US3, FR-009/FR-013) — the merged analyses table
+     submission-wide: own rows across every EDM (EDM column) plus RDM groups.
+     Its own polling unit (GET /submissions/{id}/analyses). ── #}
+  {% with analyses=results_section.analyses, groups=results_section.groups,
+          source_submission=results_section.source_submission,
+          show_edm=results_section.show_edm,
+          section_id=results_section.section_id,
+          section_title=results_section.section_title,
+          analyses_table_url=results_section.analyses_table_url,
+          rdm_analyses_prefix=results_section.rdm_analyses_prefix,
+          delete_url=results_section.delete_url,
+          status_filter=results_section.status_filter,
+          own_empty_text=results_section.own_empty_text,
+          all_empty_text=results_section.all_empty_text %}
+    {% include "partials/analyses_merged_section.html" %}
+  {% endwith %}
   <div id="submission-entity-modal"></div>
 </div>
 {% endblock %}

@@ -1,0 +1,152 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ page_name or 'Analyses' }}{% endblock %}
+
+{# The dedicated results page (spec 011 US4): one column per selected analysis
+   in ids order (FR-016), all 11 return periods of the selected EP type, then
+   AAL and Std dev, which sit outside that selection (FR-015). The perspective
+   and EP-type selects each re-render #results-view over HTMX screen-wide
+   (FR-011/FR-012); the units selector and Copy table are client-side
+   over data attributes (FR-017/FR-018, app.js) — the one page a units control
+   exists (O-12). Reorder arrows swap neighbouring ids and re-render
+   #results-view the same way, so the picked unit survives a move; they carry
+   the two selects out of band because those hold the ids order in their own
+   hx-get. Numbers and tables only (FR-019); broker columns never name a
+   portfolio (FR-020). Pending/failed columns hold their place (FR-008). #}
+
+{#- One reorder arrow. `url` is the ids-swapped URL the route built, or none
+    at the ends of the row. The out-of-band selects keep the toolbar's ids order
+    in step without touching the units select, which sits beside them and must
+    not reset (FR-017). A real href as well, so a move works without HTMX. -#}
+{%- macro arrow(url, label, glyph) -%}
+  {%- if url %}<a class="an__btn" href="{{ url }}" title="{{ label }}"
+     hx-get="{{ url }}" hx-target="#results-view" hx-select="#results-view"
+     hx-swap="outerHTML" hx-select-oob="#res-persp,#res-ep"
+     hx-push-url="true">{{ glyph|safe }}</a>
+  {%- else %}<span class="an__btn" aria-disabled="true">{{ glyph|safe }}</span>
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro num(v) -%}
+  {%- if v is none -%}<span class="na">&mdash;</span>
+  {%- else -%}<span data-unit-value="{{ v }}" data-value="{{ v }}" title="{{ v }}">{{ '{:,.1f}'.format(v / 1000000) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{% block main %}
+<div class="page-pad">
+  {% if view_columns %}
+  <div class="res-toolbar">
+    <label for="res-persp">Perspective</label>
+    <select id="res-persp" name="perspective" class="wf-field__input"
+            hx-get="{{ results_base_url }}" hx-include="#res-ep"
+            hx-target="#results-view" hx-select="#results-view" hx-swap="outerHTML">
+      {% for p in perspectives %}
+      <option value="{{ p.code }}" {% if p.code == active_perspective %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-ep">EP type</label>
+    <select id="res-ep" name="ep_type" class="wf-field__input"
+            hx-get="{{ results_base_url }}" hx-include="#res-persp"
+            hx-target="#results-view" hx-select="#results-view" hx-swap="outerHTML">
+      {% for e in ep_types %}
+      <option value="{{ e }}" {% if e == active_ep %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-units">Units</label>
+    <select id="res-units" class="wf-field__input" data-units-select>
+      <option value="ones">Ones</option>
+      <option value="thousands">Thousands</option>
+      <option value="millions" selected>Millions</option>
+    </select>
+    <button class="btn-sm" type="button" data-copy-table
+            title="Copy the table with headers — pastes into Excel">&#8942; Copy table</button>
+  </div>
+  {% endif %}
+
+  <div id="results-view">
+    {% if missing %}
+    <div class="state-box state-box--warn" style="margin-bottom:var(--space-3)">
+      {{ missing }} of the selected analyses no longer exist{{ 's' if missing == 1 }} — they may have
+      been deleted since this view was opened.{% if view_columns %} The remaining
+      {{ view_columns|length }} {{ 'is' if view_columns|length == 1 else 'are' }} shown.{% endif %}
+    </div>
+    {% endif %}
+    {% if view_columns %}
+    <p class="res-count">{{ view_columns|length }} analys{{ 'is' if view_columns|length == 1 else 'es' }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" rowspan="2" style="vertical-align:bottom">Return period</th>
+            {% for vc in view_columns %}
+            <th class="an gsep">
+              {% if view_columns|length > 1 %}
+              <span class="an__order">
+                {{ arrow(vc.left, 'Move left', '&#9664;') }}
+                {{ arrow(vc.right, 'Move right', '&#9654;') }}
+              </span>
+              {% endif %}
+              <span class="an__name" title="{{ vc.col.name }}" data-value="{{ vc.col.name }}">{{ vc.col.name }}</span>
+              <span class="an__sub">{{ vc.col.currency or '&mdash;'|safe }} &middot;
+                {%- if vc.col.results_state == 'ready' %} ready
+                {%- elif vc.col.results_state == 'failed' %} <span class="aal-state aal-state--failed">retrieval failed</span>
+                {%- else %} <span class="aal-state">retrieving&hellip;</span>{% endif %}</span>
+            </th>
+            {% endfor %}
+          </tr>
+          <tr>
+            {% for vc in view_columns %}<th class="gsep">{{ active_ep }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for rp in rp_labels %}
+          {% set ri = loop.index0 %}
+          <tr>
+            <td class="rp">{{ rp }}</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            {% set r = pr.rows[ri] %}
+            <td class="gsep">{{ num(r.oep if active_ep == 'OEP' else r.aep) }}</td>
+            {% elif ri == 0 %}
+            <td class="colmsg gsep" rowspan="{{ rp_labels|length + 2 }}">
+              {%- if vc.col.results_state == 'failed' -%}
+              Results retrieval failed.
+              {%- if vc.col.results_error %}<span class="exec-reason">{{ vc.col.results_error }}</span>{% endif %}
+              {%- elif vc.col.results_state == 'pending' -%}
+              Results pending — retrieval is queued or running.
+              {%- else -%}
+              The analysis did not produce this perspective.
+              {%- endif -%}
+            </td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          <tr class="aal">
+            <td class="rp">AAL</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td class="gsep">{{ num(pr.aal) }}</td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+          <tr class="sd">
+            <td class="rp">Std dev</td>
+            {% for vc in view_columns %}
+            {% set pr = vc.col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td class="gsep">{{ num(pr.std_dev) }}</td>
+            {% endif %}
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="state-box">No analyses to display. Select analyses on a submission or EDM page and
+    choose <strong>View</strong>.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -157,7 +157,8 @@ def test_contextual_launch_preserves_submission_content(
     assert response.status_code == 200
     assert 'href="/submissions/submission-a"' in response.text
     assert "EDM in Submission A" in response.text
-    assert "Broker analyses" in response.text
+    # the merged Analyses section (spec 011 US3) keeps its RDM group row
+    assert 'id="edm-executed-analyses"' in response.text
     assert "Submission RDM" in response.text
     toast = json.loads(response.headers["HX-Trigger"])["rwb:toast"]
     assert toast == {
@@ -170,7 +171,7 @@ def test_contextual_launch_preserves_submission_content(
         headers={"HX-Request": "true"},
     )
     assert 'href="/submissions/submission-a"' in conflict.text
-    assert "Broker analyses" in conflict.text
+    assert "Submission RDM" in conflict.text
     toast = json.loads(conflict.headers["HX-Trigger"])["rwb:toast"]
     assert toast["type"] == "error"
     assert "already in progress" in toast["message"]

@@ -113,3 +113,20 @@ class TestVisibleNodes:
         for roles in [["analyst"], ["admin"], []]:
             keys = [n["key"] for n in visible_nodes(roles)]
             assert "home" in keys
+
+
+class TestResultsAnalysesNode:
+    """The dedicated results page's hidden nav node (spec 011 T-07/T032)."""
+
+    def test_hidden_from_the_results_sidebar(self):
+        from app.nav.manifest import children
+        assert children("results") == []
+
+    def test_breadcrumb_chain(self):
+        from app.nav.manifest import breadcrumb
+        keys = [c["key"] for c in breadcrumb("results.analyses")]
+        assert keys == ["results", "results.analyses"]
+
+    def test_rail_root_resolves(self):
+        from app.nav.manifest import top_ancestor
+        assert top_ancestor("results.analyses")["key"] == "results"

@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 from app.poller import run as poller
 from app.services import analysis_service, rdm_service
 from app.services._common import SubmissionRef
-from app.workers import dispatch, entity_jobs
+from app.workers import analysis_jobs, dispatch, entity_jobs
 from db import execute, execute_command, execute_scalar
 
 
@@ -168,6 +168,86 @@ def test_sync_captures_analyses_added_since_import(iteration2_db, fake_irp, driv
     assert rows[0]["settings_metadata"] is not None
 
 
+# ── broker retrieval chain (spec 011 US2, FR-002/FR-006) ─────────────────────────
+
+def _retrieval_jobs() -> list[dict]:
+    return execute(
+        "SELECT requestor_id, status_code FROM rwb_job "
+        "WHERE rwb_job_type='retrieve_analysis_results'",
+        {}, connection="WORKBENCH")
+
+
+def _seed_two_broker_analyses(fake_irp) -> None:
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E1",
+                          analysis_id="900", name="AEP",
+                          exposure_resource_id="501",
+                          exposure_resource_type="PORTFOLIO",
+                          metadata={"engineType": "DLM"})
+    fake_irp.add_analysis(source_rdm_name="R", exposure_name="E2",
+                          analysis_id="901", name="NT",
+                          exposure_resource_id="502",
+                          exposure_resource_type="PORTFOLIO",
+                          metadata={"engineType": "HD"})
+
+
+def test_rdm_backfill_enqueues_one_retrieval_per_captured_analysis(
+        iteration2_db, fake_irp, drive):
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+
+    analysis_ids = {str(r["id"]) for r in execute(
+        "SELECT id FROM irp_analysis WHERE rdm_id=:r", {"r": rdm_id},
+        connection="WORKBENCH")}
+    jobs = _retrieval_jobs()
+    assert len(jobs) == 2
+    assert {str(j["requestor_id"]) for j in jobs} == analysis_ids
+
+    # the retrieval worker stores each extract against the stored broker pointer
+    analysis_jobs.run_pending()
+    stored = execute("SELECT loss_results FROM irp_analysis WHERE rdm_id=:r",
+                     {"r": rdm_id}, connection="WORKBENCH")
+    assert all(row["loss_results"] is not None for row in stored)
+    assert {c["exposure_resource_id"] for c in fake_irp.result_calls} == {
+        "501", "502"}
+
+
+def test_recapture_of_same_rdm_enqueues_nothing_and_refetches_nothing(
+        iteration2_db, fake_irp, drive):
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    analysis_jobs.run_pending()
+    calls_after_first = len(fake_irp.result_calls)
+
+    # another EDM copy of the same RDM re-fires the same RDM-wide capture
+    assert rdm_service.sync_detail(rdm_id=rdm_id,
+                                   actor_id=iteration2_db.user_a) is not None
+    entity_jobs.run_pending()
+    analysis_jobs.run_pending()
+
+    assert len(_retrieval_jobs()) == 2  # no new jobs (US2-3)
+    assert len(fake_irp.result_calls) == calls_after_first  # nothing re-fetched
+    assert execute_scalar(
+        "SELECT COUNT(*) FROM irp_analysis WHERE rdm_id=:r", {"r": rdm_id},
+        connection="WORKBENCH") == 2  # still one row per source analysis
+
+
+def test_backfill_skips_stored_results_even_without_the_dedup_row(
+        iteration2_db, fake_irp, drive):
+    # loss_results IS NULL is its own guard, not a side effect of the UNIQUE
+    # key: with the job rows gone, a re-capture still enqueues nothing.
+    _seed_two_broker_analyses(fake_irp)
+    rdm_id = _rdm_ready(iteration2_db, fake_irp, drive)
+    analysis_jobs.run_pending()
+    execute_command(
+        "DELETE FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results'",
+        {}, connection="WORKBENCH")
+
+    rdm_service.sync_detail(rdm_id=rdm_id, actor_id=iteration2_db.user_a)
+    entity_jobs.run_pending()
+
+    assert _retrieval_jobs() == []
+
+
 # ── the EDM page syncs both: per-RDM fan-out + sync_running visibility ────────────
 
 # ── routes: POST /rdms/{rdm_id}/sync + GET /rdms/{rdm_id}/body (live UX) ──────────
@@ -197,6 +277,10 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(rdms.router)
@@ -349,6 +433,37 @@ def test_detail_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
     assert "Check the broker results." in html
 
 
+def test_broker_table_uses_the_merged_analyses_column_set(monkeypatch):
+    # The RDM page renders partials/broker_analysis_row.html, the same row the
+    # merged analyses section renders, so a broker row reads exactly like a
+    # workbench-executed one.
+    grp = analysis_service.BrokerAnalysisGroup(
+        rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
+        analyses=[analysis_service.BrokerAnalysis(
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
+            rm_url="https://rm/a/5521",
+            created_at="2026-08-20T14:02:11.000Z",
+            display=analysis_service.AnalysisSettings(
+                peril="EQ", region="NA", currency="USD", engine_type="DLM",
+                engine_version="23.0", term="STD", pla="Enabled"))])
+    _stub_reads(monkeypatch, analyses=[grp])
+
+    html = _client().get("/rdms/rdm-1").text
+
+    for header in ("Peril", "Region", "Engine", "Currency", "Status",
+                   "Submitted", "Risk Modeler"):
+        assert f'<span class="l">{header}</span>' in html
+    assert "AAL &middot;" in html
+    assert '<span class="l dt-span2">Analysis</span>' in html
+    # no checkbox column — selection lives in the merged section, not here
+    assert 'name="analysis_ids"' not in html
+    assert 'class="status-chip status-chip--ready">Finished' in html
+    assert '<time data-utc="2026-08-20T14:02:11.000Z"' in html
+    assert '<a class="rm-link" href="https://rm/a/5521"' in html
+    # an RDM is related to an EDM only through a submission, so no EDM column
+    assert ">EDM</span>" not in html
+
+
 def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
     # Re-syncing an already-populated page: a 3s outerHTML swap would collapse
     # every open <details> (analysis drills), so the poll target answers 204
@@ -356,8 +471,7 @@ def test_body_poll_populated_mid_sync_returns_204_no_swap(monkeypatch):
     grp = analysis_service.BrokerAnalysisGroup(
         rdm_id="rdm-1", rdm_name="R", rdm_irp_id=88,
         analyses=[analysis_service.BrokerAnalysis(
-            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R",
-            edm_name="E1")])
+            id="a1", irp_id="5521", name="AEP", rdm_id="rdm-1", rdm_name="R")])
     _stub_reads(monkeypatch, sync_status="running", analyses=[grp])
     r = _client().get("/rdms/rdm-1/body")
     assert r.status_code == 204

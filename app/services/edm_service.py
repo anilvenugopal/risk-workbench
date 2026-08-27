@@ -419,9 +419,13 @@ class ContextualEdmDetail:
 
 @dataclass
 class EdmAnalysesSection:
-    """Exactly what ``partials/executed_analyses_section.html`` reads."""
+    """Exactly what ``partials/analyses_merged_section.html`` reads. ``submission``
+    and ``rdms`` are populated on the submission-scoped read only — the plain
+    library page has no submission context and renders no RDM group rows."""
     id: str
     executed_analyses: list[ExecutedAnalysis]
+    submission: SubmissionRef | None = None
+    rdms: list[BrokerAnalysisGroup] = field(default_factory=list)
 
 
 def latest_backfill_status(edm_id: str) -> str | None:
@@ -567,20 +571,37 @@ def get_edm_analyses(
 ) -> EdmAnalysesSection | None:
     """The Analyses section's own read (T-11). Its 3s self-poll re-renders that
     one fragment, so it must not pay for the whole detail page — portfolios,
-    geohaz, treaties, breakout page state and the submission's RDMs are all
-    unread by the fragment. ``None`` when the EDM is gone, or (with
-    ``submission_id``) no longer related to that submission."""
+    geohaz, treaties and breakout page state are all unread by the fragment.
+    With ``submission_id`` it also reads the submission's RDMs, which the merged
+    section renders as group rows (spec 011 FR-010). ``None`` when the EDM is
+    gone, or (with ``submission_id``) no longer related to that submission."""
     eid = str(edm_id)
-    if submission_id is not None and _submission_entity_context(
-            "edm", submission_id=submission_id, entity_id=eid) is None:
-        return None
+    source = None
+    if submission_id is not None:
+        ctx = _submission_entity_context("edm", submission_id=submission_id,
+                                         entity_id=eid)
+        if ctx is None:
+            return None
+        source, _choices = ctx
     row = execute_one("SELECT id FROM irp_edm WHERE id = :id",
                       {"id": eid}, connection="WORKBENCH")
     if row is None:
         return None
+    rdms: list[BrokerAnalysisGroup] = []
+    if submission_id is not None:
+        # Local import avoids the edm_service/rdm_service shared-DTO import cycle
+        # (same reason get_contextual_edm_detail above imports it locally).
+        from app.services import rdm_service
+        rdms = analysis_service.list_submission_rdms(
+            submission_id=str(submission_id))
+        for rdm in rdms:
+            rdm.sync_running = (
+                rdm_service.latest_backfill_status(rdm.rdm_id)
+                in ("pending", "running"))
     return EdmAnalysesSection(
         id=_uid(row["id"]),
-        executed_analyses=analysis_service.list_executed_analyses(edm_id=eid))
+        executed_analyses=analysis_service.list_executed_analyses(edm_id=eid),
+        submission=source, rdms=rdms)
 
 
 def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:

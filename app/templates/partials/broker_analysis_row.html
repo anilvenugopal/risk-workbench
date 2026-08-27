@@ -1,59 +1,77 @@
-{# One broker analysis as a .dtable row (spec 004 US3, FR-030–FR-035) — shared
-   by the RDM page AND the EDM standalone section. Context:
-     `a`        — analysis_service.BrokerAnalysis
-     `show_edm` — render the EDM column (RDM page only; the caller's --cols
-                  grid must match)
-   No portfolio is shown: an RDM analysis cannot be tied to an EDM portfolio
-   trustworthily (8/4 D8). `is_group` still marks the analysis itself (FR-035).
-   Missing settings fields render blank / "not provided", never an error. No
-   loss numbers (FR-033). #}
+{# One broker analysis as a merged-table .dtable row — the same column set and
+   cell markup own executed rows use (partials/executed_analysis_row.html), so
+   the two origins cannot drift. Rendered by the RDM detail page and, through
+   partials/contextual_rdm_analyses.html, by the merged analyses section on the
+   EDM detail page and the submission Results section. Context:
+     `a`          — analysis_service.BrokerAnalysis
+     `show_edm`   — hold the own rows' EDM column open with an em dash (the
+                    caller's --cols must match); an RDM is related to an EDM
+                    only through a submission, so a broker analysis names none
+     `selectable` — render the pick checkbox cell; needs the merged section's
+                    analysisPicks() Alpine data
+   A broker analysis carries one name where own rows carry Portfolio +
+   Template, and no portfolio is shown — an RDM analysis is never attributed to
+   an EDM portfolio (FR-020, 8/4 D8). So the name cell spans both name tracks
+   and an empty hidden span follows it: tableToTsv counts summary children, and
+   the hidden span is what keeps copied broker rows aligned with own rows.
+   Every captured broker run is finished in Risk Modeler, so Status reads
+   Finished; the AAL cell carries the row's results state and Submitted is the
+   broker's own Risk Modeler create date (FR-024). Analysis type and event rate
+   scheme live in the expansion — the two-column body shared with own
+   rows (partials/analysis_results_inline.html), where a field Risk Modeler does
+   not return for a broker analysis reads "not returned" (FR-022). #}
 {%- macro cell(v) -%}
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
 {%- set d = a.display -%}
-{%- set peril_cell = d.peril ~ (' + ' ~ d.peril_secondary if d.peril_secondary else '') if d.peril else d.peril_secondary -%}
-<details class="drow{% if a.is_group %} drow--group{% endif %}">
+{%- set default_persp = a.results | selectattr('code', 'eq', default_perspective) | first -%}
+{%- set display_name = a.name or 'Analysis ' ~ a.irp_id -%}
+<details class="drow{% if a.is_group %} drow--group{% endif %}" id="broker-row-{{ a.id }}">
   <summary>
-    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-      <span class="dt-namecol">
-        <span class="dt-title">{{ a.name or 'Analysis ' ~ a.irp_id }}
-          {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span>
-        <span class="dt-sub">A-{{ a.irp_id }}</span>
-      </span></span></span>
-    {% if show_edm %}
-    <span class="l">
-      {%- if a.edm_names|length > 1 -%}
-        {{ a.edm_names[0] }} <span class="dt-geo-sub">+{{ a.edm_names|length - 1 }} more</span>
-      {%- else -%}{{ cell(a.edm_name) }}{%- endif -%}
-    </span>
+    {% if selectable|default(false) %}
+    <span class="l"><span class="geohaz-pick"><input type="checkbox" name="analysis_ids"
+           value="{{ a.id }}" data-broker
+           onclick="event.stopPropagation()" @change="onChange()"></span></span>
     {% endif %}
-    <span class="l">{{ cell('Group' if a.is_group and not d.analysis_type else d.analysis_type) }}</span>
-    <span class="l">{{ cell(peril_cell) }}</span>
+    <span class="l dt-span2"><span class="dt-name"><span class="dt-caret">▸</span>
+      <span class="dt-title" title="{{ display_name }}" data-value="{{ display_name }}">{{ display_name }}
+        {%- if a.is_group %} <span class="badge badge--info badge--sm">group</span>{% endif %}</span></span></span>
+    <span hidden></span>
+    {% if show_edm|default(false) %}<span class="l"><span class="na">&mdash;</span></span>{% endif %}
+    <span class="l">{{ cell(d.peril) }}</span>
     <span class="l">{{ cell(d.region) }}</span>
-    <span class="l">{{ cell(d.currency) }}</span>
     <span class="l">{{ cell(d.engine) }}</span>
-    <span class="l">{{ cell(d.term) }}</span>
-    <span class="l">{{ cell(d.pla) }}</span>
-    <span class="l">{% if d.event_rate_scheme or d.rate_vintage %}{{ d.event_rate_scheme or d.rate_vintage }}{% else %}<span class="na">Missing</span>{% endif %}</span>
+    <span class="l">{{ cell(d.currency) }}</span>
+    <span>
+      {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
+      <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
+      {%- elif a.results_state == 'failed' -%}
+      <span class="aal-state aal-state--failed">retrieval failed</span>
+      {%- elif a.results_state == 'pending' -%}
+      <span class="aal-state">retrieving&hellip;</span>
+      {%- else -%}
+      <span class="na">&mdash;</span>
+      {%- endif -%}
+    </span>
+    <span class="l">
+      <span class="status-chip status-chip--ready">Finished</span>
+      {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
+    </span>
+    <span class="l">
+      {% if a.created_at %}
+      <time data-utc="{{ a.created_at }}" data-value="{{ a.created_at }}"
+            title="{{ a.created_at }} UTC">{{ (a.created_at | string)[:19] }}</time>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
+    </span>
+    <span class="l">
+      {% if a.rm_url %}
+      <a class="rm-link" href="{{ a.rm_url }}" target="_blank" rel="noopener"
+         onclick="event.stopPropagation()"
+         title="Open this analysis in Risk Modeler (new tab)">Open ↗</a>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
+    </span>
   </summary>
-  <div class="drow__body">
-    <dl class="settings-grid">
-      {% if show_edm %}
-      <div><dt>EDM</dt><dd{% if not a.edm_name %} class="blank"{% endif %}>{{ a.edm_names|join(', ') or a.edm_name or 'not provided' }}</dd></div>
-      {% endif %}
-      {% if a.is_group %}
-      <div><dt>Group</dt>
-        <dd class="blank">combines multiple analyses; member breakdown not available</dd></div>
-      {% endif %}
-      {% include "partials/_analysis_metadata_fields.html" %}
-    </dl>
-    {% if d.has_rate_detail %}
-    <details class="drill">
-      <summary>▾ Rate / event-rate detail</summary>
-      <div class="drill__body">
-        {% include "partials/_analysis_rate_detail.html" %}
-      </div>
-    </details>
-    {% endif %}
+  <div class="drow__body drow__body--split">
+    {% include "partials/analysis_results_inline.html" %}
   </div>
 </details>

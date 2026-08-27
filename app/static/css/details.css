@@ -66,6 +66,9 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dtable--selectable .dtable__head > :nth-child(2) { z-index: 7; background: var(--surface-recessed); }
 .dtable--selectable .drow > summary:hover > :nth-child(2) { background: var(--surface-recessed); }
 .dtable--selectable .drow[open] > summary > :nth-child(2) { background: var(--color-brand-faint); }
+/* broker rows in the merged analyses grid have one name where own rows have
+   Portfolio + Template, so their name cell takes both tracks. */
+.dtable .dt-span2 { grid-column: span 2; }
 .geohaz-pick { display: flex; justify-content: center; align-items: center; }
 .geohaz-pick input { margin: 0; }
 /* name cell (caret + title + sub) */
@@ -81,15 +84,16 @@ a.sec__note--link:hover { text-decoration: underline; }
 .dt-subline { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
 .dt-frommark { flex: none; font-size: var(--fs-caption); line-height: 1; color: var(--text-tertiary); }
 .dt-geo-sub { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
-/* group divider row within a table (broker analyses grouped by source RDM) */
-.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
+/* group divider row within a table (broker analyses grouped by source RDM) —
+   pinned to the visible width so it never scrolls off the wide merged table */
+.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
 
 /* nested per-RDM expander in the broker-analyses table (8/5 D16) */
 details.dtable__rdm > summary { list-style: none; cursor: pointer; }
 details.dtable__rdm > summary::-webkit-details-marker { display: none; }
 details.dtable__rdm .grp-caret { color: var(--text-tertiary); font-size: 10px; transition: transform var(--dur-fast) ease; flex: none; }
 details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
-.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); }
+.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); position: sticky; left: 0; width: 100cqw; }
 .dtable__group .kind { font-size: .65rem; font-weight: var(--fw-bold); color: var(--text-tertiary); letter-spacing: .04em; }
 .dtable__group .name { font-weight: var(--fw-semibold); font-size: var(--fs-label); color: var(--text-primary); }
 .dtable__group .ref { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); }
@@ -115,9 +119,65 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* attribute / settings grids inside an expanded row */
 .attr-grid, .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
-.attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; }
+/* long values wrap rather than truncate — event rate scheme names run past any column width (spec 011 FR-023) */
+.attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
+
+/* spec 011 — the expanded analysis row splits in two (FR-011): the source line
+   and the metadata fields on the left, condensed results on the right; the flex
+   wrap stacks them when the row is too narrow to hold both. */
+.drow__body--split { display: flex; align-items: flex-start; gap: var(--space-6); flex-wrap: wrap; }
+.row-meta { flex: 1 1 380px; min-width: 300px; }
+.row-results { flex: 0 1 460px; min-width: 320px; }
+.row-src { font-size: var(--fs-caption); color: var(--text-tertiary); margin: 0 0 var(--space-3); }
+.row-src b { font-weight: var(--fw-medium); color: var(--text-secondary); }
+.row-src b.row-src__name { font-size: var(--fs-h3); font-weight: var(--fw-semibold); color: var(--text-primary); }
+.row-results__head { display: flex; align-items: center; gap: var(--space-2); min-height: 22px; margin-bottom: var(--space-2); }
+.row-results__title { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
+.row-results__ccy { font-size: var(--fs-caption); color: var(--text-tertiary); margin-left: auto; }
+.row-results__empty { margin: 0; font-size: var(--fs-label); color: var(--text-tertiary); }
+select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--space-1); border-radius: var(--radius-sm); border: 1px solid var(--border-default); background: var(--surface-panel); color: var(--text-secondary); }
+
+/* the EP table inside expanded rows (and, later, the dedicated results page) */
+.ep-shell { overflow-x: auto; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--surface-panel); }
+.ep { border-collapse: collapse; width: 100%; font-size: var(--fs-label); }
+.ep th, .ep td { padding: var(--space-1) var(--space-3); white-space: nowrap; }
+.ep thead th { background: var(--surface-recessed); font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); text-align: right; border-bottom: 1px solid var(--border-default); }
+.ep thead th.l { text-align: left; }
+.ep thead th.gsep, .ep td.gsep { border-left: 1px solid var(--border-default); }
+.ep tbody td { font-family: var(--font-mono); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; text-align: right; border-bottom: 1px solid var(--border-faint); }
+.ep tbody td.rp { font-family: var(--font-ui); font-size: var(--fs-label); font-weight: var(--fw-medium); text-align: left; color: var(--text-secondary); }
+.ep tr.aal td { border-top: 2px solid var(--border-strong); border-bottom: none; font-weight: var(--fw-medium); background: var(--surface-recessed); }
+.ep tr.aal td.rp { font-weight: var(--fw-semibold); color: var(--text-primary); }
+.ep tr.sd td { border-bottom: none; background: var(--surface-recessed); color: var(--text-secondary); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
+
+/* spec 011 (US4) — the dedicated results page: toolbar, per-analysis column
+   headers with reorder links, and the message cell a pending / failed /
+   not-produced column holds its place with */
+.res-toolbar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.res-toolbar label { font-size: var(--fs-caption); color: var(--text-tertiary); font-weight: var(--fw-medium); }
+.res-count { font-size: var(--fs-caption); color: var(--text-tertiary); margin: 0 0 var(--space-2); }
+.ep th.an { white-space: normal; min-width: 150px; max-width: 220px; vertical-align: bottom; text-align: right; }
+.an__order { display: flex; justify-content: flex-end; gap: 2px; margin-bottom: 2px; }
+.an__btn { font-size: 10px; line-height: 1; padding: 1px 5px; border: 1px solid var(--border-default); border-radius: var(--radius-xs); background: var(--surface-panel); color: var(--text-tertiary); text-decoration: none; }
+a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.an__btn[aria-disabled="true"] { opacity: .4; }
+.an__name { display: block; font-size: var(--fs-caption); letter-spacing: 0; text-transform: none; color: var(--text-primary); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.an__sub { display: block; font-size: var(--fs-eyebrow); letter-spacing: .05em; color: var(--text-tertiary); font-weight: var(--fw-regular); }
+.ep td.colmsg { white-space: normal; font-family: var(--font-ui); font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; text-align: center; vertical-align: middle; max-width: 220px; }
+.ep td.colmsg .exec-reason { font-style: normal; text-align: center; }
+
+/* spec 011 (US3) — the merged analyses table: the AAL cell carries the results
+   state (O-12, no extra column), the summary line counts the selection, and
+   the Risk Modeler link is its own column */
+.aal-num { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: var(--fw-medium); }
+.aal-state { font-size: var(--fs-caption); font-style: italic; color: var(--text-disabled); }
+.aal-state--failed { color: var(--color-negative); font-style: normal; }
+.sec__picked { font-size: var(--fs-caption); color: var(--text-secondary); }
+.sec__picked strong { color: var(--text-primary); }
+.dtable .rm-link { font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--color-brand); text-decoration: none; }
+.dtable .rm-link:hover { text-decoration: underline; }
 
 /* rate / event-rate detail — the ONE default-closed nested sub-drill (FR-031) */
 .drill { margin-top: var(--space-3); border-top: 1px solid var(--border-faint); padding-top: var(--space-2); }

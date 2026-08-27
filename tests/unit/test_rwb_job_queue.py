@@ -310,6 +310,7 @@ _EXPECTED_QUEUE_NAMES = [
     "dummy_fail",
     "dummy_wait",
     "execute_analysis_batch",
+    "retrieve_analysis_results",
     "run_breakout_country",
     "run_breakout_custom",
     "run_breakout_lob",

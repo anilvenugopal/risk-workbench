@@ -32,6 +32,7 @@ from starlette.testclient import TestClient
 from db import execute, execute_command
 from db.connection import register_engine
 from tests.iteration1_mirror import (
+    ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
     IRP_ANALYSIS_STATUS_SEED,
     IRP_JOB_RESOURCE_TYPE_SEED,
@@ -83,6 +84,7 @@ def routes_db() -> SimpleNamespace:
             ("rwb_job_status_kind", RWB_JOB_STATUS_SEED),
             ("irp_analysis_status_kind", IRP_ANALYSIS_STATUS_SEED),
             ("breakout_dimension_kind", BREAKOUT_DIMENSION_SEED),
+            ("analysis_perspective_kind", ANALYSIS_PERSPECTIVE_SEED),
         ):
             for code, label, order in rows:
                 conn.execute(text(

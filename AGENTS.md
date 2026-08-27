@@ -1,5 +1,5 @@
 <!-- SPECKIT START -->
-When present, read `specs/010-analysis-execution/plan.md` for the current
+When present, read `specs/011-analysis-results/plan.md` for the current
 technology, project structure, and shell-command decisions.
 <!-- SPECKIT END -->
 
@@ -141,7 +141,7 @@ observed result. Nothing is "ready for tasks" while an `O-nn` is open.
 
 Two rules for user-facing work — full detail in [docs/UI_WORKFLOW.md](docs/UI_WORKFLOW.md):
 
-1. **UI-first, for screens with real new layout.** Show a quick **rendered HTML preview** and get an approval before building the Jinja2 template and route. Build previews from [docs/ui_previews/_scaffold.html](docs/ui_previews/_scaffold.html) (reuses the real tokens). **Skip the preview for trivial/derivative changes** — copy tweaks, adding a field to an already-styled component — just build those. Cover the states that matter (don't forget empty/error). Approval is informal; no tables, inventories, or status tracking.
+1. **UI-first, for screens with real new layout.** Show a quick **rendered HTML preview** and get an approval before building the Jinja2 template and route. Build previews from [docs/ui_previews/_scaffold.html](docs/ui_previews/_scaffold.html) (reuses the real tokens). **Skip the preview for trivial/derivative changes** — copy tweaks, adding a field to an already-styled component — just build those. Cover the states that matter (don't forget empty/error). Approval is informal; no tables, inventories, or status tracking. **An approved preview is guidance, not markup to paste**: build against the existing components and CSS, and extend those rather than carrying preview-only classes into a template.
 2. **One user story at a time.** Implement a single user story end-to-end, then **stop** for the approver to click the running feature before starting the next. Don't batch several stories into one implement pass (bundle two small related stories if splitting them is silly).
 
 ## Development Environment

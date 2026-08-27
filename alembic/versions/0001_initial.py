@@ -486,6 +486,16 @@ def upgrade() -> None:
         # RM's run-failure message (poller) or the submit exception message
         # (worker); NULL for broker rows.
         sa.Column("failure_reason", sa.NVARCHAR(None), nullable=True),
+        # Spec 011: the bounded per-perspective viewing extract, written whole by
+        # retrieve_analysis_results (contracts/loss-results.md). NULL = not
+        # fetched yet; a perspective the analysis did not produce is present
+        # inside the JSON with value null.
+        sa.Column("loss_results", sa.NVARCHAR(None), nullable=True),
+        # Spec 011 (T-09): the approved plan item this analysis was submitted
+        # with, written once by _claim_analysis and never updated — a template
+        # edited later must not change what a finished run reports. NULL on
+        # broker rows (Risk Modeler returns none of these fields).
+        sa.Column("submitted_settings", sa.NVARCHAR(None), nullable=True),
         # Stamped when a successful analysis refresh no longer returns the row.
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
@@ -904,6 +914,20 @@ def upgrade() -> None:
                             name="uq_template_suite_item_template"),
     )
 
+    # ── analysis_perspective_kind (kind, Article 3 — Iteration 8, spec 011) ─────
+    # The financial perspectives the retrieval worker requests and every
+    # perspective toggle offers. First sort_order is the screen-wide default
+    # (Gross). No FK from loss_results — its JSON keys mirror RM's
+    # perspectiveCode vocabulary verbatim.
+    op.create_table(
+        "analysis_perspective_kind",
+        sa.Column("code", sa.NVARCHAR(10), primary_key=True),
+        sa.Column("label", sa.NVARCHAR(100), nullable=False),
+        sa.Column("sort_order", sa.Integer, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
     # irp_job_type_kind
     op.execute(sa.text(
@@ -960,7 +984,18 @@ def upgrade() -> None:
         "('irp_job', 'IRP Job', 10), "
         "('analyst_request', 'Analyst Request', 20), "
         "('rwb_job', 'RWB Job', 30), "
-        "('breakout_group', 'Breakout Group', 40)"
+        "('breakout_group', 'Breakout Group', 40), "
+        "('irp_analysis', 'IRP Analysis', 50)"
+    ))
+    # analysis_perspective_kind — spec 011 O-07. sort_order is dropdown order;
+    # the screen-wide default is analysis_service.DEFAULT_PERSPECTIVE (RL).
+    op.execute(sa.text(
+        "INSERT INTO analysis_perspective_kind (code, label, sort_order) VALUES "
+        "('GR', 'Gross', 10), "
+        "('RL', 'Pre-Cat Net', 20), "
+        "('WX', 'Working Excess', 30), "
+        "('QS', 'Quota Share', 40), "
+        "('GU', 'Ground Up', 50)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_status_kind (code, label, sort_order) VALUES "
@@ -1017,6 +1052,7 @@ def downgrade() -> None:
     op.drop_constraint("fk_irp_analysis_irp_portfolio_id", "irp_analysis",
                        type_="foreignkey")
 
+    op.drop_table("analysis_perspective_kind")
     op.drop_table("template_suite_item")
     op.drop_index("uq_template_suite_live_name", table_name="template_suite")
     op.drop_table("template_suite")

@@ -1,0 +1,142 @@
+{# The merged analyses section (spec 011 US3, FR-009/FR-010): own executed rows
+   straight down, newest first — no status group headers, the status filter does
+   that — then one expandable group row per submission RDM whose broker rows
+   lazy-load (partials/contextual_rdm_analyses.html). One column set for both
+   origins; the AAL cell is Gross in millions and carries the row's results
+   state (O-12 — no perspective or units control on the table).
+
+   Self-poll contract:
+   ``analyses-changed`` (the delete POST) refetches. ``every 3s`` while any run
+   or retrieval is live, an RDM capture is running, or the named execution batch
+   is still in flight — that last one keeps the section polling before its first
+   analysis row exists. The status filter and ``execution_id`` both ride the
+   poll URL so a swap never resets either. ``execution-submitted`` is handled in
+   app.js, not here: it carries the execution id this section polls on.
+   app.js restores expanded rows and ticked checkboxes across swaps via
+   data-analyses-section.
+
+   Callers:
+     EDM detail (plain + contextual) — ``edm`` in context; everything else
+       derived (groups/prefix from source_submission when contextual);
+     submission Results section — ``analyses`` / ``groups`` /
+       ``source_submission`` passed, show_edm=true, section_id/-title and URLs
+       explicit, delete_url none (deletion stays on the EDM page). #}
+{% set analyses = analyses if analyses is defined else edm.executed_analyses %}
+{% set groups = groups if groups is defined else submission_rdms|default([]) %}
+{% set show_edm = show_edm|default(false) %}
+{% set section_id = section_id|default('edm-executed-analyses') %}
+{% set section_title = section_title|default('Analyses') %}
+{% set analyses_base = analyses_table_url if analyses_table_url is defined and analyses_table_url
+     else '/edms/' ~ edm.id ~ '/analyses' %}
+{% set delete_url = delete_url if delete_url is defined else analyses_base ~ '/delete' %}
+{% set rdm_analyses_prefix = rdm_analyses_prefix if rdm_analyses_prefix is defined
+     else ('/submissions/' ~ source_submission.id ~ '/edms/' ~ edm.id ~ '/rdms'
+           if source_submission is defined and source_submission else none) %}
+{% set status_filter = status_filter|default('') %}
+{% set execution_id = execution_id|default('') %}
+{% set view_url = '/results/analyses'
+     ~ ('?submission=' ~ source_submission.id if source_submission is defined and source_submission else '')
+     ~ ((('&' if source_submission is defined and source_submission else '?') ~ 'edm=' ~ edm.id)
+        if edm is defined and edm else '') %}
+{% set query = ('status=' ~ status_filter if status_filter else '') %}
+{% if execution_id %}{% set query = query ~ ('&' if query else '') ~ 'execution_id=' ~ execution_id %}{% endif %}
+{% set analyses_url = analyses_base ~ ('?' ~ query if query else '') %}
+{% set filter_url = analyses_base ~ ('?execution_id=' ~ execution_id if execution_id else '') %}
+{% set broker_total = groups|map(attribute='analysis_count')|sum %}
+{% set live = execution_live|default(false)
+     or analyses|selectattr('is_live')|list|length > 0
+     or groups|selectattr('sync_running')|list|length > 0 %}
+<details class="sec" open id="{{ section_id }}" data-analyses-section
+  x-data="analysisPicks()"
+  hx-get="{{ analyses_url }}"
+  hx-trigger="analyses-changed from:body{% if live %}, every 3s{% endif %}"
+  hx-target="this" hx-swap="outerHTML">
+  <summary>
+    <span class="sec__caret">▸</span>
+    <span class="sec__title">{{ section_title }}</span>
+    {% if analyses or groups %}
+    <span class="badge badge--neutral">{{ analyses|length }} own &middot; {{ broker_total }} broker</span>
+    {% endif %}
+    <span class="sec__spacer"></span>
+    <span class="sec__picked" x-show="count" x-cloak><strong x-text="count"></strong> selected</span>
+    {% if analyses or groups %}
+    <select name="status" class="wf-field__input" style="width:auto"
+            onclick="event.stopPropagation()"
+            hx-get="{{ filter_url }}" hx-trigger="change"
+            hx-target="#{{ section_id }}" hx-swap="outerHTML">
+      <option value="">All statuses</option>
+      <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      <option value="in_progress" {% if status_filter == 'in_progress' %}selected{% endif %}>In progress</option>
+      <option value="ready" {% if status_filter == 'ready' %}selected{% endif %}>Ready</option>
+    </select>
+    {# preventDefault, not stopPropagation: both buttons are handled by
+       document-level listeners in app.js, which stopPropagation would never
+       reach. preventDefault still keeps the click from toggling the section. #}
+    <button class="btn-sm" type="button" data-copy-table onclick="event.preventDefault()"
+            title="Copy the table with headers — pastes into Excel">⋮ Copy table</button>
+    {% if delete_url %}
+    <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+            :disabled="!count || brokerCount"
+            :title="brokerCount ? 'Delete applies to workbench analyses only — untick the broker rows' : null"
+            hx-post="{{ delete_url }}"
+            hx-include="[name='analysis_ids'], #analyses-csrf" hx-swap="none"
+            hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
+      Delete</button>
+    {% endif %}
+    <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
+            :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
+            title="Open the selected analyses side by side (new tab)">View ↗</button>
+    {% endif %}
+  </summary>
+  {% if analyses or groups %}
+  <div class="dtable-shell">
+    <div class="dtable dtable--selectable"
+         style="--cols:42px minmax(210px,1.4fr) minmax(210px,1.4fr) {% if show_edm %}minmax(140px,1fr) {% endif %}70px 70px minmax(120px,1fr) 90px 110px minmax(190px,1.3fr) 180px 90px;min-width:{{ '1560px' if show_edm else '1420px' }}">
+      <div class="dtable__head">
+        <span class="l"><span class="geohaz-pick">
+          <input type="checkbox" x-ref="selectAll" title="Select all — untick to exclude"
+                 @change="all($event.target.checked)"></span></span>
+        <span class="l">Portfolio</span><span class="l">Template</span>
+        {% if show_edm %}<span class="l">EDM</span>{% endif %}
+        <span class="l">Peril</span>
+        <span class="l">Region</span><span class="l">Engine</span>
+        <span class="l">Currency</span>
+        <span>AAL &middot; {{ default_perspective_label }}</span><span class="l">Status</span>
+        <span class="l">Submitted</span><span class="l">Risk Modeler</span>
+      </div>
+      {% set shown = namespace(n=0) %}
+      {% for a in analyses %}
+      {% if not status_filter or a.group_key == status_filter %}
+      {% set shown.n = shown.n + 1 %}
+      {% include "partials/executed_analysis_row.html" %}
+      {% endif %}
+      {% endfor %}
+      {% if analyses and shown.n == 0 %}
+      <div class="dtable__groupempty">No analyses match this status filter.{% if groups %} Broker analyses are unaffected by it.{% endif %}</div>
+      {% elif not analyses %}
+      <div class="dtable__groupempty">{{ own_empty_text|default('No analyses executed from this EDM yet. Select portfolios above and choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.'|safe) }}</div>
+      {% endif %}
+      {% for rdm in groups %}
+      <details class="dtable__rdm" id="rdm-group-{{ rdm.rdm_id }}"
+        hx-get="{{ rdm_analyses_prefix }}/{{ rdm.rdm_id }}/analyses"
+        hx-trigger="toggle[event.target.open] once"
+        hx-target="#rdm-analyses-{{ rdm.rdm_id }}" hx-swap="innerHTML">
+        <summary><div class="dtable__group">
+          <span class="grp-caret">▸</span><span class="kind">RDM</span>
+          <span class="name">{{ rdm.rdm_name }}</span>
+          {% if rdm.rdm_irp_id %}<span class="ref">#{{ rdm.rdm_irp_id }}</span>{% endif %}
+          <span class="ref">{{ rdm.analysis_count }} analyses</span>
+          <a class="link" href="/submissions/{{ source_submission.id }}/rdms/{{ rdm.rdm_id }}"
+             onclick="event.stopPropagation()">Open RDM &rarr;</a>
+        </div></summary>
+        <div id="rdm-analyses-{{ rdm.rdm_id }}">
+          <div class="dtable__groupempty">Analysis rows load when this RDM opens.</div></div>
+      </details>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div class="state-box">{{ all_empty_text|default('No analyses executed against this EDM yet. Select portfolios above and choose <strong>Execute Suite</strong> or <strong>Execute Template</strong>.'|safe) }}</div>
+  {% endif %}
+</details>

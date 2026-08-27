@@ -41,6 +41,7 @@ def client(iteration2_db) -> TestClient:
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import submissions
+    from app.services import analysis_service
     from app.services.auth_service import CurrentUser
 
     user = CurrentUser(
@@ -60,6 +61,10 @@ def client(iteration2_db) -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(submissions.router)
@@ -1417,3 +1422,121 @@ def test_invalid_filter_fragment_contains_the_validation_message(client):
     assert response.status_code == 200
     assert 'id="sub-list"' in response.text
     assert "Name must be 100 characters or fewer." in response.text
+
+
+# ── the submission Results section (spec 011 US3, T031) ─────────────────────────
+
+
+def _seed_results_data(client) -> tuple[str, str, str]:
+    """A submission with two EDMs (one own analysis each) and one related RDM."""
+    created = client.post("/submissions", data=_payload(name="Results deal"))
+    submission_id = created.headers["location"].rsplit("/", 1)[-1]
+    edm_ids = []
+    template_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO analysis_template (id, name, analysis_profile_name, "
+        "output_profile_name) VALUES (:id, 'CRE v25', 'Profile', 'Output')",
+        {"id": template_id}, connection="WORKBENCH")
+    for index, edm_name in enumerate(("Coastal HO 2026", "Inland HO 2026")):
+        edm_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_edm (id, name, status, irp_id) "
+            "VALUES (:id, :name, 'ready', :irp)",
+            {"id": edm_id, "name": edm_name, "irp": 900 + index},
+            connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO submission_edm (submission_id, edm_id) VALUES (:s, :e)",
+            {"s": submission_id, "e": edm_id}, connection="WORKBENCH")
+        portfolio_id = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :edm, :n)",
+            {"id": portfolio_id, "edm": edm_id, "n": f"{edm_name.split()[0]} HO"},
+            connection="WORKBENCH")
+        execute_command(
+            "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
+            "inserted_at, irp_portfolio_id, analysis_template_id) "
+            "VALUES (:id, :edm, :n, :n, 'ready', :at, :p, :t)",
+            {"id": str(uuid.uuid4()), "edm": edm_id,
+             "n": f"CRE_{edm_name.split()[0]}_v25",
+             "at": f"2026-08-2{index + 1}T00:00:00",
+             "p": portfolio_id, "t": template_id},
+            connection="WORKBENCH")
+        edm_ids.append(edm_id)
+    rdm_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_rdm (id, name, status, irp_id) "
+        "VALUES (:id, 'Acme Broker RDM', 'ready', 4821)",
+        {"id": rdm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission_id, "r": rdm_id}, connection="WORKBENCH")
+    execute_command(
+        "INSERT INTO irp_analysis (id, rdm_id, edm_id, irp_id, name, status_code) "
+        "VALUES (:id, :rdm, :edm, '88215', 'FL HU Gross 2026', 'ready')",
+        {"id": str(uuid.uuid4()), "rdm": rdm_id, "edm": edm_ids[0]},
+        connection="WORKBENCH")
+    return submission_id, edm_ids[0], rdm_id
+
+
+def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
+    submission_id, _, rdm_id = _seed_results_data(client)
+
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+
+    assert 'id="submission-analyses"' in html
+    assert ">Results</span>" in html
+    # the EDM column sits after Analysis on this page only (FR-010)
+    assert ">EDM</span>" in html
+    assert "Coastal HO 2026" in html and "Inland HO 2026" in html
+    # the split name columns (D4) — the full CRE_ name moved to the expansion
+    assert "Coastal HO" in html and "Inland HO" in html
+    assert ">Portfolio</span>" in html and ">Template</span>" in html
+    assert 'data-value="CRE_Coastal_v25"' not in html
+    assert '<b class="row-src__name">CRE_Coastal_v25</b>' in html
+    # the RDM group row lazy-loads from the submission-scoped fragment route
+    assert "Acme Broker RDM" in html
+    assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html
+    # deletion stays on the EDM page — no Delete control here
+    assert "Delete</button>" not in html
+    # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
+    assert "data-copy-table" in html
+    assert 'data-value="Coastal HO"' in html
+    assert '<time data-utc="2026-08-21T00:00:00"' in html
+
+
+def test_results_fragment_status_filter_rides_the_poll_url(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    html = client.get(f"/submissions/{submission_id}/analyses?status=failed").text
+
+    assert (f'hx-get="/submissions/{submission_id}/analyses?status=failed"'
+            in html)
+    assert "No analyses match this status filter." in html
+    assert "Acme Broker RDM" in html  # broker groups are unaffected by it
+
+
+def test_submission_rdm_lazy_rows_read_merged_columns(client):
+    submission_id, _, rdm_id = _seed_results_data(client)
+
+    html = client.get(f"/submissions/{submission_id}/rdms/{rdm_id}/analyses").text
+
+    assert "FL HU Gross 2026" in html
+    assert "data-broker" in html          # ticking one disables Delete
+    assert ">Finished</span>" in html
+    assert "Portfolio" not in html        # FR-020
+
+    other = client.post("/submissions",
+                        data=_payload(name="Other deal", confirmed="1"))
+    other_id = other.headers["location"].rsplit("/", 1)[-1]
+    assert client.get(
+        f"/submissions/{other_id}/rdms/{rdm_id}/analyses").status_code == 404
+
+
+def test_detail_page_includes_the_results_section(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    html = client.get(f"/submissions/{submission_id}").text
+
+    assert 'id="submission-analyses"' in html
+    assert ">Results</span>" in html
+    assert "Coastal HO" in html
