@@ -58,8 +58,11 @@ def _is_uuid(value: str) -> bool:
     return True
 
 
+EP_TYPES = ("OEP", "AEP")
+
+
 def _results_analyses_url(order: list[str], submission: str, edm: str,
-                          perspective: str = "") -> str:
+                          perspective: str = "", ep_type: str = "") -> str:
     params = [("ids", ",".join(order))]
     if submission:
         params.append(("submission", submission))
@@ -67,21 +70,24 @@ def _results_analyses_url(order: list[str], submission: str, edm: str,
         params.append(("edm", edm))
     if perspective:
         params.append(("perspective", perspective))
+    if ep_type:
+        params.append(("ep_type", ep_type))
     return "/results/analyses?" + urlencode(params)
 
 
 @router.get("/results/analyses", response_class=HTMLResponse)
 def results_analyses(request: Request, ids: str = "", submission: str = "",
-                     edm: str = "", perspective: str = ""):
+                     edm: str = "", perspective: str = "", ep_type: str = ""):
     """The dedicated results page (spec 011 US4, contracts/routes.md §3):
     one column per ``ids`` entry in param order (FR-016), all 11 return
-    periods × both EP types, ``perspective`` screen-wide (FR-012). Reads
-    stored extracts only — no Risk Modeler call (Article 11). Unknown or
-    deleted ids render a notice, never a 500."""
+    periods of the selected ``ep_type``, ``perspective`` screen-wide
+    (FR-011/FR-012). Reads stored extracts only — no Risk Modeler call
+    (Article 11). Unknown or deleted ids render a notice, never a 500."""
     id_list = [p for p in (s.strip() for s in ids.split(",")) if p]
     perspectives = analysis_service.list_analysis_perspectives()
     codes = [p["code"] for p in perspectives]
     active = perspective if perspective in codes else (codes[0] if codes else "")
+    active_ep = ep_type if ep_type in EP_TYPES else EP_TYPES[0]
     active_label = next(
         (p["label"] for p in perspectives if p["code"] == active), active)
     columns, missing = analysis_service.list_results_columns(
@@ -112,11 +118,13 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
         if i > 0:
             swapped = list(order)
             swapped[i - 1], swapped[i] = swapped[i], swapped[i - 1]
-            left = _results_analyses_url(swapped, submission, edm, active)
+            left = _results_analyses_url(swapped, submission, edm,
+                                         active, active_ep)
         if i < len(columns) - 1:
             swapped = list(order)
             swapped[i], swapped[i + 1] = swapped[i + 1], swapped[i]
-            right = _results_analyses_url(swapped, submission, edm, active)
+            right = _results_analyses_url(swapped, submission, edm,
+                                          active, active_ep)
         view_columns.append({"col": col, "left": left, "right": right})
 
     return _render(request, "pages/results_analyses.html", "results.analyses", {
@@ -125,9 +133,12 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
         "perspectives": perspectives,
         "active_perspective": active,
         "active_label": active_label,
+        "ep_types": EP_TYPES,
+        "active_ep": active_ep,
         "rp_labels": analysis_service.expanded_return_periods(),
-        # the perspective select adds its own value to this GET (FR-012)
-        "perspective_base_url": _results_analyses_url(order, submission, edm),
+        # each toolbar select adds its own value to this GET and hx-includes
+        # the other's, so neither swap drops the other's choice
+        "results_base_url": _results_analyses_url(order, submission, edm),
         "extra_crumbs": extra_crumbs,
         "page_name": page_name,
     })

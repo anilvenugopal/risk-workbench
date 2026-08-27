@@ -2,9 +2,10 @@
 {% block title %}{{ page_name or 'Analyses' }}{% endblock %}
 
 {# The dedicated results page (spec 011 US4): one column per selected analysis
-   in ids order (FR-016), all 11 return periods × both EP types, then AAL and
-   Std dev (FR-015). The perspective select re-renders #results-view over HTMX
-   screen-wide (FR-012); the units selector and Copy table are client-side
+   in ids order (FR-016), all 11 return periods of the selected EP type, then
+   AAL and Std dev, which sit outside that selection (FR-015). The perspective
+   and EP-type selects each re-render #results-view over HTMX screen-wide
+   (FR-011/FR-012); the units selector and Copy table are client-side
    over data attributes (FR-017/FR-018, app.js) — the one page a units control
    exists (O-12). Reorder arrows are server-built links that swap neighbouring
    ids. Numbers and tables only (FR-019); broker columns never name a
@@ -21,10 +22,18 @@
   <div class="res-toolbar">
     <label for="res-persp">Perspective</label>
     <select id="res-persp" name="perspective" class="wf-field__input"
-            hx-get="{{ perspective_base_url }}"
+            hx-get="{{ results_base_url }}" hx-include="#res-ep"
             hx-target="#results-view" hx-select="#results-view" hx-swap="outerHTML">
       {% for p in perspectives %}
       <option value="{{ p.code }}" {% if p.code == active_perspective %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-ep">EP type</label>
+    <select id="res-ep" name="ep_type" class="wf-field__input"
+            hx-get="{{ results_base_url }}" hx-include="#res-persp"
+            hx-target="#results-view" hx-select="#results-view" hx-swap="outerHTML">
+      {% for e in ep_types %}
+      <option value="{{ e }}" {% if e == active_ep %}selected{% endif %}>{{ e }}</option>
       {% endfor %}
     </select>
     <label for="res-units">Units</label>
@@ -47,14 +56,14 @@
     </div>
     {% endif %}
     {% if view_columns %}
-    <p class="res-count">{{ view_columns|length }} analys{{ 'is' if view_columns|length == 1 else 'es' }} &middot; {{ active_label }}</p>
+    <p class="res-count">{{ view_columns|length }} analys{{ 'is' if view_columns|length == 1 else 'es' }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
     <div class="ep-shell">
       <table class="ep">
         <thead>
           <tr>
             <th class="l" rowspan="2" style="vertical-align:bottom">Return period</th>
             {% for vc in view_columns %}
-            <th class="an gsep" colspan="2">
+            <th class="an gsep">
               {% if view_columns|length > 1 %}
               <span class="an__order">
                 {% if vc.left %}<a class="an__btn" href="{{ vc.left }}" title="Move left">&#9664;</a>
@@ -72,7 +81,7 @@
             {% endfor %}
           </tr>
           <tr>
-            {% for vc in view_columns %}<th class="gsep">OEP</th><th>AEP</th>{% endfor %}
+            {% for vc in view_columns %}<th class="gsep">{{ active_ep }}</th>{% endfor %}
           </tr>
         </thead>
         <tbody>
@@ -84,9 +93,9 @@
             {% set pr = vc.col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
             {% set r = pr.rows[ri] %}
-            <td class="gsep">{{ num(r.oep) }}</td><td>{{ num(r.aep) }}</td>
+            <td class="gsep">{{ num(r.oep if active_ep == 'OEP' else r.aep) }}</td>
             {% elif ri == 0 %}
-            <td class="colmsg gsep" colspan="2" rowspan="{{ rp_labels|length + 2 }}">
+            <td class="colmsg gsep" rowspan="{{ rp_labels|length + 2 }}">
               {%- if vc.col.results_state == 'failed' -%}
               Results retrieval failed.
               {%- if vc.col.results_error %}<span class="exec-reason">{{ vc.col.results_error }}</span>{% endif %}
@@ -105,7 +114,7 @@
             {% for vc in view_columns %}
             {% set pr = vc.col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
-            <td class="gsep" colspan="2">{{ num(pr.aal) }}</td>
+            <td class="gsep">{{ num(pr.aal) }}</td>
             {% endif %}
             {% endfor %}
           </tr>
@@ -114,7 +123,7 @@
             {% for vc in view_columns %}
             {% set pr = vc.col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
-            <td class="gsep" colspan="2">{{ num(pr.std_dev) }}</td>
+            <td class="gsep">{{ num(pr.std_dev) }}</td>
             {% endif %}
             {% endfor %}
           </tr>

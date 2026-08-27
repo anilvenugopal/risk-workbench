@@ -64,9 +64,9 @@
   EDM column after Template — the same `show_edm` flag the broker row takes.
 - Expanded row body is two flex columns that stack when narrow: on the left the
   source line — the full analysis name on own rows — then the **Metadata**
-  group (O-11, FR-022); on the right the condensed results — both EP types × the 6 condensed
+  group (O-11, FR-022); on the right the condensed results — the selected EP type at the 6 condensed
   return periods, then AAL and standard deviation as the last two rows, with the
-  perspective toggle in the row and no display toggle (FR-011). Values wrap and
+  perspective and EP-type toggles in the row and no display toggle (FR-011). Values wrap and
   carry `title` tooltips (FR-023).
 - Gathering what the expanded row reads (FR-022/FR-024/FR-025): `AnalysisSettings`
   gains `framework` — `_to_display` folds `analysisFramework` into

@@ -335,7 +335,11 @@ def test_broker_row_renders_ready_results_and_failed_reason(monkeypatch):
 
     html = _render_rows(monkeypatch, [ready, failed])
 
-    assert ">OEP</th>" in html and ">AEP</th>" in html
+    # one EP type at a time (D11): the header names the selected one and the
+    # AEP cells sit behind the toggle, not in a second column
+    assert 'x-text="ep">OEP</th>' in html
+    assert "x-show=\"ep === 'AEP'\"" in html
+    assert "colspan" not in html
     assert ">AAL</td>" in html and ">Std dev</td>" in html
     assert "The analysis did not produce this perspective." in html
     assert "Results retrieval failed." in html

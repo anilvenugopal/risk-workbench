@@ -222,8 +222,9 @@ def test_expanded_row_renders_metadata_results_and_perspective_toggle(
                   "Min loss threshold", "Franchise deductible"):
         assert label not in html
     assert "USD · RMS · RL25" not in html
-    # the perspective toggle defaults to Gross (FR-012) and lists all five
-    assert "x-data=\"{ p: 'GR' }\"" in html
+    # the perspective toggle defaults to Gross (FR-012) and lists all five;
+    # the EP-type toggle sits beside it and starts on OEP (D11)
+    assert "x-data=\"{ p: 'GR', ep: 'OEP' }\"" in html
     for label in ("Gross", "Reinsurance Layer", "Working Excess",
                   "Quota Share", "Ground Up"):
         assert label in html

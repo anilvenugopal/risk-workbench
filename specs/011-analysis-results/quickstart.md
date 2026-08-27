@@ -82,13 +82,14 @@ make shell && uv run pytest tests/irp --run-irp   # sandbox: WX/QS, T-08, broker
 
 1. Multi-select 3–5 analyses (mix own + broker) on either page → **View**.
 2. Expect: new browser tab, URL `/results/analyses?ids=…`, one column per
-   analysis in selection order, all 11 return periods, both EP types, and AAL +
-   Std dev as the last two rows; the tab
+   analysis in selection order, all 11 return periods for the selected EP type,
+   and AAL + Std dev as the last two rows; the tab
    title is the submission/EDM name; breadcrumbs = submission (+ EDM when
    entered from the EDM page) and link back; selections in the originating
    tab are cleared.
 3. Reorder columns via the controls — the `ids` param and the columns move.
-4. Switch perspective — every column follows (screen-wide).
+4. Switch perspective, then EP type — every column follows both (screen-wide),
+   and AAL and Std dev stay put across the EP-type switch.
 5. Units selector: values never auto-switch; ones/thousands/millions apply on
    selection (millions default) — this page is the only place it exists.
 6. Select >10 analyses: nothing blocks; the table scrolls horizontally

@@ -244,6 +244,30 @@ class TestResultsAnalysesPage:
         resp = client.get(f"/results/analyses?ids={AN_A}")
         assert 'value="GR" selected' in resp.text
 
+    def test_ep_type_selects_one_curve(self, monkeypatch):
+        client = self._client(monkeypatch, {AN_A: _column(AN_A, "Alpha Analysis")})
+        oep = client.get(f"/results/analyses?ids={AN_A}").text
+        assert 'value="OEP" selected' in oep
+        assert 'data-unit-value="1000000.0"' in oep
+        assert 'data-unit-value="1100000.0"' not in oep
+
+        aep = client.get(f"/results/analyses?ids={AN_A}&ep_type=AEP").text
+        assert 'value="AEP" selected' in aep
+        assert 'data-unit-value="1100000.0"' in aep
+        assert 'data-unit-value="1000000.0"' not in aep
+        # AAL and Std dev sit outside the selection (FR-015)
+        assert 'data-unit-value="4100000.0"' in oep
+        assert 'data-unit-value="4100000.0"' in aep
+
+    def test_no_cell_is_merged(self, monkeypatch):
+        """D11: a merged cell offsets the paste in Excel."""
+        client = self._client(monkeypatch, {
+            AN_A: _column(AN_A, "Alpha Analysis"),
+            AN_B: _column(AN_B, "Beta Analysis", produced=("GU",))})
+        resp = client.get(f"/results/analyses?ids={AN_A},{AN_B}")
+        assert "did not produce this perspective" in resp.text
+        assert "colspan" not in resp.text
+
     def test_breadcrumbs_submission_only(self, monkeypatch):
         client = self._client(monkeypatch, {AN_A: _column(AN_A, "Alpha Analysis")},
                               submission_name="Coastal Re HO 2026")

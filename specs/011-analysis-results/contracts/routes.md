@@ -29,9 +29,10 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
   browser — date, time to the second, AM/PM in the reader's zone (FR-024,
   T-10).
 - Row expansion is two columns (FR-011/FR-022): left the source line — the full
-  analysis name on own rows — and the Metadata group (O-11), right OEP and AEP at
-  50/100/250/500/1000/10000 followed by AAL and standard deviation as the last
-  two rows, with the perspective toggle in the row and no display toggle.
+  analysis name on own rows — and the Metadata group (O-11), right the selected EP
+  type at 50/100/250/500/1000/10000 followed by AAL and standard deviation as
+  the last two rows, with the perspective and EP-type toggles in the row and no
+  display toggle.
 - Section summary line: status filter, **Copy table**, **Delete**, **View**.
   View is a `target="_blank"` GET form to the dedicated page with the checked
   ids in check order; after submit the checkboxes reset (O-10). Delete disables
@@ -52,18 +53,20 @@ stored data only — no RM call serves a render (spec non-negotiable 1).
 
 ## 3. Dedicated results page
 
-`GET /results/analyses?ids=<uuid,uuid,…>[&submission=<id>][&edm=<id>][&perspective=GR]`
+`GET /results/analyses?ids=<uuid,uuid,…>[&submission=<id>][&edm=<id>][&perspective=GR][&ep_type=OEP]`
 
 - Nav: hidden child node `results.analyses` under the `results` rail root
   (pattern: `submissions.detail`). One node + one handler + one template.
 - `ids` order = column order (FR-016); reorder controls rewrite the param and
   re-request. No hard count limit — past ~10 columns the table scrolls
   horizontally in its `overflow-x` shell (FR-015 / O-09).
-- Expanded return periods (all 11), both EP types, then AAL and standard
-  deviation as the last two rows, one column per analysis;
+- Expanded return periods (all 11) for the selected `ep_type` (`OEP` default,
+  `AEP`), then AAL and standard deviation as the last two rows, one column per
+  analysis — one cell per column per row, no merged cells;
   per-analysis header shows name, currency, and results state
   (pending/failed rows render as a pending column, never dropped — FR-008).
-- `perspective` re-renders over HTMX, screen-wide (FR-012). Units selector
+- `perspective` and `ep_type` each re-render over HTMX, screen-wide
+  (FR-011/FR-012); each select includes the other's value so a swap keeps both. Units selector
   (ones/thousands/millions, millions default) and copy-with-headers (TSV to
   clipboard) are client-side over `data-value` attributes (FR-017/FR-018).
 - `{% block title %}` = the submission or EDM name (FR-014). Breadcrumbs:
