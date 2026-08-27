@@ -343,19 +343,8 @@ def contextual_detail_body(request: Request, submission_id: str, edm_id: str):
 def contextual_detail_analyses(request: Request, submission_id: str, edm_id: str):
     """Contextual variant of ``detail_analyses`` — the Analyses section's own
     polling fragment. No writes, no Risk Modeler call (Article 11)."""
-    section = edm_service.get_edm_analyses(
-        edm_id=edm_id, submission_id=submission_id)
-    if section is None:
-        return _analyses_gone_notice(
-            "This EDM is no longer related to the submission.")
-    execution_id = (request.query_params.get("execution_id") or "").strip() or None
-    return _partial(
-        request, "partials/executed_analyses_section.html",
-        {"edm": section,
-         "status_filter": _analyses_status_filter(request),
-         "execution_id": execution_id,
-         "execution_live": analysis_service.execution_batch_is_live(execution_id),
-         "analyses_table_url": f"/submissions/{submission_id}/edms/{edm_id}/analyses"})
+    return _analyses_section_partial(request, edm_id,
+                                     submission_id=submission_id)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/analyses/delete")
@@ -440,19 +429,12 @@ def contextual_rdm_analyses(
     response_class=HTMLResponse,
 )
 def contextual_execute_modal(request: Request, submission_id: str, edm_id: str):
-    context = edm_service.get_contextual_edm_detail(
-        submission_id=submission_id, edm_id=edm_id)
-    if context is None:
+    if edm_service.get_contextual_edm_detail(
+            submission_id=submission_id, edm_id=edm_id) is None:
         return _contextual_not_found(request)
-    edm = edm_service.get_edm(edm_id)
-    portfolios = portfolio_service.list_portfolios(edm_id=edm_id)
-    ctx = _execute_context(
-        edm=edm, portfolios_all=portfolios,
-        kind=request.query_params.get("kind", "suite"),
-        portfolio_ids=request.query_params.getlist("portfolio_ids"))
-    ctx["action_url"] = f"/submissions/{submission_id}/edms/{edm_id}/execute"
-    return _partial(request, "partials/execute_analysis_modal.html",
-                    {**ctx, "errors": []})
+    return _execute_modal_get(
+        request, edm_id=edm_id,
+        action_url=f"/submissions/{submission_id}/edms/{edm_id}/execute")
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/execute")
@@ -467,19 +449,9 @@ async def contextual_execute_submit(request: Request, submission_id: str, edm_id
         submission_id=submission_id, edm_id=edm_id)
     if context is None:
         return _contextual_not_found(request)
-    parsed = _parse_execute_form(form)
-    try:
-        execution_id = analysis_execution_service.request_execution(
-            edm_id=edm_id, actor_id=request.state.user.id,
-            submission_id=submission_id, submission_name=context.submission.name,
-            **parsed)
-    except analysis_execution_service.ExecutionGateError as exc:
-        return _execute_error_response(
-            request, edm_id=edm_id, action_url=f"{url}/execute",
-            kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
-            errors=exc.errors)
-    return Response(status_code=204,
-                    headers=_execution_submitted_headers(execution_id))
+    return _execute_submit_response(
+        request, edm_id=edm_id, action_url=f"{url}/execute", form=form,
+        submission_id=submission_id, submission_name=context.submission.name)
 
 
 @router.get("/edms/{edm_id}", response_class=HTMLResponse)
@@ -557,33 +529,65 @@ def _parse_execute_form(form) -> dict:
     return parsed
 
 
-def _execute_error_response(request: Request, *, edm_id: str, action_url: str,
+def _execute_modal_response(request: Request, *, edm_id: str, action_url: str,
                             kind: str, portfolio_ids: list[str],
-                            errors: list[str]):
+                            errors: list[str], status_code: int = 200):
+    """The modal fragment, shared by both GETs and the gate's 422 re-render.
+    ``action_url`` keeps the modal's POST on the path the analyst came in on."""
     edm = edm_service.get_edm(edm_id)
     portfolios = portfolio_service.list_portfolios(edm_id=edm_id) if edm else []
     ctx = _execute_context(edm=edm, portfolios_all=portfolios, kind=kind,
                            portfolio_ids=portfolio_ids)
     ctx["action_url"] = action_url
-    response = _partial(request, "partials/execute_analysis_modal.html",
-                        {**ctx, "errors": errors}, status_code=422)
+    return _partial(request, "partials/execute_analysis_modal.html",
+                    {**ctx, "errors": errors}, status_code=status_code)
+
+
+def _execute_modal_get(request: Request, *, edm_id: str, action_url: str):
+    return _execute_modal_response(
+        request, edm_id=edm_id, action_url=action_url,
+        kind=request.query_params.get("kind", "suite"),
+        portfolio_ids=request.query_params.getlist("portfolio_ids"), errors=[])
+
+
+def _execute_error_response(request: Request, *, edm_id: str, action_url: str,
+                            kind: str, portfolio_ids: list[str],
+                            errors: list[str]):
+    # Retargeted at the mount because htmx drops a non-2xx body at the
+    # triggering element's own target by default.
+    response = _execute_modal_response(
+        request, edm_id=edm_id, action_url=action_url, kind=kind,
+        portfolio_ids=portfolio_ids, errors=errors, status_code=422)
     if request.headers.get("HX-Request") == "true":
         response.headers["HX-Retarget"] = "#execute-modal"
         response.headers["HX-Reswap"] = "innerHTML"
     return response
 
 
+def _execute_submit_response(request: Request, *, edm_id: str, action_url: str,
+                             form, submission_id: str | None = None,
+                             submission_name: str | None = None):
+    """Shared body of both execute POSTs. ``submission_name`` is None outside a
+    submission — it becomes the extra analysis tag on every plan item (FR-021)."""
+    parsed = _parse_execute_form(form)
+    try:
+        execution_id = analysis_execution_service.request_execution(
+            edm_id=edm_id, actor_id=request.state.user.id,
+            submission_id=submission_id, submission_name=submission_name,
+            **parsed)
+    except analysis_execution_service.ExecutionGateError as exc:
+        return _execute_error_response(
+            request, edm_id=edm_id, action_url=action_url,
+            kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
+            errors=exc.errors)
+    return Response(status_code=204,
+                    headers=_execution_submitted_headers(execution_id))
+
+
 @router.get("/edms/{edm_id}/execute", response_class=HTMLResponse)
 def execute_modal(request: Request, edm_id: str):
-    edm = edm_service.get_edm(edm_id)
-    portfolios = portfolio_service.list_portfolios(edm_id=edm_id) if edm else []
-    ctx = _execute_context(
-        edm=edm, portfolios_all=portfolios,
-        kind=request.query_params.get("kind", "suite"),
-        portfolio_ids=request.query_params.getlist("portfolio_ids"))
-    ctx["action_url"] = f"/edms/{edm_id}/execute"
-    return _partial(request, "partials/execute_analysis_modal.html",
-                    {**ctx, "errors": []})
+    return _execute_modal_get(request, edm_id=edm_id,
+                              action_url=f"/edms/{edm_id}/execute")
 
 
 @router.post("/edms/{edm_id}/execute")
@@ -593,17 +597,8 @@ async def execute_submit(request: Request, edm_id: str):
         if request.headers.get("HX-Request") == "true":
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    parsed = _parse_execute_form(form)
-    try:
-        execution_id = analysis_execution_service.request_execution(
-            edm_id=edm_id, actor_id=request.state.user.id, **parsed)
-    except analysis_execution_service.ExecutionGateError as exc:
-        return _execute_error_response(
-            request, edm_id=edm_id, action_url=f"/edms/{edm_id}/execute",
-            kind=parsed["kind"], portfolio_ids=parsed["portfolio_ids"],
-            errors=exc.errors)
-    return Response(status_code=204,
-                    headers=_execution_submitted_headers(execution_id))
+    return _execute_submit_response(
+        request, edm_id=edm_id, action_url=f"/edms/{edm_id}/execute", form=form)
 
 
 _ANALYSES_STATUS_FILTERS = ("failed", "in_progress", "ready")
@@ -628,21 +623,30 @@ def _analyses_gone_notice(message: str) -> HTMLResponse:
         '</div></details>')
 
 
-def _analyses_section_partial(request: Request, edm_id: str):
+def _analyses_section_partial(request: Request, edm_id: str,
+                              *, submission_id: str | None = None):
     """The Analyses section's own fragment (executed_analyses_section.html) —
     its polling unit, separate from the rest of the detail body (T-11
     refinement) so an in-flight execution never re-swaps rows the analyst has
-    expanded elsewhere on the page."""
-    section = edm_service.get_edm_analyses(edm_id=edm_id)
+    expanded elsewhere on the page. With ``submission_id`` the fragment polls
+    and deletes against its submission-scoped URL, so a swap never drops the
+    analyst out of the submission context."""
+    section = edm_service.get_edm_analyses(edm_id=edm_id,
+                                           submission_id=submission_id)
     if section is None:
-        return _analyses_gone_notice("This EDM no longer exists.")
+        return _analyses_gone_notice(
+            "This EDM is no longer related to the submission." if submission_id
+            else "This EDM no longer exists.")
     execution_id = (request.query_params.get("execution_id") or "").strip() or None
+    base = f"/edms/{edm_id}/analyses" if submission_id is None else (
+        f"/submissions/{submission_id}/edms/{edm_id}/analyses")
     return _partial(request, "partials/executed_analyses_section.html",
                     {"edm": section,
                      "status_filter": _analyses_status_filter(request),
                      "execution_id": execution_id,
                      "execution_live": analysis_service.execution_batch_is_live(
-                         execution_id)})
+                         execution_id),
+                     "analyses_table_url": base})
 
 
 @router.get("/edms/{edm_id}/analyses", response_class=HTMLResponse)
