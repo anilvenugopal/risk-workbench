@@ -33,7 +33,7 @@ import argparse
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import text
 
@@ -48,6 +48,7 @@ from app.services import (
     rdm_service,
     rwb_job_service,
 )
+from app.services._common import _utcnow
 from app.workers import dispatch
 from db import execute, execute_one, get_connection
 
@@ -170,7 +171,7 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
             "UPDATE irp_analysis SET status_code = 'error', failure_reason = :r, "
             "updated_at = :now WHERE id = :id"
         ), {"r": _analysis_failure_reason(resolved.get("result")),
-            "now": datetime.now(timezone.utc).replace(tzinfo=None),
+            "now": _utcnow(),
             "id": job["irp_analysis_id"]})
 
 
@@ -292,8 +293,7 @@ def _fmt_elapsed(submitted_at) -> str:
             return "?"
     if not isinstance(submitted_at, datetime):
         return "?"
-    secs = (datetime.now(timezone.utc).replace(tzinfo=None)
-            - submitted_at).total_seconds()
+    secs = (_utcnow() - submitted_at).total_seconds()
     if secs < 0:
         return "?"
     mins, s = divmod(int(secs), 60)
@@ -413,7 +413,7 @@ def _retry_submission(row: dict) -> None:
     (the approved-plans rule — never recomposed from live rows) and update it
     IN PLACE (T-09: ``record_submission_failure``'s insert-per-failure design
     makes per-row attempt counting meaningless)."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = _utcnow()
     try:
         params = json.loads(row["request_params"])
         irp_id, request_body = irp_gateway.submit_portfolio_analysis(**params)
@@ -463,7 +463,7 @@ def _retry_submission(row: dict) -> None:
 
 def _claim_submission_retry(row: dict) -> bool:
     """Claim a failed submit only while its analysis remains live locally."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = _utcnow()
     with get_connection("WORKBENCH") as conn, conn.begin():
         claimed = conn.execute(text(
             "UPDATE irp_job SET status = 'SUBMISSION RETRYING', updated_at = :now "
@@ -486,7 +486,7 @@ def _reclaim_stale_retrying(*, stale_secs: int, now: datetime | None = None) -> 
     FAILED`` hands the row back to the normal backoff machinery; the attempt
     increment is what stops a poller that dies on the same row every pass from
     retrying it forever. Returns the number reclaimed."""
-    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    now = now or _utcnow()
     cutoff = now - timedelta(seconds=stale_secs)
     reason = json.dumps({"error": "Poller stopped before the retry completed."})
     with get_connection("WORKBENCH") as conn, conn.begin():
@@ -527,7 +527,7 @@ def _submission_retry() -> None:
         {"max_retries": settings.irp_submission_max_retries},
         connection="WORKBENCH",
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = _utcnow()
     for row in candidates:
         completed_at = row["completed_at"]
         if isinstance(completed_at, str):
