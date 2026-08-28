@@ -827,6 +827,12 @@ class ComparableAnalysis:
     rdm_name: str | None
     run_currency: str | None
     results_state: str
+    # The row's metadata line — settings_metadata via _to_display, so own and
+    # broker rows read the same fields.
+    event_rate_scheme: str | None = None
+    peril: str | None = None
+    engine: str | None = None
+    submitted_at: Any = None  # own: submit request time; broker: RM createDate
 
 
 def _broker_run_currency(settings: dict | None) -> str | None:
@@ -869,7 +875,10 @@ def list_comparable_analyses(
     rows = [ComparableAnalysis(
         id=a.id, name=a.full_name or a.name, rdm_name=None,
         run_currency=a.run_currency,
-        results_state=a.results_state) for a in own]
+        results_state=a.results_state,
+        event_rate_scheme=a.display.event_rate_scheme,
+        peril=a.display.peril, engine=a.display.engine,
+        submitted_at=a.inserted_at) for a in own]
     if submission_id is not None:
         for group in list_submission_rdms(submission_id=submission_id):
             for a in (list_submission_rdm_analyses(
@@ -877,7 +886,10 @@ def list_comparable_analyses(
                 rows.append(ComparableAnalysis(
                     id=a.id, name=a.name, rdm_name=group.rdm_name,
                     run_currency=_broker_run_currency(a.settings),
-                    results_state=a.results_state))
+                    results_state=a.results_state,
+                    event_rate_scheme=a.display.event_rate_scheme,
+                    peril=a.display.peril, engine=a.display.engine,
+                    submitted_at=a.created_at))
     return rows
 
 

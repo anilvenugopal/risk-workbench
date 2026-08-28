@@ -7,8 +7,17 @@
    failed are listed, never tickable (FR-002); a row with no recorded run
    currency is tickable but carries no data-currency, so a pair-add naming it
    is refused (P-05). #}
+{%- macro row_meta(a) -%}
+<span class="cmp-meta">
+  {% if a.rdm_name %}<span class="cmp-meta__part" title="Broker analysis — source RDM">{{ a.rdm_name }}</span>{% endif %}
+  {% if a.peril %}<span class="cmp-meta__part" title="Peril">{{ a.peril }}</span>{% endif %}
+  {% if a.engine %}<span class="cmp-meta__part" title="Engine">{{ a.engine }}</span>{% endif %}
+  <span class="cmp-meta__part" title="Event rate scheme">{{ a.event_rate_scheme or 'scheme not returned' }}</span>
+  {% if a.submitted_at %}<span class="cmp-meta__part"><time data-utc="{{ a.submitted_at }}" title="{{ a.submitted_at }}">{{ a.submitted_at }}</time></span>{% endif %}
+</span>
+{%- endmacro -%}
 <div class="modal" id="compare-modal">
-  <div class="modal-card" x-data="compareCart({{ max_pairs }})"
+  <div class="modal-card modal-card--wide" x-data="compareCart({{ max_pairs }})"
        {% if submission_id %}data-submission="{{ submission_id }}"{% endif %}
        {% if edm_id %}data-edm="{{ edm_id }}"{% endif %}>
     <div class="modal-header"><span class="modal-title">Compare analyses</span></div>
@@ -29,32 +38,42 @@
                {% if a.run_currency %}data-currency="{{ a.run_currency }}"{% endif %}>
           <input type="checkbox" @change="toggle($event)"
                  :checked="picked('{{ a.id }}')">
-          <span class="name" title="{{ a.name }}">{{ a.name }}</span>
-          <span class="cmp-badge" x-show="baseId === '{{ a.id }}'" x-cloak>base</span>
-          {% if a.rdm_name %}<span class="ccy" title="Broker analysis — {{ a.rdm_name }}">{{ a.rdm_name }}</span>{% endif %}
+          <span class="cmp-row__main">
+            <span class="name" title="{{ a.name }}">{{ a.name }}
+              <span class="cmp-badge" x-show="baseId === '{{ a.id }}'" x-cloak>base</span></span>
+            {{ row_meta(a) }}
+          </span>
           <span class="ccy">{{ a.run_currency or '—' }}</span>
         </label>
         {% else %}
         <div class="cmp-row cmp-row--disabled">
           <input type="checkbox" disabled>
-          <span class="name" title="{{ a.name }}">{{ a.name }}</span>
-          {% if a.rdm_name %}<span class="ccy">{{ a.rdm_name }}</span>{% endif %}
+          <span class="cmp-row__main">
+            <span class="name" title="{{ a.name }}">{{ a.name }}</span>
+            {{ row_meta(a) }}
+          </span>
           <span class="ccy">{{ 'retrieval failed' if a.results_state == 'failed' else 'retrieving…' }}</span>
         </div>
         {% endif %}
         {% endfor %}
       </div>
-      <div class="cmp-cart" x-show="pairs.length" x-cloak>
-        <template x-for="(p, i) in pairs" :key="i">
-          <div class="cmp-pair">
-            <span class="ord" x-text="i + 1"></span>
-            <span x-text="p.base.name"></span>
-            <span class="vs">vs</span>
-            <span x-text="p.second.name"></span>
-            <button type="button" class="x" title="Remove this pair"
-                    @click="removePair(i)">&#10005;</button>
-          </div>
-        </template>
+      <div class="cmp-cart">
+        <div class="cmp-cart__head">Comparison pairs —
+          <span x-text="pairs.length">0</span> of {{ max_pairs }}</div>
+        <div class="cmp-cart__rows">
+          <div class="cmp-cart__empty" x-show="!pairs.length">No pairs yet —
+            tick two analyses, then Add pair.</div>
+          <template x-for="(p, i) in pairs" :key="i">
+            <div class="cmp-pair">
+              <span class="ord" x-text="i + 1"></span>
+              <span x-text="p.base.name"></span>
+              <span class="vs">vs</span>
+              <span x-text="p.second.name"></span>
+              <button type="button" class="x" title="Remove this pair"
+                      @click="removePair(i)">&#10005;</button>
+            </div>
+          </template>
+        </div>
       </div>
       {% endif %}
     </div>
