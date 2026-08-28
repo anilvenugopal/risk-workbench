@@ -60,6 +60,7 @@ _GETTERS = {
     "import_rdm": irp_gateway.get_import_job,
     "analysis": irp_gateway.get_analysis_job,
     "geohaz": irp_gateway.get_geohaz_job,
+    "grouping": irp_gateway.get_grouping_job,
 }
 
 
@@ -175,6 +176,28 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
             "id": job["irp_analysis_id"]})
 
 
+def _handle_grouping_terminal(conn, job: dict, status: str, resolved: dict) -> None:
+    """FINISHED → enqueue the completion backfill; its group branch resolves the
+    platform id by name-only search, so no ``rm_analysis_id`` rides along.
+    FAILED/CANCELLED → the group row moves to ``error`` with the platform's
+    failure reason. Grouping submission failures never reach ``_submission_retry``
+    (it stays filtered to ``irp_job_type='analysis'``) — the analyst recomposes."""
+    if status == "FINISHED":
+        rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_job", requestor_id=job["id"],
+            rwb_job_type="backfill_analysis_detail",
+            input_data={"analysis_id": str(job["irp_analysis_id"])},
+            conn=conn,
+        )
+    else:
+        conn.execute(text(
+            "UPDATE irp_analysis SET status_code = 'error', failure_reason = :r, "
+            "updated_at = :now WHERE id = :id"
+        ), {"r": _analysis_failure_reason(resolved.get("result")),
+            "now": _utcnow(),
+            "id": job["irp_analysis_id"]})
+
+
 def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> None:
     # _resolve_geohaz_metadata returns {} unless FINISHED, so a present value is
     # already proof of a FINISHED run.
@@ -203,6 +226,7 @@ _TERMINAL_HANDLERS = {
     "import_rdm": _handle_import_rdm_terminal,
     "analysis": _handle_analysis_terminal,
     "geohaz": _handle_geohaz_terminal,
+    "grouping": _handle_grouping_terminal,
 }
 
 
