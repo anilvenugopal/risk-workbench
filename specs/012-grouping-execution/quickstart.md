@@ -71,14 +71,27 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    Workbench-submitted analysis of the submission appears (US-4 acceptance 1;
    the group itself carries no tag — spec O-07).
 
-## 4. IRP sandbox tier — T-11 verification (group results retrieval)
+## 4. IRP sandbox tier — T-11 and SC-002 verification
 
 ```bash
 make shell
 uv run pytest tests/irp --run-irp -k grouping
 ```
 
-Submits a real grouping of two finished sandbox analyses, polls
-`get_grouping_job` to `FINISHED`, then asserts `get_analysis_stats` /
-`get_analysis_ep` return data for the group's `analysisId`. Until this passes,
-T-11 is an assumption, not a validated claim.
+Three cases in `tests/irp/test_grouping.py`, each skipped until its member set
+is named in the environment (comma-separated analysis names, plus their EDMs
+comma-separated and positionally aligned; an empty EDM entry means a name-only
+member):
+
+| Case | Names | EDMs |
+|---|---|---|
+| Group results round-trip (T-11) | `IRP_TEST_GROUP_MEMBER_NAMES` | `IRP_TEST_GROUP_MEMBER_EDMS` |
+| Mixed event-rate schemes, both DLM (SC-002) | `IRP_TEST_GROUP_MIXED_SCHEME_NAMES` | `IRP_TEST_GROUP_MIXED_SCHEME_EDMS` |
+| DLM + HD pair (SC-002) | `IRP_TEST_GROUP_DLM_HD_NAMES` | `IRP_TEST_GROUP_DLM_HD_EDMS` |
+
+The first submits a real grouping, polls `get_grouping_job` to `FINISHED`, then
+asserts `get_analysis_stats` / `get_analysis_ep` return data for the group's
+`analysisId` — until it passes, T-11 is an assumption, not a validated claim.
+The other two stop at `FINISHED` and assert no event-rate-scheme parameter
+appears in the submitted payload. All three assert the
+`propagateDetailedLosses` flag and nothing more about it, pending O-02.

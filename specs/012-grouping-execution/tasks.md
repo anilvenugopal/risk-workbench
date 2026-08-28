@@ -106,7 +106,7 @@ Risk Modeler.
 
 ### Tests for User Story 2
 
-- [ ] T021 [P] [US2] [FR-007] [FR-009] [T-03] Unit test in `tests/unit/test_grouping_jobs_worker.py`: FakeIRP missing-member failure mode → `SUBMISSION FAILED` `irp_job` recorded, group row `error` + `failure_reason` = the exception text, no automatic retry (SC-005: cause named; the wheel raises before the POST, so nothing reached the platform — O-09)
+- [X] T021 [P] [US2] [FR-007] [FR-009] [T-03] Unit test in `tests/unit/test_grouping_jobs_worker.py`: FakeIRP missing-member failure mode → `SUBMISSION FAILED` `irp_job` recorded, group row `error` + `failure_reason` = the exception text, no automatic retry (SC-005: cause named; the wheel raises before the POST, so nothing reached the platform — O-09)
 - [ ] T022 [US2] [FR-007] [FR-008] IRP sandbox cases in `tests/irp/test_grouping.py`: two finished DLM analyses under different event-rate schemes group and finish; a DLM + HD pair groups and finishes; no scheme parameter appears anywhere in the submitted payload (SC-002); Propagate detailed output verification stops at the `propagateDetailedLosses` payload flag until O-02 defines what it retains
   - Proof: `uv run pytest tests/irp --run-irp -k grouping` green; quickstart §3 step 5 walkthrough for the failure case
 

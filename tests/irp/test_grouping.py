@@ -1,18 +1,22 @@
-"""Sandbox round-trip for analysis grouping (spec 012, T020/T022 — quickstart §4).
+"""Sandbox round-trips for analysis grouping (spec 012, T020/T022 — quickstart §4).
 
-Submits a real grouping of two finished sandbox analyses, polls
-``get_grouping_job`` single-status to a terminal state, and asserts the
-stats/EP getters serve the group's ``analysisId`` — the T-11 assumption
-(group results retrieval reuses the analysis read path) is not a validated
-claim until this passes.
+Three cases, each driven by its own pair of environment variables naming
+FINISHED sandbox analyses (comma-separated names) and their EDMs
+(comma-separated, positionally aligned; leave an entry empty for a name-only
+member). Each case skips — never fails — when its variables are unset: no
+fixture name is safe to hardcode against someone else's sandbox tenant.
 
-Needs two FINISHED sandbox analyses named in ``IRP_TEST_GROUP_MEMBER_NAMES``
-(comma-separated) with their EDM in ``IRP_TEST_GROUP_MEMBER_EDMS``
-(comma-separated, aligned; leave an entry empty for a name-only member).
-Skips (not fails) when unset — no fixture name is safe to hardcode against
-someone else's sandbox tenant. Mixed-scheme / DLM+HD member pairs (T022,
-US-2) are exercised by pointing these variables at such a pair; no scheme
-parameter exists anywhere in this test to tune (SC-002).
+quickstart §4 lists the variable pairs; each skip message names its own.
+
+T020 submits a grouping, polls ``get_grouping_job`` single-status to a terminal
+state, and asserts the stats/EP getters serve the group's ``analysisId`` — the
+T-11 assumption (group results retrieval reuses the analysis read path) is not
+a validated claim until it passes. The two T022 cases stop at FINISHED: they
+prove SC-002, that a mixed-scheme DLM pair and a DLM + HD pair each group with
+zero manual pre-steps and no scheme parameter anywhere in the submitted
+payload. Propagate detailed output verification stops at the
+``propagateDetailedLosses`` payload flag until spec O-02 defines what it
+retains.
 
 Run: ``make shell`` then ``uv run pytest tests/irp --run-irp -k grouping``.
 """
@@ -27,43 +31,43 @@ import pytest
 
 from app.services import irp_gateway
 
-_MEMBER_NAMES = [n.strip() for n in
-                 os.environ.get("IRP_TEST_GROUP_MEMBER_NAMES", "").split(",")
-                 if n.strip()]
-_MEMBER_EDMS = [e.strip() for e in
-                os.environ.get("IRP_TEST_GROUP_MEMBER_EDMS", "").split(",")]
-
-pytestmark = [
-    pytest.mark.irp,
-    pytest.mark.skipif(
-        len(_MEMBER_NAMES) < 2,
-        reason="set IRP_TEST_GROUP_MEMBER_NAMES (comma-separated, ≥2 FINISHED "
-               "sandbox analyses) and IRP_TEST_GROUP_MEMBER_EDMS to run the "
-               "grouping round-trip"),
-]
+pytestmark = pytest.mark.irp
 
 _POLL_TIMEOUT_SECS = 600
 _POLL_INTERVAL_SECS = 15
 
 _PERSPECTIVE = "GR"
 
+_CURRENCY = {"code": "USD", "scheme": "RMS", "vintage": "RL25",
+             "asOfDate": "2025-05-28"}
 
-def test_grouping_submit_poll_and_results_round_trip():
-    gateway = irp_gateway._RealGateway()
+
+def _member_set(names_var: str, edms_var: str) -> tuple[list[str], dict[str, str]]:
+    names = [n.strip() for n in os.environ.get(names_var, "").split(",")
+             if n.strip()]
+    edms = [e.strip() for e in os.environ.get(edms_var, "").split(",")]
+    if len(names) < 2:
+        pytest.skip(f"set {names_var} (comma-separated, ≥2 FINISHED sandbox "
+                    f"analyses) and {edms_var} to run this case")
     edm_map = {name: edm
-               for name, edm in zip(_MEMBER_NAMES, _MEMBER_EDMS, strict=False)
-               if edm}
-    group_name = f"RWB T020 Group {int(time.time())}"
+               for name, edm in zip(names, edms, strict=False) if edm}
+    return names, edm_map
 
+
+def _group_to_terminal(gateway, *, label: str, names: list[str],
+                       edm_map: dict[str, str]) -> tuple[str, str]:
+    """Submit one grouping and poll it to a terminal state.
+
+    Returns the group name and the terminal status. Asserts SC-002 on the
+    submitted payload: no event-rate-scheme parameter — the wheel auto-builds
+    the region/peril simulation set.
+    """
+    group_name = f"RWB {label} {int(time.time())}"
     irp_id, request_body = gateway.submit_analysis_grouping(
-        group_name=group_name, analysis_names=list(_MEMBER_NAMES),
-        analysis_edm_map=edm_map, group_names=set(),
-        currency={"code": "USD", "scheme": "RMS",
-                  "vintage": "RL25", "asOfDate": "2025-05-28"},
+        group_name=group_name, analysis_names=names, analysis_edm_map=edm_map,
+        group_names=set(), currency=_CURRENCY,
         propagate_detailed_losses=True)
     assert irp_id
-    # SC-002: the submitted payload carries no event-rate-scheme choice —
-    # the wheel auto-builds the region/peril simulation set.
     assert "eventratescheme" not in json.dumps(request_body).lower()
     assert request_body["settings"]["propagateDetailedLosses"] is True
 
@@ -74,6 +78,15 @@ def test_grouping_submit_poll_and_results_round_trip():
         if status in ("FINISHED", "FAILED", "CANCELLED"):
             break
         time.sleep(_POLL_INTERVAL_SECS)
+    return group_name, status
+
+
+def test_grouping_submit_poll_and_results_round_trip():
+    gateway = irp_gateway._RealGateway()
+    names, edm_map = _member_set("IRP_TEST_GROUP_MEMBER_NAMES",
+                                 "IRP_TEST_GROUP_MEMBER_EDMS")
+    group_name, status = _group_to_terminal(
+        gateway, label="T020 Group", names=names, edm_map=edm_map)
     assert status == "FINISHED"
 
     hit = gateway.get_analysis_by_name_only(group_name)
@@ -90,3 +103,24 @@ def test_grouping_submit_poll_and_results_round_trip():
         exposure_resource_id=int(pointer))
     assert stats  # T-11: the analysis stats read serves a group id
     assert ep
+
+
+def test_mixed_event_rate_scheme_dlm_members_group_and_finish():
+    """US-2 acceptance 1 / SC-002 — two DLM analyses run under different
+    event-rate schemes group with no scheme choice and no pre-step."""
+    gateway = irp_gateway._RealGateway()
+    names, edm_map = _member_set("IRP_TEST_GROUP_MIXED_SCHEME_NAMES",
+                                 "IRP_TEST_GROUP_MIXED_SCHEME_EDMS")
+    _, status = _group_to_terminal(
+        gateway, label="T022 Mixed", names=names, edm_map=edm_map)
+    assert status == "FINISHED"
+
+
+def test_dlm_and_hd_members_group_and_finish():
+    """US-2 acceptance 2 / SC-002 — a DLM + HD pair groups with no pre-step."""
+    gateway = irp_gateway._RealGateway()
+    names, edm_map = _member_set("IRP_TEST_GROUP_DLM_HD_NAMES",
+                                 "IRP_TEST_GROUP_DLM_HD_EDMS")
+    _, status = _group_to_terminal(
+        gateway, label="T022 DlmHd", names=names, edm_map=edm_map)
+    assert status == "FINISHED"
