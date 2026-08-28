@@ -65,7 +65,7 @@
     {% if delete_url %}
     <input type="hidden" id="analyses-csrf" name="csrf_token" value="{{ generate_csrf_token() }}">
     <button class="btn-sm" type="button" onclick="event.stopPropagation()"
-            :disabled="!count || brokerCount"
+            :disabled="!count || brokerCount > 0"
             :title="brokerCount ? 'Delete applies to workbench analyses only — untick the broker rows' : null"
             hx-post="{{ delete_url }}"
             hx-include="[name='analysis_ids'], #analyses-csrf" hx-swap="none"
