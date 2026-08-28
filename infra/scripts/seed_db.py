@@ -135,7 +135,7 @@ def main() -> int:
                     ('run_geohaz',                'Run GeoHaz',                28),
                     ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
-                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  31),
+                    ('finalize_analysis',         'Finalize Analysis',         31),
                     ('submit_grouping',           'Submit grouping',           33),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),

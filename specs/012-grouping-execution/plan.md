@@ -45,7 +45,7 @@ per-queue worker framework this feature extends (T-01).
   success records the `irp_job` (`irp_job_type = grouping`, already seeded) —
   both exactly as the analysis worker does (T-03, spec O-09).
 - The poller gains a `grouping` getter (`get_grouping_job`, single-status) and
-  terminal handler: FINISHED → `backfill_analysis_detail`, which resolves a
+  terminal handler: FINISHED → `finalize_analysis`, which resolves a
   group's platform id by name-only search (groups have no EDM) and then runs
   unchanged — metadata, `irp_id`, `status_code='ready'`, chain
   `retrieve_analysis_results` (T-11). FAILED → `status_code='error'` +
@@ -65,7 +65,7 @@ per-queue worker framework this feature extends (T-01).
 | Area | Change |
 |---|---|
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
-| Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue); `backfill_analysis_detail` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
+| Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
 | UI | Group button + compose dialog (`group_compose_modal.html`, reuses `currency_block`); group rows in the submission merged grid and results page; Engine column renders "Group" |
 | Library | `irp_gateway` gains `submit_analysis_grouping` / `get_grouping_job` (+ `FakeIRP`); no irp-integration wheel change — 0.6.2 already ships the grouping API |
 
@@ -83,7 +83,7 @@ per-queue worker framework this feature extends (T-01).
 | T-08 | Create independent groups is dropped entirely — no checkbox, no emulation; the per-member design is recorded in research.md if the alignment reverses | Approved | research T-08, spec O-08 (decided 2026-08-27) |
 | T-09 | Group name default `CRE_<submission name>_Group`; `_n` collision suffix and 64-char truncation via the existing `name_attempt` | Approved | research T-09 |
 | T-10 | `skip_missing=False` — a member that fails name resolution fails the job; own members resolve name+EDM, groups name-only, broker name-only | Approved | research T-10 |
-| T-11 | Group completion reuses `backfill_analysis_detail` → `retrieve_analysis_results`; stats/EP endpoints assumed to serve group ids | Assumed | research T-11, quickstart step 4 |
+| T-11 | Group completion reuses `finalize_analysis` → `retrieve_analysis_results`; stats/EP endpoints assumed to serve group ids | Assumed | research T-11, quickstart step 4 |
 | T-12 | Groups render on submission-level pages only; compose pick-list submission-scoped from either entry page | Approved | research T-12 |
 
 ---
@@ -110,7 +110,7 @@ Material interactions — where an article actively shapes this design:
   never exposes back, not a stored process sequence.
 - **Article 5 (Judgment Waits for a Click)**: the article names "composing a
   grouping" as click-gated; nothing here auto-fires a grouping. The
-  post-completion chain (backfill → retrieve results) is the mechanical
+  post-completion chain (`finalize_analysis` → `retrieve_analysis_results`) is the mechanical
   follow-up that does auto-fire.
 - **Article 10 (Concurrency Is Per-Queue)**: `submit_grouping` is a new
   `rwb_job_type` with its own queue and single worker process via the CR-04
@@ -137,7 +137,7 @@ app/services/grouping_service.py       # new: eligibility, gate, naming, plan co
 app/services/irp_gateway.py            # submit_analysis_grouping / get_grouping_job / name-only analysis search
 app/services/analysis_service.py       # group rows in submission read models; Engine "Group"
 app/workers/grouping_jobs.py           # new: submit_grouping actor
-app/workers/analysis_jobs.py           # backfill_analysis_detail group branch
+app/workers/analysis_jobs.py           # finalize_analysis group branch
 app/poller/run.py                      # grouping getter + terminal handler
 app/routers/submissions.py             # GET/POST /submissions/{sid}/analyses/group
 app/templates/partials/analyses_merged_section.html   # Group button

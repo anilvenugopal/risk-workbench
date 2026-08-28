@@ -25,7 +25,7 @@ before 012 lands:
 - 011's actors are plain `@dramatiq.actor`; 010 moved them onto `rwb_actor`
   per-queue actors. Grouping's new actor uses the CR-04 framework.
 - 011's `alembic/versions/0001_initial.py` seed list is missing
-  `execute_analysis_batch` and `backfill_analysis_detail` (present only in
+  `execute_analysis_batch` and `finalize_analysis` (present only in
   `infra/scripts/seed_db.py` and `tests/iteration1_mirror.py`); 010 seeds them
   in the migration.
 
@@ -262,9 +262,9 @@ wheel already names the cause and the failure is recorded
 **Decision**: The poller gains `_GETTERS["grouping"] =
 irp_gateway.get_grouping_job` (wrapping the wheel's single-status
 `get_analysis_grouping_job`) and `_handle_grouping_terminal`: `FINISHED` →
-enqueue `backfill_analysis_detail` for the group's `irp_analysis` row;
+enqueue `finalize_analysis` for the group's `irp_analysis` row;
 `FAILED`/`CANCELLED` → `status_code='error'` + `failure_reason`.
-`backfill_analysis_detail` branches for group rows (no EDM): it resolves the
+`finalize_analysis` branches for group rows (no EDM): it resolves the
 platform `analysisId` by name-only `search_analyses` filter instead of
 `get_analysis_by_name(name, edm_name)`, then proceeds unchanged —
 `get_analysis_metadata`, stamp `irp_id`/`settings_metadata`/`status_code='ready'`,

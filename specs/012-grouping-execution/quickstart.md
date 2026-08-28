@@ -16,7 +16,7 @@ How to verify the feature. Contracts: [contracts/](contracts/); schema:
 - A submission with at least two finished analyses (run a suite via the
   existing flow and wait for `ready`).
 - A worker process for the new queue: `submit_grouping` (CR-04 per-queue
-  commands), plus the existing `backfill_analysis_detail` /
+  commands), plus the existing `finalize_analysis` /
   `retrieve_analysis_results` queues and the poller.
 
 ## 1. Unit tier (no containers)

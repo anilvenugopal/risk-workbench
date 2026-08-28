@@ -1,10 +1,10 @@
 """Unit tests for the poller's ``grouping`` job type and the group branch of
-``backfill_analysis_detail`` (spec 012, T019).
+``finalize_analysis`` (spec 012, T019).
 
-FINISHED enqueues the backfill (which resolves the platform id by name-only
-search — a grouping completion body carries no ``analysisId``); FAILED extracts
-the failure reason onto the group row; an ambiguous or missing name-only hit
-fails the backfill loudly.
+FINISHED enqueues ``finalize_analysis`` (which resolves the platform id by
+name-only search — a grouping completion body carries no ``analysisId``);
+FAILED extracts the failure reason onto the group row; an ambiguous or missing
+name-only hit fails the job loudly.
 """
 
 from __future__ import annotations
@@ -48,22 +48,22 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
             "irp_id": irp_job["irp_id"], "irp_job_id": irp_job["id"]}
 
 
-def _backfill_head() -> dict | None:
+def _finalize_head() -> dict | None:
     return execute_one(
         "SELECT id, input_data FROM rwb_job "
-        "WHERE rwb_job_type = 'backfill_analysis_detail'",
+        "WHERE rwb_job_type = 'finalize_analysis'",
         {}, connection="WORKBENCH")
 
 
 # ── poller routing + terminal handling ───────────────────────────────────────────
 
-def test_finished_grouping_enqueues_backfill(iteration2_db, fake_irp):
+def test_finished_grouping_enqueues_finalize(iteration2_db, fake_irp):
     g = _submitted_group(iteration2_db, fake_irp)
     fake_irp.finish(g["irp_id"])
 
     poller.poll_once()
 
-    head = _backfill_head()
+    head = _finalize_head()
     assert head is not None
     assert json.loads(head["input_data"]) == {"analysis_id": g["group_id"]}
     job = execute_one("SELECT status FROM irp_job WHERE id = :id",
@@ -83,22 +83,22 @@ def test_failed_grouping_moves_the_group_row_to_error(iteration2_db, fake_irp):
         {"id": g["group_id"]}, connection="WORKBENCH")
     assert row["status_code"] == "error"
     assert row["failure_reason"] == "ENGINE-400: bad member"
-    assert _backfill_head() is None
+    assert _finalize_head() is None
 
 
-# ── backfill group branch (name-only resolution) ─────────────────────────────────
+# ── finalize_analysis group branch (name-only resolution) ───────────────────────
 
-def test_backfill_resolves_a_group_by_name_only(iteration2_db, fake_irp):
+def test_finalize_resolves_a_group_by_name_only(iteration2_db, fake_irp):
     g = _submitted_group(iteration2_db, fake_irp)
     fake_irp.add_analysis(source_rdm_name="", exposure_name="",
                           analysis_id="9001", name=g["group_name"],
                           is_group=True, metadata={"engineType": "DLM"})
     fake_irp.finish(g["irp_id"])
     poller.poll_once()
-    head = _backfill_head()
+    head = _finalize_head()
 
     assert analysis_jobs.run_one(rwb_job_id=head["id"],
-                                 rwb_job_type="backfill_analysis_detail")
+                                 rwb_job_type="finalize_analysis")
 
     row = execute_one(
         "SELECT status_code, irp_id, settings_metadata FROM irp_analysis "
@@ -113,7 +113,7 @@ def test_backfill_resolves_a_group_by_name_only(iteration2_db, fake_irp):
     assert json.loads(retrieval["input_data"]) == {"analysis_id": g["group_id"]}
 
 
-def test_backfill_fails_on_zero_or_many_name_hits(iteration2_db, fake_irp):
+def test_finalize_fails_on_zero_or_many_name_hits(iteration2_db, fake_irp):
     g = _submitted_group(iteration2_db, fake_irp)
     # Two platform analyses share the group's name — tenant hygiene error worth
     # failing loudly on (contracts/grouping-worker.md).
@@ -123,14 +123,14 @@ def test_backfill_fails_on_zero_or_many_name_hits(iteration2_db, fake_irp):
                           analysis_id="9002", name=g["group_name"])
     fake_irp.finish(g["irp_id"])
     poller.poll_once()
-    head = _backfill_head()
+    head = _finalize_head()
 
     analysis_jobs.run_one(rwb_job_id=head["id"],
-                          rwb_job_type="backfill_analysis_detail")
+                          rwb_job_type="finalize_analysis")
 
-    backfill = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
+    finalize = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
                            {"id": head["id"]}, connection="WORKBENCH")
-    assert backfill["status_code"] == "failed"
+    assert finalize["status_code"] == "failed"
     row = execute_one(
         "SELECT status_code, failure_reason, irp_id FROM irp_analysis "
         "WHERE id = :id", {"id": g["group_id"]}, connection="WORKBENCH")

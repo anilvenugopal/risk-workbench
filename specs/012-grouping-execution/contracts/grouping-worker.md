@@ -92,10 +92,10 @@ def get_analysis_by_name_only(name: str) -> AnalysisSearchHit:
 ```
 
 `search_analyses(filter='analysisName = "<name>"')`; raises unless exactly one
-hit. Used by the group branch of `backfill_analysis_detail`. Groups have no
+hit. Used by the group branch of `finalize_analysis`. Groups have no
 EDM to disambiguate with, but the wheel's tenant-wide duplicate pre-check
 plus the worker's `_n` retry guarantee the group's own name was unique at
-submit; a duplicate appearing between submit and backfill is a tenant hygiene
+submit; a duplicate appearing between submit and `finalize_analysis` is a tenant hygiene
 error worth failing loudly on.
 
 ## Poller (`app/poller/run.py`)
@@ -103,14 +103,14 @@ error worth failing loudly on.
 - `_GETTERS["grouping"] = irp_gateway.get_grouping_job`.
 - `_TERMINAL_HANDLERS["grouping"] = _handle_grouping_terminal`:
   - `FINISHED` → `enqueue_rwb_job(requestor_type='irp_job',
-    requestor_id=job.id, rwb_job_type='backfill_analysis_detail',
+    requestor_id=job.id, rwb_job_type='finalize_analysis',
     input_data={"analysis_id": <group row id>})`.
   - `FAILED` / `CANCELLED` → group row `status_code='error'`,
     `failure_reason=_analysis_failure_reason(result)`.
 - `_submission_retry` stays filtered to `irp_job_type='analysis'` — grouping
   submission failures are terminal and visible; the analyst recomposes.
 
-## `backfill_analysis_detail` group branch (`app/workers/analysis_jobs.py`)
+## `finalize_analysis` group branch (`app/workers/analysis_jobs.py`)
 
 When the target row has `is_group=1` and no `edm_id`: resolve via
 `get_analysis_by_name_only(analysis.name)` instead of

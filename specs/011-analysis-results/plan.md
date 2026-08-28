@@ -37,7 +37,7 @@
   extract snapshots `engineType`/`engineVersion` from the analysis metadata
   payload (FR-021).
 - Triggers are worker-side chains, poller untouched: own —
-  `backfill_analysis_detail` enqueues retrieval on success; broker —
+  `finalize_analysis` enqueues retrieval on success; broker —
   `backfill_rdm_analyses` enqueues one retrieval per captured live analysis
   with `loss_results IS NULL`. Broker rows are keyed (`rdm_id`, `irp_id`), so
   once-per-RDM storage and EDM-copy dedup are automatic (US2).
@@ -100,7 +100,7 @@
 | Area | Change |
 |---|---|
 | Database | `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), nullable); new `analysis_perspective_kind` + 5 seeds; `rwb_job_requestor_type_kind` + `irp_analysis` seed. Alembic 0001 + seed_db + iteration1_mirror. |
-| Worker | New `retrieve_analysis_results` actor; chain enqueues in `backfill_analysis_detail` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
+| Worker | New `retrieve_analysis_results` actor; chain enqueues in `finalize_analysis` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
 | Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL and standard deviation, currency, condensed extract, and the submitted-settings read. |
 | UI | Merged analyses partial on EDM detail + new submission Results section; two-column expanded row; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. Nothing outside the analyses sections is touched. |
 | Library | Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
@@ -109,7 +109,7 @@
 
 | ID | Decision | Status | Detail |
 |---|---|---|---|
-| T-01 | Retrieval triggers are worker-side chains with queue-level dedup: own analyses chain from `backfill_analysis_detail`, broker from `backfill_rdm_analyses`; jobs keyed `(irp_analysis, analysis_id, retrieve_analysis_results)`; worker skips when `loss_results IS NOT NULL` | Approved | [research.md#R4](research.md#r4--retrieval-trigger-dedup-and-failure-handling-t-01) |
+| T-01 | Retrieval triggers are worker-side chains with queue-level dedup: own analyses chain from `finalize_analysis`, broker from `backfill_rdm_analyses`; jobs keyed `(irp_analysis, analysis_id, retrieve_analysis_results)`; worker skips when `loss_results IS NOT NULL` | Approved | [research.md#R4](research.md#r4--retrieval-trigger-dedup-and-failure-handling-t-01) |
 | T-02 | All five perspectives are requested through the wheel, never around it (Article 11). irp-integration 0.6.2 validates `perspective_code` against the full RM vocabulary, so WX and QS pass client-side | Approved | [research.md#R5](research.md#r5--the-wheel-rejects-wx-and-qs-t-02) — the earlier `['GR','GU','RL']` list and the widening that closed it |
 | T-03 | `exposure_resource_id` for result calls: own rows use `irp_portfolio.irp_id` (the RM portfolioId the analysis ran against); broker rows use stored `exposure_resource_id`, one `get_analysis_metadata` re-read when NULL (the gateway function, which wraps the wheel's `get_analysis_by_id`) — closes spec O-02 by design; sandbox verifies | Approved | [research.md#R2](research.md#r2--broker-exposure-pointer-o-02) |
 | T-04 | `loss_results` is written whole, once, as one JSON document: all 5 perspective keys always present, unproduced perspectives explicitly `null`, `engine_type`/`engine_version` snapshotted (FR-021) | Approved | [contracts/loss-results.md](contracts/loss-results.md) |
@@ -201,7 +201,7 @@ app/
 ├── routers/shell.py                 # /results/analyses dedicated page
 ├── services/analysis_service.py     # merged read models, extract/currency extraction
 ├── services/irp_gateway.py          # get_analysis_stats / get_analysis_ep
-├── workers/analysis_jobs.py         # retrieve_analysis_results; chain in backfill_analysis_detail
+├── workers/analysis_jobs.py         # retrieve_analysis_results; chain in finalize_analysis
 ├── workers/entity_jobs.py           # chain in backfill_rdm_analyses
 ├── workers/dispatch.py              # new actor registration
 ├── nav/manifest.py                  # results.analyses hidden node

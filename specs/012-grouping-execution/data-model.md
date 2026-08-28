@@ -31,9 +31,9 @@ A group row's shape:
 | `submission_id` | the owning submission |
 | `edm_id`, `rdm_id`, `irp_portfolio_id`, `analysis_template_id`, `execution_id`, `execution_item_no` | NULL |
 | `name` / `full_name` | submitted (≤64) / untruncated group name (T-09) |
-| `status_code` | `pending` at claim → `running` after submit → `ready` after backfill, or `error` + `failure_reason` |
+| `status_code` | `pending` at claim → `running` after submit → `ready` after `finalize_analysis`, or `error` + `failure_reason` |
 | `submitted_settings` | the approved compose plan verbatim (members, currency, flags) |
-| `irp_id`, `settings_metadata`, `exposure_resource_id`, `loss_results` | populated by the existing backfill / retrieve chain |
+| `irp_id`, `settings_metadata`, `exposure_resource_id`, `loss_results` | populated by the existing `finalize_analysis` / `retrieve_analysis_results` chain |
 
 The row `id` is minted at compose time and carried in the plan
 (`group_analysis_id`), so the worker's claim INSERT is idempotent by PK on
