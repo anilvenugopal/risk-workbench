@@ -28,12 +28,14 @@
         dialog; the page updates on its own.</div>
       {% elif not rows %}
       <div class="state-box">No analyses in this table yet.</div>
-      {% elif ready|length < 2 %}
+      {% else %}
+      {% if ready|length < 2 %}
       <div class="state-box">Fewer than two analyses have retrieved results yet.</div>
       {% else %}
       <div class="cmp-hint">Pick two analyses, then add the pair. The first
         picked is the <strong>base</strong> — percent change reads
         (second &minus; base) / base.</div>
+      {% endif %}
       <div class="cmp-list">
         {% for a in rows %}
         {% if a.results_state == 'ready' %}
@@ -60,6 +62,7 @@
         {% endif %}
         {% endfor %}
       </div>
+      {% if ready|length >= 2 %}
       <div class="cmp-cart">
         <div class="cmp-cart__head">Comparison pairs —
           <span x-text="pairs.length">0</span> of {{ max_pairs }}</div>
@@ -78,6 +81,7 @@
           </template>
         </div>
       </div>
+      {% endif %}
       {% endif %}
     </div>
     <div class="modal-error" x-show="error" x-cloak x-text="error"></div>
