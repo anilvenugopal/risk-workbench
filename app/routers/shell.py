@@ -75,6 +75,26 @@ def _results_analyses_url(order: list[str], submission: str, edm: str,
     return "/results/analyses?" + urlencode(params)
 
 
+def _entry_crumbs(submission: str, edm: str) -> tuple[list[dict], str | None]:
+    """The dedicated results pages' entry-point crumbs: submission entry adds
+    the submission crumb, EDM entry both; the last resolved name is the tab
+    title."""
+    extra_crumbs: list[dict] = []
+    page_name = None
+    sub = (submission_service.get_submission(submission)
+           if submission and _is_uuid(submission) else None)
+    if sub is not None:
+        extra_crumbs.append({"label": sub.name,
+                             "route": f"/submissions/{sub.id}"})
+        page_name = sub.name
+    edm_row = edm_service.get_edm(edm) if edm and _is_uuid(edm) else None
+    if edm_row is not None:
+        extra_crumbs.append({"label": edm_row.name,
+                             "route": f"/edms/{edm_row.id}"})
+        page_name = edm_row.name
+    return extra_crumbs, page_name
+
+
 @router.get("/results/analyses", response_class=HTMLResponse)
 def results_analyses(request: Request, ids: str = "", submission: str = "",
                      edm: str = "", perspective: str = "", ep_type: str = ""):
@@ -89,19 +109,7 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
     columns, missing = analysis_service.list_results_columns(
         analysis_ids=id_list)
 
-    extra_crumbs: list[dict] = []
-    page_name = None
-    sub = (submission_service.get_submission(submission)
-           if submission and _is_uuid(submission) else None)
-    if sub is not None:
-        extra_crumbs.append({"label": sub.name,
-                             "route": f"/submissions/{sub.id}"})
-        page_name = sub.name
-    edm_row = edm_service.get_edm(edm) if edm and _is_uuid(edm) else None
-    if edm_row is not None:
-        extra_crumbs.append({"label": edm_row.name,
-                             "route": f"/edms/{edm_row.id}"})
-        page_name = edm_row.name
+    extra_crumbs, page_name = _entry_crumbs(submission, edm)
 
     order = [c.id for c in columns]
     view_columns = []
@@ -131,6 +139,38 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
         # each toolbar select adds its own value to this GET and hx-includes
         # the other's, so neither swap drops the other's choice
         "results_base_url": _results_analyses_url(order, submission, edm),
+        "extra_crumbs": extra_crumbs,
+        "page_name": page_name,
+    })
+
+
+@router.get("/results/comparison", response_class=HTMLResponse)
+def results_comparison(request: Request, pairs: str = "", submission: str = "",
+                       edm: str = "", perspective: str = "", ep_type: str = ""):
+    """The comparison page (spec 013 T-01). ``list_comparison_pairs``
+    re-validates every pair and drops offenders whole, so bad input renders
+    the drop notice or the empty state — never a 500 (P-06). No Risk Modeler
+    call serves the render (FR-016)."""
+    perspectives = analysis_service.list_analysis_perspectives()
+    codes = [p["code"] for p in perspectives]
+    active = (perspective if perspective in codes
+              else analysis_service.DEFAULT_PERSPECTIVE)
+    active_ep = ep_type if ep_type in EP_TYPES else EP_TYPES[0]
+    active_label = next(
+        (p["label"] for p in perspectives if p["code"] == active), active)
+    pair_list, dropped = analysis_service.list_comparison_pairs(pairs=pairs)
+    extra_crumbs, page_name = _entry_crumbs(submission, edm)
+
+    return _render(request, "pages/results_comparison.html",
+                   "results.comparison", {
+        "pairs": pair_list,
+        "dropped": dropped,
+        "perspectives": perspectives,
+        "active_perspective": active,
+        "active_label": active_label,
+        "ep_types": EP_TYPES,
+        "active_ep": active_ep,
+        "rp_labels": analysis_service.expanded_return_periods(),
         "extra_crumbs": extra_crumbs,
         "page_name": page_name,
     })

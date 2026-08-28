@@ -1,0 +1,95 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ page_name or 'Comparison' }}{% endblock %}
+
+{#- Loss cells carry data-unit-value so the units sliver rescales them;
+    percent cells carry none, so no unit change ever touches a percent (T-06). -#}
+{%- macro num(v) -%}
+  {%- if v is none -%}<span class="na">—</span>
+  {%- else -%}<span data-unit-value="{{ v }}" data-value="{{ v }}" title="{{ v }}">{{ '{:,.1f}'.format(v / 1000000) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{%- macro pctcell(v) -%}
+  {%- if v is none -%}<span class="na">—</span>
+  {%- else -%}<span title="{{ v }}">{{ '{:+.1f}%'.format(v * 100) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{% block main %}
+<div class="page-pad">
+  <div id="comparison-view">
+    {% if pairs %}
+    <p class="res-count">{{ pairs|length }} comparison{{ 's' if pairs|length != 1 }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            {% for pair in pairs %}
+            {% for col in (pair.base, pair.second) %}
+            <th class="an{% if loop.first %} gsep{% endif %}">
+              <span class="an__name" title="{{ col.name }}" data-value="{{ col.name }}">{{ col.name }}</span>
+              <span class="an__sub">{{ col.run_currency or '—' }} · {{ col.engine or '—' }}</span>
+            </th>
+            {% endfor %}
+            <th class="chg" style="vertical-align:bottom">% Chg</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for rp in rp_labels %}
+          {% set ri = loop.index0 %}
+          <tr>
+            <td class="rp">{{ rp }}</td>
+            {% for pair in pairs %}
+            {% set pct = pair.pct_for(active_perspective) %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            <td{% if loop.first %} class="gsep"{% endif %}>
+              {%- if pr and pr.produced -%}
+              {{ num(pr.rows[ri].oep if active_ep == 'OEP' else pr.rows[ri].aep) }}
+              {%- else -%}<span class="na">—</span>{%- endif -%}
+            </td>
+            {% endfor %}
+            {% set prow = pct.rows[ri] if pct else none %}
+            <td class="chg">{{ pctcell((prow.oep if active_ep == 'OEP' else prow.aep) if prow is not none else none) }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          {# AAL and Std dev sit outside the EP-type selection (FR-010) #}
+          <tr class="aal">
+            <td class="rp">AAL</td>
+            {% for pair in pairs %}
+            {% set pct = pair.pct_for(active_perspective) %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            <td{% if loop.first %} class="gsep"{% endif %}>
+              {%- if pr and pr.produced -%}{{ num(pr.aal) }}
+              {%- else -%}<span class="na">—</span>{%- endif -%}
+            </td>
+            {% endfor %}
+            <td class="chg">{{ pctcell(pct.aal if pct else none) }}</td>
+            {% endfor %}
+          </tr>
+          <tr class="sd">
+            <td class="rp">Std dev</td>
+            {% for pair in pairs %}
+            {% set pct = pair.pct_for(active_perspective) %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            <td{% if loop.first %} class="gsep"{% endif %}>
+              {%- if pr and pr.produced -%}{{ num(pr.std_dev) }}
+              {%- else -%}<span class="na">—</span>{%- endif -%}
+            </td>
+            {% endfor %}
+            <td class="chg">{{ pctcell(pct.std_dev if pct else none) }}</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="state-box">No comparisons to display. Choose <strong>Compare</strong> on a
+    submission or EDM page and add at least one pair.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

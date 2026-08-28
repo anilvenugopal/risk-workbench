@@ -32,7 +32,7 @@ from app.services._common import (
     _uid,
     _utcnow,
 )
-from db import execute, execute_command, get_connection
+from db import execute, execute_command, execute_one, get_connection
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +215,8 @@ class ExecutedAnalysis:
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
     submitted: SubmittedSettings = field(default_factory=SubmittedSettings)
+    # The submit-time run currency (submitted_settings.currency.code, FR-005).
+    run_currency: str | None = None
 
     @property
     def is_live(self) -> bool:
@@ -502,7 +504,8 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
             results_state=("ready" if results else "pending"), results=results,
-            submitted=_submitted_view(r["submitted_settings"])))
+            submitted=_submitted_view(r["submitted_settings"]),
+            run_currency=_submitted_currency_code(r["submitted_settings"])))
     _mark_failed_retrievals(analyses)
     return analyses
 
@@ -642,9 +645,20 @@ class ResultsColumn:
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None
     results: list[PerspectiveResults] = field(default_factory=list)
+    # The extract's engine snapshot (spec 011 FR-021), e.g. "DLM · 23.0".
+    engine: str | None = None
+    # Own rows: submitted_settings.currency.code; broker rows:
+    # settings_metadata.currencyCode (FR-005). The pairing guard's value.
+    run_currency: str | None = None
 
     def for_code(self, code: str) -> PerspectiveResults | None:
         return next((p for p in self.results if p.code == code), None)
+
+
+def _submitted_currency_code(raw: Any) -> str | None:
+    parsed = _parse_json_dict(raw, "submitted_settings") or {}
+    currency = parsed.get("currency")
+    return _text(currency.get("code")) if isinstance(currency, dict) else None
 
 
 def expanded_return_periods() -> list[str]:
@@ -671,8 +685,8 @@ def list_results_columns(*, analysis_ids: list[Any],
         params = {f"a{n}": i for n, i in enumerate(dict.fromkeys(valid))}
         placeholders = ", ".join(f":a{n}" for n in range(len(params)))
         rows = execute(
-            f"SELECT a.id, a.name, a.full_name, "
-            f"a.settings_metadata, a.loss_results "
+            f"SELECT a.id, a.name, a.full_name, a.rdm_id, "
+            f"a.settings_metadata, a.submitted_settings, a.loss_results "
             f"FROM irp_analysis a "
             f"WHERE a.deleted_at IS NULL AND a.id IN ({placeholders})",
             params, connection="WORKBENCH")
@@ -687,14 +701,219 @@ def list_results_columns(*, analysis_ids: list[Any],
             continue
         results = _perspective_results(row["loss_results"], perspectives,
                                        STORED_RETURN_PERIODS)
+        parsed = _parse_settings(row["settings_metadata"])
+        extract = _parse_json_dict(row["loss_results"], "loss_results") or {}
         columns.append(ResultsColumn(
             id=_uid(row["id"]),
             name=row["full_name"] or row["name"],
-            currency=_to_display(_parse_settings(row["settings_metadata"])).currency,
+            currency=_to_display(parsed).currency,
             results_state=("ready" if results else "pending"),
-            results=results))
+            results=results,
+            engine=AnalysisSettings(
+                engine_type=_text(extract.get("engine_type")),
+                engine_version=_text(extract.get("engine_version"))).engine,
+            run_currency=(_text((parsed or {}).get("currencyCode"))
+                          if row["rdm_id"] is not None
+                          else _submitted_currency_code(
+                              row["submitted_settings"]))))
     _mark_failed_retrievals(columns)
     return columns, missing
+
+
+@dataclass
+class PairPercent:
+    """One pair's percent changes for one perspective — (second − base) / base
+    per stored return period, plus AAL and standard deviation. ``None`` cells
+    where the base is zero or either value is missing (division undefined —
+    never ``inf``)."""
+    aal: float | None
+    std_dev: float | None
+    rows: list[dict]  # {rp, oep, aep} aligned with each side's stored rows
+
+
+def _pct(base: float | None, second: float | None) -> float | None:
+    if base is None or base == 0 or second is None:
+        return None
+    return (second - base) / base
+
+
+@dataclass
+class ComparisonPair:
+    """One rendered pair (data-model.md) — built by ``list_comparison_pairs``,
+    never stored. ``base`` is the first-picked analysis (FR-003)."""
+    base: ResultsColumn
+    second: ResultsColumn
+
+    def pct_for(self, code: str) -> PairPercent | None:
+        """Percent changes for one perspective; ``None`` when either side did
+        not produce it (FR-014 — the template renders the em dash)."""
+        base = self.base.for_code(code)
+        second = self.second.for_code(code)
+        if not (base and base.produced and second and second.produced):
+            return None
+        rows = [{"rp": b["rp"],
+                 "oep": _pct(b["oep"], s["oep"]),
+                 "aep": _pct(b["aep"], s["aep"])}
+                for b, s in zip(base.rows, second.rows, strict=True)]
+        return PairPercent(aal=_pct(base.aal, second.aal),
+                           std_dev=_pct(base.std_dev, second.std_dev),
+                           rows=rows)
+
+
+def _valid_uuid(raw: str) -> str | None:
+    try:
+        return str(uuid.UUID(raw.strip()))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
+MAX_COMPARISON_PAIRS = 5  # P-02 — the cart's and the render's shared cap
+
+
+def list_comparison_pairs(*, pairs: str,
+                          ) -> tuple[list[ComparisonPair], list[dict]]:
+    """Resolve a ``pairs=base:second,…`` query param into rendered pairs,
+    applying the four build-time validations (T-01): both sides parse and
+    resolve, the ids differ, both run currencies are recorded and equal, at
+    most the first ``MAX_COMPARISON_PAIRS`` pairs render. A failing pair is
+    dropped whole and recorded — ``kind`` ``missing`` (with the unresolved
+    ``ids``), ``currency`` (with both ``currencies``), or ``other``."""
+    parsed: list[tuple[str | None, str | None]] = []
+    for token in pairs.split(","):
+        left, _, right = token.partition(":")
+        if not token.strip():
+            continue
+        parsed.append((_valid_uuid(left), _valid_uuid(right)))
+    valid_ids = list(dict.fromkeys(
+        i for pair in parsed for i in pair if i))
+    columns, _ = list_results_columns(analysis_ids=valid_ids)
+    by_id = {c.id: c for c in columns}
+
+    out: list[ComparisonPair] = []
+    drops: list[dict] = []
+    for left, right in parsed:
+        base = by_id.get(left) if left else None
+        second = by_id.get(right) if right else None
+        if base is None or second is None:
+            drops.append({"kind": "missing", "ids": [
+                i for i, col in ((left, base), (right, second))
+                if col is None and i]})
+            continue
+        if base.id == second.id:
+            drops.append({"kind": "other"})
+            continue
+        if not base.run_currency or not second.run_currency:
+            drops.append({"kind": "other"})
+            continue
+        if base.run_currency != second.run_currency:
+            drops.append({"kind": "currency",
+                          "currencies": (base.run_currency,
+                                         second.run_currency)})
+            continue
+        if len(out) >= MAX_COMPARISON_PAIRS:
+            drops.append({"kind": "other"})
+            continue
+        out.append(ComparisonPair(base=base, second=second))
+    return out, drops
+
+
+@dataclass
+class ComparableAnalysis:
+    """One Compare-modal row (data-model.md) — the table-at-hand's analyses in
+    table order. ``run_currency`` ``None`` renders the row unpairable (P-05);
+    only ``ready`` rows are tickable (FR-002)."""
+    id: str
+    name: str | None
+    rdm_name: str | None
+    run_currency: str | None
+    results_state: str
+
+
+def _broker_run_currency(settings: dict | None) -> str | None:
+    return _text((settings or {}).get("currencyCode"))
+
+
+def list_comparable_analyses(
+    *, submission_id: Any | None = None, edm_id: Any | None = None,
+) -> list[ComparableAnalysis] | None:
+    """The Compare modal's list (T-05): own rows then broker rows in table
+    order, composed from the table's existing reads so dedup and soft-delete
+    rules are inherited. ``None`` when the scope no longer resolves — unknown
+    submission or EDM, or an EDM not related to the named submission."""
+    if submission_id is not None and edm_id is not None:
+        related = execute_one(
+            "SELECT 1 AS x FROM submission_edm se "
+            "JOIN irp_edm e ON e.id = se.edm_id "
+            "WHERE se.submission_id = :s AND se.edm_id = :e "
+            "AND e.deleted_at IS NULL",
+            {"s": str(submission_id), "e": str(edm_id)},
+            connection="WORKBENCH")
+        if related is None:
+            return None
+    elif submission_id is not None:
+        if execute_one("SELECT 1 AS x FROM submission WHERE id = :s",
+                       {"s": str(submission_id)},
+                       connection="WORKBENCH") is None:
+            return None
+    else:
+        if execute_one(
+                "SELECT 1 AS x FROM irp_edm WHERE id = :e "
+                "AND deleted_at IS NULL",
+                {"e": str(edm_id)}, connection="WORKBENCH") is None:
+            return None
+
+    if edm_id is not None:
+        own = list_executed_analyses(edm_id=edm_id)
+    else:
+        own = list_submission_executed_analyses(submission_id=submission_id)
+    rows = [ComparableAnalysis(
+        id=a.id, name=a.full_name or a.name, rdm_name=None,
+        run_currency=a.run_currency,
+        results_state=a.results_state) for a in own]
+    if submission_id is not None:
+        for group in list_submission_rdms(submission_id=submission_id):
+            for a in (list_submission_rdm_analyses(
+                    submission_id=submission_id, rdm_id=group.rdm_id) or []):
+                rows.append(ComparableAnalysis(
+                    id=a.id, name=a.name, rdm_name=group.rdm_name,
+                    run_currency=_broker_run_currency(a.settings),
+                    results_state=a.results_state))
+    return rows
+
+
+def count_results_ready(
+    *, submission_id: Any | None = None, edm_id: Any | None = None,
+) -> int:
+    """Compare's enablement count (FR-001): the scope's analyses with
+    ``loss_results IS NOT NULL``, broker handles counted once per
+    (rdm, ``irp_id``) — the ``_dedup_handles`` rule."""
+    if edm_id is not None:
+        own_row = execute_one(
+            "SELECT COUNT(*) AS n FROM irp_analysis "
+            "WHERE edm_id = :e AND execution_id IS NOT NULL "
+            "AND deleted_at IS NULL AND loss_results IS NOT NULL",
+            {"e": str(edm_id)}, connection="WORKBENCH")
+    else:
+        own_row = execute_one(
+            "SELECT COUNT(*) AS n FROM irp_analysis a "
+            "JOIN submission_edm se ON se.edm_id = a.edm_id "
+            "JOIN irp_edm e ON e.id = a.edm_id "
+            "WHERE se.submission_id = :s AND a.rdm_id IS NULL "
+            "AND e.deleted_at IS NULL AND a.deleted_at IS NULL "
+            "AND a.loss_results IS NOT NULL",
+            {"s": str(submission_id)}, connection="WORKBENCH")
+    count = int(own_row["n"] or 0)
+    if submission_id is not None:
+        broker_row = execute_one(
+            "SELECT COUNT(*) AS n FROM (SELECT DISTINCT a.rdm_id, a.irp_id "
+            "FROM irp_analysis a "
+            "JOIN submission_rdm sr ON sr.rdm_id = a.rdm_id "
+            "JOIN irp_rdm r ON r.id = a.rdm_id "
+            "WHERE sr.submission_id = :s AND r.deleted_at IS NULL "
+            "AND a.deleted_at IS NULL AND a.loss_results IS NOT NULL) t",
+            {"s": str(submission_id)}, connection="WORKBENCH")
+        count += int(broker_row["n"] or 0)
+    return count
 
 
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
@@ -741,13 +960,16 @@ def list_submission_rdm_analyses(
 
 
 __all__ = [
-    "DEFAULT_PERSPECTIVE", "DEFAULT_PERSPECTIVE_LABEL",
-    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup", "DeleteOutcome",
-    "ExecutedAnalysis", "PerspectiveResults", "ResultsColumn",
+    "DEFAULT_PERSPECTIVE", "DEFAULT_PERSPECTIVE_LABEL", "MAX_COMPARISON_PAIRS",
+    "AnalysisSettings", "BrokerAnalysis", "BrokerAnalysisGroup",
+    "ComparableAnalysis", "ComparisonPair", "DeleteOutcome",
+    "ExecutedAnalysis", "PairPercent", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",
-    "delete_executed_analyses", "execution_batch_is_live",
+    "count_results_ready", "delete_executed_analyses",
+    "execution_batch_is_live",
     "expanded_return_periods", "list_analysis_perspectives",
-    "list_broker_analyses", "list_edm_analyses",
+    "list_broker_analyses", "list_comparable_analyses",
+    "list_comparison_pairs", "list_edm_analyses",
     "list_executed_analyses", "list_results_columns",
     "list_submission_executed_analyses",
     "list_submission_rdms", "list_submission_rdm_analyses",

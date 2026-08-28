@@ -18,6 +18,8 @@
 {% set rdm_analyses_prefix = rdm_analyses_prefix if rdm_analyses_prefix is defined
      else ('/submissions/' ~ source_submission.id ~ '/edms/' ~ edm.id ~ '/rdms'
            if source_submission is defined and source_submission else none) %}
+{% set results_ready_count = results_ready_count if results_ready_count is defined
+     else edm.results_ready_count|default(0) %}
 {% set status_filter = status_filter|default('') %}
 {% set execution_id = execution_id|default('') %}
 {% set view_url = '/results/analyses'
@@ -70,6 +72,14 @@
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
     {% endif %}
+    <button class="btn-sm" type="button" onclick="event.preventDefault()"
+            {% if results_ready_count|default(0) < 2 %}disabled
+            title="Compare needs at least two analyses with retrieved results"
+            {% else %}
+            title="Pair analyses and open the comparison (new tab)"
+            {% endif %}
+            hx-get="{{ analyses_base }}/compare"
+            hx-target="#compare-modal-mount" hx-swap="innerHTML">Compare</button>
     <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
             title="Open the selected analyses side by side (new tab)">View ↗</button>

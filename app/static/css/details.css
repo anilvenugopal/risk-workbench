@@ -168,6 +168,10 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .ep td.colmsg { white-space: normal; font-family: var(--font-ui); font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; text-align: center; vertical-align: middle; max-width: 220px; }
 .ep td.colmsg .exec-reason { font-style: normal; text-align: center; }
 
+/* The comparison page (spec 013): each pair's % Chg column — markup fixed by
+   docs/ui_previews/analysis_comparison.html (approved 2026-08-27) */
+.ep th.chg, .ep td.chg { color: var(--text-secondary); }
+
 /* The merged analyses table: the AAL cell carries the results state rather
    than an extra column, the summary line counts the selection, and the Risk
    Modeler link is its own column */

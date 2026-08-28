@@ -180,6 +180,20 @@ NODES: list[dict[str, Any]] = [
         "hidden": True,
         "bottom": False,
     },
+    {
+        # Parameterized comparison page (spec 013) — routing and breadcrumb
+        # resolution only, the results.analyses pattern.
+        "key": "results.comparison",
+        "label": "Comparison",
+        "parent": "results",
+        "route": "/results",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": [],
+        "hidden": True,
+        "bottom": False,
+    },
     # ── Workflows sidebar ────────────────────────────────────────────────────
     {
         "key": "workflows.active",

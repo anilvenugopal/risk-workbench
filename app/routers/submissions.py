@@ -319,6 +319,8 @@ def _results_section_context(request: Request, submission_id: str,
         "section_title": "Results",
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
+        "results_ready_count": analysis_service.count_results_ready(
+            submission_id=submission_id),
         "delete_url": None,
         "status_filter": _results_status_filter(request),
         "own_empty_text": "No analyses executed in this deal yet. Run a suite "
@@ -360,6 +362,43 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
         return _not_found(request)
     return _partial(request, "partials/contextual_rdm_analyses.html",
                     {"analyses": analyses, "rdm": rdm, "show_edm": True})
+
+
+def compare_modal_response(request: Request, *, submission_id: str | None = None,
+                           edm_id: str | None = None):
+    """The Compare modal fragment (spec 013 contracts §1) — one handler behind
+    the three scope routes, fetched into ``#compare-modal-mount``. Read-only,
+    no Risk Modeler call (Article 11)."""
+    rows = analysis_service.list_comparable_analyses(
+        submission_id=submission_id, edm_id=edm_id)
+    if submission_id is not None and edm_id is not None:
+        gone_message = "This EDM is no longer related to the submission."
+    elif submission_id is not None:
+        gone_message = "This submission no longer exists."
+    else:
+        gone_message = "This EDM no longer exists."
+    return _partial(request, "partials/compare_modal.html", {
+        "rows": rows,
+        "gone": rows is None,
+        "gone_message": gone_message,
+        "submission_id": submission_id,
+        "edm_id": edm_id,
+        "max_pairs": analysis_service.MAX_COMPARISON_PAIRS,
+    })
+
+
+@router.get("/submissions/{submission_id}/analyses/compare",
+            response_class=HTMLResponse)
+def submission_analyses_compare(request: Request, submission_id: str):
+    return compare_modal_response(request, submission_id=submission_id)
+
+
+@router.get("/submissions/{submission_id}/edms/{edm_id}/analyses/compare",
+            response_class=HTMLResponse)
+def contextual_analyses_compare(request: Request, submission_id: str,
+                                edm_id: str):
+    return compare_modal_response(request, submission_id=submission_id,
+                                  edm_id=edm_id)
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:

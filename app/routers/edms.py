@@ -287,6 +287,7 @@ def _contextual_template_context(
         "detail_sync_url": f"{base_url}/sync",
         "detail_notes_url": f"{base_url}/notes",
         "analyses_table_url": f"{base_url}/analyses",
+        "results_ready_count": context.results_ready_count,
     }
 
 
@@ -647,6 +648,7 @@ def _analyses_section_partial(request: Request, edm_id: str,
                      "execution_id": execution_id,
                      "execution_live": analysis_service.execution_batch_is_live(
                          execution_id),
+                     "results_ready_count": section.results_ready_count,
                      "analyses_table_url": base})
 
 
@@ -655,6 +657,14 @@ def detail_analyses(request: Request, edm_id: str):
     """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
     Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id)
+
+
+@router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)
+def detail_analyses_compare(request: Request, edm_id: str):
+    # Local import: the shared modal handler lives with the other two scope
+    # routes in the submissions router.
+    from app.routers.submissions import compare_modal_response
+    return compare_modal_response(request, edm_id=edm_id)
 
 
 def _delete_analyses_response(request: Request, edm_id: str, form) -> Response:
