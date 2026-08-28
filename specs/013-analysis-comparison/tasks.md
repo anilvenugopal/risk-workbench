@@ -150,7 +150,7 @@ quickstart Story 3.
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T027 Review the diff for subtraction (AGENTS.md): remove comments and tests restating the implementation, inline helpers that only rename a call, drop speculative branches; compare diff size with requirement size
+- [x] T027 Review the diff for subtraction (AGENTS.md): remove comments and tests restating the implementation, inline helpers that only rename a call, drop speculative branches; compare diff size with requirement size
 - [ ] T028 Walk quickstart.md end-to-end with the developer (needs the stack up — the developer starts it, not an agent); report which tiers ran: unit expected green, SQL Server and IRP tiers not applicable this iteration
 
 ---

@@ -74,9 +74,9 @@ Render:
   Dropped pairs produce one notice above the table naming what was dropped —
   the missing analysis when a side is gone (FR-015), the two currencies when
   the mismatch is the cause (SC-003), and a generic dropped-pair line for
-  every other cause — equal ids, an unrecorded currency, a pair beyond the
-  first 5 (all reachable only by a hand-typed URL). Surviving pairs render
-  normally.
+  every other cause — equal ids, an unrecorded currency, an id that does not
+  parse, a pair beyond the first 5 (all reachable only by a hand-typed URL).
+  Surviving pairs render normally.
 - No surviving pairs (or no `pairs` at all) → the empty state directing the
   analyst to Compare on a submission or EDM page (P-06, FR-015). Never a 500,
   never an error page.
@@ -97,8 +97,8 @@ Render:
 ## 3. Merged section changes (existing fragments)
 
 - The section summary bar gains **Compare** beside View on every scope in §1.
-  It needs no row selection; it is enabled when the scope holds ≥ 2 analyses
-  with `loss_results IS NOT NULL` (broker rows counted once per `irp_id`) —
-  the count rides the existing section render (T-05, FR-001).
+  It needs no row selection and is always available; the modal reports the
+  case where fewer than two of the scope's analyses have retrieved results
+  (T-05, FR-001).
 - The button `hx-get`s the matching §1 route into `#compare-modal-mount`.
   Nothing else in the section changes; the self-poll contract is untouched.

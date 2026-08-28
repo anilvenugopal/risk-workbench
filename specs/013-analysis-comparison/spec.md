@@ -13,7 +13,7 @@ An analyst compares any two finished analyses — own-executed or broker-provide
 
 ## In scope
 
-- **Compare** as its own action on the merged analyses table, on both entry points (submission Results section and EDM detail page); it needs no prior row selection.
+- **Compare** as its own action on the merged analyses table, on both entry points (submission Results section and EDM detail page); it needs no prior row selection. The modal reports the case where fewer than two analyses have retrieved results.
 - A modal that collects pairs into a **cart**: exactly two analyses per pair, up to 5 pairs, drawn only from the table at hand and only from analyses with retrieved results.
 - **Selection order is the contract**: the first analysis picked is the base and the first column; percent change follows that order.
 - The **mixed-currency pair guard**: two analyses run in different currencies cannot be paired — refused at pair-add time, never converted.
@@ -44,7 +44,7 @@ An analyst compares any two finished analyses — own-executed or broker-provide
 
 | ID | Decision | Status | Where |
 |---|---|---|---|
-| P-01 | Compare needs no prior row selection; it is enabled whenever the table holds two or more analyses with retrieved results | Approved | preview `docs/ui_previews/analysis_comparison.html`, 2026-08-27 |
+| P-01 | Compare needs no prior row selection; the modal reports the case where fewer than two analyses have retrieved results | Approved | preview `docs/ui_previews/analysis_comparison.html`, 2026-08-27 |
 | P-02 | Cart limit: 5 pairs — a layout limit, enforceable; the number is a proposal never confirmed with CIC | Approved | note 19 D18 / O19-8 |
 | P-03 | Percent change is (second − base) / base, shown per return period and for AAL and standard deviation; AAL and standard deviation sit outside the EP-type selection | Approved | note 19 D19; note 20 D12/D13; preview §3 |
 | P-04 | One analysis may appear in any number of pairs; a pair of an analysis with itself is refused | Approved | clarified 2026-08-27 |
@@ -92,7 +92,7 @@ The pairing rules are enforced where the analyst acts, with a reason, never sile
 
 ## Requirements
 
-- **FR-001**: Compare is its own action on the merged analyses table, offered on both entry points — the submission Results section and the EDM detail page — and enabled whenever the table holds two or more analyses with retrieved results, independent of row selection (P-01).
+- **FR-001**: Compare is its own action on the merged analyses table, offered on both entry points — the submission Results section and the EDM detail page — independent of row selection (P-01). With fewer than two analyses holding retrieved results, the modal says so and offers no pairing.
 - **FR-002**: The Compare modal lists the analyses of the table at hand — own and broker alike — and offers for pairing only those with retrieved results; analyses still retrieving or failed are listed but not selectable.
 - **FR-003**: A pair is exactly two analyses; the first ticked is marked *base* in the modal. Selection order, not list order, fixes base, column order, and percent-change direction.
 - **FR-004**: Pairs collect into a cart of at most 5 (P-02). Adding a sixth pair is refused; opening the comparison with one to five pairs is allowed.

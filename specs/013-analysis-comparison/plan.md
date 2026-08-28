@@ -18,9 +18,8 @@
   `settings_metadata` — all written by spec 011 — and renders them.
 - The merged analyses section's summary bar gains **Compare** beside View, on
   both entry points (submission Results section, EDM detail). It needs no row
-  selection; it is enabled when the table scope holds ≥ 2 analyses with
-  `loss_results IS NOT NULL` — one COUNT at section render, broker handles
-  counted once per `irp_id` (T-05, FR-001).
+  selection and is always available; the modal reports the case where fewer
+  than two of the scope's analyses have retrieved results (T-05, FR-001).
 - Compare fetches a modal fragment over HTMX into a `#compare-modal-mount`
   outside the self-polling section (breakout-modal precedent, so the 3s poll
   never removes an open modal). One modal route per analyses-fragment family:
@@ -78,7 +77,7 @@
 |---|---|
 | Database | None — no migration, no seeds, no new columns. |
 | Worker | None. |
-| Service | `analysis_service`: `ResultsColumn` gains `engine` + `run_currency`; new `list_comparison_pairs`, `list_comparable_analyses`, and the results-ready count for Compare enablement. |
+| Service | `analysis_service`: `ResultsColumn` gains `engine` + `run_currency`; new `list_comparison_pairs` and `list_comparable_analyses`. |
 | UI | Compare button + modal mount on both entry points; compare-modal partial + Alpine cart; `/results/comparison` route, hidden nav node, page template; small `details.css`/`components.css` extensions. |
 | Library | None. |
 
@@ -90,7 +89,7 @@
 | T-02 | The cart is an Alpine sliver in a server-fetched modal fragment mounted outside the 3s-polling section; pair-add guards run client-side off `data-currency`/state attributes; no server round trip per add | Approved | [research.md#R2](research.md#r2--the-cart-is-an-alpine-sliver-in-a-server-fetched-modal-fragment-t-02) |
 | T-03 | Run currency per side: own = `submitted_settings.currency.code`, broker = `settings_metadata.currencyCode`; unrecorded → listed, not pairable (P-05); the same value labels the column header | Approved | [research.md#R3](research.md#r3--currency-and-engine-sources-per-side-t-03-t-04) |
 | T-04 | Engine/model version per side from the extract's `engine_type`/`engine_version` snapshot (spec 011 T-04/FR-021), never `settings_metadata` and never re-fetched | Approved | [research.md#R3](research.md#r3--currency-and-engine-sources-per-side-t-03-t-04) |
-| T-05 | Modal lists the scope via new `list_comparable_analyses` composing the table's existing reads; Compare enablement is a scope-wide COUNT of `loss_results IS NOT NULL` with broker rows counted once per `irp_id` | Approved | [research.md#R4](research.md#r4--modal-data-and-compare-enablement-t-05) |
+| T-05 | Modal lists the scope via new `list_comparable_analyses` composing the table's existing reads; the modal's own row list, not a separate count, reports the fewer-than-two case | Approved | [research.md#R4](research.md#r4--modal-data-and-compare-enablement-t-05) |
 | T-06 | Percent change computed server-side per displayed row; zero/missing base or absent side → em dash; percent cells carry no `data-unit-value`, so the units sliver never rescales them | Approved | [research.md#R5](research.md#r5--percent-change-is-server-computed-the-slivers-are-untouched-t-06) |
 
 ---

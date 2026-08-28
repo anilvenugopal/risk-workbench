@@ -35,7 +35,7 @@ One rendered pair — built by `list_comparison_pairs`, never stored.
 |---|---|---|
 | `base` | `ResultsColumn` | First-picked analysis (FR-003) — first column |
 | `second` | `ResultsColumn` | Second column |
-| `pct` | per-row `float \| None` | (second − base) / base per displayed row; `None` when either side's perspective is absent (FR-014) or base is zero/missing (T-06) |
+| `pct` | `PairPercent \| None` | The pair's percent changes for the perspective the page renders — (second − base) / base per stored return period, plus AAL and standard deviation. `None` when either side's perspective is absent (FR-014); a `None` cell where the base is zero or either value is missing (T-06) |
 
 Validation at build time (T-01) — a failing pair is dropped whole and counted
 for the FR-015 notice, never partially rendered:
@@ -43,7 +43,10 @@ for the FR-015 notice, never partially rendered:
 1. Both ids parse as UUIDs and resolve to undeleted `irp_analysis` rows.
 2. The two ids differ (P-04).
 3. Both run currencies are recorded (P-05) and equal (FR-005).
-4. At most 5 pairs render; the rest are dropped (P-02).
+
+Only the first 5 pairs the `pairs` param asks for are resolved at all; each
+pair beyond them is dropped before validation (P-02), so an invalid third pair
+never promotes a seventh.
 
 ### ComparableAnalysis
 
@@ -58,3 +61,7 @@ RDM.
 | `rdm_name` | `str \| None` | Broker rows only — the group label |
 | `run_currency` | `str \| None` | As ResultsColumn; `None` renders the row unpairable (P-05) |
 | `results_state` | `str` | `pending \| failed \| ready` — only `ready` rows are tickable (FR-002) |
+| `peril` | `str \| None` | `settings_metadata` via `_to_display` — the row's metadata line |
+| `engine` | `str \| None` | `settings_metadata` via `_to_display` |
+| `event_rate_scheme` | `str \| None` | `settings_metadata` via `_to_display` |
+| `submitted_at` | datetime | Own: submit request time; broker: the RM `createDate`. The four together tell apart rows with near-identical names |
