@@ -69,10 +69,10 @@
     {% if pairs %}
     <p class="res-count">{{ pairs|length }} comparison{{ 's' if pairs|length != 1 }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
     <div class="ep-shell">
-      <table class="ep">
+      <table class="ep ep--results">
         <thead>
           <tr>
-            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th style="vertical-align:bottom">Return period</th>
             {% for pair in pairs %}
             {% for col in (pair.base, pair.second) %}
             <th class="an{% if loop.first %} gsep{% endif %}">
