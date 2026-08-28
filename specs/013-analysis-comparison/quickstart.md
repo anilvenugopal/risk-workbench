@@ -41,7 +41,8 @@
    (FR-004).
 3. Switch perspective, then EP type: every pair updates together; defaults on
    open are Pre-Cat Net · OEP · millions (FR-012). Switch units: loss numbers
-   rescale, percent values do not.
+   rescale, percent values do not. Switch units to thousands, then switch
+   perspective again: the re-rendered loss cells still read in thousands.
 4. Pick a perspective only one side produced: base numbers show, the other
    side reads absent, % Chg is a dash — no error (FR-014).
 5. **Copy table**, paste into a spreadsheet: headers intact (FR-013).

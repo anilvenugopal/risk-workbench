@@ -73,7 +73,10 @@ Render:
   is unrecorded, or the currencies differ; only the first 5 pairs render.
   Dropped pairs produce one notice above the table naming what was dropped —
   the missing analysis when a side is gone (FR-015), the two currencies when
-  the mismatch is the cause (SC-003). Surviving pairs render normally.
+  the mismatch is the cause (SC-003), and a generic dropped-pair line for
+  every other cause — equal ids, an unrecorded currency, a pair beyond the
+  first 5 (all reachable only by a hand-typed URL). Surviving pairs render
+  normally.
 - No surviving pairs (or no `pairs` at all) → the empty state directing the
   analyst to Compare on a submission or EDM page (P-06, FR-015). Never a 500,
   never an error page.
