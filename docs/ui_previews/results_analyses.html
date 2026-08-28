@@ -112,30 +112,14 @@ a.crumb:hover { color: var(--color-brand); text-decoration: underline; }
 
   <div class="pv-hero">Dedicated results page — N analyses side by side</div>
 
-  <div style="margin:var(--space-4) 0;padding:var(--space-4);border:2px solid var(--color-danger-border);
-              background:var(--color-danger-bg);border-radius:var(--radius-md)">
-    <div style="font-weight:600;color:var(--color-danger);margin-bottom:var(--space-2)">
-      TOOLBAR AND HEADER SUPERSEDED 2026-08-26 — the tables below draw both EP types
-    </div>
-    <p style="margin:0 0 var(--space-2)">
-      Approved 2026-08-26, then changed by the 8/26 design session
-      (<code>docs/design_session_notes/20_results_views_demoed_grid_columns_name_split_ep_type_selection_export_first_requirements.md</code>).
-      The page shape, the breadcrumbs, the pending and failed columns, the reorder arrows and the
-      horizontal scroll are still right. The toolbar and the header rows are not:
-    </p>
-    <ul style="margin:0 0 var(--space-2);padding-left:1.4em">
-      <li>One EP type at a time (D11). An <strong>EP type</strong> selector sits beside
-          <strong>Perspective</strong>, each analysis header is one column, and the second header row
-          reads the selected type. The <code>colspan="2"</code> headers and the paired
-          <strong>OEP</strong>/<strong>AEP</strong> columns below are gone (FR-015).</li>
-      <li>The perspective dropdown opens on <strong>Pre-Cat Net</strong> (D9), which is what
-          <code>RL</code> is called — not "Reinsurance Layer", and not Gross. The count line reads
-          <code>4 analyses · Pre-Cat Net · OEP</code>.</li>
-    </ul>
-    <p style="margin:0">
-      Build the dedicated page from <code>app/templates/pages/results_analyses.html</code>, which carries
-      both changes.
-    </p>
+  <div class="pv-note">
+    <strong>Closed out 2026-08-27 — built.</strong> Approved 2026-08-26, then changed the same day by the
+    8/26 design session (note 20 D9/D11): one EP type at a time behind an <strong>EP type</strong> selector
+    (no paired OEP/AEP columns), and the perspective dropdown opening on <strong>Pre-Cat Net</strong>.
+    <code>app/templates/pages/results_analyses.html</code> carries both changes and is the reference now;
+    the tables below predate them and draw both EP types. Kept for the page shape, breadcrumbs,
+    pending/failed columns, reorder arrows and horizontal scroll, which all held. The Iteration-10
+    comparison preview is <code>analysis_comparison.html</code>.
   </div>
   <div class="pv-sub">
     <code>GET /results/analyses?ids=…</code>, opened in a new tab by <b>View</b> on either merged table

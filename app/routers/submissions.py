@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
     analysis_execution_service,
@@ -471,6 +472,20 @@ async def group_compose_submit(request: Request, submission_id: str):
             "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
         }),
     })
+
+
+@router.get("/submissions/{submission_id}/analyses/compare",
+            response_class=HTMLResponse)
+def submission_analyses_compare(request: Request, submission_id: str):
+    return compare_modal_response(request, submission_id=submission_id)
+
+
+@router.get("/submissions/{submission_id}/edms/{edm_id}/analyses/compare",
+            response_class=HTMLResponse)
+def contextual_analyses_compare(request: Request, submission_id: str,
+                                edm_id: str):
+    return compare_modal_response(request, submission_id=submission_id,
+                                  edm_id=edm_id)
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:

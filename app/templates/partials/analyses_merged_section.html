@@ -80,6 +80,10 @@
             hx-target="#group-modal" hx-swap="innerHTML"
             title="Group the selected analyses (needs at least two)">Group</button>
     {% endif %}
+    <button class="btn-sm" type="button" onclick="event.preventDefault()"
+            title="Pair analyses and open the comparison (new tab)"
+            hx-get="{{ analyses_base }}/compare"
+            hx-target="#compare-modal-mount" hx-swap="innerHTML">Compare</button>
     <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"
             title="Open the selected analyses side by side (new tab)">View ↗</button>
