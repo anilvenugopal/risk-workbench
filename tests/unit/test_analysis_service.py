@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import text
@@ -730,3 +731,176 @@ def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
     assert col.name == "FL HU Gross 2026"
     assert col.results_state == "failed"
     assert col.results_error == "RM returned 500 on EP curve (GR)"
+
+
+# ── spec 013: ResultsColumn engine and run currency (T-03/T-04) ───────────────
+
+
+def test_results_column_run_currency_own_row_reads_submitted_snapshot(iteration2_db):
+    edm = _edm()
+    analysis = _executed(
+        edm_id=edm, name="A", status_code="ready",
+        settings={"currencyCode": "EUR"},
+        submitted={"currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25"}})
+
+    [col], _ = analysis_service.list_results_columns(analysis_ids=[analysis])
+    assert col.run_currency == "USD"
+
+
+def test_results_column_run_currency_broker_row_reads_settings_metadata(iteration2_db):
+    edm = _edm()
+    rdm = _mk("irp_rdm", name="R", status="ready")
+    broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="88", name="B",
+                 status_code="ready",
+                 settings_metadata=json.dumps({"currencyCode": "EUR"}))
+
+    [col], _ = analysis_service.list_results_columns(analysis_ids=[broker])
+    assert col.run_currency == "EUR"
+
+
+def test_results_column_run_currency_missing_reads_none(iteration2_db):
+    edm = _edm()
+    rdm = _mk("irp_rdm", name="R", status="ready")
+    # metadata never backfills an own row's run currency (FR-005)
+    own = _executed(edm_id=edm, name="A", settings={"currencyCode": "EUR"})
+    broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="89", name="B",
+                 status_code="ready")
+
+    columns, _ = analysis_service.list_results_columns(analysis_ids=[own, broker])
+    assert [c.run_currency for c in columns] == [None, None]
+
+
+def test_results_column_engine_reads_the_extract_snapshot_never_metadata(iteration2_db):
+    edm = _edm()
+    with_extract = _executed(
+        edm_id=edm, name="A", status_code="ready",
+        settings={"engineType": "IGNORED", "engineVersion": "9.9"},
+        loss_results=_extract())
+    without_extract = _executed(
+        edm_id=edm, name="B", status_code="ready",
+        settings={"engineType": "IGNORED", "engineVersion": "9.9"})
+
+    columns, _ = analysis_service.list_results_columns(
+        analysis_ids=[with_extract, without_extract])
+    assert columns[0].engine == "DLM · 23.0"
+    assert columns[1].engine is None
+
+
+# ── spec 013: the Compare modal's read model and enablement count (T-05) ─────
+
+
+def _broker_handle(*, rdm_id: str, edm_id: str, irp_id: str, name: str,
+                   currency: str | None = "EUR", with_results: bool = False) -> str:
+    return _mk(
+        "irp_analysis", rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id, name=name,
+        status_code="ready",
+        settings_metadata=(json.dumps({"currencyCode": currency})
+                           if currency else None),
+        loss_results=(json.dumps(_extract()) if with_results else None))
+
+
+def _comparable_fixture(iteration2_db):
+    """One submission, two EDMs, two own rows, two RDMs with one broker
+    analysis each — the first with results, the second failed."""
+    submission = _submission(iteration2_db.user_a)
+    edm_one, edm_two = _edm("EDM One"), _edm("EDM Two")
+    _attach_edm(submission, edm_one)
+    _attach_edm(submission, edm_two)
+    own_old = _executed(edm_id=edm_one, name="Own Old", status_code="ready",
+                        loss_results=_extract(),
+                        submitted={"currency": {"code": "USD"}})
+    execute_command(
+        "UPDATE irp_analysis SET inserted_at = :t WHERE id = :i",
+        {"t": _utcnow() - timedelta(minutes=5), "i": own_old},
+        connection="WORKBENCH")
+    own_new = _executed(edm_id=edm_two, name="Own New", status_code="ready",
+                        submitted={"currency": {"code": "USD"}})
+    rdm_one = _mk("irp_rdm", name="Acme RDM", status="ready")
+    rdm_two = _mk("irp_rdm", name="Beta RDM", status="ready")
+    for rdm in (rdm_one, rdm_two):
+        execute_command(
+            "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+            {"s": submission, "r": rdm}, connection="WORKBENCH")
+    broker_rep = _broker_handle(rdm_id=rdm_one, edm_id=edm_one, irp_id="9001",
+                                name="Broker One", with_results=True)
+    broker_failed = _broker_handle(rdm_id=rdm_two, edm_id=edm_one,
+                                   irp_id="9002", name="Broker Two",
+                                   currency=None)
+    _failed_retrieval(broker_failed)
+    return SimpleNamespace(
+        submission=submission, edm_one=edm_one, edm_two=edm_two,
+        own_old=own_old, own_new=own_new, broker_rep=broker_rep)
+
+
+def test_comparable_analyses_submission_scope_in_table_order(iteration2_db):
+    fx = _comparable_fixture(iteration2_db)
+
+    rows = analysis_service.list_comparable_analyses(
+        submission_id=fx.submission)
+
+    # own rows newest first, then broker rows grouped by RDM
+    assert [(r.name, r.rdm_name, r.run_currency, r.results_state)
+            for r in rows] == [
+        ("Own New", None, "USD", "pending"),
+        ("Own Old", None, "USD", "ready"),
+        ("Broker One", "Acme RDM", "EUR", "ready"),
+        ("Broker Two", "Beta RDM", None, "failed"),
+    ]
+    assert rows[1].id == fx.own_old.lower()
+    assert rows[2].id == fx.broker_rep.lower()
+
+
+def test_comparable_analyses_contextual_scope_narrows_own_rows(iteration2_db):
+    fx = _comparable_fixture(iteration2_db)
+
+    rows = analysis_service.list_comparable_analyses(
+        submission_id=fx.submission, edm_id=fx.edm_one)
+
+    # own rows of the EDM only; the submission's broker groups stay
+    assert [r.name for r in rows] == ["Own Old", "Broker One", "Broker Two"]
+
+
+def test_comparable_analyses_plain_edm_scope_has_no_broker_rows(iteration2_db):
+    fx = _comparable_fixture(iteration2_db)
+
+    rows = analysis_service.list_comparable_analyses(edm_id=fx.edm_one)
+
+    assert [r.name for r in rows] == ["Own Old"]
+
+
+def test_broker_row_currency_reads_the_live_nested_currency_object(iteration2_db):
+    # The live get-analysis-by-id payload (2026-08-26) has no flat
+    # currencyCode: currency arrives as {currencyName, currencyCode}. Both
+    # the modal row and the comparison-page column must still read USD.
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    rdm = _mk("irp_rdm", name="Live RDM", status="ready")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission, "r": rdm}, connection="WORKBENCH")
+    broker = _mk(
+        "irp_analysis", rdm_id=rdm, edm_id=edm, irp_id="9100",
+        name="USFL_Commercial_NT", status_code="ready",
+        settings_metadata=json.dumps({
+            "currency": {"currencyName": "US Dollar", "currencyCode": "USD"}}),
+        loss_results=json.dumps(_extract()))
+
+    rows = analysis_service.list_comparable_analyses(submission_id=submission)
+    assert [(r.name, r.run_currency) for r in rows] == [
+        ("USFL_Commercial_NT", "USD")]
+
+    columns, _ = analysis_service.list_results_columns(analysis_ids=[broker])
+    assert columns[0].run_currency == "USD"
+
+
+def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
+    fx = _comparable_fixture(iteration2_db)
+    unrelated_edm = _edm("Unrelated")
+
+    assert analysis_service.list_comparable_analyses(
+        submission_id=str(uuid.uuid4())) is None
+    assert analysis_service.list_comparable_analyses(
+        submission_id=fx.submission, edm_id=unrelated_edm) is None
+    assert analysis_service.list_comparable_analyses(
+        edm_id=str(uuid.uuid4())) is None

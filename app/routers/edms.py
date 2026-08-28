@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.services import (
     analysis_execution_service,
@@ -655,6 +656,11 @@ def detail_analyses(request: Request, edm_id: str):
     """Read-only Analyses-table fragment for HTMX polling. No writes, no Risk
     Modeler call (Article 11)."""
     return _analyses_section_partial(request, edm_id)
+
+
+@router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)
+def detail_analyses_compare(request: Request, edm_id: str):
+    return compare_modal_response(request, edm_id=edm_id)
 
 
 def _delete_analyses_response(request: Request, edm_id: str, form) -> Response:

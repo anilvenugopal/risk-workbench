@@ -803,6 +803,72 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // The Compare modal's cart (spec 013 T-02): strictly client-side — tick
+  // order marks the first pick base (FR-003); Compare opens the built
+  // /results/comparison URL in a new tab (the View pattern), whose render
+  // re-validates every pair. Rows are read only via their data attributes.
+  Alpine.data('compareCart', (maxPairs) => ({
+    picks: [],   // [{id, name, currency}] in tick order
+    pairs: [],   // [{base, second}] in add order
+    error: '',
+    maxPairs,
+    get baseId() { return this.picks.length ? this.picks[0].id : null; },
+    get compareLabel() {
+      const n = this.pairs.length;
+      return 'Compare ' + n + ' pair' + (n === 1 ? '' : 's') + ' ↗';
+    },
+    picked(id) { return this.picks.some((p) => p.id === id); },
+    toggle(e) {
+      this.error = '';
+      const d = e.target.closest('[data-id]').dataset;
+      if (e.target.checked) {
+        this.picks.push({ id: d.id, name: d.name, currency: d.currency || null });
+      } else {
+        this.picks = this.picks.filter((p) => p.id !== d.id);
+      }
+    },
+    addPair() {
+      if (this.picks.length !== 2) return;
+      const [base, second] = this.picks;
+      // refusals leave the picks ticked so the analyst can change one (FR-005)
+      const noCurrency = [base, second].find((p) => !p.currency);
+      if (noCurrency) {
+        this.error = noCurrency.name
+          + ' has no recorded run currency, so it cannot be paired.';
+        return;
+      }
+      if (base.currency !== second.currency) {
+        this.error = 'These analyses were run in different currencies ('
+          + base.currency + ' vs ' + second.currency
+          + ') — figures are never converted, so they cannot be paired.';
+        return;
+      }
+      if (this.pairs.length >= this.maxPairs) {
+        this.error = 'A comparison holds at most ' + this.maxPairs
+          + ' pairs — remove a pair to add another.';
+        return;
+      }
+      this.pairs.push({ base, second });
+      this.picks = [];
+      this.error = '';
+    },
+    removePair(i) {
+      this.pairs.splice(i, 1);
+      this.error = '';
+    },
+    open() {
+      if (!this.pairs.length) return;
+      const params = new URLSearchParams({
+        pairs: this.pairs.map((p) => p.base.id + ':' + p.second.id).join(','),
+      });
+      const ds = this.$root.dataset;
+      if (ds.submission) params.set('submission', ds.submission);
+      if (ds.edm) params.set('edm', ds.edm);
+      window.open('/results/comparison?' + params.toString(), '_blank');
+      this.$root.closest('.modal').remove();
+    },
+  }));
+
   // Execute Suite / Execute Template modal (spec 010). All state lives in the DOM
   // (checkboxes, selects) — this component only reads it, matching syncPicks: no
   // duplicated selection state to drift out of sync with the real form.

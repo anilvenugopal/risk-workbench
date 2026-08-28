@@ -156,5 +156,8 @@
     {% include "partials/analyses_merged_section.html" %}
   {% endwith %}
   <div id="submission-entity-modal"></div>
+  {# Compare modal mount (spec 013) — outside the self-polling Results section
+     so the 3s poll never removes an open modal (breakout-modal precedent). #}
+  <div id="compare-modal-mount"></div>
 </div>
 {% endblock %}
