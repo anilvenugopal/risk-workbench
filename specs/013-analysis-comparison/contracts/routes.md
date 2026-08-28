@@ -12,7 +12,7 @@ families the merged section already polls:
 |---|---|
 | `GET /submissions/{submission_id}/analyses/compare` | Own analyses across the submission's EDMs + all its RDM broker groups |
 | `GET /submissions/{submission_id}/edms/{edm_id}/analyses/compare` | Own analyses of the EDM + the submission's RDM broker groups (the contextual table) |
-| `GET /edms/{edm_id}/analyses/compare` | Own analyses of the EDM + its RDM broker groups (the plain table) |
+| `GET /edms/{edm_id}/analyses/compare` | Own analyses of the EDM only (the plain table has no submission-scoped RDM groups) |
 
 Behavior:
 
@@ -20,7 +20,9 @@ Behavior:
   mount sits **outside** the self-polling analyses section (breakout-modal
   precedent), so the 3s poll never removes an open modal.
 - The list is `list_comparable_analyses` for the scope (data-model.md):
-  every analysis of the table at hand, own and broker alike, in table order.
+  every analysis of the table at hand, in table order. Submission-scoped
+  routes include own and broker analyses; the plain EDM route includes own
+  analyses only.
   Rows with `results_state != 'ready'` are rendered disabled with their state
   named ("retrieving…" / "retrieval failed") — listed, never tickable
   (FR-002). Rows with no recorded run currency are tickable but never

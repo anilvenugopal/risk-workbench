@@ -532,6 +532,8 @@ class TestCompareModalRoutes:
                                run_currency="USD", results_state="ready"),
             ComparableAnalysis(id=AN_B, name="Still Running", rdm_name=None,
                                run_currency="USD", results_state="pending"),
+            ComparableAnalysis(id=AN_C, name="Retrieval Failed", rdm_name=None,
+                               run_currency="USD", results_state="failed"),
         ]
         client, _ = self._client(monkeypatch, rows)
 
@@ -539,6 +541,13 @@ class TestCompareModalRoutes:
 
         assert resp.status_code == 200
         assert "Fewer than two analyses have retrieved results yet." in resp.text
+        assert "Ready One" in resp.text
+        assert "Still Running" in resp.text
+        assert "Retrieval Failed" in resp.text
+        assert "retrieving…" in resp.text
+        assert "retrieval failed" in resp.text
+        assert resp.text.count("cmp-row--disabled") == 2
+        assert "cmp-cart" not in resp.text
         assert "Add pair" not in resp.text
 
 
