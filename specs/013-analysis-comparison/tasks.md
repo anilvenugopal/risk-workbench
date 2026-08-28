@@ -100,17 +100,17 @@ percent, copy-with-headers pastes intact.
 
 ### Tests for User Story 2 (write first, watch them fail)
 
-- [ ] T016 [P] [US2] [FR-012] [FR-014] [T-06] Failing route tests in `tests/unit/test_results_comparison.py`: multiple pairs render against the one shared return-period column with no per-pair label; `perspective`/`ep_type` params re-render every pair (defaults Pre-Cat Net, OEP); a perspective one side did not produce shows the base numbers, an absent message on the other side, and an em dash for % Chg — never an error; loss cells carry `data-unit-value`, percent cells carry none
+- [X] T016 [P] [US2] [FR-012] [FR-014] [T-06] Failing route tests in `tests/unit/test_results_comparison.py`: multiple pairs render against the one shared return-period column with no per-pair label; `perspective`/`ep_type` params re-render every pair (defaults Pre-Cat Net, OEP); a perspective one side did not produce shows the base numbers, an absent message on the other side, and an em dash for % Chg — never an error; loss cells carry `data-unit-value`, percent cells carry none
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] [FR-012] [FR-013] [T-06] Add the screen-wide toolbar to `app/templates/pages/results_comparison.html`, the `/results/analyses` toolbar verbatim in pattern: perspective and EP-type selects re-render `#comparison-view` over HTMX carrying `pairs`/`submission`/`edm` and each other's value; units is the existing `data-units-select` sliver (default millions), Copy table the existing `data-copy-table` sliver; loss cells get `data-unit-value`, percent cells none
+- [X] T017 [US2] [FR-012] [FR-013] [T-06] Add the screen-wide toolbar to `app/templates/pages/results_comparison.html`, the `/results/analyses` toolbar verbatim in pattern: perspective and EP-type selects re-render `#comparison-view` over HTMX carrying `pairs`/`submission`/`edm` and each other's value; units is the existing `data-units-select` sliver (default millions), Copy table the existing `data-copy-table` sliver; loss cells get `data-unit-value`, percent cells none
   - Proof: T016 tests pass; quickstart Story 2 step 3 (units rescale losses, never percents)
-- [ ] T018 [US2] [FR-014] Render the absent-perspective case in `app/templates/pages/results_comparison.html`: absent side shows the absent message, partner's numbers render, % Chg is an em dash (`list_comparison_pairs` already yields `None` from T006)
+- [X] T018 [US2] [FR-014] Render the absent-perspective case in `app/templates/pages/results_comparison.html`: absent side shows the absent message, partner's numbers render, % Chg is an em dash (`list_comparison_pairs` already yields `None` from T006)
   - Proof: T016 absent-perspective assertions pass
-- [ ] T019 [US2] [FR-004] [P-02] Cart cap in `app/templates/partials/compare_modal.html`: a sixth **Add pair** is refused with the reason; removing a cart row re-arms adding; **Compare N pairs** works for 1–5
+- [X] T019 [US2] [FR-004] [P-02] Cart cap in `app/templates/partials/compare_modal.html`: a sixth **Add pair** is refused with the reason; removing a cart row re-arms adding; **Compare N pairs** works for 1–5
   - Proof: quickstart Story 2 step 2
-- [ ] T020 [US2] Run the unit tier: `uv run pytest tests/unit` — all green
+- [X] T020 [US2] Run the unit tier: `uv run pytest tests/unit` — all green
 
 **Checkpoint**: Stories 1 and 2 work. **STOP** — the approver clicks
 quickstart Story 2 before Story 3 begins.
@@ -130,18 +130,18 @@ empty state.
 
 ### Tests for User Story 3 (write first, watch them fail)
 
-- [ ] T021 [P] [US3] [FR-015] [P-06] [SC-003] Failing route tests in `tests/unit/test_results_comparison.py`: a dropped pair produces one notice above the table naming the missing analysis (unresolvable side) or the two currencies (mismatch), and the generic dropped-pair notice for a self-pair, an unrecorded currency, or a pair beyond the first 5; surviving pairs render normally; no `pairs` param, garbage ids, or no surviving pairs → the empty state directing the analyst to Compare on a submission or EDM page — never a 500, never a converted figure
-- [ ] T022 [P] [US3] [FR-002] [P-05] Failing route tests for the modal fragment in `tests/unit/test_results_comparison.py`: rows with `results_state` `pending`/`failed` render disabled with the state named ("retrieving…" / "retrieval failed"); a row with no recorded run currency renders tickable but carries no `data-currency`
+- [X] T021 [P] [US3] [FR-015] [P-06] [SC-003] Failing route tests in `tests/unit/test_results_comparison.py`: a dropped pair produces one notice above the table naming the missing analysis (unresolvable side) or the two currencies (mismatch), and the generic dropped-pair notice for a self-pair, an unrecorded currency, or a pair beyond the first 5; surviving pairs render normally; no `pairs` param, garbage ids, or no surviving pairs → the empty state directing the analyst to Compare on a submission or EDM page — never a 500, never a converted figure
+- [X] T022 [P] [US3] [FR-002] [P-05] Failing route tests for the modal fragment in `tests/unit/test_results_comparison.py`: rows with `results_state` `pending`/`failed` render disabled with the state named ("retrieving…" / "retrieval failed"); a row with no recorded run currency renders tickable but carries no `data-currency`
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] [FR-005] [P-05] Pair-add refusal in `app/templates/partials/compare_modal.html`: Add pair refused with a message naming both currencies when the two `data-currency` values differ, and naming the missing currency when either is unrecorded; the ticks stay for re-picking
+- [X] T023 [US3] [FR-005] [P-05] Pair-add refusal in `app/templates/partials/compare_modal.html`: Add pair refused with a message naming both currencies when the two `data-currency` values differ, and naming the missing currency when either is unrecorded; the ticks stay for re-picking
   - Proof: quickstart Story 3 step 1
-- [ ] T024 [US3] [FR-002] Disabled modal rows in `app/templates/partials/compare_modal.html`: `pending` and `failed` rows listed, never tickable, state named
+- [X] T024 [US3] [FR-002] Disabled modal rows in `app/templates/partials/compare_modal.html`: `pending` and `failed` rows listed, never tickable, state named
   - Proof: T022 tests pass
-- [ ] T025 [US3] [FR-015] [SC-003] [P-06] Drop notice and final empty state in `app/templates/pages/results_comparison.html` and the `app/routers/shell.py` handler: one notice above the table — the missing analysis or the two currencies when the cause is known, the generic dropped-pair line otherwise; empty state copy directing the analyst back to Compare
+- [X] T025 [US3] [FR-015] [SC-003] [P-06] Drop notice and final empty state in `app/templates/pages/results_comparison.html` and the `app/routers/shell.py` handler: one notice above the table — the missing analysis or the two currencies when the cause is known, the generic dropped-pair line otherwise; empty state copy directing the analyst back to Compare
   - Proof: T021 tests pass
-- [ ] T026 [US3] Run the unit tier: `uv run pytest tests/unit` — all green
+- [X] T026 [US3] Run the unit tier: `uv run pytest tests/unit` — all green
 
 **Checkpoint**: all three stories work. **STOP** — the approver clicks
 quickstart Story 3.

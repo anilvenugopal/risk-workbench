@@ -15,7 +15,57 @@
 
 {% block main %}
 <div class="page-pad">
+  {% if pairs %}
+  <div class="res-toolbar">
+    <label for="res-persp">Perspective</label>
+    <select id="res-persp" name="perspective" class="wf-field__input"
+            hx-get="{{ comparison_base_url }}" hx-include="#res-ep"
+            hx-target="#comparison-view" hx-select="#comparison-view" hx-swap="outerHTML">
+      {% for p in perspectives %}
+      <option value="{{ p.code }}" {% if p.code == active_perspective %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-ep">EP type</label>
+    <select id="res-ep" name="ep_type" class="wf-field__input"
+            hx-get="{{ comparison_base_url }}" hx-include="#res-persp"
+            hx-target="#comparison-view" hx-select="#comparison-view" hx-swap="outerHTML">
+      {% for e in ep_types %}
+      <option value="{{ e }}" {% if e == active_ep %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-units">Units</label>
+    <select id="res-units" class="wf-field__input" data-units-select>
+      <option value="ones">Ones</option>
+      <option value="thousands">Thousands</option>
+      <option value="millions" selected>Millions</option>
+    </select>
+    <button class="btn-sm" type="button" data-copy-table
+            title="Copy the table with headers — pastes into Excel">&#8942; Copy table</button>
+  </div>
+  {% endif %}
+
   <div id="comparison-view">
+    {% if dropped %}
+    {# one notice above the table (FR-015) — the missing analysis or the two
+       currencies when the cause is known, the generic line otherwise #}
+    <div class="state-box state-box--warn" style="margin-bottom:var(--space-3)">
+      {% for d in dropped %}
+      <div>
+        {%- if d.kind == 'currency' -%}
+        A pair was dropped: its analyses were run in different currencies
+        ({{ d.currencies[0] }} vs {{ d.currencies[1] }}) — figures are never converted.
+        {%- elif d.kind == 'missing' and d.ids -%}
+        A pair was dropped: analys{{ 'is' if d.ids|length == 1 else 'es' }}
+        {{ d.ids|join(' and ') }} no longer exist{{ 's' if d.ids|length == 1 }}
+        — deleted since this comparison was opened.
+        {%- else -%}
+        A pair was dropped — a repeated analysis, an unrecorded run currency,
+        or a pair beyond the {{ max_pairs }}-pair limit.
+        {%- endif -%}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if pairs %}
     <p class="res-count">{{ pairs|length }} comparison{{ 's' if pairs|length != 1 }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
     <div class="ep-shell">
@@ -43,11 +93,24 @@
             {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
             <td{% if loop.first %} class="gsep"{% endif %}>
-              {%- if pr and pr.produced -%}
               {{ num(pr.rows[ri].oep if active_ep == 'OEP' else pr.rows[ri].aep) }}
-              {%- else -%}<span class="na">—</span>{%- endif -%}
             </td>
+            {% elif ri == 0 %}
+            {# one absent-side message covering the curve, AAL, and Std dev
+               rows (FR-014) — the partner's numbers still render #}
+            <td class="colmsg{% if loop.first %} gsep{% endif %}"
+                rowspan="{{ rp_labels|length + 2 }}">
+              {%- if col.results_state == 'failed' -%}
+              Results retrieval failed.
+              {%- elif col.results_state == 'pending' -%}
+              Results pending — retrieval is queued or running.
+              {%- else -%}
+              The analysis did not produce this perspective.
+              {%- endif -%}
+            </td>
+            {% endif %}
             {% endfor %}
             {% set prow = pct.rows[ri] if pct else none %}
             <td class="chg">{{ pctcell((prow.oep if active_ep == 'OEP' else prow.aep) if prow is not none else none) }}</td>
@@ -61,10 +124,9 @@
             {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
-            <td{% if loop.first %} class="gsep"{% endif %}>
-              {%- if pr and pr.produced -%}{{ num(pr.aal) }}
-              {%- else -%}<span class="na">—</span>{%- endif -%}
-            </td>
+            {% if pr and pr.produced %}
+            <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.aal) }}</td>
+            {% endif %}
             {% endfor %}
             <td class="chg">{{ pctcell(pct.aal if pct else none) }}</td>
             {% endfor %}
@@ -75,10 +137,9 @@
             {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
-            <td{% if loop.first %} class="gsep"{% endif %}>
-              {%- if pr and pr.produced -%}{{ num(pr.std_dev) }}
-              {%- else -%}<span class="na">—</span>{%- endif -%}
-            </td>
+            {% if pr and pr.produced %}
+            <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.std_dev) }}</td>
+            {% endif %}
             {% endfor %}
             <td class="chg">{{ pctcell(pct.std_dev if pct else none) }}</td>
             {% endfor %}

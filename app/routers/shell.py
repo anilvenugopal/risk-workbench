@@ -75,6 +75,15 @@ def _results_analyses_url(order: list[str], submission: str, edm: str,
     return "/results/analyses?" + urlencode(params)
 
 
+def _results_comparison_url(pairs: str, submission: str, edm: str) -> str:
+    params = [("pairs", pairs)]
+    if submission:
+        params.append(("submission", submission))
+    if edm:
+        params.append(("edm", edm))
+    return "/results/comparison?" + urlencode(params)
+
+
 def _entry_crumbs(submission: str, edm: str) -> tuple[list[dict], str | None]:
     """The dedicated results pages' entry-point crumbs: submission entry adds
     the submission crumb, EDM entry both; the last resolved name is the tab
@@ -171,6 +180,10 @@ def results_comparison(request: Request, pairs: str = "", submission: str = "",
         "ep_types": EP_TYPES,
         "active_ep": active_ep,
         "rp_labels": analysis_service.expanded_return_periods(),
+        # each toolbar select adds its own value to this GET and hx-includes
+        # the other's, so neither swap drops the other's choice
+        "comparison_base_url": _results_comparison_url(pairs, submission, edm),
+        "max_pairs": analysis_service.MAX_COMPARISON_PAIRS,
         "extra_crumbs": extra_crumbs,
         "page_name": page_name,
     })

@@ -830,6 +830,24 @@ document.addEventListener('alpine:init', () => {
     addPair() {
       if (this.picks.length !== 2) return;
       const [base, second] = this.picks;
+      // refusals leave the picks ticked so the analyst can change one (FR-005)
+      const noCurrency = [base, second].find((p) => !p.currency);
+      if (noCurrency) {
+        this.error = noCurrency.name
+          + ' has no recorded run currency, so it cannot be paired.';
+        return;
+      }
+      if (base.currency !== second.currency) {
+        this.error = 'These analyses were run in different currencies ('
+          + base.currency + ' vs ' + second.currency
+          + ') — figures are never converted, so they cannot be paired.';
+        return;
+      }
+      if (this.pairs.length >= this.maxPairs) {
+        this.error = 'A comparison holds at most ' + this.maxPairs
+          + ' pairs — remove a pair to add another.';
+        return;
+      }
       this.pairs.push({ base, second });
       this.picks = [];
       this.error = '';

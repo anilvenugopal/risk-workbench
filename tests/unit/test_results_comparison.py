@@ -23,6 +23,8 @@ SUB_ID = "11111111-1111-1111-1111-111111111111"
 EDM_ID = "22222222-2222-2222-2222-222222222222"
 AN_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 AN_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+AN_C = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+AN_D = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 
 
 def _fake_user():
@@ -196,6 +198,162 @@ class TestComparisonPage:
         assert resp.status_code == 200
         assert "No comparisons to display" in resp.text
 
+    # ── User story 2 — several pairs, one set of controls (FR-012/FR-014) ──
+
+    def test_multiple_pairs_share_one_return_period_column(self, monkeypatch):
+        client = self._client(monkeypatch, [
+            _pair(_column(AN_A, "Alpha Analysis"),
+                  _column(AN_B, "Beta Analysis")),
+            _pair(_column(AN_C, "Gamma Analysis"),
+                  _column(AN_D, "Delta Analysis"))])
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B},{AN_C}:{AN_D}")
+
+        assert resp.status_code == 200
+        assert resp.text.count("Return period") == 1
+        assert resp.text.count("% Chg") == 2
+        for name in ("Alpha Analysis", "Beta Analysis",
+                     "Gamma Analysis", "Delta Analysis"):
+            assert name in resp.text
+        # pairs are identified by their analysis names only
+        assert "Pair 1" not in resp.text
+
+    def test_perspective_and_ep_type_apply_to_every_pair(self, monkeypatch):
+        produced = ("GR", "RL")
+        client = self._client(monkeypatch, [
+            _pair(_column(AN_A, "Alpha Analysis", produced=produced,
+                          value=1_000_000.0),
+                  _column(AN_B, "Beta Analysis", produced=produced,
+                          value=3_000_000.0)),
+            _pair(_column(AN_C, "Gamma Analysis", produced=produced,
+                          value=5_000_000.0),
+                  _column(AN_D, "Delta Analysis", produced=produced,
+                          value=7_000_000.0))])
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B},{AN_C}:{AN_D}"
+            "&perspective=GR&ep_type=AEP")
+
+        assert resp.status_code == 200
+        assert "Gross" in resp.text
+        # the AEP curve renders for all four columns — every pair moved
+        for aep in ("2000000.0", "6000000.0", "10000000.0", "14000000.0"):
+            assert f'data-unit-value="{aep}"' in resp.text
+
+    def test_toolbar_re_renders_comparison_view_carrying_pairs(
+            self, monkeypatch):
+        client = self._client(
+            monkeypatch,
+            [_pair(_column(AN_A, "Alpha Analysis"),
+                   _column(AN_B, "Beta Analysis"))],
+            submission_name="Coastal Re HO 2026")
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B}&submission={SUB_ID}")
+
+        # perspective and EP type re-render #comparison-view, each carrying
+        # the other's value and the pairs/entry params in the base URL
+        assert 'hx-target="#comparison-view"' in resp.text
+        assert 'hx-include="#res-ep"' in resp.text
+        assert 'hx-include="#res-persp"' in resp.text
+        assert "pairs=" in resp.text
+        assert f"submission={SUB_ID}" in resp.text
+        # units (default millions) and Copy table are the existing slivers
+        assert "data-units-select" in resp.text
+        assert '<option value="millions" selected>' in resp.text
+        assert "data-copy-table" in resp.text
+
+    def test_absent_perspective_shows_partner_numbers_and_em_dash(
+            self, monkeypatch):
+        base = _column(AN_A, "Alpha Analysis", produced=("RL",),
+                       value=1_000_000.0)
+        second = _column(AN_B, "Beta Analysis", produced=("GR",))
+        client = self._client(monkeypatch, [_pair(base, second)])
+
+        resp = client.get(f"/results/comparison?pairs={AN_A}:{AN_B}")
+
+        assert resp.status_code == 200
+        # the base's numbers still render
+        assert 'data-unit-value="1000000.0"' in resp.text
+        # the absent side reads absent — never an error
+        assert "did not produce this perspective" in resp.text
+        # % Chg is an em dash
+        assert '<td class="chg"><span class="na">—</span></td>' in resp.text
+
+    def test_percent_cells_carry_no_unit_value(self, monkeypatch):
+        base = _column(AN_A, "Alpha Analysis", value=1_000_000.0)
+        second = _column(AN_B, "Beta Analysis", value=1_500_000.0)
+        client = self._client(monkeypatch, [_pair(base, second)])
+
+        resp = client.get(f"/results/comparison?pairs={AN_A}:{AN_B}")
+
+        # the percent cell has no data-unit-value, so the units sliver
+        # never rescales it (T-06)
+        assert '<td class="chg"><span title="0.5">+50.0%</span></td>' \
+            in resp.text
+        assert 'data-unit-value="0.5"' not in resp.text
+
+    # ── User story 3 — drop notice and empty state (FR-015, SC-003, P-06) ──
+
+    def test_missing_side_drop_notice_names_the_missing_analysis(
+            self, monkeypatch):
+        client = self._client(
+            monkeypatch,
+            [_pair(_column(AN_A, "Alpha Analysis"),
+                   _column(AN_B, "Beta Analysis"))],
+            drops=[{"kind": "missing", "ids": [AN_C]}])
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B},{AN_C}:{AN_A}")
+
+        assert resp.status_code == 200
+        assert "no longer exists" in resp.text
+        assert AN_C in resp.text
+        # surviving pairs render normally
+        assert "Alpha Analysis" in resp.text
+        assert "% Chg" in resp.text
+
+    def test_currency_mismatch_drop_notice_names_both_currencies(
+            self, monkeypatch):
+        client = self._client(
+            monkeypatch,
+            [_pair(_column(AN_A, "Alpha Analysis"),
+                   _column(AN_B, "Beta Analysis"))],
+            drops=[{"kind": "currency", "currencies": ("USD", "EUR")}])
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B},{AN_C}:{AN_D}")
+
+        assert resp.status_code == 200
+        assert "USD" in resp.text and "EUR" in resp.text
+        assert "never converted" in resp.text
+
+    def test_generic_drop_notice_for_other_causes(self, monkeypatch):
+        client = self._client(
+            monkeypatch,
+            [_pair(_column(AN_A, "Alpha Analysis"),
+                   _column(AN_B, "Beta Analysis"))],
+            drops=[{"kind": "other"}])
+
+        resp = client.get(
+            f"/results/comparison?pairs={AN_A}:{AN_B},{AN_A}:{AN_A}")
+
+        assert resp.status_code == 200
+        assert "A pair was dropped" in resp.text
+
+    def test_all_pairs_dropped_renders_notice_and_empty_state(
+            self, monkeypatch):
+        client = self._client(monkeypatch, [],
+                              drops=[{"kind": "missing", "ids": [AN_A]}])
+
+        resp = client.get(f"/results/comparison?pairs={AN_A}:{AN_B}")
+
+        assert resp.status_code == 200
+        assert "no longer exists" in resp.text
+        assert "No comparisons to display" in resp.text
+        assert "Compare" in resp.text
+
 
 class TestNoRiskModelerCallInRenderPath:
     """FR-016: the whole render reads stored extracts — a poisoned gateway
@@ -320,3 +478,56 @@ class TestCompareModalRoutes:
 
         assert resp.status_code == 200
         assert "no longer" in resp.text
+
+    # ── User story 3 — non-ready and currency-less rows (FR-002, P-05) ──
+
+    def test_pending_and_failed_rows_disabled_with_state_named(
+            self, monkeypatch):
+        from app.services.analysis_service import ComparableAnalysis
+        rows = [
+            ComparableAnalysis(id=AN_A, name="Ready One", rdm_name=None,
+                               run_currency="USD", results_state="ready"),
+            ComparableAnalysis(id=AN_B, name="Still Running", rdm_name=None,
+                               run_currency="USD", results_state="pending"),
+            ComparableAnalysis(id=AN_C, name="Broke Down", rdm_name=None,
+                               run_currency="USD", results_state="failed"),
+        ]
+        client, _ = self._client(monkeypatch, rows)
+
+        resp = client.get(f"/submissions/{SUB_ID}/analyses/compare")
+
+        assert resp.status_code == 200
+        assert "retrieving…" in resp.text
+        assert "retrieval failed" in resp.text
+        # the two non-ready rows are listed but never tickable
+        assert resp.text.count("cmp-row--disabled") == 2
+        assert resp.text.count('<input type="checkbox" disabled>') == 2
+
+    def test_unrecorded_currency_row_tickable_without_data_currency(
+            self, monkeypatch):
+        from app.services.analysis_service import ComparableAnalysis
+        rows = [ComparableAnalysis(id=AN_A, name="No Currency", rdm_name=None,
+                                   run_currency=None, results_state="ready")]
+        client, _ = self._client(monkeypatch, rows)
+
+        resp = client.get(f"/submissions/{SUB_ID}/analyses/compare")
+
+        assert resp.status_code == 200
+        assert "data-currency" not in resp.text
+        # still tickable — the pair-add refusal, not the list, names the gap
+        assert 'disabled' not in resp.text.split('cmp-list')[1].split(
+            'cmp-cart')[0]
+        assert '@change="toggle($event)"' in resp.text
+
+
+class TestHandTypedUrls:
+    """P-06/T-01 route-level proof over the real service: garbage input is a
+    render, never a 500."""
+
+    def test_garbage_pairs_render_the_empty_state(self, iteration2_db):
+        resp = TestClient(_make_app()).get(
+            "/results/comparison?pairs=garbage:junk,notauuid")
+
+        assert resp.status_code == 200
+        assert "A pair was dropped" in resp.text
+        assert "No comparisons to display" in resp.text
