@@ -78,11 +78,6 @@ def _results_analyses_url(order: list[str], submission: str, edm: str,
 @router.get("/results/analyses", response_class=HTMLResponse)
 def results_analyses(request: Request, ids: str = "", submission: str = "",
                      edm: str = "", perspective: str = "", ep_type: str = ""):
-    """The dedicated results page (spec 011 US4, contracts/routes.md §3):
-    one column per ``ids`` entry in param order (FR-016), all 11 return
-    periods of the selected ``ep_type``, ``perspective`` screen-wide
-    (FR-011/FR-012). Reads stored extracts only — no Risk Modeler call
-    (Article 11). Unknown or deleted ids render a notice, never a 500."""
     id_list = [p for p in (s.strip() for s in ids.split(",")) if p]
     perspectives = analysis_service.list_analysis_perspectives()
     codes = [p["code"] for p in perspectives]
@@ -94,8 +89,6 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
     columns, missing = analysis_service.list_results_columns(
         analysis_ids=id_list)
 
-    # Entity crumbs + tab title (FR-014, T-07): edm= present → submission crumb
-    # then EDM crumb; else submission crumb only. Both link back.
     extra_crumbs: list[dict] = []
     page_name = None
     sub = (submission_service.get_submission(submission)
@@ -110,8 +103,6 @@ def results_analyses(request: Request, ids: str = "", submission: str = "",
                              "route": f"/edms/{edm_row.id}"})
         page_name = edm_row.name
 
-    # Reorder controls rewrite the ids param and re-request (FR-016): one
-    # swap-with-neighbour URL per side, built over the resolved column order.
     order = [c.id for c in columns]
     view_columns = []
     for i, col in enumerate(columns):

@@ -37,7 +37,7 @@
   extract snapshots `engineType`/`engineVersion` from the analysis metadata
   payload (FR-021).
 - Triggers are worker-side chains, poller untouched: own —
-  `backfill_analysis_detail` enqueues retrieval on success; broker —
+  `finalize_analysis` enqueues retrieval on success; broker —
   `backfill_rdm_analyses` enqueues one retrieval per captured live analysis
   with `loss_results IS NULL`. Broker rows are keyed (`rdm_id`, `irp_id`), so
   once-per-RDM storage and EDM-copy dedup are automatic (US2).
@@ -87,11 +87,9 @@
   attributes — no server round trip, no recomputation of stored numbers
   (FR-018). The Submitted column is the third such sliver (T-10).
 - UI-first: `docs/ui_previews/merged_analyses_table.html` is approved (merged
-  table, expanded row, results states, section summary line, empty states).
-  `results_ep_table.html` is superseded — its Display and EP-type selectors, its
-  Millions/Full units selector, its three-perspective dropdowns and its ELT
-  metrics were all dropped on 8/25–8/26; the dedicated page gets its own preview
-  approved at the start of Phase 6. **An approved preview is
+  table, expanded row, results states, section summary line, empty states);
+  the dedicated page gets its own preview approved at the start of Phase 6.
+  **An approved preview is
   guidance, not markup to paste.** Build against the real components and CSS —
   `.dtable` in `app/static/css/details.css`, the status chips, `btn-sm`, the
   section summary line — and extend those when the preview needs something they
@@ -102,7 +100,7 @@
 | Area | Change |
 |---|---|
 | Database | `irp_analysis.loss_results` and `irp_analysis.submitted_settings` (both NVARCHAR(MAX), nullable); new `analysis_perspective_kind` + 5 seeds; `rwb_job_requestor_type_kind` + `irp_analysis` seed. Alembic 0001 + seed_db + iteration1_mirror. |
-| Worker | New `retrieve_analysis_results` actor; chain enqueues in `backfill_analysis_detail` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
+| Worker | New `retrieve_analysis_results` actor; chain enqueues in `finalize_analysis` and `backfill_rdm_analyses`; `_claim_analysis` writes `submitted_settings` (T-09); dispatch registration. |
 | Service | `AnalysisSettings.framework`; `BrokerAnalysis.rm_url` + `created_at`; results state, per-perspective AAL and standard deviation, currency, condensed extract, and the submitted-settings read. |
 | UI | Merged analyses partial on EDM detail + new submission Results section; two-column expanded row; dedicated results page + nav node + shell `extra_crumbs`; perspective/units/copy/order controls. Nothing outside the analyses sections is touched. |
 | Library | Gateway: `get_analysis_stats` / `get_analysis_ep` + FakeIRP counterparts. |
@@ -111,12 +109,12 @@
 
 | ID | Decision | Status | Detail |
 |---|---|---|---|
-| T-01 | Retrieval triggers are worker-side chains with queue-level dedup: own analyses chain from `backfill_analysis_detail`, broker from `backfill_rdm_analyses`; jobs keyed `(irp_analysis, analysis_id, retrieve_analysis_results)`; worker skips when `loss_results IS NOT NULL` | Approved | [research.md#R4](research.md#r4--retrieval-trigger-dedup-and-failure-handling-t-01) |
+| T-01 | Retrieval triggers are worker-side chains with queue-level dedup: own analyses chain from `finalize_analysis`, broker from `backfill_rdm_analyses`; jobs keyed `(irp_analysis, analysis_id, retrieve_analysis_results)`; worker skips when `loss_results IS NOT NULL` | Approved | [research.md#R4](research.md#r4--retrieval-trigger-dedup-and-failure-handling-t-01) |
 | T-02 | All five perspectives are requested through the wheel, never around it (Article 11). irp-integration 0.6.2 validates `perspective_code` against the full RM vocabulary, so WX and QS pass client-side | Approved | [research.md#R5](research.md#r5--the-wheel-rejects-wx-and-qs-t-02) — the earlier `['GR','GU','RL']` list and the widening that closed it |
 | T-03 | `exposure_resource_id` for result calls: own rows use `irp_portfolio.irp_id` (the RM portfolioId the analysis ran against); broker rows use stored `exposure_resource_id`, one `get_analysis_metadata` re-read when NULL (the gateway function, which wraps the wheel's `get_analysis_by_id`) — closes spec O-02 by design; sandbox verifies | Approved | [research.md#R2](research.md#r2--broker-exposure-pointer-o-02) |
 | T-04 | `loss_results` is written whole, once, as one JSON document: all 5 perspective keys always present, unproduced perspectives explicitly `null`, `engine_type`/`engine_version` snapshotted (FR-021) | Approved | [contracts/loss-results.md](contracts/loss-results.md) |
 | T-05 | Currency comes from `settings_metadata.currencyCode` (documented field, captured at both backfills) — parsed in Python by the read model like every other `settings_metadata` field, never extracted in SQL; no new column | Approved | [research.md#R6](research.md#r6--currency-and-engine-version-sources-t-05) |
-| T-06 | Perspectives are a kind table (`analysis_perspective_kind`), not code constants — Article 3 default; worker request list and UI toggles read from it; Gross default = first sort_order | Approved | [data-model.md](data-model.md) |
+| T-06 | Perspectives are a kind table (`analysis_perspective_kind`), not code constants — Article 3 default; worker request list and UI toggles read from it; `sort_order` is dropdown order, not the default | Approved | [data-model.md](data-model.md) |
 | T-07 | Dedicated page is one route (`/results/analyses`) under the `results` nav root; entity breadcrumbs are an `extra_crumbs` shell extension appended after the manifest chain; column order = `ids` param order | Approved | [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08); [contracts/routes.md](contracts/routes.md) |
 | T-08 | An unproduced perspective returns an empty list from `get_stats`/`get_ep` (treated as explicitly empty); any non-2xx is a retrieval failure | Assumed | Sandbox tier confirms; the worker's branch is one `if not rows` either way — [research.md#R7](research.md#r7--dedicated-page-route-breadcrumbs-and-controls-t-07-t-08) |
 | T-09 | The expanded row's Analysis settings read a per-analysis snapshot, `irp_analysis.submitted_settings`, written by `_claim_analysis` from the approved plan item it submits. Not the `analysis_template` row: templates are editable, so a later edit would misreport a finished run (AGENTS.md architecture rule 8 — approved plans are immutable). Not the `execute_analysis_batch` `input_data` either — a work order is not a display source, and the read would be a two-hop JSON index lookup per row | Approved | [data-model.md](data-model.md) §1b |
@@ -203,7 +201,7 @@ app/
 ├── routers/shell.py                 # /results/analyses dedicated page
 ├── services/analysis_service.py     # merged read models, extract/currency extraction
 ├── services/irp_gateway.py          # get_analysis_stats / get_analysis_ep
-├── workers/analysis_jobs.py         # retrieve_analysis_results; chain in backfill_analysis_detail
+├── workers/analysis_jobs.py         # retrieve_analysis_results; chain in finalize_analysis
 ├── workers/entity_jobs.py           # chain in backfill_rdm_analyses
 ├── workers/dispatch.py              # new actor registration
 ├── nav/manifest.py                  # results.analyses hidden node

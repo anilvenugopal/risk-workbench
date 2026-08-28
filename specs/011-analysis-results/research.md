@@ -5,7 +5,7 @@
 ### Session 2026-08-26
 
 - Q: O-09 — keep ~10 as the soft N-up guideline on the dedicated results page, and how does the view degrade past it? → A: Keep ~10 as the soft guideline; past it the table scrolls horizontally (no pagination, no selection block).
-- Q: O-10 — after the dedicated view opens in a new browser tab, do the selections in the originating tab reset? → A: Yes, the selection resets once the dedicated page opens.
+- Q: O-10 — after the dedicated view opens in a new browser tab, do the selections in the originating tab reset? → A: Yes, the selection resets once the dedicated page opens. This resolves design note 20's O20-10(b) and the `19` O19-7 sub-question it answers: session 20 recorded the reset as a defect, and the answer here makes it the intended behaviour, built in `app.js`.
 
 ## R3 — Retrieval model decided: REST endpoints, bounded extract stored per analysis (closes O-01 for viewing)
 
@@ -83,7 +83,7 @@ Decided 2026-08-25 (plan phase), from the shipped spec-010 worker/queue machiner
 
 **Decision.** Retrieval is chained worker-side; the poller is untouched:
 
-- **Own**: `_backfill_analysis_detail_body` already resolves `irp_id`/`settings_metadata` after FINISHED; on success it enqueues `retrieve_analysis_results`. The extract needs `irp_id` (resolved here) and the metadata payload (engine/currency fields), so chaining after backfill — not directly off the poller's FINISHED handler — is the only ordering that has its inputs ready.
+- **Own**: `_finalize_analysis_body` already resolves `irp_id`/`settings_metadata` after FINISHED; on success it enqueues `retrieve_analysis_results`. The extract needs `irp_id` (resolved here) and the metadata payload (engine/currency fields), so chaining after backfill — not directly off the poller's FINISHED handler — is the only ordering that has its inputs ready.
 - **Broker**: `_backfill_rdm_analyses_body` enqueues one retrieval per captured live `(rdm_id, irp_id)` row whose `loss_results IS NULL` — covering first import, manual RDM sync, and re-import of another EDM copy (US2-3: rows already carrying results enqueue nothing).
 - **Dedup**: jobs are keyed `(requestor_type='irp_analysis', requestor_id=<analysis uuid>, rwb_job_type='retrieve_analysis_results')` — a new `irp_analysis` row in `rwb_job_requestor_type_kind`. `enqueue_rwb_job`'s UNIQUE key makes any re-fired trigger a no-op (FR-006), and the worker's own `loss_results IS NOT NULL → skip` guard covers the reclaim/re-run path. Keying on the analysis (not the parent rwb_job id) also gives views a one-join lookup of the retrieval job's `status_code`/`error_detail` for SC-005.
 - **Failure**: standard actor pattern (`max_retries=0`; failure → `failed` + `error_detail`; heartbeat + reconciler recover interruption). `enqueue_rwb_job` never resurrects a terminal row, so a failed retrieval stays failed and visible — exactly O-06/spec-010 P-14: the analysis remains FINISHED, views show results-pending plus the reason. No automatic backoff retry is added (unchanged from 010's deferral).
@@ -110,7 +110,7 @@ Open risk: if RM rejects WX/QS server-side (they are CIC's requested codes, so u
 
 From `docs/IRP_INTEGRATION_FOLLOWUPS.md` (documented `search_analyses` / `get_analysis_by_id` response fields, confidence 0.99): the analysis metadata payload carries `currencyCode`, `currencyName`, `engineType`, `engineVersion`, `engineSubTypeCode`.
 
-- **Currency (FR-010)**: both origins already store this payload verbatim in `irp_analysis.settings_metadata` — own rows at `backfill_analysis_detail`, broker rows at `backfill_rdm_analyses` (spec 004). The merged table's Currency column is read-model extraction of `currencyCode`; no new column, no new capture. A NULL `settings_metadata` (failed metadata read) renders as `—`, the existing graceful-blank rule.
+- **Currency (FR-010)**: both origins already store this payload verbatim in `irp_analysis.settings_metadata` — own rows at `finalize_analysis`, broker rows at `backfill_rdm_analyses` (spec 004). The merged table's Currency column is read-model extraction of `currencyCode`; no new column, no new capture. A NULL `settings_metadata` (failed metadata read) renders as `—`, the existing graceful-blank rule.
 - **Engine/model version (FR-021)**: the retrieval worker snapshots `engineType` + `engineVersion` out of the same payload into the `loss_results` extract, so the stored result records what produced it even if the analysis row's snapshot is later refreshed. When `settings_metadata` is NULL at retrieval time, the T-03 `get_analysis_metadata` re-read supplies the same fields.
 
 ## R7 — Dedicated page route, breadcrumbs, and controls (T-07, T-08)
@@ -122,7 +122,7 @@ Decided 2026-08-25 (plan phase), against the shipped nav/shell machinery.
 - **Ordering (FR-016)**: the `ids` query-param order is the column order. Reorder controls rewrite the param and re-request — no stored ordering state. They re-render `#results-view` rather than navigate, because the units selector sits outside that region and a full navigation reset it to millions on every move.
 - **Perspective (FR-012)**: a query param on the dedicated page. Switching is an HTMX fragment re-render — screen-wide by construction. (Superseded for the merged table by R8: the toggle moved into the expanded row, and the section URL carries no `perspective`.)
 - **Units / copy (FR-017/FR-018)**: display-only client slivers. Cells carry the raw stored value in a data attribute; Alpine formats for the ones/thousands/millions selector (millions default) and the copy button serializes the rendered table with headers as TSV to the clipboard. The server never reformats or recomputes stored numbers.
-- **Soft cap (O-09/FR-015)**: no selection block; the table sits in the existing `overflow-x` shell (see docs/ui_previews/results_ep_table.html) and scrolls horizontally past ~10 columns.
+- **Soft cap (O-09/FR-015)**: no selection block; the table sits in the existing `overflow-x` shell and scrolls horizontally past ~10 columns.
 - **T-08 (Assumed)**: a perspective the analysis did not produce returns an empty list from `get_stats`/`get_ep` (the endpoints return row arrays; the GU capture returns rows for a produced perspective). The worker treats an empty list as "fetched, nothing there" (explicit null in the extract, FR-004) and any non-2xx as a retrieval failure. If the sandbox shows RM instead errors on unproduced perspectives, the specific error class moves to the explicitly-empty branch — a one-branch change quarantined in the worker.
 
 ## R8 — Merged table preview: what the expanded row shows and where it comes from (O-11, O-12, T-09, T-10)

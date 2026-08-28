@@ -93,9 +93,8 @@ spec 010) — no job-type change.
 
 ## 4. Return-period sets (constants, not schema)
 
-Fixed by spec O-03; owned by the extract-builder module as named business-rule
-constants (they define the stored shape, so they live worker-side, not in the
-UI):
+Fixed by spec O-03; owned by `app/services/_common.py` as named business-rule
+constants, since both the retrieval worker and `analysis_service` read them:
 
 - **Stored / expanded**: 5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000
 - **Condensed display subset**: 50, 100, 250, 500, 1000, 10000

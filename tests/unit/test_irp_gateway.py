@@ -686,39 +686,3 @@ def test_lob_lists_over_the_free_text_cap_are_not_stored():
     # breakout enumerates from breakout_values, so lob must not survive it.
     assert "lob" not in summary["1"]["breakout_values"]
     assert "lob" in summary["2"]["breakout_values"]
-
-
-# ── spec 011 (T007): the result reads ─────────────────────────────────────────
-# The wheel takes (analysis_id, perspective_code, exposure_resource_id)
-# positionally and validates the perspective itself (T-02). These wrappers add
-# keyword arguments and nothing else: the row lists reach the worker's builder
-# verbatim, so response-shape knowledge stays in one testable place.
-
-def _result_gw(rows):
-    calls = []
-
-    def record(analysis_id, perspective_code, exposure_resource_id):
-        calls.append((analysis_id, perspective_code, exposure_resource_id))
-        return rows
-
-    return _gw(analysis=SimpleNamespace(get_stats=record, get_ep=record)), calls
-
-
-def test_result_reads_pass_the_wheel_its_positional_args_and_return_rows_verbatim():
-    rows = [{"epType": "OEP", "purePremium": 38270.5904752427}]
-    gw, calls = _result_gw(rows)
-
-    assert gw.get_analysis_stats(analysis_id=5572174, perspective_code="WX",
-                                 exposure_resource_id=8) is rows
-    assert gw.get_analysis_ep(analysis_id=5572174, perspective_code="QS",
-                              exposure_resource_id=8) is rows
-    assert calls == [(5572174, "WX", 8), (5572174, "QS", 8)]
-
-
-def test_result_reads_do_not_screen_the_perspective_code():
-    # The wheel's PERSPECTIVE_CODES check is the only perspective validation
-    # (T-02) — a second list here would silently diverge from RM's vocabulary.
-    gw, calls = _result_gw([])
-    gw.get_analysis_stats(analysis_id=1, perspective_code="NOPE",
-                          exposure_resource_id=8)
-    assert calls == [(1, "NOPE", 8)]

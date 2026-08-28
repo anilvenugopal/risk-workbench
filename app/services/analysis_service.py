@@ -1,39 +1,16 @@
-"""Analysis service — the broker-analysis read models (spec 004 US3).
+"""Analysis service — the read models over ``irp_analysis``.
 
-Surfaces the ``irp_analysis`` rows captured by ``backfill_rdm_analyses``:
-
-  • ``list_broker_analyses(rdm_id)`` — the RDM page (FR-030/FR-031, R8):
-    grouped by ``rdm_id``; each with its parsed
-    ``settings_metadata`` (missing/partial → blank, never error) and
-    ``is_group`` (FR-035).
-  • ``list_edm_analyses(edm_id)`` — the context-free EDM page, which has no
-    submission RDM context and therefore returns no groups.
-  • ``list_executed_analyses(edm_id)`` — the EDM detail page's user-executed
-    section (spec 010 US2, FR-013): every analysis the workbench itself
-    submitted against this EDM (``execution_id`` set), with live status
-    derived from the latest tracked ``irp_job`` per analysis (T-07) and the
-    same curated ``AnalysisSettings`` view once ``settings_metadata`` is
-    backfilled. No RDM grouping — this is exactly the portfolio the trust
-    rule (8/4 D8) exempts, since the workbench submitted these itself.
-
-**No analysis is attributed to a portfolio** (8/4 D8): there is no trustworthy
-way to tie an RDM analysis to an EDM portfolio, and every analysis here is
-broker-provided (``rdm_id`` NOT NULL). ``irp_analysis.exposure_resource_id`` is
-still captured by the worker — it is defensible only for analyses CIC runs
-itself — but nothing reads or displays it.
+**No analysis is attributed to a portfolio**: there is no trustworthy way to tie
+an RDM analysis to an EDM portfolio, and every broker-provided analysis carries
+``rdm_id`` NOT NULL. ``irp_analysis.exposure_resource_id`` is still captured by
+the worker — it is defensible only for analyses CIC runs itself — but nothing
+reads or displays it.
 
 The curated ``AnalysisSettings`` view model reads the documented RM payload
 fields defensively (``analysisType``/``engineType``/``engineVersion``/
-``peril``/``subperil``/``region``/``currencyCode``/… — IRP knowledge base
-2026-07-24); term / PLA / event-rate fields have NO documented source and stay
-blank until the sandbox confirms their spelling (IRP_INTEGRATION_FOLLOWUPS.md).
-
-Broker rows carry the stored spec-011 results extract (``results_state`` /
-``results``) once ``retrieve_analysis_results`` lands it — read from
-``loss_results``, never from Risk Modeler. No row scoping (Article 6). The one write is
-``delete_executed_analyses`` (spec 010 P-19): a synchronous request-path delete
-of terminal own-executed analyses — Risk Modeler first, then a local soft
-delete — everything else here is read-only.
+``peril``/``subperil``/``region``/``currencyCode``/…); term / PLA / event-rate
+fields have NO documented source and stay blank until the sandbox confirms
+their spelling.
 """
 
 from __future__ import annotations
@@ -47,7 +24,14 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.services import irp_gateway
-from app.services._common import _parse_json_dict, _rm_ui_root, _uid, _utcnow
+from app.services._common import (
+    CONDENSED_RETURN_PERIODS,
+    STORED_RETURN_PERIODS,
+    _parse_json_dict,
+    _rm_ui_root,
+    _uid,
+    _utcnow,
+)
 from db import execute, execute_command, get_connection
 
 logger = logging.getLogger(__name__)
@@ -55,10 +39,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AnalysisSettings:
-    """The curated FR-031 settings view — every field blank-on-missing."""
     analysis_type: str | None = None
     analysis_mode: str | None = None
-    framework: str | None = None    # analysisFramework (ELT/PLT) — spec 011 FR-022
+    framework: str | None = None
     engine_type: str | None = None
     engine_version: str | None = None
     peril: str | None = None
@@ -80,10 +63,10 @@ class AnalysisSettings:
 
 
 def _fmt_loss(value: Any) -> str:
-    """Display formatting for a stored loss number (approved preview): values
-    ≥ 1M read ``4.1M``, smaller values read as thousands-separated integers,
-    missing values read ``—``. Never a recomputation — the verbatim number rides
-    beside it in ``title``/``data-value`` (spec non-negotiable 5)."""
+    """Display formatting for a stored loss number: values ≥ 1M read ``4.1M``,
+    smaller values read as thousands-separated integers, missing values read
+    ``—``. Never a recomputation — the verbatim number rides beside it in
+    ``title``/``data-value``."""
     if value is None:
         return "—"
     if abs(value) >= 1_000_000:
@@ -93,9 +76,6 @@ def _fmt_loss(value: Any) -> str:
 
 @dataclass
 class PerspectiveResults:
-    """One perspective of the stored extract, display-ready (FR-011/FR-012).
-    ``produced`` False = explicitly empty (FR-004) — displayed as absent, never
-    as an error."""
     code: str
     label: str
     produced: bool
@@ -116,13 +96,9 @@ class PerspectiveResults:
 
 @dataclass
 class SubmittedSettings:
-    """The expanded row's Analysis settings group (O-11) from the submit-time
-    snapshot ``irp_analysis.submitted_settings`` (T-09) — every field
-    blank-on-missing. Broker rows have no snapshot at all, which the row renders
-    as *not returned* (FR-022)."""
-    currency: str | None = None                # "USD · RMS · RL25"
-    min_loss_threshold: str | None = None
-    franchise_deductible: str | None = None
+    """The expanded row's Analysis settings group, read from the submit-time
+    snapshot ``irp_analysis.submitted_settings``. Broker rows have no snapshot
+    at all, which the row renders as *not returned*."""
     construction_occupancy: str | None = None
 
 
@@ -130,29 +106,23 @@ def _submitted_view(raw: Any) -> SubmittedSettings:
     p = _parse_json_dict(raw, "submitted_settings")
     if not p:
         return SubmittedSettings()
-    currency = p.get("currency") or {}
-    triple = " · ".join(v for v in (currency.get("code"), currency.get("scheme"),
-                                    currency.get("vintage")) if v)
     unknown = p.get("treat_construction_occupancy_as_unknown")
     return SubmittedSettings(
-        currency=triple or None,
-        min_loss_threshold=_text(p.get("min_loss_threshold")),
-        franchise_deductible=_text(p.get("franchise_deductible")),
         construction_occupancy=("Treat as unknown" if unknown
                                 else _text(unknown)),
     )
 
 
-# The perspective every results view opens on (FR-012, design note 20 D9).
-# The label repeats the analysis_perspective_kind seed so the merged analyses
-# grid can name the perspective its AAL column holds without a query per render.
+# The perspective every results view opens on. The label repeats the
+# analysis_perspective_kind seed so the merged analyses grid can name the
+# perspective its AAL column holds without a query per render.
 DEFAULT_PERSPECTIVE = "RL"
 DEFAULT_PERSPECTIVE_LABEL = "Pre-Cat Net"
 
 
 def list_analysis_perspectives() -> list[dict]:
-    """The five perspective codes/labels in dropdown order (T-06, Article 3).
-    Order is not the default — ``DEFAULT_PERSPECTIVE`` names that (FR-012)."""
+    """The five perspective codes/labels in dropdown order. ``sort_order`` is
+    that dropdown order, not the default — ``DEFAULT_PERSPECTIVE`` names it."""
     return [dict(r) for r in execute(
         "SELECT code, label FROM analysis_perspective_kind ORDER BY sort_order",
         {}, connection="WORKBENCH")]
@@ -161,16 +131,10 @@ def list_analysis_perspectives() -> list[dict]:
 def _perspective_results(loss_results_raw: Any, perspectives: list[dict],
                          return_periods: tuple | None = None,
                          ) -> list[PerspectiveResults]:
-    """The stored extract as display-ready perspectives, filtered to
-    ``return_periods`` — the condensed 50/100/250/500/1000/10000 subset by
-    default (FR-005); the dedicated page passes the full stored set. Empty
-    when not fetched yet."""
     doc = _parse_json_dict(loss_results_raw, "loss_results")
     if not doc:
         return []
     if return_periods is None:
-        # lazy: the worker module owns the return-period sets (data-model.md §4)
-        from app.workers.analysis_jobs import CONDENSED_RETURN_PERIODS  # noqa: PLC0415
         return_periods = CONDENSED_RETURN_PERIODS
     stored = doc.get("perspectives") or {}
     out: list[PerspectiveResults] = []
@@ -206,7 +170,6 @@ class BrokerAnalysis:
     rm_url: str | None = None    # Risk Modeler link-out from the snapshot's
                                  # appAnalysisId, as own rows build theirs (FR-025)
     created_at: Any = None       # RM createDate — the broker's own run date (FR-024)
-    # ── spec 011 results (FR-008/SC-005) ──────────────────────────────────────
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
@@ -230,10 +193,6 @@ class BrokerAnalysisGroup:
 
 @dataclass
 class ExecutedAnalysis:
-    """One workbench-submitted analysis for the EDM detail page's user-executed
-    section (spec 010 US2, FR-013). Status is derived from the latest tracked
-    ``irp_job`` (T-07) rather than stored as its own label — ``irp_analysis.
-    status_code`` keeps only the three coarse lifecycle codes."""
     id: str
     name: str | None            # the ≤64-char name submitted to Risk Modeler
     full_name: str | None       # untruncated portfolio + template (+ suffix)
@@ -252,7 +211,6 @@ class ExecutedAnalysis:
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
-    # ── spec 011 results (FR-008/SC-005) ──────────────────────────────────────
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
@@ -260,11 +218,11 @@ class ExecutedAnalysis:
 
     @property
     def is_live(self) -> bool:
-        """Drives the EDM page's 3s self-poll (T-11): still moving toward a
-        terminal outcome. ``pending`` is the only in-flight run status — every
-        write that leaves it is terminal. A ready run whose retrieval is still
-        pending keeps polling so the loss numbers land with zero analyst actions
-        (SC-001); a failed retrieval is terminal (O-06)."""
+        """Drives the EDM page's 3s self-poll: still moving toward a terminal
+        outcome. ``pending`` is the only in-flight run status — every write that
+        leaves it is terminal. A ready run whose retrieval is still pending
+        keeps polling so the loss numbers land with no analyst action; a failed
+        retrieval is terminal."""
         return (self.status_code == "pending"
                 or (self.status_code == "ready"
                     and self.results_state == "pending"))
@@ -326,9 +284,7 @@ def _first(payload: dict, *keys: str) -> Any:
 
 def _text(value: Any) -> str | None:
     """A display string from a defensive read: a reference object collapses to
-    its ``name`` — an ``eventRateSchemeNames`` entry carries ``code`` "0" and the
-    scheme name in ``name`` (get-analysis-by-id payload, 2026-08-26), so reading
-    ``code`` first printed a number; the ``currency`` object is keyed
+    its ``name``, then its ``code``; the ``currency`` object is keyed
     ``currencyCode``/``currencyName`` and collapses to its code. Lists join,
     empty → blank; bools to On/Off."""
     if value is None:
@@ -346,8 +302,6 @@ def _text(value: Any) -> str | None:
 
 
 def _to_display(settings: dict | None) -> AnalysisSettings:
-    """The curated FR-031 view from the raw RM payload — documented camelCase
-    fields first, plausible fallbacks second, blank when absent (US3 acc. 3)."""
     p = settings or {}
     return AnalysisSettings(
         analysis_type=_text(_first(p, "analysisType", "type")),
@@ -381,9 +335,9 @@ _HANDLE_SELECT = """
 
 def _mark_failed_retrievals(analyses: list) -> None:
     """Flip still-pending rows whose retrieval ``rwb_job`` ended ``failed`` to
-    failed + reason (SC-005) while the run status stays untouched. A terminal
-    failed row is never resurrected by the dedup key, so the join is exact,
-    not latest-of-many."""
+    failed + reason while the run status stays untouched. A terminal failed row
+    is never resurrected by the dedup key, so the join is exact, not
+    latest-of-many."""
     pending = [a for a in analyses if a.results_state == "pending"]
     if not pending:
         return
@@ -465,9 +419,6 @@ def _group_by_rdm(rows: list[dict]) -> list[BrokerAnalysisGroup]:
 
 
 def list_broker_analyses(*, rdm_id: Any) -> list[BrokerAnalysisGroup]:
-    """The RDM page's read (FR-030/FR-031/R8): this RDM's broker analyses,
-    deduped across their M EDM handles (shown once), each with parsed settings
-    and ``is_group``. No scoping (Article 6)."""
     rows = execute(
         f"{_HANDLE_SELECT} AND a.rdm_id = :r ORDER BY a.name, a.irp_id, a.id",
         {"r": str(rdm_id)}, connection="WORKBENCH")
@@ -557,9 +508,6 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
 
 
 def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
-    """The EDM detail page's user-executed section (FR-013): every analysis the
-    workbench submitted against this EDM, newest first, each with its live
-    status derived from its latest tracked ``irp_job`` (T-07)."""
     rows = execute(_EXECUTED_SELECT, {"edm_id": str(edm_id)}, connection="WORKBENCH")
     return _executed_models([dict(r) for r in rows])
 
@@ -588,10 +536,6 @@ _SUBMISSION_EXECUTED_SELECT = f"""
 def list_submission_executed_analyses(
     *, submission_id: Any,
 ) -> list[ExecutedAnalysis]:
-    """The submission Results section's own rows (spec 011 FR-009): every own
-    analysis across every EDM of the submission, newest first, each with its
-    EDM name for the section's EDM column. Origin is derived — own is
-    ``rdm_id IS NULL``; broker rows come from ``list_submission_rdms``."""
     rows = execute(_SUBMISSION_EXECUTED_SELECT,
                    {"submission_id": str(submission_id)}, connection="WORKBENCH")
     return _executed_models([dict(r) for r in rows])
@@ -692,10 +636,6 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
 
 @dataclass
 class ResultsColumn:
-    """One analysis column on the dedicated results page (spec 011 US4,
-    FR-015): the expanded extract (all 11 return periods), the display name,
-    currency, and the same results state the merged table derives. Neither
-    origin carries a portfolio here (FR-020)."""
     id: str
     name: str | None
     currency: str | None
@@ -709,19 +649,16 @@ class ResultsColumn:
 
 def expanded_return_periods() -> list[str]:
     """The dedicated page's row labels — the 11 stored return periods, largest
-    first (FR-005/FR-015), matching the row order ``_perspective_results``
-    builds."""
-    from app.workers.analysis_jobs import STORED_RETURN_PERIODS  # noqa: PLC0415
+    first, matching the row order ``_perspective_results`` builds."""
     return [f"{rp:,}" for rp in sorted(STORED_RETURN_PERIODS, reverse=True)]
 
 
 def list_results_columns(*, analysis_ids: list[Any],
                          ) -> tuple[list[ResultsColumn], int]:
-    """The dedicated page's columns (contracts/routes.md §3): one per resolved
-    id, in the caller's order, both origins in one read. Returns the columns
-    and the count of ids that did not resolve — an unknown or deleted id is a
-    notice on the page, never an error."""
-    from app.workers.analysis_jobs import STORED_RETURN_PERIODS  # noqa: PLC0415
+    """The dedicated page's columns: one per resolved id, in the caller's
+    order, both origins in one read. Returns the columns and the count of ids
+    that did not resolve — an unknown or deleted id is a notice on the page,
+    never an error."""
     requested: list[str | None] = []
     for raw in analysis_ids:
         try:

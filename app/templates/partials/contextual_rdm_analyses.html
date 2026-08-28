@@ -1,10 +1,6 @@
-{# Broker analyses as merged-table rows (spec 011 US3, FR-009/FR-010) — the
-   lazy-loaded innerHTML of one RDM group row in the merged analyses section on
-   the EDM detail page and the submission Results section. Each row is
-   partials/broker_analysis_row.html, the same partial the RDM detail page
-   renders, with the pick checkbox the merged section's toolbar needs.
-   Context: `analyses` — list of analysis_service.BrokerAnalysis; `rdm` — its
-   group; `show_edm` — passed through to the row. #}
+{# The lazy-loaded innerHTML of one RDM group row in the merged analyses
+   section. Context: `analyses` — list of analysis_service.BrokerAnalysis;
+   `rdm` — its group; `show_edm` — passed through to the row. #}
 {% if analyses %}
   {% for a in analyses %}
   {% with selectable = true %}{% include "partials/broker_analysis_row.html" %}{% endwith %}

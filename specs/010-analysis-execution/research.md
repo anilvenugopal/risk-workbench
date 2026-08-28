@@ -96,7 +96,7 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 | T-07 | Analysis job status shown in the UI comes from the latest `irp_job` row per analysis (join via new `irp_job.irp_analysis_id`); `irp_analysis.status_code` keeps the existing four coarse codes | Approved |
 | T-08 | Run-failure reason: poller terminal handler extracts the message from the completion body into `irp_analysis.failure_reason`; submit-failure reason written by the worker the same way | Approved |
 | T-09 | Implement the poller `_submission_retry` batch: per-analysis latest `SUBMISSION FAILED` row, exponential backoff, retry updates that row in place; `IRP_SUBMISSION_MAX_RETRIES` default changes `None` → 3 (PRD §14.3) | Approved |
-| T-10 | On `FINISHED` the poller extracts `tasks[].output.log.analysisId` from the completion body into the backfill's `input_data`; `backfill_analysis_detail` fetches the analysis details by that id, writes `irp_id` + `irp_app_analysis_id` + `settings_metadata`, and (loss phase) chains `retrieve_analysis_results`. Name search dropped (2026-08-26) — the 64-char truncation makes names collide | Approved |
+| T-10 | On `FINISHED` the poller extracts `tasks[].output.log.analysisId` from the completion body into the backfill's `input_data`; `finalize_analysis` fetches the analysis details by that id, writes `irp_id` + `irp_app_analysis_id` + `settings_metadata`, and (loss phase) chains `retrieve_analysis_results`. Name search dropped (2026-08-26) — the 64-char truncation makes names collide | Approved |
 | T-11 | Live updates reuse the existing 3s body self-poll; the `live` flag adds "any executed analysis non-terminal". No SSE in this feature | Approved |
 | T-12 | Fill the `/workflows/irp-jobs` stub with a minimal `irp_job` listing (name/type/status/submitted-by/when, 3s poll) so analysis jobs are visible per FR-014; delivered as the iteration's final phase | Approved 2026-08-20 |
 | T-13 | Loss storage per DATA_MODEL §9: Parquet row-level files + one `analysis_result_meta` row per (analysis, perspective); summary columns `aal`, `std_dev`, `max_event_loss`, `elt_record_count`, `has_plt`; return-period/OEP/AEP numbers read from the EP Parquet at view time; add `pyarrow` | Approved |
@@ -196,7 +196,7 @@ doctrine).
 **Retrieval/backfill failure handling (P-14 amended 2026-08-20).** The originally
 clarified design — automatic backoff retry up to a configured maximum plus a
 retrieval-failed display — is deferred to a later iteration. `retrieve_analysis_results`
-and `backfill_analysis_detail` follow the standard rwb_job actor pattern every existing
+and `finalize_analysis` follow the standard rwb_job actor pattern every existing
 worker uses: `max_retries=0`, a failure lands the `rwb_job` in `failed` with
 `error_detail`, interruption is recovered by the heartbeat + reconciler, and resume goes
 through each worker's skip check. The detail view shows results-pending until numbers

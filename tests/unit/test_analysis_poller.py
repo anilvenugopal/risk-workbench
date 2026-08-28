@@ -1,6 +1,6 @@
 """Unit tests for the poller's ``analysis`` job type (spec 010, T023).
 
-Covers the terminal handler (FINISHED enqueues ``backfill_analysis_detail``,
+Covers the terminal handler (FINISHED enqueues ``finalize_analysis``,
 FAILED/CANCELLED extract a failure reason) and the ``_submission_retry`` batch
 (backoff eligibility, in-place update on success, exhaustion → ``error``).
 """
@@ -50,7 +50,7 @@ def _submitted_analysis(iteration2_db, fake_irp, edm_name="EDM One") -> dict:
 
 # ── terminal handler ──────────────────────────────────────────────────────────────
 
-def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
+def test_finished_enqueues_finalize_analysis(iteration2_db, fake_irp):
     a = _submitted_analysis(iteration2_db, fake_irp)
     fake_irp.finish(a["irp_id"], result={
         "tasks": [{"output": {"log": {"analysisId": "9001"}}}]})
@@ -58,7 +58,7 @@ def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
     poller.poll_once()
 
     head = execute_one(
-        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'backfill_analysis_detail'",
+        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
         {}, connection="WORKBENCH")
     assert head is not None
     input_data = json.loads(head["input_data"])
@@ -66,7 +66,7 @@ def test_finished_enqueues_backfill_analysis_detail(iteration2_db, fake_irp):
     assert input_data["rm_analysis_id"] == "9001"
     status = execute_one("SELECT status_code FROM irp_analysis WHERE id = :id",
                          {"id": a["id"]}, connection="WORKBENCH")
-    assert status["status_code"] == "pending"  # untouched — backfill flips it to ready
+    assert status["status_code"] == "pending"  # untouched — finalize_analysis flips it to ready
 
 
 def test_finished_without_analysis_id_passes_none(iteration2_db, fake_irp):
@@ -76,7 +76,7 @@ def test_finished_without_analysis_id_passes_none(iteration2_db, fake_irp):
     poller.poll_once()
 
     head = execute_one(
-        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'backfill_analysis_detail'",
+        "SELECT input_data FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
         {}, connection="WORKBENCH")
     assert head is not None
     assert json.loads(head["input_data"])["rm_analysis_id"] is None
@@ -93,7 +93,7 @@ def test_failed_extracts_reason_and_flips_analysis_to_error(iteration2_db, fake_
         {"id": a["id"]}, connection="WORKBENCH")
     assert row["status_code"] == "error"
     assert row["failure_reason"] == "model version unsupported"
-    assert execute("SELECT 1 FROM rwb_job WHERE rwb_job_type = 'backfill_analysis_detail'",
+    assert execute("SELECT 1 FROM rwb_job WHERE rwb_job_type = 'finalize_analysis'",
                   {}, connection="WORKBENCH") == []
 
 

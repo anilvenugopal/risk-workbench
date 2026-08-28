@@ -1,6 +1,6 @@
 /* details.css — EDM/RDM detail pages (spec 004).
    The unified .dtable expandable-comparison component (ui.md §1) + section
-   chrome, drill-downs, and graceful states — shared by the Portfolios /
+   chrome and graceful states — shared by the Portfolios /
    Treaties / Broker-analyses tables on BOTH detail pages.
    Token-only (Article 9); markup fixed by docs/ui_previews/edm_detail.html rev 7
    and rdm_detail.html rev 3. */
@@ -119,13 +119,13 @@ details.dtable__rdm[open] > summary .grp-caret { transform: rotate(90deg); }
 /* attribute / settings grids inside an expanded row */
 .attr-grid, .settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-3) var(--space-4); margin: 0; }
 .attr-grid dt, .settings-grid dt { font-size: var(--fs-eyebrow); letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary); font-weight: var(--fw-semibold); }
-/* long values wrap rather than truncate — event rate scheme names run past any column width (spec 011 FR-023) */
+/* long values wrap rather than truncate — event rate scheme names run past any column width */
 .attr-grid dd, .settings-grid dd { margin: 2px 0 0; font-size: var(--fs-label); font-weight: var(--fw-medium); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .attr-grid dd.blank, .settings-grid dd.blank { color: var(--text-disabled); font-weight: var(--fw-regular); }
 
-/* spec 011 — the expanded analysis row splits in two (FR-011): the source line
-   and the metadata fields on the left, condensed results on the right; the flex
-   wrap stacks them when the row is too narrow to hold both. */
+/* The expanded analysis row splits in two: the source line and the metadata
+   fields on the left, condensed results on the right; the flex wrap stacks them
+   when the row is too narrow to hold both. */
 .drow__body--split { display: flex; align-items: flex-start; gap: var(--space-6); flex-wrap: wrap; }
 .row-meta { flex: 1 1 380px; min-width: 300px; }
 .row-results { flex: 0 1 460px; min-width: 320px; }
@@ -168,9 +168,9 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .ep td.colmsg { white-space: normal; font-family: var(--font-ui); font-size: var(--fs-caption); color: var(--text-tertiary); font-style: italic; text-align: center; vertical-align: middle; max-width: 220px; }
 .ep td.colmsg .exec-reason { font-style: normal; text-align: center; }
 
-/* spec 011 (US3) — the merged analyses table: the AAL cell carries the results
-   state (O-12, no extra column), the summary line counts the selection, and
-   the Risk Modeler link is its own column */
+/* The merged analyses table: the AAL cell carries the results state rather
+   than an extra column, the summary line counts the selection, and the Risk
+   Modeler link is its own column */
 .aal-num { font-family: var(--font-mono); font-size: var(--fs-mono); font-weight: var(--fw-medium); }
 .aal-state { font-size: var(--fs-caption); font-style: italic; color: var(--text-disabled); }
 .aal-state--failed { color: var(--color-negative); font-style: normal; }
@@ -178,13 +178,6 @@ a.an__btn:hover { background: var(--surface-hover); color: var(--text-secondary)
 .sec__picked strong { color: var(--text-primary); }
 .dtable .rm-link { font-size: var(--fs-caption); font-weight: var(--fw-medium); color: var(--color-brand); text-decoration: none; }
 .dtable .rm-link:hover { text-decoration: underline; }
-
-/* rate / event-rate detail — the ONE default-closed nested sub-drill (FR-031) */
-.drill { margin-top: var(--space-3); border-top: 1px solid var(--border-faint); padding-top: var(--space-2); }
-.drill > summary { list-style: none; cursor: pointer; font-size: var(--fs-caption); color: var(--color-brand); font-weight: var(--fw-medium); }
-.drill > summary::-webkit-details-marker { display: none; }
-.drill__body { margin-top: var(--space-2); background: var(--surface-recessed); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
-.drill__body .k { color: var(--text-tertiary); text-transform: uppercase; letter-spacing: .04em; margin-right: var(--space-1); }
 
 /* scope explainer (US3) */
 .derive-note { background: var(--color-info-bg); border: 1px solid var(--color-info-border); color: var(--color-info); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); margin-bottom: var(--space-4); }

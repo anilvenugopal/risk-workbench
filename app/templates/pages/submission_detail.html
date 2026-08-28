@@ -142,9 +142,6 @@
     {% include "partials/submission_entity_table.html" %}
   {% endwith %}
 
-  {# ── Results (spec 011 US3, FR-009/FR-013) — the merged analyses table
-     submission-wide: own rows across every EDM (EDM column) plus RDM groups.
-     Its own polling unit (GET /submissions/{id}/analyses). ── #}
   {% with analyses=results_section.analyses, groups=results_section.groups,
           source_submission=results_section.source_submission,
           show_edm=results_section.show_edm,

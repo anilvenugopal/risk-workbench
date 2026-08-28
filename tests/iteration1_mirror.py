@@ -287,7 +287,7 @@ RWB_JOB_TYPE_SEED = [("upload_edm", "Upload EDM", 10), ("upload_rdm", "Upload RD
                      ("run_geohaz", "Run GeoHaz", 28),
                      ("execute_analysis_batch", "Execute Analysis Batch", 29),  # spec 010
                      ("retrieve_analysis_results", "Retrieve Analysis Results", 30),
-                     ("backfill_analysis_detail", "Backfill Analysis Detail", 31),  # spec 010
+                     ("finalize_analysis", "Finalize Analysis", 31),  # spec 010
                      ("download_export_file", "Download Export File", 40),
                      ("push_results_to_loss_repo", "Push Results to Loss Repo", 50),
                      ("notify_analyst", "Notify Analyst", 60),
@@ -311,7 +311,8 @@ BREAKOUT_DIMENSION_SEED = [("lob", "Line of business", 10),  # spec 005 data-mod
                            ("country", "Geography - Country", 25),
                            ("peril", "Peril", 30),
                            ("custom", "Custom group", 40)]  # lineage code (T-12)
-# spec 011 O-07 — Gross first is the screen-wide default perspective.
+# sort_order is dropdown order; the screen-wide default is
+# analysis_service.DEFAULT_PERSPECTIVE (RL).
 ANALYSIS_PERSPECTIVE_SEED = [("GR", "Gross", 10),
                              ("RL", "Pre-Cat Net", 20),
                              ("WX", "Working Excess", 30),

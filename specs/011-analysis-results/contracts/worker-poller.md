@@ -6,7 +6,7 @@ actor lives in `app/workers/analysis_jobs.py` and registers in `_BODIES` and
 
 ## 1. Chain enqueues (T-01)
 
-**Own analyses — `_backfill_analysis_detail_body`** (analysis_jobs.py), after
+**Own analyses — `_finalize_analysis_body`** (analysis_jobs.py), after
 the successful UPDATE that stamps `irp_id`/`settings_metadata`/`ready`:
 
 ```python

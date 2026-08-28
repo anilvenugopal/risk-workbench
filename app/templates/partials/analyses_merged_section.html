@@ -1,11 +1,4 @@
-{# The merged analyses section (spec 011 US3, FR-009/FR-010): own executed rows
-   straight down, newest first — no status group headers, the status filter does
-   that — then one expandable group row per submission RDM whose broker rows
-   lazy-load (partials/contextual_rdm_analyses.html). One column set for both
-   origins; the AAL cell is Gross in millions and carries the row's results
-   state (O-12 — no perspective or units control on the table).
-
-   Self-poll contract:
+{# Self-poll contract:
    ``analyses-changed`` (the delete POST) refetches. ``every 3s`` while any run
    or retrieval is live, an RDM capture is running, or the named execution batch
    is still in flight — that last one keeps the section polling before its first
@@ -13,14 +6,7 @@
    poll URL so a swap never resets either. ``execution-submitted`` is handled in
    app.js, not here: it carries the execution id this section polls on.
    app.js restores expanded rows and ticked checkboxes across swaps via
-   data-analyses-section.
-
-   Callers:
-     EDM detail (plain + contextual) — ``edm`` in context; everything else
-       derived (groups/prefix from source_submission when contextual);
-     submission Results section — ``analyses`` / ``groups`` /
-       ``source_submission`` passed, show_edm=true, section_id/-title and URLs
-       explicit, delete_url none (deletion stays on the EDM page). #}
+   data-analyses-section. #}
 {% set analyses = analyses if analyses is defined else edm.executed_analyses %}
 {% set groups = groups if groups is defined else submission_rdms|default([]) %}
 {% set show_edm = show_edm|default(false) %}
