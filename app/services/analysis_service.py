@@ -647,8 +647,8 @@ class ResultsColumn:
     results: list[PerspectiveResults] = field(default_factory=list)
     # The extract's engine snapshot (spec 011 FR-021), e.g. "DLM · 23.0".
     engine: str | None = None
-    # Own rows: submitted_settings.currency.code; broker rows:
-    # settings_metadata.currencyCode (FR-005). The pairing guard's value.
+    # Own rows: submitted_settings.currency.code; broker rows: the
+    # settings_metadata currency (FR-005). The pairing guard's value.
     run_currency: str | None = None
 
     def for_code(self, code: str) -> PerspectiveResults | None:
@@ -712,7 +712,7 @@ def list_results_columns(*, analysis_ids: list[Any],
             engine=AnalysisSettings(
                 engine_type=_text(extract.get("engine_type")),
                 engine_version=_text(extract.get("engine_version"))).engine,
-            run_currency=(_text((parsed or {}).get("currencyCode"))
+            run_currency=(_broker_run_currency(parsed)
                           if row["rdm_id"] is not None
                           else _submitted_currency_code(
                               row["submitted_settings"]))))
@@ -836,7 +836,12 @@ class ComparableAnalysis:
 
 
 def _broker_run_currency(settings: dict | None) -> str | None:
-    return _text((settings or {}).get("currencyCode"))
+    """The live get-analysis-by-id payload carries currency as an object
+    ({currencyCode, currencyName}); the knowledge-base shape is a flat
+    currencyCode. Read the chain ``_to_display`` reads so the pairing guard
+    always matches the currency the table shows."""
+    return _text(_first(settings or {}, "currencyCode", "currencyName",
+                        "currency"))
 
 
 def list_comparable_analyses(

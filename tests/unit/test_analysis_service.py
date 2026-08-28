@@ -868,6 +868,32 @@ def test_comparable_analyses_plain_edm_scope_has_no_broker_rows(iteration2_db):
     assert [r.name for r in rows] == ["Own Old"]
 
 
+def test_broker_run_currency_reads_the_live_nested_currency_object(iteration2_db):
+    # The live get-analysis-by-id payload (2026-08-26) has no flat
+    # currencyCode: currency arrives as {currencyName, currencyCode}. Both
+    # the modal row and the comparison-page column must still read USD.
+    submission = _submission(iteration2_db.user_a)
+    edm = _edm()
+    _attach_edm(submission, edm)
+    rdm = _mk("irp_rdm", name="Live RDM", status="ready")
+    execute_command(
+        "INSERT INTO submission_rdm (submission_id, rdm_id) VALUES (:s, :r)",
+        {"s": submission, "r": rdm}, connection="WORKBENCH")
+    broker = _mk(
+        "irp_analysis", rdm_id=rdm, edm_id=edm, irp_id="9100",
+        name="USFL_Commercial_NT", status_code="ready",
+        settings_metadata=json.dumps({
+            "currency": {"currencyName": "US Dollar", "currencyCode": "USD"}}),
+        loss_results=json.dumps(_extract()))
+
+    rows = analysis_service.list_comparable_analyses(submission_id=submission)
+    assert [(r.name, r.run_currency) for r in rows] == [
+        ("USFL_Commercial_NT", "USD")]
+
+    columns, _ = analysis_service.list_results_columns(analysis_ids=[broker])
+    assert columns[0].run_currency == "USD"
+
+
 def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
     fx = _comparable_fixture(iteration2_db)
     unrelated_edm = _edm("Unrelated")

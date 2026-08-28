@@ -7,7 +7,7 @@ Every read is over columns spec 011 already writes:
 |---|---|---|
 | `irp_analysis.loss_results` | `retrieve_analysis_results` worker (spec 011 T-04) | The numbers, plus the `engine_type`/`engine_version` header snapshot (T-04) |
 | `irp_analysis.submitted_settings` | `_claim_analysis` at submit (spec 011 T-09) | Own-row run currency — `currency.code` (T-03, FR-005) |
-| `irp_analysis.settings_metadata` | Both backfills (spec 004/011) | Broker-row run currency — `currencyCode` (T-03, FR-005) |
+| `irp_analysis.settings_metadata` | Both backfills (spec 004/011) | Broker-row run currency — `currencyCode`, or the live payload's `currency` object collapsed to its code (T-03, FR-005) |
 | `rwb_job` (failed retrieval join) | Spec 011 SC-005 machinery | "retrieval failed" modal state (FR-002) |
 
 Comparison pairs and the cart are deliberately **not persisted** (spec P-06,
@@ -24,7 +24,7 @@ are unaffected.
 | Field | Type | Source |
 |---|---|---|
 | `engine` (new) | `str \| None` | `loss_results.engine_type` + `engine_version`, joined as `AnalysisSettings.engine` joins them (e.g. "RL 23.0") |
-| `run_currency` (new) | `str \| None` | Own: `submitted_settings.currency.code`; broker: `settings_metadata.currencyCode` |
+| `run_currency` (new) | `str \| None` | Own: `submitted_settings.currency.code`; broker: the `settings_metadata` currency (`currencyCode` / `currencyName` / `currency` object — the chain the table displays) |
 | existing fields | — | unchanged (`id`, `name`, `currency`, `results_state`, `results_error`, `results`) |
 
 ### ComparisonPair
