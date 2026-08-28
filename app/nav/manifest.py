@@ -164,6 +164,22 @@ NODES: list[dict[str, Any]] = [
         "hidden": True,
         "bottom": False,
     },
+    # ── Results ──────────────────────────────────────────────────────────────
+    {
+        # Parameterized dedicated results view (spec 011 US4) — routing and
+        # breadcrumb resolution only, never rendered in the sidebar (the
+        # ``submissions.detail`` pattern).
+        "key": "results.analyses",
+        "label": "Analyses",
+        "parent": "results",
+        "route": "/results",
+        "rail_icon": None,
+        "sidebar_title": None,
+        "searchable": False,
+        "roles": [],
+        "hidden": True,
+        "bottom": False,
+    },
     # ── Workflows sidebar ────────────────────────────────────────────────────
     {
         "key": "workflows.active",

@@ -361,6 +361,12 @@ class IRPGateway(Protocol):
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]: ...
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]: ...
+
     def delete_analysis(self, irp_id: str) -> None: ...
 
     # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
@@ -976,6 +982,24 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
+        # verbatim. The wheel validates perspective_code against its own
+        # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        return self._client().analysis.get_stats(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/ep — one element per
+        # epType (OEP, AEP, TCE-OEP, TCE-AEP), returned verbatim; the worker's
+        # builder does the filtering and the return-period lookup.
+        return self._client().analysis.get_ep(
+            analysis_id, perspective_code, exposure_resource_id)
+
     def delete_analysis(self, irp_id: str) -> None:
         # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
         # Failures raise IRPIntegrationError; the caller keeps the local row.
@@ -1262,6 +1286,20 @@ def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
 
 
+def get_analysis_stats(*, analysis_id: int, perspective_code: str,
+                       exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_stats(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def get_analysis_ep(*, analysis_id: int, perspective_code: str,
+                    exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_ep(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
 def delete_analysis(irp_id: str) -> None:
     _active().delete_analysis(irp_id)
 
@@ -1332,6 +1370,7 @@ __all__ = [
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
     "submit_portfolio_analysis", "get_analysis_job",
+    "get_analysis_stats", "get_analysis_ep",
     "delete_analysis",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",

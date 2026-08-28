@@ -34,6 +34,10 @@ def _client() -> TestClient:
     templates.env.globals["password_auth_enabled"] = settings.password_auth_enabled
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
+    templates.env.globals["default_perspective"] = (
+        analysis_service.DEFAULT_PERSPECTIVE)
+    templates.env.globals["default_perspective_label"] = (
+        analysis_service.DEFAULT_PERSPECTIVE_LABEL)
     app.state.templates = templates
     app.add_middleware(_InjectUser)
     app.include_router(edms.router)
@@ -77,6 +81,18 @@ def test_contextual_page_names_source_submission_and_preserves_it_in_picker(
     assert 'hx-get="/submissions/submission-a/edms/edm-1/rdms/rdm-1/analyses"' in response.text
     assert "Submission A RDM" in response.text
     assert "Analysis rows load when this RDM opens." in response.text
+
+
+def test_lazy_broker_rows_land_in_an_unstyled_target(monkeypatch):
+    """The swap target must not carry .dtable__groupempty: its caption font,
+    tertiary color and 100cqw width would restyle every broker row HTMX drops
+    into it, so broker rows would stop matching own rows."""
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: _context())
+
+    response = _client().get("/submissions/submission-a/edms/edm-1")
+
+    assert '<div id="rdm-analyses-rdm-1">' in response.text
 
 
 def test_contextual_page_links_to_hidden_notes_between_source_and_rm_id(monkeypatch):
@@ -142,7 +158,7 @@ def test_detail_renders_note_and_pauses_polling_while_editor_is_open(monkeypatch
 def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
     analysis = analysis_service.BrokerAnalysis(
         id="analysis-1", irp_id="301", name="Stored analysis", rdm_id="rdm-1",
-        rdm_name="Submission A RDM", edm_name=None)
+        rdm_name="Submission A RDM")
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: _context())
     monkeypatch.setattr(
@@ -154,13 +170,14 @@ def test_lazy_route_returns_one_rdms_stored_analysis_rows(monkeypatch):
 
     assert response.status_code == 200
     assert "Stored analysis" in response.text
-    assert "Submission A RDM" not in response.text
+    # the expansion's source line names the RDM (FR-011); nothing else does
+    assert 'RDM: <b class="row-src__name">Submission A RDM</b>' in response.text
 
 
 def test_lazy_route_matches_rdm_id_case_insensitively(monkeypatch):
     analysis = analysis_service.BrokerAnalysis(
         id="analysis-1", irp_id="301", name="Stored analysis", rdm_id="rdm-1",
-        rdm_name="Submission A RDM", edm_name=None)
+        rdm_name="Submission A RDM")
     monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
                         lambda **kwargs: _context())
     monkeypatch.setattr(

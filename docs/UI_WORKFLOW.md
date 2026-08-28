@@ -19,9 +19,8 @@ if it feels like paperwork, it's out of scope.
 ## The preview
 
 This app is server-rendered Jinja2 + HTMX on a real token system, so a static HTML mockup
-*is* ~90% of the final template — the markup and classes carry straight over. That's why the
-preview pays for itself: iterating a mockup costs minutes; rewiring the wrong template costs a
-session.
+settles layout, states and wording in minutes, where rewiring the wrong template costs a
+session. That's why the preview pays for itself.
 
 - Start from [`ui_previews/_scaffold.html`](ui_previews/_scaffold.html) — it inlines the real
   design tokens plus a component kit. Reuse existing classes; don't invent a new look.
@@ -29,6 +28,12 @@ session.
   error**) — that's where most "sloppy UI" bugs live.
 - Deliver it so you can open it in a browser: a hosted Artifact link, or the standalone file.
   Iterate in the preview, then wire the approved version.
+
+**An approved preview is guidance, not markup to paste.** It settles what the screen shows
+and how it behaves. Build it against the components and CSS that already exist, and extend
+those when the preview needs something they do not have — a preview-only class copied into a
+template is how two conventions for the same component start (see the advisory below).
+Preview CSS is written to stand alone in one file; the real thing has a component kit.
 
 **Approval is informal** — I show, you thumbs-up in chat.
 

@@ -155,13 +155,13 @@ def _analysis_created_id(result: dict | None) -> str | None:
 
 
 def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> None:
-    """FINISHED → enqueue the completion backfill (only success path — US4-4: no
+    """FINISHED → enqueue ``finalize_analysis`` (only success path — US4-4: no
     retrieval for failures). FAILED/CANCELLED → the analysis moves to ``error``
     with RM's failure reason (CANCELLED counts as a failure — edge case list)."""
     if status == "FINISHED":
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
-            rwb_job_type="backfill_analysis_detail",
+            rwb_job_type="finalize_analysis",
             input_data={"analysis_id": str(job["irp_analysis_id"]),
                         "rm_analysis_id": _analysis_created_id(resolved.get("result"))},
             conn=conn,

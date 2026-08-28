@@ -83,7 +83,7 @@ class TestJobTablesMigration:
             "SELECT code FROM rwb_job_type_kind", {}, connection="WORKBENCH")}
         assert {"upload_edm", "upload_rdm", "backfill_rdm_analyses",
                 "notify_analyst", "execute_analysis_batch",
-                "backfill_analysis_detail"} <= codes
+                "finalize_analysis"} <= codes
         assert {"delete_edm", "delete_rdm"}.isdisjoint(codes)
 
     def test_irp_analysis_status_kind_seeds(self):
@@ -159,7 +159,7 @@ class TestJobTablesMigration:
         req = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_requestor_type_kind", {}, connection="WORKBENCH")}
         assert req == {"irp_job", "analyst_request", "rwb_job",
-                       "breakout_group"}
+                       "breakout_group", "irp_analysis"}
         st = {r["code"] for r in execute(
             "SELECT code FROM rwb_job_status_kind", {}, connection="WORKBENCH")}
         assert st == {"pending", "running", "succeeded", "failed", "cancelled"}

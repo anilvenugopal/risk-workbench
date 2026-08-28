@@ -94,7 +94,7 @@ reclaim — accepted (research T-01).
 - `_GETTERS["analysis"] = irp_gateway.get_analysis_job` (single-status check only;
   `poll_*_to_completion` stays forbidden).
 - `_TERMINAL_HANDLERS["analysis"]` (inside the tracking transaction):
-  - `FINISHED` → enqueue head `rwb_job` `backfill_analysis_detail`
+  - `FINISHED` → enqueue head `rwb_job` `finalize_analysis`
     (`requestor_type='irp_job'`, `requestor_id=job.id`,
     `input_data={"analysis_id": ..., "rm_analysis_id": ...}` — `rm_analysis_id` is
     RM's `analysisId`, extracted from the completion body's
@@ -105,7 +105,7 @@ reclaim — accepted (research T-01).
     summary) (FR-011; CANCELLED is a failure — edge case list).
 - No resolver needed (all RM reads happen in the backfill worker).
 
-## 4. `backfill_analysis_detail` worker (FR-009)
+## 4. `finalize_analysis` worker (FR-009)
 
 Body: validate the `rm_analysis_id` the poller extracted from the completion body and
 write it to `irp_analysis.irp_id` immediately. A missing `rm_analysis_id` fails the

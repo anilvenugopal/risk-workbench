@@ -506,8 +506,15 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Results are displayed grouped under the RDM that produced them. | Not implemented | No EDM-to-RDM relationship is inferred from sharing a Submission. |
+| Own and broker analyses are listed in one merged table, origin visually indicated. | Not implemented | **Added 8/25 (D11).** Wendy: "I'm not opposed to putting them into the same table as long as they're visually indicated." The `CRE_` prefix plus the RDM association carry the indication; own-vs-broker derives from `rdm_id`. |
+| Results are displayed grouped under the RDM that produced them. | Not implemented | No EDM-to-RDM relationship is inferred from sharing a Submission. **Relocated 8/25 (D11):** broker rows keep the RDM-row-then-expand shape *inside* the merged table — the requirement moved, it did not drop. |
 | Broker results are deduped by RDM. | Not implemented | (`rdm_id`.) |
+| The analyses table carries currency and AAL columns; no return-period column. | Not implemented | **Added 8/25 (D10/D12).** Cheryl: AAL "gives you a good visual of a bunch of your analyses in a row." The AAL-only display mode is dropped. |
+| Condensed results render inline in the expanded analysis row. | Not implemented | **Added 8/25 (D9); narrowed 8/26 (D11).** One EP type at a time beside the perspective toggle, no condensed/expanded display toggle. AAL at a glance as a gut check against broker results. |
+| A dedicated results page is reached by multi-select from both the submission page and the EDM detail page. | Not implemented | **Added 8/25 (D14).** The submission page is mandatory — cross-EDM analyses and groups live only there. |
+| The dedicated results page opens in a new browser tab, with breadcrumbs, and the tab title carries the submission or EDM name. | Not implemented | **Added 8/25 (D21/D22).** From the EDM: breadcrumbs retain EDM + submission; from the submission: submission only. Cheryl on Risk Modeler's tab strip: "the ones that just say Risk Modeler, Risk Modeler, Risk Modeler … that's not as helpful." |
+| Displayed units never auto-switch; a ones/thousands/millions selector controls them. | Not implemented | **Added 8/25 (D16).** Cheryl: "let's not switch between millions and thousands … keep everything in millions with the decimal points." |
+| The analyst controls the left-to-right order of analyses and groups on the results view. | Not implemented | **Added 8/25 (D15).** "I want to see my analyses left to right and my group at the end, or my group at the beginning." Pre-empts the grouping design. |
 | Portfolio↔analysis linking is not solved. | Implemented | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 surfaces by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3) — **now narrowed, see the next row.** |
 | The resolved exposure pointer is trusted only for analyses CIC ran itself. | Partial | **Narrowed 8/4.** For imported/broker RDMs the pointer is untrustworthy: "there actually is no way to tie an RDM analysis to a specific EDM portfolio that you can trust," and a false link was demoed live (a US EQ analysis attributed to a USFL portfolio). Trustworthy only if the EDMs/RDMs never left CIC's environment; not displayed as a link otherwise. See the §2.2 trust rule. |
 | Up to ~5 analyses are consumable on screen. | Not implemented | Default density guideline, not a hard cap. |
@@ -518,18 +525,20 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| ELT summary is shown: AAL, max event loss, record count. | Not implemented |  |
-| AAL / pure premium is shown. | Not implemented |  |
-| Standard deviation is shown. | Not implemented |  |
-| Return-period loss numbers are shown. | Not implemented | Indicative set: 1000, 500, 250, 100, and ~20–25 year — exact points to be confirmed (O5-2). |
-| OEP and AEP are both shown. | Not implemented | Cheryl uses OEP more. |
-| A TCE (tail conditional expectation) toggle is available. | Not implemented | Not routinely used, but nice to toggle. |
-| An EP-curve graph is not required. | Implemented | "The drawing's not important… I want the numbers." |
-| PLT is shown (HD only). | Not implemented |  |
-| Results can be switched between financial perspectives. | Not implemented | Perspective switching is essential — Gross, Ground-Up, Reinsurance Layer / net; "look at it from however you ran it." |
+| ~~ELT summary is shown: AAL, max event loss, record count.~~ | Superseded | **Superseded 8/25 (D5):** ELTs are not viewable — "if somebody really wants to look at the event information underlying … go into Risk Modeler." Max event loss and record count are ELT-derived and leave viewing scope; AAL survives via the stats endpoint (next row). ELTs exist only for export to the Loss Repository. |
+| AAL / pure premium is shown. | Not implemented | From the EP stats endpoint (`purePremium`), per perspective. |
+| Standard deviation is shown. | Not implemented | From the EP stats endpoint (`totalStdDev`), per perspective. **Confirmed in scope 8/26 (D11)** — it sits outside the EP-type selection and does not change with it. |
+| Return-period loss numbers are shown. | Not implemented | **Fixed 8/25 (D7, closes O5-2):** expanded set 5/10/25/50/100/250/500/1000/2000/5000/10000; condensed set 50/100/250/500/1000/10000. Not user-editable. |
+| OEP and AEP are both shown. | Not implemented | Cheryl uses OEP more. **Reversed 8/26 (D11):** one at a time, OEP first, selected in both the inline row and the dedicated page — showing both meant a merged header, which offset the paste into Excel. |
+| ~~A TCE (tail conditional expectation) toggle is available.~~ | Superseded | **Out of viewing scope (8/25):** only OEP and AEP are stored and shown, although TCE curves arrive in the same API response. |
+| An EP-curve graph is not required. | Implemented | "The drawing's not important… I want the numbers." Re-confirmed 8/25 — the session's design is numbers-only. |
+| ~~PLT is shown (HD only).~~ | Superseded | **Out of viewing scope (8/25):** D5's "stats, AAL and the EP curve" leaves PLT unviewed; it belongs to the export conversation. |
+| Results can be switched between financial perspectives. | Not implemented | Perspective switching is essential; "look at it from however you ran it." **Set fixed 8/25 + spec 011 O-07:** GR, RL, WX, QS, GU (Ground Up added by Wendy for checking treaty application, "especially on the work comp side"). Selection applies screen-wide, never per analysis. |
 | Analysis metadata is shown alongside results. | Not implemented | See the metadata list below; reused for broker-result review (§2.3). |
 
 Analysis metadata list (design note 05 §2): engine / model version · engine type (DLM vs HD) and version · analysis type / mode · peril (primary and secondary) · region · currency · construction · line of business · group type · long-term vs near-term · event-rate scheme / rate vintage · loss amplification (PLA). *Rate/event-rate detail lives one drill-down deeper than the rest (RiskLink "analysis summary" vs the main grid).*
+
+**Narrowed 8/26 (D4/D10, spec 011 O-11).** The expanded analysis row shows engine version, analysis type, subperil, framework, event-rate scheme, unrecognized construction and occupancy, and who ran it. Engine type, region, peril, portfolio and template are columns on the merged table instead; currency, construction, line of business, term and loss amplification are shown nowhere today and return when the team asks for them.
 
 > **Open question — event-rate scheme round-trip.** The event-rate scheme does not appear to survive a Risk Modeler export → re-import (exactly the broker scenario); near-term/long-term and rate vintage both matter. Ben investigating how to recover/carry it, and whether "vintage" is even a first-class RM concept. (Design note 05 §3, O5-1.)
 
@@ -537,21 +546,21 @@ Analysis metadata list (design note 05 §2): engine / model version · engine ty
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Own and broker results can be viewed together. | Not implemented | Multiple analyses in one view. |
-| Analyses can be compared side-by-side. | Not implemented | Ben has a prior comparison engine to build on. |
-| The side-by-side comparison includes a percent-difference column. | Not implemented | e.g. CIC vs. broker — saves the manual Excel step. |
+| Own and broker results can be viewed together. | Not implemented | Multiple analyses in one view. **Designed 8/25 (D17):** viewing is N-up (~10 soft guideline — never a hard block; scroll/pagination past it). |
+| Analyses can be compared side-by-side. | Not implemented | Ben has a prior comparison engine to build on. **Designed 8/25 (D17/D18):** Compare is a separate action from View; strictly pairwise, pairs collected into a cart, ~5 pairs per screen. Base-vs-many considered and rejected. |
+| The side-by-side comparison includes a percent-difference column. | Not implemented | e.g. CIC vs. broker — saves the manual Excel step. **Designed 8/25 (D19/D20):** selection order is the contract — first picked = base = first column, percent change follows; decoupled from list order; no row-header column. |
 
 **Editing return periods — pass-through**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Editing return periods / interpolation is a pass-through to Risk Modeler. | Not implemented | A subset of business needs return periods at specific loss intervals; same pattern as treaty edit (§5). |
+| Editing return periods / interpolation is a pass-through to Risk Modeler. | Not implemented | A subset of business needs return periods at specific loss intervals; same pattern as treaty edit (§5). **Re-affirmed 8/25 (D7)** from the client side — Wendy: "I don't think we need to replicate what is in Risk Modeler … if there's a return period that's not there, then go to Risk Modeler." |
 
 **Accumulation results**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Reinsurance-layer (RL) retained. |
+| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Pre-cat net **is** `RL` — one code, not two perspectives (clarified 8/26, D9). Pre-Cat Net is the default on every results view. |
 | Ground-up is currently included in accumulation output. | Not implemented | A Risk Modeler UI constraint, not a preference; possibly droppable via the API (O7-5). |
 | Accumulation shows how a policy limit allocates by geographic area. | Not implemented | e.g. a $1M policy over $50M of buildings across several states. |
 
@@ -559,10 +568,10 @@ Analysis metadata list (design note 05 §2): engine / model version · engine ty
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Results can be copied / pasted out. | Not implemented |  |
+| Results can be copied / pasted out. | Not implemented | **Designed 8/25 (D13):** copy table with headers, straight into Excel — Cheryl's year-over-year working file, and brokers who supply only a digital copy instead of an RDM. Replaces a manual horizontal→vertical pivot. |
 | ELTs are uploaded to the Loss Repository for downstream reporting. | Not implemented | Losses, financial perspective, and metadata. Open question: how to move data from DataBridge to the Loss Repository. |
 
-**Out of scope for MVP:** **Post-Analysis Treaty (PATE)** — adding a cat treaty onto broker results after the fact and re-simulating; a rare fringe case, portfolio-level only, deferred (design note 05 §6, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); visual compare in RiskLink / copy to Excel; pushing broker results to the Loss Repository; loading exposure summaries to the Exposure Repository; carrying CRM ID tags through to the repository upload (Future); uploading loss sets to Analyze Re (separate API).
+**Out of scope for MVP:** **Post-Analysis Treaty (PATE)** — adding a cat treaty onto broker results after the fact and re-simulating; a rare fringe case, portfolio-level only, deferred (design note 05 §6, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); replicating RiskLink's compare-and-export workflow (this exclusion does **not** cover the clipboard copy-with-headers, which is in scope — 8/25 D13); pushing broker results to the Loss Repository; loading exposure summaries to the Exposure Repository; carrying CRM ID tags through to the repository upload (Future); uploading loss sets to Analyze Re (separate API).
 
 ---
 

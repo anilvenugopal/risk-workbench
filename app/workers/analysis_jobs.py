@@ -3,9 +3,10 @@
 ``execute_analysis_batch`` submits one Risk Modeler analysis per (portfolio,
 plan item) — the plan is the approved snapshot from
 ``analysis_execution_service.request_execution``; this module reads nothing else
-(AGENTS.md rule 8). ``backfill_analysis_detail`` fills in a FINISHED analysis' Risk
+(AGENTS.md rule 8). ``finalize_analysis`` fills in a FINISHED analysis' Risk
 Modeler detail, resolved by the ``analysisId`` the poller extracted from the
-completion body.
+completion body, and chains ``retrieve_analysis_results`` (spec 011), which stores
+the bounded loss-results extract on ``irp_analysis.loss_results``.
 """
 
 from __future__ import annotations
@@ -18,10 +19,10 @@ from typing import Any
 from sqlalchemy import text
 
 from app.services import irp_gateway, irp_job_service, rwb_job_service
-from app.services._common import _utcnow
-from app.workers import broker, runtime
+from app.services._common import STORED_RETURN_PERIODS, _utcnow
+from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
-from db import execute_command, execute_one, get_connection, is_unique_violation
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +48,12 @@ def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
             full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
 
 
-# ── execute_analysis_batch (US1, T-01/T-04/T-05) ────────────────────────────────
-
 def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     execution_id: str, actor_id: str | None) -> dict:
     """Resume-or-claim the ``irp_analysis`` row for one work unit
     ``(execution_id, portfolio, item_no)``. A row already claimed (crash between
     the claim and the submit record) is reused with its recorded name; otherwise
-    claim a fresh, collision-free name (T-04/T-05) against LIVE names of this EDM."""
+    claim a fresh, collision-free name against LIVE names of this EDM."""
     existing = execute_one(
         "SELECT id, name, full_name FROM irp_analysis "
         "WHERE execution_id = :e AND irp_portfolio_id = :p AND execution_item_no = :n",
@@ -82,14 +81,18 @@ def _claim_analysis(*, edm_id: str, portfolio: dict, item: dict,
                     """
                     INSERT INTO irp_analysis (id, edm_id, irp_portfolio_id,
                         analysis_template_id, execution_id, execution_item_no,
-                        name, full_name, status_code, inserted_at, updated_at,
-                        inserted_by, updated_by)
+                        name, full_name, status_code, submitted_settings,
+                        inserted_at, updated_at, inserted_by, updated_by)
                     VALUES (:id, :edm, :portfolio, :template, :execution, :item_no,
-                        :name, :full, 'pending', :now, :now, :by, :by)
+                        :name, :full, 'pending', :submitted, :now, :now, :by, :by)
                     """
                 ), {"id": analysis_id, "edm": edm_id, "portfolio": portfolio["id"],
                     "template": item["template_id"], "execution": execution_id,
                     "item_no": item["item_no"], "name": name, "full": full_name,
+                    # The plan item verbatim: the values this run is submitted
+                    # with, never re-read from analysis_template later — a template
+                    # edit must not change what a finished run reports.
+                    "submitted": json.dumps(item),
                     "now": now, "by": actor_id})
         except Exception as exc:  # noqa: BLE001 — a UNIQUE race means try the next suffix
             if is_unique_violation(exc):
@@ -185,8 +188,6 @@ def execute_analysis_batch(rwb_job_id: str) -> None:
                     body=lambda: _execute_analysis_batch_body(rwb_job_id))
 
 
-# ── backfill_analysis_detail (US1, FR-009) ──────────────────────────────────────
-
 def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
     """End the analysis at ``error`` alongside the failed ``rwb_job``. Its
     ``irp_job`` already reads FINISHED, so leaving ``pending`` would keep the EDM
@@ -198,10 +199,11 @@ def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
     return runtime.JobResult.fail(reason)
 
 
-def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Fill in a FINISHED own-executed analysis' ``irp_id`` (RM's ``analysisId``,
-    extracted by the poller from the completion body), ``irp_app_analysis_id`` (the
-    web-UI id for deep links) and ``settings_metadata``."""
+def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Take a FINISHED own-executed analysis to ``ready``: store ``irp_id`` (RM's
+    ``analysisId``, extracted by the poller from the completion body),
+    ``irp_app_analysis_id`` (the web-UI id for deep links) and
+    ``settings_metadata``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
@@ -225,7 +227,7 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     try:
         meta = irp_gateway.get_analysis_metadata(analysis_id=int(rm_id))
     except Exception as exc:  # noqa: BLE001 — resolution failed, recoverable rwb_job failure
-        logger.warning("backfill_analysis_detail: metadata fetch failed for %s "
+        logger.warning("finalize_analysis: metadata fetch failed for %s "
                        "(analysisId=%s): %s", analysis_id, rm_id, exc)
         return _fail_analysis(analysis_id, f"analysis resolve failed: {exc}")
 
@@ -238,22 +240,159 @@ def _backfill_analysis_detail_body(rwb_job_id: Any) -> runtime.JobResult:
          "sm": (json.dumps(meta.payload) if meta.payload else None),
          "now": _utcnow(), "id": analysis_id},
         connection="WORKBENCH")
-    logger.info("backfill_analysis_detail resolved analysis=%s -> irp_id=%s",
+    # Chain the results retrieval: the queue's UNIQUE key dedups, so a re-fired
+    # finalize_analysis is a no-op insert.
+    retrieval_id = rwb_job_service.enqueue_rwb_job(
+        requestor_type="irp_analysis", requestor_id=analysis_id,
+        rwb_job_type="retrieve_analysis_results",
+        input_data={"analysis_id": analysis_id})
+    dispatch.dispatch(rwb_job_id=retrieval_id,
+                      rwb_job_type="retrieve_analysis_results")
+    logger.info("finalize_analysis resolved analysis=%s -> irp_id=%s",
                analysis_id, rm_id)
     return runtime.JobResult.ok(irp_id=str(rm_id))
 
 
 @rwb_actor(max_retries=0)
-def backfill_analysis_detail(rwb_job_id: str) -> None:
+def finalize_analysis(rwb_job_id: str) -> None:
     runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
-                    body=lambda: _backfill_analysis_detail_body(rwb_job_id))
+                    body=lambda: _finalize_analysis_body(rwb_job_id))
+
+
+def _curve_points(element: dict | None) -> dict | None:
+    """The 11 stored points from one EP-curve element, by exact return-period
+    match in ``value.returnPeriods``/``value.positionValues`` (every stored
+    target is present in RM's 10,004-point curve). A missing
+    point raises, failing the job rather than storing a partial curve."""
+    if element is None:
+        return None
+    value = element.get("value") or {}
+    by_period = dict(zip(value.get("returnPeriods") or [],
+                         value.get("positionValues") or []))
+    return {str(rp): by_period[float(rp)] for rp in STORED_RETURN_PERIODS}
+
+
+def build_loss_results_extract(*, perspective_codes: list[str],
+                               results: dict[str, tuple[list[dict], list[dict]]],
+                               settings: dict | None,
+                               retrieved_at: str) -> dict:
+    """The contracts/loss-results.md document from RM's verbatim row lists.
+
+    ``results`` maps each perspective code to its ``(stats_rows, ep_elements)``.
+    Every code in ``perspective_codes`` (the caller's ``analysis_perspective_kind``
+    read — this builder holds no code list of its own) is a key; both lists empty
+    → explicitly ``null``. ``aal``/``std_dev`` come from the stats row whose
+    ``epType`` is ``OEP`` (none → both ``null``); TCE-OEP/TCE-AEP elements are
+    discarded. ``settings`` is the analysis metadata payload — engine fields
+    absent there are stored as ``null``, never omitted."""
+    payload = settings or {}
+    perspectives: dict[str, dict | None] = {}
+    for code in perspective_codes:
+        stats_rows, ep_rows = results.get(code) or ([], [])
+        if not stats_rows and not ep_rows:
+            perspectives[code] = None
+            continue
+        stats = next((r for r in stats_rows if r.get("epType") == "OEP"), None)
+        by_type = {e.get("epType"): e for e in ep_rows}
+        perspectives[code] = {
+            "aal": stats.get("purePremium") if stats else None,
+            "std_dev": stats.get("totalStdDev") if stats else None,
+            "oep": _curve_points(by_type.get("OEP")),
+            "aep": _curve_points(by_type.get("AEP")),
+        }
+    return {
+        "engine_type": payload.get("engineType"),
+        "engine_version": payload.get("engineVersion"),
+        "retrieved_at": retrieved_at,
+        "perspectives": perspectives,
+    }
+
+
+def _retrieve_analysis_results_body(rwb_job_id: Any) -> runtime.JobResult:
+    """Fetch and store the bounded results extract for one analysis. Idempotent:
+    stored results skip; any perspective-call failure fails the job with
+    ``loss_results`` untouched — a partially-fetched analysis is never
+    persisted."""
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
+    analysis_id = ctx.get("analysis_id")
+    row = execute_one(
+        "SELECT a.id, a.irp_id, a.rdm_id, a.loss_results, a.settings_metadata, "
+        "a.exposure_resource_id, p.irp_id AS portfolio_irp_id "
+        "FROM irp_analysis a "
+        "LEFT JOIN irp_portfolio p ON p.id = a.irp_portfolio_id "
+        "WHERE a.id = :id",
+        {"id": analysis_id}, connection="WORKBENCH") if analysis_id else None
+    if row is None:
+        return runtime.JobResult.ok(skipped="analysis missing")
+    if row["loss_results"] is not None:
+        return runtime.JobResult.ok(skipped="results already stored")
+    if row["irp_id"] is None:
+        return runtime.JobResult.fail("analysis has no RM id")
+
+    settings = (json.loads(row["settings_metadata"])
+                if row["settings_metadata"] else None)
+    # Own rows point at the RM portfolio the analysis ran against; broker rows
+    # (rdm_id set) at RM's own reported pointer captured at RDM backfill.
+    # One metadata re-read when the pointer is NULL (also filling the engine
+    # fields when settings_metadata is NULL too).
+    pointer = (row["exposure_resource_id"] if row["rdm_id"] is not None
+               else row["portfolio_irp_id"])
+    if pointer is None:
+        try:
+            meta = irp_gateway.get_analysis_metadata(analysis_id=int(row["irp_id"]))
+        except Exception as exc:  # noqa: BLE001 — recoverable rwb_job failure
+            return runtime.JobResult.fail(f"analysis metadata re-read failed: {exc}")
+        pointer = meta.exposure_resource_id
+        if settings is None and meta.payload:
+            settings = meta.payload
+    if pointer is None:
+        return runtime.JobResult.fail("no exposure pointer")
+
+    codes = [r["code"] for r in execute(
+        "SELECT code FROM analysis_perspective_kind ORDER BY sort_order",
+        {}, connection="WORKBENCH")]
+    results: dict[str, tuple[list[dict], list[dict]]] = {}
+    stats_counts: dict[str, int] = {}
+    for code in codes:
+        try:
+            stats_rows = irp_gateway.get_analysis_stats(
+                analysis_id=int(row["irp_id"]), perspective_code=code,
+                exposure_resource_id=int(pointer))
+            ep_rows = irp_gateway.get_analysis_ep(
+                analysis_id=int(row["irp_id"]), perspective_code=code,
+                exposure_resource_id=int(pointer))
+        except Exception as exc:  # noqa: BLE001 — no partial write
+            return runtime.JobResult.fail(f"results read failed for {code}: {exc}")
+        results[code] = (stats_rows, ep_rows)
+        stats_counts[code] = len(stats_rows)
+
+    doc = build_loss_results_extract(
+        perspective_codes=codes, results=results, settings=settings,
+        retrieved_at=_utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"))
+    execute_command(
+        "UPDATE irp_analysis SET loss_results = :doc, updated_at = :now "
+        "WHERE id = :id",
+        {"doc": json.dumps(doc), "now": _utcnow(), "id": row["id"]},
+        connection="WORKBENCH")
+    produced = sum(1 for v in doc["perspectives"].values() if v is not None)
+    # stats_rows lands in rwb_job.output_data so a response carrying more than
+    # one stats row is a queryable fact, not a guess.
+    return runtime.JobResult.ok(perspectives_with_data=produced,
+                                stats_rows=stats_counts)
+
+
+@rwb_actor(max_retries=0)
+def retrieve_analysis_results(rwb_job_id: str) -> None:
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
+                    body=lambda: _retrieve_analysis_results_body(rwb_job_id))
 
 
 # ── synchronous drain (unit tier) ────────────────────────────────────────────────
 
 _BODIES: runtime.JobBodies = {
     "execute_analysis_batch": _execute_analysis_batch_body,
-    "backfill_analysis_detail": _backfill_analysis_detail_body,
+    "finalize_analysis": _finalize_analysis_body,
+    "retrieve_analysis_results": _retrieve_analysis_results_body,
 }
 
 
@@ -267,5 +406,7 @@ def run_pending(*, worker_id: str = "worker") -> int:
 
 
 __all__ = [
-    "execute_analysis_batch", "backfill_analysis_detail", "run_one", "run_pending",
+    "execute_analysis_batch", "finalize_analysis",
+    "retrieve_analysis_results", "build_loss_results_extract",
+    "run_one", "run_pending",
 ]

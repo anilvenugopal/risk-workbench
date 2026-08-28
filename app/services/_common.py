@@ -65,6 +65,11 @@ _READY = "ready"
 _ERROR = "error"
 _LOCKED = (_IMPORTING, _READY)
 
+# The fixed return-period sets: what every loss-results extract stores, and the
+# subset the expanded analysis row displays.
+STORED_RETURN_PERIODS = (5, 10, 25, 50, 100, 250, 500, 1000, 2000, 5000, 10000)
+CONDENSED_RETURN_PERIODS = (50, 100, 250, 500, 1000, 10000)
+
 
 def _utcnow() -> datetime:
     """Naive UTC timestamp — safe for DATETIME2 (no tz) and SQLite alike."""
@@ -418,7 +423,8 @@ def _parse_json_dict(raw: Any, what: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
-__all__ = ["SubmissionRef", "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
+__all__ = ["SubmissionRef", "STORED_RETURN_PERIODS", "CONDENSED_RETURN_PERIODS",
+           "_utcnow", "_json", "_uid", "_txn", "_snapshot_upsert",
            "_snapshot_prune", "_parse_json_dict", "_attach_submissions",
            "_submission_entity_context", "_import_entity", "_mark_importing",
            "_mark_error", "_retry_import", "_replace_source_file", "_rm_ui_root"]

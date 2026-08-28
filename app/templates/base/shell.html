@@ -73,6 +73,12 @@
             <span class="crumb crumb--current">{{ crumb.label }}</span>
             {% endif %}
             {% endfor %}
+            {# Entity crumbs are display context only — nav structure still
+               derives from the manifest. #}
+            {% for crumb in extra_crumbs|default([]) %}
+            <span class="crumb__sep">/</span>
+            <a class="crumb" href="{{ crumb.route }}">{{ crumb.label }}</a>
+            {% endfor %}
           </div>
           <div class="pagehdr__actions">{% block page_actions %}{% endblock %}</div>
         </div>

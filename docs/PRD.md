@@ -50,7 +50,7 @@ Every submission follows three sequential phases. The workbench covers all three
 1. **Hazard lookup (GeoHaz)** — optionally run hazard lookup on a portfolio before analysis (§10B). Broker geocoding is preserved; re-geocoding is not a workbench action.
 2. **Analysis configuration** — select model profiles, output profiles, event rate schemes; currency, currency scheme, and vintage are chosen at submit time (spec 009 P-11). For worldwide contracts: batch submission from predefined templates ("global suite", 50–150+ combinations).
 3. **Job submission & tracking** — submit analysis jobs via IRP API. Auto-poll for status. Surface progress, completion, and failures.
-4. **Notifications** — push notification (Teams, email, or in-app center) on job completion or failure (Iteration 11; §18).
+4. **Notifications** — push notification (Teams, email, or in-app center) on job completion or failure (Iteration 12; §18).
 
 #### Phase C — Results Management
 1. **Results review** — view analysis outputs (ELT summary, EP numbers, AAL, return periods) per financial perspective. Compare own results against broker-supplied RDM results and prior-year benchmarks.
@@ -161,7 +161,7 @@ These tasks must each be a bounded, one-place change:
 
 ### 2.6 Auto-naming
 
-Auto-naming is a first-class feature, not a convenience. An analyst submitting a worldwide contract should never have to type 50+ analysis names. EDM/RDM import names are auto-populated from the chosen file (§8, §9). **Analysis names follow a fixed workbench rule: portfolio name + template name, truncated from the right to Risk Modeler's 64-character analysis-name cap** (locked 2026-08-20, resolving O7-3/O14-9) — the template name already conveys profile, region, and peril, so no configurable pattern is needed; the per-template `auto_name_pattern` was dropped in Iteration 6 (spec 009 P-03). The workbench stores the full untruncated name on `irp_analysis`; only the name sent to Risk Modeler is clipped. Group naming lands with grouping (Iteration 8).
+Auto-naming is a first-class feature, not a convenience. An analyst submitting a worldwide contract should never have to type 50+ analysis names. EDM/RDM import names are auto-populated from the chosen file (§8, §9). **Analysis names follow a fixed workbench rule: portfolio name + template name, truncated from the right to Risk Modeler's 64-character analysis-name cap** (locked 2026-08-20, resolving O7-3/O14-9) — the template name already conveys profile, region, and peril, so no configurable pattern is needed; the per-template `auto_name_pattern` was dropped in Iteration 6 (spec 009 P-03). The workbench stores the full untruncated name on `irp_analysis`; only the name sent to Risk Modeler is clipped. Group naming lands with grouping (Iteration 9).
 
 ---
 
@@ -593,7 +593,7 @@ saved note.
 **RDM operations:**
 
 - **Import from .bak/.mdf** — `client.rdm.submit_rdm_import_job(rdm_name, rdm_file_path, exposure_set_name=rdm_name)` → `irp_job_type = import_rdm` (uploads to S3 first). The import runs once per RDM and does not accept an EDM.
-- **Retrieve broker results (REST)** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; their result data is retrieved via the **same REST result endpoints as own results** (§15.3), deduped once per `rdm_id` into `analysis_result_meta` (§16.1, §17.2). **Not** a DataBridge query.
+- **Retrieve broker results (REST)** — once imported, the RDM's broker analyses are cached as `irp_analysis` rows with `rdm_id` set; their loss numbers are retrieved via the **same REST result endpoints as own results** (§15.3) into each row's `loss_results` extract, once per `rdm_id` by construction (§16.1, §17.2). **Not** a DataBridge query.
 - ~~Export to Loss Repository~~ — pushing broker results to the Loss Repository is **out of MVP** (FR §7; §17.4).
 
 ### 9.3 EDM library & RDM library
@@ -825,7 +825,7 @@ An **unordered set of templates** (spec 009 P-08 — no item order, no per-item 
 - **Expand-to-deselect:** a chosen suite expands inside the modal into its template list so the analyst can deselect what doesn't apply (e.g. flood not covered by the treaty); the rest still submits (D13). There is no separate review page.
 - **Currency is confirmed in the modal, per chosen suite** (2026-08-20, note 17 D4/D5): analysis currency + currency scheme + scheme vintage, pre-filled from the pinned env-var defaults (§11.1) and overridable; a template run confirms one currency for the execution. Vintages list nested under the chosen scheme.
 - **Treaties are picked in the modal** — explicitly, by name, at run time (spec 009 P-09); the selected treaties apply to every submitted analysis.
-- **Direct submit:** Submit runs the app-side loop over `submit_portfolio_analysis_job` — **one analysis per selected portfolio × selected template of each chosen suite** (no dedup across suites — a template in two chosen suites submits once per suite, with that suite's currency; dedup dropped 2026-08-20), each producing its own `irp_job` row (§14.3). An `irp_analysis` row is written as each job is submitted and **backfilled with its settings/metadata when the job completes**; loss-number retrieval is a later phase of Iteration 7 (§15.3, §21). Analyses submitted from a submission context carry the **submission's name as a Risk Modeler tag** so they're findable in the platform and via API (2026-08-20, note 17 D12 direction).
+- **Direct submit:** Submit runs the app-side loop over `submit_portfolio_analysis_job` — **one analysis per selected portfolio × selected template of each chosen suite** (no dedup across suites — a template in two chosen suites submits once per suite, with that suite's currency; dedup dropped 2026-08-20), each producing its own `irp_job` row (§14.3). An `irp_analysis` row is written as each job is submitted and **backfilled with its settings/metadata when the job completes**; loss-number retrieval follows in Iteration 8 (§15.3, §21). Analyses submitted from a submission context carry the **submission's name as a Risk Modeler tag** so they're findable in the platform and via API (2026-08-20, note 17 D12 direction).
 - **Naming:** each analysis is named by the fixed rule **portfolio name + template name**, truncated from the right to Risk Modeler's 64-character analysis-name cap; the full name is stored on `irp_analysis` (§2.6).
 - **Live on the EDM page:** executed analyses appear in a **user-executed analyses section on the EDM detail page** — presented like the broker-analysis sections but with no RDM grouping, each showing the portfolio it ran against (trustworthy here: the workbench submitted it; the §2.2 trust rule concerns data that left CIC's environment) — and update live as their jobs move through statuses (§14.7).
 - **Failure handling is graceful at both stages:** a failure to submit is surfaced immediately and takes the `SUBMISSION FAILED` retry path (§14.3); a Moody's-side run failure is surfaced with its reason. **Peril/portfolio mismatch is expected, not an error:** a broad suite run against data lacking a peril fails those sub-analyses ("no locations match the criteria") and generates no loss → no charge. CIC prefers "run it all, deal with the failures at the end" over interrogating the database first — **but every failure is surfaced with its reason** (the job summary says the peril wasn't present), never silently ignored (D14).
@@ -989,11 +989,11 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 `rwb_job` is app-side work **this app executes** in-process (Dramatiq worker), fully decoupled from `irp_job` (no FK). Each row's `requestor_type` (kind-table FK) + `requestor_id` records what triggered it — an `irp_job` completion, an analyst action, or a parent `rwb_job` (chaining); the composite `UNIQUE(requestor_type, requestor_id, rwb_job_type)` is the dedup/idempotency key (replacing `request_key`). `rwb_job_type` is a kind-table FK. See DATA_MODEL §8 for the full vocabulary.
 
 **Workers** submit one entity-scoped `upload_edm` or `upload_rdm`, backfill EDM
-detail or RDM analyses after successful imports, and process results after analysis
-jobs. Association detach runs on the request path and never enqueues a worker.
+detail or RDM analyses after successful imports, and retrieve loss results after
+analysis jobs finish and after RDM imports complete (§15.3). Association detach runs on the request path and never enqueues a worker.
 **Out of MVP:** `push_rdm_to_loss_repo` and `push_exposure_summary`.
 
-**Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `push_results_to_loss_repo` never races `retrieve_analysis_results` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
+**Chaining without a depends_on column.** The poller writes only **head** rows. Each worker, on success, creates the next `rwb_job` via idempotent insert with `requestor_type='rwb_job'`, `requestor_id=` its own `rwb_job.id`. `retrieve_analysis_results` never races `finalize_analysis` — it does not exist until the parent succeeds; if the parent fails after Dramatiq retries, the chain stops.
 
 **Claim + heartbeat protocol (CR-001, unchanged):** atomic claim (`UPDATE ... SET status_code='running', claimed_by=:w WHERE id=:id AND status_code='pending'`; rowcount 0 → already claimed, ack and drop); heartbeat daemon thread stamps `rwb_job_heartbeat` every `RWB_HEARTBEAT_INTERVAL_SECS`; work runs inside `with heartbeating(job_id, worker_id):`; on success set `succeeded` + `output_data` and create tail rows, on failure set `failed` + `error_detail` (Dramatiq retries with backoff). Stale `running` rows are recovered by the reconciler folded into the poller.
 
@@ -1044,9 +1044,12 @@ Analysis results are **REST-only** — never DataBridge. Retrieved per `perspect
 - `client.analysis.get_stats(analysis_id, perspective_code, exposure_resource_id)` → AAL/statistics
 - `client.analysis.get_plt(analysis_id, perspective_code, exposure_resource_id)` → PLT (**HD only**)
 
-These are called by the `retrieve_analysis_results` Dramatiq worker (§14.5), not on a request path.
+These are called by the `retrieve_analysis_results` Dramatiq worker (§14.5), not on a request path. **For viewing, the worker calls only `get_stats()` and `get_ep()`** — per perspective (GR, RL, WX, QS, GU), 10 calls per analysis — and writes the bounded extract to `irp_analysis.loss_results` (§16.1). `get_elt()`/`get_plt()` belong to the export iteration: design note 19 D5 (2026-08-25) removed ELTs from viewing scope. The worker fires automatically in both cases (Iteration 8, §21):
 
-`exposure_resource_id` is the portfolio's IRP resource URI. It is **not** returned by the job completion response — it comes from `submit_portfolio_analysis_job()`'s return value (`request_body["resourceUri"]`) and must be stored in `irp_job.resource_uri` at submission time. The `retrieve_analysis_results` worker reads it from there.
+- **Own analyses** — when an executed analysis reaches `FINISHED`, chained from `finalize_analysis`.
+- **Broker analyses** — when an RDM import completes, chained from `backfill_rdm_analyses`, one job per broker analysis (each a single (`rdm_id`, `irp_id`) row, so storage is once per RDM automatically). No analyst action triggers retrieval in either case.
+
+`exposure_resource_id` is the portfolio's IRP resource URI. It is **not** returned by the job completion response — it comes from `submit_portfolio_analysis_job()`'s return value (`request_body["resourceUri"]`) and must be stored in `irp_job.resource_uri` at submission time. The `retrieve_analysis_results` worker reads it from there. Broker analyses have no submission-time capture — their exposure pointer comes from the `exposureResourceId` that `search_analyses` returns, recorded at RDM backfill (spec 004); whether the result endpoints accept it for RDM-imported analyses is confirmed at Iteration 8 spec time (§23 open decisions).
 
 ### 15.4 DataBridge usage
 
@@ -1079,39 +1082,44 @@ Analysis job submission requires both `edm_name` and `portfolio_name` — IRP re
 
 ## 16. Feature: Results management & repositories
 
-### 16.1 Analysis results storage — hybrid Parquet + SQL metadata
+### 16.1 Analysis results storage — bounded extract for viewing; Parquet + SQL metadata for export only
 
-**DATA_MODEL §9 governs.** When the `retrieve_analysis_results` worker completes, results are stored as a **hybrid**: row-level data (ELT, EP, PLT) as **Parquet files on disk**, and a single **SQL metadata row** per result summarizing it and recording the file paths.
+**Viewing (DATA_MODEL §6 governs).** The `retrieve_analysis_results` worker stores a bounded extract as JSON on `irp_analysis.loss_results`: per perspective (GR, RL, WX, QS, GU), the AAL, standard deviation, and OEP/AEP losses at 11 fixed return periods (5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000) — a few KB per analysis. A perspective the analysis did not produce is present with an explicitly empty value (not a retrieval failure). Every results view reads this extract; **no Risk Modeler call serves a page render**, and no row-level data is stored for viewing. Evidence and rejected alternatives: spec 011 `research.md#R3`.
 
-- **`analysis_result_meta`** — one row per (result, `perspective_code`): summary metrics (AAL, max event loss, ELT record count, standard deviation, the return-period losses, OEP/AEP points) plus the `*_file_path` pointers to the Parquet files. Exactly one of `analysis_id` / `rdm_id` is set (CHECK) — `analysis_id` for own results, `rdm_id` for broker results.
-- **Parquet files** (paths relative to `{OUTPUTS_BASE_DIR}/{submission.id}/`, §21 Iteration 0): the ELT records, EP-curve points (OEP/AEP/CEP/TCE), and PLT records (HD only). Large row-level data lives on disk, never in SQL rows.
+**Export (DATA_MODEL §9 governs — not built until the export iteration).** Row-level data (ELT, EP, PLT) as **Parquet files on disk** plus an **`analysis_result_meta`** SQL row per (result, `perspective_code`) recording the file paths. Design note 19 D5 (2026-08-25) removed ELTs from viewing scope — they exist only for export to the Loss Repository — so this machinery, and whether ELT retrieval is eager or export-triggered, is decided by the export-requirements session (design note 19 O19-12).
 
-The metadata row is the index the results review UI reads; the Parquet files are opened on drill-down/export.
-
-> **Superseded:** earlier drafts of this section listed row-level SQL tables (`analysis_result`, `elt_record`, `ep_curve`, `plt_record`). Those predate the Parquet-hybrid decision (§23 locked decisions, 2026-07-10) and are **not** built — DATA_MODEL §9 (`analysis_result_meta` + Parquet) is authoritative.
+> **Superseded:** earlier drafts of this section listed row-level SQL tables (`analysis_result`, `elt_record`, `ep_curve`, `plt_record`). Those predate the Parquet-hybrid decision (§23 locked decisions, 2026-07-10) and are **not** built. The 2026-08-25 revision narrowed the hybrid itself to export.
 
 **Broker (RDM) results are deduplicated by `rdm_id`.** A standalone RDM import
-captures each Risk Modeler analysis once by `(rdm_id, irp_id)`. Result retrieval
-and storage remain keyed by the RDM source analysis and perspective. Own results
-stay per-analysis. DATA_MODEL §9 defines the Parquet and SQL metadata storage.
+captures each Risk Modeler analysis once by `(rdm_id, irp_id)`, so the viewing
+extract on that row is once-per-RDM automatically. Own results stay per-analysis.
+DATA_MODEL §9 defines the export-only Parquet and SQL metadata storage.
 
 ### 16.2 Results review UI
 
-Rail: Results. Shows analysis outputs per submission. Broker results are **grouped under the RDM that produced them**. Sharing a Submission does not imply an EDM-to-RDM relationship. Metrics shown (FR §7):
+> **Redesigned 2026-08-25 (design note 19).** ELTs are not viewable in the workbench — "we just need the stats, the AAL and the EP curve" (D5). Viewing reads the `irp_analysis.loss_results` extract (§16.1); ELT-derived metrics (max event loss, record count), PLT, and TCE are out of viewing scope.
 
-- **ELT summary** — AAL / pure premium, max event loss, record count.
-- **Standard deviation.**
-- **Return-period losses** — indicative set 1000 / 500 / 250 / 100 / ~20–25 year (exact points TBD, O5-2).
-- **OEP and AEP both** (Cheryl uses OEP more); a **TCE (tail conditional expectation) toggle** (not routine, nice to have).
-- **PLT** (HD only).
-- **No EP-curve graph is required** — "the drawing's not important… I want the numbers." Show numbers/tables, not a plotted curve.
+Loss numbers appear in three places:
+
+- **One merged analyses table** (D11) — on the submission Results rail section and the EDM detail page. Own and broker analyses in one table: own rows directly (the `CRE_` prefix and absence of an RDM mark them), broker analyses **grouped under an expandable row for the RDM that produced them** — the group-by-RDM requirement relocated, not retired. Own-vs-broker is derived from `rdm_id`; no stored origin column. Columns include **currency** (captured at analysis-detail backfill) and **AAL** (D10); no return-period column; the AAL-only display mode is dropped (D12).
+- **Inline in the expanded analysis row** (D9) — the condensed results: both EP types at once, a perspective toggle, no condensed/expanded display toggle. Cheryl's requirement: AAL at a glance as a gut check without leaving the grid.
+- **The dedicated results page** (D14, D21, D22) — reached by multi-selecting analyses and choosing View, from **both** the submission page and the EDM detail page (only the submission page reaches cross-EDM analyses and groups). Opens in a **new browser tab**; expanded view by default, both EP types, one column per analysis, user-controlled left-to-right ordering (D15). Breadcrumbs: entry from the EDM retains EDM + submission; entry from the submission retains submission only. **The browser tab title carries the submission or EDM name** — a requirement, not a nicety.
+
+Metrics shown (FR §7):
+
+- **AAL / pure premium** and **standard deviation** (from the EP stats endpoint).
+- **Return-period losses** — expanded set (11 points): 5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000; condensed set (6): 50 / 100 / 250 / 500 / 1000 / 10000. Fixed sets, not user-editable — editing passes through to Risk Modeler (D7, re-affirming design note 05 §4.1). Closes O5-2.
+- **OEP and AEP both**, shown together (Cheryl uses OEP more).
+- **No EP-curve graph is required** — "the drawing's not important… I want the numbers." Re-confirmed 8/25.
+- **Units never auto-switch** (D16): a ones / thousands / millions selector, millions default.
+- **Copy table with headers** (D13): any rendered results table pastes into Excel — Cheryl's year-over-year working file, and the broker-sent-a-digital-copy case.
 - **Analysis metadata** shown alongside (the same metadata list reused for broker-result review, §2.3): engine/model version, engine type (DLM vs HD) + version, analysis type/mode, peril (primary + secondary), region, currency, construction, LOB, group type, long-term vs near-term, event-rate scheme / rate vintage, loss amplification (PLA). Rate/event-rate detail sits one drill-down deeper than the rest.
 
-**Perspective switching is essential** — Gross (`GR`), Ground-Up (`GU`), and Reinsurance Layer / net (`RL`); "look at it from however you ran it."
+**Perspective switching is essential** — the five perspectives are **GR, RL, WX, QS, GU** (Ground Up added by Wendy 8/25 for checking treaty application; closes O5-3 — the default view is Gross within this set). The perspective selection applies to the whole screen, never per analysis.
 
-**Density.** Up to ~5 analyses are consumable on screen (a guideline, not a hard cap); beyond that, drill-down / export. A **full listing / full drill-down of all analyses remains available** — the on-screen cap must not be a step back from RiskLink, which lists them all.
+**Density.** N-up viewing is guided at ~10 analyses on the dedicated page (proposed, unconfirmed with CIC) — a **soft guideline**: selection is never blocked; the view degrades to horizontal scroll/pagination. A **full listing / full drill-down of all analyses remains available** — anything less is a step back from RiskLink, which lists them all.
 
-- **Comparison panel** — own analysis results vs. broker RDM results side by side, with a **percent-difference column** (§17).
+- **Comparison** — a separate operation from viewing (D17): strictly pairwise comparisons collected into a cart, with a percent-difference column (§17.3; lands with Iteration 10, not with the Iteration-8 results views).
 
 > **Open question — event-rate scheme round-trip (O5-1).** The event-rate scheme does not appear to survive a Risk Modeler export → re-import (exactly the broker scenario); near-term/long-term and rate vintage both matter. Ben investigating how to recover/carry it, and whether "vintage" is even a first-class RM concept (FR §7).
 
@@ -1150,16 +1158,20 @@ Analysts must compare their own analysis results against the broker's results (p
 
 ### 17.2 Broker RDM results — retrieval (REST, deduped by `rdm_id`)
 
-> **Reconciled (2026-07-21).** Broker RDM results are retrieved via the **same REST result endpoints as own results** (§15.3) — **not** DataBridge — and stored in **`analysis_result_meta`**, keyed on `rdm_id`. There is no `rdm_result` table and no DataBridge query for broker results. This aligns §17 with §15.3 ("results are REST-only, own *and* broker"), §16.1, and the 2026-07-10 locked dedup decision.
+> **Reconciled (2026-07-21, revised 2026-08-25).** Broker RDM results are retrieved via the **same REST result endpoints as own results** (§15.3) — **not** DataBridge — and stored in each broker analysis row's **`loss_results` extract** (§16.1). There is no `rdm_result` table and no DataBridge query for broker results.
 
-Importing a broker RDM creates broker analyses as `irp_analysis` rows with `rdm_id` set (§9.2). Their result data is **static and identical** across the M EDM-copies a bundle produces, so `retrieve_analysis_results` fires **once per `rdm_id`** and stores one `analysis_result_meta` row (+ Parquet) per (RDM source analysis, perspective), shared by all M handles (§16.1). No analysis execution is required — the broker analyses and their settings/metadata are viewable since Iteration 3; their **loss numbers** are retrieved and viewable from Iteration 7, when `retrieve_analysis_results` / `analysis_result_meta` land.
+Importing a broker RDM creates broker analyses as `irp_analysis` rows keyed (`rdm_id`, `irp_id`) with `edm_id` null (§9.2) — one row per source analysis regardless of how many EDM copies the bundle produces, so the extract is stored **once per RDM** by construction. Their result data is **static and identical** across those copies. No analysis execution is required — the broker analyses and their settings/metadata are viewable since Iteration 3; their **loss numbers** are retrieved and viewable from Iteration 8 — retrieval fires automatically when the RDM import completes (§15.3), one `retrieve_analysis_results` job per broker analysis.
 
 ### 17.3 Comparison view
 
-The results review UI shows a comparison panel (FR §7):
-- **Own results** (`analysis_result_meta` keyed by `analysis_id`) vs. **broker results** (keyed by `rdm_id`), viewable together in one view.
-- Analyses compared **side-by-side**, with a **percent-difference column** (e.g. CIC vs. broker — saves the manual Excel step). Metrics: AAL, return-period OEP/AEP, by perspective code.
+> **Designed 2026-08-25 (design note 19 §6, D17–D20).** Comparison reads the same `irp_analysis.loss_results` extract as viewing (§16.1).
+
+- **View and Compare are two operations** (D17): viewing is N-up side-by-side; comparing is **strictly pairwise**. Choosing Compare, the analyst picks exactly two analyses per comparison; each pair goes into a **cart**; ~5 pairs render on one screen (a real layout limit, enforceable). A base analysis compared against many was considered and rejected (Wendy: "I don't think we need that").
+- **Selection order is the contract** (D19): the first analysis picked is the base and the first column; percent change follows that order; explicitly decoupled from list order.
+- **Table shape** (D20): columns labelled with analysis names, the leftover row-header column dropped; percent-change columns need no per-pair labelling. Perspective and EP-type selections apply **screen-wide**, to every comparison rendered.
+- Metrics: AAL, return-period OEP/AEP, by perspective — own vs. broker or any pair (e.g. CIC vs. broker — saves the manual Excel step).
 - Numbers, not a required overlay chart (no EP graph is required — §16.2). Ben has a prior comparison engine to build on.
+- **Known gap:** the per-analysis software/model version (design note 18 O18-10) — spec 011 FR-021 captures it at retrieval so this view can show which version each side ran in.
 
 > **Portfolio↔analysis linking is not solved — deliberately deferred** (FR §7). It doesn't exist today either; analysts rely on naming conventions and broker documentation to know which portfolio a result ran against. (See also DATA_MODEL §14: whether `analysis_result_meta` should carry an `irp_portfolio` FK is an open decision.)
 
@@ -1173,7 +1185,7 @@ Pushing **broker** results to the Loss Repository (`push_rdm_to_loss_repo`) is *
 
 ## 18. Feature: Notifications
 
-> **Scheduled as Iteration 11 (2026-07-21).** Notifications were previously deferred (CR-002) and the earlier Iteration-2 "notification on completion" exit criterion was **not actually delivered** — the capability is **greenfield** and is built in full as Iteration 11 (§21). The poller/worker job-completion path it hangs off already exists. This reverses the CR-002 deferral note.
+> **Scheduled as Iteration 12 (2026-07-21; renumbered 2026-08-25).** Notifications were previously deferred (CR-002) and the earlier Iteration-2 "notification on completion" exit criterion was **not actually delivered** — the capability is **greenfield** and is built in full as Iteration 12 (§21). The poller/worker job-completion path it hangs off already exists. This reverses the CR-002 deferral note.
 
 ### 18.1 Async job completion notifications
 
@@ -1338,17 +1350,17 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** import an EDM from a .bak/.mdf/CSV file and an RDM; poller mirrors job status; analyst receives a Teams/email notification on completion; EDM/RDM show `ready` status. The Package exit criteria (create EDM-only/RDM-only/both packages from the shared drive, the IRP name-collision warning, Save-and-Sync with EDM-before-RDM ordering, Delete with RDM-before-EDM ordering, package-card job-count links to the pre-filtered Jobs list) were delivered as written here and later removed by `specs/006-package-retirement/`; imports are now entity-scoped.
 
-> **Correction (2026-07-21).** The exit criterion "analyst receives a Teams/email notification on completion" was **not actually delivered** in this iteration; notification delivery is greenfield and is scheduled as **Iteration 11**. The poller/worker job-completion path it would hang off does exist.
+> **Correction (2026-07-21).** The exit criterion "analyst receives a Teams/email notification on completion" was **not actually delivered** in this iteration; notification delivery is greenfield and is scheduled as **Iteration 12**. The poller/worker job-completion path it would hang off does exist.
 
 ### Iteration 3 — EDM/RDM details & backfill
 
-> **Rewritten (2026-07-21).** This slot was previously "Search framework"; search now moves to the end (Iteration 12) and is built once over the complete entity set. This iteration is the EDM/RDM detail-and-backfill work that FR §2.2 ("Exposure Details Viewing") never had a home for. Covers backlog #7 (post-import detail backfill) and #8 (EDM detail page redesign). Placed first so the analyst can *understand* imported exposure and broker results before acting on them.
+> **Rewritten (2026-07-21).** This slot was previously "Search framework"; search now moves to the end (Iteration 13) and is built once over the complete entity set. This iteration is the EDM/RDM detail-and-backfill work that FR §2.2 ("Exposure Details Viewing") never had a home for. Covers backlog #7 (post-import detail backfill) and #8 (EDM detail page redesign). Placed first so the analyst can *understand* imported exposure and broker results before acting on them.
 
-**In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils, lines of business, geography, currency, TIV/record volume, associated treaties — FR §2.2; sub-perils dropped 2026-07-28 — an analysis-settings attribute, not exposure), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / broker-analysis viewing** — RDM import already creates `irp_analysis` objects; this iteration surfaces the **broker analyses grouped by `rdm_id` and each analysis's settings/metadata** (§16.2 metadata list) on the RDM/analysis detail pages **and on the EDM detail page** (inline under each portfolio + a standalone RDM-grouped section). Each analysis is **linked to the portfolio it ran against** — captured from Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) and resolved to the owning `irp_portfolio` at read time (a group shows "Group", an unresolvable exposure "— not linked"; distinct from the FR §7 deferred results-comparison linking — see 2026-07-23 change-log). No analysis execution is required — the analyses exist from the RDM import path built in Iteration 2. Broker **loss numbers** (ELT/EP/AAL/return-period/PLT, deduped by `rdm_id` into `analysis_result_meta`, §16.1) and the `retrieve_analysis_results` worker are **deferred to Iteration 7** (spec 004 Clarifications 2026-07-23; renumbered 2026-08-17).
+**In:** post-import **backfill** of entity detail data from Risk Modeler — extends the Iteration-2 poller/worker completion path to fetch and store detail fields when an import job goes terminal; §9 EDM detail view (exposure summary: account/location counts, #portfolios, perils, lines of business, geography, currency, TIV/record volume, associated treaties — FR §2.2; sub-perils dropped 2026-07-28 — an analysis-settings attribute, not exposure), redesigned EDM detail page; **treaty viewing** at the EDM level (§12.4 view side — full attribute detail, expand/collapse, horizontal scroll, Excel export; edit is a later RM pass-through, not this iteration); **RDM / broker-analysis viewing** — RDM import already creates `irp_analysis` objects; this iteration surfaces the **broker analyses grouped by `rdm_id` and each analysis's settings/metadata** (§16.2 metadata list) on the RDM/analysis detail pages **and on the EDM detail page** (inline under each portfolio + a standalone RDM-grouped section). Each analysis is **linked to the portfolio it ran against** — captured from Risk Modeler's `exposureResourceId` (type `PORTFOLIO`) and resolved to the owning `irp_portfolio` at read time (a group shows "Group", an unresolvable exposure "— not linked"; distinct from the FR §7 deferred results-comparison linking — see 2026-07-23 change-log). No analysis execution is required — the analyses exist from the RDM import path built in Iteration 2. Broker **loss numbers** (the `loss_results` extract, once per `rdm_id`, §16.1) and the `retrieve_analysis_results` worker are **deferred to Iteration 8** (spec 004 Clarifications 2026-07-23; renumbered 2026-08-25).
 
-**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 7); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iteration 7); broker side-by-side comparison (Iteration 9); Loss Repository export.
+**Out:** own-analysis results produced by execution (those extend these same detail pages in Iteration 8); portfolio/geohaz/execution/grouping; treaty create/edit pass-through (§12.4 — bundled with analysis config, Iteration 7); broker side-by-side comparison (Iteration 10); Loss Repository export.
 
-**Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler, with each portfolio's **linked broker analyses inline** and a standalone RDM-grouped analyses section; open an imported RDM and see its **broker analyses and their settings/metadata**, each showing the **portfolio it ran against** (or "Group" / "— not linked") (broker **loss numbers** deferred to Iteration 7 — spec 004 Clarifications 2026-07-23, renumbered 2026-08-17); a newly completed import backfills its detail data automatically via the poller/worker path.
+**Exit:** open an imported EDM and see its exposure summary and treaty detail backfilled from Risk Modeler, with each portfolio's **linked broker analyses inline** and a standalone RDM-grouped analyses section; open an imported RDM and see its **broker analyses and their settings/metadata**, each showing the **portfolio it ran against** (or "Group" / "— not linked") (broker **loss numbers** deferred to Iteration 8 — spec 004 Clarifications 2026-07-23, renumbered 2026-08-25); a newly completed import backfills its detail data automatically via the poller/worker path.
 
 ### Iteration 4 — Sub-portfolio creation & breakouts
 
@@ -1390,15 +1402,29 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 > **Reordered again (2026-08-17, session 8/14 D9).** Was Iteration 6; now follows templates so the run flow is suite-first from day one (§11.3a). Most of the job infrastructure already exists from Iteration 2; the remainder lands here.
 >
-> **Phased (2026-08-20).** Suite execution is the first and most consequential phase: run one or more template suites against one or more selected portfolios. Single-template execution (running individual templates, not a whole suite) follows as the second phase, through the same modal. Loss-number retrieval for executed analyses is a later phase of the iteration.
+> **Phased (2026-08-20).** Suite execution is the first and most consequential phase: run one or more template suites against one or more selected portfolios. Single-template execution (running individual templates, not a whole suite) follows as the second phase, through the same modal.
+>
+> **Loss-number retrieval moved out (2026-08-25).** The "later phase" loss retrieval (spec 010 US4) was not built in this iteration; it moves to Iteration 8 together with broker retrieval and the results review UI.
 
-**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the **execution flow** (§11.3a — select one or more portfolios; Execute Suite / Execute Template opens a searchable modal; several suites or several templates per execution, never mixed; Submit disabled until one is chosen; expand-to-deselect; treaty selection in the modal; direct submit loop, one analysis per portfolio × template; fixed portfolio + template naming; per-analysis failures surfaced with reason); **`irp_analysis` rows written at submission and backfilled with settings/metadata on completion**; the **user-executed analyses section on the EDM detail page** (like the broker-analysis sections, no RDM grouping, portfolio shown, live status updates — §14.7 SSE); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); §15.3 analysis-results retrieval (loss numbers) for **own** (executed) analyses as a later phase, **extending the Iteration-3 detail views**; the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
+**In:** §14 execution engine — `irp_job` as the tracked unit, synchronous submit on the request path, the remaining poller `irp_job_type`s for analysis, the `rwb_job` queue with heartbeat + reconciler, the remaining Dramatiq worker types, single-threaded submission retry; the **execution flow** (§11.3a — select one or more portfolios; Execute Suite / Execute Template opens a searchable modal; several suites or several templates per execution, never mixed; Submit disabled until one is chosen; expand-to-deselect; treaty selection in the modal; direct submit loop, one analysis per portfolio × template; fixed portfolio + template naming; per-analysis failures surfaced with reason); **`irp_analysis` rows written at submission and backfilled with settings/metadata on completion**; the **user-executed analyses section on the EDM detail page** (like the broker-analysis sections, no RDM grouping, portfolio shown, live status updates — §14.7 SSE); **treaty create/edit as an RM pass-through** (§12.4); **multiple portfolios selected and run in one action** (FR §5); the prerequisite-gate rule (execution needs an EDM + portfolio (+ named treaties); hazard lookup is **optional**, not gated — §13.1) plus relevant point-of-action validation (§13.3 uniqueness / reference-data).
 
-**Out:** grouping (Iteration 8); Loss Repository export (Iteration 10).
+**Out:** loss-number retrieval and results viewing (Iteration 8); grouping (Iteration 9); Loss Repository export (Iteration 11).
 
 **Exit:** select several portfolios, pick a suite in the modal, and see one auto-named analysis per portfolio × template submitted via the loop, with any peril-mismatch failures surfaced with their reason; run an individual template the same way; executed analyses appear in the EDM detail page's user-executed section, update live through their job statuses, and show settings/metadata on completion; a failed submission is surfaced immediately and retried per §14.3; a treaty edit hands off to the RM editor and the refreshed view reflects it; a wedged job is recovered by the heartbeat/reconciler.
 
-### Iteration 8 — Grouping
+### Iteration 8 — Analysis results sync & viewing
+
+> **New (2026-08-25).** This capability had no iteration of its own: own-analysis loss retrieval was the unshipped final phase of Iteration 7 (spec 010 US4, P-09), broker retrieval was deferred by spec 010 P-12 "to the work that consumes it," and the §16.2 results review UI was never scheduled anywhere. All three land here. Iterations 8–13 renumbered 9–14.
+
+> **Rescoped (2026-08-25, design note 19).** ELTs dropped from viewing (D5); storage narrowed to the `irp_analysis.loss_results` extract (§16.1); the merged analyses table, inline expanded-row results, and the dedicated results page added from the 8/25 design session.
+
+**In:** the `retrieve_analysis_results` worker writing the `loss_results` extract (§15.3, §16.1, DATA_MODEL §6) — AAL, standard deviation, and OEP/AEP losses at 11 fixed return periods per perspective (GR/RL/WX/QS/GU) — for **own** executed analyses (fired automatically on `FINISHED`, chained from `finalize_analysis`) and for **broker** analyses (fired automatically on RDM import completion, chained from `backfill_rdm_analyses`, one per broker analysis, once per `rdm_id` by construction); the §16.2 results review UI — the **merged analyses table** (own + broker in one, origin derived, broker grouped under RDM rows, currency + AAL columns), **condensed results inline in the expanded analysis row**, and the **dedicated results page** (multi-select from submission and EDM pages, new browser tab, breadcrumbs, tab title, N-up soft guideline, units selector, user ordering, copy with headers).
+
+**Out:** the comparison cart / percent-difference view (§17.3 — Iteration 10); grouping (Iteration 9); Loss Repository export and all row-level ELT/PLT retention (Iteration 11); pushing broker results anywhere (out of MVP, §17.4); TCE and EP-curve graphs.
+
+**Exit:** run an analysis to completion and read its AAL, standard deviation, and OEP/AEP return-period losses per perspective without leaving the workbench; import an RDM and see each broker analysis's loss numbers appear with no analyst action, stored once per `rdm_id`; multi-select five analyses from the submission page and view them side by side in a new tab, switch perspective screen-wide, and paste the table into Excel with headers.
+
+### Iteration 9 — Grouping
 
 > **Split (2026-07-21).** Carved out of the old Iteration 6.
 
@@ -1408,27 +1434,27 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** compose a grouping over finished analyses; a DLM+HD mix is caught by the homogeneity check; the group runs and its result is retrievable.
 
-### Iteration 9 — Broker RDM comparison
+### Iteration 10 — Broker RDM comparison
 
 > **New placement (2026-07-21).** Promoted to its own iteration between grouping and results export (was bundled into the old Iteration 6).
 
-**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import; broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 7) against own executed/grouped results.
+**In:** §17 broker RDM comparison — side-by-side of broker-provided results (from RDM import; broker **analyses/settings** viewable since Iteration 3, broker **loss numbers** since Iteration 8) against own executed/grouped results.
 
 **Out:** Loss Repository export.
 
 **Exit:** view a side-by-side comparison of broker RDM results and own results for a submission.
 
-### Iteration 10 — Results export
+### Iteration 11 — Results export
 
-> **Rescoped (2026-07-21).** Narrowed to the Moody's → Loss Repository export only; results *viewing* now lives in Iteration 3 (broker) and Iteration 7 (own).
+> **Rescoped (2026-07-21).** Narrowed to the Moody's → Loss Repository export only; results *viewing* lives in Iteration 3 (broker settings/metadata) and Iteration 8 (loss numbers, own and broker).
 
 **In:** §14.3 file export job (`export` `irp_job_type` + `download_export_file` worker) to pull results out of Risk Modeler, and §16.3 the Loss Repository write through the thin adapter layer (A19); §16.1 results storage where it feeds the export.
 
-**Out:** results review UI (Iterations 3/6); an analyst-facing Parquet file download (not an MVP deliverable unless separately requested).
+**Out:** results review UI (Iterations 3/8); an analyst-facing Parquet file download (not an MVP deliverable unless separately requested).
 
 **Exit:** export analysis results from Risk Modeler and write them to the Loss Repository via the adapter.
 
-### Iteration 11 — Notifications
+### Iteration 12 — Notifications
 
 > **New (2026-07-21) — greenfield.** Notification delivery was listed in the old Iteration 2 exit criteria but was not actually delivered; the full capability is built here.
 
@@ -1438,7 +1464,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** an analyst receives a notification on job completion (import, execution, grouping, export) via the configured channel and sees it in the in-app center.
 
-### Iteration 12 — Global search
+### Iteration 13 — Global search
 
 > **Consolidated (2026-07-21).** Was split across the old Iteration 3 (framework) and Iteration 7 (remaining providers). Built once here at the end, over the complete entity set — no half-built-then-finished split.
 
@@ -1448,7 +1474,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Exit:** Ctrl/Cmd-J finds nav, submissions, EDMs, RDMs, jobs, analyses, groupings, and results; providers return results and navigate correctly.
 
-### Iteration 13 — Home dashboard
+### Iteration 14 — Home dashboard
 
 > **New (2026-07-21).** Deferred to the end (backlog #6); content is defined once the surrounding capabilities exist to feed it.
 
@@ -1495,7 +1521,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 ### Locked decisions
 
-- **2026-08-20 — Iteration 7 planning: execution flow.** Suite execution ships first (run one or more suites against one or more selected portfolios), then single-template execution — both through the same portfolio-first modal: searchable list, multi-select, suites XOR templates (never mixed), Submit disabled until at least one is chosen, expand-to-deselect inside the modal, treaties picked in the modal, direct submit with no review page. Analysis names follow the fixed rule **portfolio name + template name** (resolves O7-3/O14-9). `irp_analysis` rows are written at submission and backfilled with settings/metadata on completion; loss-number retrieval is a later phase of Iteration 7. Executed analyses surface in a user-executed section on the EDM detail page (no RDM grouping, portfolio shown) with live status updates. §11.3a, §21 Iteration 7.
+- **2026-08-25 — Iteration 8: analysis results sync & viewing.** Own-analysis loss retrieval (the unshipped last phase of Iteration 7, spec 010 US4) and broker (RDM) loss retrieval (deferred by spec 010 P-12) are consolidated into a new Iteration 8 together with the §16.2 results review UI; Iterations 8–13 renumbered 9–14. Retrieval is automatic in both cases: own analyses on `FINISHED` (chained from `finalize_analysis`), broker analyses on RDM import completion (chained from `backfill_rdm_analyses`), once per `rdm_id` — no analyst action triggers it. The Results rail section ships in Iteration 8 **without** the comparison panel; broker comparison stays its own iteration (now Iteration 10). §15.3, §16.1, §16.2, §17.2, §21.
+- **2026-08-20 — Iteration 7 planning: execution flow.** Suite execution ships first (run one or more suites against one or more selected portfolios), then single-template execution — both through the same portfolio-first modal: searchable list, multi-select, suites XOR templates (never mixed), Submit disabled until at least one is chosen, expand-to-deselect inside the modal, treaties picked in the modal, direct submit with no review page. Analysis names follow the fixed rule **portfolio name + template name** (resolves O7-3/O14-9). `irp_analysis` rows are written at submission and backfilled with settings/metadata on completion; loss-number retrieval is a later phase of Iteration 7 *(superseded 2026-08-25: moved to Iteration 8 — see above)*. Executed analyses surface in a user-executed section on the EDM detail page (no RDM grouping, portfolio shown) with live status updates. §11.3a, §21 Iteration 7.
 - **2026-08-12 — Package retirement.** Package is removed from the product and
   database. `submission_edm` and `submission_rdm` relate global resources directly
   to submissions. Jobs target entities and may store
@@ -1532,15 +1559,15 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **No row-level security (CR-003 M2/O1).** No `customer_id`, no `apply_scope()`, no `user_customer_access`; every authenticated analyst sees every deal. Global roles gate *functions*, not *rows*; `assigned_analyst_id` is a soft "my submissions" owner (§6).
 - **No file inventory (CR-003 M5).** No `file_artifact` model, scanner, or discrepancy detection; a single `source_file_path` per EDM/RDM is chosen at package creation (§8).
 - **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, used only by the grouping homogeneity check (§13.3). (There are no handle types at all under CR-002.)
-- **Analysis results hybrid storage** — Parquet files on disk for row-level data (ELT, EP, PLT); SQL metadata row for summaries and file paths (§16.1).
+- **Analysis results hybrid storage** — *revised 2026-08-25:* viewing reads the bounded `irp_analysis.loss_results` extract; the Parquet + SQL-metadata hybrid for row-level data (ELT, EP, PLT) is export-only (§16.1).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
 - **Styling extends the ITCSS design system via tokens** — never hardcoded hex (§2.4).
 - **2026-07-21 — FR reconciliation pass (feature specs updated to `FUNCTIONAL_REQUIREMENTS.md`).** Five feature-shaping decisions locked from the reconciled functional requirements:
   - **Portfolio management is MVP (new §10A).** Sub-portfolio creation by **filtering** (synchronous IRP `create_portfolio()`, HTTP 201, no job) + one-click breakouts (LOB / geography / complement), values picked from real portfolio values. "Portfolio modification," data-element edits, peril-specific portfolios, and merge/combine are **out of MVP** (FR §3). The DataBridge exposure-modification path (§10.3) is the deferred Phase A route, not the MVP path.
   - **GeoHaz is hazard lookup only (new §10B).** Geocoding is not re-run (broker geocoding preserved); hazard lookup is **optional** and **not** an analysis prerequisite (FR §5).
   - **Treaty create/edit is a Risk Modeler pass-through (§12.4).** Viewing stays in-app (full attributes, expand/collapse, Excel export); create/edit opens the RM editor in a new window. Reverses the earlier in-app `create_treaty`/`create_treaty_lob` CRUD.
-  - **Broker RDM results are REST-retrieved, deduped by `rdm_id` (§16.1/§17.2).** Same REST endpoints as own results, stored in `analysis_result_meta`; **no `rdm_result` table, no DataBridge query for results.** Pushing broker results to the Loss Repository is **out of MVP** (§17.4).
-  - **No EP-curve graph (§16.2).** Results are numbers/tables — "I want the numbers"; OEP + AEP both, TCE toggle, PLT (HD only), perspective switching (GR/GU/RL) essential.
+  - **Broker RDM results are REST-retrieved, deduped by `rdm_id` (§16.1/§17.2).** Same REST endpoints as own results; **no `rdm_result` table, no DataBridge query for results.** Pushing broker results to the Loss Repository is **out of MVP** (§17.4). *(Revised 2026-08-25: stored as the `loss_results` extract on the broker analysis row; `analysis_result_meta` is export-only.)*
+  - **No EP-curve graph (§16.2).** Results are numbers/tables — "I want the numbers"; OEP + AEP both, perspective switching essential. *(Revised 2026-08-25: perspectives GR/RL/WX/QS/GU; TCE and PLT out of viewing scope — §16.2.)*
 
 ### Open decisions (need team input; do not block early iterations)
 
@@ -1559,7 +1586,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **O8-3 — hazard-execution lineage detail.** What execution detail the workbench records and displays per hazard lookup, given a naive stamp read is insufficient (§10B.4). Ben; settled at Iteration 5 spec time.
 - **O14-4 — US/Canada default-settings list.** Cheryl drafts the CIC defaults to guide the manual suite setup on the admin page (starter-suite seeding deferred, spec 009 P-02); scope is US / Canada / US+Canada / global (~10 templates each). Cheryl → Ben.
 - **O5-1 — event-rate scheme round-trip.** Does not appear to survive RM export → re-import (the broker scenario); near/long-term and rate vintage matter (§16.2). Ben investigating.
-- **O5-2 — return-period points.** Exact set (1000/500/250/100/~20–25 yr indicative) to confirm (§16.2).
+- **O5-2 — return-period points. CLOSED 2026-08-25:** stored/expanded set 5/10/25/50/100/250/500/1000/2000/5000/10000; condensed set 50/100/250/500/1000/10000 (§16.2, spec 011 O-03).
+- **Broker retrieval exposure pointer.** `get_elt`/`get_ep`/`get_stats` take an `exposure_resource_id`; own analyses store it at submission (`irp_job.resource_uri`), but broker analyses only have the `exposureResourceId` that `search_analyses` returns, captured at RDM backfill (§15.3). Confirm the result endpoints accept it for RDM-imported analyses. Settle at Iteration 8 spec time.
 - **O7-5 — accumulation ground-up.** Whether ground-up can be dropped from accumulation output via the API (§16.4a).
 - **Portfolio↔analysis linking — deferred (§17.3).** Whether `analysis_result_meta` carries an `irp_portfolio` FK (DATA_MODEL §14); today analysts rely on naming conventions.
 - **DataBridge → Loss Repository movement.** How finalized loss data moves from DataBridge to the Loss Repository (§16.3, FR §7).
@@ -1579,6 +1607,25 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-08-25 (later) — Design session 19: ELTs out of viewing; bounded extract storage; merged table; dedicated results page; comparison designed
+
+Scope: §15.3, §16.1, §16.2, §17.3, §21 Iteration 8, §23 O5-2, this log. Source: design note 19 (8/25 session) plus the retrieval-model decision recorded in spec 011 `research.md#R3`.
+
+- **ELTs are not viewable** (D5) — Cheryl/Wendy: "we just need the stats, the AAL and the EP curve." ELT-derived metrics (max event loss, record count), PLT, and TCE leave viewing scope; row-level machinery (DATA_MODEL §9) narrows to export, decided at the 8/26 export-requirements session.
+- **Storage:** viewing reads a bounded per-perspective extract on `irp_analysis.loss_results` (AAL, standard deviation, OEP/AEP at 11 fixed return periods), written worker-side. Revises session 19 D6's "store nothing" once the live response captures showed the full EP-curve response is ~1.2MB per perspective and the AAL grid column needs list-scale reads.
+- **Perspectives fixed:** GR, RL, WX, QS, GU (closes O5-3 — Gross default within the set). **Return periods fixed** (closes O5-2, above).
+- **§16.2 redesigned:** one merged own+broker analyses table (group-by-RDM relocated inside it), condensed results inline in the expanded row, dedicated results page (multi-select from both entry points, new tab, breadcrumbs, tab titles), units selector, copy with headers, N-up soft guideline.
+- **§17.3 comparison designed** (still Iteration 10): pairwise cart, selection order fixes base/column/percent-change direction, screen-wide perspective and EP-type toggles; base-vs-many rejected.
+
+### 2026-08-25 — New Iteration 8: analysis results sync & viewing; Iterations 8–13 renumbered 9–14
+
+Scope: §14.5, §15.3, §16.2, §17.2, §21 (Iteration 7 trimmed, new Iteration 8, renumbering and cross-references), §23 locked + open decisions, this log. No CR (re-sequencing plus fleshing out capability the PRD already specified). References to Iterations 8–13 in change-log entries dated before 2026-08-25 mean today's Iterations 9–14.
+
+- **Results had no iteration home.** Own-analysis loss retrieval was the unshipped final phase of Iteration 7 (spec 010 US4); broker retrieval was deferred by spec 010 P-12; the §16.2 results review UI was never scheduled. All three consolidate into the new Iteration 8 (spec 011).
+- **Retrieval is automatic in both cases** (§15.3): own analyses on `FINISHED` (chained from `finalize_analysis`); broker analyses on RDM import completion (chained from `backfill_rdm_analyses`), once per `rdm_id`. No analyst action triggers retrieval.
+- **§16.2 rewritten around the two viewing places:** the submission-scoped Results rail section (own + broker grouped under their RDM) and loss numbers inline on the existing EDM/RDM/analysis detail views. The comparison panel is explicitly excluded from Iteration 8 — broker comparison stays its own iteration (now 10).
+- **Open decision added:** whether the result endpoints accept the `search_analyses` exposure pointer for RDM-imported analyses (broker analyses have no submission-time `resource_uri`). O5-2 (return-period points) stamped to settle at Iteration 8 spec time.
 
 ### 2026-08-24 — Spec 009 reconciliation: templates/suites as built
 

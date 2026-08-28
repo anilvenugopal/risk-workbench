@@ -135,7 +135,7 @@ def main() -> int:
                     ('run_geohaz',                'Run GeoHaz',                28),
                     ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
-                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  31),
+                    ('finalize_analysis',         'Finalize Analysis',         31),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
@@ -159,7 +159,8 @@ def main() -> int:
                     ('irp_job',         'IRP Job',          10),
                     ('analyst_request', 'Analyst Request',  20),
                     ('rwb_job',         'RWB Job',          30),
-                    ('breakout_group',  'Breakout Group',   40)
+                    ('breakout_group',  'Breakout Group',   40),
+                    ('irp_analysis',    'IRP Analysis',     50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -210,7 +211,24 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            print("  [irp_job/rwb_job/breakout kind tables] seeds OK")
+            # analysis_perspective_kind — the five financial perspectives the
+            # retrieval worker requests (spec 011 O-07); sort_order is dropdown
+            # order, not the default (analysis_service.DEFAULT_PERSPECTIVE).
+            conn.execute(text("""
+                MERGE analysis_perspective_kind AS target
+                USING (VALUES
+                    ('GR', 'Gross',              10),
+                    ('RL', 'Pre-Cat Net',        20),
+                    ('WX', 'Working Excess',     30),
+                    ('QS', 'Quota Share',        40),
+                    ('GU', 'Ground Up',          50)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [irp_job/rwb_job/breakout/perspective kind tables] seeds OK")
 
             app_env = os.environ.get("APP_ENV", "development")
             if app_env == "development":
