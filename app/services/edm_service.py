@@ -407,10 +407,6 @@ class EdmDetail:
     # The newest terminal breakout job's completion banner
     # (breakout_service.BreakoutBanner) — None when nothing warrants one.
     breakout_banner: Any = None
-    # Spec 013 (FR-001): analyses with retrieved results in this table's scope
-    # — Compare enables at ≥ 2. Page-scope here; the contextual and
-    # submission-scoped tables carry their own count.
-    results_ready_count: int = 0
 
 
 @dataclass
@@ -419,7 +415,6 @@ class ContextualEdmDetail:
     submission: SubmissionRef
     edm_choices: list[SubmissionRef]
     rdms: list[BrokerAnalysisGroup]
-    results_ready_count: int = 0
 
 
 @dataclass
@@ -431,7 +426,6 @@ class EdmAnalysesSection:
     executed_analyses: list[ExecutedAnalysis]
     submission: SubmissionRef | None = None
     rdms: list[BrokerAnalysisGroup] = field(default_factory=list)
-    results_ready_count: int = 0
 
 
 def latest_backfill_status(edm_id: str) -> str | None:
@@ -544,7 +538,6 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
                       else None),
         breakout_running=breakout.running,
         breakout_banner=breakout.banner,
-        results_ready_count=analysis_service.count_results_ready(edm_id=eid),
     )
 
 
@@ -570,8 +563,6 @@ def get_contextual_edm_detail(
             rdm_service.latest_backfill_status(rdm.rdm_id) in ("pending", "running"))
     return ContextualEdmDetail(
         edm=edm, submission=source, edm_choices=choices, rdms=rdms,
-        results_ready_count=analysis_service.count_results_ready(
-            submission_id=sid, edm_id=eid),
     )
 
 
@@ -610,9 +601,7 @@ def get_edm_analyses(
     return EdmAnalysesSection(
         id=_uid(row["id"]),
         executed_analyses=analysis_service.list_executed_analyses(edm_id=eid),
-        submission=source, rdms=rdms,
-        results_ready_count=analysis_service.count_results_ready(
-            submission_id=submission_id, edm_id=eid))
+        submission=source, rdms=rdms)
 
 
 def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:

@@ -16,6 +16,7 @@
   {% if a.submitted_at %}<span class="cmp-meta__part"><time data-utc="{{ a.submitted_at }}" title="{{ a.submitted_at }}">{{ a.submitted_at }}</time></span>{% endif %}
 </span>
 {%- endmacro -%}
+{% set ready = (rows or [])|selectattr('results_state', 'equalto', 'ready')|list %}
 <div class="modal" id="compare-modal">
   <div class="modal-card modal-card--wide" x-data="compareCart({{ max_pairs }})"
        {% if submission_id %}data-submission="{{ submission_id }}"{% endif %}
@@ -27,6 +28,8 @@
         dialog; the page updates on its own.</div>
       {% elif not rows %}
       <div class="state-box">No analyses in this table yet.</div>
+      {% elif ready|length < 2 %}
+      <div class="state-box">Fewer than two analyses have retrieved results yet.</div>
       {% else %}
       <div class="cmp-hint">Pick two analyses, then add the pair. The first
         picked is the <strong>base</strong> — percent change reads
@@ -81,7 +84,7 @@
     <div class="modal-footer">
       <button type="button" class="btn-sm"
               @click="$el.closest('.modal').remove()">Cancel</button>
-      {% if not gone and rows %}
+      {% if not gone and ready|length >= 2 %}
       <button type="button" class="btn-sm" :disabled="picks.length !== 2"
               @click="addPair()">Add pair</button>
       <button type="button" class="btn-sm btn-sm--primary"

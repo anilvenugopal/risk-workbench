@@ -90,7 +90,6 @@
           <tr>
             <td class="rp">{{ rp }}</td>
             {% for pair in pairs %}
-            {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
@@ -112,7 +111,7 @@
             </td>
             {% endif %}
             {% endfor %}
-            {% set prow = pct.rows[ri] if pct else none %}
+            {% set prow = pair.pct.rows[ri] if pair.pct else none %}
             <td class="chg">{{ pctcell((prow.oep if active_ep == 'OEP' else prow.aep) if prow is not none else none) }}</td>
             {% endfor %}
           </tr>
@@ -121,27 +120,25 @@
           <tr class="aal">
             <td class="rp">AAL</td>
             {% for pair in pairs %}
-            {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
             <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.aal) }}</td>
             {% endif %}
             {% endfor %}
-            <td class="chg">{{ pctcell(pct.aal if pct else none) }}</td>
+            <td class="chg">{{ pctcell(pair.pct.aal if pair.pct else none) }}</td>
             {% endfor %}
           </tr>
           <tr class="sd">
             <td class="rp">Std dev</td>
             {% for pair in pairs %}
-            {% set pct = pair.pct_for(active_perspective) %}
             {% for col in (pair.base, pair.second) %}
             {% set pr = col.for_code(active_perspective) %}
             {% if pr and pr.produced %}
             <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.std_dev) }}</td>
             {% endif %}
             {% endfor %}
-            <td class="chg">{{ pctcell(pct.std_dev if pct else none) }}</td>
+            <td class="chg">{{ pctcell(pair.pct.std_dev if pair.pct else none) }}</td>
             {% endfor %}
           </tr>
         </tbody>

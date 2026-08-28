@@ -167,7 +167,8 @@ def results_comparison(request: Request, pairs: str = "", submission: str = "",
     active_ep = ep_type if ep_type in EP_TYPES else EP_TYPES[0]
     active_label = next(
         (p["label"] for p in perspectives if p["code"] == active), active)
-    pair_list, dropped = analysis_service.list_comparison_pairs(pairs=pairs)
+    pair_list, dropped = analysis_service.list_comparison_pairs(
+        pairs=pairs, perspective=active)
     extra_crumbs, page_name = _entry_crumbs(submission, edm)
 
     return _render(request, "pages/results_comparison.html",

@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.services import (
     analysis_execution_service,
@@ -287,7 +288,6 @@ def _contextual_template_context(
         "detail_sync_url": f"{base_url}/sync",
         "detail_notes_url": f"{base_url}/notes",
         "analyses_table_url": f"{base_url}/analyses",
-        "results_ready_count": context.results_ready_count,
     }
 
 
@@ -648,7 +648,6 @@ def _analyses_section_partial(request: Request, edm_id: str,
                      "execution_id": execution_id,
                      "execution_live": analysis_service.execution_batch_is_live(
                          execution_id),
-                     "results_ready_count": section.results_ready_count,
                      "analyses_table_url": base})
 
 
@@ -661,9 +660,6 @@ def detail_analyses(request: Request, edm_id: str):
 
 @router.get("/edms/{edm_id}/analyses/compare", response_class=HTMLResponse)
 def detail_analyses_compare(request: Request, edm_id: str):
-    # Local import: the shared modal handler lives with the other two scope
-    # routes in the submissions router.
-    from app.routers.submissions import compare_modal_response
     return compare_modal_response(request, edm_id=edm_id)
 
 

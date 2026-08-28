@@ -868,7 +868,7 @@ def test_comparable_analyses_plain_edm_scope_has_no_broker_rows(iteration2_db):
     assert [r.name for r in rows] == ["Own Old"]
 
 
-def test_broker_run_currency_reads_the_live_nested_currency_object(iteration2_db):
+def test_broker_row_currency_reads_the_live_nested_currency_object(iteration2_db):
     # The live get-analysis-by-id payload (2026-08-26) has no flat
     # currencyCode: currency arrives as {currencyName, currencyCode}. Both
     # the modal row and the comparison-page column must still read USD.
@@ -904,17 +904,3 @@ def test_comparable_analyses_gone_scope_reads_none(iteration2_db):
         submission_id=fx.submission, edm_id=unrelated_edm) is None
     assert analysis_service.list_comparable_analyses(
         edm_id=str(uuid.uuid4())) is None
-
-
-def test_results_ready_count_spans_own_and_broker_rows(iteration2_db):
-    fx = _comparable_fixture(iteration2_db)
-
-    # submission scope: Own Old (extract) + Broker One (results retrieved)
-    assert analysis_service.count_results_ready(
-        submission_id=fx.submission) == 2
-    # contextual scope: the EDM's own rows + the submission's broker rows
-    assert analysis_service.count_results_ready(
-        submission_id=fx.submission, edm_id=fx.edm_two) == 1
-    # plain EDM scope: own rows only
-    assert analysis_service.count_results_ready(edm_id=fx.edm_one) == 1
-    assert analysis_service.count_results_ready(edm_id=fx.edm_two) == 0

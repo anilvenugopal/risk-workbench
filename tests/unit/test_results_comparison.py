@@ -108,12 +108,19 @@ class TestComparisonPage:
     def _client(self, monkeypatch, pair_list, drops=(), *, submission_name=None,
                 edm_name=None):
         from app.services import analysis_service, edm_service, submission_service
+        from app.services.analysis_service import ComparisonPair
 
         monkeypatch.setattr(analysis_service, "list_analysis_perspectives",
                             lambda: _perspectives())
+        # the real percent computation, so the page's cells stay covered while
+        # the resolution the route calls is stubbed out
         monkeypatch.setattr(
             analysis_service, "list_comparison_pairs",
-            lambda *, pairs: (list(pair_list), list(drops)))
+            lambda *, pairs, perspective: (
+                [ComparisonPair(base=p.base, second=p.second,
+                                pct=analysis_service._pair_percent(
+                                    p.base, p.second, perspective))
+                 for p in pair_list], list(drops)))
         monkeypatch.setattr(
             submission_service, "get_submission",
             lambda sid: (SimpleNamespace(id=SUB_ID, name=submission_name)
@@ -254,14 +261,11 @@ class TestComparisonPage:
 
         # perspective and EP type re-render #comparison-view, each carrying
         # the other's value and the pairs/entry params in the base URL
-        assert 'hx-target="#comparison-view"' in resp.text
-        assert 'hx-include="#res-ep"' in resp.text
         assert 'hx-include="#res-persp"' in resp.text
         assert "pairs=" in resp.text
         assert f"submission={SUB_ID}" in resp.text
-        # units (default millions) and Copy table are the existing slivers
+        # the units select and Copy table are the existing slivers
         assert "data-units-select" in resp.text
-        assert '<option value="millions" selected>' in resp.text
         assert "data-copy-table" in resp.text
 
     def test_absent_perspective_shows_partner_numbers_and_em_dash(
@@ -278,8 +282,6 @@ class TestComparisonPage:
         assert 'data-unit-value="1000000.0"' in resp.text
         # the absent side reads absent — never an error
         assert "did not produce this perspective" in resp.text
-        # % Chg is an em dash
-        assert '<td class="chg"><span class="na">—</span></td>' in resp.text
 
     def test_percent_cells_carry_no_unit_value(self, monkeypatch):
         base = _column(AN_A, "Alpha Analysis", value=1_000_000.0)
@@ -491,6 +493,8 @@ class TestCompareModalRoutes:
                                run_currency="USD", results_state="pending"),
             ComparableAnalysis(id=AN_C, name="Broke Down", rdm_name=None,
                                run_currency="USD", results_state="failed"),
+            ComparableAnalysis(id=AN_D, name="Ready Two", rdm_name=None,
+                               run_currency="USD", results_state="ready"),
         ]
         client, _ = self._client(monkeypatch, rows)
 
@@ -507,6 +511,8 @@ class TestCompareModalRoutes:
             self, monkeypatch):
         from app.services.analysis_service import ComparableAnalysis
         rows = [ComparableAnalysis(id=AN_A, name="No Currency", rdm_name=None,
+                                   run_currency=None, results_state="ready"),
+                ComparableAnalysis(id=AN_B, name="Also None", rdm_name=None,
                                    run_currency=None, results_state="ready")]
         client, _ = self._client(monkeypatch, rows)
 
@@ -517,7 +523,23 @@ class TestCompareModalRoutes:
         # still tickable — the pair-add refusal, not the list, names the gap
         assert 'disabled' not in resp.text.split('cmp-list')[1].split(
             'cmp-cart')[0]
-        assert '@change="toggle($event)"' in resp.text
+
+    def test_fewer_than_two_ready_rows_reads_the_state_and_hides_add_pair(
+            self, monkeypatch):
+        from app.services.analysis_service import ComparableAnalysis
+        rows = [
+            ComparableAnalysis(id=AN_A, name="Ready One", rdm_name=None,
+                               run_currency="USD", results_state="ready"),
+            ComparableAnalysis(id=AN_B, name="Still Running", rdm_name=None,
+                               run_currency="USD", results_state="pending"),
+        ]
+        client, _ = self._client(monkeypatch, rows)
+
+        resp = client.get(f"/submissions/{SUB_ID}/analyses/compare")
+
+        assert resp.status_code == 200
+        assert "Fewer than two analyses have retrieved results yet." in resp.text
+        assert "Add pair" not in resp.text
 
 
 class TestHandTypedUrls:

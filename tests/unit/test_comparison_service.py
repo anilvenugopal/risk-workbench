@@ -72,7 +72,7 @@ def test_pairs_string_parses_to_ordered_pairs(iteration2_db):
     d = _own(edm, "D", extract=_extract(scale=2.0))
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((a, b), (c, d)))
+        pairs=_pairs_param((a, b), (c, d)), perspective="GR")
 
     assert [(p.base.name, p.second.name) for p in pairs] == [
         ("A", "B"), ("C", "D")]
@@ -85,7 +85,8 @@ def test_unparseable_or_unresolvable_side_drops_the_pair_whole(iteration2_db):
     b = _own(edm, "B", extract=_extract())
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=f"not-a-uuid:{b},{str(uuid.uuid4())}:{b},{a}:{b}")
+        pairs=f"not-a-uuid:{b},{str(uuid.uuid4())}:{b},{a}:{b}",
+        perspective="GR")
 
     assert [(p.base.name, p.second.name) for p in pairs] == [("A", "B")]
     assert [d["kind"] for d in drops] == ["missing", "missing"]
@@ -100,7 +101,7 @@ def test_deleted_analysis_drops_the_pair_whole(iteration2_db):
         {"now": _utcnow(), "id": b}, connection="WORKBENCH")
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((a, b)))
+        pairs=_pairs_param((a, b)), perspective="GR")
 
     assert pairs == []
     assert [d["kind"] for d in drops] == ["missing"]
@@ -111,7 +112,7 @@ def test_self_pair_is_dropped(iteration2_db):
     a = _own(edm, "A", extract=_extract())
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((a, a)))
+        pairs=_pairs_param((a, a)), perspective="GR")
 
     assert pairs == []
     assert [d["kind"] for d in drops] == ["other"]
@@ -124,7 +125,8 @@ def test_unrecorded_currency_on_either_side_drops_the_pair(iteration2_db):
 
     for param in (_pairs_param((a, no_currency)),
                   _pairs_param((no_currency, a))):
-        pairs, drops = analysis_service.list_comparison_pairs(pairs=param)
+        pairs, drops = analysis_service.list_comparison_pairs(
+            pairs=param, perspective="GR")
         assert pairs == []
         assert [d["kind"] for d in drops] == ["other"]
 
@@ -135,7 +137,7 @@ def test_currency_mismatch_drops_the_pair_naming_both(iteration2_db):
     eur = _own(edm, "B", currency="EUR", extract=_extract())
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((usd, eur)))
+        pairs=_pairs_param((usd, eur)), perspective="GR")
 
     assert pairs == []
     assert [(d["kind"], d["currencies"]) for d in drops] == [
@@ -147,10 +149,26 @@ def test_only_the_first_five_pairs_survive(iteration2_db):
     ids = [_own(edm, f"A{n}", extract=_extract()) for n in range(7)]
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param(*((ids[n], ids[n + 1]) for n in range(6))))
+        pairs=_pairs_param(*((ids[n], ids[n + 1]) for n in range(6))),
+        perspective="GR")
 
     assert [p.base.name for p in pairs] == ["A0", "A1", "A2", "A3", "A4"]
     assert [d["kind"] for d in drops] == ["other"]
+
+
+def test_the_cap_counts_requested_pairs_not_survivors(iteration2_db):
+    edm = _mk("irp_edm", name="E", status="ready")
+    ids = [_own(edm, f"A{n}", extract=_extract()) for n in range(7)]
+    # the third requested pair is a self-pair; the seventh must not take its
+    # place inside the five the URL asked for
+    requested = [(ids[n], ids[n + 1]) for n in range(6)]
+    requested[2] = (ids[2], ids[2])
+
+    pairs, drops = analysis_service.list_comparison_pairs(
+        pairs=_pairs_param(*requested), perspective="GR")
+
+    assert [p.base.name for p in pairs] == ["A0", "A1", "A3", "A4"]
+    assert [d["kind"] for d in drops] == ["other", "other"]
 
 
 def test_one_analysis_may_sit_in_many_pairs(iteration2_db):
@@ -160,7 +178,7 @@ def test_one_analysis_may_sit_in_many_pairs(iteration2_db):
     c = _own(edm, "C", extract=_extract())
 
     pairs, drops = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((a, b), (a, c), (b, a)))
+        pairs=_pairs_param((a, b), (a, c), (b, a)), perspective="GR")
 
     assert [(p.base.name, p.second.name) for p in pairs] == [
         ("A", "B"), ("A", "C"), ("B", "A")]
@@ -168,7 +186,8 @@ def test_one_analysis_may_sit_in_many_pairs(iteration2_db):
 
 
 def test_no_pairs_param_yields_nothing(iteration2_db):
-    assert analysis_service.list_comparison_pairs(pairs="") == ([], [])
+    assert analysis_service.list_comparison_pairs(
+        pairs="", perspective="GR") == ([], [])
 
 
 # ── percent change (T-06) ─────────────────────────────────────────────────────
@@ -180,8 +199,8 @@ def test_percent_change_per_return_period_and_aal_and_std_dev(iteration2_db):
     second = _own(edm, "B", extract=_extract(aal=120.0, std=25.0, scale=1.5))
 
     [pair], _ = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((base, second)))
-    pct = pair.pct_for("GR")
+        pairs=_pairs_param((base, second)), perspective="GR")
+    pct = pair.pct
 
     # (second − base) / base: every stored OEP and AEP point is +50%
     assert all(r["oep"] == 0.5 for r in pct.rows)
@@ -198,8 +217,8 @@ def test_zero_or_missing_base_reads_none_never_inf(iteration2_db):
     second = _own(edm, "B", extract=_extract(scale=1.5, drop_rps=(25,)))
 
     [pair], _ = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((base, second)))
-    pct = pair.pct_for("GR")
+        pairs=_pairs_param((base, second)), perspective="GR")
+    pct = pair.pct
 
     by_rp = {r["rp"]: r["oep"] for r in pct.rows}
     assert by_rp["5"] is None       # zero base
@@ -214,9 +233,11 @@ def test_absent_perspective_on_either_side_yields_no_percent(iteration2_db):
     both = _own(edm, "A", extract=_extract(perspectives=("GR", "RL")))
     gr_only = _own(edm, "B", extract=_extract(perspectives=("GR",)))
 
-    [pair], _ = analysis_service.list_comparison_pairs(
-        pairs=_pairs_param((both, gr_only)))
+    def pct(code):
+        [pair], _ = analysis_service.list_comparison_pairs(
+            pairs=_pairs_param((both, gr_only)), perspective=code)
+        return pair.pct
 
-    assert pair.pct_for("GR") is not None
-    assert pair.pct_for("RL") is None
-    assert pair.pct_for("GU") is None
+    assert pct("GR") is not None
+    assert pct("RL") is None
+    assert pct("GU") is None

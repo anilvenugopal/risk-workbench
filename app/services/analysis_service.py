@@ -100,6 +100,8 @@ class SubmittedSettings:
     snapshot ``irp_analysis.submitted_settings``. Broker rows have no snapshot
     at all, which the row renders as *not returned*."""
     construction_occupancy: str | None = None
+    # submitted_settings.currency.code — the own row's pairing-guard value.
+    currency: str | None = None
 
 
 def _submitted_view(raw: Any) -> SubmittedSettings:
@@ -107,9 +109,12 @@ def _submitted_view(raw: Any) -> SubmittedSettings:
     if not p:
         return SubmittedSettings()
     unknown = p.get("treat_construction_occupancy_as_unknown")
+    currency = p.get("currency")
     return SubmittedSettings(
         construction_occupancy=("Treat as unknown" if unknown
                                 else _text(unknown)),
+        currency=(_text(currency.get("code"))
+                  if isinstance(currency, dict) else None),
     )
 
 
@@ -490,6 +495,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
         irp_app_analysis_id = (str(r["irp_app_analysis_id"])
                                if r["irp_app_analysis_id"] is not None else None)
         results = _perspective_results(r["loss_results"], perspectives)
+        submitted = _submitted_view(r["submitted_settings"])
         analyses.append(ExecutedAnalysis(
             id=_uid(r["id"]), name=r["name"], full_name=r["full_name"],
             portfolio_name=r["portfolio_name"], status_code=r["status_code"],
@@ -504,8 +510,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
             results_state=("ready" if results else "pending"), results=results,
-            submitted=_submitted_view(r["submitted_settings"]),
-            run_currency=_submitted_currency_code(r["submitted_settings"])))
+            submitted=submitted, run_currency=submitted.currency))
     _mark_failed_retrievals(analyses)
     return analyses
 
@@ -655,12 +660,6 @@ class ResultsColumn:
         return next((p for p in self.results if p.code == code), None)
 
 
-def _submitted_currency_code(raw: Any) -> str | None:
-    parsed = _parse_json_dict(raw, "submitted_settings") or {}
-    currency = parsed.get("currency")
-    return _text(currency.get("code")) if isinstance(currency, dict) else None
-
-
 def expanded_return_periods() -> list[str]:
     """The dedicated page's row labels — the 11 stored return periods, largest
     first, matching the row order ``_perspective_results`` builds."""
@@ -702,20 +701,20 @@ def list_results_columns(*, analysis_ids: list[Any],
         results = _perspective_results(row["loss_results"], perspectives,
                                        STORED_RETURN_PERIODS)
         parsed = _parse_settings(row["settings_metadata"])
+        display = _to_display(parsed)
         extract = _parse_json_dict(row["loss_results"], "loss_results") or {}
         columns.append(ResultsColumn(
             id=_uid(row["id"]),
             name=row["full_name"] or row["name"],
-            currency=_to_display(parsed).currency,
+            currency=display.currency,
             results_state=("ready" if results else "pending"),
             results=results,
             engine=AnalysisSettings(
                 engine_type=_text(extract.get("engine_type")),
                 engine_version=_text(extract.get("engine_version"))).engine,
-            run_currency=(_broker_run_currency(parsed)
-                          if row["rdm_id"] is not None
-                          else _submitted_currency_code(
-                              row["submitted_settings"]))))
+            run_currency=(display.currency if row["rdm_id"] is not None
+                          else _submitted_view(
+                              row["submitted_settings"]).currency)))
     _mark_failed_retrievals(columns)
     return columns, missing
 
@@ -740,57 +739,65 @@ def _pct(base: float | None, second: float | None) -> float | None:
 @dataclass
 class ComparisonPair:
     """One rendered pair (data-model.md) — built by ``list_comparison_pairs``,
-    never stored. ``base`` is the first-picked analysis (FR-003)."""
+    never stored. ``base`` is the first-picked analysis (FR-003). ``pct`` holds
+    the percent changes for the perspective the page renders."""
     base: ResultsColumn
     second: ResultsColumn
+    pct: PairPercent | None = None
 
-    def pct_for(self, code: str) -> PairPercent | None:
-        """Percent changes for one perspective; ``None`` when either side did
-        not produce it (FR-014 — the template renders the em dash)."""
-        base = self.base.for_code(code)
-        second = self.second.for_code(code)
-        if not (base and base.produced and second and second.produced):
-            return None
-        rows = [{"rp": b["rp"],
-                 "oep": _pct(b["oep"], s["oep"]),
-                 "aep": _pct(b["aep"], s["aep"])}
-                for b, s in zip(base.rows, second.rows, strict=True)]
-        return PairPercent(aal=_pct(base.aal, second.aal),
-                           std_dev=_pct(base.std_dev, second.std_dev),
-                           rows=rows)
+
+def _pair_percent(base_col: ResultsColumn, second_col: ResultsColumn,
+                  code: str) -> PairPercent | None:
+    """Percent changes for one perspective; ``None`` when either side did not
+    produce it (FR-014 — the template renders the em dash)."""
+    base = base_col.for_code(code)
+    second = second_col.for_code(code)
+    if not (base and base.produced and second and second.produced):
+        return None
+    rows = [{"rp": b["rp"],
+             "oep": _pct(b["oep"], s["oep"]),
+             "aep": _pct(b["aep"], s["aep"])}
+            for b, s in zip(base.rows, second.rows, strict=True)]
+    return PairPercent(aal=_pct(base.aal, second.aal),
+                       std_dev=_pct(base.std_dev, second.std_dev),
+                       rows=rows)
 
 
 def _valid_uuid(raw: str) -> str | None:
     try:
         return str(uuid.UUID(raw.strip()))
-    except (ValueError, AttributeError, TypeError):
+    except ValueError:
         return None
 
 
 MAX_COMPARISON_PAIRS = 5  # P-02 — the cart's and the render's shared cap
 
 
-def list_comparison_pairs(*, pairs: str,
+def list_comparison_pairs(*, pairs: str, perspective: str,
                           ) -> tuple[list[ComparisonPair], list[dict]]:
-    """Resolve a ``pairs=base:second,…`` query param into rendered pairs,
-    applying the four build-time validations (T-01): both sides parse and
-    resolve, the ids differ, both run currencies are recorded and equal, at
-    most the first ``MAX_COMPARISON_PAIRS`` pairs render. A failing pair is
-    dropped whole and recorded — ``kind`` ``missing`` (with the unresolved
-    ``ids``), ``currency`` (with both ``currencies``), or ``other``."""
+    """Resolve a ``pairs=base:second,…`` query param into rendered pairs, each
+    carrying its percent changes for ``perspective``. Only the first
+    ``MAX_COMPARISON_PAIRS`` pairs the query asked for are resolved; each pair
+    beyond them is dropped. Three build-time validations (T-01) then drop a
+    surviving pair whole and record it — ``kind`` ``missing`` (with the
+    unresolved ``ids``), ``currency`` (with both ``currencies``), or ``other``
+    for equal ids, an unrecorded currency, an id that does not parse, and a
+    pair past the cap."""
     parsed: list[tuple[str | None, str | None]] = []
     for token in pairs.split(","):
         left, _, right = token.partition(":")
         if not token.strip():
             continue
         parsed.append((_valid_uuid(left), _valid_uuid(right)))
+    drops: list[dict] = [{"kind": "other"}
+                         for _ in parsed[MAX_COMPARISON_PAIRS:]]
+    parsed = parsed[:MAX_COMPARISON_PAIRS]
     valid_ids = list(dict.fromkeys(
         i for pair in parsed for i in pair if i))
     columns, _ = list_results_columns(analysis_ids=valid_ids)
     by_id = {c.id: c for c in columns}
 
     out: list[ComparisonPair] = []
-    drops: list[dict] = []
     for left, right in parsed:
         base = by_id.get(left) if left else None
         second = by_id.get(right) if right else None
@@ -810,10 +817,9 @@ def list_comparison_pairs(*, pairs: str,
                           "currencies": (base.run_currency,
                                          second.run_currency)})
             continue
-        if len(out) >= MAX_COMPARISON_PAIRS:
-            drops.append({"kind": "other"})
-            continue
-        out.append(ComparisonPair(base=base, second=second))
+        out.append(ComparisonPair(
+            base=base, second=second,
+            pct=_pair_percent(base, second, perspective)))
     return out, drops
 
 
@@ -833,15 +839,6 @@ class ComparableAnalysis:
     peril: str | None = None
     engine: str | None = None
     submitted_at: Any = None  # own: submit request time; broker: RM createDate
-
-
-def _broker_run_currency(settings: dict | None) -> str | None:
-    """The live get-analysis-by-id payload carries currency as an object
-    ({currencyCode, currencyName}); the knowledge-base shape is a flat
-    currencyCode. Read the chain ``_to_display`` reads so the pairing guard
-    always matches the currency the table shows."""
-    return _text(_first(settings or {}, "currencyCode", "currencyName",
-                        "currency"))
 
 
 def list_comparable_analyses(
@@ -890,47 +887,12 @@ def list_comparable_analyses(
                     submission_id=submission_id, rdm_id=group.rdm_id) or []):
                 rows.append(ComparableAnalysis(
                     id=a.id, name=a.name, rdm_name=group.rdm_name,
-                    run_currency=_broker_run_currency(a.settings),
+                    run_currency=a.display.currency,
                     results_state=a.results_state,
                     event_rate_scheme=a.display.event_rate_scheme,
                     peril=a.display.peril, engine=a.display.engine,
                     submitted_at=a.created_at))
     return rows
-
-
-def count_results_ready(
-    *, submission_id: Any | None = None, edm_id: Any | None = None,
-) -> int:
-    """Compare's enablement count (FR-001): the scope's analyses with
-    ``loss_results IS NOT NULL``, broker handles counted once per
-    (rdm, ``irp_id``) — the ``_dedup_handles`` rule."""
-    if edm_id is not None:
-        own_row = execute_one(
-            "SELECT COUNT(*) AS n FROM irp_analysis "
-            "WHERE edm_id = :e AND execution_id IS NOT NULL "
-            "AND deleted_at IS NULL AND loss_results IS NOT NULL",
-            {"e": str(edm_id)}, connection="WORKBENCH")
-    else:
-        own_row = execute_one(
-            "SELECT COUNT(*) AS n FROM irp_analysis a "
-            "JOIN submission_edm se ON se.edm_id = a.edm_id "
-            "JOIN irp_edm e ON e.id = a.edm_id "
-            "WHERE se.submission_id = :s AND a.rdm_id IS NULL "
-            "AND e.deleted_at IS NULL AND a.deleted_at IS NULL "
-            "AND a.loss_results IS NOT NULL",
-            {"s": str(submission_id)}, connection="WORKBENCH")
-    count = int(own_row["n"] or 0)
-    if submission_id is not None:
-        broker_row = execute_one(
-            "SELECT COUNT(*) AS n FROM (SELECT DISTINCT a.rdm_id, a.irp_id "
-            "FROM irp_analysis a "
-            "JOIN submission_rdm sr ON sr.rdm_id = a.rdm_id "
-            "JOIN irp_rdm r ON r.id = a.rdm_id "
-            "WHERE sr.submission_id = :s AND r.deleted_at IS NULL "
-            "AND a.deleted_at IS NULL AND a.loss_results IS NOT NULL) t",
-            {"s": str(submission_id)}, connection="WORKBENCH")
-        count += int(broker_row["n"] or 0)
-    return count
 
 
 def list_submission_rdms(*, submission_id: Any) -> list[BrokerAnalysisGroup]:
@@ -982,7 +944,7 @@ __all__ = [
     "ComparableAnalysis", "ComparisonPair", "DeleteOutcome",
     "ExecutedAnalysis", "PairPercent", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",
-    "count_results_ready", "delete_executed_analyses",
+    "delete_executed_analyses",
     "execution_batch_is_live",
     "expanded_return_periods", "list_analysis_perspectives",
     "list_broker_analyses", "list_comparable_analyses",
