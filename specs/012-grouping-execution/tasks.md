@@ -130,11 +130,11 @@ either end.
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] [FR-013] [FR-015] [FR-016] [T-12] Verify `list_results_columns` in `app/services/analysis_service.py` resolves group ids (selects by id, no EDM filter) and adjust if it does not; group columns on `/results/analyses` render Currency/AAL/EP like analysis columns with the `ids` param order as column order — the existing neighbour-swap arrows need no change (O-04: drag-and-drop rework and O20-10 stay out of scope)
+- [X] T023 [US3] [FR-013] [FR-015] [FR-016] [T-12] Verify `list_results_columns` in `app/services/analysis_service.py` resolves group ids (selects by id, no EDM filter) and adjust if it does not; group columns on `/results/analyses` render Currency/AAL/EP like analysis columns with the `ids` param order as column order — the existing neighbour-swap arrows need no change (O-04: drag-and-drop rework and O20-10 stay out of scope)
 
 ### Tests for User Story 3
 
-- [ ] T024 [P] [US3] [FR-014] [FR-015] [FR-016] Unit tests in `tests/unit/test_analysis_service.py`: the merged-grid group row carries Engine "Group" with empty Portfolio/Template/EDM cells; `list_results_columns` returns a group column for a group id mixed with analysis ids, in `ids` order
+- [X] T024 [P] [US3] [FR-014] [FR-015] [FR-016] Unit tests in `tests/unit/test_analysis_service.py`: the merged-grid group row carries Engine "Group" with empty Portfolio/Template/EDM cells; `list_results_columns` returns a group column for a group id mixed with analysis ids, in `ids` order
 
 **Checkpoint**: quickstart §3 step 6 verifiable. **STOP** for approver click-through.
 
@@ -149,7 +149,7 @@ change; this phase pins the behavior and verifies it platform-side.
 **Independent Test**: quickstart §3 step 8 — in Risk Modeler, filter analyses by the
 submission-name tag; every Workbench-submitted analysis of the submission appears.
 
-- [ ] T025 [US4] [FR-017] [T-06] [O-05] Confirm the analysis-submit path applies the bare submission name via `tag_names` and that a unit test in `tests/unit/test_analysis_execution_service.py` asserts it (extend the test if 011 left it uncovered); confirm groups submit untagged — the grouping request body has no tag field (O-07)
+- [X] T025 [US4] [FR-017] [T-06] [O-05] Confirm the analysis-submit path applies the bare submission name via `tag_names` and that a unit test in `tests/unit/test_analysis_execution_service.py` asserts it (extend the test if 011 left it uncovered); confirm groups submit untagged — the grouping request body has no tag field (O-07)
   - Proof: the named unit assertion green; quickstart §3 step 8 platform filter shows every Workbench-submitted analysis of the submission
 
 **Checkpoint**: All four stories verifiable. **STOP** for approver click-through.

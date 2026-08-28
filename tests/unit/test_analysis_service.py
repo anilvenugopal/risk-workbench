@@ -12,12 +12,18 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from jinja2 import Environment, FileSystemLoader
 from sqlalchemy import text
 
 from app.config import settings as app_settings
 from app.services import analysis_service
 from app.services._common import _utcnow
 from db import execute_command, get_connection
+from tests.unit.grouping_rows import (
+    link_submission_edm,
+    seed_group,
+    seed_submission,
+)
 
 SETTINGS_FULL = {
     "analysisType": "Exceedance Probability", "engineType": "DLM",
@@ -730,3 +736,57 @@ def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
     assert col.name == "FL HU Gross 2026"
     assert col.results_state == "failed"
     assert col.results_error == "RM returned 500 on EP curve (GR)"
+
+
+# ── spec 012 US3: group rows in the merged grid and the results columns (T024) ─
+
+
+def _settings_cells(analysis) -> str:
+    """The Peril · Region · Engine · Currency cells the merged grid renders."""
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    macros = env.get_template("partials/analysis_row_macros.html").module
+    return str(macros.settings_cells(analysis))
+
+
+def test_submission_grid_group_row_reads_group_with_no_portfolio_or_edm(
+        iteration2_db):
+    edm = _edm("EDM One")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    _executed(edm_id=edm, portfolio_id=_portfolio(edm), name="CRE_P1_T1",
+              status_code="ready", settings=SETTINGS_FULL)
+    seed_group(submission, "CRE_Sub One_Group")
+
+    rows = {r.name: r for r in
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission)}
+
+    group = rows["CRE_Sub One_Group"]
+    assert group.is_group is True
+    assert (group.portfolio_name, group.template_name, group.edm_name) == (
+        None, None, None)
+    assert ">Group</span>" in _settings_cells(group)
+    assert ">DLM · 23.0</span>" in _settings_cells(rows["CRE_P1_T1"])
+
+
+def test_results_columns_include_a_group_in_ids_order(iteration2_db):
+    edm = _edm()
+    submission = seed_submission("Sub One")
+    analysis = _executed(edm_id=edm, name="A", status_code="ready",
+                         loss_results=_extract(),
+                         settings={"currencyCode": "USD"})
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready",
+                settings_metadata=json.dumps({"currencyCode": "USD"}),
+                loss_results=json.dumps(_extract(gr_aal=91000.0)))
+
+    columns, missing = analysis_service.list_results_columns(
+        analysis_ids=[group, analysis])
+
+    assert missing == 0
+    assert [c.name for c in columns] == ["CRE_Sub One_Group", "A"]
+    group_column = columns[0]
+    assert group_column.currency == "USD"
+    assert group_column.results_state == "ready"
+    assert group_column.for_code("GR").aal == 91000.0
