@@ -1,0 +1,54 @@
+{# The shared currency/scheme/vintage picker block (spec 010 FR-019/FR-020),
+   imported `with context` by the execute modal and the spec-012 group compose
+   dialog — the selects read currency_options / scheme_options from the
+   rendering context. #}
+{% import "partials/form_macros.html" as forms %}
+{% macro currency_block(scope_id, label, code_name, scheme_name, vintage_name, code_val, scheme_val, vintage_val, vintage_options) %}
+<div class="exec-currency">
+  <div class="exec-section-label">Currency {{ label }}</div>
+  <div class="wf-fields">
+    <div class="wf-field">
+      <label>ANALYSIS CURRENCY</label>
+      <div class="ta" x-data="selectSearch()" @click.outside="close()">
+        <select class="wf-field__input" name="{{ code_name }}" id="curr-code-{{ scope_id }}" x-ref="select" x-show="false">
+          <option value=""{% if not code_val %} selected{% endif %}>Choose a currency…</option>
+          {% for c in currency_options %}
+          <option value="{{ c.code }}"{% if c.code == code_val %} selected{% endif %}>{{ c.code }} — {{ c.name }}</option>
+          {% endfor %}
+        </select>
+        {{ forms.typeahead_controls(required=false) }}
+      </div>
+    </div>
+    <div class="wf-field">
+      <label>CURRENCY SCHEME</label>
+      <div class="ta" x-data="selectSearch()" @click.outside="close()">
+        <select class="wf-field__input" name="{{ scheme_name }}" id="curr-scheme-{{ scope_id }}" x-ref="select" x-show="false"
+                hx-get="/edms/execute/vintage-options" hx-trigger="change"
+                hx-target="#curr-vintage-{{ scope_id }}" hx-swap="innerHTML"
+                hx-vals='js:{"scheme": document.getElementById("curr-scheme-{{ scope_id }}").value}'>
+          <option value=""{% if not scheme_val %} selected{% endif %}>Choose a currency scheme…</option>
+          {% for s in scheme_options %}
+          <option value="{{ s.code }}"{% if s.code == scheme_val %} selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+        {{ forms.typeahead_controls(required=false) }}
+      </div>
+    </div>
+    <div class="wf-field">
+      <label>SCHEME VINTAGE</label>
+      <div class="ta" x-data="selectSearch()" @click.outside="close()">
+        <select class="wf-field__input{% if not vintage_val %} wf-field__input--empty{% endif %}" name="{{ vintage_name }}" id="curr-vintage-{{ scope_id }}" x-ref="select" x-show="false" @htmx:after-swap="sync(); recompute()">
+          <option value=""{% if not vintage_val %} selected{% endif %}>Choose a vintage…</option>
+          {% for v in vintage_options %}
+          <option value="{{ v.vintage }}"{% if v.vintage == vintage_val %} selected{% endif %}>{{ v.vintage }} (effective {{ v.effective_date }})</option>
+          {% endfor %}
+        </select>
+        {{ forms.typeahead_controls(required=false) }}
+      </div>
+    </div>
+  </div>
+  {% if scheme_val and not vintage_val %}
+  <div class="exec-currency__warn">Default vintage isn't in the synced cache — choose one to continue.</div>
+  {% endif %}
+</div>
+{% endmacro %}

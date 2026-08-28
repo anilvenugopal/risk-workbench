@@ -24,8 +24,10 @@
      ~ ('?submission=' ~ source_submission.id if source_submission is defined and source_submission else '')
      ~ ((('&' if source_submission is defined and source_submission else '?') ~ 'edm=' ~ edm.id)
         if edm is defined and edm else '') %}
+{% set grouping_request_id = grouping_request_id|default('') %}
 {% set query = ('status=' ~ status_filter if status_filter else '') %}
 {% if execution_id %}{% set query = query ~ ('&' if query else '') ~ 'execution_id=' ~ execution_id %}{% endif %}
+{% if grouping_request_id %}{% set query = query ~ ('&' if query else '') ~ 'grouping_request_id=' ~ grouping_request_id %}{% endif %}
 {% set analyses_url = analyses_base ~ ('?' ~ query if query else '') %}
 {% set filter_url = analyses_base ~ ('?execution_id=' ~ execution_id if execution_id else '') %}
 {% set broker_total = groups|map(attribute='analysis_count')|sum %}
@@ -69,6 +71,14 @@
             hx-include="[name='analysis_ids'], #analyses-csrf" hx-swap="none"
             hx-confirm="Delete the selected analyses? They are also deleted in Risk Modeler. This cannot be undone.">
       Delete</button>
+    {% endif %}
+    {% if source_submission is defined and source_submission %}
+    <button class="btn-sm" type="button" onclick="event.stopPropagation()"
+            :disabled="count < 2" data-group-analyses
+            hx-get="/submissions/{{ source_submission.id }}/analyses/group"
+            hx-include="[name='analysis_ids']"
+            hx-target="#group-modal" hx-swap="innerHTML"
+            title="Group the selected analyses (needs at least two)">Group</button>
     {% endif %}
     <button class="btn-sm btn-sm--primary" type="button" onclick="event.preventDefault()"
             :disabled="!count" data-view-analyses data-view-url="{{ view_url }}"

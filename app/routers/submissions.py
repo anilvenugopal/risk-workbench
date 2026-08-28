@@ -18,25 +18,29 @@ is wrong.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import date
 from functools import partial
 from typing import Annotated
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
+    analysis_execution_service,
     analysis_service,
     edm_service,
+    grouping_service,
     rdm_service,
     shared_drive,
     submission_service,
 )
+from app.services.analysis_execution_service import ExecutionGateError
 from app.services.errors import (
     ConcurrencyConflict,
     InvalidMemberName,
@@ -309,6 +313,8 @@ def _results_groups(submission_id: str) -> list:
 
 def _results_section_context(request: Request, submission_id: str,
                              submission) -> dict:
+    grouping_request_id = (request.query_params.get("grouping_request_id")
+                           or "").strip() or None
     return {
         "analyses": analysis_service.list_submission_executed_analyses(
             submission_id=submission_id),
@@ -321,6 +327,11 @@ def _results_section_context(request: Request, submission_id: str,
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
         "delete_url": None,
         "status_filter": _results_status_filter(request),
+        # Keeps the 3s poll alive between a compose POST and the worker's claim
+        # of the group row (spec 012 — no group row exists yet to read as live).
+        "grouping_request_id": grouping_request_id or "",
+        "execution_live": grouping_service.grouping_request_is_live(
+            grouping_request_id),
         "own_empty_text": "No analyses executed in this deal yet. Run a suite "
                           "or template from one of its EDMs.",
         "all_empty_text": "No analyses in this deal yet. Run a suite or "
@@ -360,6 +371,106 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
         return _not_found(request)
     return _partial(request, "partials/contextual_rdm_analyses.html",
                     {"analyses": analyses, "rdm": rdm, "show_edm": True})
+
+
+# ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
+
+def _group_modal_response(
+    request: Request, submission, *, preselected: list[str],
+    group_name: str | None = None, currency_code: str | None = None,
+    currency_scheme: str | None = None, currency_vintage: str | None = None,
+    propagate_detailed_output: bool = True, errors: list[str] | None = None,
+    status_code: int = 200,
+):
+    """The dialog fragment, shared by the GET and the gate's 422 re-render.
+    ``None`` field values take the fresh-open prefills (generated name, env
+    currency defaults, Propagate ON — FR-004/FR-005)."""
+    members = grouping_service.list_eligible_members(submission.id)
+    ctx: dict = {"submission": submission,
+                 "action_url": f"/submissions/{submission.id}/analyses/group"}
+    if len(members) < 2:
+        ctx["blocking"] = ("This submission needs at least two finished "
+                           "analyses before they can be grouped.")
+        return _partial(request, "partials/group_compose_modal.html", ctx,
+                        status_code=status_code)
+    defaults = analysis_execution_service.currency_defaults()
+    scheme = currency_scheme if currency_scheme is not None else defaults["scheme"]
+    ctx.update({
+        "blocking": None,
+        "members": members,
+        "preselected": {p.lower() for p in preselected},
+        "group_name": (group_name if group_name is not None else
+                       grouping_service.build_group_name(submission.id,
+                                                         submission.name)),
+        "currency_code_val": (currency_code if currency_code is not None
+                              else defaults["code"]),
+        "currency_scheme_val": scheme,
+        "currency_vintage_val": (currency_vintage if currency_vintage is not None
+                                 else defaults["vintage"]),
+        "vintage_options": analysis_execution_service.vintage_options(scheme),
+        "currency_options": analysis_execution_service.currency_options(),
+        "scheme_options": analysis_execution_service.currency_scheme_options(),
+        "propagate_detailed_output": propagate_detailed_output,
+        "errors": errors or [],
+    })
+    return _partial(request, "partials/group_compose_modal.html", ctx,
+                    status_code=status_code)
+
+
+@router.get("/submissions/{submission_id}/analyses/group",
+            response_class=HTMLResponse)
+def group_compose_modal(request: Request, submission_id: str):
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    return _group_modal_response(
+        request, submission,
+        preselected=request.query_params.getlist("analysis_ids"))
+
+
+@router.post("/submissions/{submission_id}/analyses/group")
+async def group_compose_submit(request: Request, submission_id: str):
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    member_ids = form.getlist("member_ids")
+    group_name = form.get("group_name", "")
+    currency_code = form.get("currency_code", "")
+    currency_scheme = form.get("currency_scheme", "")
+    currency_vintage = form.get("currency_vintage", "")
+    propagate = form.get("propagate_detailed_output") is not None
+    try:
+        grouping_request_id = grouping_service.request_grouping(
+            submission_id=submission.id, submission_name=submission.name,
+            member_ids=member_ids, group_name=group_name,
+            currency_code=currency_code, currency_scheme=currency_scheme,
+            currency_vintage=currency_vintage,
+            propagate_detailed_output=propagate,
+            actor_id=request.state.user.id)
+    except ExecutionGateError as exc:
+        # Retargeted at the mount because htmx drops a non-2xx body at the
+        # triggering element's own target by default.
+        response = _group_modal_response(
+            request, submission, preselected=member_ids,
+            group_name=group_name, currency_code=currency_code,
+            currency_scheme=currency_scheme, currency_vintage=currency_vintage,
+            propagate_detailed_output=propagate, errors=exc.errors,
+            status_code=422)
+        if _is_htmx(request):
+            response.headers["HX-Retarget"] = "#group-modal"
+            response.headers["HX-Reswap"] = "innerHTML"
+        return response
+    return Response(status_code=204, headers={
+        "HX-Trigger": json.dumps({
+            "grouping-submitted": {"grouping_request_id": grouping_request_id},
+            "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
+        }),
+    })
 
 
 def _detail_context(request: Request, submission_id: str) -> dict | None:

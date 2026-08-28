@@ -7,12 +7,14 @@
   {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
 {%- endmacro -%}
 
-{# Peril · Region · Engine · Currency — four cells. #}
+{# Peril · Region · Engine · Currency — four cells. The Engine cell is a group
+   row's disclosure: it reads "Group" (spec 012 FR-014). #}
 {%- macro settings_cells(a) -%}
   {%- set d = a.display -%}
+  {%- set engine = 'Group' if a.is_group|default(false) else d.engine -%}
     <span class="l"{% if d.peril %} title="{{ d.peril }}"{% endif %}>{{ cell(d.peril) }}</span>
     <span class="l"{% if d.region %} title="{{ d.region }}"{% endif %}>{{ cell(d.region) }}</span>
-    <span class="l"{% if d.engine %} title="{{ d.engine }}"{% endif %}>{{ cell(d.engine) }}</span>
+    <span class="l"{% if engine %} title="{{ engine }}"{% endif %}>{{ cell(engine) }}</span>
     <span class="l"{% if d.currency %} title="{{ d.currency }}"{% endif %}>{{ cell(d.currency) }}</span>
 {%- endmacro -%}
 
