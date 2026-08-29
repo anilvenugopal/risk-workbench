@@ -21,6 +21,8 @@ dependencies = [
     "sqlalchemy>=2.0",
     "pyodbc",
     "alembic",
+    "pandas>=2.0",
+    "pyarrow>=14.0",         # Parquet reading for db.elt.upload_parquet
 
     # Config
     "pydantic-settings",
