@@ -61,6 +61,9 @@ def setup_table() -> None:
                       "scenarios — shows a DataFrame can update some "
                       "columns via column_mapping and others by matching name.")
 
+    log("Starting table contents:")
+    show_table()
+
 
 def _describe_table(description: str) -> None:
     execute_command(
@@ -89,40 +92,77 @@ def _describe_column(column: str, description: str) -> None:
     )
 
 
+def show_dataframe(label: str, df: pd.DataFrame) -> None:
+    print(f"    {label}:")
+    for line in df.to_string(index=False).splitlines():
+        print(f"      {line}")
+
+
+def show_params(**params) -> None:
+    print("    enrich(...) called with:")
+    for name, value in params.items():
+        print(f"      {name} = {value!r}")
+
+
 def show_table() -> None:
+    """Pretty-print the whole table as an aligned grid."""
     rows = execute(
         f"SELECT elt_data_key, risk_score, status FROM dbo.{TABLE} ORDER BY elt_data_key",
         connection="WORKBENCH",
     )
-    for row in rows:
-        print(f"    {row}")
+    if not rows:
+        print("    (table is empty)")
+        return
+
+    columns = list(rows[0].keys())
+    str_rows = [{c: "" if row[c] is None else str(row[c]) for c in columns} for row in rows]
+    widths = {c: max(len(c), *(len(r[c]) for r in str_rows)) for c in columns}
+
+    def format_row(values: dict) -> str:
+        return "  ".join(values[c].ljust(widths[c]) for c in columns)
+
+    print(f"    {format_row({c: c for c in columns})}")
+    print(f"    {'  '.join('-' * widths[c] for c in columns)}")
+    for row in str_rows:
+        print(f"    {format_row(row)}")
 
 
 # ── Scenario 1: plain single-key update ─────────────────────────────────────
 
 def scenario_1_single_key() -> None:
-    log("Scenario 1: single-key update — DataFrame column names match the table")
+    log("Scenario 1: single-key update — DataFrame column names match the table. "
+        "Expect: rows 101 and 102 updated; row 103 untouched (no matching key "
+        "in the DataFrame).")
     df = pd.DataFrame({
         "elt_data_key": [101, 102],
         "risk_score": [0.85, 0.95],
         "status": ["Approved", "Approved"],
     })
+    show_dataframe("Input DataFrame", df)
+    show_params(table_name=TABLE, key_fields="elt_data_key", connection="WORKBENCH")
 
     rows_updated = enrich(df, TABLE, key_fields="elt_data_key", connection="WORKBENCH")
-    print(f"    rows_updated = {rows_updated} (row 103 is untouched — no matching key)")
-    show_table()
+    print(f"    rows_updated = {rows_updated}")
 
 
 # ── Scenario 2: column_mapping renames the key and an enrichment column ────
 
 def scenario_2_column_mapping() -> None:
     log("Scenario 2: column_mapping — DataFrame's 'src_id'/'src_score' map "
-        "to 'elt_data_key'/'risk_score'; 'status' matches by its own name")
+        "to 'elt_data_key'/'risk_score'; 'status' matches by its own name. "
+        "Expect: row 103 updated with risk_score=0.72, status='Flagged'.")
     df = pd.DataFrame({
         "src_id": [103],
         "src_score": [0.72],
         "status": ["Flagged"],
     })
+    show_dataframe("Input DataFrame", df)
+    show_params(
+        table_name=TABLE,
+        key_fields="src_id",
+        column_mapping={"src_id": "elt_data_key", "src_score": "risk_score"},
+        connection="WORKBENCH",
+    )
 
     rows_updated = enrich(
         df, TABLE,
@@ -131,11 +171,12 @@ def scenario_2_column_mapping() -> None:
         connection="WORKBENCH",
     )
     print(f"    rows_updated = {rows_updated}")
-    show_table()
 
 
 if __name__ == "__main__":
     setup_table()
     scenario_1_single_key()
     scenario_2_column_mapping()
-    log("Done. Table dbo.poc_enrich_submission is left in place — inspect it yourself.")
+
+    log("Final table contents (dbo.poc_enrich_submission, left in place — inspect it yourself):")
+    show_table()
