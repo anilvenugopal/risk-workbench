@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dedicated results page · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+
+/* ── existing app components reused as-is ─────────────────────────────────── */
+.btn-sm { font-size: var(--fs-caption); font-weight: var(--fw-medium); padding: 3px var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+select.wf-field__input { font: inherit; font-size: var(--fs-label); padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); }
+.state-box { border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--surface-recessed); padding: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-label); text-align: center; }
+.state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
+.crumb { color: var(--text-tertiary); font-size: var(--fs-label); text-decoration: none; }
+a.crumb:hover { color: var(--color-brand); text-decoration: underline; }
+.crumb--current { color: var(--text-primary); font-weight: var(--fw-medium); }
+.crumb__sep { color: var(--text-disabled); margin: 0 var(--space-1); }
+
+/* the .ep table from details.css — the shape the expanded row already uses */
+.ep-shell{overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.ep{border-collapse:collapse;width:100%;font-size:var(--fs-label)}
+.ep th,.ep td{padding:var(--space-1) var(--space-3);white-space:nowrap}
+.ep thead th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;border-bottom:1px solid var(--border-default)}
+.ep thead th.l{text-align:left}
+.ep thead th.gsep,.ep td.gsep{border-left:1px solid var(--border-default)}
+.ep tbody td{font-family:var(--font-mono);font-size:var(--fs-mono);font-variant-numeric:tabular-nums;text-align:right;border-bottom:1px solid var(--border-faint)}
+.ep tbody td.rp{font-family:var(--font-ui);font-size:var(--fs-label);font-weight:var(--fw-medium);text-align:left;color:var(--text-secondary)}
+.ep tr.aal td{border-top:2px solid var(--border-strong);border-bottom:none;font-weight:var(--fw-medium);background:var(--surface-recessed)}
+.ep tr.aal td.rp{font-weight:var(--fw-semibold);color:var(--text-primary)}
+.ep tr.sd td{border-bottom:none;background:var(--surface-recessed);color:var(--text-secondary)}
+.aal-state { font-size: var(--fs-caption); font-style: italic; color: var(--text-disabled); }
+.aal-state--failed { color: var(--color-negative); font-style: normal; }
+.exec-reason { display: block; margin-top: 2px; font-size: var(--fs-caption); color: var(--color-negative); white-space: normal; }
+.na { color: var(--text-disabled); }
+
+/* ============================================================================
+   NET-NEW — what the dedicated page adds on top of the .ep table.
+   ============================================================================ */
+/* toolbar above the table: perspective (screen-wide, HTMX re-render) · units
+   (client-side, millions default) · copy — the one page a units control exists (O-12) */
+.res-toolbar{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3)}
+.res-toolbar label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.res-toolbar .sp{margin-left:auto}
+.res-count{font-size:var(--fs-caption);color:var(--text-tertiary)}
+
+/* per-analysis column header: reorder arrows · name · currency + state line */
+.ep th.an{white-space:normal;min-width:150px;max-width:220px;vertical-align:bottom;text-align:right}
+.an__order{display:flex;justify-content:flex-end;gap:2px;margin-bottom:2px}
+.an__btn{font-size:10px;line-height:1;padding:1px 5px;border:1px solid var(--border-default);border-radius:var(--radius-xs);background:var(--surface-panel);color:var(--text-tertiary);cursor:pointer}
+.an__btn:disabled{opacity:.4;cursor:default}
+.an__name{display:block;font-size:var(--fs-caption);letter-spacing:0;text-transform:none;color:var(--text-primary);font-weight:var(--fw-semibold);overflow-wrap:anywhere}
+.an__sub{display:block;font-size:var(--fs-eyebrow);letter-spacing:.05em;color:var(--text-tertiary);font-weight:var(--fw-regular)}
+/* a pending / failed / absent column keeps its place: one message cell spans the body rows */
+.ep td.colmsg{white-space:normal;font-family:var(--font-ui);font-size:var(--fs-caption);color:var(--text-tertiary);font-style:italic;text-align:center;vertical-align:middle;max-width:220px}
+.ep td.colmsg .exec-reason{font-style:normal;text-align:center}
+
+/* preview chrome (not app CSS) */
+.pv-wrap{max-width:1400px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:105ch}
+.pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
+.pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:105ch}
+.pv-cap b{color:var(--text-primary)}
+.pv-page{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);padding:var(--space-5);box-shadow:var(--shadow-sm)}
+.pv-tab{display:inline-flex;align-items:center;gap:var(--space-2);border:1px solid var(--border-default);border-bottom:none;border-radius:var(--radius-md) var(--radius-md) 0 0;background:var(--surface-recessed);padding:2px var(--space-3);font-size:var(--fs-caption);color:var(--text-secondary)}
+.pv-crumbband{display:flex;align-items:center;margin:0 0 var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint)}
+.pv-note{background:var(--color-info-bg);border:1px solid var(--color-info-border);color:var(--color-info);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);font-size:var(--fs-caption);max-width:105ch;margin-bottom:var(--space-4)}
+.pv-narrow{max-width:760px}
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <div class="pv-hero">Dedicated results page — N analyses side by side</div>
+
+  <div class="pv-note">
+    <strong>Closed out 2026-08-27 — built.</strong> Approved 2026-08-26, then changed the same day by the
+    8/26 design session (note 20 D9/D11): one EP type at a time behind an <strong>EP type</strong> selector
+    (no paired OEP/AEP columns), and the perspective dropdown opening on <strong>Pre-Cat Net</strong>.
+    <code>app/templates/pages/results_analyses.html</code> carries both changes and is the reference now;
+    the tables below predate them and draw both EP types. Kept for the page shape, breadcrumbs,
+    pending/failed columns, reorder arrows and horizontal scroll, which all held. The Iteration-10
+    comparison preview is <code>analysis_comparison.html</code>.
+  </div>
+  <div class="pv-sub">
+    <code>GET /results/analyses?ids=…</code>, opened in a new tab by <b>View</b> on either merged table
+    (spec 011 US4). One column per analysis in <code>ids</code> order, all 11 return periods × both EP
+    types, then <b>AAL</b> and <b>Std dev</b> as the last two rows — the same <code>.ep</code> table the
+    expanded row already uses, grown sideways. The perspective dropdown re-renders the whole screen
+    (FR-012); the units selector (ones/thousands/millions, millions default — the one place it exists,
+    O-12/FR-017) and Copy table are client-side over <code>data-value</code>. Reorder arrows in each
+    column header rewrite the <code>ids</code> param and re-request (FR-016). Numbers and tables only —
+    no graph (FR-019). Broker columns never name a portfolio (FR-020).
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">1 · The page — entry from the EDM detail page</div>
+  <p class="pv-cap">Browser tab title carries the EDM name (entry from the submission page carries the
+  submission name instead). Breadcrumbs: the manifest chain (<b>Results / Analyses</b>) then the entity
+  crumbs — submission, then EDM when <code>edm=</code> is present — both linking back (FR-014). Four
+  columns here show the states side by side: two ready (one own, one broker — the broker column reads the
+  broker's own analysis name, no portfolio), one still retrieving, one whose retrieval failed with its
+  reason. Pending and failed columns hold their place and are never dropped (FR-008). Values are in
+  millions (the default); every cell keeps the raw stored number in <code>data-value</code> and
+  <code>title</code>.</p>
+
+  <div>
+    <span class="pv-tab">🗔 Coastal HO 2026 · Risk Workbench</span>
+    <div class="pv-page" style="border-top-left-radius:0">
+      <div class="pv-crumbband">
+        <a class="crumb" href="#">Results</a><span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">Analyses</span><span class="crumb__sep">/</span>
+        <a class="crumb" href="#">Coastal Re HO 2026</a><span class="crumb__sep">/</span>
+        <a class="crumb" href="#">Coastal HO 2026</a>
+      </div>
+
+      <div class="res-toolbar">
+        <label>Perspective</label>
+        <select class="wf-field__input"><option>Gross</option><option>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option><option>Ground Up</option></select>
+        <label>Units</label>
+        <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+        <button class="btn-sm">&#8942; Copy table</button>
+        <span class="sp"></span>
+        <span class="res-count">4 analyses · Gross · millions</span>
+      </div>
+
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l" style="vertical-align:bottom">Return period</th>
+              <th class="an gsep" colspan="2">
+                <span class="an__order"><button class="an__btn" disabled>&#9664;</button><button class="an__btn">&#9654;</button></span>
+                <span class="an__name" title="CRE_HO_FL_v25 DLM HU">CRE_HO_FL_v25 DLM HU</span>
+                <span class="an__sub">USD · ready</span>
+              </th>
+              <th class="an gsep" colspan="2">
+                <span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span>
+                <span class="an__name" title="GA HU Gross 2026">GA HU Gross 2026</span>
+                <span class="an__sub">USD · ready</span>
+              </th>
+              <th class="an gsep" colspan="2">
+                <span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span>
+                <span class="an__name" title="CRE_HO_GA_v25 DLM HU">CRE_HO_GA_v25 DLM HU</span>
+                <span class="an__sub">USD · <span class="aal-state">retrieving…</span></span>
+              </th>
+              <th class="an gsep" colspan="2">
+                <span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn" disabled>&#9654;</button></span>
+                <span class="an__name" title="CRE_HO_SC_v25 DLM HU">CRE_HO_SC_v25 DLM HU</span>
+                <span class="an__sub">USD · <span class="aal-state aal-state--failed">retrieval failed</span></span>
+              </th>
+            </tr>
+            <tr>
+              <th class="l"></th>
+              <th class="gsep">OEP</th><th>AEP</th>
+              <th class="gsep">OEP</th><th>AEP</th>
+              <th class="gsep">OEP</th><th>AEP</th>
+              <th class="gsep">OEP</th><th>AEP</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">326.7</td><td>341.0</td><td class="gsep">3.2</td><td>3.4</td>
+              <td class="colmsg gsep" colspan="2" rowspan="13">Results pending —<br>retrieval is queued or running.</td>
+              <td class="colmsg gsep" colspan="2" rowspan="13">Results retrieval failed.<span class="exec-reason">RM returned 500 on EP curve (GR) — retried 3×</span></td></tr>
+            <tr><td class="rp">5,000</td><td class="gsep">274.1</td><td>289.5</td><td class="gsep">2.7</td><td>2.9</td></tr>
+            <tr><td class="rp">2,000</td><td class="gsep">203.4</td><td>217.2</td><td class="gsep">2.0</td><td>2.2</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">152.8</td><td>163.9</td><td class="gsep">1.4</td><td>1.5</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">112.7</td><td>122.4</td><td class="gsep">0.9</td><td>1.0</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">83.1</td><td>91.2</td><td class="gsep">0.6</td><td>0.7</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">52.8</td><td>59.3</td><td class="gsep">0.3</td><td>0.4</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">35.5</td><td>40.8</td><td class="gsep">0.2</td><td>0.2</td></tr>
+            <tr><td class="rp">25</td><td class="gsep">22.9</td><td>26.7</td><td class="gsep">0.1</td><td>0.1</td></tr>
+            <tr><td class="rp">10</td><td class="gsep">10.4</td><td>12.6</td><td class="gsep">0.0</td><td>0.1</td></tr>
+            <tr><td class="rp">5</td><td class="gsep">4.7</td><td>6.1</td><td class="gsep">0.0</td><td>0.0</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">4.1</td><td class="gsep" colspan="2">0.0</td></tr>
+            <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">14.9</td><td class="gsep" colspan="2">0.1</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">2 · A perspective the analysis did not produce</div>
+  <p class="pv-cap">Switching the screen to <b>Reinsurance Layer</b>: an analysis that produced it shows its
+  numbers; one that did not reads <b>not produced</b> — displayed as absent, never as an error (FR-004). The
+  column, its header, and its order controls all stay.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="res-toolbar">
+      <label>Perspective</label>
+      <select class="wf-field__input"><option>Gross</option><option selected>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option><option>Ground Up</option></select>
+      <label>Units</label>
+      <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <span class="sp"></span>
+      <span class="res-count">2 analyses · Reinsurance Layer · millions</span>
+    </div>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th class="an gsep" colspan="2">
+              <span class="an__order"><button class="an__btn" disabled>&#9664;</button><button class="an__btn">&#9654;</button></span>
+              <span class="an__name">CRE_HO_FL_v25 DLM HU</span>
+              <span class="an__sub">USD · ready</span>
+            </th>
+            <th class="an gsep" colspan="2">
+              <span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn" disabled>&#9654;</button></span>
+              <span class="an__name">FL HU Gross 2026</span>
+              <span class="an__sub">USD · ready</span>
+            </th>
+          </tr>
+          <tr>
+            <th class="l"></th>
+            <th class="gsep">OEP</th><th>AEP</th>
+            <th class="gsep">OEP</th><th>AEP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rp">10,000</td><td class="gsep">118.2</td><td>124.6</td>
+            <td class="colmsg gsep" colspan="2" rowspan="13">The analysis did not produce<br>this perspective.</td></tr>
+          <tr><td class="rp">5,000</td><td class="gsep">99.7</td><td>105.9</td></tr>
+          <tr><td class="rp">2,000</td><td class="gsep">74.5</td><td>80.1</td></tr>
+          <tr><td class="rp">1,000</td><td class="gsep">55.9</td><td>60.3</td></tr>
+          <tr><td class="rp">500</td><td class="gsep">41.4</td><td>45.2</td></tr>
+          <tr><td class="rp">250</td><td class="gsep">30.6</td><td>33.8</td></tr>
+          <tr><td class="rp">100</td><td class="gsep">19.5</td><td>22.0</td></tr>
+          <tr><td class="rp">50</td><td class="gsep">13.1</td><td>15.1</td></tr>
+          <tr><td class="rp">25</td><td class="gsep">8.4</td><td>9.9</td></tr>
+          <tr><td class="rp">10</td><td class="gsep">3.8</td><td>4.7</td></tr>
+          <tr><td class="rp">5</td><td class="gsep">1.7</td><td>2.3</td></tr>
+          <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">1.5</td></tr>
+          <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">5.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">3 · Unknown or deleted ids — a notice, never a 500</div>
+  <p class="pv-cap">An id that no longer resolves (deleted since the tab was opened, or a stale URL) renders
+  an absent-analysis notice above the table; the ids that do resolve render normally.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="pv-note">2 of the selected analyses no longer exist — they may have been deleted since this
+    view was opened. The remaining 1 is shown.</div>
+    <div class="res-toolbar">
+      <label>Perspective</label>
+      <select class="wf-field__input"><option>Gross</option><option>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option><option>Ground Up</option></select>
+      <label>Units</label>
+      <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <span class="sp"></span>
+      <span class="res-count">1 analysis · Gross · millions</span>
+    </div>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th class="an gsep" colspan="2">
+              <span class="an__name">CRE_HO_FL_v25 DLM HU</span>
+              <span class="an__sub">USD · ready</span>
+            </th>
+          </tr>
+          <tr><th class="l"></th><th class="gsep">OEP</th><th>AEP</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="rp">10,000</td><td class="gsep">326.7</td><td>341.0</td></tr>
+          <tr><td class="rp">5,000</td><td class="gsep">274.1</td><td>289.5</td></tr>
+          <tr><td class="rp">2,000</td><td class="gsep">203.4</td><td>217.2</td></tr>
+          <tr><td class="rp">1,000</td><td class="gsep">152.8</td><td>163.9</td></tr>
+          <tr><td class="rp">500</td><td class="gsep">112.7</td><td>122.4</td></tr>
+          <tr><td class="rp">250</td><td class="gsep">83.1</td><td>91.2</td></tr>
+          <tr><td class="rp">100</td><td class="gsep">52.8</td><td>59.3</td></tr>
+          <tr><td class="rp">50</td><td class="gsep">35.5</td><td>40.8</td></tr>
+          <tr><td class="rp">25</td><td class="gsep">22.9</td><td>26.7</td></tr>
+          <tr><td class="rp">10</td><td class="gsep">10.4</td><td>12.6</td></tr>
+          <tr><td class="rp">5</td><td class="gsep">4.7</td><td>6.1</td></tr>
+          <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">4.1</td></tr>
+          <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">14.9</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">4 · Past ~10 columns — horizontal scroll, no pagination</div>
+  <p class="pv-cap">Selection is never blocked (O-09). The table sits in the existing
+  <code>overflow-x</code> shell; past the guideline it scrolls sideways — the return-period column is the
+  anchor you scroll against. Shown here squeezed to force the scrollbar. No count block, no pagination.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="res-toolbar">
+      <label>Perspective</label>
+      <select class="wf-field__input"><option>Gross</option><option>Reinsurance Layer</option><option>Working Excess</option><option>Quota Share</option><option>Ground Up</option></select>
+      <label>Units</label>
+      <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+      <button class="btn-sm">&#8942; Copy table</button>
+      <span class="sp"></span>
+      <span class="res-count">12 analyses · Gross · millions</span>
+    </div>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn" disabled>&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">CRE_HO_FL_v25 DLM HU</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">CRE_HO_GA_v25 DLM HU</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">CRE_HO_SC_v25 DLM HU</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">CRE_HO_NC_v25 DLM HU</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">FL HU Gross 2026</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">GA HU Gross 2026</span><span class="an__sub">USD · ready</span></th>
+            <th class="an gsep" colspan="2"><span class="an__order"><button class="an__btn">&#9664;</button><button class="an__btn">&#9654;</button></span><span class="an__name">+ 6 more columns…</span><span class="an__sub">scrolls &#8594;</span></th>
+          </tr>
+          <tr>
+            <th class="l"></th>
+            <th class="gsep">OEP</th><th>AEP</th><th class="gsep">OEP</th><th>AEP</th><th class="gsep">OEP</th><th>AEP</th>
+            <th class="gsep">OEP</th><th>AEP</th><th class="gsep">OEP</th><th>AEP</th><th class="gsep">OEP</th><th>AEP</th>
+            <th class="gsep">OEP</th><th>AEP</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rp">10,000</td><td class="gsep">326.7</td><td>341.0</td><td class="gsep">201.3</td><td>214.8</td><td class="gsep">158.0</td><td>166.2</td><td class="gsep">140.4</td><td>149.7</td><td class="gsep">3.2</td><td>3.4</td><td class="gsep">3.0</td><td>3.2</td><td class="gsep">…</td><td>…</td></tr>
+          <tr><td class="rp">1,000</td><td class="gsep">152.8</td><td>163.9</td><td class="gsep">96.1</td><td>103.5</td><td class="gsep">71.9</td><td>77.4</td><td class="gsep">63.2</td><td>68.8</td><td class="gsep">1.4</td><td>1.5</td><td class="gsep">1.3</td><td>1.4</td><td class="gsep">…</td><td>…</td></tr>
+          <tr><td class="rp">…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td><td class="gsep">…</td><td>…</td></tr>
+          <tr class="aal"><td class="rp">AAL</td><td class="gsep" colspan="2">4.1</td><td class="gsep" colspan="2">2.6</td><td class="gsep" colspan="2">1.9</td><td class="gsep" colspan="2">1.7</td><td class="gsep" colspan="2">0.0</td><td class="gsep" colspan="2">0.0</td><td class="gsep" colspan="2">…</td></tr>
+          <tr class="sd"><td class="rp">Std dev</td><td class="gsep" colspan="2">14.9</td><td class="gsep" colspan="2">9.8</td><td class="gsep" colspan="2">7.2</td><td class="gsep" colspan="2">6.5</td><td class="gsep" colspan="2">0.1</td><td class="gsep" colspan="2">0.1</td><td class="gsep" colspan="2">…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">5 · Nothing to show</div>
+  <p class="pv-cap">No <code>ids</code> at all (a hand-typed URL), or none of them resolve.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="state-box">No analyses to display. Select analyses on a submission or EDM page and choose
+    <strong>View</strong>.</div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -355,44 +355,42 @@ Setting up analyses. Configuring a worldwide contract by hand is the #1 analyst 
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Standard model (DLM) profiles are selected from a pre-compiled list. | Not implemented | Profiles are created and managed in Risk Modeler; the workbench selects, it does not own profile management. |
-| Multiple model profiles can be selected for one portfolio/treaty combination. | Not implemented |  |
-| Output profiles are selected from a pre-compiled list. | Not implemented | Also created and managed in Risk Modeler. |
-| User-defined (UD) profiles are supported and selectable. | Not implemented | Naming convention `UD` + initials, e.g. UDCT. |
-| Profile lists can be filtered. | Not implemented | When the list grows long — "just get to UDCT." |
-| An event-rate scheme is configurable per analysis. | Not implemented | People are "very picky" about it. |
-| Franchise deductible is an exposed per-analysis toggle. | Not implemented | Deal-specific; the team wants direct access — the exception to holding advanced settings constant. |
-| Unrecognized construction / occupancy type is an exposed per-analysis toggle. | Not implemented |  |
-| Min loss threshold and max loss event stay at defaults. | Not implemented | Held constant, not surfaced. |
-| Tags can be set per analysis. | Not implemented |  |
-| Loss/analysis currency is selected per analysis. | Not implemented | Assigned in the analysis builder; changing it affects only the selected analyses. |
-| Analysis currency defaults to the exposure's native currency when the exposure is one-to-one. | Not implemented | A single currency in the exposure. |
-| Analysis currency defaults to USD otherwise. | Not implemented | General default; a US book must not default to Euros. |
-| The latest currency scheme is used by default when rerunning. | Not implemented | Currency scheme = the exchange rate at a point in time. |
-| A custom currency scheme can be selected when one exists. | Not implemented | The workbench does not build or import schemes — those are built in Risk Modeler. |
-| Treaties are selected by name or pattern. | Not implemented |  |
-| DLM requires an event-rate scheme. | Not implemented | Determined by the model profile, not the file. |
-| HD makes the event-rate scheme optional. | Not implemented | Determined by the model profile, not the file. |
-| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Implemented | **Added 8/14.** A dedicated analysis-metadata screen; same pattern as EDM data — selected, not owned. |
+| Standard model (DLM) profiles are selected from a pre-compiled list. | Implemented | Profiles are created and managed in Risk Modeler; the workbench selects, it does not own profile management. Delivered as the template builder over the synced metadata cache (Iteration 6, spec 009). |
+| Multiple model profiles can be selected for one portfolio/treaty combination. | Not implemented | One profile per template; choosing several templates (or a suite) in one execution covers this (Iteration 7). |
+| Output profiles are selected from a pre-compiled list. | Implemented | Also created and managed in Risk Modeler. |
+| User-defined (UD) profiles are supported and selectable. | Implemented | Naming convention `UD` + initials, e.g. UDCT. |
+| Profile lists can be filtered. | Implemented | Substring filtering over the local cache (spec 009 FR-006) — "just get to UDCT." |
+| An event-rate scheme is configurable per analysis. | Implemented | Per template since Iteration 6. People are "very picky" about it. |
+| Franchise deductible is an exposed per-analysis toggle. | Implemented | A template-builder setting. Deal-specific; the team wants direct access — the exception to holding advanced settings constant. |
+| Unrecognized construction / occupancy type is an exposed per-analysis toggle. | Implemented | Template setting: "Skip location during analysis" or "Treat as unknown". |
+| Min loss threshold and max loss event are surfaced in the template builder, pre-filled with defaults. | Implemented | **Changed 8/18 (spec 009 FR-005).** Was "stay at defaults, not surfaced." |
+| Tags can be set per analysis. | Implemented | Per template, stored as names; Risk Modeler resolves and creates tags at submit time. |
+| Loss/analysis currency is confirmed at submit time, per suite. | Not implemented | **Changed 8/20 (note 17 D4/D5; reverses spec 009 P-10).** Templates store no currency. The execution modal confirms currency + currency scheme + scheme vintage per chosen suite (once for a template run); mixed-currency books run as separate regional suites (spec 010 P-15, Iteration 7). |
+| Currency defaults pre-fill the submit-time pickers and never advance on their own. | Not implemented | **Added 8/20 (note 17 D6/D7).** Pinned env vars (`DEFAULT_ANALYSIS_CURRENCY_CODE`/`_SCHEME`/`_VINTAGE`) edited by ops; no admin UI/RBAC in MVP; CIC — not the system — flips the default when currencies update. The submit block stays `{code, scheme, vintage, asOfDate}`, `asOfDate` from the chosen vintage's effective date (spec 010 P-16). |
+| A custom currency scheme can be selected when one exists. | Implemented | The workbench does not build or import schemes — those are built in Risk Modeler. |
+| Treaties are selected explicitly at run time, in the execution modal. | Not implemented | **Changed 8/18 (spec 009 P-09) and 8/20.** The template-stored name pattern is dropped; the analyst picks treaties by name when executing (§5, Iteration 7). |
+| DLM requires an event-rate scheme. | Implemented | Determined by the model profile, not the file; enforced at template save. |
+| HD makes the event-rate scheme optional. | Implemented | Determined by the model profile, not the file. |
+| Model, output, and accumulation profiles and currency schemes are viewed in the workbench, created and edited in Risk Modeler, and synced back. | Implemented | **Added 8/14.** The analysis-metadata screen: five tabs (model profiles, output profiles, event-rate schemes, currencies, currency schemes with vintages); same pattern as EDM data — selected, not owned. Accumulation profiles await a tabled irp-integration read (spec 009 FR-001). |
 | Event-rate schemes are selected, never authored. | Implemented | **Added 8/14.** CIC does not create custom event rates. Admins can hide schemes from the pickers (spec 009 P-13). |
 
 **Templates & suites**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme, plus optional additional settings. | Implemented | **Changed 8/14; currency removed 8/20 (spec 009 P-11)** — analysis currency, scheme, and vintage are chosen at submit time, never stored. "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD. Supersedes the "big three" phrasing. |
-| A suite is an unordered set of templates. | Implemented | **Changed 8/14; unordered per spec 009 P-08** — no item order, no per-item settings. e.g. "Global 2026 Q1." |
-| A suite is defined primarily by region and output level. | Implemented | **Added 8/14.** The other settings are standardized within the suite. A naming/usage convention — region is not a stored attribute (spec 009 P-03). |
-| Suites are predefined, not freeform user-built. | Implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Exceptions drop to the long list or Risk Modeler. |
-| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Starter suites are built manually on this page (seeding deferred, spec 009 P-02); duplicate-and-edit (P-12) is the fast path. |
-| Suites and templates can be exported and imported as CSV/Excel. | Deferred | **Added 8/14; deferred 8/19 (spec 009 P-02).** The worked Excel design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`. |
+| A template is one analysis definition: analysis/model profile + output profile + event-rate scheme, plus analysis settings. | Implemented | **Changed 8/14; shipped Iteration 6 (spec 009); currency removed 8/20 (note 17 D4).** "One row in Analysis Builder." The event rate is auto-populated — required for DLM, optional for HD/Accumulation. Currency is confirmed at submit time, per suite (spec 010 P-15). |
+| A suite is an unordered set of templates. | Implemented | **Changed 8/18 (spec 009 P-08)** — was "ordered". No item order, no per-item settings; a template appears at most once per suite. e.g. "Global 2026 Q1." |
+| A suite is defined primarily by region and output level. | Implemented | **Added 8/14.** Both conveyed by the suite's name, not stored fields (spec 009 P-03); the other settings are standardized within the suite. |
+| Suites are predefined, not freeform user-built. | Implemented | **Added 8/14.** "We want them hard-coded" — predefined suites are how CIC enforces consistent settings. Create/edit/delete is admin-role-gated (spec 009 P-01); every analyst can view. Exceptions drop to the long list or Risk Modeler. |
+| Suites and templates are maintained on an administration page. | Implemented | **Added 8/14.** Models and countries change. Nothing is seeded — starter suites (US, Canada, US+Canada, global) are set up manually on this page (spec 009 P-02); duplicate-and-edit (P-12) is the fast path. |
+| Suites and templates can be exported and imported as CSV/Excel. | Not implemented | **Deferred 8/19 (spec 009 P-02).** Nice-to-have; the worked design is retained in `specs/009-template-suites/contracts/transfer-workbook.md`. |
 | A suite may mix DLM, HD, and accumulation templates. | Implemented | **Changed 8/14.** Replaces "DLM and accumulation kept in separate suites" — separation is now a convention, not a rule. US wildfire is HD-only; Japan has DLM and HD suites. |
-| Line of business is a further suite axis carrying different settings. | Not implemented | **Added 8/14.** Property / auto / workers comp; handled via tags or naming convention (O14-8). |
-| Applying a suite generates all its analyses at once. | Not implemented | Ready to review and adjust before submitting. |
-| Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. |
+| Line of business is a further suite axis carrying different settings. | Implemented | **Added 8/14.** Property / auto / workers comp; carried via template tags and naming convention — no dedicated LOB field. |
+| Applying a suite generates all its analyses at once. | Not implemented | **Changed 8/20.** Submission happens directly from the execution modal — one analysis per selected portfolio × template, no separate review page (§5). A chosen suite can be expanded in the modal to deselect templates first. |
+| Analysis names are auto-generated. | Not implemented | Typing a name every time is a pain. **Convention locked 8/20:** portfolio name + template name (resolves O7-3); the per-template pattern was dropped 8/18. |
 | An analysis can be renamed, including after it has run. | Not implemented |  |
 
-> **Open question — auto-naming convention.** The draft convention draws on portfolio name + near-term/long-term + event-rate scheme, but is not finalized. (Design note 07 §2.3, O7-3.)
+> **Resolved 8/20 — auto-naming convention (O7-3).** Analysis names follow a fixed rule: **portfolio name + template name** — the template name already conveys profile, region, and peril, so nothing is configurable. Risk Modeler caps analysis names at 64 characters: the submitted name is truncated from the right to fit, and the workbench stores the full untruncated name on `irp_analysis`.
 
 **Out of scope for MVP:** profile management (created and managed in Risk Modeler); schedule and stagger analyses (add only if RM makes it easy).
 
@@ -433,13 +431,26 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 **Running & tracking**
 
+> **Build order (8/20).** Suite execution — running one or more template suites against one or more selected portfolios — ships first; single-template execution follows through the same modal; loss-number retrieval for executed analyses comes later in the iteration (PRD §21 Iteration 7).
+
 | Requirement | Implementation | Notes |
 |---|---|---|
-| A single analysis can be submitted against a portfolio. | Not implemented |  |
+| A single analysis can be submitted against a portfolio. | Not implemented | Delivered as single-template execution — the second phase of Iteration 7, after suite execution. |
 | Multiple portfolios can be selected and run in one action. | Not implemented | Cheryl recently had to rerun the same data across 6 portfolios one at a time. |
 | All analyses in a suite (50–150+) can be batch-submitted in one action. | Not implemented |  |
-| Running a suite is: select portfolios and treaties, pick the suite, go. | Not implemented | **Added 8/14.** The default path needs no inspection of the constituent rows — "I'm trying to go fast." |
-| A suite can be expanded to deselect individual templates before submitting. | Not implemented | **Added 8/14.** e.g. flood not covered by the treaty; the rest still auto-queues. |
+| Running a suite is: select portfolios, open the execution modal, pick suite(s), confirm currency, pick treaties, submit. | Not implemented | **Added 8/14, changed 8/20** (was "select portfolios and treaties, pick the suite, go"). The default path needs no inspection of the constituent rows — "I'm trying to go fast." Currency is pre-filled from the pinned defaults; the analyst is forced to look at it every run (note 17 D4). |
+| Execution starts from one or more selected portfolios. | Not implemented | **Added 8/20.** Portfolio-first: the analyst multi-selects portfolios on the EDM detail page, then chooses Execute Suite or Execute Template. |
+| The execution modal lists suites (or templates) with a simple search. | Not implemented | **Added 8/20.** |
+| Several suites — or several templates — can be chosen in one execution. | Not implemented | **Added 8/20.** No dedup across suites (dropped later the same day): a template in two chosen suites submits once per suite, with that suite's currency. |
+| Currency (analysis currency + scheme + vintage) is confirmed in the execution modal, per chosen suite. | Not implemented | **Added 8/20 (note 17 D4/D5; spec 010 P-15/P-16).** Pre-filled from pinned env-var defaults; a template run confirms one currency for the execution; mixed books run as separate regional suites. |
+| Analyses submitted from a submission context carry the submission's name as a Risk Modeler tag. | Not implemented | **Added 8/20 (note 17 D12 direction; spec 010 P-17).** Analysts aren't always in the workbench — the tag makes analyses findable in the platform and via API. |
+| Suites and templates cannot be mixed in one execution. | Not implemented | **Added 8/20.** One kind at a time. |
+| Submit is disabled until at least one suite or template is chosen. | Not implemented | **Added 8/20.** |
+| Treaties are selected in the execution modal. | Not implemented | **Added 8/20.** Explicitly, by name, at run time (spec 009 P-09); the selection applies to every submitted analysis. |
+| One analysis is submitted per selected portfolio × selected template of each chosen suite. | Not implemented | **Added 8/20.** Submission is direct from the modal — no separate review page. |
+| An analysis record is written when its job is submitted and updated with settings/metadata when the job completes. | Not implemented | **Added 8/20.** `irp_analysis` written at submit; metadata backfilled on completion. Loss numbers are a later phase of Iteration 7 (§7). |
+| A failure to submit is surfaced to the analyst immediately. | Not implemented | **Added 8/20.** The failed submission takes the retry path (PRD §14.3); never a silent drop. |
+| A suite can be expanded to deselect individual templates before submitting. | Not implemented | **Added 8/14; placed inside the execution modal 8/20.** e.g. flood not covered by the treaty; the rest still auto-queues. |
 | A suite analysis that fails because the data lacks its peril is expected, not an error. | Not implemented | **Added 8/14.** No loss = no charge; run it all, deal with failures at the end. |
 | Every suite-analysis failure is surfaced with its reason. | Not implemented | **Added 8/14.** The job summary says the peril wasn't present — never silently ignored. |
 | Accumulation analyses can be run. | Not implemented | In scope, with accumulation-specific settings; output detail in §7. |
@@ -458,6 +469,14 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 | The analyst is not emailed when an individual job completes. | Not implemented | **Reversed 8/5.** Per-job success email was the starting proposal and was rejected as inbox clutter that gets ignored. Replaced by the daily digest — §8. |
 | The analyst is emailed immediately when a job fails. | Not implemented | **Changed 8/5.** Errors never aggregate and never wait for the digest — §8. |
 | Only operations whose inputs exist are offered. | Not implemented | EDM → portfolio → analysis → grouping. Prevents starting work that can't succeed. |
+
+**Executed analyses on the EDM page** (8/20)
+
+| Requirement | Implementation | Notes |
+|---|---|---|
+| User-executed analyses appear in their own section on the EDM detail page. | Not implemented | **Added 8/20.** Presented like the broker-analysis review (§2.3) — settings/metadata per analysis — but with no RDM grouping; there is no RDM in play. |
+| Each executed analysis shows the portfolio it ran against. | Not implemented | **Added 8/20.** Trustworthy here — the workbench submitted it; the §2.2 trust rule concerns data that left CIC's environment (§7). |
+| Executed analyses update live on the page as their jobs move through statuses. | Not implemented | **Added 8/20.** Same live-refresh treatment as import jobs. |
 
 **Out of scope for MVP:** cedant ID check/creation; checking treaty coding accuracy (manual — treaty display in §2.2 helps the analyst catch it); **bulk treaty creation from CSV/Excel** — deprioritized 8/4: not something CIC does today, and "whether I do it in Excel or I do it in Risk Modeler, I basically have to do the same steps either way. At least there's some error checking that happens in Risk Modeler." Whether Risk Modeler even supports it is unknown and now academic (design note 08, O8-7).
 
@@ -487,8 +506,15 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Results are displayed grouped under the RDM that produced them. | Not implemented | No EDM-to-RDM relationship is inferred from sharing a Submission. |
+| Own and broker analyses are listed in one merged table, origin visually indicated. | Not implemented | **Added 8/25 (D11).** Wendy: "I'm not opposed to putting them into the same table as long as they're visually indicated." The `CRE_` prefix plus the RDM association carry the indication; own-vs-broker derives from `rdm_id`. |
+| Results are displayed grouped under the RDM that produced them. | Not implemented | No EDM-to-RDM relationship is inferred from sharing a Submission. **Relocated 8/25 (D11):** broker rows keep the RDM-row-then-expand shape *inside* the merged table — the requirement moved, it did not drop. |
 | Broker results are deduped by RDM. | Not implemented | (`rdm_id`.) |
+| The analyses table carries currency and AAL columns; no return-period column. | Not implemented | **Added 8/25 (D10/D12).** Cheryl: AAL "gives you a good visual of a bunch of your analyses in a row." The AAL-only display mode is dropped. |
+| Condensed results render inline in the expanded analysis row. | Not implemented | **Added 8/25 (D9); narrowed 8/26 (D11).** One EP type at a time beside the perspective toggle, no condensed/expanded display toggle. AAL at a glance as a gut check against broker results. |
+| A dedicated results page is reached by multi-select from both the submission page and the EDM detail page. | Not implemented | **Added 8/25 (D14).** The submission page is mandatory — cross-EDM analyses and groups live only there. |
+| The dedicated results page opens in a new browser tab, with breadcrumbs, and the tab title carries the submission or EDM name. | Not implemented | **Added 8/25 (D21/D22).** From the EDM: breadcrumbs retain EDM + submission; from the submission: submission only. Cheryl on Risk Modeler's tab strip: "the ones that just say Risk Modeler, Risk Modeler, Risk Modeler … that's not as helpful." |
+| Displayed units never auto-switch; a ones/thousands/millions selector controls them. | Not implemented | **Added 8/25 (D16).** Cheryl: "let's not switch between millions and thousands … keep everything in millions with the decimal points." |
+| The analyst controls the left-to-right order of analyses and groups on the results view. | Not implemented | **Added 8/25 (D15).** "I want to see my analyses left to right and my group at the end, or my group at the beginning." Pre-empts the grouping design. |
 | Portfolio↔analysis linking is not solved. | Implemented | Deliberately deferred — it doesn't exist today either; analysts rely on naming conventions and broker documentation. **Scope note:** this is the results-comparison linking (which analyses to line up own-vs-broker), still deferred. It is *distinct* from showing the **portfolio an analysis ran against** (§2.3 metadata), which Iteration 3 surfaces by resolving Risk Modeler's `exposureResourceType = PORTFOLIO` exposure pointer (spec 004 FR-036; PRD §21 Iteration 3) — **now narrowed, see the next row.** |
 | The resolved exposure pointer is trusted only for analyses CIC ran itself. | Partial | **Narrowed 8/4.** For imported/broker RDMs the pointer is untrustworthy: "there actually is no way to tie an RDM analysis to a specific EDM portfolio that you can trust," and a false link was demoed live (a US EQ analysis attributed to a USFL portfolio). Trustworthy only if the EDMs/RDMs never left CIC's environment; not displayed as a link otherwise. See the §2.2 trust rule. |
 | Up to ~5 analyses are consumable on screen. | Not implemented | Default density guideline, not a hard cap. |
@@ -499,40 +525,46 @@ Reviewing, comparing, and delivering finalized results. Volume is highly variabl
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| ELT summary is shown: AAL, max event loss, record count. | Not implemented |  |
-| AAL / pure premium is shown. | Not implemented |  |
-| Standard deviation is shown. | Not implemented |  |
-| Return-period loss numbers are shown. | Not implemented | Indicative set: 1000, 500, 250, 100, and ~20–25 year — exact points to be confirmed (O5-2). |
-| OEP and AEP are both shown. | Not implemented | Cheryl uses OEP more. |
-| A TCE (tail conditional expectation) toggle is available. | Not implemented | Not routinely used, but nice to toggle. |
-| An EP-curve graph is not required. | Implemented | "The drawing's not important… I want the numbers." |
-| PLT is shown (HD only). | Not implemented |  |
-| Results can be switched between financial perspectives. | Not implemented | Perspective switching is essential — Gross, Ground-Up, Reinsurance Layer / net; "look at it from however you ran it." |
+| ~~ELT summary is shown: AAL, max event loss, record count.~~ | Superseded | **Superseded 8/25 (D5):** ELTs are not viewable — "if somebody really wants to look at the event information underlying … go into Risk Modeler." Max event loss and record count are ELT-derived and leave viewing scope; AAL survives via the stats endpoint (next row). ELTs exist only for export to the Loss Repository. |
+| AAL / pure premium is shown. | Not implemented | From the EP stats endpoint (`purePremium`), per perspective. |
+| Standard deviation is shown. | Not implemented | From the EP stats endpoint (`totalStdDev`), per perspective. **Confirmed in scope 8/26 (D11)** — it sits outside the EP-type selection and does not change with it. |
+| Return-period loss numbers are shown. | Not implemented | **Fixed 8/25 (D7, closes O5-2):** expanded set 5/10/25/50/100/250/500/1000/2000/5000/10000; condensed set 50/100/250/500/1000/10000. Not user-editable. |
+| OEP and AEP are both shown. | Not implemented | Cheryl uses OEP more. **Reversed 8/26 (D11):** one at a time, OEP first, selected in both the inline row and the dedicated page — showing both meant a merged header, which offset the paste into Excel. |
+| ~~A TCE (tail conditional expectation) toggle is available.~~ | Superseded | **Out of viewing scope (8/25):** only OEP and AEP are stored and shown, although TCE curves arrive in the same API response. |
+| An EP-curve graph is not required. | Implemented | "The drawing's not important… I want the numbers." Re-confirmed 8/25 — the session's design is numbers-only. |
+| ~~PLT is shown (HD only).~~ | Superseded | **Out of viewing scope (8/25):** D5's "stats, AAL and the EP curve" leaves PLT unviewed; it belongs to the export conversation. |
+| Results can be switched between financial perspectives. | Not implemented | Perspective switching is essential; "look at it from however you ran it." **Set fixed 8/25 + spec 011 O-07:** GR, RL, WX, QS, GU (Ground Up added by Wendy for checking treaty application, "especially on the work comp side"). Selection applies screen-wide, never per analysis. |
 | Analysis metadata is shown alongside results. | Not implemented | See the metadata list below; reused for broker-result review (§2.3). |
 
 Analysis metadata list (design note 05 §2): engine / model version · engine type (DLM vs HD) and version · analysis type / mode · peril (primary and secondary) · region · currency · construction · line of business · group type · long-term vs near-term · event-rate scheme / rate vintage · loss amplification (PLA). *Rate/event-rate detail lives one drill-down deeper than the rest (RiskLink "analysis summary" vs the main grid).*
 
+**Narrowed 8/26 (D4/D10, spec 011 O-11).** The expanded analysis row shows engine version, analysis type, subperil, framework, event-rate scheme, unrecognized construction and occupancy, and who ran it. Engine type, region, peril, portfolio and template are columns on the merged table instead; currency, construction, line of business, term and loss amplification are shown nowhere today and return when the team asks for them.
+
 > **Open question — event-rate scheme round-trip.** The event-rate scheme does not appear to survive a Risk Modeler export → re-import (exactly the broker scenario); near-term/long-term and rate vintage both matter. Ben investigating how to recover/carry it, and whether "vintage" is even a first-class RM concept. (Design note 05 §3, O5-1.)
 
-**Comparison**
+**Comparison** — pairwise over any two finished analyses, user-executed or broker-provided (renamed from "broker comparison" 2026-08-27; PRD §17)
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Own and broker results can be viewed together. | Not implemented | Multiple analyses in one view. |
-| Analyses can be compared side-by-side. | Not implemented | Ben has a prior comparison engine to build on. |
-| The side-by-side comparison includes a percent-difference column. | Not implemented | e.g. CIC vs. broker — saves the manual Excel step. |
+| Own and broker results can be viewed together. | Implemented | Multiple analyses in one view. **Designed 8/25 (D17):** viewing is N-up (~10 soft guideline — never a hard block; scroll/pagination past it). **Built and accepted 8/26** (note 20 D1, spec 011): the merged table and the dedicated results page; the build is uncapped and scrolls sideways. |
+| Any two finished analyses can be compared side-by-side, regardless of origin. | Implemented | Ben has a prior comparison engine to build on. **Designed 8/25 (D17/D18), extended 8/26 (note 20 D16):** Compare is a separate action from View; a modal collects strictly pairwise selections into a cart, ~5 pairs per screen (a layout limit — the number is unconfirmed with CIC, note 19 O19-8). Base-vs-many considered and rejected. Renders on a dedicated comparison page in a new browser tab (decided 8/27, PRD §17.3). **Built 8/28 (spec 013):** the Compare modal collects pairs; `/results/comparison` renders them in a new tab. |
+| Comparison pairs are drawn from the merged analyses table the analyst is on. | Implemented | **Decided 8/27.** No cross-submission pairing — the year-over-year comparison stays served by copy-with-headers (Delivery, below). The modal offers only analyses with retrieved results. **Built 8/28 (spec 013).** |
+| The side-by-side comparison includes a percent-difference column. | Implemented | e.g. CIC vs. broker — saves the manual Excel step. **Designed 8/25 (D19/D20):** selection order is the contract — first picked = base = first column, percent change follows; decoupled from list order; no row-header column; percent-change columns need no per-pair labelling. **Built 8/28 (spec 013):** one % Chg column per pair, plus AAL and Std dev rows. |
+| A comparison pair must share a run currency — mixed-currency pairs are blocked, never converted. | Implemented | **Added 8/26 (note 20 D17).** Wendy: "I would just not let people do it"; Cheryl: "everybody should know that's not a valid comparison." Enforced at pair-add time from the run currency stored in `submitted_settings` (spec 011). Deliberate asymmetry: N-up *viewing* still shows mixed currencies unconverted — viewing makes no arithmetic claim; comparison computes a percent change. **Built 8/28 (spec 013):** refused at pair-add time and re-checked at render, which drops the pair whole. |
+| Perspective and EP-type selections apply screen-wide, to every comparison rendered. | Implemented | **Designed 8/25 (D20) + 8/26 (note 20 D11):** one EP type at a time; AAL and standard deviation sit outside the selection. Never per pair. **Built 8/28 (spec 013).** |
+| The comparison shows which engine/model version each side ran. | Implemented | Wendy's broker-vs-own requirement (design note 18 O18-10): "just because they ran it in 23 doesn't mean they used the 23 rates." Spec 011 FR-021 captured engine and model version at retrieval so this view can show them. **Built 8/28 (spec 013):** each side's header sub-line carries its run currency and engine. |
 
 **Editing return periods — pass-through**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Editing return periods / interpolation is a pass-through to Risk Modeler. | Not implemented | A subset of business needs return periods at specific loss intervals; same pattern as treaty edit (§5). |
+| Editing return periods / interpolation is a pass-through to Risk Modeler. | Not implemented | A subset of business needs return periods at specific loss intervals; same pattern as treaty edit (§5). **Re-affirmed 8/25 (D7)** from the client side — Wendy: "I don't think we need to replicate what is in Risk Modeler … if there's a return period that's not there, then go to Risk Modeler." |
 
 **Accumulation results**
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Reinsurance-layer (RL) retained. |
+| Accumulation output perspectives are gross and pre-cat net. | Not implemented | Pre-cat net **is** `RL` — one code, not two perspectives (clarified 8/26, D9). Pre-Cat Net is the default on every results view. |
 | Ground-up is currently included in accumulation output. | Not implemented | A Risk Modeler UI constraint, not a preference; possibly droppable via the API (O7-5). |
 | Accumulation shows how a policy limit allocates by geographic area. | Not implemented | e.g. a $1M policy over $50M of buildings across several states. |
 
@@ -540,10 +572,10 @@ Analysis metadata list (design note 05 §2): engine / model version · engine ty
 
 | Requirement | Implementation | Notes |
 |---|---|---|
-| Results can be copied / pasted out. | Not implemented |  |
+| Results can be copied / pasted out. | Not implemented | **Designed 8/25 (D13):** copy table with headers, straight into Excel — Cheryl's year-over-year working file, and brokers who supply only a digital copy instead of an RDM. Replaces a manual horizontal→vertical pivot. |
 | ELTs are uploaded to the Loss Repository for downstream reporting. | Not implemented | Losses, financial perspective, and metadata. Open question: how to move data from DataBridge to the Loss Repository. |
 
-**Out of scope for MVP:** **Post-Analysis Treaty (PATE)** — adding a cat treaty onto broker results after the fact and re-simulating; a rare fringe case, portfolio-level only, deferred (design note 05 §6, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); visual compare in RiskLink / copy to Excel; pushing broker results to the Loss Repository; loading exposure summaries to the Exposure Repository; carrying CRM ID tags through to the repository upload (Future); uploading loss sets to Analyze Re (separate API).
+**Out of scope for MVP:** **Post-Analysis Treaty (PATE)** — adding a cat treaty onto broker results after the fact and re-simulating; a rare fringe case, portfolio-level only, deferred (design note 05 §6, O5-4); formal loss validation against broker/cedant (confirm the informal multi-analysis view is enough); replicating RiskLink's compare-and-export workflow (this exclusion does **not** cover the clipboard copy-with-headers, which is in scope — 8/25 D13); pushing broker results to the Loss Repository; loading exposure summaries to the Exposure Repository; carrying CRM ID tags through to the repository upload (Future); uploading loss sets to Analyze Re (separate API).
 
 ---
 

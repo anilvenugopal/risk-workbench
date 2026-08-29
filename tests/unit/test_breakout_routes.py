@@ -32,6 +32,7 @@ from starlette.testclient import TestClient
 from db import execute, execute_command
 from db.connection import register_engine
 from tests.iteration1_mirror import (
+    ANALYSIS_PERSPECTIVE_SEED,
     BREAKOUT_DIMENSION_SEED,
     IRP_ANALYSIS_STATUS_SEED,
     IRP_JOB_RESOURCE_TYPE_SEED,
@@ -39,6 +40,7 @@ from tests.iteration1_mirror import (
     ITERATION1_SCHEMA,
     ITERATION2_SCHEMA,
     ITERATION3_SCHEMA,
+    ITERATION4_SCHEMA,
     RWB_JOB_REQUESTOR_TYPE_SEED,
     RWB_JOB_STATUS_SEED,
     RWB_JOB_TYPE_SEED,
@@ -66,7 +68,8 @@ def routes_db() -> SimpleNamespace:
     engine = create_engine("sqlite://", poolclass=StaticPool,
                            connect_args={"check_same_thread": False})
     with engine.begin() as conn:
-        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA):
+        for ddl in (*ITERATION1_SCHEMA, *ITERATION2_SCHEMA, *ITERATION3_SCHEMA,
+                    *ITERATION4_SCHEMA):
             conn.execute(text(ddl))
         conn.execute(text(
             "INSERT INTO app_user (id, email, display_name) "
@@ -81,6 +84,7 @@ def routes_db() -> SimpleNamespace:
             ("rwb_job_status_kind", RWB_JOB_STATUS_SEED),
             ("irp_analysis_status_kind", IRP_ANALYSIS_STATUS_SEED),
             ("breakout_dimension_kind", BREAKOUT_DIMENSION_SEED),
+            ("analysis_perspective_kind", ANALYSIS_PERSPECTIVE_SEED),
         ):
             for code, label, order in rows:
                 conn.execute(text(

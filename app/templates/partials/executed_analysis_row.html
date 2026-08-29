@@ -1,0 +1,25 @@
+{% import "partials/analysis_row_macros.html" as row %}
+<details class="drow" id="analysis-row-{{ a.id }}">
+  <summary>
+    <span class="l">
+      {% if a.is_deletable %}
+      <span class="geohaz-pick"><input type="checkbox" name="analysis_ids" value="{{ a.id }}"
+             onclick="event.stopPropagation()" @change="onChange()"></span>
+      {% endif %}
+    </span>
+    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+      <span class="dt-title"{% if a.portfolio_name %} title="{{ a.portfolio_name }}"
+            data-value="{{ a.portfolio_name }}"{% endif %}>{{ row.cell(a.portfolio_name) }}</span></span></span>
+    <span class="l"{% if a.template_name %} title="{{ a.template_name }}"
+          data-value="{{ a.template_name }}"{% endif %}>{{ row.cell(a.template_name) }}</span>
+    {% if show_edm %}<span class="l"{% if a.edm_name %} title="{{ a.edm_name }}"{% endif %}>{{ row.cell(a.edm_name) }}</span>{% endif %}
+    {{ row.settings_cells(a) }}
+    {{ row.aal_cell(a, a.status_code == 'ready') }}
+    {{ row.status_cell(a, a.status_chip, a.status_label, a.failure_reason) }}
+    {{ row.submitted_cell(a.inserted_at) }}
+    {{ row.rm_cell(a.rm_url) }}
+  </summary>
+  <div class="drow__body drow__body--split">
+    {% include "partials/analysis_results_inline.html" %}
+  </div>
+</details>

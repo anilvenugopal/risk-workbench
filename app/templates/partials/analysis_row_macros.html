@@ -1,0 +1,62 @@
+{# The summary cells shared by partials/executed_analysis_row.html and
+   partials/broker_analysis_row.html. Each macro emits whole direct children of
+   <summary> and never wraps them: app.js tableToTsv() slices those children
+   positionally, so a change in how many a macro emits silently misaligns every
+   copied column. #}
+{%- macro cell(v) -%}
+  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>{%- else -%}{{ v }}{%- endif -%}
+{%- endmacro -%}
+
+{# Peril · Region · Engine · Currency — four cells. #}
+{%- macro settings_cells(a) -%}
+  {%- set d = a.display -%}
+    <span class="l"{% if d.peril %} title="{{ d.peril }}"{% endif %}>{{ cell(d.peril) }}</span>
+    <span class="l"{% if d.region %} title="{{ d.region }}"{% endif %}>{{ cell(d.region) }}</span>
+    <span class="l"{% if d.engine %} title="{{ d.engine }}"{% endif %}>{{ cell(d.engine) }}</span>
+    <span class="l"{% if d.currency %} title="{{ d.currency }}"{% endif %}>{{ cell(d.currency) }}</span>
+{%- endmacro -%}
+
+{# `run_finished` — whether the run itself is done, so a pending retrieval reads
+   "retrieving…" instead of an em dash. Own rows pass a.status_code == 'ready';
+   every captured broker run is already finished, so broker rows pass true. #}
+{%- macro aal_cell(a, run_finished) -%}
+  {%- set default_persp = a.results | selectattr('code', 'eq', default_perspective) | first -%}
+    <span>
+      {%- if default_persp and default_persp.produced and default_persp.aal is not none -%}
+      <span class="aal-num" title="{{ default_persp.aal }}" data-value="{{ default_persp.aal }}">{{ default_persp.aal_display }}</span>
+      {%- elif a.results_state == 'failed' -%}
+      <span class="aal-state aal-state--failed">retrieval failed</span>
+      {%- elif a.results_state == 'pending' and run_finished -%}
+      <span class="aal-state">retrieving&hellip;</span>
+      {%- else -%}
+      <span class="na">&mdash;</span>
+      {%- endif -%}
+    </span>
+{%- endmacro -%}
+
+{%- macro status_cell(a, chip, label, reason=none) -%}
+    <span class="l"{% if label %} title="{{ label }}"{% endif %}>
+      <span class="status-chip status-chip--{{ chip }}">{{ label }}</span>
+      {% if reason %}<span class="exec-reason">{{ reason }}</span>{% endif %}
+      {% if a.results_state == 'failed' and a.results_error %}<span class="exec-reason">Results: {{ a.results_error }}</span>{% endif %}
+    </span>
+{%- endmacro -%}
+
+{%- macro submitted_cell(ts) -%}
+    <span class="l">
+      {% if ts %}
+      <time data-utc="{{ ts }}" data-value="{{ ts }}"
+            title="{{ ts }} UTC">{{ (ts | string)[:19] }}</time>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
+    </span>
+{%- endmacro -%}
+
+{%- macro rm_cell(url) -%}
+    <span class="l">
+      {% if url %}
+      <a class="rm-link" href="{{ url }}" target="_blank" rel="noopener"
+         onclick="event.stopPropagation()"
+         title="Open this analysis in Risk Modeler (new tab)">Open ↗</a>
+      {% else %}<span class="na">&mdash;</span>{% endif %}
+    </span>
+{%- endmacro -%}

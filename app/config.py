@@ -75,10 +75,24 @@ class Settings(BaseSettings):
     # non-terminal irp_job per pass; never poll_*_to_completion.
     poll_interval_secs: int = 15
 
-    # Submit-side retry ceiling for the submission_retry batch (FR-029). There is
-    # deliberately NO fixed default — it is a deployment decision; None means "not
-    # configured", and the batch parks SUBMISSION FAILED rows until it is set.
-    irp_submission_max_retries: int | None = None
+    # Submit-side retry ceiling for the submission_retry batch (FR-029), and the
+    # exponential-backoff base it uses: eligible when
+    # now > completed_at + irp_submission_retry_base_secs * 2**attempts.
+    irp_submission_max_retries: int = 3
+    irp_submission_retry_base_secs: int = 60
+
+    # A poller that dies between claiming a retry and recording its outcome leaves
+    # the irp_job at SUBMISSION RETRYING, which no query reaches. A row untouched
+    # for this long is treated as abandoned and reclaimed to SUBMISSION FAILED.
+    irp_submission_retry_stale_secs: int = 300
+
+    # Pinned currency defaults that pre-fill the execute-analysis modal's currency
+    # picker (P-16, T-19). Ops edits these in .env; the app never advances them when
+    # a newer vintage syncs. An empty vintage (or one absent from the cache) leaves
+    # the vintage picker with no pre-selection.
+    default_analysis_currency_code: str = "USD"
+    default_analysis_currency_scheme: str = "RMS"
+    default_analysis_currency_vintage: str = ""
 
     # TTL for the in-process Risk Modeler name-collision cache (issue #11) — shared
     # by the as-you-type check endpoints and the save-time blocking check.

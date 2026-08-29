@@ -52,7 +52,7 @@ from app.services._common import (
     _uid,
     _utcnow,
 )
-from app.services.analysis_service import BrokerAnalysisGroup
+from app.services.analysis_service import BrokerAnalysisGroup, ExecutedAnalysis
 from app.services.errors import EdmCatalogUnavailable
 from app.services.name_check import CollisionCheck
 from app.services.portfolio_service import PortfolioRow
@@ -389,6 +389,9 @@ class EdmDetail:
     # US3 (FR-037): the RDM-grouped broker-analyses list. Listed here, never
     # attributed to a portfolio (8/4 D8).
     analyses: list[BrokerAnalysisGroup] = field(default_factory=list)
+    # Spec 010 US2 (FR-013): every analysis the workbench itself submitted
+    # against this EDM, live-status-derived. No RDM grouping.
+    executed_analyses: list[ExecutedAnalysis] = field(default_factory=list)
     # Treaties polish (2026-07-24): the deep link into Risk Modeler's OWN
     # treaties screen for this datasource — None when RISK_MODELER_BASE_URL is
     # not configured (the template falls back to the plain read-only note).
@@ -412,6 +415,17 @@ class ContextualEdmDetail:
     submission: SubmissionRef
     edm_choices: list[SubmissionRef]
     rdms: list[BrokerAnalysisGroup]
+
+
+@dataclass
+class EdmAnalysesSection:
+    """Exactly what ``partials/analyses_merged_section.html`` reads. ``submission``
+    and ``rdms`` are populated on the submission-scoped read only — the plain
+    library page has no submission context and renders no RDM group rows."""
+    id: str
+    executed_analyses: list[ExecutedAnalysis]
+    submission: SubmissionRef | None = None
+    rdms: list[BrokerAnalysisGroup] = field(default_factory=list)
 
 
 def latest_backfill_status(edm_id: str) -> str | None:
@@ -492,6 +506,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
             portfolio.geohaz_latest = entry.latest
     treaties = treaty_service.list_treaties(edm_id=eid)
     analyses = analysis_service.list_edm_analyses(edm_id=eid)
+    executed_analyses = analysis_service.list_executed_analyses(edm_id=eid)
     # Spec 005: in-flight indicator, completion banner, and durable per-row
     # error lines for the breakout fan-out (FR-012) — WORKBENCH reads only.
     breakout = breakout_service.page_state(eid)
@@ -517,6 +532,7 @@ def get_edm_detail(edm_id: Any) -> EdmDetail | None:
         sync_running=job_status in ("pending", "running"),
         treaties=treaties,
         analyses=analyses,
+        executed_analyses=executed_analyses,
         rm_treaties_url=_rm_datasource_url(row["name"], "treaties"),
         import_error=(latest_import_error(eid) if row["status"] == ERROR
                       else None),
@@ -548,6 +564,44 @@ def get_contextual_edm_detail(
     return ContextualEdmDetail(
         edm=edm, submission=source, edm_choices=choices, rdms=rdms,
     )
+
+
+def get_edm_analyses(
+    *, edm_id: Any, submission_id: Any | None = None,
+) -> EdmAnalysesSection | None:
+    """The Analyses section's own read (T-11). Its 3s self-poll re-renders that
+    one fragment, so it must not pay for the whole detail page — portfolios,
+    geohaz, treaties and breakout page state are all unread by the fragment.
+    With ``submission_id`` it also reads the submission's RDMs, which the merged
+    section renders as group rows (spec 011 FR-010). ``None`` when the EDM is
+    gone, or (with ``submission_id``) no longer related to that submission."""
+    eid = str(edm_id)
+    source = None
+    if submission_id is not None:
+        ctx = _submission_entity_context("edm", submission_id=submission_id,
+                                         entity_id=eid)
+        if ctx is None:
+            return None
+        source, _choices = ctx
+    row = execute_one("SELECT id FROM irp_edm WHERE id = :id",
+                      {"id": eid}, connection="WORKBENCH")
+    if row is None:
+        return None
+    rdms: list[BrokerAnalysisGroup] = []
+    if submission_id is not None:
+        # Local import avoids the edm_service/rdm_service shared-DTO import cycle
+        # (same reason get_contextual_edm_detail above imports it locally).
+        from app.services import rdm_service
+        rdms = analysis_service.list_submission_rdms(
+            submission_id=str(submission_id))
+        for rdm in rdms:
+            rdm.sync_running = (
+                rdm_service.latest_backfill_status(rdm.rdm_id)
+                in ("pending", "running"))
+    return EdmAnalysesSection(
+        id=_uid(row["id"]),
+        executed_analyses=analysis_service.list_executed_analyses(edm_id=eid),
+        submission=source, rdms=rdms)
 
 
 def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
@@ -658,6 +712,7 @@ def backfill_on_terminal(conn, *, edm_id: Any, status: str,
 
 __all__ = [
     "ImportResult", "EdmRow", "EdmDetail", "ContextualEdmDetail",
+    "EdmAnalysesSection",
     "AdoptableEdm", "AdoptablePage",
     "AdoptResult",
     "PENDING", "IMPORTING", "READY", "ERROR",
@@ -666,7 +721,8 @@ __all__ = [
     "list_adoptable_edms", "adopt_edms",
     "latest_import_error", "latest_backfill_status", "latest_backfill_statuses",
     "get_edm_detail",
-    "get_contextual_edm_detail", "sync_detail", "sync_contextual_detail",
+    "get_contextual_edm_detail", "get_edm_analyses",
+    "sync_detail", "sync_contextual_detail",
     "retry_import", "replace_source_file", "mark_importing", "mark_error",
     "backfill_on_terminal",
 ]

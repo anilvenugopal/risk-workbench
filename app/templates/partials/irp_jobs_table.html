@@ -1,0 +1,36 @@
+{# Read-only irp_job monitor (T-12, FR-014). Inputs come from shell.py's
+   _irp_jobs_context(), shared by the page and this polled fragment: rows, live.
+
+   While any listed row is non-terminal, the wrapper polls its own render every
+   3s and swaps itself, so status changes without a reload; once every row is
+   terminal the server stops emitting the trigger and polling ends on its own
+   (mirrors partials/library_table.html). No filters, no actions. #}
+<div id="irp-jobs-live"
+  {%- if live %}
+  hx-get="/workflows/irp-jobs/table" hx-trigger="every 3s"
+  hx-target="this" hx-swap="outerHTML"
+  {%- endif %}>
+
+  <table class="mk-table">
+    <thead>
+      <tr>
+        <th>Type</th><th>Entity / Analysis</th><th>Status</th>
+        <th>Submitted by</th><th>Submitted at</th><th>Attempts</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.type_label or row.irp_job_type }}</td>
+        <td>{% if row.entity_name %}{{ row.entity_name }}{% else %}<span class="na">—</span>{% endif %}</td>
+        <td><span class="status-chip status-chip--{{ (row.status or 'unknown')|lower|replace(' ', '-') }}">{{ row.status }}</span></td>
+        <td>{% if row.submitted_by %}{{ row.submitted_by }}{% else %}<span class="na">—</span>{% endif %}</td>
+        <td>{{ (row.submitted_at | string)[:16] if row.submitted_at else '' }}</td>
+        <td>{{ row.attempts }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="empty">No IRP jobs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

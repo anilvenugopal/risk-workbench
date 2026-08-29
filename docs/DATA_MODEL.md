@@ -297,16 +297,31 @@ erDiagram
   irp_analysis ||--o{ irp_analysis : "group members (self-ref)"
   irp_analysis_status_kind ||--o{ irp_analysis : states
 
+  irp_portfolio |o--o{ irp_analysis : "own analyses run against (nullable)"
+  analysis_template |o--o{ irp_analysis : "own analyses submitted from (nullable)"
+
   irp_analysis {
     uniqueidentifier id PK
-    uniqueidentifier edm_id FK "nullable; null for broker analyses. CHECK: edm_id or rdm_id set"
+    uniqueidentifier edm_id FK "nullable; null for broker analyses. CHECK ck_irp_analysis_origin: edm_id or rdm_id set"
     uniqueidentifier rdm_id FK "nullable; set → broker, null → own"
     uniqueidentifier group_parent_id FK "nullable; self-ref → the group this belongs to"
-    string name "IRP analysis name"
-    int irp_id "nullable; resolves only after FINISHED"
+    string name "≤64-char name, exact string sent to RM (own); IRP analysis name (broker)"
+    string full_name "nullable; untruncated CRE_{portfolio}_{template} name incl. rerun suffix — own analyses only (spec 010 T-04)"
+    string irp_id "nullable; NVARCHAR(64) holding RM's API analysisId — resolves only after FINISHED"
+    string irp_app_analysis_id "nullable; RM appAnalysisId — the RM web UI's analysis id; the grid's link-out uses it, irp_id stays the API analysisId"
     bool is_group "true → this row IS a group"
     string status_code FK "irp_analysis_status_kind"
     string created_by_irp_job_irp_id "nullable; the creating job"
+    string source_rdm_name "nullable; broker analyses only — the RDM name RM reported"
+    string settings_metadata "nullable; JSON snapshot of the RM analysis settings (R2)"
+    string exposure_resource_id "nullable; RM's numeric exposureResourceId, set only when exposureResourceType = PORTFOLIO (R9/FR-036) — broker analyses. Own analyses keep the portfolio resourceUri on irp_job_resource instead"
+    uniqueidentifier irp_portfolio_id FK "nullable; own analyses only — the portfolio it ran against"
+    uniqueidentifier analysis_template_id FK "nullable; own analyses only — survives template soft-delete"
+    uniqueidentifier execution_id "nullable; own analyses only — the execute_analysis_batch run's requestor_id"
+    int execution_item_no "nullable; the plan item's ordinal — (execution_id, irp_portfolio_id, execution_item_no) is the worker's resume key (spec 010)"
+    string failure_reason "nullable; RM run-failure message or submit exception message"
+    string loss_results "nullable JSON; per-perspective viewing extract (spec 011)"
+    string submitted_settings "nullable JSON; own analyses only — the approved plan item the run was submitted with (spec 011)"
     datetime as_of "nullable"
     datetime deleted_at "nullable"
     datetime inserted_at
@@ -315,20 +330,23 @@ erDiagram
     uniqueidentifier updated_by FK
   }
   irp_analysis_status_kind {
-    string code PK "pending / running / ready / error"
+    string code PK "pending / ready / error — pending is the only non-terminal value; progress while an analysis runs is irp_job.status (spec 010)"
     string label
     int sort_order
     datetime inserted_at
   }
 ```
 
-- **`edm_id` and `rdm_id` are both nullable, with a CHECK that at least one is set.** Own analyses have `edm_id` set and `rdm_id` null. Broker analyses have `rdm_id` set and `edm_id` null. Broker enumeration filters `search_analyses` by `sourceRdmName` only.
+- **`edm_id` and `rdm_id` are both nullable, enforced by CHECK `ck_irp_analysis_origin` that at least one is set.** Own analyses have `edm_id` set and `rdm_id` null. Broker analyses have `rdm_id` set and `edm_id` null. Broker enumeration filters `search_analyses` by `sourceRdmName` only.
 - **Own vs. broker is derived from `rdm_id`** (`null` → own, set → broker), computed in the view layer — no stored `origin` column.
-- **Broker analysis identity is (`rdm_id`, `irp_id`).** Each Risk Modeler analysis
+- **Broker analysis identity is (`rdm_id`, `irp_id`)**, backed by a filtered unique index (`uq_irp_analysis_rdm_irp`, `WHERE rdm_id IS NOT NULL AND irp_id IS NOT NULL`) rather than a plain UNIQUE constraint — a plain constraint would treat the many own-analysis rows' NULLs as colliding. Each Risk Modeler analysis
   is captured once for its source RDM. Names are not keys because Risk Modeler
   permits duplicates and edits. Successful enumeration prunes missing analyses by
   `rdm_id`.
+- **Own analysis identity is (`edm_id`, `name`) among live rows**, backed by a second filtered unique index (`uq_irp_analysis_live_edm_name`, `WHERE edm_id IS NOT NULL AND deleted_at IS NULL`) — the local rerun-collision check spec 010 T-05 relies on; the run submits with `skip_duplicate_check=True` on the RM side.
 - **`status_code` is a kind table** (app-defined vocabulary), unlike the plain-string EDM/RDM `status`.
+- **`loss_results` is the viewing extract** (spec 011): JSON holding, per financial perspective (GR / RL / WX / QS / GU), the AAL, standard deviation, and OEP/AEP losses at the 11 stored return periods (5 / 10 / 25 / 50 / 100 / 250 / 500 / 1000 / 2000 / 5000 / 10000). Written whole by the `retrieve_analysis_results` worker (§8); a perspective the analysis did not produce is present with an explicitly empty value, distinguishing "fetched, nothing there" from `loss_results IS NULL` ("not fetched yet"). Because broker analyses are single rows keyed (`rdm_id`, `irp_id`), the once-per-RDM storage rule needs no extra machinery. Row-level results (ELT, PLT, full EP curves) are never stored for viewing — see §9.
+- **`submitted_settings` is the run's own record of how it was submitted** (spec 011): the approved plan item — currency (code, scheme, vintage, `asOfDate`), event rate scheme, min loss threshold, max loss event count, franchise deductible, unrecognized construction/occupancy — written verbatim by `_claim_analysis` in the INSERT that claims the row, and never updated afterwards. Own analyses only; `NULL` on broker rows, because Risk Modeler returns none of these fields. It is not read back from `analysis_template`: templates are editable, and a finished run must keep reporting what it actually ran with (Article 8). Currency scheme and vintage exist nowhere else — they are chosen per suite at submit time (spec 009 P-11).
 
 ---
 
@@ -348,7 +366,7 @@ erDiagram
     string name "UNIQUE among live rows (uq_analysis_template_live_name)"
     string analysis_profile_name "IRP model profile name"
     string output_profile_name
-    string event_rate_scheme_name "nullable; required for DLM, optional for HD"
+    string event_rate_scheme_name "nullable; required for DLM, optional for HD/Accumulation"
     bool franchise_deductible "NOT NULL default 0"
     decimal min_loss_threshold "DECIMAL(18,2) NOT NULL default 1.00"
     int num_max_loss_event "NOT NULL default 1"
@@ -356,12 +374,12 @@ erDiagram
     datetime deleted_at "nullable; soft delete"
     datetime inserted_at
     datetime updated_at
-    uniqueidentifier inserted_by FK
+    uniqueidentifier inserted_by FK "app_user; author"
     uniqueidentifier updated_by FK
   }
   analysis_template_tag {
     uniqueidentifier template_id PK "composite PK with tag_name"
-    string tag_name PK "free-text tag"
+    string tag_name PK "RM resolves and creates tags at submit"
     datetime inserted_at
     uniqueidentifier inserted_by FK
   }
@@ -383,9 +401,10 @@ erDiagram
   }
 ```
 
-- Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
-- Suites are an unordered set of templates (spec 009 P-08): a suite item carries no position and no per-item settings, and each template appears at most once per suite.
-- Analysis currency, currency scheme, and scheme vintage are chosen at submit time (spec 009 P-11), never stored on templates or suites.
+- Profile/scheme fields map directly to `client.analysis.submit_portfolio_analysis_job()` parameters. `event_rate_scheme_name` is required for DLM, optional for HD/Accumulation (detected from `irp_model_profile.software_version_code`: `"HD" in code` → HD, else DLM).
+- **Suites are unordered** (spec 009 P-08): `template_suite_item` is a plain membership row — no `position`, no per-item settings; `UNIQUE(suite_id, template_id)` keeps a template in a suite at most once.
+- **Templates store no currency** (spec 009 P-11 / design note 17 D4/D5, 2026-08-20 — reverses P-10): analysis currency, currency scheme, and scheme vintage are chosen in the execution modal at submit time, per chosen suite, pre-filled from pinned env-var defaults (`DEFAULT_ANALYSIS_CURRENCY_*`, §10). The submit-time block is `{code, scheme, vintage, asOfDate}` with `asOfDate` derived from the chosen vintage's effective date; the confirmed values ride the persisted execution plan (spec 010).
+- **Dropped in spec 009:** `treaty_name_pattern` (P-09 — treaties are picked explicitly at run time in the execution modal), `region_label`/`peril_code` (P-03 — region/output level conveyed by names), and `auto_name_pattern` (analysis names follow the fixed portfolio + template name rule — PRD §2.6).
 
 ---
 
@@ -399,6 +418,7 @@ erDiagram
   irp_edm |o--o{ irp_job : "entity lineage (nullable)"
   irp_portfolio ||--o{ irp_job : "entity lineage (nullable)"
   irp_rdm |o--o{ irp_job : "entity lineage (nullable)"
+  irp_analysis |o--o{ irp_job : "entity lineage (nullable; spec 010)"
   irp_job_type_kind ||--o{ irp_job : types
   irp_job ||--o{ irp_job_resource : "submits resource(s)"
   irp_job_resource_type_kind ||--o{ irp_job_resource : types
@@ -413,17 +433,18 @@ erDiagram
     uniqueidentifier irp_edm_id FK "nullable; entity lineage"
     uniqueidentifier irp_portfolio_id FK "nullable; entity lineage"
     uniqueidentifier irp_rdm_id FK "nullable; entity lineage"
+    uniqueidentifier irp_analysis_id FK "nullable; entity lineage + retry key (spec 010)"
     string irp_job_type FK "irp_job_type_kind"
     string irp_id "IRP's integer job id as string; nullable until submit succeeds"
     string status "plain string; RM-mirrored + app-local (see vocabulary)"
-    string request_params "JSON; analyst parameter snapshot; nullable"
     string completion_summary "Risk Modeler task output summary; nullable"
     string last_submission_payload "JSON; latest submit request"
     string last_submission_response "JSON; RM's response to that submit"
     string last_completion_result "JSON; terminal poll response (FINISHED or FAILED)"
+    string request_params "JSON; submit kwargs snapshot — submission_retry resubmits from it verbatim (spec 010)"
     int submission_attempt_count "default 0"
     datetime submitted_at "nullable"
-    datetime completed_at "nullable"
+    datetime completed_at "nullable; for SUBMISSION FAILED it doubles as the retry backoff clock — cleared by a successful resubmit (spec 010)"
     datetime last_tracked_at "nullable; null until first poll"
     datetime inserted_at
     datetime updated_at
@@ -495,11 +516,15 @@ erDiagram
 **`irp_job`:**
 - **Grain is one IRP operation against one physical resource.** EDM import sets
   `irp_edm_id`. RDM import sets `irp_rdm_id` and leaves `irp_edm_id` null.
-  Portfolio/GeoHaz sets `irp_portfolio_id` and `irp_edm_id`.
+  Portfolio/GeoHaz sets `irp_portfolio_id` and `irp_edm_id`. An own analysis
+  submission (`irp_job_type='analysis'`, spec 010) sets `irp_analysis_id`,
+  `irp_portfolio_id`, and `irp_edm_id`, and carries the submit kwargs snapshot in
+  `request_params` — the `submission_retry` batch resubmits from it verbatim,
+  never recomposed from live template/suite rows.
   `requested_from_submission_id` records which contextual action started the job;
   polling, retry, and worker dispatch never depend on it.
 - **`irp_job_type` is a kind table** (closed, app-defined) but **`status` is a plain string** — RM can add status values at any time, and an unknown value must not crash the poller.
-- **`status` vocabulary:** RM non-terminal `PENDING`/`QUEUED`/`RUNNING`/`CANCEL_REQUESTED`/`CANCELLING`; RM terminal `FINISHED` (only success)/`FAILED`/`CANCELLED`; app-local non-terminal `UNSUBMITTED`/`SUBMITTING`/`BLOCKED`; app-local terminal `SUBMISSION FAILED` (never reached RM — no `irp_id`). `SUBMISSION FAILED` vs `FAILED` distinguishes submit-side failure from RM-ran-it-and-failed.
+- **`status` vocabulary:** RM non-terminal `PENDING`/`QUEUED`/`RUNNING`/`CANCEL_REQUESTED`/`CANCELLING`; RM terminal `FINISHED` (only success)/`FAILED`/`CANCELLED`; app-local non-terminal `UNSUBMITTED`/`SUBMITTING`/`BLOCKED`/`SUBMISSION RETRYING`; app-local terminal `SUBMISSION FAILED` (never reached RM — no `irp_id`). `SUBMISSION FAILED` vs `FAILED` distinguishes submit-side failure from RM-ran-it-and-failed. `SUBMISSION RETRYING` marks a row the `submission_retry` batch has claimed; the status tracker skips it (no `irp_id`), so a poller that dies mid-retry would strand it — a row left there longer than `IRP_SUBMISSION_RETRY_STALE_SECS` is reclaimed to `SUBMISSION FAILED`, spending one attempt.
 - **`irp_job_resource`** carries the typed `(resource_type, resource_uri)` submit payload; the URI must be captured at submit time (RM's completion response omits it).
 
 **`rwb_job`:**
@@ -511,8 +536,10 @@ erDiagram
 | `upload_edm` | Submit `import_edm` for one EDM | `backfill_edm_detail` on FINISHED |
 | `upload_rdm` | Submit one standalone `import_rdm` for one RDM | `backfill_rdm_analyses` on FINISHED |
 | `backfill_edm_detail` | Read and store one EDM's portfolios, exposure detail, and treaties | — |
-| `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | — |
-| `retrieve_analysis_results` | `get_elt/ep/stats/plt()` per perspective; write Parquet + `analysis_result_meta` | `download_export_file` |
+| `backfill_rdm_analyses` | Enumerate and store one RDM's broker analyses | `retrieve_analysis_results` (one per broker analysis) |
+| `execute_analysis_batch` | Submit one `irp_analysis` + `irp_job` per portfolio × template in the approved plan (spec 010) | — |
+| `finalize_analysis` | Take one own analysis to `ready` after FINISHED: fetch its details by the job body's `analysisId`; write `irp_id`/`irp_app_analysis_id`/`settings_metadata`/`status_code` (spec 010) | `retrieve_analysis_results` |
+| `retrieve_analysis_results` | `get_stats()`/`get_ep()` per perspective (GR/RL/WX/QS/GU); write the `irp_analysis.loss_results` extract (spec 011) | — |
 | `download_export_file` | Download Parquet export | — |
 | `push_results_to_loss_repo` | Read Parquet; write to LOSS DB | — |
 | `notify_analyst` | Teams webhook and/or email | — |
@@ -529,7 +556,9 @@ never starts RDM upload work. Association detach is request-path SQL only.
 
 ## 9. Analysis results
 
-Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files; SQL stores only the metadata needed for list views and summaries.
+**Viewing does not read this section.** Results viewing reads `irp_analysis.loss_results` (§6) — the bounded per-perspective extract the `retrieve_analysis_results` worker writes (§8). Design note 19 D5 (2026-08-25) removed ELTs from viewing scope: they exist only for export to the Loss Repository. The tables and Parquet layout below are therefore the **export** design; whether and when they are built — and whether ELT retrieval is eager or export-triggered — is decided by the 8/26 export-requirements session (design note 19 O19-12). Nothing below is built until then.
+
+Row-level data (ELT events, EP curve points, PLT events) is written to Parquet files; SQL stores only the metadata needed for export lineage.
 
 ```mermaid
 erDiagram
@@ -543,7 +572,7 @@ erDiagram
     uniqueidentifier analysis_id FK "nullable; own results → irp_analysis; exactly one of analysis_id/rdm_id set (CHECK)"
     uniqueidentifier rdm_id FK "nullable; broker results dedup key — one row per (rdm_id, analysis_name, perspective)"
     string analysis_name "IRP analysis name at retrieval time (snapshot)"
-    string perspective_code "GR / GU / RL"
+    string perspective_code "GR / RL / WX / QS / GU (spec 011 O-07)"
     float aal "Average Annual Loss; from get_stats()"
     int elt_record_count "from get_elt() response"
     bool has_plt "true for HD analyses"
@@ -574,7 +603,7 @@ erDiagram
 ```
 
 - **`analysis_name` is a deliberate snapshot** at retrieval time — a later rename does not change what this row says it was called. Names are never a key (Moody's allows duplicates and lets them be edited).
-- **Broker results are deduplicated by `rdm_id`, not stored per EDM.** A broker RDM applied across M EDMs produces M `irp_analysis` rows (§5/§6), but its result data is the broker's *static* numbers — identical across those M copies. So result data is retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: broker `analysis_result_meta` sets `rdm_id` and leaves `analysis_id` null; the `retrieve_analysis_results` job fires **once per `rdm_id`**; and an idempotent upsert on `(rdm_id, analysis_name, perspective_code)` collapses the M EDM-copies into one row + one set of Parquet files. The M per-EDM `irp_analysis` rows resolve their results through this shared record. (The exact within-RDM source-analysis discriminator is confirmed against the live library when the Iteration-6 retrieval worker is built — `analysis_name` is the working key.)
+- **Broker results are deduplicated by `rdm_id`, not stored per EDM.** A broker RDM applied across M EDMs produces one `irp_analysis` row per source analysis, keyed (`rdm_id`, `irp_id`) with `edm_id` null (§6) — so the viewing extract (`irp_analysis.loss_results`) is once-per-RDM automatically. For **export**, row-level data is likewise retrieved and stored **once per RDM source analysis + perspective**, keyed on `rdm_id`: broker `analysis_result_meta` sets `rdm_id` and leaves `analysis_id` null, with an idempotent upsert on `(rdm_id, analysis_name, perspective_code)` producing one row + one set of Parquet files. (The exact within-RDM source-analysis discriminator is confirmed against the live library when the export worker is built — `analysis_name` is the working key.)
 - **Exactly one of `analysis_id` / `rdm_id` is set** (DB CHECK): `analysis_id` for **own** results (one meta per analysis + perspective — own analyses have genuinely distinct results, no dedup); `rdm_id` for **broker** results (deduped as above).
 - **Parquet location:** own results at `{submission_outputs_dir}/{analysis_id}/{perspective_code}/{result_type}.parquet`; broker results at an RDM-keyed, submission-independent path `{OUTPUTS_BASE_DIR}/rdm/{rdm_id}/{analysis_name}/{perspective_code}/{result_type}.parquet` because an RDM can relate to several submissions. `result_type ∈ elt|ep|plt|stats`. Exact column schemas come from the live `get_elt/ep/stats/plt()` DataFrames.
 
@@ -653,7 +682,8 @@ erDiagram
 ```
 
 - `irp_currency.code` is a natural key — currencies have no Moody's-assigned surrogate id, so the table carries no `irp_id`.
-- `irp_currency_scheme_vintage` is a raw snapshot with no natural key and no unique index: each sync deletes all rows and re-inserts what the API returned.
+- **Currency-scheme vintages are versions nested inside a scheme** (design note 17 D2): `irp_currency_scheme_vintage` has no `irp_id` and no unique key — the upstream vintage item carries no id and `(currency_scheme_code, vintage)` is not unique upstream (Risk Modeler allows duplicate vintage names) — so the sync is a raw snapshot, delete-all + insert. The metadata screen and the spec-010 submit-time currency picker read these two tables.
+- **Currency defaults are configuration, not a table** (design note 17 D6/D7): `DEFAULT_ANALYSIS_CURRENCY_CODE` / `_SCHEME` / `_VINTAGE` env vars pre-fill the execution modal's pickers; ops edits them, the system never advances them when a newer vintage syncs. No admin UI or RBAC in MVP.
 
 ---
 
@@ -764,7 +794,7 @@ erDiagram
 | `irp_job_type_kind` | `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`. |
 | `irp_job_resource_type_kind` | `portfolio` (only value confirmed today). |
 | `rwb_job_requestor_type_kind` | `irp_job`, `analyst_request`, `rwb_job`, `breakout_group`. |
-| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `sync_irp_metadata`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009.) |
+| `rwb_job_type_kind` | `upload_edm`, `upload_rdm`, `backfill_rdm_analyses`, `backfill_edm_detail`, `run_geohaz`, `run_breakout_lob`, `run_breakout_state`, `run_breakout_country`, `run_breakout_peril`, `run_breakout_custom`, `execute_analysis_batch`, `finalize_analysis`, `sync_irp_metadata`, `retrieve_analysis_results`, `download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. (`backfill_rdm_analyses` added by spec 003 — captures `irp_analysis` at RDM-import completion for delete-enumeration; D2. `backfill_edm_detail` added by spec 004; `run_geohaz` added by spec 007; the `run_breakout_*` codes added by spec 005 — one per dimension so the idempotent-enqueue key gives each dimension its own live-job slot per portfolio; `sync_irp_metadata` added by spec 009; `execute_analysis_batch`/`finalize_analysis` added by spec 010.) |
 | `breakout_dimension_kind` | `lob` (Line of business), `state` (Geography - State), `country` (Geography - Country), `peril` (Peril), `custom` (Custom group — the grouping lineage code) — spec 005. |
 | `rwb_job_status_kind` | `pending`, `running`, `succeeded`, `failed`. |
 | `delivery_kind` | `file`, `sql`. |
@@ -779,7 +809,7 @@ erDiagram
 
 - Confirm `role_kind` codes and the `treaty_type_kind` seed list with the team.
 - Exposure and Loss repository schemas — defined in this project (`db/bootstrap/*.sql`); columns coordinated with the reporting/downstream teams.
-- Exact IRP REST response columns for ELT/EP/PLT/stats — confirm against the live library when `retrieve_analysis_results` is built.
+- Exact IRP REST response columns for ELT/PLT — confirm against the live library when the export worker is built (EP curve and stats shapes captured 2026-08-25, spec 011 `research.md#R3`).
 - `irp_job_resource` multiplicity — one-per-job (`portfolio` only today) or genuinely multi-resource?
 - Whether `analysis_result_meta` should carry an `irp_portfolio` FK (which portfolio the result was run against).
 - **`irp_analysis.edm_id` is nullable.** Standalone RDM import creates broker

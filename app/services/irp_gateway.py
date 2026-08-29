@@ -3,7 +3,9 @@
 Article 11: every Risk Modeler call goes through this thin gateway so the poller
 and workers can be unit-tested against a fake (Article 12). The web layer only
 ever reaches the *submit* / *search* methods indirectly, via services that enqueue
-workers — it never calls the ``get_*`` status checks or any result retrieval.
+workers — plus one synchronous ``delete_analysis`` on the request path (spec 010
+P-19, permitted like submits by Article 11) — it never calls the ``get_*`` status
+checks or any result retrieval.
 
 **Single-status-check only.** ``get_*_job`` maps to one status read; the blocking
 ``poll_*_to_completion`` helpers are NEVER wrapped here (they run for minutes and
@@ -28,6 +30,11 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence, runtime_checkable
+
+# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
+# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
+# raises this on any submit failure (spec 010, contracts/irp-gateway.md).
+from irp_integration.exceptions import IRPIntegrationError
 
 logger = logging.getLogger(__name__)
 
@@ -158,9 +165,9 @@ class EdmCatalogEntry:
 
 @dataclass(frozen=True)
 class AnalysisHit:
-    """One broker analysis returned by ``search_analyses`` (D2). ``analysis_id`` is
-    Moody's ``analysisId`` as a string. The source names are echoed back so the
-    backfill worker can persist lineage on ``irp_analysis``.
+    """One broker analysis returned by ``search_analyses`` (D2).
+    ``analysis_id`` is Moody's ``analysisId`` as a string. The source names are
+    echoed back so the backfill worker can persist lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -340,6 +347,27 @@ class IRPGateway(Protocol):
     def list_currency_schemes(self) -> list[CurrencySchemeEntry]: ...
 
     def list_currency_scheme_vintages(self) -> list[CurrencySchemeVintageEntry]: ...
+
+    # ── spec-010 analysis execution (worker-only; submit/status/backfill) ───────
+
+    def submit_portfolio_analysis(
+        self, *, edm_name: str, portfolio_name: str, job_name: str,
+        analysis_profile_name: str, output_profile_name: str,
+        event_rate_scheme_name: str | None, treaty_names: list[str],
+        tag_names: list[str], currency: dict,
+        min_loss_threshold: float, num_max_loss_event: int,
+        franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+    ) -> tuple[str, dict]: ...
+
+    def get_analysis_job(self, irp_id: str) -> JobStatus: ...
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]: ...
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]: ...
+
+    def delete_analysis(self, irp_id: str) -> None: ...
 
     # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
 
@@ -921,6 +949,62 @@ class _RealGateway:
         data = self._client().import_job.get_import_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    # ── spec-010 analysis execution (worker-only) ─────────────────────────────
+
+    def submit_portfolio_analysis(
+        self, *, edm_name: str, portfolio_name: str, job_name: str,
+        analysis_profile_name: str, output_profile_name: str,
+        event_rate_scheme_name: str | None, treaty_names: list[str],
+        tag_names: list[str], currency: dict,
+        min_loss_threshold: float, num_max_loss_event: int,
+        franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+    ) -> tuple[str, dict]:
+        # skip_duplicate_check=True: the workbench is the only writer of its own
+        # EDMs' analyses (no-backwards-compatibility rule); the local name-claim
+        # (uq_irp_analysis_live_edm_name) is the real collision guard (T-05),
+        # avoiding one RM search per submitted item.
+        job_id, request_body = self._client().analysis.submit_portfolio_analysis_job(
+            edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
+            analysis_profile_name=analysis_profile_name,
+            output_profile_name=output_profile_name,
+            event_rate_scheme_name=event_rate_scheme_name,
+            treaty_names=treaty_names, tag_names=tag_names, currency=currency,
+            skip_duplicate_check=True,
+            franchise_deductible=franchise_deductible,
+            min_loss_threshold=min_loss_threshold,
+            treat_construction_occupancy_as_unknown=(
+                treat_construction_occupancy_as_unknown),
+            num_max_loss_event=num_max_loss_event,
+        )
+        return str(job_id), request_body
+
+    def get_analysis_job(self, irp_id: str) -> JobStatus:
+        data = self._client().analysis.get_analysis_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
+        # verbatim. The wheel validates perspective_code against its own
+        # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        return self._client().analysis.get_stats(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/ep — one element per
+        # epType (OEP, AEP, TCE-OEP, TCE-AEP), returned verbatim; the worker's
+        # builder does the filtering and the return-period lookup.
+        return self._client().analysis.get_ep(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def delete_analysis(self, irp_id: str) -> None:
+        # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
+        # Failures raise IRPIntegrationError; the caller keeps the local row.
+        self._client().analysis.delete_analysis(int(irp_id))
+
     def get_geohaz_job(self, irp_id: str) -> JobStatus:
         data = self._client().portfolio.get_geohaz_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
@@ -1175,6 +1259,51 @@ def list_currency_scheme_vintages() -> list[CurrencySchemeVintageEntry]:
     return _active().list_currency_scheme_vintages()
 
 
+# ── spec-010 analysis execution (worker-only) ─────────────────────────────────
+
+def submit_portfolio_analysis(
+    *, edm_name: str, portfolio_name: str, job_name: str,
+    analysis_profile_name: str, output_profile_name: str,
+    event_rate_scheme_name: str | None, treaty_names: list[str],
+    tag_names: list[str], currency: dict,
+    min_loss_threshold: float, num_max_loss_event: int,
+    franchise_deductible: bool, treat_construction_occupancy_as_unknown: bool,
+) -> tuple[str, dict]:
+    return _active().submit_portfolio_analysis(
+        edm_name=edm_name, portfolio_name=portfolio_name, job_name=job_name,
+        analysis_profile_name=analysis_profile_name,
+        output_profile_name=output_profile_name,
+        event_rate_scheme_name=event_rate_scheme_name,
+        treaty_names=treaty_names, tag_names=tag_names, currency=currency,
+        min_loss_threshold=min_loss_threshold,
+        num_max_loss_event=num_max_loss_event,
+        franchise_deductible=franchise_deductible,
+        treat_construction_occupancy_as_unknown=treat_construction_occupancy_as_unknown,
+    )
+
+
+def get_analysis_job(irp_id: str) -> JobStatus:
+    return _active().get_analysis_job(irp_id)
+
+
+def get_analysis_stats(*, analysis_id: int, perspective_code: str,
+                       exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_stats(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def get_analysis_ep(*, analysis_id: int, perspective_code: str,
+                    exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_ep(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def delete_analysis(irp_id: str) -> None:
+    _active().delete_analysis(irp_id)
+
+
 def fetch_portfolio_stamp(*, exposure_irp_id: str,
                           portfolio_irp_id: str) -> str | None:
     return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
@@ -1240,8 +1369,12 @@ __all__ = [
     "search_treaties", "get_analysis_metadata", "list_model_profiles",
     "list_output_profiles", "list_event_rate_schemes", "list_currencies",
     "list_currency_schemes", "list_currency_scheme_vintages",
+    "submit_portfolio_analysis", "get_analysis_job",
+    "get_analysis_stats", "get_analysis_ep",
+    "delete_analysis",
     "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
     "find_portfolio_by_name",
+    "IRPIntegrationError",
 ]

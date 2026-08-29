@@ -281,8 +281,11 @@ def test_add_existing_candidates_are_paginated(iteration2_db):
             {"id": str(uuid.uuid4()), "name": f"Candidate{index:03d}"},
             connection="WORKBENCH")
 
-    first = svc.list_edm_candidates(submission_id, page=1)
-    second = svc.list_edm_candidates(submission_id, page=2)
+    # Scope to the inserted names: on the SQL Server tier the shared dev DB
+    # already holds EDMs an earlier import created, and an unfiltered read would
+    # count those too.
+    first = svc.list_edm_candidates(submission_id, query="Candidate", page=1)
+    second = svc.list_edm_candidates(submission_id, query="Candidate", page=2)
 
     assert len(first.rows) == svc.PAGE_SIZE and first.has_next is True
     assert len(second.rows) == 1 and second.has_next is False

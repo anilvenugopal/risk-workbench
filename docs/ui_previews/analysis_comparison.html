@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Analysis comparison · Risk Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================================
+   TOKENS — inlined VERBATIM from app/static/css/tokens.css.
+   ============================================================================ */
+:root{
+  --c-surface-0:#F8F9FB; --c-surface-1:#FFFFFF; --c-surface-2:#F0F2F5; --c-surface-3:#E5E8EE; --c-surface-nav:#ECEEF3;
+  --c-border:#D8DCE5; --c-border-faint:rgba(0,0,0,0.05); --c-border-strong:#BEC4D0;
+  --c-text-900:#0F1629; --c-text-700:#2D3748; --c-text-500:#64748B; --c-text-300:#94A3B8;
+  --c-navy-900:#0F2044; --c-navy-700:#1A3461; --c-navy-600:#234484; --c-navy-500:#2E57A8; --c-navy-200:#B8CCF0; --c-navy-100:#D8E5F8; --c-navy-050:#EBF2FC;
+  --c-amber-700:#92580A; --c-amber-600:#B06A0C; --c-amber-500:#D4820F; --c-amber-200:#F5D89A; --c-amber-100:#FBF0D0; --c-amber-050:#FDF8EE;
+  --c-green-700:#1E6B45; --c-green-600:#267A50; --c-green-500:#2E8F5E; --c-green-200:#A8D9BE; --c-green-100:#CCEEDD; --c-green-050:#E5F7EE;
+  --c-red-700:#8B1E2F; --c-red-600:#A42438; --c-red-500:#BE2D44; --c-red-200:#F0B8C0; --c-red-100:#F8D8DC; --c-red-050:#FCECEE;
+  --c-gray-bg:#EDF0F5; --c-gray-text:#4B5569; --c-gray-border:#CDD2DD; --c-gray-dot:#8D96A8;
+
+  --color-neutral-bg:var(--c-gray-bg); --color-neutral-text:var(--c-gray-text); --color-neutral-border:var(--c-gray-border);
+  --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
+  --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
+  --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
+  --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
+  --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
+
+  --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
+  --border-default:var(--c-border); --border-faint:var(--c-border-faint); --border-strong:var(--c-border-strong);
+  --text-primary:var(--c-text-900); --text-secondary:var(--c-text-700); --text-tertiary:var(--c-text-500); --text-disabled:var(--c-text-300);
+
+  --font-ui:"IBM Plex Sans", system-ui, sans-serif; --font-mono:"IBM Plex Mono","Cascadia Code","Consolas",monospace;
+  --fw-light:300; --fw-regular:400; --fw-medium:500; --fw-semibold:600; --fw-bold:700;
+  --fs-hero:28px; --fs-title:20px; --fs-h3:15px; --fs-body:14px; --fs-label:13px; --fs-caption:11px; --fs-eyebrow:10px; --fs-mono:12px;
+  --tracking-eyebrow:0.08em;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-7:32px; --space-8:40px; --space-9:48px;
+  --radius-xs:2px; --radius-sm:4px; --radius-md:6px; --radius-lg:8px; --radius-xl:12px; --radius-pill:999px;
+  --shadow-sm:0 1px 2px rgba(15,22,41,0.06),0 1px 1px rgba(15,22,41,0.04);
+  --shadow-lg:0 4px 16px rgba(15,22,41,0.10),0 2px 4px rgba(15,22,41,0.06);
+  --dur-fast:120ms;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0}
+
+/* ── existing app components reused as-is ─────────────────────────────────── */
+.btn-sm { font-size: var(--fs-caption); font-weight: var(--fw-medium); padding: 3px var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); cursor: pointer; color: var(--text-secondary); }
+.btn-sm--primary { background: var(--btn-primary-bg); color: var(--btn-primary-fg); border-color: var(--btn-primary-bg); }
+.btn-sm:disabled { opacity:.5; cursor:not-allowed; }
+select.wf-field__input { font: inherit; font-size: var(--fs-label); padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); }
+.state-box { border: 1px dashed var(--border-strong); border-radius: var(--radius-md); background: var(--surface-recessed); padding: var(--space-4); color: var(--text-tertiary); font-size: var(--fs-label); text-align: center; }
+.state-box strong { color: var(--text-secondary); font-weight: var(--fw-semibold); }
+.crumb { color: var(--text-tertiary); font-size: var(--fs-label); text-decoration: none; }
+a.crumb:hover { color: var(--color-brand); text-decoration: underline; }
+.crumb--current { color: var(--text-primary); font-weight: var(--fw-medium); }
+.crumb__sep { color: var(--text-disabled); margin: 0 var(--space-1); }
+
+/* the .ep table from details.css — the same shape the dedicated results page uses */
+.ep-shell{overflow-x:auto;border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel)}
+.ep{border-collapse:collapse;width:100%;font-size:var(--fs-label)}
+.ep th,.ep td{padding:var(--space-1) var(--space-3);white-space:nowrap}
+.ep thead th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:right;border-bottom:1px solid var(--border-default)}
+.ep thead th.l{text-align:left}
+.ep thead th.gsep,.ep td.gsep{border-left:1px solid var(--border-default)}
+.ep tbody td{font-family:var(--font-mono);font-size:var(--fs-mono);font-variant-numeric:tabular-nums;text-align:right;border-bottom:1px solid var(--border-faint)}
+.ep tbody td.rp{font-family:var(--font-ui);font-size:var(--fs-label);font-weight:var(--fw-medium);text-align:left;color:var(--text-secondary)}
+.ep tr.aal td{border-top:2px solid var(--border-strong);border-bottom:none;font-weight:var(--fw-medium);background:var(--surface-recessed)}
+.ep tr.aal td.rp{font-weight:var(--fw-semibold);color:var(--text-primary)}
+.ep tr.sd td{border-bottom:none;background:var(--surface-recessed);color:var(--text-secondary)}
+.na { color: var(--text-disabled); }
+
+/* per-analysis column header — same block the dedicated results page uses */
+.ep th.an{white-space:normal;min-width:130px;max-width:220px;vertical-align:bottom;text-align:right}
+.an__name{display:block;font-size:var(--fs-caption);letter-spacing:0;text-transform:none;color:var(--text-primary);font-weight:var(--fw-semibold);overflow-wrap:anywhere}
+.an__sub{display:block;font-size:var(--fs-eyebrow);letter-spacing:.05em;color:var(--text-tertiary);font-weight:var(--fw-regular)}
+.ep td.colmsg{white-space:normal;font-family:var(--font-ui);font-size:var(--fs-caption);color:var(--text-tertiary);font-style:italic;text-align:center;vertical-align:middle;max-width:220px}
+
+/* toolbar — identical to the dedicated results page, plus its count line */
+.res-toolbar{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3)}
+.res-toolbar label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
+.res-toolbar .sp{margin-left:auto}
+.res-count{font-size:var(--fs-caption);color:var(--text-tertiary)}
+
+/* modal kit (components.css conventions) */
+.modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:560px;max-width:100%;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
+.modal-title{flex:1;font-size:var(--fs-label);font-weight:var(--fw-semibold)}
+.modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-3)}
+.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
+.modal-footer{display:flex;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
+
+/* ============================================================================
+   NET-NEW — what comparison adds. Keep this small; extend the app's
+   details.css / components.css when building, don't carry preview classes over.
+   ============================================================================ */
+/* pair group = 3 columns: base · second · % change (D19/D20) */
+.ep th.pair{white-space:normal;text-align:center;font-size:var(--fs-eyebrow);color:var(--text-tertiary);border-bottom:1px solid var(--border-faint)}
+.ep td.chg,.ep th.chg{color:var(--text-secondary)}
+.ep td.chg{font-style:normal}
+
+/* modal: candidate list + cart */
+.cmp-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:190px;overflow-y:auto}
+.cmp-row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1) var(--space-3);font-size:var(--fs-label);border-bottom:1px solid var(--border-faint)}
+.cmp-row:last-child{border-bottom:none}
+.cmp-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmp-row .ccy{font-family:var(--font-mono);font-size:var(--fs-mono);color:var(--text-tertiary)}
+.cmp-row--disabled{color:var(--text-disabled)}
+.cmp-row--disabled .ccy{color:var(--text-disabled)}
+.cmp-hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.cmp-cart{display:flex;flex-direction:column;gap:var(--space-1)}
+.cmp-pair{display:flex;align-items:center;gap:var(--space-2);font-size:var(--fs-label);background:var(--surface-recessed);border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:var(--space-1) var(--space-3)}
+.cmp-pair .ord{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-semibold)}
+.cmp-pair .vs{color:var(--text-disabled)}
+.cmp-pair .x{margin-left:auto;border:none;background:none;color:var(--text-tertiary);cursor:pointer;font-size:var(--fs-label)}
+.cmp-badge{display:inline-flex;align-items:center;padding:0 var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-eyebrow);font-weight:var(--fw-semibold);letter-spacing:.05em;background:var(--color-brand-wash);color:var(--color-brand);border:1px solid var(--color-brand-border)}
+
+/* the merged-section summary bar, abbreviated (analyses_merged_section.html) */
+.sec-bar{display:flex;align-items:center;gap:var(--space-2);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-2) var(--space-3);font-size:var(--fs-label)}
+.sec-bar .t{font-weight:var(--fw-semibold)}
+.sec-bar .picked{color:var(--text-tertiary);font-size:var(--fs-caption)}
+.sec-bar .sp{margin-left:auto}
+
+/* preview chrome (not app CSS) */
+.pv-wrap{max-width:1400px;margin:0 auto;padding:var(--space-7) var(--space-6)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+.pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:105ch}
+.pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
+.pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:105ch}
+.pv-cap b{color:var(--text-primary)}
+.pv-page{border:1px solid var(--border-default);border-radius:var(--radius-lg);background:var(--surface-panel);padding:var(--space-5);box-shadow:var(--shadow-sm)}
+.pv-tab{display:inline-flex;align-items:center;gap:var(--space-2);border:1px solid var(--border-default);border-bottom:none;border-radius:var(--radius-md) var(--radius-md) 0 0;background:var(--surface-recessed);padding:2px var(--space-3);font-size:var(--fs-caption);color:var(--text-secondary)}
+.pv-crumbband{display:flex;align-items:center;margin:0 0 var(--space-4);padding-bottom:var(--space-2);border-bottom:1px solid var(--border-faint)}
+.pv-narrow{max-width:760px}
+.pv-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(560px,1fr));gap:var(--space-6)}
+</style>
+</head>
+<body>
+<div class="pv-wrap">
+
+  <div class="pv-hero">Analysis comparison — pairwise cart, dedicated page</div>
+  <div class="pv-sub">
+    Iteration 10 (branch 013). Design: notes 19 §6 (D17–D20) and 20 §6.5 (D16/D17); PRD §17.3.
+    <b>Compare</b> is its own action beside <b>View</b> on the merged analyses table (both entry points).
+    A modal collects <b>strictly pairwise</b> selections into a cart — first picked = base = first column,
+    percent change follows that order (D19). Pairs come from the table at hand; the modal offers only
+    analyses with retrieved results, and a pair must share a run currency (D17 — blocked, never converted).
+    The comparison opens on a <b>dedicated page in a new browser tab</b> under the dedicated results page's
+    rules (breadcrumbs, tab title). Perspective and the single EP type apply screen-wide, never per pair.
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">1 · Entry — Compare beside View on the merged table's summary bar</div>
+  <p class="pv-cap">The section summary bar (<code>analyses_merged_section.html</code>) gains a
+  <b>Compare</b> button. Unlike View it needs no prior selection — picking pairs happens in the modal —
+  so it is enabled whenever two or more analyses have results.</p>
+
+  <div class="pv-page pv-narrow" style="padding:var(--space-3)">
+    <div class="sec-bar">
+      <span class="t">Analyses</span>
+      <span class="picked"><strong>2</strong> selected</span>
+      <span class="sp"></span>
+      <select class="wf-field__input"><option>All statuses</option></select>
+      <button class="btn-sm">⋮ Copy table</button>
+      <button class="btn-sm">Delete</button>
+      <button class="btn-sm">Compare ⇄</button>
+      <button class="btn-sm btn-sm--primary">View ↗</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">2 · The Compare modal — building the cart</div>
+  <div class="pv-board">
+
+    <div>
+      <p class="pv-cap"><b>A pair in progress.</b> The list shows the table's analyses that have results
+      (own and broker alike — broker rows read the broker's own name); ticking two enables
+      <b>Add pair</b>. The first tick is marked <b>base</b> — selection order, not list order, is the
+      contract (D19). Analyses still retrieving or failed are listed but not selectable.</p>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Compare analyses</span></div>
+        <div class="modal-body">
+          <div class="cmp-hint">Pick two analyses, then add the pair. The first picked is the base —
+          percent change is measured against it.</div>
+          <div class="cmp-list">
+            <div class="cmp-row"><input type="checkbox" checked> <span class="name">CRE_HO_FL_v25 DLM HU</span> <span class="cmp-badge">base</span> <span class="ccy">USD</span></div>
+            <div class="cmp-row"><input type="checkbox"> <span class="name">FL HU Gross 2026</span> <span class="ccy">USD</span></div>
+            <div class="cmp-row"><input type="checkbox"> <span class="name">GA HU Gross 2026</span> <span class="ccy">USD</span></div>
+            <div class="cmp-row"><input type="checkbox"> <span class="name">CRE_HO_CB_v25 DLM HU</span> <span class="ccy">EUR</span></div>
+            <div class="cmp-row cmp-row--disabled"><input type="checkbox" disabled> <span class="name">CRE_HO_GA_v25 DLM HU</span> <span class="ccy">retrieving…</span></div>
+            <div class="cmp-row cmp-row--disabled"><input type="checkbox" disabled> <span class="name">CRE_HO_SC_v25 DLM HU</span> <span class="ccy">retrieval failed</span></div>
+          </div>
+          <button class="btn-sm" disabled style="align-self:flex-start">Add pair — pick one more</button>
+          <div class="cmp-cart">
+            <div class="cmp-pair"><span class="ord">1</span> <span>CRE_HO_FL_v25 DLM HU</span>
+              <span class="vs">vs</span> <span>FL HU Gross 2026</span> <button class="x" title="Remove pair">✕</button></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-sm">Cancel</button>
+          <button class="btn-sm btn-sm--primary">Compare 1 pair ↗</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="pv-cap"><b>Mixed currencies — the pair is refused (D17).</b> Two analyses run in different
+      currencies cannot be paired; nothing is converted. Wendy: "I would just not let people do it."
+      The message names both currencies; the tick stays so the analyst can change their pick.</p>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Compare analyses</span></div>
+        <div class="modal-body">
+          <div class="cmp-hint">Pick two analyses, then add the pair. The first picked is the base —
+          percent change is measured against it.</div>
+          <div class="cmp-list">
+            <div class="cmp-row"><input type="checkbox" checked> <span class="name">CRE_HO_FL_v25 DLM HU</span> <span class="cmp-badge">base</span> <span class="ccy">USD</span></div>
+            <div class="cmp-row"><input type="checkbox"> <span class="name">FL HU Gross 2026</span> <span class="ccy">USD</span></div>
+            <div class="cmp-row"><input type="checkbox" checked> <span class="name">CRE_HO_CB_v25 DLM HU</span> <span class="ccy">EUR</span></div>
+          </div>
+          <button class="btn-sm" disabled style="align-self:flex-start">Add pair</button>
+        </div>
+        <div class="modal-error">These analyses ran in different currencies (USD, EUR) and can't be
+        compared. Pick two analyses that share a currency.</div>
+        <div class="modal-footer">
+          <button class="btn-sm">Cancel</button>
+          <button class="btn-sm btn-sm--primary" disabled>Compare 0 pairs ↗</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <p class="pv-cap"><b>The cart at its limit.</b> ~5 pairs is a layout limit (note 19 D18 — the number
+      is a proposal, unconfirmed with CIC, O19-8). Adding a sixth is refused; comparing the five is not.</p>
+      <div class="modal-card">
+        <div class="modal-header"><span class="modal-title">Compare analyses</span></div>
+        <div class="modal-body">
+          <div class="cmp-cart">
+            <div class="cmp-pair"><span class="ord">1</span> <span>CRE_HO_FL_v25 DLM HU</span> <span class="vs">vs</span> <span>FL HU Gross 2026</span> <button class="x">✕</button></div>
+            <div class="cmp-pair"><span class="ord">2</span> <span>CRE_HO_GA_v25 DLM HU</span> <span class="vs">vs</span> <span>GA HU Gross 2026</span> <button class="x">✕</button></div>
+            <div class="cmp-pair"><span class="ord">3</span> <span>CRE_HO_NC_v25 DLM HU</span> <span class="vs">vs</span> <span>NC HU Gross 2026</span> <button class="x">✕</button></div>
+            <div class="cmp-pair"><span class="ord">4</span> <span>CRE_HO_SC_v25 DLM HU</span> <span class="vs">vs</span> <span>SC HU Gross 2026</span> <button class="x">✕</button></div>
+            <div class="cmp-pair"><span class="ord">5</span> <span>CRE_HO_AL_v25 DLM HU</span> <span class="vs">vs</span> <span>AL HU Gross 2026</span> <button class="x">✕</button></div>
+          </div>
+          <div class="cmp-hint">5 pairs is the most one screen holds. Remove a pair to add another.</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-sm">Cancel</button>
+          <button class="btn-sm btn-sm--primary">Compare 5 pairs ↗</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">3 · The comparison page — two pairs, new tab</div>
+  <p class="pv-cap">The dedicated results page's toolbar, verbatim — Perspective (Pre-Cat Net default),
+  <b>EP type</b> (one at a time), Units, Copy table — applying <b>screen-wide to every pair</b> (D20 + 8/26
+  D11). Each pair is three columns: base, second, <b>% Chg</b> — labelled with analysis names only, no
+  row-header column, no per-pair label (D20). Percent change follows selection order: pair 1 reads
+  (broker − base) / base. The header sub-line carries currency and the engine/model version each side ran
+  (note 18 O18-10 / spec 011 FR-021). AAL and Std dev sit below the curve, outside the EP-type selection,
+  each with its own percent change. Breadcrumbs and tab title follow the View rules (D21/D22).</p>
+
+  <div>
+    <span class="pv-tab">🗔 Coastal HO 2026 · Risk Workbench</span>
+    <div class="pv-page" style="border-top-left-radius:0">
+      <div class="pv-crumbband">
+        <a class="crumb" href="#">Results</a><span class="crumb__sep">/</span>
+        <span class="crumb crumb--current">Comparison</span><span class="crumb__sep">/</span>
+        <a class="crumb" href="#">Coastal Re HO 2026</a><span class="crumb__sep">/</span>
+        <a class="crumb" href="#">Coastal HO 2026</a>
+      </div>
+
+      <div class="res-toolbar">
+        <label>Perspective</label>
+        <select class="wf-field__input"><option>Gross</option><option selected>Pre-Cat Net</option><option>Working Excess</option><option>Quota Share</option><option>Ground Up</option></select>
+        <label>EP type</label>
+        <select class="wf-field__input"><option selected>OEP</option><option>AEP</option></select>
+        <label>Units</label>
+        <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+        <button class="btn-sm">⋮ Copy table</button>
+        <span class="sp"></span>
+        <span class="res-count">2 comparisons · Pre-Cat Net · OEP · millions</span>
+      </div>
+
+      <div class="ep-shell">
+        <table class="ep">
+          <thead>
+            <tr>
+              <th class="l" style="vertical-align:bottom">Return period</th>
+              <th class="an gsep"><span class="an__name">CRE_HO_FL_v25 DLM HU</span><span class="an__sub">USD · RiskLink 25</span></th>
+              <th class="an"><span class="an__name">FL HU Gross 2026</span><span class="an__sub">USD · RiskLink 23</span></th>
+              <th class="chg" style="vertical-align:bottom">% Chg</th>
+              <th class="an gsep"><span class="an__name">CRE_HO_GA_v25 DLM HU</span><span class="an__sub">USD · RiskLink 25</span></th>
+              <th class="an"><span class="an__name">GA HU Gross 2026</span><span class="an__sub">USD · RiskLink 23</span></th>
+              <th class="chg" style="vertical-align:bottom">% Chg</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td class="rp">10,000</td><td class="gsep">326.7</td><td>317.2</td><td class="chg">−2.9%</td><td class="gsep">3.4</td><td>3.2</td><td class="chg">−6.3%</td></tr>
+            <tr><td class="rp">5,000</td><td class="gsep">274.1</td><td>263.9</td><td class="chg">−3.7%</td><td class="gsep">2.9</td><td>2.7</td><td class="chg">−7.4%</td></tr>
+            <tr><td class="rp">2,000</td><td class="gsep">203.4</td><td>193.5</td><td class="chg">−4.9%</td><td class="gsep">2.2</td><td>2.0</td><td class="chg">−8.7%</td></tr>
+            <tr><td class="rp">1,000</td><td class="gsep">152.8</td><td>146.7</td><td class="chg">−4.0%</td><td class="gsep">1.5</td><td>1.4</td><td class="chg">−11.3%</td></tr>
+            <tr><td class="rp">500</td><td class="gsep">112.7</td><td>107.0</td><td class="chg">−5.1%</td><td class="gsep">1.1</td><td>0.9</td><td class="chg">−13.6%</td></tr>
+            <tr><td class="rp">250</td><td class="gsep">83.1</td><td>77.8</td><td class="chg">−6.4%</td><td class="gsep">0.7</td><td>0.6</td><td class="chg">−16.0%</td></tr>
+            <tr><td class="rp">100</td><td class="gsep">52.8</td><td>48.1</td><td class="chg">−8.9%</td><td class="gsep">0.4</td><td>0.3</td><td class="chg">−20.7%</td></tr>
+            <tr><td class="rp">50</td><td class="gsep">35.5</td><td>31.6</td><td class="chg">−11.0%</td><td class="gsep">0.2</td><td>0.2</td><td class="chg">−27.4%</td></tr>
+            <tr><td class="rp">25</td><td class="gsep">22.9</td><td>19.8</td><td class="chg">−13.5%</td><td class="gsep">0.1</td><td>0.1</td><td class="chg">−31.1%</td></tr>
+            <tr><td class="rp">10</td><td class="gsep">10.4</td><td>8.6</td><td class="chg">−17.3%</td><td class="gsep">0.1</td><td>0.0</td><td class="chg">−38.5%</td></tr>
+            <tr><td class="rp">5</td><td class="gsep">4.7</td><td>3.6</td><td class="chg">−23.4%</td><td class="gsep">0.0</td><td>0.0</td><td class="chg">−41.2%</td></tr>
+            <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1</td><td>3.6</td><td class="chg">−12.8%</td><td class="gsep">0.02</td><td>0.01</td><td class="chg">−25.2%</td></tr>
+            <tr class="sd"><td class="rp">Std dev</td><td class="gsep">14.9</td><td>13.7</td><td class="chg">−8.1%</td><td class="gsep">0.1</td><td>0.1</td><td class="chg">−9.4%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">4 · A perspective one side did not produce</div>
+  <p class="pv-cap">Switching the screen to <b>Quota Share</b>: a pair whose base produced it and whose
+  second did not shows the base numbers, an absent message for the second, and no percent change —
+  displayed as absent, never as an error (the spec-011 rule carried over).</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="res-toolbar">
+      <label>Perspective</label>
+      <select class="wf-field__input"><option>Gross</option><option>Pre-Cat Net</option><option>Working Excess</option><option selected>Quota Share</option><option>Ground Up</option></select>
+      <label>EP type</label>
+      <select class="wf-field__input"><option selected>OEP</option><option>AEP</option></select>
+      <label>Units</label>
+      <select class="wf-field__input"><option>Ones</option><option>Thousands</option><option selected>Millions</option></select>
+      <button class="btn-sm">⋮ Copy table</button>
+      <span class="sp"></span>
+      <span class="res-count">1 comparison · Quota Share · OEP · millions</span>
+    </div>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th class="an gsep"><span class="an__name">CRE_HO_FL_v25 DLM HU</span><span class="an__sub">USD · RiskLink 25</span></th>
+            <th class="an"><span class="an__name">FL HU Gross 2026</span><span class="an__sub">USD · RiskLink 23</span></th>
+            <th class="chg" style="vertical-align:bottom">% Chg</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rp">10,000</td><td class="gsep">61.4</td>
+            <td class="colmsg" rowspan="13">The analysis did not<br>produce this perspective.</td>
+            <td class="chg colmsg" rowspan="13">—</td></tr>
+          <tr><td class="rp">5,000</td><td class="gsep">51.7</td></tr>
+          <tr><td class="rp">2,000</td><td class="gsep">38.2</td></tr>
+          <tr><td class="rp">1,000</td><td class="gsep">28.8</td></tr>
+          <tr><td class="rp">500</td><td class="gsep">21.2</td></tr>
+          <tr><td class="rp">250</td><td class="gsep">15.6</td></tr>
+          <tr><td class="rp">100</td><td class="gsep">9.9</td></tr>
+          <tr><td class="rp">50</td><td class="gsep">6.7</td></tr>
+          <tr><td class="rp">25</td><td class="gsep">4.3</td></tr>
+          <tr><td class="rp">10</td><td class="gsep">2.0</td></tr>
+          <tr><td class="rp">5</td><td class="gsep">0.9</td></tr>
+          <tr class="aal"><td class="rp">AAL</td><td class="gsep">0.8</td></tr>
+          <tr class="sd"><td class="rp">Std dev</td><td class="gsep">2.8</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">5 · A paired analysis no longer exists</div>
+  <p class="pv-cap">An id that no longer resolves drops its whole <b>pair</b> — half a comparison is
+  meaningless — with a notice above the table; the pairs that resolve render normally. Same rule as the
+  dedicated results page, at pair grain.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="state-box" style="text-align:left;margin-bottom:var(--space-3)">1 comparison was dropped —
+    <strong>CRE_HO_GA_v25 DLM HU</strong> no longer exists (it may have been deleted since this view was
+    opened). The remaining 1 is shown.</div>
+    <div class="res-count" style="margin-bottom:var(--space-2)">1 comparison · Pre-Cat Net · OEP · millions</div>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            <th class="an gsep"><span class="an__name">CRE_HO_FL_v25 DLM HU</span><span class="an__sub">USD · RiskLink 25</span></th>
+            <th class="an"><span class="an__name">FL HU Gross 2026</span><span class="an__sub">USD · RiskLink 23</span></th>
+            <th class="chg" style="vertical-align:bottom">% Chg</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="rp">10,000</td><td class="gsep">326.7</td><td>317.2</td><td class="chg">−2.9%</td></tr>
+          <tr><td class="rp">1,000</td><td class="gsep">152.8</td><td>146.7</td><td class="chg">−4.0%</td></tr>
+          <tr><td class="rp">…</td><td class="gsep">…</td><td>…</td><td class="chg">…</td></tr>
+          <tr class="aal"><td class="rp">AAL</td><td class="gsep">4.1</td><td>3.6</td><td class="chg">−12.8%</td></tr>
+          <tr class="sd"><td class="rp">Std dev</td><td class="gsep">14.9</td><td>13.7</td><td class="chg">−8.1%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">6 · Nothing to show</div>
+  <p class="pv-cap">No pairs at all (a hand-typed URL), or none of them resolve.</p>
+
+  <div class="pv-page pv-narrow">
+    <div class="state-box">No comparisons to display. Choose <strong>Compare</strong> on a submission or
+    EDM page and add at least one pair.</div>
+  </div>
+
+</div>
+</body>
+</html>

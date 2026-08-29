@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy import text
 
@@ -42,7 +42,7 @@ from app.services import (
     rwb_job_service,
     treaty_service,
 )
-from app.services._common import _utcnow
+from app.services._common import _uid, _utcnow
 from app.workers import broker, dispatch, runtime
 from app.workers.queues import rwb_actor
 from db import (
@@ -302,6 +302,20 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             conn.execute(text(
                 "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
             ), {"now": now, "id": str(rdm_id)})
+    # Chain the results retrieval (spec 011 FR-002, T-01): one job per live
+    # captured analysis still missing its extract. The queue's UNIQUE key is the
+    # FR-006 dedup — a re-import of another EDM copy enqueues nothing — and
+    # enqueue_rwb_job never resurrects a terminal failed retrieval (O-06).
+    for pending in execute(
+            "SELECT id FROM irp_analysis WHERE rdm_id = :r "
+            "AND deleted_at IS NULL AND loss_results IS NULL",
+            {"r": str(rdm_id)}, connection="WORKBENCH"):
+        retrieval_id = rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_analysis", requestor_id=_uid(pending["id"]),
+            rwb_job_type="retrieve_analysis_results",
+            input_data={"analysis_id": _uid(pending["id"])})
+        dispatch.dispatch(rwb_job_id=retrieval_id,
+                          rwb_job_type="retrieve_analysis_results")
     captured = len(hits)
     logger.info("captured %d analysis row(s) for rdm=%s", captured, rdm_id)
     out: dict[str, Any] = {"captured": captured}
@@ -472,7 +486,7 @@ def backfill_edm_detail(rwb_job_id: str) -> None:
 
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
-_BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
+_BODIES: runtime.JobBodies = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
@@ -481,31 +495,12 @@ _BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
 
 
 def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") -> bool:
-    """Claim + run a single ``rwb_job`` through its body. Returns ``run_job``'s result
-    (``False`` if the row was already claimed / the type has no body yet)."""
-    body = _BODIES.get(rwb_job_type)
-    if body is None:
-        logger.debug("no body for rwb_job_type %s — skipping", rwb_job_type)
-        return False
-    return runtime.run_job(rwb_job_id=rwb_job_id, worker_id=worker_id,
-                           body=lambda: body(rwb_job_id))
+    return runtime.run_one(_BODIES, rwb_job_id=rwb_job_id,
+                           rwb_job_type=rwb_job_type, worker_id=worker_id)
 
 
 def run_pending(*, worker_id: str = "worker") -> int:
-    """Claim + run every currently-``pending`` ``rwb_job`` once. Snapshot-based (rows a
-    body enqueues are picked up on the next call), so tests advance the queue by
-    calling this after each poller pass. Returns the number of rows run."""
-    rows = execute(
-        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending' "
-        "ORDER BY inserted_at, id",
-        {}, connection="WORKBENCH",
-    )
-    count = 0
-    for row in rows:
-        if run_one(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"],
-                   worker_id=worker_id):
-            count += 1
-    return count
+    return runtime.run_pending(_BODIES, worker_id=worker_id)
 
 
 __all__ = [

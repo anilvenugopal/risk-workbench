@@ -1,0 +1,153 @@
+{% extends "base/shell.html" %}
+{% block title %}{{ page_name or 'Comparison' }}{% endblock %}
+
+{#- Loss cells carry data-unit-value so the units sliver rescales them;
+    percent cells carry none, so no unit change ever touches a percent (T-06). -#}
+{%- macro num(v) -%}
+  {%- if v is none -%}<span class="na">—</span>
+  {%- else -%}<span data-unit-value="{{ v }}" data-value="{{ v }}" title="{{ v }}">{{ '{:,.1f}'.format(v / 1000000) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{%- macro pctcell(v) -%}
+  {%- if v is none -%}<span class="na">—</span>
+  {%- else -%}<span title="{{ v }}">{{ '{:+.1f}%'.format(v * 100) }}</span>{%- endif -%}
+{%- endmacro -%}
+
+{% block main %}
+<div class="page-pad">
+  {% if pairs %}
+  <div class="res-toolbar">
+    <label for="res-persp">Perspective</label>
+    <select id="res-persp" name="perspective" class="wf-field__input"
+            hx-get="{{ comparison_base_url }}" hx-include="#res-ep"
+            hx-target="#comparison-view" hx-select="#comparison-view" hx-swap="outerHTML">
+      {% for p in perspectives %}
+      <option value="{{ p.code }}" {% if p.code == active_perspective %}selected{% endif %}>{{ p.label }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-ep">EP type</label>
+    <select id="res-ep" name="ep_type" class="wf-field__input"
+            hx-get="{{ comparison_base_url }}" hx-include="#res-persp"
+            hx-target="#comparison-view" hx-select="#comparison-view" hx-swap="outerHTML">
+      {% for e in ep_types %}
+      <option value="{{ e }}" {% if e == active_ep %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select>
+    <label for="res-units">Units</label>
+    <select id="res-units" class="wf-field__input" data-units-select>
+      <option value="ones">Ones</option>
+      <option value="thousands">Thousands</option>
+      <option value="millions" selected>Millions</option>
+    </select>
+    <button class="btn-sm" type="button" data-copy-table
+            title="Copy the table with headers — pastes into Excel">&#8942; Copy table</button>
+  </div>
+  {% endif %}
+
+  <div id="comparison-view">
+    {% if dropped %}
+    {# one notice above the table (FR-015) — the missing analysis or the two
+       currencies when the cause is known, the generic line otherwise #}
+    <div class="state-box state-box--warn" style="margin-bottom:var(--space-3)">
+      {% for d in dropped %}
+      <div>
+        {%- if d.kind == 'currency' -%}
+        A pair was dropped: its analyses were run in different currencies
+        ({{ d.currencies[0] }} vs {{ d.currencies[1] }}) — figures are never converted.
+        {%- elif d.kind == 'missing' and d.ids -%}
+        A pair was dropped: analys{{ 'is' if d.ids|length == 1 else 'es' }}
+        {{ d.ids|join(' and ') }} no longer exist{{ 's' if d.ids|length == 1 }}
+        — deleted since this comparison was opened.
+        {%- else -%}
+        A pair was dropped — a repeated analysis, an unrecorded run currency,
+        or a pair beyond the {{ max_pairs }}-pair limit.
+        {%- endif -%}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if pairs %}
+    <p class="res-count">{{ pairs|length }} comparison{{ 's' if pairs|length != 1 }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
+    <div class="ep-shell">
+      <table class="ep">
+        <thead>
+          <tr>
+            <th class="l" style="vertical-align:bottom">Return period</th>
+            {% for pair in pairs %}
+            {% for col in (pair.base, pair.second) %}
+            <th class="an{% if loop.first %} gsep{% endif %}">
+              <span class="an__name" title="{{ col.name }}" data-value="{{ col.name }}">{{ col.name }}</span>
+              <span class="an__sub">{{ col.run_currency or '—' }} · {{ col.engine or '—' }}</span>
+            </th>
+            {% endfor %}
+            <th class="chg" style="vertical-align:bottom">% Chg</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for rp in rp_labels %}
+          {% set ri = loop.index0 %}
+          <tr>
+            <td class="rp">{{ rp }}</td>
+            {% for pair in pairs %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td{% if loop.first %} class="gsep"{% endif %}>
+              {{ num(pr.rows[ri].oep if active_ep == 'OEP' else pr.rows[ri].aep) }}
+            </td>
+            {% elif ri == 0 %}
+            {# one absent-side message covering the curve, AAL, and Std dev
+               rows (FR-014) — the partner's numbers still render #}
+            <td class="colmsg{% if loop.first %} gsep{% endif %}"
+                rowspan="{{ rp_labels|length + 2 }}">
+              {%- if col.results_state == 'failed' -%}
+              Results retrieval failed.
+              {%- elif col.results_state == 'pending' -%}
+              Results pending — retrieval is queued or running.
+              {%- else -%}
+              The analysis did not produce this perspective.
+              {%- endif -%}
+            </td>
+            {% endif %}
+            {% endfor %}
+            {% set prow = pair.pct.rows[ri] if pair.pct else none %}
+            <td class="chg">{{ pctcell((prow.oep if active_ep == 'OEP' else prow.aep) if prow is not none else none) }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+          {# AAL and Std dev sit outside the EP-type selection (FR-010) #}
+          <tr class="aal">
+            <td class="rp">AAL</td>
+            {% for pair in pairs %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.aal) }}</td>
+            {% endif %}
+            {% endfor %}
+            <td class="chg">{{ pctcell(pair.pct.aal if pair.pct else none) }}</td>
+            {% endfor %}
+          </tr>
+          <tr class="sd">
+            <td class="rp">Std dev</td>
+            {% for pair in pairs %}
+            {% for col in (pair.base, pair.second) %}
+            {% set pr = col.for_code(active_perspective) %}
+            {% if pr and pr.produced %}
+            <td{% if loop.first %} class="gsep"{% endif %}>{{ num(pr.std_dev) }}</td>
+            {% endif %}
+            {% endfor %}
+            <td class="chg">{{ pctcell(pair.pct.std_dev if pair.pct else none) }}</td>
+            {% endfor %}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="state-box">No comparisons to display. Choose <strong>Compare</strong> on a
+    submission or EDM page and add at least one pair.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
