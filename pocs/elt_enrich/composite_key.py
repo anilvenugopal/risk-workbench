@@ -61,6 +61,9 @@ def setup_table() -> None:
     _describe_column("credit_rating", "Enrichment column, plain name in both scenarios.")
     _describe_column("exposure", "Enrichment column, plain name in both scenarios.")
 
+    log("Starting table contents:")
+    show_table()
+
 
 def _describe_table(description: str) -> None:
     execute_command(
@@ -89,47 +92,84 @@ def _describe_column(column: str, description: str) -> None:
     )
 
 
+def show_dataframe(label: str, df: pd.DataFrame) -> None:
+    print(f"    {label}:")
+    for line in df.to_string(index=False).splitlines():
+        print(f"      {line}")
+
+
+def show_params(**params) -> None:
+    print("    enrich(...) called with:")
+    for name, value in params.items():
+        print(f"      {name} = {value!r}")
+
+
 def show_table() -> None:
+    """Pretty-print the whole table as an aligned grid."""
     rows = execute(
         f"SELECT region_id, coverage_code, credit_rating, exposure "
         f"FROM dbo.{TABLE} ORDER BY region_id, coverage_code",
         connection="WORKBENCH",
     )
-    for row in rows:
-        print(f"    {row}")
+    if not rows:
+        print("    (table is empty)")
+        return
+
+    columns = list(rows[0].keys())
+    str_rows = [{c: "" if row[c] is None else str(row[c]) for c in columns} for row in rows]
+    widths = {c: max(len(c), *(len(r[c]) for r in str_rows)) for c in columns}
+
+    def format_row(values: dict) -> str:
+        return "  ".join(values[c].ljust(widths[c]) for c in columns)
+
+    print(f"    {format_row({c: c for c in columns})}")
+    print(f"    {'  '.join('-' * widths[c] for c in columns)}")
+    for row in str_rows:
+        print(f"    {format_row(row)}")
 
 
 # ── Scenario 1: plain composite-key update ──────────────────────────────────
 
 def scenario_1_composite_key() -> None:
     log("Scenario 1: composite key — (region_id, coverage_code) must both "
-        "match; (2, 'WIND') is untouched even though region_id=2 alone "
-        "isn't unique across regions")
+        "match. Expect: (1, 'WIND') and (1, 'FLOOD') updated; (2, 'WIND') "
+        "untouched even though region_id=2 alone isn't unique across regions.")
     df = pd.DataFrame({
         "region_id": [1, 1],
         "coverage_code": ["WIND", "FLOOD"],
         "credit_rating": ["AAA", "AA+"],
         "exposure": [15000.00, 32000.00],
     })
+    show_dataframe("Input DataFrame", df)
+    show_params(
+        table_name=TABLE, key_fields=["region_id", "coverage_code"], connection="WORKBENCH",
+    )
 
     rows_updated = enrich(
         df, TABLE, key_fields=["region_id", "coverage_code"], connection="WORKBENCH",
     )
     print(f"    rows_updated = {rows_updated}")
-    show_table()
 
 
 # ── Scenario 2: column_mapping renames one of the two key columns ──────────
 
 def scenario_2_column_mapping() -> None:
     log("Scenario 2: column_mapping — DataFrame's 'cov_code' maps to "
-        "'coverage_code'; 'region_id' matches by its own name")
+        "'coverage_code'; 'region_id' matches by its own name. Expect: "
+        "(2, 'WIND') updated with credit_rating='BB', exposure=9000.00.")
     df = pd.DataFrame({
         "region_id": [2],
         "cov_code": ["WIND"],
         "credit_rating": ["BB"],
         "exposure": [9000.00],
     })
+    show_dataframe("Input DataFrame", df)
+    show_params(
+        table_name=TABLE,
+        key_fields=["region_id", "cov_code"],
+        column_mapping={"cov_code": "coverage_code"},
+        connection="WORKBENCH",
+    )
 
     rows_updated = enrich(
         df, TABLE,
@@ -138,11 +178,12 @@ def scenario_2_column_mapping() -> None:
         connection="WORKBENCH",
     )
     print(f"    rows_updated = {rows_updated}")
-    show_table()
 
 
 if __name__ == "__main__":
     setup_table()
     scenario_1_composite_key()
     scenario_2_column_mapping()
-    log("Done. Table dbo.poc_enrich_policy_coverage is left in place — inspect it yourself.")
+
+    log("Final table contents (dbo.poc_enrich_policy_coverage, left in place — inspect it yourself):")
+    show_table()

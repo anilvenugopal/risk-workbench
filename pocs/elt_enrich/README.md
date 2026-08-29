@@ -41,6 +41,11 @@ either one any time. Both tables are **left in place** after their script
 finishes — they do not clean up after themselves the way the automated tests
 do. That's on purpose, so you can inspect the result.
 
+Each script prints the starting table, then for every scenario: the input
+DataFrame, the exact parameters passed to `enrich(...)`, and the rows
+updated — finishing with the full final table, so you can follow each
+scenario's before/after without querying the database yourself.
+
 ## What each script proves
 
 ### `single_key.py` — `dbo.poc_enrich_submission`
@@ -83,12 +88,7 @@ for row in execute('SELECT * FROM dbo.poc_enrich_submission ORDER BY elt_data_ke
 
 Both tables and every column also carry a SQL Server **extended property**
 (`MS_Description`) explaining what each one demonstrates — the same
-"Description" field SSMS shows in Object Explorer. Print them from the
-command line with:
-
-```bash
-source infra/scripts/wsl-env.sh && uv run python pocs/elt_enrich/show_table_comments.py
-```
+"Description" field SSMS and DBeaver show in their object browser.
 
 ## Cleaning up
 
@@ -107,8 +107,7 @@ execute_command('DROP TABLE IF EXISTS dbo.poc_enrich_policy_coverage', connectio
 
 ```
 elt_enrich/
-├── README.md               this file
-├── single_key.py            single-column key: plain update + column_mapping
-├── composite_key.py         composite key: plain update + column_mapping
-└── show_table_comments.py   prints both tables' extended properties
+├── README.md          this file
+├── single_key.py      single-column key: plain update + column_mapping
+└── composite_key.py   composite key: plain update + column_mapping
 ```

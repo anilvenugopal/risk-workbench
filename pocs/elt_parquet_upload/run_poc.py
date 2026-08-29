@@ -35,11 +35,11 @@ def setup_table() -> None:
     execute_command(
         f"""
         CREATE TABLE dbo.{TABLE} (
-            trade_id        INT IDENTITY(1,1) PRIMARY KEY,
-            symbol          VARCHAR(20) NOT NULL,
-            notes           VARCHAR(200) NULL,
-            batch_id        INT NULL,
-            loaded_at       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            trade_id                INT IDENTITY(1,1) PRIMARY KEY,
+            symbol                  VARCHAR(20) NOT NULL,
+            notes                   VARCHAR(200) NULL,
+            source_file_name        VARCHAR(200) NULL,
+            loaded_at               DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
         )
         """,
         connection="WORKBENCH",
@@ -54,17 +54,20 @@ def setup_table() -> None:
     )
     _describe_column("trade_id", "IDENTITY primary key. Never appears in the "
                       "Parquet file or column_mapping — SQL Server assigns it, "
-                      "safely even when uploads run concurrently (see scenario 6).")
+                      "safely even when uploads run concurrently (see scenario 5).")
     _describe_column("symbol", "Ordinary required column. Comes from the "
                       "Parquet file's 'ticker' column via column_mapping "
                       "(scenario 1) — the names deliberately don't match.")
     _describe_column("notes", "Nullable column the Parquet file never "
-                      "supplies (scenario 4) — stays NULL after every load.")
-    _describe_column("batch_id", "Not present in any Parquet file. Populated "
-                      "entirely via extra_columns (scenario 2).")
+                      "supplies (scenario 3) — stays NULL after every load.")
+    _describe_column("source_file_name", "Populated by every scenario via "
+                      "extra_columns={'source_file_name': path.name} — every "
+                      "row loaded from a given file gets that file's own name. "
+                      "Also what scenario 5 groups by to prove no thread's rows "
+                      "got mixed up with another's.")
     _describe_column("loaded_at", "DEFAULT SYSUTCDATETIME(). Never appears "
                       "in the Parquet file or column_mapping — SQL Server "
-                      "computes it per row (scenario 5).")
+                      "computes it per row (scenario 4).")
 
 
 def _describe_table(description: str) -> None:
@@ -102,51 +105,54 @@ def write_parquet(name: str, rows: dict) -> Path:
 
 
 def show_table() -> None:
+    """Pretty-print the whole table as an aligned grid — clearer than a raw
+    dict per row, especially with 200+ rows from scenario 5."""
     rows = execute(
-        f"SELECT trade_id, symbol, notes, batch_id, loaded_at "
+        f"SELECT trade_id, symbol, notes, source_file_name, loaded_at "
         f"FROM dbo.{TABLE} ORDER BY trade_id",
         connection="WORKBENCH",
     )
-    for row in rows:
-        print(f"    {row}")
+    if not rows:
+        print("    (table is empty)")
+        return
+
+    columns = list(rows[0].keys())
+    str_rows = [{c: "" if row[c] is None else str(row[c]) for c in columns} for row in rows]
+    widths = {c: max(len(c), *(len(r[c]) for r in str_rows)) for c in columns}
+
+    def format_row(values: dict) -> str:
+        return "  ".join(values[c].ljust(widths[c]) for c in columns)
+
+    print(f"    {format_row({c: c for c in columns})}")
+    print(f"    {'  '.join('-' * widths[c] for c in columns)}")
+    for row in str_rows:
+        print(f"    {format_row(row)}")
 
 
 # ── Scenario 1: column_mapping (Parquet columns named differently) ──────────
 
 def scenario_1_column_mapping() -> None:
-    log("Scenario 1: column_mapping — Parquet's 'ticker' column renames to 'symbol'")
+    log("Scenario 1: column_mapping — Parquet's 'ticker' column renames to 'symbol'. "
+        "Expect: AAPL and MSFT added, both with source_file_name = 'scenario1.parquet'.")
     path = write_parquet("scenario1.parquet", {"ticker": ["AAPL", "MSFT"]})
 
     rows_inserted = upload_parquet(
         path, TABLE,
         column_mapping={"ticker": "symbol"},
+        extra_columns={"source_file_name": path.name},
         connection="WORKBENCH",
     )
     print(f"    rows_inserted = {rows_inserted}")
-    show_table()
 
 
-# ── Scenario 2: extra_columns (static values not in the file at all) ───────
+# ── Scenario 2: drop_unmapped_columns (file has more columns than the table) ─
 
-def scenario_2_extra_columns() -> None:
-    log("Scenario 2: extra_columns — batch_id=9001 stamped on every row, not in the file")
-    path = write_parquet("scenario2.parquet", {"symbol": ["GOOG", "AMZN"]})
-
-    rows_inserted = upload_parquet(
-        path, TABLE,
-        extra_columns={"batch_id": 9001},
-        connection="WORKBENCH",
-    )
-    print(f"    rows_inserted = {rows_inserted}")
-    show_table()
-
-
-# ── Scenario 3: drop_unmapped_columns (file has more columns than the table) ─
-
-def scenario_3_drop_unmapped_columns() -> None:
-    log("Scenario 3: drop_unmapped_columns — 'internal_notes' isn't a real "
-        "column and is silently skipped instead of failing the load")
-    path = write_parquet("scenario3.parquet", {
+def scenario_2_drop_unmapped_columns() -> None:
+    log("Scenario 2: drop_unmapped_columns — 'internal_notes' isn't a real "
+        "column and is silently skipped instead of failing the load. Expect: "
+        "one new TSLA row, no 'internal_notes' anywhere in the table (there's "
+        "no such column to show).")
+    path = write_parquet("scenario2.parquet", {
         "symbol": ["TSLA"],
         "internal_notes": ["not a real column on this table"],
     })
@@ -154,33 +160,39 @@ def scenario_3_drop_unmapped_columns() -> None:
     rows_inserted = upload_parquet(
         path, TABLE,
         drop_unmapped_columns=True,
+        extra_columns={"source_file_name": path.name},
         connection="WORKBENCH",
     )
     print(f"    rows_inserted = {rows_inserted}")
-    show_table()
 
 
-# ── Scenario 4: nullable column left alone ──────────────────────────────────
+# ── Scenario 3: nullable column left alone ──────────────────────────────────
 
-def scenario_4_nullable_column() -> None:
-    log("Scenario 4: nullable column — 'notes' is never in the file, stays NULL")
-    path = write_parquet("scenario4.parquet", {"symbol": ["NFLX"]})
+def scenario_3_nullable_column() -> None:
+    log("Scenario 3: nullable column — 'notes' is never in the file, stays NULL. "
+        "Expect: one new NFLX row with notes = None.")
+    path = write_parquet("scenario3.parquet", {"symbol": ["NFLX"]})
 
-    upload_parquet(path, TABLE, connection="WORKBENCH")
+    upload_parquet(
+        path, TABLE, extra_columns={"source_file_name": path.name}, connection="WORKBENCH",
+    )
     row = execute(
         f"SELECT notes FROM dbo.{TABLE} WHERE symbol = 'NFLX'", connection="WORKBENCH"
     )[0]
     print(f"    notes = {row['notes']!r} (expected: None)")
 
 
-# ── Scenario 5: DEFAULT timestamp column populated by SQL Server ───────────
+# ── Scenario 4: DEFAULT timestamp column populated by SQL Server ───────────
 
-def scenario_5_default_timestamp() -> None:
-    log("Scenario 5: DEFAULT column — 'loaded_at' is never in the file, "
-        "SQL Server computes it per row")
-    path = write_parquet("scenario5.parquet", {"symbol": ["META", "NVDA"]})
+def scenario_4_default_timestamp() -> None:
+    log("Scenario 4: DEFAULT column — 'loaded_at' is never in the file, "
+        "SQL Server computes it per row. Expect: META and NVDA each get a "
+        "real timestamp close to when this script ran.")
+    path = write_parquet("scenario4.parquet", {"symbol": ["META", "NVDA"]})
 
-    upload_parquet(path, TABLE, connection="WORKBENCH")
+    upload_parquet(
+        path, TABLE, extra_columns={"source_file_name": path.name}, connection="WORKBENCH",
+    )
     rows = execute(
         f"SELECT symbol, loaded_at FROM dbo.{TABLE} WHERE symbol IN ('META', 'NVDA')",
         connection="WORKBENCH",
@@ -189,14 +201,15 @@ def scenario_5_default_timestamp() -> None:
         print(f"    {row['symbol']}: loaded_at = {row['loaded_at']}")
 
 
-# ── Scenario 6: IDENTITY column stays unique under concurrent uploads ──────
+# ── Scenario 5: IDENTITY column stays unique under concurrent uploads ──────
 
-def scenario_6_identity_under_parallel_uploads() -> None:
-    log("Scenario 6: parallel uploads — 8 threads each upload 25 rows "
+def scenario_5_identity_under_parallel_uploads() -> None:
+    log("Scenario 5: parallel uploads — 8 threads each upload 25 rows "
         "concurrently; trade_id must stay unique with no duplicates or gaps "
-        "in the count")
+        "in the count. Expect: 200 new rows (8 files x 25 rows), each row's "
+        "source_file_name matching the file its own thread loaded.")
     paths = [
-        write_parquet(f"scenario6_{i}.parquet", {"symbol": [f"SYM{i}-{j}" for j in range(25)]})
+        write_parquet(f"scenario5_{i}.parquet", {"symbol": [f"SYM{i}-{j}" for j in range(25)]})
         for i in range(8)
     ]
 
@@ -204,7 +217,9 @@ def scenario_6_identity_under_parallel_uploads() -> None:
 
     def upload_one(path: Path) -> None:
         try:
-            upload_parquet(path, TABLE, connection="WORKBENCH")
+            upload_parquet(
+                path, TABLE, extra_columns={"source_file_name": path.name}, connection="WORKBENCH",
+            )
         except Exception as e:  # noqa: BLE001 — surfaced to the main thread below
             errors.append(e)
 
@@ -225,13 +240,27 @@ def scenario_6_identity_under_parallel_uploads() -> None:
     print(f"    distinct trade_id values = {len(set(ids))} (must match total rows)")
     assert len(ids) == len(set(ids)), "duplicate identity values were assigned!"
 
+    file_counts = execute(
+        f"SELECT source_file_name, COUNT(*) AS n FROM dbo.{TABLE} "
+        f"WHERE source_file_name LIKE 'scenario5_%' GROUP BY source_file_name "
+        f"ORDER BY source_file_name",
+        connection="WORKBENCH",
+    )
+    print("    rows per file (each should be 25, with no cross-thread mixing):")
+    for row in file_counts:
+        print(f"      {row['source_file_name']}: {row['n']}")
+    assert all(row["n"] == 25 for row in file_counts), (
+        "a thread's rows ended up tagged with the wrong source_file_name!"
+    )
+
 
 if __name__ == "__main__":
     setup_table()
     scenario_1_column_mapping()
-    scenario_2_extra_columns()
-    scenario_3_drop_unmapped_columns()
-    scenario_4_nullable_column()
-    scenario_5_default_timestamp()
-    scenario_6_identity_under_parallel_uploads()
-    log("Done. Table dbo.poc_upload_trades is left in place — inspect it yourself.")
+    scenario_2_drop_unmapped_columns()
+    scenario_3_nullable_column()
+    scenario_4_default_timestamp()
+    scenario_5_identity_under_parallel_uploads()
+
+    log("Final table contents (dbo.poc_upload_trades, left in place — inspect it yourself):")
+    show_table()
