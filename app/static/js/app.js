@@ -1,6 +1,30 @@
 // app.js — the small client-side sliver. Alpine handles modal state, the
 // Ctrl/Cmd-J shortcut, focus, and arrow-key navigation; HTMX handles the
 // search request and result rendering (see the shell's #search-results).
+
+// ── Theme (dark/light) ────────────────────────────────────────────────────────
+// Runs at the top of this non-deferred, head-loaded script — before <body>
+// paints — so .dark lands on <html> with no flash of the wrong theme. No saved
+// choice follows the OS setting; once the toggle is clicked, the explicit
+// choice sticks and no longer tracks prefers-color-scheme changes.
+const THEME_KEY = 'rwb-theme';
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
+  const dark = saved ? saved === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('dark', dark);
+})();
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.querySelector('[data-theme-toggle]');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const dark = !document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) {}
+  });
+});
+
 function appShell() {
   return {
     searchOpen: false,

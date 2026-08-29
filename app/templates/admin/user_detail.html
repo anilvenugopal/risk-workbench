@@ -158,6 +158,29 @@
     </button>
   </form>
 
+  {# ── Deactivate / reactivate ── #}
+  <div class="section-head" style="margin-top: 24px;">
+    <h2>Account status</h2>
+  </div>
+  {% if edit_user.id == current_user.id %}
+  <div class="muted" style="margin-bottom: 24px;">You cannot deactivate your own account.</div>
+  {% elif edit_user.is_active %}
+  <form method="post" action="/admin/users/{{ edit_user.id }}/deactivate">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm btn-sm--danger" type="submit"
+            onclick="return confirm('Deactivate {{ edit_user.email }}? They will be signed out and unable to sign in until reactivated.')">
+      Deactivate user
+    </button>
+  </form>
+  {% else %}
+  <form method="post" action="/admin/users/{{ edit_user.id }}/reactivate">
+    <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+    <button class="btn-sm btn-sm--primary" type="submit">
+      Reactivate user
+    </button>
+  </form>
+  {% endif %}
+
   {% endif %}
 </div>
 {% endblock %}
