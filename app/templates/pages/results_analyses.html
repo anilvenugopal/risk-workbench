@@ -62,10 +62,10 @@
     {% if view_columns %}
     <p class="res-count">{{ view_columns|length }} analys{{ 'is' if view_columns|length == 1 else 'es' }} &middot; {{ active_label }} &middot; {{ active_ep }}</p>
     <div class="ep-shell">
-      <table class="ep">
+      <table class="ep ep--results">
         <thead>
           <tr>
-            <th class="l" rowspan="2" style="vertical-align:bottom">Return period</th>
+            <th rowspan="2" style="vertical-align:bottom">Return period</th>
             {% for vc in view_columns %}
             <th class="an gsep">
               {% if view_columns|length > 1 %}

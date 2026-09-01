@@ -89,9 +89,10 @@ class TestJobTablesMigration:
     def test_irp_analysis_status_kind_seeds(self):
         codes = {r["code"] for r in execute(
             "SELECT code FROM irp_analysis_status_kind", {}, connection="WORKBENCH")}
-        # No 'running': irp_job.status carries progress, and every write that
-        # leaves 'pending' is terminal (spec 010, data-model §6).
-        assert codes == {"pending", "ready", "error"}
+        # 'running' is written by the submit_grouping worker after the platform
+        # accepts the grouping (spec 012, data-model §1); own analyses still go
+        # straight from 'pending' to a terminal status (spec 010, data-model §6).
+        assert codes == {"pending", "running", "ready", "error"}
 
     def test_irp_analysis_filtered_unique_indexes_present(self):
         # spec 010: uq_irp_analysis_rdm_irp is now a FILTERED unique index (not a

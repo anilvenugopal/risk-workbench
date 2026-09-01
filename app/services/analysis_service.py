@@ -216,6 +216,7 @@ class ExecutedAnalysis:
     irp_job_id: str | None = None       # latest linked irp_job
     job_status: str | None = None       # latest irp_job.status; None before submit
     submission_attempt_count: int = 0
+    is_group: bool = False              # spec 012 — Engine cell reads "Group"
     results_state: str = "pending"      # pending | failed | ready
     results_error: str | None = None    # failed retrieval's error_detail
     results: list[PerspectiveResults] = field(default_factory=list)  # [] until ready
@@ -509,6 +510,7 @@ def _executed_models(rows: list[dict]) -> list[ExecutedAnalysis]:
             irp_job_id=(_uid(r["irp_job_id"]) if r["irp_job_id"] else None),
             job_status=r["job_status"],
             submission_attempt_count=int(r["submission_attempt_count"] or 0),
+            is_group=bool(r.get("is_group")),
             results_state=("ready" if results else "pending"), results=results,
             submitted=submitted, run_currency=submitted.currency))
     _mark_failed_retrievals(analyses)
@@ -523,7 +525,7 @@ def list_executed_analyses(*, edm_id: Any) -> list[ExecutedAnalysis]:
 _SUBMISSION_EXECUTED_SELECT = f"""
     SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
            a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
-           a.loss_results, a.submitted_settings,
+           a.loss_results, a.submitted_settings, a.is_group,
            p.name AS portfolio_name, t.name AS template_name,
            e.name AS edm_name, u.display_name AS run_by,
            j.id AS irp_job_id, j.status AS job_status,
@@ -537,7 +539,20 @@ _SUBMISSION_EXECUTED_SELECT = f"""
     {_LATEST_JOB_JOIN}
     WHERE se.submission_id = :submission_id AND a.rdm_id IS NULL
       AND e.deleted_at IS NULL AND a.deleted_at IS NULL
-    ORDER BY a.inserted_at DESC
+    UNION ALL
+    SELECT a.id, a.name, a.full_name, a.status_code, a.failure_reason,
+           a.settings_metadata, a.inserted_at, a.irp_id, a.irp_app_analysis_id,
+           a.loss_results, a.submitted_settings, a.is_group,
+           NULL AS portfolio_name, NULL AS template_name,
+           NULL AS edm_name, u.display_name AS run_by,
+           j.id AS irp_job_id, j.status AS job_status,
+           j.submission_attempt_count
+    FROM irp_analysis a
+    LEFT JOIN app_user u ON u.id = a.inserted_by
+    {_LATEST_JOB_JOIN}
+    WHERE a.submission_id = :submission_id AND a.is_group = 1
+      AND a.deleted_at IS NULL
+    ORDER BY inserted_at DESC
 """
 
 

@@ -136,6 +136,7 @@ def main() -> int:
                     ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
                     ('finalize_analysis',         'Finalize Analysis',         31),
+                    ('submit_grouping',           'Submit grouping',           33),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
@@ -186,6 +187,7 @@ def main() -> int:
                 MERGE irp_analysis_status_kind AS target
                 USING (VALUES
                     ('pending', 'Pending', 10),
+                    ('running', 'Running', 20),
                     ('ready',   'Ready',   30),
                     ('error',   'Error',   40)
                 ) AS src (code, label, sort_order)

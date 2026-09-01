@@ -149,6 +149,7 @@ select.persp { font: inherit; font-size: var(--fs-caption); padding: 0 var(--spa
 .ep tbody td.rp { font-family: var(--font-ui); font-size: var(--fs-label); font-weight: var(--fw-medium); text-align: left; color: var(--text-secondary); }
 .ep tr.aal td { border-top: 2px solid var(--border-strong); border-bottom: none; font-weight: var(--fw-medium); background: var(--surface-recessed); }
 .ep tr.aal td.rp { font-weight: var(--fw-semibold); color: var(--text-primary); }
+.ep--results tbody td.rp { text-align: right; }
 .ep tr.sd td { border-bottom: none; background: var(--surface-recessed); color: var(--text-secondary); }
 .metric { color: var(--text-primary); font-weight: var(--fw-semibold); }
 

@@ -317,6 +317,7 @@ _EXPECTED_QUEUE_NAMES = [
     "run_breakout_peril",
     "run_breakout_state",
     "run_geohaz",
+    "submit_grouping",
     "sync_irp_metadata",
     "upload_edm",
     "upload_rdm",

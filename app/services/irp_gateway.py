@@ -361,6 +361,18 @@ class IRPGateway(Protocol):
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
+    # ── spec-012 grouping (worker-only; contracts/grouping-worker.md) ────────
+
+    def submit_analysis_grouping(
+        self, *, group_name: str, analysis_names: list[str],
+        analysis_edm_map: dict[str, str], group_names: set[str],
+        currency: dict, propagate_detailed_losses: bool,
+    ) -> tuple[str, dict]: ...
+
+    def get_grouping_job(self, irp_id: str) -> JobStatus: ...
+
+    def get_analysis_by_name_only(self, name: str) -> AnalysisHit: ...
+
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
                            exposure_resource_id: int) -> list[dict]: ...
 
@@ -982,6 +994,52 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    # ── spec-012 grouping (worker-only; contracts/grouping-worker.md) ─────────
+
+    def submit_analysis_grouping(
+        self, *, group_name: str, analysis_names: list[str],
+        analysis_edm_map: dict[str, str], group_names: set[str],
+        currency: dict, propagate_detailed_losses: bool,
+    ) -> tuple[str, dict]:
+        # skip_missing=False (T-10): a member that fails name resolution raises
+        # instead of silently narrowing the approved member set (AGENTS.md
+        # rule 8). The wheel resolves names to URIs and auto-builds the
+        # region/peril simulation set internally; simulate_to_plt, simulation
+        # windows and description stay wheel-managed (contract).
+        result = self._client().analysis.submit_analysis_grouping_job(
+            group_name=group_name, analysis_names=analysis_names,
+            analysis_edm_map=analysis_edm_map, group_names=group_names,
+            currency=currency,
+            propagate_detailed_losses=propagate_detailed_losses,
+            skip_missing=False,
+        )
+        return str(result["job_id"]), result["http_request_body"]
+
+    def get_grouping_job(self, irp_id: str) -> JobStatus:
+        data = self._client().analysis.get_analysis_grouping_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
+
+    def get_analysis_by_name_only(self, name: str) -> AnalysisHit:
+        # Groups have no EDM to disambiguate with; the wheel's tenant-wide
+        # duplicate pre-check plus the worker's _n retry guarantee the name was
+        # unique at submit — a duplicate appearing since is worth failing on.
+        rows = self._client().analysis.search_analyses_paginated(
+            filter=f"analysisName={json.dumps(name)}")
+        if len(rows) != 1:
+            raise LookupError(
+                f"expected exactly one analysis named {name!r}, "
+                f"found {len(rows)}")
+        r = rows[0]
+        return AnalysisHit(
+            analysis_id=str(r["analysisId"]),
+            name=r.get("analysisName"),
+            source_rdm_name=r.get("sourceRdmName"),
+            exposure_name=r.get("exposureName"),
+            exposure_resource_id=(
+                str(r["exposureResourceId"])
+                if r.get("exposureResourceId") is not None else None),
+            exposure_resource_type=r.get("exposureResourceType"))
+
     # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
 
     def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
@@ -1284,6 +1342,26 @@ def submit_portfolio_analysis(
 
 def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
+
+
+def submit_analysis_grouping(
+    *, group_name: str, analysis_names: list[str],
+    analysis_edm_map: dict[str, str], group_names: set[str],
+    currency: dict, propagate_detailed_losses: bool,
+) -> tuple[str, dict]:
+    return _active().submit_analysis_grouping(
+        group_name=group_name, analysis_names=analysis_names,
+        analysis_edm_map=analysis_edm_map, group_names=group_names,
+        currency=currency,
+        propagate_detailed_losses=propagate_detailed_losses)
+
+
+def get_grouping_job(irp_id: str) -> JobStatus:
+    return _active().get_grouping_job(irp_id)
+
+
+def get_analysis_by_name_only(name: str) -> AnalysisHit:
+    return _active().get_analysis_by_name_only(name)
 
 
 def get_analysis_stats(*, analysis_id: int, perspective_code: str,

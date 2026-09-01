@@ -200,19 +200,30 @@ def _fail_analysis(analysis_id: str, reason: str) -> runtime.JobResult:
 
 
 def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
-    """Take a FINISHED own-executed analysis to ``ready``: store ``irp_id`` (RM's
-    ``analysisId``, extracted by the poller from the completion body),
-    ``irp_app_analysis_id`` (the web-UI id for deep links) and
-    ``settings_metadata``."""
+    """Take a FINISHED own-executed analysis or group to ``ready``: store
+    ``irp_id`` (RM's ``analysisId`` — extracted by the poller from the completion
+    body for own analyses, resolved by name for groups), ``irp_app_analysis_id``
+    (the web-UI id for deep links) and ``settings_metadata``."""
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
-        "SELECT 1 AS present FROM irp_analysis WHERE id = :id",
+        "SELECT is_group, edm_id, name FROM irp_analysis WHERE id = :id",
         {"id": analysis_id}, connection="WORKBENCH") if analysis_id else None
     if row is None:
         return runtime.JobResult.ok(skipped="analysis missing")
 
     rm_id = ctx.get("rm_analysis_id")
+    if not rm_id and row["is_group"] and row["edm_id"] is None:
+        # A grouping completion body carries no analysisId, and a group has no
+        # EDM to disambiguate a name search with — but its name was unique
+        # tenant-wide at submit (the wheel's duplicate pre-check + the worker's
+        # _n retry), so a name-only search must hit exactly once (spec 012 T-11).
+        try:
+            rm_id = irp_gateway.get_analysis_by_name_only(row["name"]).analysis_id
+        except Exception as exc:  # noqa: BLE001 — resolution failed, visible job failure
+            logger.warning("finalize_analysis: group name resolve failed "
+                           "for %s (%r): %s", analysis_id, row["name"], exc)
+            return _fail_analysis(analysis_id, f"group resolve failed: {exc}")
     if not rm_id:
         return _fail_analysis(analysis_id, "completion payload had no analysisId")
 

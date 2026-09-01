@@ -1,0 +1,61 @@
+{# Group compose dialog (spec 012, contracts/routes.md — approved preview:
+   docs/ui_previews/group_compose_modal.html). Rendered into #group-modal by
+   GET /submissions/{sid}/analyses/group and re-rendered at 422 by the POST. #}
+{% from "partials/currency_block.html" import currency_block with context %}
+<div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
+  <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
+       {% if not blocking %}x-data="groupComposeModal()"{% endif %}>
+    <div class="modal-header">
+      <span id="group-modal-title" class="modal-title">Group analyses &middot; {{ submission.name }}</span>
+      <button class="icon-btn" type="button" aria-label="Close" @click="document.getElementById('group-modal').replaceChildren()">×</button>
+    </div>
+    {% if blocking %}
+    <div class="modal-body">
+      <div class="state-box state-box--warn">{{ blocking }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('group-modal').replaceChildren()">Close</button>
+    </div>
+    {% else %}
+    <form method="post" action="{{ action_url }}" @change="recompute()" @input="recompute()"
+          hx-post="{{ action_url }}" hx-target="#group-modal" hx-swap="innerHTML"
+          hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
+          @htmx:after-request="if ($event.detail.successful) document.getElementById('group-modal').replaceChildren()">
+      <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
+      <div class="modal-body">
+        {% if errors %}<div class="modal-error">{% for error in errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
+
+        <div class="wf-field">
+          <label for="group-name">GROUP NAME</label>
+          <input class="wf-field__input" id="group-name" type="text" name="group_name" value="{{ group_name }}">
+        </div>
+
+        <div>
+          <div class="exec-section-label">Members <span class="tag-empty">(finished analyses of this submission — pick at least two)</span></div>
+          <div class="entity-candidate-list">
+            {% for m in members %}
+            <label class="entity-candidate">
+              <input type="checkbox" name="member_ids" value="{{ m.id }}"{% if m.id in preselected %} checked{% endif %}>
+              <span title="{{ m.display_name }}">{{ m.display_name }}</span>
+              {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
+              <span class="badge badge--neutral badge--sm">{{ m.kind_label|lower }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
+
+        <label class="entity-candidate" style="border:1px solid var(--border-default);border-radius:var(--radius-md)">
+          <input type="checkbox" name="propagate_detailed_output"{% if propagate_detailed_output %} checked{% endif %}>
+          <span>Propagate detailed output</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button" @click="document.getElementById('group-modal').replaceChildren()">Cancel</button>
+        <button class="modal-btn modal-btn--primary" type="submit" :disabled="!canSubmit">Group</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>

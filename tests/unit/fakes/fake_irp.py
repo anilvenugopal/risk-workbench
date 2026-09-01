@@ -235,6 +235,17 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
+        # ── spec-012 grouping (worker-only) ──────────────────────────────────
+        # recorded submit_analysis_grouping calls, in order
+        self.grouping_submits: list[dict] = []
+        # group names whose submit raises the wheel's tenant-wide duplicate
+        # pre-check error (matched by the worker on its message prefix)
+        self.duplicate_group_names: set[str] = set()
+        # member names whose resolution raises (skip_missing=False — the wheel
+        # errors before the POST)
+        self.missing_group_members: set[str] = set()
+        # group names whose submit raises a generic failure
+        self.raise_on_submit_grouping_for: set[str] = set()
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -355,6 +366,10 @@ class FakeIRP:
 
     def fail(self, irp_id: str, result: dict | None = None) -> None:
         self.jobs[irp_id] = "FAILED"
+        self.results[irp_id] = result or {}
+
+    def cancel(self, irp_id: str, result: dict | None = None) -> None:
+        self.jobs[irp_id] = "CANCELLED"
         self.results[irp_id] = result or {}
 
     def _next_id(self) -> str:
@@ -633,6 +648,63 @@ class FakeIRP:
     def get_analysis_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
+
+    # ── spec-012 grouping (mirrors contracts/grouping-worker.md) ─────────────
+
+    def submit_analysis_grouping(
+        self, *, group_name: str, analysis_names: list[str],
+        analysis_edm_map: dict[str, str], group_names: set[str],
+        currency: dict, propagate_detailed_losses: bool,
+    ) -> tuple[str, dict]:
+        self.grouping_submits.append({
+            "group_name": group_name,
+            "analysis_names": list(analysis_names),
+            "analysis_edm_map": dict(analysis_edm_map),
+            "group_names": set(group_names),
+            "currency": dict(currency),
+            "propagate_detailed_losses": propagate_detailed_losses,
+        })
+        if group_name in self.duplicate_group_names:
+            raise IRPIntegrationError(
+                f"Analysis Group with this name already exists: {group_name}")
+        missing = [n for n in analysis_names if n in self.missing_group_members]
+        if missing:
+            raise IRPIntegrationError(
+                f"Analysis with this name does not exist: {missing[0]}")
+        if group_name in self.raise_on_submit_grouping_for:
+            raise IRPIntegrationError(
+                f"fake IRP: forced grouping submit failure for '{group_name}'")
+        irp_id = self._next_id()
+        self.jobs[irp_id] = "QUEUED"
+        request_body = {
+            "resourceType": "analyses",
+            "resourceUris": [f"/platform/riskdata/v1/analyses/{name}"
+                             for name in analysis_names],
+            "settings": {
+                "analysisName": group_name,
+                "currency": dict(currency),
+                "propagateDetailedLosses": propagate_detailed_losses,
+            },
+        }
+        return irp_id, request_body
+
+    def get_grouping_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
+                         result=self.results.get(irp_id))
+
+    def get_analysis_by_name_only(self, name: str) -> AnalysisHit:
+        hits = [a for a in self._analyses if a["name"] == name]
+        if len(hits) != 1:
+            raise LookupError(
+                f"expected exactly one analysis named {name!r}, "
+                f"found {len(hits)}")
+        a = hits[0]
+        return AnalysisHit(
+            analysis_id=a["analysis_id"], name=a["name"],
+            source_rdm_name=a["source_rdm_name"],
+            exposure_name=a["exposure_name"],
+            exposure_resource_id=a.get("exposure_resource_id"),
+            exposure_resource_type=a.get("exposure_resource_type"))
 
     # ── spec-011 result reads (worker-only) ──────────────────────────────────
 

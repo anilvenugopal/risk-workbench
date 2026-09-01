@@ -827,6 +827,26 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
+  // Group compose dialog (spec 012). Same DOM-only pattern as executeModal:
+  // submit enables at ≥2 checked members, a non-empty name, and a complete
+  // currency block. recompute() is also called by the currency_block macro's
+  // vintage-swap hook.
+  Alpine.data('groupComposeModal', () => ({
+    canSubmit: false,
+    init() { this.recompute(); },
+    recompute() {
+      const picked = this.$root.querySelectorAll(
+        'input[name="member_ids"]:checked').length;
+      const name = this.$root.querySelector('input[name="group_name"]');
+      const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']
+        .every((f) => {
+          const select = this.$root.querySelector(`select[name="${f}"]`);
+          return select && select.value;
+        });
+      this.canSubmit = picked >= 2 && !!(name && name.value.trim()) && currencyDone;
+    },
+  }));
+
   // The Compare modal's cart (spec 013 T-02): strictly client-side — tick
   // order marks the first pick base (FR-003); Compare opens the built
   // /results/comparison URL in a new tab (the View pattern), whose render
@@ -1112,6 +1132,28 @@ document.addEventListener('execution-submitted', (e) => {
   url.searchParams.set('execution_id', executionId);
   htmx.ajax('GET', url.pathname + url.search, {
     target: '#edm-executed-analyses', swap: 'outerHTML',
+  });
+});
+
+// Grouping submit (spec 012): the compose dialog's POST fires this alongside
+// rwb:toast and closes itself. Clear the just-grouped ticks, then refetch the
+// merged analyses section once with the grouping request id — the returned
+// fragment keeps polling while the submit_grouping head is live, so the group
+// row lands once the worker claims it (the execution-submitted pattern).
+document.addEventListener('grouping-submitted', (e) => {
+  let last = null;
+  document.querySelectorAll('input[name="analysis_ids"]:checked').forEach((box) => {
+    box.checked = false; last = box;
+  });
+  if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
+
+  const requestId = e.detail && e.detail.grouping_request_id;
+  const section = document.querySelector('[data-analyses-section]');
+  if (!section) return;
+  const url = new URL(section.getAttribute('hx-get'), window.location.origin);
+  if (requestId) url.searchParams.set('grouping_request_id', requestId);
+  htmx.ajax('GET', url.pathname + url.search, {
+    target: `#${section.id}`, swap: 'outerHTML',
   });
 });
 
