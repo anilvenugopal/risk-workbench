@@ -314,6 +314,8 @@ def upgrade() -> None:
         "rwb_job_requestor_type_kind",
         "rwb_job_status_kind",
         "irp_analysis_status_kind",  # captured-analysis lifecycle (D2, data-model §6)
+        "rwb_job_link_type_kind",
+        "rwb_job_context_type_kind",
     ):
         op.create_table(
             kind,
@@ -398,6 +400,15 @@ def upgrade() -> None:
         # requestor_id has NO DB FK — its target varies by requestor_type
         # (irp_job / analyst_request / rwb_job / breakout_group), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
+        # link_type/link_id: the EDM or RDM this job concerns, for search.
+        # not_applicable covers job types with no EDM/RDM (CR-04c §4).
+        sa.Column("link_type", sa.NVARCHAR(50), nullable=False),
+        sa.Column("link_id", sa.Uuid, nullable=True),
+        # context_type/context_id: the object this job's own operation acts
+        # on (derived from the worker body, never from requestor_id/type).
+        # Nullable as a pair — some job types act on no single row (CR-04c §6).
+        sa.Column("context_type", sa.NVARCHAR(50), nullable=True),
+        sa.Column("context_id", sa.Uuid, nullable=True),
         sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'pending'")),
@@ -419,6 +430,9 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["requestor_type"],
                                 ["rwb_job_requestor_type_kind.code"]),
+        sa.ForeignKeyConstraint(["link_type"], ["rwb_job_link_type_kind.code"]),
+        sa.ForeignKeyConstraint(["context_type"],
+                                ["rwb_job_context_type_kind.code"]),
         sa.ForeignKeyConstraint(["rwb_job_type"], ["rwb_job_type_kind.code"]),
         sa.ForeignKeyConstraint(["status_code"], ["rwb_job_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
@@ -1019,6 +1033,21 @@ def upgrade() -> None:
         "('rwb_job', 'RWB Job', 30), "
         "('breakout_group', 'Breakout Group', 40), "
         "('irp_analysis', 'IRP Analysis', 50)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_link_type_kind (code, label, sort_order) VALUES "
+        "('edm', 'EDM', 10), "
+        "('rdm', 'RDM', 20), "
+        "('not_applicable', 'Not applicable', 900)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_context_type_kind (code, label, sort_order) VALUES "
+        "('edm', 'EDM', 10), "
+        "('rdm', 'RDM', 20), "
+        "('irp_analysis', 'IRP Analysis', 30), "
+        "('portfolio', 'Portfolio', 40), "
+        "('breakout_group', 'Breakout Group', 50), "
+        "('execution', 'Execution', 60)"
     ))
     op.execute(sa.text(
         "INSERT INTO analysis_perspective_kind (code, label, sort_order) VALUES "
