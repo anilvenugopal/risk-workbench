@@ -1,38 +1,25 @@
-{# One workbench-executed analysis as a .dtable row (spec 010 US2, FR-013) —
-   modeled on broker_analysis_row.html: the identical settings-grid expansion
-   (shared partials/_analysis_metadata_fields.html / _analysis_rate_detail.html,
-   so the two views can't drift), a Portfolio column in place of
-   EDM/type/peril/currency/..., and no RDM grouping. Context: `a` —
-   analysis_service.ExecutedAnalysis. The failure reason (when present) is
-   shown inline in the collapsed row — visible without expanding (FR-011). #}
-{%- set d = a.display -%}
+{% import "partials/analysis_row_macros.html" as row %}
 <details class="drow" id="analysis-row-{{ a.id }}">
   <summary>
-    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-      <span class="dt-namecol">
-        <span class="dt-title">{{ a.full_name or a.name }}</span>
-      </span></span></span>
-    <span class="l">{{ a.portfolio_name or '—' }}</span>
     <span class="l">
-      <span class="status-chip status-chip--{{ a.status_chip }}">{{ a.status_label }}</span>
-      {% if a.failure_reason %}<span class="exec-reason">{{ a.failure_reason }}</span>{% endif %}
+      {% if a.is_deletable %}
+      <span class="geohaz-pick"><input type="checkbox" name="analysis_ids" value="{{ a.id }}"
+             onclick="event.stopPropagation()" @change="onChange()"></span>
+      {% endif %}
     </span>
+    <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+      <span class="dt-title"{% if a.portfolio_name %} title="{{ a.portfolio_name }}"
+            data-value="{{ a.portfolio_name }}"{% endif %}>{{ row.cell(a.portfolio_name) }}</span></span></span>
+    <span class="l"{% if a.template_name %} title="{{ a.template_name }}"
+          data-value="{{ a.template_name }}"{% endif %}>{{ row.cell(a.template_name) }}</span>
+    {% if show_edm %}<span class="l"{% if a.edm_name %} title="{{ a.edm_name }}"{% endif %}>{{ row.cell(a.edm_name) }}</span>{% endif %}
+    {{ row.settings_cells(a) }}
+    {{ row.aal_cell(a, a.status_code == 'ready') }}
+    {{ row.status_cell(a, a.status_chip, a.status_label, a.failure_reason) }}
+    {{ row.submitted_cell(a.inserted_at) }}
+    {{ row.rm_cell(a.rm_url) }}
   </summary>
-  <div class="drow__body">
-    {% if a.settings %}
-    <dl class="settings-grid">
-      {% include "partials/_analysis_metadata_fields.html" %}
-    </dl>
-    {% if d.has_rate_detail %}
-    <details class="drill">
-      <summary>▾ Rate / event-rate detail</summary>
-      <div class="drill__body">
-        {% include "partials/_analysis_rate_detail.html" %}
-      </div>
-    </details>
-    {% endif %}
-    {% else %}
-    <p class="tag-empty" style="margin:0">Settings appear once this analysis finishes running.</p>
-    {% endif %}
+  <div class="drow__body drow__body--split">
+    {% include "partials/analysis_results_inline.html" %}
   </div>
 </details>

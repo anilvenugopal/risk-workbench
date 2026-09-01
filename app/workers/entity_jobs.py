@@ -29,9 +29,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Callable
+from typing import Any
 
-import dramatiq
 from sqlalchemy import text
 
 from app.services import (
@@ -43,8 +42,9 @@ from app.services import (
     rwb_job_service,
     treaty_service,
 )
-from app.services._common import _utcnow
+from app.services._common import _uid, _utcnow
 from app.workers import broker, dispatch, runtime
+from app.workers.queues import rwb_actor
 from db import (
     execute,
     execute_command,
@@ -68,7 +68,7 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     or reconciler re-run is a no-op (``JobResult.ok``). A submit that never reaches Risk
     Modeler records a ``SUBMISSION FAILED`` ``irp_job`` (for the poller's retry batch),
     flips the EDM to the visible/recoverable ``error`` state, and fails the ``rwb_job``."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     submission_id = ctx.get("requested_from_submission_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
@@ -104,9 +104,9 @@ def _upload_edm_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def upload_edm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_edm_body(rwb_job_id))
 
 
@@ -122,7 +122,7 @@ def _rdm_import_exists(rdm_id: Any) -> bool:
 
 def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     """Submit one standalone RDM import and record its ``irp_job``."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     submission_id = ctx.get("requested_from_submission_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -150,9 +150,9 @@ def _upload_rdm_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(irp_job_id=irp_job_id, irp_id=res.irp_id)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def upload_rdm(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _upload_rdm_body(rwb_job_id))
 
 
@@ -222,7 +222,7 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     lookup here — resolution is read-time in ``analysis_service``.
 
     Manual RDM sync uses the same RDM-wide capture."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     rdm_id = ctx.get("rdm_id")
     apply_irp_id = ctx.get("apply_irp_id")
     rdm = rdm_service.get_rdm(rdm_id) if rdm_id else None
@@ -302,6 +302,20 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
             conn.execute(text(
                 "UPDATE irp_rdm SET as_of = :now, updated_at = :now WHERE id = :id"
             ), {"now": now, "id": str(rdm_id)})
+    # Chain the results retrieval (spec 011 FR-002, T-01): one job per live
+    # captured analysis still missing its extract. The queue's UNIQUE key is the
+    # FR-006 dedup — a re-import of another EDM copy enqueues nothing — and
+    # enqueue_rwb_job never resurrects a terminal failed retrieval (O-06).
+    for pending in execute(
+            "SELECT id FROM irp_analysis WHERE rdm_id = :r "
+            "AND deleted_at IS NULL AND loss_results IS NULL",
+            {"r": str(rdm_id)}, connection="WORKBENCH"):
+        retrieval_id = rwb_job_service.enqueue_rwb_job(
+            requestor_type="irp_analysis", requestor_id=_uid(pending["id"]),
+            rwb_job_type="retrieve_analysis_results",
+            input_data={"analysis_id": _uid(pending["id"])})
+        dispatch.dispatch(rwb_job_id=retrieval_id,
+                          rwb_job_type="retrieve_analysis_results")
     captured = len(hits)
     logger.info("captured %d analysis row(s) for rdm=%s", captured, rdm_id)
     out: dict[str, Any] = {"captured": captured}
@@ -312,9 +326,9 @@ def _backfill_rdm_analyses_body(rwb_job_id: Any) -> dict:
     return out
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def backfill_rdm_analyses(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_rdm_analyses_body(rwb_job_id))
 
 
@@ -338,7 +352,7 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
         retry machinery) but NEVER touches the EDM's ``ready`` status (FR-005);
       • a missing EDM or one with no exposureId is a graceful skip — a
         pre-capability/never-finished EDM stays in the empty state (R7)."""
-    ctx = runtime.load_input(rwb_job_id)
+    ctx = rwb_job_service.load_input_data(rwb_job_id)
     edm_id = ctx.get("edm_id")
     edm = edm_service.get_edm(edm_id) if edm_id else None
     if edm is None:
@@ -464,15 +478,15 @@ def _backfill_edm_detail_body(rwb_job_id: Any) -> runtime.JobResult:
     return runtime.JobResult.ok(**out)
 
 
-@dramatiq.actor(max_retries=0)
+@rwb_actor(max_retries=0)
 def backfill_edm_detail(rwb_job_id: str) -> None:
-    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(__name__),
+    runtime.run_job(rwb_job_id=rwb_job_id, worker_id=runtime.worker_id(),
                     body=lambda: _backfill_edm_detail_body(rwb_job_id))
 
 
 # ── synchronous drain (unit tier + simple worker) ────────────────────────────────
 
-_BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
+_BODIES: runtime.JobBodies = {
     "upload_edm": _upload_edm_body,
     "upload_rdm": _upload_rdm_body,
     "backfill_rdm_analyses": _backfill_rdm_analyses_body,
@@ -481,31 +495,12 @@ _BODIES: dict[str, Callable[[Any], runtime.JobResult | dict | None]] = {
 
 
 def run_one(*, rwb_job_id: Any, rwb_job_type: str, worker_id: str = "worker") -> bool:
-    """Claim + run a single ``rwb_job`` through its body. Returns ``run_job``'s result
-    (``False`` if the row was already claimed / the type has no body yet)."""
-    body = _BODIES.get(rwb_job_type)
-    if body is None:
-        logger.debug("no body for rwb_job_type %s — skipping", rwb_job_type)
-        return False
-    return runtime.run_job(rwb_job_id=rwb_job_id, worker_id=worker_id,
-                           body=lambda: body(rwb_job_id))
+    return runtime.run_one(_BODIES, rwb_job_id=rwb_job_id,
+                           rwb_job_type=rwb_job_type, worker_id=worker_id)
 
 
 def run_pending(*, worker_id: str = "worker") -> int:
-    """Claim + run every currently-``pending`` ``rwb_job`` once. Snapshot-based (rows a
-    body enqueues are picked up on the next call), so tests advance the queue by
-    calling this after each poller pass. Returns the number of rows run."""
-    rows = execute(
-        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending' "
-        "ORDER BY inserted_at, id",
-        {}, connection="WORKBENCH",
-    )
-    count = 0
-    for row in rows:
-        if run_one(rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"],
-                   worker_id=worker_id):
-            count += 1
-    return count
+    return runtime.run_pending(_BODIES, worker_id=worker_id)
 
 
 __all__ = [

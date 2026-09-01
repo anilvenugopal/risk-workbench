@@ -208,3 +208,75 @@
   --right-panel-w:  340px;
   --statusbar-h:    22px;
 }
+
+
+/* ============================================================================
+   DARK MODE — apply .dark to <html>. Only semantic tokens remap; component
+   CSS is untouched. Surface hierarchy keeps three visible depth layers:
+   nav (darkest) → canvas → panel (lightest of the three).
+   ============================================================================ */
+
+.dark {
+  --surface-page:          #14181F;
+  --surface-panel:         #1C212B;
+  --surface-recessed:      #10131A;
+  --surface-hover:         #262C38;
+  --surface-nav:           #0E1116;
+  --surface-sidebar:       #0E1116;
+
+  --border-default:        #2E3542;
+  --border-faint:          rgba(255,255,255,0.05);
+  --border-strong:         #454E60;
+
+  --text-primary:          #E7EAF0;
+  --text-secondary:        #ABB3C4;
+  --text-tertiary:         #838CA0;
+  --text-disabled:         #4A5163;
+
+  --color-brand:           #6E93D6;
+  --color-brand-hover:     #85A5DE;
+  --color-brand-faint:     rgba(110,147,214,0.12);
+  --color-brand-wash:      rgba(110,147,214,0.18);
+  --color-brand-border:    rgba(110,147,214,0.32);
+  --btn-primary-bg:        #3E5A94;
+
+  --color-highlight:       #E0A030;
+  --color-highlight-fill:  rgba(224,160,48,0.14);
+  --color-highlight-border: #C4872A;
+  --color-highlight-faint: rgba(224,160,48,0.08);
+
+  --color-danger:          #C97786;
+  --color-danger-bg:       rgba(201,119,134,0.10);
+  --color-danger-wash:     rgba(201,119,134,0.16);
+  --color-danger-border:   rgba(201,119,134,0.30);
+
+  --color-info:            #7FA0DD;
+  --color-info-bg:         rgba(127,160,221,0.10);
+  --color-info-border:     rgba(127,160,221,0.30);
+
+  --color-positive:        #5FAE7E;
+  --color-positive-bg:     rgba(95,174,126,0.10);
+  --color-positive-wash:   rgba(95,174,126,0.16);
+  --color-positive-border: rgba(95,174,126,0.30);
+
+  --color-negative:        #C97786;
+  --color-negative-bg:     rgba(201,119,134,0.10);
+  --color-negative-wash:   rgba(201,119,134,0.16);
+  --color-negative-border: rgba(201,119,134,0.30);
+
+  --color-warning:         #C99A5C;
+  --color-warning-bg:      rgba(201,154,92,0.10);
+  --color-warning-wash:    rgba(201,154,92,0.16);
+  --color-warning-border:  rgba(201,154,92,0.30);
+
+  --color-neutral-bg:      #262C38;
+  --color-neutral-text:    #ABB3C4;
+  --color-neutral-border:  #454E60;
+
+  --overlay-scrim:         rgba(0,0,0,0.55);
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.40);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.50);
+  --ring-focus: 0 0 0 3px rgba(110,147,214,0.32);
+}

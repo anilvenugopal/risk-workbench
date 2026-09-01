@@ -105,7 +105,9 @@ Both figures are read from `summary.breakout_coverage[dimension]` (data-model §
 
 ```python
 def request_breakout(edm_id: UUID, portfolio_id: UUID, dimension: str,
-                     summary_as_of: str, actor_id: UUID) -> UUID | None
+                     summary_as_of: str, actor_id: UUID) -> BreakoutRequested | None
+    # BreakoutRequested carries the job id and the plan size; the router's
+    # toast reads the count from it, never back off the job row
 ```
 
 Five steps, in order; each gates the next, and **no `rwb_job` row exists until all five pass**:
@@ -130,10 +132,9 @@ def summarize_outcomes(outcomes: list[SubPortfolioOutcome]) -> dict   # → rwb_
 ## 2. `portfolio_service` — lineage writes & reads (R3)
 
 ```python
-def insert_generated(edm_id, *, name, irp_id, source_portfolio_id,
-                     dimension_code, value, actor_id) -> UUID
-def adopt_generated(edm_id, *, name, irp_id, source_portfolio_id,
-                    dimension_code, value, actor_id) -> UUID    # same write, 'adopted' logging
+def save_generated_portfolio(edm_id, *, name, irp_id, source_portfolio_id,
+                             dimension_code, value, actor_id) -> UUID
+    # one write for both worker branches (create and adopt); the worker logs the outcome
 def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   # live rows only
 ```
 
@@ -141,21 +142,17 @@ def find_generated(source_portfolio_id, dimension_code, value) -> Row | None   #
 - **Lineage is stamped, never reassigned.** A row for `(edm_id, irp_id)` that carries no lineage is claimed in place (a backfill enumerated the Risk Modeler portfolio first). A row that already carries a **different** `(source, dimension, value)` raises — the write cannot move a generated portfolio out of the traceability of the value it was created for, so the worker records that sub-portfolio as failed instead. That outcome depends on the worker's per-entry guard covering the **write**, not only the Risk Modeler calls: worker-poller.md step 4 places it around the whole entry for exactly this raise.
 - No `portfolio_number` is written — data-model §1 keeps it out of the schema because it is recomputable from the source RM id, dimension, and value.
 - Insert relies on the filtered unique index `uq_irp_portfolio_breakout` for lineage uniqueness and `uq_irp_portfolio_edm_irp` for id uniqueness; a race duplicate surfaces as a constraint violation → caught and treated as `skipped_existing`.
-- `list_portfolios(edm_id)` (EDIT): LEFT JOIN self on `source_portfolio_id` → adds `source_name`, `breakout_dimension_code`, dimension `label` (join `breakout_dimension_kind`), `breakout_value` to each row for the badge; ordering unchanged (name) — grouping/indent is a display concern.
+- `list_portfolios(edm_id)` (EDIT): LEFT JOIN self on `source_portfolio_id` → adds `source_name`, `breakout_dimension_code`, dimension `label` (join `breakout_dimension_kind`), `breakout_value` to each row for the badge; LEFT JOIN `breakout_group` on `breakout_group_id` → adds `breakout_group_label` and `breakout_group_filters` for custom-group rows; ordering is `inserted_at, name` (deliberate — a newly created sub-portfolio appears at the bottom, name breaks ties within one backfill) — grouping/indent is a display concern.
 
 ## 3. `irp_gateway` — the one RM write seam (fake mirrors it)
 
 Selection is **hoisted out of the per-sub-portfolio loop**: one portfolio-scoped DataBridge query per run resolves every value at once (R1, revised 2026-08-05 — the paginated REST selection could not complete on a 248,000-account portfolio, W-20). The script mirrors the summary script's joins, so the values filtered are byte-identical to the stored summary the plan was approved from; `ACCGRPID` is the id `manage_portfolio_accounts` accepts as `accountId`. The gateway resolves and caches the EDM's physical `databaseName`, which is why the seam takes `edm_name`.
 
 ```python
-@dataclass(frozen=True)
-class BreakoutSelection:
-    accounts_by_value: dict[str, list[int]]   # value → source account ids matching it
-    errors_by_value: dict[str, str]           # value → reason, for reads that failed on their own
-
+# value → source account ids matching it, one entry per requested value
 def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
-                             source_portfolio_irp_id: str,
-                             dimension: str, values: Sequence[str]) -> BreakoutSelection
+                             source_portfolio_irp_id: str, dimension: str,
+                             values: Sequence[str]) -> dict[str, list[int]]
 
 @dataclass(frozen=True)
 class SubPortfolioResult:
@@ -176,7 +173,7 @@ def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
 ```
 
 - `select_breakout_accounts` runs one parameterized DataBridge query — no filter grammar and no URL chunking, both of which belonged to the REST selection W-20 retired on 2026-08-05. It resolves and caches the EDM's `databaseName`, substitutes `{{ portfolio_id }}`, and maps the `Value`/`AccountId` rows into per-value id lists. A wrong column name returns a plausible empty result rather than an error (W-15) — unit-tested against recorded rows.
-- **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). `errors_by_value` stays on the seam for implementations that can fail per value — the worker fails such an entry with no create call.
+- **The selection read is all-or-nothing**: the single DataBridge query failing raises, and the worker fails the job before anything is created (the W-14 never-proceed-on-an-unprovable-list rule, enforced by construction). One query has one outcome, so there is no per-value error channel.
 - **A value with an empty id list is returned as empty**, not as an error; the worker turns it into a zero-match failure (FR-008) with no create call made, so no empty portfolio reaches Risk Modeler.
 - `create_sub_portfolio` composes create + add + verify: `create_portfolio(edm_name, name, number, description)` (synchronous 201) → `manage_portfolio_accounts(accounts_to_add=chunk)` per 1,000-id chunk (synchronous 200) → a DataBridge member count compared against `account_ids` (the paginated REST read-back cannot verify past 100,000 accounts, W-20). `add_filtered_accounts` is deliberately not used — it returns `{}` (irp-library.md).
 - **`portfolio_number` is always passed explicitly.** Omitting it makes RM default the number to the name, which then overruns the number's own 20-character cap (W-13).
@@ -204,6 +201,6 @@ The gateway's per-portfolio summary builder gains `breakout_values` (per dimensi
 - `load_approved_plan` — executes what was persisted: a plan whose names no longer match what a recompute would produce still runs verbatim; empty/unparseable plan fails the job.
 - `test_breakout_page_state.py` — the FR-012 read model derived from job rows: live-flight progress, per-entry error lines, the job-level fallback line when the run failed before its loop, both dimensions of one portfolio accumulating, per-portfolio keying, the banner from the newest terminal run, `filling_in` from the pending follow-up, a settled successful run showing no banner, and unparseable `output_data` degrading to no lines.
 - `test_snapshot_upsert.py` / `test_edm_detail_rollup.py` (EDIT) — lineage-aware list read model; generated portfolios with NULL `exposure_detail` render the pending state.
-- `insert_generated`/`adopt_generated` integrity rules + constraint-race handling, including the refusal to move a row from one `(source, dimension, value)` to another and the re-adoption of the key it already holds.
+- `save_generated_portfolio` integrity rules + constraint-race handling, including the refusal to move a row from one `(source, dimension, value)` to another and the re-adoption of the key it already holds.
 - `test_irp_gateway.py` — the read-back comparison: a short membership, an over-populated adopted portfolio, and a member-count read returning no rows all raise, so `test_run_breakout_worker.py` sees the entry fail with no lineage row. Plus the summary builder mapping both coverage scripts.
 - `test_architecture_guards.py` — every seeded `breakout_dimension_kind` code carries a number letter, a noun, a selection script, and a coverage script, and every registered script file exists.

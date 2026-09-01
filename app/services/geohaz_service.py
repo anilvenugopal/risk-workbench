@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,53 +14,46 @@ from db import execute, execute_one
 
 
 @dataclass(frozen=True)
-class LaunchResult:
-    rwb_job_ids: list[str]
-    portfolio_ids: list[str]
-
-
-@dataclass(frozen=True)
 class CellState:
     portfolio_id: str
     portfolio_name: str
     label: str
     live: bool
 
-    @property
-    def kind(self) -> str:
-        return "live" if self.live else "version"
-
 
 @dataclass(frozen=True)
 class LatestLookup:
-    id: str
     request_params: dict[str, Any]
     completion_summary: str | None
     status: str
+    submitted_at: Any
+    completed_at: Any
 
     @property
     def failed(self) -> bool:
         return self.status != "FINISHED" and self.status in irp_job_service.TERMINAL
 
 
-def _scope_clause(*, portfolio_col: str, edm_col: str,
-                   edm_id: Any | None, portfolio_id: Any | None,
-                   ) -> tuple[str, dict[str, str]]:
+@dataclass(frozen=True)
+class PortfolioGeohaz:
+    state: CellState
+    latest: LatestLookup | None
+
+
+def read(*, edm_id: Any | None = None,
+         portfolio_id: Any | None = None) -> dict[str, PortfolioGeohaz]:
+    """Return the derived lookup state and most recent workbench submission for
+    every live portfolio in the scope, keyed by portfolio id. Scope is one EDM,
+    one portfolio, or one portfolio within one EDM."""
     if portfolio_id is not None:
-        where = f"{portfolio_col} = :portfolio_id"
-        params = {"portfolio_id": str(portfolio_id)}
+        where = "p.id = :portfolio_id"
+        params: dict[str, str] = {"portfolio_id": str(portfolio_id)}
         if edm_id is not None:
-            where += f" AND {edm_col} = :edm_id"
+            where += " AND p.edm_id = :edm_id"
             params["edm_id"] = str(edm_id)
-        return where, params
-    return f"{edm_col} = :edm_id", {"edm_id": str(edm_id)}
-
-
-def _read_states(*, edm_id: Any | None = None,
-                 portfolio_id: Any | None = None) -> dict[str, CellState]:
-    where, params = _scope_clause(
-        portfolio_col="p.id", edm_col="p.edm_id",
-        edm_id=edm_id, portfolio_id=portfolio_id)
+    else:
+        where = "p.edm_id = :edm_id"
+        params = {"edm_id": str(edm_id)}
     terminal = {f"t{i}": s for i, s in enumerate(sorted(irp_job_service.TERMINAL))}
     terminal_in = ", ".join(f":{k}" for k in terminal)
     params |= terminal
@@ -84,20 +76,32 @@ def _read_states(*, edm_id: Any | None = None,
             WHERE requestor_type = 'analyst_request'
               AND rwb_job_type = 'run_geohaz'
             GROUP BY requestor_id
+        ), ranked AS (
+            SELECT irp_portfolio_id, request_params, completion_summary, status,
+                   submitted_at, completed_at,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY irp_portfolio_id
+                       ORDER BY inserted_at DESC, id DESC
+                   ) AS recency
+            FROM irp_job
+            WHERE irp_job_type = 'geohaz'
         )
         SELECT p.id, p.name, p.exposure_detail,
                COALESCE(j.has_live_job, 0) AS has_live_job,
                j.live_status,
-               COALESCE(h.has_live_head, 0) AS has_live_head
+               COALESCE(h.has_live_head, 0) AS has_live_head,
+               r.request_params, r.completion_summary, r.status AS latest_status,
+               r.submitted_at, r.completed_at
         FROM irp_portfolio p
         LEFT JOIN job_state j ON j.irp_portfolio_id = p.id
         LEFT JOIN head_state h ON h.irp_portfolio_id = p.id
+        LEFT JOIN ranked r ON r.irp_portfolio_id = p.id AND r.recency = 1
         WHERE p.deleted_at IS NULL AND {where}
         """,
         params,
         connection="WORKBENCH",
     )
-    states: dict[str, CellState] = {}
+    out: dict[str, PortfolioGeohaz] = {}
     for row in rows:
         pid = _uid(row["id"])
         detail = _parse_json_dict(row["exposure_detail"], "exposure_detail") or {}
@@ -111,93 +115,23 @@ def _read_states(*, edm_id: Any | None = None,
                 pid, row["name"], row["live_status"] or "SUBMITTED", True)
         else:
             state = CellState(pid, row["name"], label, False)
-        states[pid] = state
-    return states
+        latest = None
+        if row["latest_status"] is not None:
+            latest = LatestLookup(
+                request_params=(
+                    _parse_json_dict(row["request_params"], "request_params") or {}),
+                completion_summary=row["completion_summary"],
+                status=row["latest_status"],
+                submitted_at=row["submitted_at"],
+                completed_at=row["completed_at"],
+            )
+        out[pid] = PortfolioGeohaz(state=state, latest=latest)
+    return out
 
 
-def lookup_states(edm_id: Any) -> dict[str, CellState]:
-    """Return the derived lookup state for every live portfolio in one EDM."""
-    return _read_states(edm_id=edm_id)
-
-
-def cell_state(portfolio_id: Any, *, edm_id: Any | None = None) -> CellState | None:
-    """Return one portfolio's lookup state, or ``None`` if it is gone."""
-    try:
-        pid = str(uuid.UUID(str(portfolio_id)))
-        eid = str(uuid.UUID(str(edm_id))) if edm_id is not None else None
-    except (TypeError, ValueError, AttributeError):
-        return None
-    return _read_states(
-        edm_id=eid, portfolio_id=pid).get(pid)
-
-
-def completion_summary(result: dict[str, Any] | None) -> str | None:
-    """Return the GeoHaz task's summary text."""
-    if not isinstance(result, dict):
-        return None
-    tasks = result.get("tasks")
-    if not isinstance(tasks, list):
-        return None
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-        output = task.get("output")
-        summary = output.get("summary") if isinstance(output, dict) else None
-        if isinstance(summary, str) and summary.strip():
-            return summary.strip()
-    return None
-
-
-def _latest_lookups(*, edm_id: Any | None = None,
-                    portfolio_id: Any | None = None) -> dict[str, LatestLookup]:
-    where, params = _scope_clause(
-        portfolio_col="j.irp_portfolio_id", edm_col="j.irp_edm_id",
-        edm_id=edm_id, portfolio_id=portfolio_id)
-    rows = execute(
-        f"""
-        WITH ranked AS (
-            SELECT j.id, j.irp_portfolio_id, j.request_params,
-                   j.completion_summary, j.status,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY j.irp_portfolio_id
-                       ORDER BY j.inserted_at DESC, j.id DESC
-                   ) AS recency
-            FROM irp_job j
-            WHERE j.irp_job_type = 'geohaz' AND {where}
-        )
-        SELECT r.id, r.irp_portfolio_id, r.request_params,
-               r.completion_summary, r.status
-        FROM ranked r
-        WHERE r.recency = 1
-        """,
-        params,
-        connection="WORKBENCH",
-    )
-    return {
-        _uid(row["irp_portfolio_id"]): LatestLookup(
-            id=_uid(row["id"]),
-            request_params=(
-                _parse_json_dict(row["request_params"], "request_params") or {}),
-            completion_summary=row["completion_summary"],
-            status=row["status"],
-        )
-        for row in rows
-    }
-
-
-def latest_lookup(portfolio_id: Any) -> LatestLookup | None:
-    """Return the portfolio's most recent workbench GeoHaz submission."""
-    return _latest_lookups(portfolio_id=portfolio_id).get(_uid(portfolio_id))
-
-
-def latest_lookups(edm_id: Any) -> dict[str, LatestLookup]:
-    """Return the most recent workbench GeoHaz submission for every portfolio
-    in one EDM."""
-    return _latest_lookups(edm_id=edm_id)
-
-
-def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchResult:
-    """Validate one launch and enqueue one worker job per selected portfolio."""
+def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> list[str]:
+    """Validate one launch, enqueue one worker job per selected portfolio, and
+    return the launched portfolio ids."""
     eid = str(edm_id)
     edm = execute_one(
         "SELECT id, name FROM irp_edm WHERE id = :id AND deleted_at IS NULL",
@@ -205,7 +139,7 @@ def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchRes
     if edm is None:
         raise InvalidGeohazLaunch("The EDM no longer exists.")
 
-    states = _read_states(edm_id=eid)
+    states = {pid: pg.state for pid, pg in read(edm_id=eid).items()}
     if not states:
         raise InvalidGeohazLaunch(
             "Hazard lookup requires at least one portfolio in the EDM.")
@@ -232,7 +166,6 @@ def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchRes
         "override_user_def": True,
     }
     actor = str(actor_id)
-    job_ids: list[str] = []
     for pid in selected_ids:
         job_id = rwb_job_service.ensure_pending_rwb_job(
             requestor_type="analyst_request",
@@ -248,14 +181,8 @@ def launch(*, edm_id: Any, portfolio_ids: list[Any], actor_id: Any) -> LaunchRes
             },
             actor_id=actor,
         )
-        if job_id is not None:
-            job_ids.append(job_id)
         dispatch.dispatch(rwb_job_id=job_id, rwb_job_type="run_geohaz")
-    return LaunchResult(rwb_job_ids=job_ids, portfolio_ids=selected_ids)
+    return selected_ids
 
 
-__all__ = [
-    "CellState", "LaunchResult", "LatestLookup", "cell_state",
-    "completion_summary", "latest_lookup", "latest_lookups", "launch",
-    "lookup_states",
-]
+__all__ = ["CellState", "LatestLookup", "PortfolioGeohaz", "launch", "read"]

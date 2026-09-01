@@ -19,7 +19,7 @@
 {% set first = (page.page - 1) * page_size + 1 %}
 {# The search term is in the action, not a hidden input: the POST reads it from the
    query string to build the redirect back into the filtered list. #}
-<form method="post" x-data="syncPicks()" @change="onChange()"
+<form method="post" x-data="checkPicks({ name: 'irp_ids' })" @change="onChange()"
       action="/edms/sync{% if filter_values.q %}?q={{ filter_values.q | urlencode }}{% endif %}">
   <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
 
@@ -43,6 +43,7 @@
       <tr>
         <th class="sync-pick">
           <input type="checkbox" title="Select all on this page"
+                 x-ref="selectAll"
                  x-on:click.stop="all($event.target.checked)">
         </th>
         <th>Name</th><th>Status</th><th>Risk Modeler ID</th>

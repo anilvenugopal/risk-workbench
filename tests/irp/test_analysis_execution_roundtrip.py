@@ -69,7 +69,16 @@ def test_submit_poll_backfill_round_trip():
     assert status.status == "FINISHED", (
         f"analysis {irp_id} finished with status {status.status}: {status.result}")
 
-    hit = gateway.get_analysis_by_name(job_name, _EDM_NAME)
-    assert hit.analysis_id
-    meta = gateway.get_analysis_metadata(analysis_id=int(hit.analysis_id))
+    analysis_id = None
+    for task in (status.result or {}).get("tasks", []):
+        value = ((task.get("output") or {}).get("log") or {}).get("analysisId")
+        if value is not None and str(value).strip():
+            analysis_id = str(value).strip()
+            break
+    assert analysis_id, (
+        f"FINISHED job body carried no tasks[].output.log.analysisId — "
+        f"shape drift? raw body: {status.result}")
+    meta = gateway.get_analysis_metadata(analysis_id=int(analysis_id))
     assert meta.payload
+    assert meta.payload.get("appAnalysisId"), (
+        f"analysis-details payload carried no appAnalysisId: {meta.payload}")

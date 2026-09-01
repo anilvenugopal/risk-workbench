@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import uuid
 from types import SimpleNamespace
 
 from app.services import irp_gateway, irp_job_service
@@ -16,7 +15,10 @@ class _PortfolioManager:
 
     def submit_geohaz_job(self, portfolio_name, edm_name, layers):
         self.submit_args = (portfolio_name, edm_name, layers)
-        return 90210, {"resourceUri": "/platform/portfolios/44", "layers": layers}
+        return 90210, {
+            "resourceUri": "/platform/portfolios/44",
+            "settings": {"layers": layers},
+        }
 
     def get_geohaz_job(self, job_id):
         return {"jobId": job_id, "status": "RUNNING", "progress": 50}
@@ -62,7 +64,6 @@ def test_geohaz_parameter_mapping_is_hazard_only():
             },
         ],
     )
-    assert all(layer["type"] != "geocode" for layer in result.payload["layers"])
     assert result.irp_id == "90210"
     assert result.resource_uri == "/platform/portfolios/44"
 

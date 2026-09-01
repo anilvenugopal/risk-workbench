@@ -1,15 +1,16 @@
 """Route tests for the breakout modal + confirm (spec 005 T041 —
 FR-001/FR-006/FR-006c/FR-007/FR-002a/FR-002b).
 
-Owns the HTTP behavior over the real service and SQL Server WORKBENCH database:
-modal states, the untruncated preview list, the three overlap forms, the
+Covers the routes over the REAL service and the SQL Server WORKBENCH:
+modal states, the untruncated preview list, the three forms of each FR-007
+disclosure line (overlap and left-out), the
 FR-006c large-fan-out statement, CSRF, the four 409 refusal variants (each
 writing NO job row), the persisted plan, enqueue idempotency, the body-partial
 success response, and the 404 fragment.
 
 Harness: unlike the monkeypatch-based route suites, these tests need the DB —
 TestClient dispatches handlers on a worker thread against the connection pool
-created by the SQL Server tier's ``workbench_db`` fixture.
+the ``workbench_db`` fixture builds.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
@@ -24,16 +26,17 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from db import execute, execute_command
-from tests.sqlserver.test_breakout_gate import (
+from tests.sqlserver.breakout_rows import (
     AS_OF,
     RM_STAMP,
     SUMMARY,
-    _breakout_jobs,
-    _mk_backfill_job,
-    _mk_breakout_job,
-    _mk_edm,
-    _mk_portfolio,
+    breakout_jobs,
+    mk_backfill_job,
+    mk_breakout_job,
+    mk_edm,
+    mk_portfolio,
 )
+
 
 @pytest.fixture()
 def routes_db(workbench_db):
@@ -44,10 +47,10 @@ class _InjectUser(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         from app.services.auth_service import CurrentUser
         request.state.user = CurrentUser(
-            id=request.app.state.test_user_id,
-            email="analyst@example.com", display_name="Analyst",
-            session_id="s", role_codes=["analyst"], is_admin=False,
-            must_change_password=False, entra_oid=None, is_active=True)
+            id=request.app.state.test_user_id, email="analyst@example.com",
+            display_name="Analyst", session_id="s", role_codes=["analyst"],
+            is_admin=False, must_change_password=False, entra_oid=None,
+            is_active=True)
         return await call_next(request)
 
 
@@ -82,8 +85,8 @@ def _url(edm_id: str, pid: str) -> str:
 
 
 def _eligible_pair(fake_irp) -> tuple[str, str]:
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     return edm_id, pid
@@ -101,8 +104,8 @@ def _confirm(client, edm_id: str, pid: str, *, dimension: str = "lob",
 # ── GET — modal states ─────────────────────────────────────────────────────────────
 
 def test_modal_eligible_renders_list_count_and_hidden_as_of(routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
     # header: source name, RM id, and the stored account total (P-13)
@@ -124,8 +127,8 @@ def test_modal_eligible_renders_list_count_and_hidden_as_of(routes_db, client):
 
 
 def test_modal_dimension_param_selects_state(routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
     r = client.get(_url(edm_id, pid) + "?dimension=state")
     assert r.status_code == 200
     # state values with their labels, sorted by value; generated names use
@@ -140,17 +143,20 @@ def test_modal_quick_chooser_offers_peril(routes_db, client):
     # D3 (replacing P-19): peril is a quick-mode dimension — a chooser tile
     # counting its values, and a preview naming each sub-portfolio by mnemonic
     # beside the code the plan stores (P-30).
-    edm_id = _mk_edm()
+    edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values=dict(
         SUMMARY["breakout_values"],
         peril=[{"value": "1", "label": None, "accounts": 517},
                {"value": "2", "label": None, "accounts": 1701}]))
-    pid = _mk_portfolio(edm_id, summary=summary)
+    pid = mk_portfolio(edm_id, summary=summary)
 
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
     assert "By peril" in r.text and "2 perils present" in r.text
-    assert "By line of business" in r.text and "By geography - state" in r.text
+    # every tile's count line comes from the dimension's own noun (CQ-009)
+    assert "By line of business" in r.text and "2 lines of business present" \
+        in r.text
+    assert "By geography - state" in r.text and "2 states present" in r.text
 
     r = client.get(_url(edm_id, pid) + "?dimension=peril")
     assert 'name="dimension" value="peril"' in r.text
@@ -158,8 +164,8 @@ def test_modal_quick_chooser_offers_peril(routes_db, client):
 
 
 def test_modal_marks_existing_rows_as_already_created(routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
     execute_command(
         "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, "
         "source_portfolio_id, breakout_dimension_code, breakout_value, "
@@ -172,70 +178,58 @@ def test_modal_marks_existing_rows_as_already_created(routes_db, client):
     assert "already created" in r.text
 
 
-def test_modal_large_fanout_untruncated_with_several_minutes_note(
-        routes_db, client):
-    # 40 LOB values: every row renders (no truncation) + the FR-006c statement.
-    values = [{"value": f"LOB {i:02d}", "label": None, "accounts": 10}
-              for i in range(40)]
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=dict(
-        SUMMARY, breakout_values={"lob": values}))
-    r = client.get(_url(edm_id, pid))
-    assert r.status_code == 200
-    for i in range(40):
-        assert f"usfl_commercial - LOB {i:02d}" in r.text
-    assert "40 sub-portfolios is a large run" in r.text
-    assert "several minutes" in r.text
-
-
-def test_modal_overlap_statement_three_forms(routes_db, client):
-    # The same value set against three coverage readings forces each arm
-    # (FR-007). The value counts are identical throughout — only the measured
-    # coverage moves, which is the point: Σ accounts cannot tell these apart.
-    edm_id = _mk_edm()
+def test_modal_disclosures_in_every_form(routes_db, client):
+    # The same value set against three coverage readings forces every arm of
+    # both FR-007 lines — overlap and left-out. The value counts are identical
+    # throughout; only the measured coverage moves, which is the point:
+    # Σ accounts cannot tell these apart.
+    edm_id = mk_edm()
     values = {"lob": [{"value": "A", "label": None, "accounts": 700},
                       {"value": "B", "label": None, "accounts": 600}]}
-    heavy = dict(SUMMARY, account_total=1000, breakout_values=values,
+    heavy = dict(SUMMARY, account_total=1400, breakout_values=values,
                  breakout_coverage={"lob": {"covered": 1000,
                                             "multi_value": 300}})
-    pid = _mk_portfolio(edm_id, summary=heavy)
+    pid = mk_portfolio(edm_id, summary=heavy)
     flat = " ".join(client.get(_url(edm_id, pid)).text.split())
     assert "Warning: overlapping accounts" in flat
     assert ("300 of 1,000 accounts match more than one line of business and "
             "are included in full in each matching sub-portfolio." in flat)
-    # P-21: the explanatory prose is cut
-    assert "inflation" not in flat
-    assert "tend to be the largest" not in flat
+    assert ("400 of 1,400 accounts carry no line of business value and are "
+            "left out." in flat)
 
     clean = dict(SUMMARY, account_total=1300, breakout_values=values,
                  breakout_coverage={"lob": {"covered": 1300,
                                             "multi_value": 0}})
-    pid2 = _mk_portfolio(edm_id, name="clean", irp_id="2", summary=clean)
+    pid2 = mk_portfolio(edm_id, name="clean", irp_id="2", summary=clean)
     flat2 = " ".join(client.get(_url(edm_id, pid2)).text.split())
     assert ("No overlapping accounts — none of the 1,300 accounts that carry "
             "a line of business matches more than one." in flat2)
     assert "Warning" not in flat2
+    assert ("None left out — every account carries a line of business value."
+            in flat2)
 
     absent = {k: v for k, v in heavy.items() if k != "breakout_coverage"}
-    pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
+    pid3 = mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
     flat3 = " ".join(client.get(_url(edm_id, pid3)).text.split())
-    # qualitative sentence alone — no count is invented from the value totals
+    # qualitative sentences alone — no count invented from the value totals
     assert ("Accounts matching more than one line of business are included "
             "in full in each matching sub-portfolio." in flat3)
     assert "match more than one" not in flat3
+    assert "Accounts with no line of business value are left out." in flat3
+    assert "carry no line of business value" not in flat3
 
 
 def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
         routes_db, client):
     # The case summed − account_total reported as a clean partition: 100 of
     # 1,701 accounts carry a state and none carries two.
-    edm_id = _mk_edm()
+    edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "state": [{"value": "TX", "label": None, "accounts": 60},
                   {"value": "CA", "label": None, "accounts": 40}],
         "lob": SUMMARY["breakout_values"]["lob"]},
         breakout_coverage={"state": {"covered": 100, "multi_value": 0}})
-    pid = _mk_portfolio(edm_id, summary=summary)
+    pid = mk_portfolio(edm_id, summary=summary)
     flat = " ".join(
         client.get(_url(edm_id, pid) + "?dimension=state").text.split())
     assert ("No overlapping accounts — none of the 100 accounts that carry a "
@@ -243,40 +237,6 @@ def test_modal_no_repeats_but_uncovered_accounts_is_not_a_clean_partition(
     assert ("1,601 of 1,701 accounts carry no state value and are left out."
             in flat)
     assert "None left out" not in flat
-
-
-def test_modal_disclosure_prose_is_cut_in_every_form(routes_db, client):
-    # P-21 (D11): the two short quantified lines replace the multi-sentence
-    # explanation — no exposure-inflation sentences, no geography paragraphs.
-    edm_id = _mk_edm()
-    # SUMMARY's state coverage is every account, none repeating → the zero arm
-    pid = _mk_portfolio(edm_id)
-    flat = " ".join(
-        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
-    assert ("No overlapping accounts — none of the 1,701 accounts that carry "
-            "a state matches more than one." in flat)
-
-    # quantified arm: measured repeats > 0
-    heavy = dict(SUMMARY, breakout_coverage={"state": {"covered": 1701,
-                                                       "multi_value": 201}})
-    pid2 = _mk_portfolio(edm_id, name="heavy", irp_id="2", summary=heavy)
-    flat2 = " ".join(
-        client.get(_url(edm_id, pid2) + "?dimension=state").text.split())
-    assert ("201 of 1,701 accounts match more than one state and are "
-            "included in full in each matching sub-portfolio." in flat2)
-
-    # qualitative arm: no breakout_coverage
-    absent = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
-    pid3 = _mk_portfolio(edm_id, name="absent", irp_id="3", summary=absent)
-    flat3 = " ".join(
-        client.get(_url(edm_id, pid3) + "?dimension=state").text.split())
-    assert ("Accounts matching more than one state are included in full in "
-            "each matching sub-portfolio." in flat3)
-
-    for rendered in (flat, flat2, flat3):
-        assert "commercial account" not in rendered
-        assert "inflation" not in rendered
-        assert "several states" not in rendered
 
 
 def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
@@ -287,8 +247,8 @@ def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
               for i in range(43)]
     summary = dict(SUMMARY, breakout_values={
         "state": values, "lob": SUMMARY["breakout_values"]["lob"]})
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=summary)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=summary)
     r = client.get(_url(edm_id, pid) + "?dimension=state")
     assert r.status_code == 200
     for i in range(43):
@@ -299,54 +259,27 @@ def test_modal_state_large_fanout_untruncated_with_note(routes_db, client):
     assert "Create 43 sub-portfolios" in r.text
 
 
-def test_modal_blank_value_disclosure_states_the_measured_shortfall(
-        routes_db, client):
-    # FR-007(b): SUMMARY's lob coverage is 1,641 of 1,701 accounts, so 60 carry
-    # no line of business and land in no sub-portfolio — stated as a number.
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
-    flat = " ".join(client.get(_url(edm_id, pid)).text.split())
-    assert ("60 of 1,701 accounts carry no line of business value and are "
-            "left out." in flat)
-    # the state dimension covers every account → the positive form
-    flat_state = " ".join(
-        client.get(_url(edm_id, pid) + "?dimension=state").text.split())
-    assert ("None left out — every account carries a state value."
-            in flat_state)
-
-
-def test_modal_blank_value_disclosure_stays_qualitative_without_coverage(
-        routes_db, client):
-    # A summary written before the 2026-08-05 revision carries no
-    # breakout_coverage: the fixed sentence, no invented number.
-    edm_id = _mk_edm()
-    no_coverage = {k: v for k, v in SUMMARY.items() if k != "breakout_coverage"}
-    pid = _mk_portfolio(edm_id, summary=no_coverage)
-    flat = " ".join(client.get(_url(edm_id, pid)).text.split())
-    assert ("Accounts with no line of business value are left out." in flat)
-    assert "carry no line of business value" not in flat
-
-
 def test_modal_missing_summary_disables_every_dimension_with_sync_pointer(
         routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, detail=None, as_of=None)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, detail=None, as_of=None)
     r = client.get(_url(edm_id, pid))
     assert r.status_code == 200
     assert r.text.count("bo-dim--disabled") == 4
     assert "exposure summary not available" in r.text
+    # names the action; the modal never posts a Sync of its own
     assert "run Sync" in r.text
-    assert f'hx-post="/edms/{edm_id}/sync"' in r.text
+    assert "/sync" not in r.text
     # no confirm form when nothing is selectable
     assert 'name="dimension"' not in r.text
 
 
 def test_modal_single_value_dimension_disabled_with_reason(routes_db, client):
-    edm_id = _mk_edm()
+    edm_id = mk_edm()
     summary = dict(SUMMARY, breakout_values={
         "lob": [{"value": "FLD Comm", "label": None, "accounts": 1701}],
         "state": SUMMARY["breakout_values"]["state"]})
-    pid = _mk_portfolio(edm_id, summary=summary)
+    pid = mk_portfolio(edm_id, summary=summary)
     r = client.get(_url(edm_id, pid))
     assert "only one line of business present" in r.text
     # the state dimension is still confirmable
@@ -354,9 +287,9 @@ def test_modal_single_value_dimension_disabled_with_reason(routes_db, client):
 
 
 def test_modal_breakout_in_flight_replaces_chooser(routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
-    _mk_breakout_job(pid, "lob", status="running")
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_breakout_job(pid, dimension="lob", status="running")
     r = client.get(_url(edm_id, pid))
     assert "breakout is already running for this portfolio" in r.text
     assert "bo-spinner" in r.text
@@ -365,9 +298,9 @@ def test_modal_breakout_in_flight_replaces_chooser(routes_db, client):
 
 
 def test_modal_sync_in_flight_disables_with_reason(routes_db, client):
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
-    _mk_backfill_job(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
+    mk_backfill_job(edm_id)
     r = client.get(_url(edm_id, pid))
     assert "this EDM is syncing — the exposure summary is being rewritten" in r.text
     assert "Close this dialog" in r.text
@@ -375,12 +308,12 @@ def test_modal_sync_in_flight_disables_with_reason(routes_db, client):
 
 
 def test_modal_missing_portfolio_renders_404_fragment(routes_db, client):
-    edm_id = _mk_edm()
+    edm_id = mk_edm()
     r = client.get(_url(edm_id, str(uuid.uuid4())))
     assert r.status_code == 404
     assert 'id="breakout-modal"' in r.text   # a fragment, not an error page
     assert "no longer exists" in r.text
-    deleted = _mk_portfolio(edm_id, deleted=True)
+    deleted = mk_portfolio(edm_id, deleted=True)
     assert client.get(_url(edm_id, deleted)).status_code == 404
 
 
@@ -394,22 +327,25 @@ def test_confirm_csrf_failure_htmx_refreshes_and_nojs_redirects(
     assert r.headers["HX-Refresh"] == "true"
     r2 = _confirm(client, edm_id, pid, csrf="bogus", htmx=False)
     assert r2.status_code == 303
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
 
 
-def test_confirm_success_returns_body_partial_with_toast_and_plan(
+def test_confirm_success_returns_portfolios_section_with_toast_and_plan(
         routes_db, client, fake_irp):
     edm_id, pid = _eligible_pair(fake_irp)
     r = _confirm(client, edm_id, pid)
     assert r.status_code == 200
-    # the EDM body partial, retargeted at the page wrapper
-    assert 'id="edm-detail"' in r.text
-    assert r.headers["HX-Retarget"] == "#edm-detail"
+    # the Portfolios section alone, retargeted at that section — never the
+    # whole #edm-detail body, which would erase the submission breadcrumbs
+    # and the EDM picker on the contextual page
+    assert 'id="edm-portfolios"' in r.text
+    assert 'id="edm-detail"' not in r.text
+    assert r.headers["HX-Retarget"] == "#edm-portfolios"
     assert r.headers["HX-Reswap"] == "outerHTML"
     toast = json.loads(r.headers["HX-Trigger"])["rwb:toast"]
     assert toast["message"] == "Breakout started — 2 sub-portfolios"
     # one job with the approved plan persisted (FR-006a)
-    jobs = _breakout_jobs()
+    jobs = breakout_jobs()
     assert len(jobs) == 1
     plan = json.loads(jobs[0]["input_data"])["plan"]
     assert [(e["value"], e["accounts"]) for e in plan] == [
@@ -425,7 +361,7 @@ def test_confirm_double_post_yields_one_job_and_409(routes_db, client, fake_irp)
     second = _confirm(client, edm_id, pid)
     assert second.status_code == 409
     assert "already running" in second.text
-    assert len(_breakout_jobs()) == 1
+    assert len(breakout_jobs()) == 1
 
 
 def test_confirm_gate_refusal_409_with_no_job_row(routes_db, client, fake_irp):
@@ -435,7 +371,7 @@ def test_confirm_gate_refusal_409_with_no_job_row(routes_db, client, fake_irp):
     r = _confirm(client, edm_id, pid)
     assert r.status_code == 409
     assert "the EDM is not ready" in r.text
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
 
 
 def test_confirm_stale_stamp_409_with_sync_pointer_and_no_job_row(
@@ -446,10 +382,11 @@ def test_confirm_stale_stamp_409_with_sync_pointer_and_no_job_row(
     r = _confirm(client, edm_id, pid)
     assert r.status_code == 409
     assert "Portfolio data has changed in Risk Modeler" in r.text
-    assert f'hx-post="/edms/{edm_id}/sync"' in r.text  # "Sync the EDM" action
+    assert "Sync the EDM, then retry" in r.text
+    assert "/sync" not in r.text
     # the stale refusal offers no second confirm
     assert 'name="dimension"' not in r.text
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
 
 
 def test_confirm_rewritten_summary_409_rerenders_fresh_preview(
@@ -464,7 +401,7 @@ def test_confirm_rewritten_summary_409_rerenders_fresh_preview(
     # the re-render is a full fresh preview carrying the CURRENT as_of
     assert f'name="summary_as_of" value="{AS_OF}"' in r.text
     assert "Create 2 sub-portfolios" in r.text
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
     assert fake_irp.stamp_reads == []       # refused before the RM read
 
 
@@ -473,7 +410,7 @@ def test_confirm_nojs_success_is_prg(routes_db, client, fake_irp):
     r = _confirm(client, edm_id, pid, htmx=False)
     assert r.status_code == 303
     assert r.headers["location"] == f"/edms/{edm_id}"
-    assert len(_breakout_jobs()) == 1
+    assert len(breakout_jobs()) == 1
 
 
 # ── custom grouping (follow-on FR-018–021) ────────────────────────────────────────
@@ -485,8 +422,8 @@ GROUP_SUMMARY = dict(SUMMARY, breakout_values=dict(
 
 
 def _custom_pair(fake_irp) -> tuple[str, str]:
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=GROUP_SUMMARY)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=GROUP_SUMMARY)
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     return edm_id, pid
@@ -552,8 +489,8 @@ def test_modal_custom_mode_disables_single_value_pill(routes_db, client):
     summary = dict(GROUP_SUMMARY, breakout_values=dict(
         GROUP_SUMMARY["breakout_values"],
         lob=[{"value": "FLD Comm", "label": None, "accounts": 1701}]))
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id, summary=summary)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id, summary=summary)
     r = client.get(_url(edm_id, pid) + "?mode=custom")
     flat = " ".join(r.text.split())
     assert ('disabled title="only one line of business present"'
@@ -577,7 +514,7 @@ def test_group_preview_returns_cart_row_with_hidden_json(
     assert "peril: WS · state: CA, TX" in flat
     # preview writes NOTHING — no group row, no job
     assert _group_row_ids() == []
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
 
 
 def test_group_preview_blocks_cart_duplicate_and_warns_overlap(
@@ -666,16 +603,17 @@ def test_group_preview_blocks_a_breakout_no_account_matches(
     # carries one from each. The stored summary cannot see that, so the Add asks
     # DataBridge for the intersection count (P-29) and refuses on zero.
     edm_id, pid = _custom_pair(fake_irp)
-    fake_irp.selection_by_value = {"TX": [1, 2], "1": [3, 4], "2": [1]}
+    fake_irp.match_count = 0
 
     empty = _add_group(client, edm_id, pid, label="TX quake",
                        selections={"state": ["TX"], "peril": ["1"]})
     assert empty.status_code == 409
     assert empty.headers["HX-Retarget"] == "#bo-cart-error"
     assert "no account matches every filter" in empty.text
-    assert _group_row_ids() == [] and _breakout_jobs() == []
+    assert _group_row_ids() == [] and breakout_jobs() == []
 
     # the same two dimensions with a value that does share an account carts fine
+    fake_irp.match_count = 1
     ok = _add_group(client, edm_id, pid, label="TX wind",
                     selections={"state": ["TX"], "peril": ["2"]})
     assert ok.status_code == 200
@@ -687,7 +625,7 @@ def test_group_preview_skips_the_match_count_for_one_dimension(
     # A one-dimension breakout cannot be empty — its values came from the
     # summary, which only carries values accounts have. No DataBridge read.
     edm_id, pid = _custom_pair(fake_irp)
-    fake_irp.match_count_override = 0
+    fake_irp.match_count = 0
     r = _add_group(client, edm_id, pid, label="Texas",
                    selections={"state": ["TX"]})
     assert r.status_code == 200
@@ -714,10 +652,10 @@ def test_cart_confirm_success_rows_jobs_and_toast(routes_db, client, fake_irp):
         {"label": "B", "filters": {"lob": ["EQ Comm"], "peril": ["2"]}},
     ])
     assert r.status_code == 200
-    assert r.headers["HX-Retarget"] == "#edm-detail"
+    assert r.headers["HX-Retarget"] == "#edm-portfolios"
     toast = json.loads(r.headers["HX-Trigger"])["rwb:toast"]
     assert toast["message"] == "Breakout started — 2 sub-portfolios"
-    jobs = _breakout_jobs()
+    jobs = breakout_jobs()
     assert len(jobs) == 2
     assert {j["requestor_type"] for j in jobs} == {"breakout_group"}
     assert set(_group_row_ids()) == {j["requestor_id"] for j in jobs}
@@ -745,7 +683,7 @@ def test_cart_confirm_refusals_write_nothing(routes_db, client, fake_irp):
     r4 = _confirm_cart(client, edm_id, pid, groups, csrf="bogus")
     assert r4.status_code == 204
 
-    assert _breakout_jobs() == []
+    assert breakout_jobs() == []
     assert _group_row_ids() == []
 
 
@@ -756,8 +694,8 @@ def test_cart_confirm_while_running_is_409(routes_db, client, fake_irp):
     second = _confirm_cart(client, edm_id, pid, groups)
     assert second.status_code == 409
     assert "already running" in second.text
-    assert len(_breakout_jobs()) == 1
+    assert len(breakout_jobs()) == 1
     # ... and the live cart blocks the QUICK confirm too (FR-020)
     quick = _confirm(client, edm_id, pid)
     assert quick.status_code == 409
-    assert len(_breakout_jobs()) == 1
+    assert len(breakout_jobs()) == 1

@@ -8,7 +8,7 @@ fragments.
 ## Writes (request path — WORKBENCH only, no Risk Modeler call)
 
 ```python
-def launch(*, edm_id, portfolio_ids: list, actor_id) -> LaunchResult
+def launch(*, edm_id, portfolio_ids: list, actor_id) -> list[str]
 ```
 - Validates: gate (FR-004), portfolio membership + P-06 eligibility. Rejects
   the launch whole on any failure — nothing partially enqueued.
@@ -20,31 +20,27 @@ def launch(*, edm_id, portfolio_ids: list, actor_id) -> LaunchResult
   requestor_id=portfolio_id, rwb_job_type='run_geohaz', input_data=…)` then
   `dispatch.dispatch(...)`. The unique head makes the enqueue idempotent per
   portfolio (race backstop behind the form's P-06 exclusion).
+- Returns the launched portfolio ids; the launch route reports their count.
 
 ## Reads
 
 ```python
-def lookup_states(edm_id) -> dict[portfolio_id, CellState]
-    # one grouped query over geohaz irp_job rows + pending/claimed run_geohaz
-    # heads for the whole table render (data-model §4: SUBMITTING/status/hazardVersion)
-
-def cell_state(portfolio_id) -> CellState
-    # single-portfolio variant for the poll fragment; CellState carries
-    # `live: bool` so the template emits hx-trigger only while non-terminal
-
-def latest_lookup(portfolio_id) -> LatestLookup | None
-    # newest irp_job row with parsed request_params, completion_summary, and status
-
-def latest_lookups(edm_id) -> dict[portfolio_id, LatestLookup]
-    # newest irp_job row per portfolio in one EDM (batch form for the table render)
-
-def completion_summary(result: dict | None) -> str | None
-    # returns tasks[].output.summary for terminal poller storage
+def read(*, edm_id=None, portfolio_id=None) -> dict[portfolio_id, PortfolioGeohaz]
+    # PortfolioGeohaz bundles:
+    #   state:  CellState — data-model §4 (SUBMITTING / job status / hazardVersion);
+    #           carries `live: bool` so the template emits hx-trigger only while
+    #           a lookup is non-terminal
+    #   latest: LatestLookup | None — the newest geohaz irp_job row, with parsed
+    #           request_params, completion_summary, status, submitted_at, completed_at
 ```
 
-Batch shape note: `lookup_states` runs once per table render (one query, not
-per-row); the per-cell poll route calls `cell_state` (indexed single-portfolio
-read on `ix_irp_job_irp_portfolio_id`).
+One query, three CTEs (non-terminal geohaz `irp_job` per portfolio,
+pending/running `run_geohaz` heads, and the `ROW_NUMBER()`-ranked newest geohaz
+`irp_job` per portfolio), anchored on `irp_portfolio`. `edm_id` scopes the whole
+table render; `portfolio_id` scopes the per-cell poll to one indexed row
+(`ix_irp_job_irp_portfolio_id`). Both callers need the state and the latest
+lookup together, so splitting them would double the query count on both the
+render path and every 3-second poll.
 
 ## Config
 

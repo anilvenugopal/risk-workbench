@@ -5,16 +5,17 @@ Owns, per contracts/data-access.md §1:
     named must-test),
   • the pure name/number plan builder (``build_breakout_plan`` — P-11/T-05),
   • the overlap statement (``compute_overlap`` — FR-007/P-13),
-  • the confirm path (``request_breakout`` — five ordered steps, no ``rwb_job``
-    row until all five pass),
+  • the confirm path (``request_breakout`` — seven ordered steps, no ``rwb_job``
+    row until all seven pass),
   • the worker-side plan load + outcome assembly (``load_approved_plan`` /
     ``summarize_outcomes`` — R10/T-10).
 
-All SQL through ``db.execute*`` (Article 7). The ONLY Risk Modeler call on the
-request path is ``request_breakout``'s freshness read via
-``irp_gateway.fetch_portfolio_stamp`` — the Article 2 submit-time pattern
-(FR-002a). Value enumeration reads the STORED spec-004 summary only; no
-DataBridge or RM read anywhere else (Article 11).
+All SQL through ``db.execute*`` (Article 7). Three reads run on the request
+path: ``request_breakout``'s freshness read via
+``irp_gateway.fetch_portfolio_stamp`` (the Article 2 submit-time pattern,
+FR-002a), and the Add's two fail-open checks — the cached name search through
+``name_check`` and the single-row DataBridge count (Article 11's request-path
+exception, v3.2.0). Value enumeration reads the STORED spec-004 summary only.
 """
 
 from __future__ import annotations
@@ -54,12 +55,27 @@ _SEPARATOR = " - "
 # second gate.
 LARGE_FANOUT_THRESHOLD = 25
 
-# The dimension letter inside the generated portfolio_number (R4) — value
-# dimensions only; a custom group's number is its name truncated to 20 (P-26).
-_DIMENSION_LETTER = {"lob": "L", "state": "S", "country": "C", "peril": "P"}
-# Analyst-facing noun per dimension for disabled-with-reason copy.
-_DIMENSION_NOUN = {"lob": "line of business", "state": "state",
-                   "country": "country", "peril": "peril", "custom": "custom"}
+
+@dataclass(frozen=True)
+class _Dimension:
+    noun: str
+    noun_plural: str | None    # None for custom — the chooser never renders it
+    number_letter: str | None  # None for custom: a group's number is its name
+                               # truncated to 20 (P-26)
+
+
+# What each breakout_dimension_kind code carries beyond its seeded row: the
+# analyst-facing noun for the disabled-with-reason copy, its plural for the
+# chooser tile's count line ("line of business" and "country" both refuse a
+# suffixed s, so plurals are maintained rather than derived), and the dimension
+# letter inside the generated portfolio_number (R4).
+_DIMENSIONS = {
+    "lob":     _Dimension("line of business", "lines of business", "L"),
+    "state":   _Dimension("state",            "states",            "S"),
+    "country": _Dimension("country",          "countries",         "C"),
+    "peril":   _Dimension("peril",            "perils",            "P"),
+    "custom":  _Dimension("custom",           None,                None),
+}
 # The peril dimension's values are `loccvg.PERIL` numeric codes, and neither the
 # EDM nor Risk Modeler pairs a code with a name (W-21), so the mnemonics
 # analysts read are maintained here (D4, closing O-02): 1 earthquake,
@@ -85,22 +101,13 @@ def display_value(value: str, dimension: str) -> str:
 
 
 def _dimension_letter(dimension: str) -> str:
-    """The dimension's letter inside the generated ``portfolio_number`` (R4).
-
-    Raises on a code ``_DIMENSION_LETTER`` does not carry rather than deriving a
-    letter from the code. The number is the identity adoption resolves on
-    (P-11/FR-011), so a derived letter would silently change the numbering
-    scheme for a dimension seeded into ``breakout_dimension_kind`` without being
-    added here — and two codes sharing a first letter would compose one number
-    for two different breakouts of the same value.
-    ``tests/unit/test_architecture_guards.py`` asserts every seeded code has an
-    entry, so this raise is unreachable in a correctly seeded database."""
-    try:
-        return _DIMENSION_LETTER[dimension]
-    except KeyError:
+    registered = _DIMENSIONS.get(dimension)
+    letter = registered.number_letter if registered is not None else None
+    if letter is None:
         raise ValueError(
             f"no portfolio_number letter registered for breakout dimension "
-            f"{dimension!r} — add it to _DIMENSION_LETTER") from None
+            f"{dimension!r} — add it to _DIMENSIONS")
+    return letter
 
 
 # ── Refusals (the router maps each to a 409 variant — http-routes.md) ───────────
@@ -153,6 +160,7 @@ class DimensionEligibility:
     dimension: str            # breakout_dimension_kind.code
     label: str                # breakout_dimension_kind.label (display)
     noun: str                 # analyst-facing noun for this dimension, resolved once
+    noun_plural: str          # its plural, for the chooser tile's count line
     eligible: bool
     values: list[BreakoutValue]   # from the stored summary ([] when ineligible)
     reason: str | None        # analyst-facing disabled-with-reason copy
@@ -215,11 +223,9 @@ def _stored_stamp(exposure_detail_raw: Any) -> str | None:
 
 def _parse_breakout_values(summary: dict | None,
                            dimension: str) -> list[BreakoutValue] | None:
-    """The stored summary's values for one dimension. ``None`` means ABSENT —
-    no summary, no ``breakout_values`` key (every pre-005 summary), or a
-    malformed container/entry; the gate points at Sync and there is NO fallback
-    to the mixed-vocabulary ``states`` list (P-12/R11). A present container
-    whose dimension key is missing or empty reads as zero values, not absent."""
+    """``None`` means absent — no summary, no ``breakout_values`` key, or a
+    malformed container/entry. A present container whose dimension key is
+    missing or empty reads as zero values, not absent."""
     if not isinstance(summary, dict):
         return None
     container = summary.get("breakout_values")
@@ -272,26 +278,12 @@ def _live_breakout_dimension(portfolio_id: Any) -> str | None:
 
 
 def _backfill_in_flight(edm_id: Any) -> bool:
-    """True while a ``backfill_edm_detail`` for this EDM is pending|running,
-    under ANY of its three enqueue keys — the poller's import-keyed head (joins
-    through irp_job), the manual Sync's EDM-keyed head, and a completed
-    breakout's auto-fired head keyed on the ``run_breakout_*`` job row (FR-013)
-    — the same condition ``edm_service.sync_detail`` applies to itself (P-16)."""
-    row = execute_one(
-        "SELECT rj.id FROM rwb_job rj "
-        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
-        "AND rj.requestor_id = ij.id "
-        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
-        "AND rj.status_code IN ('pending', 'running') "
-        "AND (ij.irp_edm_id = :e "
-        "     OR (rj.requestor_type = 'analyst_request' AND rj.requestor_id = :e) "
-        "     OR (rj.requestor_type = 'rwb_job' AND rj.requestor_id IN ("
-        "         SELECT bj.id FROM rwb_job bj "
-        "         JOIN irp_portfolio p ON bj.requestor_id = p.id "
-        "         WHERE bj.rwb_job_type LIKE 'run_breakout_%' "
-        "         AND p.edm_id = :e)))",
-        {"e": str(edm_id)}, connection="WORKBENCH")
-    return row is not None
+    """True while a ``backfill_edm_detail`` for this EDM is pending|running
+    under any of its three enqueue keys — ``rwb_job_service.
+    backfill_edm_detail_rows`` owns the membership predicate — the same
+    condition ``edm_service.sync_detail`` applies to itself (P-16)."""
+    return bool(rwb_job_service.backfill_edm_detail_rows(
+        [edm_id], statuses=("pending", "running")))
 
 
 def _dimension_rows() -> list[dict]:
@@ -337,21 +329,22 @@ def evaluate_gate(edm_id: Any, portfolio_id: Any) -> BreakoutGate:
             # The grouping pane's lineage code (T-12) — an FK target and a
             # display label, never a value dimension the summary enumerates.
             continue
-        noun = _DIMENSION_NOUN.get(code, label.lower())
+        registered = _DIMENSIONS[code]
+        noun, plural = registered.noun, registered.noun_plural
         values = _parse_breakout_values(summary, code)
         if values is None:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun, eligible=False,
-                values=[], reason=MISSING_SUMMARY_REASON))
+                dimension=code, label=label, noun=noun, noun_plural=plural,
+                eligible=False, values=[], reason=MISSING_SUMMARY_REASON))
         elif len(values) < 2:
             dim_reason = (f"only one {noun} present" if len(values) == 1
                           else f"no {noun} values present")
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun, eligible=False,
-                values=values, reason=dim_reason))
+                dimension=code, label=label, noun=noun, noun_plural=plural,
+                eligible=False, values=values, reason=dim_reason))
         else:
             dimensions.append(DimensionEligibility(
-                dimension=code, label=label, noun=noun,
+                dimension=code, label=label, noun=noun, noun_plural=plural,
                 eligible=portfolio_eligible, values=values, reason=None))
 
     account_total = None
@@ -514,17 +507,10 @@ class Overlap:
 def compute_overlap(values: Sequence[BreakoutValue],
                     account_total: int | None,
                     coverage: DimensionCoverage | None = None) -> Overlap:
-    """The two FR-007 figures, read from the coverage the summary measured per
-    account. ``summed`` is kept as what it is — the membership total across the
-    sub-portfolios, always ≥ ``covered`` — and is never used to derive either
-    figure: an account carrying three values adds three memberships, and an
-    account carrying none is in ``account_total`` but in no value's count, so
-    the two errors cancel and ``summed − account_total`` can report a clean
-    partition for a portfolio where most accounts land nowhere.
-
-    Absent coverage yields ``repeats=None`` and the preview falls back to the
-    qualitative disclosure alone (data-model §6) — the same degrade an absent
-    ``account_total`` already gets."""
+    """The two FR-007 figures, read from the per-account coverage the summary
+    measured — never derived from ``summed``, which is the membership total
+    (R11). Absent coverage yields ``repeats=None`` and the preview degrades to
+    the qualitative disclosure alone."""
     summed = sum(v.accounts for v in values)
     if coverage is None:
         return Overlap(account_total=account_total, summed=summed, covered=None,
@@ -655,7 +641,8 @@ def _noun_for_job_type(rwb_job_type: str) -> tuple[str, str]:
     # no longer carries a noun for — so the code stands in rather than raising a
     # completed run's banner off the page.
     code = str(rwb_job_type).removeprefix("run_breakout_")
-    return code, _DIMENSION_NOUN.get(code, code)
+    registered = _DIMENSIONS.get(code)
+    return code, registered.noun if registered is not None else code
 
 
 def _count(output: dict, key: str) -> int:
@@ -739,7 +726,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
                     if _uid(r["pid"]) == pid and _cart_id_of(r) in carts)
         done = len(keys & _existing_breakout_values(pid, "custom"))
         flights[pid] = BreakoutFlight(dimension="custom",
-                                      noun=_DIMENSION_NOUN["custom"],
+                                      noun=_DIMENSIONS["custom"].noun,
                                       planned=len(keys), done=done)
 
     terminal = execute(
@@ -759,7 +746,7 @@ def page_state(edm_id: Any) -> BreakoutPageState:
         _collect_error_lines(errors, _uid(row["requestor_id"]), code, noun, row)
     for row in terminal_custom:
         _collect_error_lines(errors, _uid(row["pid"]), "custom",
-                             _DIMENSION_NOUN["custom"], row)
+                             _DIMENSIONS["custom"].noun, row)
 
     return BreakoutPageState(running=bool(flights),
                              banner=_newest_banner(terminal, terminal_custom),
@@ -825,7 +812,7 @@ def _newest_banner(terminal: Sequence, terminal_custom: Sequence,
     cart_id = _cart_id_of(custom)
     rows = ([r for r in terminal_custom if _cart_id_of(r) == cart_id]
             if cart_id else [custom])
-    return _banner_over(rows, noun=_DIMENSION_NOUN["custom"],
+    return _banner_over(rows, noun=_DIMENSIONS["custom"].noun,
                         source_name=str(custom["source_name"]))
 
 
@@ -913,41 +900,68 @@ def _verify_freshness(gate: BreakoutGate, portfolio_id: Any) -> None:
             "Sync the EDM, then retry.")
 
 
-def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
-                     summary_as_of: str | None, actor_id: Any) -> str | None:
-    """Five steps, in order; each gates the next, and **no rwb_job row exists
-    until all five pass** (contracts/data-access.md §1): gate re-check →
-    summary-unchanged check (FR-002b) → freshness check (FR-002a) → build and
-    persist the approved plan → idempotent enqueue. Returns the job id, or
-    ``None`` when a live job already exists (UI: "already running")."""
-    # 1. Gate re-check.
+@dataclass(frozen=True)
+class BreakoutRequested:
+    """A confirmed quick breakout: the enqueued job and its plan size — the
+    router's toast reads the count from here, never back off the job row."""
+    job_id: str
+    planned: int
+
+
+def _confirm_preconditions(edm_id: Any, portfolio_id: Any,
+                           summary_as_of: str | None,
+                           shape_check) -> BreakoutGate | None:
+    """The ordered refusals both confirms share, and **no rwb_job row exists
+    until all pass** (contracts/data-access.md §1): gate re-check → in-flight →
+    the caller's ``shape_check(gate)`` (quick: the dimension is eligible; cart:
+    not empty) → summary-unchanged (FR-002b) → freshness (FR-002a). Returns the
+    gate the caller composes its plan from — every row value it reads was
+    loaded by the gate re-check, so the confirm decides from one instant's view
+    of the two rows — or ``None`` when a breakout episode is already live on
+    the portfolio (the caller's "already running" 409)."""
     gate = evaluate_gate(edm_id, portfolio_id)
     if not gate.portfolio_eligible:
         raise GateRefused(gate.reason or "breakout is not available")
     if gate.in_flight is not None:
-        return None  # already running — the router renders the 409 variant
-    eligibility = next((d for d in gate.dimensions if d.dimension == dimension),
-                       None)
-    if eligibility is None:
-        raise GateRefused(f"unknown breakout dimension {dimension!r}")
-    if not eligibility.eligible:
-        raise GateRefused(eligibility.reason or "dimension is not eligible")
+        return None
+    shape_check(gate)
 
-    # 2. Summary-unchanged check (FR-002b): the stored summary must be the one
-    # the preview rendered from. A detail refresh that landed mid-preview
-    # changes the value set the analyst judged from, and FR-002a cannot see it
-    # (an untouched RM portfolio writes back an equal stampDate).
+    # Summary-unchanged (FR-002b): the stored summary must be the one the
+    # preview rendered from. A detail refresh that landed mid-preview changes
+    # the value set the analyst judged from, and FR-002a cannot see it (an
+    # untouched RM portfolio writes back an equal stampDate).
     if gate.summary_as_of != (str(summary_as_of) if summary_as_of else None):
         raise SummaryRewritten(
             "This EDM was synced while you were reviewing — here is the "
             "current breakout.")
 
-    # 3. Freshness check (FR-002a): the flow's one web-layer RM call. Every row
-    # value below comes off the gate, which read them at step 1 — the confirm
-    # decides from one instant's view of the two rows, not two.
+    # Freshness (FR-002a): the flow's one web-layer RM call.
     _verify_freshness(gate, portfolio_id)
+    return gate
 
-    # 4. Build and persist the approved plan — composed ONCE, here; from this
+
+def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
+                     summary_as_of: str | None,
+                     actor_id: Any) -> BreakoutRequested | None:
+    """The quick confirm: the shared preconditions
+    (``_confirm_preconditions``) with the dimension-eligibility shape check,
+    then build and persist the approved plan and enqueue idempotently. Returns
+    the job id with the plan size, or ``None`` when a live job already exists
+    (UI: "already running")."""
+    def _dimension_eligible(gate: BreakoutGate) -> None:
+        eligibility = next(
+            (d for d in gate.dimensions if d.dimension == dimension), None)
+        if eligibility is None:
+            raise GateRefused(f"unknown breakout dimension {dimension!r}")
+        if not eligibility.eligible:
+            raise GateRefused(eligibility.reason or "dimension is not eligible")
+
+    gate = _confirm_preconditions(edm_id, portfolio_id, summary_as_of,
+                                  _dimension_eligible)
+    if gate is None:
+        return None  # already running — the router renders the 409 variant
+
+    # Build and persist the approved plan — composed ONCE, here; from this
     # point the plan is authoritative and the worker executes it verbatim
     # (AGENTS.md rule 8 / R10 / P-14).
     plan = compose_plan(gate, edm_id=edm_id, portfolio_id=portfolio_id,
@@ -961,7 +975,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                   "number": p.number, "accounts": p.accounts} for p in plan],
     }
 
-    # 5. Idempotent enqueue — one live-job slot per (portfolio, dimension).
+    # Idempotent enqueue — one live-job slot per (portfolio, dimension).
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=str(portfolio_id),
         rwb_job_type=f"run_breakout_{dimension}", input_data=input_data,
@@ -974,7 +988,7 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
                 len(plan))
     dispatch.dispatch(rwb_job_id=job_id,
                       rwb_job_type=f"run_breakout_{dimension}")
-    return job_id
+    return BreakoutRequested(job_id=job_id, planned=len(plan))
 
 
 # ── Custom grouping (follow-on FR-018–021, T-12/T-13) ────────────────────────────
@@ -1059,21 +1073,28 @@ def _group_rows(portfolio_id: Any) -> dict[str, dict]:
     return {str(r["group_key"]): dict(r) for r in rows}
 
 
+def _compose_group_number(name: str) -> str:
+    """The group's ``portfolio_number`` inside 20 characters: the name verbatim
+    when it fits (P-26), otherwise the first 14 characters plus 6 hex digits of
+    sha256(name) — the ``_compose_number`` technique, not its scheme. Two names
+    sharing their first 20 characters must not compose one number: the number
+    is what adoption resolves on, and two portfolios carrying one fail both
+    (FR-011)."""
+    if len(name) <= PORTFOLIO_NUMBER_MAX:
+        return name
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest().upper()[:6]
+    return name[:PORTFOLIO_NUMBER_MAX - 6].rstrip() + digest
+
+
 def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                        groups: Sequence[dict]) -> list[GroupPlan]:
     """Validate and compose a whole cart in submission order. Each element of
-    ``groups`` is ``{"label": str, "filters": {dim: [values]}}`` (the modal's
-    hidden-input JSON). The name is the label exactly as typed (P-24) and its
-    number is the name truncated to 20 characters (P-26); a name already
-    carried by a live portfolio in the EDM or an earlier cart row is refused,
-    never suffixed (P-25) — except an adopted row's own stored name, which IS
-    its portfolio (the re-confirm heal path). A member set that already has a
-    ``breakout_group`` row adopts the row (P-22): no second row, no second
-    portfolio; the confirm writes the newest label/name/number onto it. A
-    member set appearing twice in one cart is refused. The overlap note is a may-overlap heuristic
-    (P-18 — warn, never block): two groups sharing a selected value in some
-    dimension can share accounts; disjoint filters can too (a multi-value
-    account), which is why the copy says "may"."""
+    ``groups`` is ``{"label": str, "filters": {dim: [values]}}`` — the modal's
+    hidden-input JSON. Raises ``GateRefused`` on a malformed breakout, a name
+    already carried by a live portfolio or an earlier cart row, or a member set
+    appearing twice in one cart. A member set that already has a
+    ``breakout_group`` row adopts that row (P-22) and the confirm writes the
+    newest label, name, and number onto it."""
     if gate.source_name is None or gate.source_irp_id is None:
         raise GateRefused("the source portfolio has no Risk Modeler id — "
                           "Sync the EDM, then retry")
@@ -1107,7 +1128,7 @@ def compose_group_cart(gate: BreakoutGate, *, edm_id: Any, portfolio_id: Any,
                      else "in the cart")
             raise GateRefused(f"a portfolio named {name!r} already exists "
                               f"{where} — choose a different name")
-        number = name[:PORTFOLIO_NUMBER_MAX].rstrip()
+        number = _compose_group_number(name)
         taken.add(name.casefold())
         overlap = [p.label for p in plans
                    if any(set(filters.get(d, ())) & set(p.filters.get(d, ()))
@@ -1171,6 +1192,34 @@ def check_group_name(edm_id: Any, name: str) -> CollisionCheck:
         exposure_irp_id=str(edm["irp_id"]), name=trimmed)
 
 
+def compose_group_preview(edm_id: Any, portfolio_id: Any, *,
+                          carted: Sequence[dict],
+                          new_group: dict) -> GroupPlan:
+    """One cart-row Add, decided entirely here (FR-018/P-23): evaluate the
+    gate, compose the posted group against the stored summary and the
+    already-carted groups, then the two Add-time refusals — a taken portfolio
+    name (P-25; the Risk Modeler leg, fail-open — compose covered the
+    workbench rows and the cart; an adopted member set is exempt, since its
+    own already-created portfolio may carry the very name being re-confirmed
+    and the run's duplicate-name handling backstops) and a group no account
+    matches (P-29 — ``group_matches_no_accounts``, fail-open). Raises
+    ``GateRefused`` on every refusal; no writes. Callers run the whole call in
+    a threadpool: the match count queries DataBridge over the whole portfolio
+    and must not hold the event loop while the page's 3-second polls wait."""
+    gate = evaluate_gate(edm_id, portfolio_id)
+    plans = compose_group_cart(gate, edm_id=edm_id, portfolio_id=portfolio_id,
+                               groups=[*carted, new_group])
+    plan = plans[-1]
+    if not plan.adopted and check_group_name(edm_id, plan.name).collides:
+        raise GateRefused(f"a portfolio named {plan.name!r} already "
+                          "exists in this EDM — choose a different name")
+    if group_matches_no_accounts(gate, plan.filters):
+        raise GateRefused(
+            "no account matches every filter of this breakout — it would "
+            "create nothing. Change the values and add it again")
+    return plan
+
+
 _INSERT_GROUP = """
     INSERT INTO breakout_group (id, source_portfolio_id, group_key, label,
         filters, name, number, cart_id, inserted_at, updated_at, inserted_by,
@@ -1231,18 +1280,14 @@ def request_group_breakout(edm_id: Any, portfolio_id: Any,
     ``None`` when a breakout episode is already live on the portfolio (one
     episode per portfolio, either direction). No job row exists on any
     refusal."""
-    gate = evaluate_gate(edm_id, portfolio_id)
-    if not gate.portfolio_eligible:
-        raise GateRefused(gate.reason or "breakout is not available")
-    if gate.in_flight is not None:
+    def _cart_not_empty(_gate: BreakoutGate) -> None:
+        if not groups:
+            raise GateRefused("the cart is empty — add at least one breakout")
+
+    gate = _confirm_preconditions(edm_id, portfolio_id, summary_as_of,
+                                  _cart_not_empty)
+    if gate is None:
         return None
-    if not groups:
-        raise GateRefused("the cart is empty — add at least one breakout")
-    if gate.summary_as_of != (str(summary_as_of) if summary_as_of else None):
-        raise SummaryRewritten(
-            "This EDM was synced while you were reviewing — here is the "
-            "current breakout.")
-    _verify_freshness(gate, portfolio_id)
 
     # The approved plan, composed once (AGENTS.md rule 8): the group rows and
     # each job's input_data are what the worker executes verbatim.

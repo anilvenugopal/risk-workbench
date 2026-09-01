@@ -5,7 +5,7 @@ import json
 from app.services import geohaz_service
 from app.workers import geohaz_jobs, runtime
 from db import execute, execute_one
-from tests.sqlserver.test_geohaz_service import _edm_with_portfolios
+from tests.sqlserver.conftest import edm_with_portfolios as _edm_with_portfolios
 
 
 def _run(job_id: str) -> bool:
@@ -20,22 +20,25 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     workbench_db, fake_irp,
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
-    launched = geohaz_service.launch(
+    geohaz_service.launch(
         edm_id=edm_id, portfolio_ids=portfolio_ids,
         actor_id=workbench_db.user_a)
+    head_id = str(execute_one(
+        "SELECT id FROM rwb_job WHERE rwb_job_type = 'run_geohaz'",
+        {}, connection="WORKBENCH")["id"])
 
-    assert _run(launched.rwb_job_ids[0]) is True
+    assert _run(head_id) is True
 
     job = execute_one(
         "SELECT * FROM irp_job WHERE irp_job_type = 'geohaz'",
         {}, connection="WORKBENCH")
     assert job["status"] == "SUBMITTED"
-    assert str(job["irp_edm_id"]).lower() == edm_id
-    assert str(job["irp_portfolio_id"]).lower() == portfolio_ids[0]
-    assert str(job["inserted_by"]).lower() == workbench_db.user_a
+    assert str(job["irp_edm_id"]) == edm_id
+    assert str(job["irp_portfolio_id"]) == portfolio_ids[0]
+    assert str(job["inserted_by"]) == workbench_db.user_a
     enqueued = execute_one(
         "SELECT input_data FROM rwb_job WHERE id = :id",
-        {"id": launched.rwb_job_ids[0]}, connection="WORKBENCH")
+        {"id": head_id}, connection="WORKBENCH")
     assert (json.loads(job["request_params"])
             == json.loads(enqueued["input_data"])["params"])
     assert json.loads(job["last_submission_payload"])["kind"] == "geohaz"
@@ -49,7 +52,7 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
     }
     head = execute_one(
         "SELECT status_code, error_detail FROM rwb_job WHERE id = :id",
-        {"id": launched.rwb_job_ids[0]}, connection="WORKBENCH")
+        {"id": head_id}, connection="WORKBENCH")
     assert head["status_code"] == "succeeded"
     assert head["error_detail"] is None
     assert fake_irp.submits[0]["skip_prev_hazard"] is False
@@ -67,10 +70,9 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
         "SELECT id, requestor_id, input_data FROM rwb_job "
         "WHERE rwb_job_type = 'run_geohaz'",
         {}, connection="WORKBENCH")
-    jobs = {str(row["requestor_id"]).lower(): str(row["id"]).lower()
-            for row in enqueued}
+    jobs = {str(row["requestor_id"]): str(row["id"]) for row in enqueued}
     enqueued_params = {
-        str(row["requestor_id"]).lower(): json.loads(row["input_data"])["params"]
+        str(row["requestor_id"]): json.loads(row["input_data"])["params"]
         for row in enqueued
     }
     original_submit = fake_irp.submit_geohaz
@@ -93,19 +95,19 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
         "SELECT irp_portfolio_id, irp_id, status, request_params, inserted_by "
         "FROM irp_job WHERE irp_job_type = 'geohaz'",
         {}, connection="WORKBENCH")
-    by_portfolio = {str(row["irp_portfolio_id"]).lower(): row for row in irp_jobs}
+    by_portfolio = {str(row["irp_portfolio_id"]): row for row in irp_jobs}
     failed = by_portfolio[portfolio_ids[0]]
     assert failed["status"] == "SUBMISSION FAILED"
     assert failed["irp_id"] is None
     assert (json.loads(failed["request_params"])
             == enqueued_params[portfolio_ids[0]])
-    assert str(failed["inserted_by"]).lower() == workbench_db.user_b
+    assert str(failed["inserted_by"]) == workbench_db.user_b
     succeeded = by_portfolio[portfolio_ids[1]]
     assert succeeded["status"] == "SUBMITTED"
     assert succeeded["irp_id"] is not None
 
     heads = {
-        str(row["requestor_id"]).lower(): row
+        str(row["requestor_id"]): row
         for row in execute(
             "SELECT requestor_id, status_code, error_detail FROM rwb_job "
             "WHERE rwb_job_type = 'run_geohaz'",

@@ -20,11 +20,10 @@ from __future__ import annotations
 from app.services.irp_gateway import (
     AnalysisHit,
     AnalysisMetadata,
-    BreakoutSelection,
-    DuplicatePortfolioNameError,
     CurrencyEntry,
     CurrencySchemeEntry,
     CurrencySchemeVintageEntry,
+    DuplicatePortfolioNameError,
     EdmCatalogEntry,
     EntityHit,
     EventRateSchemeEntry,
@@ -48,6 +47,69 @@ DEFAULT_EXPOSURE = {
     "perilsExposed": "EQ",
     "name": "portfolio", "number": "portfolio",
     "geocodeVersion": "23.0", "hazardVersion": "23.0",
+}
+
+# ── spec-011 result fixtures (shaped like the live captures, research R3) ──────
+# The 11 stored return periods (data-model §4) with two points around them the
+# extract never keeps, so the exact-match lookup runs against a wider curve than
+# the target set — as it does against RM's real 10,004-point response.
+FIXTURE_RETURN_PERIODS = [1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0,
+                          1000.0, 2000.0, 5000.0, 10000.0, 50000.0]
+
+# One multiplier per epType, so a test can tell which element a stored number
+# came from. TCE-OEP/TCE-AEP are discarded by the builder (O-04) and their
+# multipliers are far enough away that a leaked TCE value is unmistakable.
+_EP_TYPE_FACTOR = {"AEP": 2, "OEP": 1, "TCE-AEP": 180, "TCE-OEP": 90}
+
+
+def stats_rows(*, analysis_id, perspective_code, exposure_resource_id,
+               pure_premium: float, total_std_dev: float,
+               ep_type: str = "OEP") -> list[dict]:
+    """One ``ep_stats-aal_response``-shaped row, including the -1.0-filled
+    treaty fields RM sends for a portfolio analysis."""
+    return [{
+        "analysisId": int(analysis_id),
+        "exposureResourceId": int(exposure_resource_id),
+        "exposureResourceType": "PORTFOLIO",
+        "perspectiveCode": perspective_code,
+        "epType": ep_type,
+        "purePremium": pure_premium,
+        "totalStdDev": total_std_dev,
+        "cv": 69.13209737370671,
+        "netPurePremium": -1.0, "activation": -1.0, "exhaustion": -1.0,
+        "totalLossRatio": -1.0, "limit": -1.0, "premium": -1.0,
+        "netStdDev": -1.0, "exhaustAllReinstatements": -1.0,
+        "exposureResourceNumber": "FF_US",
+    }]
+
+
+def ep_elements(*, analysis_id, perspective_code, exposure_resource_id,
+                base: float) -> list[dict]:
+    """The four ``ep_curve_response``-shaped elements — AEP, OEP, TCE-AEP,
+    TCE-OEP. A point's loss is ``base * return_period * the epType factor``, so
+    every stored number identifies the perspective, the EP type and the return
+    period it came from."""
+    periods = list(FIXTURE_RETURN_PERIODS)
+    return [{
+        "jobId": int(analysis_id),
+        "epType": ep_type,
+        "perspectiveCode": perspective_code,
+        "exposureResourceId": int(exposure_resource_id),
+        "exposureResourceType": "PORTFOLIO",
+        "exposureResourceNumber": "FF_US",
+        "value": {
+            "returnPeriods": periods,
+            "positionValues": [base * period * factor for period in periods],
+        },
+    } for ep_type, factor in _EP_TYPE_FACTOR.items()]
+
+
+# Unseeded perspectives outside these two return empty lists — the FR-004
+# "fetched, nothing there" path every test gets for free.
+_DEFAULT_RESULT_PERSPECTIVES = {
+    "GR": {"pure_premium": 38270.5904752427, "total_std_dev": 2645726.187283731,
+           "base": 1.0},
+    "GU": {"pure_premium": 55000.25, "total_std_dev": 3100500.75, "base": 3.0},
 }
 
 
@@ -97,18 +159,17 @@ class FakeIRP:
         # confirm-time freshness read (FR-002a): recorded calls + failure knob
         self.stamp_reads: list[str] = []
         self.raise_on_fetch_stamp = False
-        # selection: value → account ids; value → per-value read error (W-14);
-        # the selection read raising fails the whole job (the real gateway's
-        # single DataBridge query is all-or-nothing — R1, revised 2026-08-05)
+        # selection: value → account ids. The selection read raising fails the
+        # whole job — the real gateway's single DataBridge query is
+        # all-or-nothing (R1, revised 2026-08-05)
         self.selection_by_value: dict[str, list[int]] = {}
-        self.selection_errors: dict[str, str] = {}
         self.raise_on_selection_read = False
         self.selection_calls: list[dict] = []
-        # Add-time match count (P-29): derived from selection_by_value when
-        # seeded, so a test that seeds selections gets the count the run would
-        # find; 1 when nothing is seeded. Override the answer, or make the read
-        # raise (the caller fails open), with these knobs.
-        self.match_count_override: int | None = None
+        # Add-time match count (P-29): whatever the test says. The default is
+        # non-zero because a zero refuses the Add, and most tests never mention
+        # the count. Set 0 for the empty-intersection refusal, or make the read
+        # raise (the caller fails open).
+        self.match_count = 1
         self.raise_on_match_count = False
         self.match_count_calls: list[dict] = []
         # composition: names already taken in RM → create raises the DISTINCT
@@ -159,9 +220,21 @@ class FakeIRP:
         self.analysis_submits: list[dict] = []
         # job_name -> forced IRPIntegrationError on the next submit for that name
         self.raise_on_submit_analysis_for: set[str] = set()
-        # (analysis_name, edm_name) -> seeded AnalysisHit kwargs (get_analysis_by_name)
-        self._own_analyses: dict[tuple[str, str], dict] = {}
-        self.raise_on_get_analysis_by_name = False
+        # recorded delete_analysis calls, in order
+        self.deleted_analyses: list[str] = []
+        # irp_id -> forced IRPIntegrationError on delete_analysis (per-id,
+        # mirrors raise_on_submit_analysis_for)
+        self.raise_on_delete_analysis: set[str] = set()
+        # ── spec-011 result reads (worker-only) ──────────────────────────────
+        # (analysis_id, perspective_code) -> {"stats": [...], "ep": [...]};
+        # unseeded pairs fall back to _DEFAULT_RESULT_PERSPECTIVES
+        self._analysis_results: dict[tuple[str, str], dict] = {}
+        # perspective codes whose stats/EP read raises — the retrieval-failure
+        # path (the job fails, loss_results is left untouched)
+        self.raise_on_analysis_results_for: set[str] = set()
+        # recorded result reads: {"call", "analysis_id", "perspective_code",
+        # "exposure_resource_id"} — the idempotency assertions count these
+        self.result_calls: list[dict] = []
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -261,23 +334,17 @@ class FakeIRP:
             "irp_id": (str(irp_id) if irp_id is not None else None),
             "name": name, "attributes": (attributes or {"treatyName": name})})
 
-    def add_own_analysis(self, *, name: str, edm_name: str,
-                         analysis_id: str | int,
-                         source_rdm_name: str | None = None,
-                         exposure_name: str | None = None,
-                         exposure_resource_id: str | None = None,
-                         exposure_resource_type: str | None = None) -> None:
-        """Seed an own-executed analysis resolvable by ``get_analysis_by_name``
-        (spec 010) — the ``backfill_analysis_detail`` worker's exact-name lookup
-        after FINISHED. Unseeded (name, edm_name) pairs raise, mirroring the real
-        wheel's 0-matches ``IRPAPIError``."""
-        self._own_analyses[(name, edm_name)] = {
-            "analysis_id": str(analysis_id), "name": name,
-            "source_rdm_name": source_rdm_name, "exposure_name": exposure_name,
-            "exposure_resource_id": (str(exposure_resource_id)
-                                     if exposure_resource_id is not None else None),
-            "exposure_resource_type": exposure_resource_type,
-        }
+    def set_analysis_results(self, *, analysis_id: str | int,
+                             perspective_code: str,
+                             stats: list[dict] | None = None,
+                             ep: list[dict] | None = None) -> None:
+        """Seed what ``get_analysis_stats``/``get_analysis_ep`` return for one
+        (analysis, perspective) — build the rows with ``stats_rows`` /
+        ``ep_elements``, or pass ``[]`` for a perspective the analysis did not
+        produce. Overrides the GR/GU defaults for that pair only."""
+        self._analysis_results[(str(analysis_id), perspective_code)] = {
+            "stats": [] if stats is None else list(stats),
+            "ep": [] if ep is None else list(ep)}
 
     def run(self, irp_id: str) -> None:
         self.jobs[irp_id] = "RUNNING"
@@ -419,11 +486,11 @@ class FakeIRP:
                     is_group=bool(a.get("is_group")))
         return AnalysisMetadata()
 
-    # ── spec-005 breakout composition (mirrors the gateway seam) ────────────────
+    # ── spec-005 breakout composition (mirrors the gateway) ─────────────────────
 
     def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
                                  source_portfolio_irp_id: str, dimension: str,
-                                 values) -> BreakoutSelection:
+                                 values) -> dict[str, list[int]]:
         # The selection read is the input to EVERY value — its failure raises
         # and the worker fails the job before anything is created.
         if self.raise_on_selection_read:
@@ -432,11 +499,7 @@ class FakeIRP:
             "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
             "source_portfolio_irp_id": str(source_portfolio_irp_id),
             "dimension": dimension, "values": list(values)})
-        return BreakoutSelection(
-            accounts_by_value={v: list(self.selection_by_value.get(v, []))
-                               for v in values if v not in self.selection_errors},
-            errors_by_value={v: self.selection_errors[v]
-                             for v in values if v in self.selection_errors})
+        return {v: list(self.selection_by_value.get(v, [])) for v in values}
 
     def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str, filters) -> int:
@@ -446,22 +509,7 @@ class FakeIRP:
             "edm_name": edm_name, "exposure_irp_id": str(exposure_irp_id),
             "source_portfolio_irp_id": str(source_portfolio_irp_id),
             "filters": {d: list(v) for d, v in filters.items()}})
-        if self.match_count_override is not None:
-            return self.match_count_override
-        if not self.selection_by_value:
-            # Nothing seeded is no opinion, not an empty breakout — a fake that
-            # answered zero here would refuse every Add in every test that never
-            # mentions selections.
-            return 1
-        # OR within a dimension, AND across dimensions (P-20) over the seeded
-        # selections — the same set algebra the run performs.
-        matched: set[int] | None = None
-        for values in filters.values():
-            union: set[int] = set()
-            for value in values:
-                union |= set(self.selection_by_value.get(value, []))
-            matched = union if matched is None else matched & union
-        return len(matched or set())
+        return self.match_count
 
     def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                              name: str, number: str, description: str,
@@ -502,8 +550,16 @@ class FakeIRP:
 
     def find_portfolio_by_number(self, *, exposure_irp_id: str,
                                  number: str) -> list[PortfolioHit]:
-        # EVERY hit — the worker refuses to adopt when there is more than one
-        return list(self.hits_by_number.get(number, []))
+        # EVERY hit — the worker refuses to adopt when there is more than one.
+        # Unseeded numbers resolve against the sub-portfolios this fake created
+        # and still holds, so two entries composing one number read as
+        # ambiguous here exactly as they would in Risk Modeler.
+        if number in self.hits_by_number:
+            return list(self.hits_by_number[number])
+        return [PortfolioHit(irp_id=p["portfolio_irp_id"], name=p["name"])
+                for p in self.created_sub_portfolios
+                if p["number"] == number
+                and p["name"] in self.taken_portfolio_names]
 
     def find_portfolio_by_name(self, *, exposure_irp_id: str,
                                name: str) -> list[PortfolioHit]:
@@ -526,10 +582,6 @@ class FakeIRP:
         return hits
 
     def get_import_job(self, irp_id: str) -> JobStatus:
-        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
-                         result=self.results.get(irp_id))
-
-    def get_geohaz_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 
@@ -582,16 +634,54 @@ class FakeIRP:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
 
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
-        if self.raise_on_get_analysis_by_name:
+    # ── spec-011 result reads (worker-only) ──────────────────────────────────
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]:
+        return self._results("stats", analysis_id, perspective_code,
+                             exposure_resource_id)
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]:
+        return self._results("ep", analysis_id, perspective_code,
+                             exposure_resource_id)
+
+    def _results(self, call: str, analysis_id, perspective_code,
+                 exposure_resource_id) -> list[dict]:
+        self.result_calls.append({
+            "call": call, "analysis_id": str(analysis_id),
+            "perspective_code": perspective_code,
+            "exposure_resource_id": str(exposure_resource_id)})
+        if perspective_code in self.raise_on_analysis_results_for:
             raise IRPIntegrationError(
-                "fake IRP: forced get_analysis_by_name failure")
-        hit = self._own_analyses.get((analysis_name, edm_name))
-        if hit is None:
+                f"fake IRP: forced {call} failure for perspective "
+                f"{perspective_code}")
+        seeded = self._analysis_results.get((str(analysis_id), perspective_code))
+        if seeded is not None:
+            return list(seeded[call])
+        default = _DEFAULT_RESULT_PERSPECTIVES.get(perspective_code)
+        if default is None:
+            return []
+        if call == "stats":
+            return stats_rows(analysis_id=analysis_id,
+                              perspective_code=perspective_code,
+                              exposure_resource_id=exposure_resource_id,
+                              pure_premium=default["pure_premium"],
+                              total_std_dev=default["total_std_dev"])
+        return ep_elements(analysis_id=analysis_id,
+                           perspective_code=perspective_code,
+                           exposure_resource_id=exposure_resource_id,
+                           base=default["base"])
+
+    def delete_analysis(self, irp_id: str) -> None:
+        if str(irp_id) in self.raise_on_delete_analysis:
             raise IRPIntegrationError(
-                f"fake IRP: no analysis named '{analysis_name}' for EDM "
-                f"'{edm_name}'")
-        return AnalysisHit(**hit)
+                f"fake IRP: forced analysis delete failure for '{irp_id}'")
+        self.deleted_analyses.append(str(irp_id))
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
+        return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
+                         result=self.results.get(irp_id))
 
     def search_edms(self, name: str) -> list[EntityHit]:
         self.search_calls.append(("edm", name))

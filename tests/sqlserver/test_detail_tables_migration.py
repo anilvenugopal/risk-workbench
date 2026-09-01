@@ -322,14 +322,14 @@ class TestBreakoutLineageBehavior:
 
     def test_second_live_generated_portfolio_rejected_as_skip(self, scratch_edm):
         source_id = self._source(scratch_edm)
-        first = portfolio_service.insert_generated(
+        first = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - TX", irp_id="9100",
             source_portfolio_id=source_id, dimension_code="state", value="TX",
             actor_id=None)
         assert first.created is True
         # the filtered unique index rejects a second LIVE row for the same
         # (source, dimension, value) — absorbed as created=False, never raised
-        second = portfolio_service.insert_generated(
+        second = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - TX (2)", irp_id="9101",
             source_portfolio_id=source_id, dimension_code="state", value="TX",
             actor_id=None)
@@ -345,7 +345,7 @@ class TestBreakoutLineageBehavior:
         # T-16: the re-run reuses the soft-deleted row — deleted_at cleared,
         # the new RM id stamped — never a ghost twin for the same triple.
         source_id = self._source(scratch_edm)
-        first = portfolio_service.insert_generated(
+        first = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - TX", irp_id="9100",
             source_portfolio_id=source_id, dimension_code="state", value="TX",
             actor_id=None)
@@ -353,7 +353,7 @@ class TestBreakoutLineageBehavior:
             "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
             {"now": datetime.utcnow(), "i": str(first.portfolio_id)},
             connection="WORKBENCH")
-        second = portfolio_service.insert_generated(
+        second = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - TX", irp_id="9102",
             source_portfolio_id=source_id, dimension_code="state", value="TX",
             actor_id=None)
@@ -384,12 +384,12 @@ class TestBreakoutLineageBehavior:
         # generated portfolio per (source, 'custom', group_key).
         source_id = self._source(scratch_edm)
         gid = self._group_row(source_id)
-        first = portfolio_service.insert_generated(
+        first = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - Coastal", irp_id="9200",
             source_portfolio_id=source_id, dimension_code="custom",
             value="abc123def456", actor_id=None, group_id=gid)
         assert first.created is True
-        second = portfolio_service.insert_generated(
+        second = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - Coastal (2)", irp_id="9201",
             source_portfolio_id=source_id, dimension_code="custom",
             value="abc123def456", actor_id=None, group_id=gid)
@@ -399,7 +399,7 @@ class TestBreakoutLineageBehavior:
     def test_soft_deleted_custom_row_is_reclaimed(self, scratch_edm):
         source_id = self._source(scratch_edm)
         gid = self._group_row(source_id)
-        first = portfolio_service.insert_generated(
+        first = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - Coastal", irp_id="9200",
             source_portfolio_id=source_id, dimension_code="custom",
             value="abc123def456", actor_id=None, group_id=gid)
@@ -407,7 +407,7 @@ class TestBreakoutLineageBehavior:
             "UPDATE irp_portfolio SET deleted_at = :now WHERE id = :i",
             {"now": datetime.utcnow(), "i": str(first.portfolio_id)},
             connection="WORKBENCH")
-        second = portfolio_service.insert_generated(
+        second = portfolio_service.save_generated_portfolio(
             scratch_edm, name="Source 2026 - Coastal", irp_id="9202",
             source_portfolio_id=source_id, dimension_code="custom",
             value="abc123def456", actor_id=None, group_id=gid)

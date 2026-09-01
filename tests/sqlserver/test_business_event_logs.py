@@ -32,22 +32,23 @@ def test_breakout_request_and_run_emit_business_events(
     # every line carrying the actor id from input_data.
     from app.services import breakout_service
     from app.workers import portfolio_jobs
-    from tests.sqlserver.test_breakout_gate import (
+    from tests.sqlserver.breakout_rows import (
         AS_OF,
         RM_STAMP,
-        _mk_edm,
-        _mk_portfolio,
+        mk_edm,
+        mk_portfolio,
     )
 
-    edm_id = _mk_edm()
-    pid = _mk_portfolio(edm_id)
+    edm_id = mk_edm()
+    pid = mk_portfolio(edm_id)
     fake_irp.add_portfolio(edm_exposure_id="90001", irp_id="1",
                            name="usfl_commercial", stamp=RM_STAMP)
     fake_irp.selection_by_value = {"EQ Comm": [1]}   # FLD Comm → zero-match
     a = workbench_db.user_a
 
     with caplog.at_level(logging.INFO, logger="app.services.breakout_service"):
-        jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF, a)
+        jid = breakout_service.request_breakout(edm_id, pid, "lob", AS_OF,
+                                                a).job_id
     msgs = _messages(caplog, "app.services.breakout_service")
     assert any(f"breakout lob requested for portfolio {pid}" in m
                and str(a) in m and "n_sub_portfolios=2" in m for m in msgs)

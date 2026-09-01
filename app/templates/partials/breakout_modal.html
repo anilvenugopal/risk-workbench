@@ -5,8 +5,9 @@
    (package_modal precedent). The mount carries the hx-on::before-swap handler
    that lets the 404/409 fragments swap in. One stored-summary snapshot per
    render: switching dimension or mode re-fetches this fragment; the confirm
-   carries the snapshot's as_of (FR-002b); a Sync submitted from inside CLOSES
-   the dialog and hands progress to the page's own indicator + self-poll.
+   carries the snapshot's as_of (FR-002b). Where a stale or missing summary
+   needs a Sync, this dialog names the action and the analyst runs it from the
+   page header — the modal posts no Sync of its own.
    The custom pane renders EVERY groupable dimension's checkbox list in this
    one fetch — Alpine pills toggle x-show, so switching dimensions loses no
    ticked state (T-15); cart rows arrive server-composed from the
@@ -18,18 +19,24 @@
       if not missing else [] -%}
 {%- set pane_open = (not missing) and gate.portfolio_eligible
       and not gate.in_flight and error_kind != 'stale' -%}
+{%- set blocked = (not missing) and (gate.refresh_in_flight
+      or not gate.portfolio_eligible) -%}
 {%- set confirmable = pane_open and not custom_mode and modal.dimension -%}
 {%- set cart_ready = pane_open and custom_mode and groupable -%}
-{%- macro sync_button(label) -%}
-<button type="button" class="bo-link"
-        hx-post="/edms/{{ edm_id }}/sync" hx-target="#edm-detail" hx-swap="outerHTML"
-        hx-vals='{"csrf_token": "{{ generate_csrf_token() }}"}'
-        @htmx:after-request="$el.closest('.modal').remove()"
-        title="Runs the page's Sync and closes this dialog — Break out re-enables when the refresh finishes">{{ label }}</button>
-{%- endmacro -%}
 {%- macro dim_title(d) -%}By {{ d.label|lower }}{%- endmacro -%}
 {%- macro dim_meta(d) -%}
-{{ d.values|length }} {% if d.dimension == 'country' %}{{ 'country' if d.values|length == 1 else 'countries' }}{% else %}{% if d.dimension == 'lob' %}line{% elif d.dimension == 'peril' %}peril{% else %}state{% endif %}{{ '' if d.values|length == 1 else 's' }}{% endif %} present
+{{ d.values|length }} {{ d.noun if d.values|length == 1 else d.noun_plural }} present
+{%- endmacro -%}
+{# Both panes close with the same note whenever the EDM is mid-Sync or the
+   portfolio itself is ineligible; only the third arm differs per pane. #}
+{%- macro blocked_note(gate) -%}
+{% if gate.refresh_in_flight %}
+<div class="bo-note bo-note--plain">Close this dialog — when the sync
+  finishes the page updates on its own and Break out re-enables.</div>
+{% else %}
+<div class="bo-note bo-note--plain">Breakout is not available right now:
+  {{ gate.reason }}.</div>
+{% endif %}
 {%- endmacro -%}
 <div class="modal" id="breakout-modal" x-data>
   {%- set modal_class = 'bo-modal bo-modal--pane' if pane_open else 'bo-modal' -%}
@@ -72,7 +79,6 @@
       {% if error %}
       <div class="bo-note bo-note--notice">
         {{ error }}{% if error_kind == 'rewritten' %} Check the values and confirm again.{% endif %}
-        {% if error_kind == 'stale' %}{{ sync_button('Sync the EDM') }}{% endif %}
       </div>
       {% endif %}
 
@@ -103,21 +109,12 @@
 
       {% if custom_mode %}
       {% if cart_ready %}
-      {# Add breakout is gated the way Import is (importForm pattern): disabled
-         until the as-you-type check comes back usable — 'ok', or 'unchecked'
-         when Risk Modeler was unreachable (fail-open; the Add-time re-check
-         in the group-preview route is the backstop). #}
       <div class="bo-custom"
-           x-data="{ dim: '{{ groupable[0].dimension }}', nameVal: '', nameState: 'pending', sel: [],
-                     resel() { this.sel = [...$el.querySelectorAll('.bo-checks input:checked')].map(c =>
-                       ({ name: c.name, v: c.value, shown: c.dataset.display,
-                          d: c.closest('.bo-checks').dataset.dimlabel })) },
-                     get checking() { return !!this.nameVal.trim() && this.nameState === 'pending' },
-                     get nameCleared() { return !!this.nameVal.trim() && ncCleared(this.nameState) } }"
-           @change="resel(); boClearCartError($el)"
-           @htmx:after-swap="nameState = ncState($el.querySelector('.name-collision'))"
-           @htmx:response-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))"
-           @htmx:send-error="if (ncFailOpen($event)) nameState = ncState($el.querySelector('.name-collision'))">
+           x-data="breakoutCustom({ dim: '{{ groupable[0].dimension }}' })"
+           @change="onChange()"
+           @htmx:after-swap="onSwap()"
+           @htmx:response-error="onCheckError($event)"
+           @htmx:send-error="onCheckError($event)">
         <div class="bo-custom__cols">
           <div class="bo-custom__opts">
             <div class="bo-pills">
@@ -158,9 +155,7 @@
             <div class="bo-picked__chips" x-show="sel.length" x-cloak>
               <template x-for="s in sel" :key="s.name + '|' + s.v">
                 <button type="button" class="bo-picked__chip" :title="'Remove ' + s.shown"
-                        @click="$el.closest('form').querySelectorAll('.bo-checks input:checked')
-                                  .forEach(c => { if (c.name === s.name && c.value === s.v) c.checked = false });
-                                resel()">
+                        @click="unpick(s)">
                   <span class="bo-picked__dim" x-text="s.d"></span><span x-text="s.shown"></span><span class="bo-picked__x">×</span>
                 </button>
               </template>
@@ -173,9 +168,7 @@
         <div class="bo-addrow">
           <input type="text" name="group_label" maxlength="{{ name_max }}"
                  placeholder="Breakout name — e.g. Coastal HU" class="nc-input"
-                 @input="nameVal = $el.value; nameState = 'pending';
-                         ncReset($el.closest('form').querySelector('.name-collision'));
-                         boClearCartError($el)"
+                 @input="onName($event)"
                  hx-get="{{ base_url }}/name-check"
                  hx-trigger="keyup changed delay:500ms"
                  hx-target="next .name-collision" hx-swap="outerHTML">
@@ -183,19 +176,7 @@
                   hx-post="{{ base_url }}/group-preview"
                   hx-target="#bo-cart-rows" hx-swap="beforeend"
                   hx-include="closest form"
-                  {# Keyed on the status, not detail.successful: the mount's
-                     before-swap handler clears isError for a 409 so the refusal
-                     renders without an error toast, which also makes htmx report
-                     the refusal as successful. Clearing on that wiped the ticked
-                     values and the refusal itself. #}
-                  @htmx:after-request="if ($event.detail.xhr.status === 200) {
-                    const f = $el.closest('form');
-                    f.querySelectorAll('.bo-checks input:checked').forEach(c => c.checked = false);
-                    f.querySelector('[name=group_label]').value = '';
-                    boClearCartError($el);
-                    ncReset(f.querySelector('.name-collision'));
-                    nameVal = ''; nameState = 'pending'; resel();
-                  }">Add breakout</button>
+                  @htmx:after-request="onAdded($event)">Add breakout</button>
         </div>
         {% with kind = 'portfolio', scope = 'this EDM', action = 'Adding' %}{% include "partials/name_collision.html" %}{% endwith %}
         <div class="nc-checking" x-show="checking" x-cloak>Checking name availability…</div>
@@ -217,16 +198,12 @@
                 {% if d.reason %}title="{{ d.reason }}"{% endif %}>{{ d.label }}</button>
         {% endfor %}
       </div>
-      {% if gate.refresh_in_flight %}
-      <div class="bo-note bo-note--plain">Close this dialog — when the sync
-        finishes the page updates on its own and Break out re-enables.</div>
-      {% elif not gate.portfolio_eligible %}
-      <div class="bo-note bo-note--plain">Breakout is not available right now:
-        {{ gate.reason }}.</div>
+      {% if blocked %}
+      {{ blocked_note(gate) }}
       {% else %}
       <div class="bo-note bo-note--plain">No dimension carries two or more
         distinct values — custom breakouts read the stored exposure summary.
-        {{ sync_button('Run Sync') }} to refresh it.</div>
+        Close this dialog and Run Sync to refresh it.</div>
       {% endif %}
       {% endif %}
 
@@ -241,11 +218,7 @@
         {% elif not d.eligible %}
         <div class="bo-dim bo-dim--disabled">
           <span class="bo-dim__name">{{ dim_title(d) }}</span>
-          <span class="bo-dim__reason">
-            {%- if d.reason == missing_summary_reason -%}
-            exposure summary not available — {{ sync_button('run Sync') }}
-            {%- else -%}{{ d.reason }}{%- endif -%}
-          </span>
+          <span class="bo-dim__reason">{{ d.reason }}</span>
         </div>
         {% elif d.dimension == modal.dimension %}
         <button class="bo-dim" aria-pressed="true" type="button">
@@ -263,12 +236,8 @@
         {% endfor %}
       </div>
 
-      {% if gate.refresh_in_flight %}
-      <div class="bo-note bo-note--plain">Close this dialog — when the sync
-        finishes the page updates on its own and Break out re-enables.</div>
-      {% elif not gate.portfolio_eligible %}
-      <div class="bo-note bo-note--plain">Breakout is not available right now:
-        {{ gate.reason }}.</div>
+      {% if blocked %}
+      {{ blocked_note(gate) }}
       {% elif not modal.dimension %}
       <div class="bo-note bo-note--plain">The breakout reads the stored
         exposure summary. Running Sync closes this dialog and starts the

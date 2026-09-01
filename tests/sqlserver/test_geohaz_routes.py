@@ -5,8 +5,8 @@ import json
 from app.services import analysis_service, edm_service, irp_job_service
 from app.services._common import SubmissionRef
 from db import execute, execute_command
-from tests.unit.test_edm_sync import _client
-from tests.sqlserver.test_geohaz_service import _edm_with_portfolios
+from tests.sqlserver.conftest import edm_with_portfolios as _edm_with_portfolios
+from tests.sqlserver.test_edm_sync import _client
 
 
 def _form(portfolio_ids: list[str]) -> dict:
@@ -38,9 +38,9 @@ def test_detail_renders_selectable_and_ineligible_portfolios(workbench_db):
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[1], irp_id="801")
 
-    body = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
+    body = _client().get(f"/edms/{edm_id}").text
 
-    assert 'x-data="geohazSelection"' in body
+    assert "checkPicks({ name: 'portfolio_ids', observe: true })" in body
     assert 'x-ref="selectAll"' in body
     assert 'aria-label="Select all available portfolios"' in body
     assert '@click.stop="all($event.target.checked)"' in body
@@ -60,7 +60,7 @@ def test_launch_post_rejects_bad_csrf_without_enqueuing(workbench_db):
     data = _form(portfolio_ids)
     data["csrf_token"] = "wrong"
 
-    response = _client(workbench_db.user_a).post(
+    response = _client().post(
         f"/edms/{edm_id}/geohaz", data=data,
         headers={"HX-Request": "true"},
     )
@@ -77,7 +77,7 @@ def test_launch_post_reports_conflict_without_enqueuing(workbench_db):
     irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=portfolio_ids[0], irp_id="803")
-    conflict = _client(workbench_db.user_a).post(
+    conflict = _client().post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
     )
@@ -92,11 +92,10 @@ def test_launch_post_reports_conflict_without_enqueuing(workbench_db):
 def test_launch_post_without_selection_uses_prg_and_error_banner(workbench_db):
     edm_id, _ = _edm_with_portfolios(1)
 
-    response = _client(workbench_db.user_a).post(
-        f"/edms/{edm_id}/geohaz", data=_form([]))
+    response = _client().post(f"/edms/{edm_id}/geohaz", data=_form([]))
 
     assert response.status_code == 303
-    page = _client(workbench_db.user_a).get(response.headers["location"])
+    page = _client().get(response.headers["location"])
     assert "Select at least one portfolio." in page.text
 
 
@@ -105,7 +104,7 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
 
-    response = _client(workbench_db.user_a).post(
+    response = _client().post(
         f"/edms/{edm_id}/geohaz",
         data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
@@ -118,7 +117,7 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
         "SELECT requestor_id, input_data FROM rwb_job "
         "WHERE rwb_job_type='run_geohaz'",
         {}, connection="WORKBENCH")
-    assert {str(row["requestor_id"]).lower() for row in heads} == set(portfolio_ids)
+    assert {str(row["requestor_id"]) for row in heads} == set(portfolio_ids)
     for row in heads:
         params = json.loads(row["input_data"])["params"]
         assert params["data_version"] == "25.0"
@@ -141,7 +140,7 @@ def test_contextual_launch_preserves_submission_content(
         edm_service, "get_contextual_edm_detail",
         lambda **kwargs: _context(edm_id),
     )
-    client = _client(workbench_db.user_a)
+    client = _client()
     page = client.get(f"/submissions/submission-a/edms/{edm_id}")
 
     assert f'action="/edms/{edm_id}/geohaz"' in page.text
@@ -158,7 +157,8 @@ def test_contextual_launch_preserves_submission_content(
     assert response.status_code == 200
     assert 'href="/submissions/submission-a"' in response.text
     assert "EDM in Submission A" in response.text
-    assert "Broker analyses" in response.text
+    # the merged Analyses section (spec 011 US3) keeps its RDM group row
+    assert 'id="edm-executed-analyses"' in response.text
     assert "Submission RDM" in response.text
     toast = json.loads(response.headers["HX-Trigger"])["rwb:toast"]
     assert toast == {
@@ -171,7 +171,7 @@ def test_contextual_launch_preserves_submission_content(
         headers={"HX-Request": "true"},
     )
     assert 'href="/submissions/submission-a"' in conflict.text
-    assert "Broker analyses" in conflict.text
+    assert "Submission RDM" in conflict.text
     toast = json.loads(conflict.headers["HX-Trigger"])["rwb:toast"]
     assert toast["type"] == "error"
     assert "already in progress" in toast["message"]
@@ -196,13 +196,12 @@ def test_contextual_launch_plain_post_redirects_to_contextual_page(
     data = _form(portfolio_ids)
     data["submission_id"] = "submission-a"
 
-    response = _client(workbench_db.user_a).post(
-        f"/edms/{edm_id}/geohaz", data=data)
+    response = _client().post(f"/edms/{edm_id}/geohaz", data=data)
 
     assert response.status_code == 303
     assert response.headers["location"] == (
         f"/submissions/submission-a/edms/{edm_id}?geohaz=queued")
-    page = _client(workbench_db.user_a).get(response.headers["location"])
+    page = _client().get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
     assert 'href="/submissions/submission-a"' in page.text
 
@@ -216,8 +215,7 @@ def test_contextual_launch_rejects_an_unrelated_edm(
     data = _form(portfolio_ids)
     data["submission_id"] = "submission-a"
 
-    response = _client(workbench_db.user_a).post(
-        f"/edms/{edm_id}/geohaz", data=data)
+    response = _client().post(f"/edms/{edm_id}/geohaz", data=data)
 
     assert response.status_code == 404
     assert execute(
@@ -228,12 +226,12 @@ def test_contextual_launch_rejects_an_unrelated_edm(
 def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
 
-    response = _client(workbench_db.user_a).post(
+    response = _client().post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids))
 
     assert response.status_code == 303
     assert response.headers["location"] == f"/edms/{edm_id}?geohaz=queued"
-    page = _client(workbench_db.user_a).get(response.headers["location"])
+    page = _client().get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
 
 
@@ -251,13 +249,13 @@ def test_detail_and_cell_render_live_state_then_stop_polling(workbench_db):
         "UPDATE irp_job SET status = 'RUNNING' WHERE id = :id",
         {"id": job_id}, connection="WORKBENCH")
 
-    page = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
+    page = _client().get(f"/edms/{edm_id}").text
     cell_url = f"/edms/{edm_id}/portfolios/{portfolio_id}/geohaz-cell"
     assert "Hazard Version" in page
     assert f'hx-get="{cell_url}"' in page
     assert "Earthquake" in page
 
-    live = _client(workbench_db.user_a).get(cell_url)
+    live = _client().get(cell_url)
     assert live.status_code == 200
     assert "RUNNING" in live.text
     assert 'hx-trigger="every 3s"' in live.text
@@ -275,7 +273,7 @@ def test_detail_and_cell_render_live_state_then_stop_polling(workbench_db):
         {"id": portfolio_id,
          "detail": '{"metrics":{"hazardVersion":"23.0,25.0"}}'},
         connection="WORKBENCH")
-    terminal = _client(workbench_db.user_a).get(cell_url)
+    terminal = _client().get(cell_url)
     assert terminal.status_code == 200
     assert "23.0,25.0" in terminal.text
     assert "hx-trigger" not in terminal.text
@@ -289,11 +287,11 @@ def test_detail_and_cell_render_live_state_then_stop_polling(workbench_db):
 def test_missing_portfolio_cell_is_terminal_empty_fragment(workbench_db):
     edm_id, _ = _edm_with_portfolios(1)
 
-    response = _client(workbench_db.user_a).get(
+    response = _client().get(
         f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
 
     assert response.status_code == 200
-    assert "geohaz-cell" in response.text
+    assert "&mdash;" in response.text
     assert "hx-trigger" not in response.text
 
 
@@ -324,20 +322,40 @@ def test_latest_lookup_renders_requested_details_and_result(workbench_db):
         "UPDATE irp_job SET status = 'FAILED' WHERE id = :id",
         {"id": without_summary}, connection="WORKBENCH")
 
-    body = _client(workbench_db.user_a).get(f"/edms/{edm_id}").text
+    body = _client().get(f"/edms/{edm_id}").text
+    details = body[body.index(f'id="geohaz-details-{portfolio_id}"'):]
+    details = details[:details.index("</section>")]
 
-    assert "Most recent hazard lookup" in body
-    assert "Data Version" in body
-    assert "Model Family" in body
-    assert "Hazard Layers" in body
-    assert "Skip locations with previous hazard lookup" in body
-    assert "Overwrite user-defined hazard values" in body
-    assert "Result" in body
-    assert "25.0" in body
-    assert "DLM" in body
-    assert "Earthquake, Windstorm" in body
-    assert "Yes" in body
-    assert "No" in body
-    assert "EARTHQUAKE processed 14 Locations. WINDSTORM processed 0 Locations." not in body
-    assert "Failed" in body
-    assert "Unavailable" not in body
+    assert "Most recent hazard lookup" in details
+    assert "<dd>25.0</dd>" in details
+    assert "<dd>DLM</dd>" in details
+    assert "Earthquake, Windstorm" in details
+    assert "<dt>Skip locations with previous hazard lookup</dt><dd>Yes</dd>" in details
+    assert "<dt>Overwrite user-defined hazard values</dt><dd>No</dd>" in details
+    assert "EARTHQUAKE processed 14 Locations." not in details
+    assert '<dd class="geohaz-details__failed">Failed</dd>' in details
+
+
+def test_section_poll_keeps_the_submission_on_the_geohaz_form(
+    workbench_db, monkeypatch,
+):
+    # The breakout-episode poll swaps the whole Portfolios section, and the
+    # GeoHaz form lives inside it. GET /edms/{id}/portfolios-section has no
+    # submission in its path, so the section's poll URL carries one and the
+    # route hands it straight back — otherwise a launch after a swap would
+    # return the plain EDM page instead of the submission-scoped one.
+    edm_id, _ = _edm_with_portfolios(2)
+    context = _context(edm_id)
+    context.edm.breakout_running = True
+    monkeypatch.setattr(edm_service, "get_contextual_edm_detail",
+                        lambda **kwargs: context)
+    monkeypatch.setattr(edm_service, "get_edm_detail", lambda _id: context.edm)
+    client = _client()
+
+    page = client.get(f"/submissions/submission-a/edms/{edm_id}")
+    poll_url = f"/edms/{edm_id}/portfolios-section?submission_id=submission-a"
+    assert f'hx-get="{poll_url}"' in page.text
+
+    swapped = client.get(poll_url).text
+    assert 'name="submission_id" value="submission-a"' in swapped
+    assert f'hx-get="{poll_url}"' in swapped

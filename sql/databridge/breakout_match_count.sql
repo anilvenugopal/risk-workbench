@@ -40,14 +40,13 @@ WHERE pa.PORTINFOID = {{ portfolio_id }}
                      ELSE COALESCE(NULLIF(a.CountryCode, ''), a.CountryRMSCode)
                 END IN (
                 SELECT value FROM STRING_SPLIT({{ country_values }}, CHAR(31)))))
-    -- Compared as FLOAT because pandas may render the smallint PERIL as "3.0",
-    -- which no text comparison would match.
+    -- The peril values are canonical integer strings (irp_gateway._peril_code
+    -- owns the stringification), so the smallint PERIL compares directly.
     AND ({{ peril_values }} IS NULL OR EXISTS (
         SELECT 1
         FROM dbo.Property AS p
         INNER JOIN dbo.loccvg AS lc
             ON lc.LOCID = p.LOCID
         WHERE p.ACCGRPID = pa.ACCGRPID
-            AND CAST(lc.PERIL AS FLOAT) IN (
-                SELECT TRY_CAST(value AS FLOAT)
-                FROM STRING_SPLIT({{ peril_values }}, CHAR(31)))));
+            AND lc.PERIL IN (
+                SELECT value FROM STRING_SPLIT({{ peril_values }}, CHAR(31)))));

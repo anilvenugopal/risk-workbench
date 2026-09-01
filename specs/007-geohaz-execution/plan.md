@@ -20,7 +20,7 @@
 - The P-05 record lives **on the `irp_job` row** (T-03, research R3): `irp_job.irp_portfolio_id` (Uuid FK), `irp_job.request_params` (NVARCHAR(MAX) JSON), and `irp_job.completion_summary` (NVARCHAR(MAX)) join the existing analyst, timestamps, status, and terminal response columns.
 - On terminal completion, the poller copies the captured `tasks[].output.summary` string into `completion_summary`; the most recent lookup details display the string as Result without parsing it (research R7). Missing summary text renders as unavailable.
 - The poller gains one `_GETTERS` entry — `"geohaz": irp_gateway.get_geohaz_job` (single-status check). On successful completion, a terminal resolver reads Get Portfolio Metadata outside the database transaction and the terminal handler replaces the `metrics` portion of `irp_portfolio.exposure_detail` while retaining its DataBridge summary.
-- The portfolios table gains **"Hazard Version"** as its final column (update `--cols`/`min-width` in `edm_detail_body.html`) with the in-line status for a non-terminal job and the stored raw `hazardVersion` otherwise; the expanded `<details>` row shows the most recent lookup in a column to the right of the exposure value lists.
+- The portfolios table gains **"Hazard Version"** as its final column (update `--cols`/`min-width` in `edm_portfolios_section.html`) with the in-line status for a non-terminal job and the stored raw `hazardVersion` otherwise; the expanded `<details>` row shows the most recent lookup in a column to the right of the exposure value lists.
 - The column refreshes with a **per-cell** self-terminating poll: `GET .../geohaz-cell` emits `hx-trigger="every 3s"` only while a lookup is non-terminal (research R8) — the whole-body poll is wrong for this (its 204 open-rows guard, and it only runs during sync/import).
 - Repeat launches: `SUBMISSION FAILED`, `FAILED`, `CANCELLED`, `FINISHED` are terminal, so the portfolio is launchable again (FR-007/FR-014); the `UNIQUE(requestor_type, requestor_id, rwb_job_type)` head + `ensure_pending_rwb_job` revive-or-noop is the mechanical double-submit backstop behind the P-06 form exclusion.
 - Schema work is an edit to the single `alembic/versions/0001_initial.py` revision plus the `infra/scripts/seed_db.py` MERGE and the `tests/iteration1_mirror.py` mirror/seeds (one new `rwb_job_type_kind` row `run_geohaz`; the `geohaz` `irp_job_type_kind` row already exists).
@@ -57,7 +57,7 @@ No violations. No Complexity Tracking entries. Articles that shaped the design:
 ### Risks
 
 1. **The terminal response field may change in a later wheel version** (T-06). The page renders "Summary unavailable" when `tasks[].output.summary` is absent; the opt-in sandbox test checks the active wheel.
-2. **Whether Risk Modeler accepts a hazard-only job on a never-geocoded portfolio is unobserved** (T-04): the wheel submits any layer combination, but RM may fail a hazard lookup that has no geocode data to read. If so it surfaces as a per-portfolio `FAILED` — visible and relaunchable, and consistent with FR-005 (the app must not run geocoding for the analyst). The sandbox capture confirms the hazard-only submit end to end.
+2. **Whether Risk Modeler accepts a hazard-only job on a never-geocoded portfolio is unobserved** (T-04): the wheel submits any layer combination, but RM may fail a hazard lookup that has no geocode data to read. If so it surfaces as a per-portfolio `FAILED` — visible and relaunchable, and consistent with FR-005 (the app must not run geocoding for the analyst). T029 (`uv run pytest tests/irp --run-irp` inside `make shell`) is the pre-merge gate that closes this risk; until it runs against the active wheel, the hazard-only submit is unobserved.
 3. The wheel hard-fails a submit when the portfolio has zero accounts or zero locations (its own pre-validation) — that surfaces as a per-portfolio `SUBMISSION FAILED`, which is the intended FR-006/FR-014 path, not a special case.
 
 ---
@@ -133,7 +133,7 @@ app/poller/run.py                    # EDIT: _GETTERS["geohaz"]
 app/routers/edms.py                  # EDIT: POST /edms/{edm_id}/geohaz               (one-click launch)
                                      #       GET  /edms/{edm_id}/portfolios/{pid}/geohaz-cell
 app/templates/partials/
-├── edm_detail_body.html             # EDIT: column header + --cols/min-width; selection form + launch button
+├── edm_portfolios_section.html      # EDIT: column header + --cols/min-width; selection form + launch button
 ├── portfolio_row.html               # EDIT: checkbox cell, geohaz cell include, latest lookup details column
 ├── geohaz_cell.html                 # NEW: the self-terminating status cell fragment
 ├── geohaz_checkbox.html             # NEW: the per-portfolio selection checkbox (oob-swapped by the cell fragment)

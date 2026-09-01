@@ -314,6 +314,8 @@ def upgrade() -> None:
         "rwb_job_requestor_type_kind",
         "rwb_job_status_kind",
         "irp_analysis_status_kind",  # captured-analysis lifecycle (D2, data-model §6)
+        "rwb_job_link_type_kind",
+        "rwb_job_context_type_kind",
     ):
         op.create_table(
             kind,
@@ -325,7 +327,8 @@ def upgrade() -> None:
         )
 
     # ── irp_job (one tracked Risk Modeler asynchronous operation; data-model §2) ─
-    # The portfolio and analysis FKs are added after their target tables exist.
+    # irp_portfolio_id's FK is added after irp_portfolio is created below;
+    # irp_analysis_id is added by ALTER once irp_analysis exists (spec 010).
     op.create_table(
         "irp_job",
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
@@ -341,13 +344,13 @@ def upgrade() -> None:
         # Operational log-trace id inherited from the rwb_job whose worker
         # submitted this op (issue #28). Provenance only — never a predicate.
         sa.Column("correlation_id", sa.NVARCHAR(64), nullable=True),
+        # JSON snapshot of the submit kwargs (spec 010, data-model §2) — the
+        # submission_retry batch resubmits from this verbatim, never recomposed.
+        sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
         sa.Column("completion_summary", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_payload", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_submission_response", sa.NVARCHAR(None), nullable=True),
         sa.Column("last_completion_result", sa.NVARCHAR(None), nullable=True),
-        # JSON snapshot of the submit kwargs (spec 010, data-model §2) — the
-        # submission_retry batch resubmits from this verbatim, never recomposed.
-        sa.Column("request_params", sa.NVARCHAR(None), nullable=True),
         sa.Column("submission_attempt_count", sa.Integer, nullable=False,
                   server_default="0"),
         sa.Column("submitted_at", DATETIME2, nullable=True),
@@ -395,8 +398,17 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, primary_key=True, server_default=sa.text("NEWID()")),
         sa.Column("requestor_type", sa.NVARCHAR(50), nullable=False),
         # requestor_id has NO DB FK — its target varies by requestor_type
-        # (irp_job / analyst_request / rwb_job), data-model §4.
+        # (irp_job / analyst_request / rwb_job / breakout_group), data-model §4.
         sa.Column("requestor_id", sa.Uuid, nullable=False),
+        # link_type/link_id: the EDM or RDM this job concerns, for search.
+        # not_applicable covers job types with no EDM/RDM (CR-04c §4).
+        sa.Column("link_type", sa.NVARCHAR(50), nullable=False),
+        sa.Column("link_id", sa.Uuid, nullable=True),
+        # context_type/context_id: the object this job's own operation acts
+        # on (derived from the worker body, never from requestor_id/type).
+        # Nullable as a pair — some job types act on no single row (CR-04c §6).
+        sa.Column("context_type", sa.NVARCHAR(50), nullable=True),
+        sa.Column("context_id", sa.Uuid, nullable=True),
         sa.Column("rwb_job_type", sa.NVARCHAR(50), nullable=False),
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False,
                   server_default=sa.text("'pending'")),
@@ -418,6 +430,9 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Uuid, nullable=True),
         sa.ForeignKeyConstraint(["requestor_type"],
                                 ["rwb_job_requestor_type_kind.code"]),
+        sa.ForeignKeyConstraint(["link_type"], ["rwb_job_link_type_kind.code"]),
+        sa.ForeignKeyConstraint(["context_type"],
+                                ["rwb_job_context_type_kind.code"]),
         sa.ForeignKeyConstraint(["rwb_job_type"], ["rwb_job_type_kind.code"]),
         sa.ForeignKeyConstraint(["status_code"], ["rwb_job_status_kind.code"]),
         sa.ForeignKeyConstraint(["inserted_by"], ["app_user.id"]),
@@ -457,10 +472,13 @@ def upgrade() -> None:
         sa.Column("rdm_id", sa.Uuid, nullable=True),
         sa.Column("edm_id", sa.Uuid, nullable=True),
         sa.Column("irp_id", sa.NVARCHAR(64), nullable=True),  # Moody's analysisId
+        # RM appAnalysisId — web-UI id for deep links
+        sa.Column("irp_app_analysis_id", sa.NVARCHAR(64), nullable=True),
         sa.Column("name", sa.NVARCHAR(256), nullable=True),
         # Untruncated "portfolio + template" (+ rerun suffix) for own-executed rows
-        # (T-04); NULL for broker rows.
-        sa.Column("full_name", sa.NVARCHAR(256), nullable=True),
+        # (T-04); NULL for broker rows. 512 fits CRE_ + a 256-char portfolio name
+        # + _ + a 200-char template name — only `name` is truncated (to RM's 64).
+        sa.Column("full_name", sa.NVARCHAR(512), nullable=True),
         sa.Column("source_rdm_name", sa.NVARCHAR(256), nullable=True),
         # plain VARCHAR FK → irp_analysis_status_kind (written 'ready' on capture).
         sa.Column("status_code", sa.NVARCHAR(50), nullable=False),
@@ -482,6 +500,16 @@ def upgrade() -> None:
         # RM's run-failure message (poller) or the submit exception message
         # (worker); NULL for broker rows.
         sa.Column("failure_reason", sa.NVARCHAR(None), nullable=True),
+        # Spec 011: the bounded per-perspective viewing extract, written whole by
+        # retrieve_analysis_results (contracts/loss-results.md). NULL = not
+        # fetched yet; a perspective the analysis did not produce is present
+        # inside the JSON with value null.
+        sa.Column("loss_results", sa.NVARCHAR(None), nullable=True),
+        # Spec 011 (T-09): the approved plan item this analysis was submitted
+        # with, written once by _claim_analysis and never updated — a template
+        # edited later must not change what a finished run reports. NULL on
+        # broker rows (Risk Modeler returns none of these fields).
+        sa.Column("submitted_settings", sa.NVARCHAR(None), nullable=True),
         # Stamped when a successful analysis refresh no longer returns the row.
         sa.Column("deleted_at", DATETIME2, nullable=True),
         sa.Column("inserted_at", DATETIME2, nullable=False,
@@ -505,7 +533,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_irp_analysis_rdm_id", "irp_analysis", ["rdm_id"])
     op.create_index("ix_irp_analysis_edm_id", "irp_analysis", ["edm_id"])
-    # Idempotent backfill backbone for broker rows — a duplicate search never
+    # Keeps the broker backfill idempotent — a duplicate search never
     # double-inserts. Filtered (not a plain UNIQUE constraint) because the many
     # own-executed rows share NULL rdm_id/irp_id, which a plain UNIQUE would
     # collide on in SQL Server.
@@ -515,23 +543,20 @@ def upgrade() -> None:
         unique=True, mssql_where=irp_analysis_rdm_irp,
         sqlite_where=irp_analysis_rdm_irp,
     )
-    # Local rerun-collision check + name-claim backbone for own-executed rows
+    # Local rerun-collision check + name claim for own-executed rows
     # (T-05) — live rows only, one EDM's names never collide.
-    irp_analysis_live_edm_name = sa.text(
-        "edm_id IS NOT NULL AND rdm_id IS NULL AND deleted_at IS NULL"
-    )
+    irp_analysis_live_edm_name = sa.text("edm_id IS NOT NULL AND deleted_at IS NULL")
     op.create_index(
         "uq_irp_analysis_live_edm_name", "irp_analysis", ["edm_id", "name"],
         unique=True, mssql_where=irp_analysis_live_edm_name,
         sqlite_where=irp_analysis_live_edm_name,
     )
-
     # ══════════════════════════════════════════════════════════════════════════
     #  Iteration 3 — EDM detail entities (spec 004, data-model §2/§3)
     #  irp_portfolio / irp_treaty: thin §5 identity/lineage records + a JSON
     #  snapshot cache column each (R2 — nullable; null ⇒ graceful empty state).
-    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is the
-    #  idempotent-upsert backbone (service falls back to (edm_id, name) matching).
+    #  Backfilled by the backfill_edm_detail worker; UNIQUE(edm_id, irp_id) is what
+    #  makes the upsert idempotent (service falls back to (edm_id, name) matching).
     #  No status column (Article 4), no scope column (Article 6).
     # ══════════════════════════════════════════════════════════════════════════
 
@@ -557,7 +582,7 @@ def upgrade() -> None:
         sa.Column("as_of", DATETIME2, nullable=True),  # trust signal (FR-052)
         # Breakout lineage (Iteration 4, spec 005 data-model §1): all three NULL
         # for broker-arrived portfolios, set together by portfolio_service
-        # insert_generated/adopt_generated. source_portfolio_id records the
+        # save_generated_portfolio. source_portfolio_id records the
         # IMMEDIATE source only (chained lineage walks the chain). The self-FK
         # stays ondelete NO ACTION — SQL Server rejects a cascading self-reference.
         sa.Column("source_portfolio_id", sa.Uuid, nullable=True),
@@ -584,6 +609,13 @@ def upgrade() -> None:
         # No scope/customer column (Article 6).
     )
     op.create_index("ix_irp_portfolio_edm_id", "irp_portfolio", ["edm_id"])
+    op.create_foreign_key(
+        "fk_irp_job_irp_portfolio_id",
+        "irp_job",
+        "irp_portfolio",
+        ["irp_portfolio_id"],
+        ["id"],
+    )
     # The breakout idempotency key (spec 005 data-model §1 / FR-011): one LIVE
     # generated portfolio per (source, dimension, value) — re-runs and double
     # submits hit this as a constraint, not a convention; a soft-deleted row
@@ -642,22 +674,29 @@ def upgrade() -> None:
                   sa.Column("breakout_group_id", sa.Uuid, nullable=True))
     op.create_foreign_key("fk_irp_portfolio_breakout_group", "irp_portfolio",
                           "breakout_group", ["breakout_group_id"], ["id"])
-    op.create_foreign_key(
-        "fk_irp_job_irp_portfolio_id",
-        "irp_job",
-        "irp_portfolio",
-        ["irp_portfolio_id"],
-        ["id"],
-    )
 
     # ── spec-010 FKs deferred until irp_portfolio exists (irp_analysis already
-    #    does — created above) ────────────────────────────────────────────────
+    #    does — created above; irp_job.irp_portfolio_id is inline in its
+    #    create_table, FK added right after irp_portfolio above) ──────────────
     op.add_column("irp_analysis",
                   sa.Column("irp_portfolio_id", sa.Uuid, nullable=True))
     op.create_foreign_key(
         "fk_irp_analysis_irp_portfolio_id", "irp_analysis", "irp_portfolio",
         ["irp_portfolio_id"], ["id"],
     )
+
+    # The worker's resume key (spec 010, data-model §1): _submit_one reads it as a
+    # scalar subquery, which raises on a duplicate. uq_irp_analysis_live_edm_name
+    # does not prevent one — a rerun landing on a different _n suffix passes it.
+    # Filtered: all three columns are NULL for broker rows.
+    irp_analysis_execution_item = sa.text("execution_id IS NOT NULL")
+    op.create_index(
+        "uq_irp_analysis_execution_item", "irp_analysis",
+        ["execution_id", "irp_portfolio_id", "execution_item_no"],
+        unique=True, mssql_where=irp_analysis_execution_item,
+        sqlite_where=irp_analysis_execution_item,
+    )
+
     op.add_column("irp_job",
                   sa.Column("irp_analysis_id", sa.Uuid, nullable=True))
     op.create_foreign_key(
@@ -889,6 +928,20 @@ def upgrade() -> None:
                             name="uq_template_suite_item_template"),
     )
 
+    # The financial perspectives the retrieval worker requests and every
+    # perspective toggle offers. sort_order is dropdown order; the screen-wide
+    # default is analysis_service.DEFAULT_PERSPECTIVE (RL). No FK from
+    # loss_results — its JSON keys mirror RM's perspectiveCode vocabulary
+    # verbatim.
+    op.create_table(
+        "analysis_perspective_kind",
+        sa.Column("code", sa.NVARCHAR(10), primary_key=True),
+        sa.Column("label", sa.NVARCHAR(100), nullable=False),
+        sa.Column("sort_order", sa.Integer, nullable=False),
+        sa.Column("inserted_at", DATETIME2, nullable=False,
+                  server_default=sa.text("GETUTCDATE()")),
+    )
+
     # ── Iteration-2 kind seeds (inline; data-model §13) ─────────────────────────
     # irp_job_type_kind
     op.execute(sa.text(
@@ -912,8 +965,8 @@ def upgrade() -> None:
         "('backfill_edm_detail', 'Backfill EDM Detail', 27), "
         "('run_geohaz', 'Run GeoHaz', 28), "
         "('execute_analysis_batch', 'Execute Analysis Batch', 29), "
-        "('backfill_analysis_detail', 'Backfill Analysis Detail', 30), "
         "('retrieve_analysis_results', 'Retrieve Analysis Results', 30), "
+        "('finalize_analysis', 'Finalize Analysis', 31), "
         "('download_export_file', 'Download Export File', 40), "
         "('push_results_to_loss_repo', 'Push Results to Loss Repo', 50), "
         "('notify_analyst', 'Notify Analyst', 60), "
@@ -922,7 +975,9 @@ def upgrade() -> None:
         "('run_breakout_country', 'Portfolio breakout by country', 105), "
         "('run_breakout_peril', 'Portfolio breakout by peril', 107), "
         "('run_breakout_custom', 'Portfolio breakout by custom group', 110), "
-        "('sync_irp_metadata', 'Sync IRP metadata', 90)"
+        "('sync_irp_metadata', 'Sync IRP metadata', 120), "
+        "('dummy_wait', 'Dummy: wait (dev/test only)', 900), "
+        "('dummy_fail', 'Dummy: fail (dev/test only)', 910)"
     ))
     # breakout_dimension_kind — the four value dimensions (spec 005
     # data-model §2) plus custom, the grouping pane's lineage code (generated
@@ -943,20 +998,46 @@ def upgrade() -> None:
         "('irp_job', 'IRP Job', 10), "
         "('analyst_request', 'Analyst Request', 20), "
         "('rwb_job', 'RWB Job', 30), "
-        "('breakout_group', 'Breakout Group', 40)"
+        "('breakout_group', 'Breakout Group', 40), "
+        "('irp_analysis', 'IRP Analysis', 50)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_link_type_kind (code, label, sort_order) VALUES "
+        "('edm', 'EDM', 10), "
+        "('rdm', 'RDM', 20), "
+        "('not_applicable', 'Not applicable', 900)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO rwb_job_context_type_kind (code, label, sort_order) VALUES "
+        "('edm', 'EDM', 10), "
+        "('rdm', 'RDM', 20), "
+        "('irp_analysis', 'IRP Analysis', 30), "
+        "('portfolio', 'Portfolio', 40), "
+        "('breakout_group', 'Breakout Group', 50), "
+        "('execution', 'Execution', 60)"
+    ))
+    op.execute(sa.text(
+        "INSERT INTO analysis_perspective_kind (code, label, sort_order) VALUES "
+        "('GR', 'Gross', 10), "
+        "('RL', 'Pre-Cat Net', 20), "
+        "('WX', 'Working Excess', 30), "
+        "('QS', 'Quota Share', 40), "
+        "('GU', 'Ground Up', 50)"
     ))
     op.execute(sa.text(
         "INSERT INTO rwb_job_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
         "('running', 'Running', 20), "
         "('succeeded', 'Succeeded', 30), "
-        "('failed', 'Failed', 40)"
+        "('failed', 'Failed', 40), "
+        "('cancelled', 'Cancelled', 50)"
     ))
     # irp_analysis_status_kind — captured-analysis lifecycle (D2, data-model §6).
+    # `pending` is the only in-flight value: every other write is terminal.
+    # Progress while an analysis runs is irp_job.status, which the poller keeps.
     op.execute(sa.text(
         "INSERT INTO irp_analysis_status_kind (code, label, sort_order) VALUES "
         "('pending', 'Pending', 10), "
-        "('running', 'Running', 20), "
         "('ready', 'Ready', 30), "
         "('error', 'Error', 40)"
     ))
@@ -987,17 +1068,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop the spec-010 cross-references first (irp_job <-> irp_portfolio/
-    # irp_analysis, irp_analysis <-> irp_portfolio/analysis_template) — added by
-    # ALTER after their target tables existed, so the table drops below would
-    # otherwise hit a live FK regardless of ordering.
+    # Drop the spec-010 cross-references first (irp_job -> irp_analysis,
+    # irp_analysis -> irp_portfolio/analysis_template) — added by ALTER after
+    # their target tables existed, so the table drops below would otherwise hit
+    # a live FK regardless of ordering. fk_irp_job_irp_portfolio_id is dropped
+    # in the Iteration-3 section below with the breakout structures.
     op.drop_constraint("fk_irp_job_irp_analysis_id", "irp_job", type_="foreignkey")
-    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job", type_="foreignkey")
     op.drop_constraint("fk_irp_analysis_analysis_template_id", "irp_analysis",
                        type_="foreignkey")
     op.drop_constraint("fk_irp_analysis_irp_portfolio_id", "irp_analysis",
                        type_="foreignkey")
 
+    op.drop_table("analysis_perspective_kind")
     op.drop_table("template_suite_item")
     op.drop_index("uq_template_suite_live_name", table_name="template_suite")
     op.drop_table("template_suite")
@@ -1022,6 +1104,7 @@ def downgrade() -> None:
     # create (no separate drop).
     op.drop_index("ix_irp_treaty_edm_id", table_name="irp_treaty")
     op.drop_table("irp_treaty")
+    op.drop_constraint("fk_irp_job_irp_portfolio_id", "irp_job", type_="foreignkey")
     # breakout_group and irp_portfolio reference each other — drop the
     # irp_portfolio-side FK/column first, then the group table.
     op.drop_constraint("fk_irp_portfolio_breakout_group", "irp_portfolio",
@@ -1036,6 +1119,7 @@ def downgrade() -> None:
 
     # Iteration-2 tables — reverse FK order (irp_analysis → heartbeat → rwb_job →
     # irp_job_resource → irp_job → the six kind tables), ahead of Iteration-1.
+    op.drop_index("uq_irp_analysis_execution_item", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_live_edm_name", table_name="irp_analysis")
     op.drop_index("uq_irp_analysis_rdm_irp", table_name="irp_analysis")
     op.drop_index("ix_irp_analysis_edm_id", table_name="irp_analysis")
@@ -1047,8 +1131,8 @@ def downgrade() -> None:
     op.drop_table("rwb_job")
     op.drop_index("ix_irp_job_resource_irp_job_id", table_name="irp_job_resource")
     op.drop_table("irp_job_resource")
-    op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
     op.drop_index("ix_irp_job_irp_analysis_id", table_name="irp_job")
+    op.drop_index("ix_irp_job_irp_portfolio_id", table_name="irp_job")
     op.drop_index("ix_irp_job_requested_from_submission_id", table_name="irp_job")
     op.drop_index("ix_irp_job_status", table_name="irp_job")
     op.drop_index("ix_irp_job_type_status", table_name="irp_job")

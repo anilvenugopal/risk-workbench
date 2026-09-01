@@ -25,12 +25,15 @@ from starlette.concurrency import run_in_threadpool
 from app.auth.csrf import validate_csrf_token
 from app.services import breakout_service, edm_service
 from app.services.breakout_service import (
-    GateRefused, StaleSummary, SummaryRewritten)
-from db import execute_one
+    BreakoutRefused, GateRefused, StaleSummary, SummaryRewritten)
 
 router = APIRouter()
 
-_NAV_KEY = "irp.edm_library"  # documented owner; the modal renders no nav
+# Which 409 variant the modal re-renders for each refusal — the error_kind the
+# template branches on. A base BreakoutRefused, which nothing raises today,
+# renders the gate variant rather than reaching the 500 handler.
+_REFUSAL_KIND = {SummaryRewritten: "rewritten", StaleSummary: "stale",
+                 GateRefused: "gate"}
 
 
 def _templates(request: Request):
@@ -59,14 +62,33 @@ def _modal(request: Request, edm_id: str, portfolio_id: str,
         "missing": modal is None, "error": error, "error_kind": error_kind,
         "mode": ("custom" if mode == "custom" else "quick"),
         "large_fanout_threshold": breakout_service.LARGE_FANOUT_THRESHOLD,
-        "missing_summary_reason": breakout_service.MISSING_SUMMARY_REASON,
         "name_max": breakout_service.PORTFOLIO_NAME_MAX,
     }
-    if modal is None:
-        return _partial(request, "partials/breakout_modal.html", ctx,
-                        status_code=404)
     return _partial(request, "partials/breakout_modal.html", ctx,
-                    status_code=status_code)
+                    status_code=404 if modal is None else status_code)
+
+
+def _breakout_started(request: Request, edm_id: str, count: int):
+    """The success response both confirms share: the Portfolios section
+    retargeted at ``#edm-portfolios`` (the form targets the modal mount, so the
+    modal closes on 2xx) plus the "Breakout started" toast.
+
+    The section, not the whole ``#edm-detail`` body: this route carries no
+    submission id, so a body render drops ``source_submission`` and erases the
+    submission breadcrumbs, the EDM picker, and the Broker analyses section
+    from the contextual page. The section is also all a breakout changes
+    (T-11), and it comes back with its own ``every 3s`` trigger live because
+    the enqueue just made ``breakout_running`` true."""
+    edm = edm_service.get_edm_detail(edm_id)
+    response = _partial(request, "partials/edm_portfolios_live.html",
+                        {"edm": edm})
+    response.headers["HX-Retarget"] = "#edm-portfolios"
+    response.headers["HX-Reswap"] = "outerHTML"
+    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
+        "message": f"Breakout started — {count} sub-portfolio"
+                   f"{'' if count == 1 else 's'}",
+        "type": "success"}})
+    return response
 
 
 @router.get("/edms/{edm_id}/portfolios/{portfolio_id}/breakout",
@@ -97,15 +119,6 @@ def breakout_name_check(request: Request, edm_id: str, portfolio_id: str):
                      "action": "Adding"})
 
 
-def _planned_count(job_id: str) -> int:
-    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :i",
-                      {"i": str(job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return 0
-    plan = json.loads(row["input_data"]).get("plan")
-    return len(plan) if isinstance(plan, list) else 0
-
-
 @router.post("/edms/{edm_id}/portfolios/{portfolio_id}/breakout")
 def breakout_confirm(
     request: Request,
@@ -115,61 +128,37 @@ def breakout_confirm(
     summary_as_of: str = Form(default=""),
     csrf_token: str = Form(...),
 ):
-    """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the five
-    ordered steps — gate re-check, summary-unchanged check, freshness read,
-    plan persistence, idempotent enqueue. Success returns the EDM body partial
-    (retargeted at ``#edm-detail`` — the modal closes itself) with the
-    "Breakout started" toast; every refusal returns **409 + the re-rendered
-    modal** and writes no job row. No-JS fallback is PRG."""
+    """Confirm (FR-002a/FR-002b/FR-006a): ``request_breakout`` runs the seven
+    ordered steps — gate re-check, in-flight check, dimension-eligibility
+    check, summary-unchanged check, freshness read, plan persistence,
+    idempotent enqueue. Success returns the Portfolios section (retargeted at
+    ``#edm-portfolios`` — the modal closes itself) with the "Breakout started"
+    toast; every refusal returns **409 + the re-rendered modal** and writes no
+    job row. No-JS fallback is PRG."""
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(csrf_token):
         if is_htmx:
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
 
+    def refused(error: str | None = None, error_kind: str | None = None):
+        if not is_htmx:
+            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
+        return _modal(request, edm_id, portfolio_id, dimension,
+                      status_code=409, error=error, error_kind=error_kind)
+
     try:
-        job_id = breakout_service.request_breakout(
+        requested = breakout_service.request_breakout(
             edm_id, portfolio_id, dimension, summary_as_of or None,
             request.state.user.id)
-    except SummaryRewritten as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="rewritten")
-    except StaleSummary as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="stale")
-    except GateRefused as exc:
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error=exc.reason, error_kind="gate")
-
-    if job_id is None:
-        # Idempotent enqueue found a live run — the re-rendered modal shows
-        # its in-flight state (409, no new job row).
-        if not is_htmx:
-            return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-        return _modal(request, edm_id, portfolio_id, dimension,
-                      status_code=409, error_kind="running")
+    except BreakoutRefused as exc:
+        return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))
+    if requested is None:
+        return refused(error_kind="running")
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    # Success: swap the whole #edm-detail wrapper (its self-poll then shows
-    # sub-portfolios as the worker creates them). The form targets the modal
-    # mount, so the response retargets — and the modal closes on 2xx.
-    edm = edm_service.get_edm_detail(edm_id)
-    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
-    response.headers["HX-Retarget"] = "#edm-detail"
-    response.headers["HX-Reswap"] = "outerHTML"
-    n = _planned_count(job_id)
-    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": f"Breakout started — {n} sub-portfolio"
-                   f"{'' if n == 1 else 's'}",
-        "type": "success"}})
-    return response
+    return _breakout_started(request, edm_id, requested.planned)
 
 
 def _carted_groups(form) -> list[dict]:
@@ -197,7 +186,7 @@ async def breakout_group_preview(request: Request, edm_id: str,
                                  portfolio_id: str):
     """Compose ONE cart row server-side (FR-018/P-23): the posted checkbox
     selections + label, validated against the stored summary and
-    name-suffixed/overlap-checked against the already-carted group JSONs
+    overlap-checked against the already-carted group JSONs
     posted along, then refused when the name is taken (P-25) or when no account
     matches every filter (P-29). No writes. Returns the cart-row fragment
     (``hx-swap beforeend``); a refusal returns 409 retargeted at
@@ -212,32 +201,12 @@ async def breakout_group_preview(request: Request, edm_id: str,
                for key in form if key.startswith("values:")}
     new_group = {"label": str(form.get("group_label") or ""),
                  "filters": filters}
-    gate = breakout_service.evaluate_gate(edm_id, portfolio_id)
     try:
-        plans = breakout_service.compose_group_cart(
-            gate, edm_id=edm_id, portfolio_id=portfolio_id,
-            groups=[*_carted_groups(form), new_group])
-        plan = plans[-1]
-        # The Add is where a duplicate name blocks (P-25): compose covered the
-        # workbench rows and the cart; this is the Risk Modeler leg, fail-open
-        # (an unreachable RM never blocks the Add). An adopted member set is
-        # exempt — its own already-created portfolio may carry the very name
-        # being re-confirmed; the run's duplicate-name handling backstops.
-        if not plan.adopted and breakout_service.check_group_name(
-                edm_id, plan.name).collides:
-            raise GateRefused(f"a portfolio named {plan.name!r} already "
-                              "exists in this EDM — choose a different name")
-        # The emptiness check (P-29): two values that each have accounts can
-        # still share none, and the stored summary cannot see that. Runs in a
-        # threadpool because it queries DataBridge over the whole portfolio —
-        # unlike the name check above, which answers from a cache or one RM
-        # search, this must not hold the event loop while the page's 3-second
-        # polls wait. Fails open inside the service.
-        if await run_in_threadpool(breakout_service.group_matches_no_accounts,
-                                   gate, plan.filters):
-            raise GateRefused(
-                "no account matches every filter of this breakout — it would "
-                "create nothing. Change the values and add it again")
+        # The whole Add decision lives in the service; the threadpool covers
+        # its DataBridge match count, which must not hold the event loop.
+        plan = await run_in_threadpool(
+            breakout_service.compose_group_preview, edm_id, portfolio_id,
+            carted=_carted_groups(form), new_group=new_group)
     except GateRefused as exc:
         response = _partial(request, "partials/breakout_cart_row.html",
                             {"error": exc.reason}, status_code=409)
@@ -258,8 +227,8 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
     every posted group and applies the same ordered refusals as the quick
     confirm — **409 + the re-rendered modal** on each, with no job row; on
     pass, one ``breakout_group`` upsert and one ``run_breakout_custom`` job
-    per group. Success returns the EDM body partial exactly like the quick
-    confirm."""
+    per group. Success returns the Portfolios section retargeted at
+    ``#edm-portfolios``, exactly like the quick confirm."""
     form = await request.form()
     is_htmx = request.headers.get("HX-Request") == "true"
     if not validate_csrf_token(str(form.get("csrf_token") or "")):
@@ -278,27 +247,14 @@ async def breakout_groups_confirm(request: Request, edm_id: str,
             edm_id, portfolio_id, _carted_groups(form),
             str(form.get("summary_as_of") or "") or None,
             request.state.user.id)
-    except SummaryRewritten as exc:
-        return refused(exc.reason, "rewritten")
-    except StaleSummary as exc:
-        return refused(exc.reason, "stale")
-    except GateRefused as exc:
-        return refused(exc.reason, "gate")
+    except BreakoutRefused as exc:
+        return refused(exc.reason, _REFUSAL_KIND.get(type(exc), "gate"))
     if job_ids is None:
         return refused(error_kind="running")
 
     if not is_htmx:
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    edm = edm_service.get_edm_detail(edm_id)
-    response = _partial(request, "partials/edm_detail_body.html", {"edm": edm})
-    response.headers["HX-Retarget"] = "#edm-detail"
-    response.headers["HX-Reswap"] = "outerHTML"
-    n = len(job_ids)
-    response.headers["HX-Trigger"] = json.dumps({"rwb:toast": {
-        "message": f"Breakout started — {n} sub-portfolio"
-                   f"{'' if n == 1 else 's'}",
-        "type": "success"}})
-    return response
+    return _breakout_started(request, edm_id, len(job_ids))
 
 
 __all__ = ["router"]

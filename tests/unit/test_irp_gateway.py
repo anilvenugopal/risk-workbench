@@ -437,12 +437,11 @@ def test_select_lob_maps_the_script_rows_per_requested_value():
     selection = gw.select_breakout_accounts(
         edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
         dimension="lob", values=["FLD Comm", "EQ Comm", "No Match"])
-    assert selection.accounts_by_value == {
+    assert selection == {
         "FLD Comm": [101, 102],
         "EQ Comm": [102],       # a multi-LOB account lands in BOTH values (W-11)
-        "No Match": [],         # empty, not an error — the worker zero-match-fails it
+        "No Match": [],         # empty — the worker zero-match-fails it
     }
-    assert selection.errors_by_value == {}
     # one portfolio-scoped script run against the exposureId-matched database
     assert calls == [("breakout_lob_accounts.sql", {"portfolio_id": 1}, "edm_db")]
 
@@ -463,13 +462,12 @@ def test_select_state_maps_the_script_rows_per_requested_value():
     selection = gw.select_breakout_accounts(
         edm_name="EDM", exposure_irp_id="42", source_portfolio_irp_id="1",
         dimension="state", values=["TX", "CA", "BY", "MT"])
-    assert selection.accounts_by_value == {
+    assert selection == {
         "TX": [101, 102],
         "CA": [102],        # the multi-state account lands in BOTH values
         "BY": [103],
-        "MT": [],           # empty, not an error — zero-match fails downstream
+        "MT": [],           # empty — zero-match fails downstream
     }
-    assert selection.errors_by_value == {}
     assert calls == [("breakout_state_accounts.sql", {"portfolio_id": 1},
                       "edm_db")]
 

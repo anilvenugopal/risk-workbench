@@ -133,9 +133,9 @@ def main() -> int:
                     ('backfill_rdm_analyses',     'Backfill RDM Analyses',     25),
                     ('backfill_edm_detail',       'Backfill EDM Detail',       27),
                     ('run_geohaz',                'Run GeoHaz',                28),
-                    ('execute_analysis_batch',    'Execute Analysis Batch',    28),
-                    ('backfill_analysis_detail',  'Backfill Analysis Detail',  29),
+                    ('execute_analysis_batch',    'Execute Analysis Batch',    29),
                     ('retrieve_analysis_results', 'Retrieve Analysis Results', 30),
+                    ('finalize_analysis',         'Finalize Analysis',         31),
                     ('download_export_file',      'Download Export File',      40),
                     ('push_results_to_loss_repo', 'Push Results to Loss Repo', 50),
                     ('notify_analyst',            'Notify Analyst',            60),
@@ -144,7 +144,9 @@ def main() -> int:
                     ('run_breakout_country', 'Portfolio breakout by country', 105),
                     ('run_breakout_peril', 'Portfolio breakout by peril', 107),
                     ('run_breakout_custom', 'Portfolio breakout by custom group', 110),
-                    ('sync_irp_metadata',         'Sync IRP metadata',         90)
+                    ('sync_irp_metadata',  'Sync IRP metadata',            120),
+                    ('dummy_wait', 'Dummy: wait (dev/test only)', 900),
+                    ('dummy_fail', 'Dummy: fail (dev/test only)', 910)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -157,7 +159,8 @@ def main() -> int:
                     ('irp_job',         'IRP Job',          10),
                     ('analyst_request', 'Analyst Request',  20),
                     ('rwb_job',         'RWB Job',          30),
-                    ('breakout_group',  'Breakout Group',   40)
+                    ('breakout_group',  'Breakout Group',   40),
+                    ('irp_analysis',    'IRP Analysis',     50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -170,7 +173,8 @@ def main() -> int:
                     ('pending',   'Pending',   10),
                     ('running',   'Running',   20),
                     ('succeeded', 'Succeeded', 30),
-                    ('failed',    'Failed',    40)
+                    ('failed',    'Failed',    40),
+                    ('cancelled', 'Cancelled', 50)
                 ) AS src (code, label, sort_order)
                 ON target.code = src.code
                 WHEN NOT MATCHED THEN
@@ -182,7 +186,6 @@ def main() -> int:
                 MERGE irp_analysis_status_kind AS target
                 USING (VALUES
                     ('pending', 'Pending', 10),
-                    ('running', 'Running', 20),
                     ('ready',   'Ready',   30),
                     ('error',   'Error',   40)
                 ) AS src (code, label, sort_order)
@@ -191,9 +194,9 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            # breakout_dimension_kind — the three quick-mode breakout
-            # dimensions (spec 005 data-model §2) plus peril, grouping-only
-            # (P-19), plus custom — the grouping lineage code (T-12).
+            # breakout_dimension_kind — the four quick-mode breakout
+            # dimensions (spec 005 data-model §2, P-19 rev. 2026-08-12)
+            # plus custom — the grouping lineage code (T-12).
             conn.execute(text("""
                 MERGE breakout_dimension_kind AS target
                 USING (VALUES
@@ -208,7 +211,24 @@ def main() -> int:
                     INSERT (code, label, sort_order)
                     VALUES (src.code, src.label, src.sort_order);
             """))
-            print("  [irp_job/rwb_job/breakout kind tables] seeds OK")
+            # analysis_perspective_kind — the five financial perspectives the
+            # retrieval worker requests (spec 011 O-07); sort_order is dropdown
+            # order, not the default (analysis_service.DEFAULT_PERSPECTIVE).
+            conn.execute(text("""
+                MERGE analysis_perspective_kind AS target
+                USING (VALUES
+                    ('GR', 'Gross',              10),
+                    ('RL', 'Pre-Cat Net',        20),
+                    ('WX', 'Working Excess',     30),
+                    ('QS', 'Quota Share',        40),
+                    ('GU', 'Ground Up',          50)
+                ) AS src (code, label, sort_order)
+                ON target.code = src.code
+                WHEN NOT MATCHED THEN
+                    INSERT (code, label, sort_order)
+                    VALUES (src.code, src.label, src.sort_order);
+            """))
+            print("  [irp_job/rwb_job/breakout/perspective kind tables] seeds OK")
 
             app_env = os.environ.get("APP_ENV", "development")
             if app_env == "development":

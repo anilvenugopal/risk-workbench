@@ -225,6 +225,58 @@ def force_logout(
     return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
 
 
+# ── POST /admin/users/{id}/deactivate ─────────────────────────────────────────
+# Removal is deactivation, not deletion: app_user.id is referenced by FKs across
+# submissions, jobs, analyses, and audit columns (inserted_by/updated_by), so a
+# hard delete would either fail or destroy audit history. Self-deactivation is
+# blocked so an admin can never lock themselves out.
+
+@router.post("/users/{user_id}/deactivate")
+def deactivate_user(
+    request: Request,
+    user_id: str,
+    csrf_token: str = Form(...),
+):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+    if user_id == str(current_user.id):
+        return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+
+    execute_command(
+        "UPDATE app_user SET is_active = 0, updated_at = GETUTCDATE() WHERE id = :id",
+        {"id": user_id},
+        connection="WORKBENCH",
+    )
+    from app.services.auth_service import invalidate_all_sessions
+    invalidate_all_sessions(user_id)
+    return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+
+
+# ── POST /admin/users/{id}/reactivate ─────────────────────────────────────────
+
+@router.post("/users/{user_id}/reactivate")
+def reactivate_user(
+    request: Request,
+    user_id: str,
+    csrf_token: str = Form(...),
+):
+    current_user, redirect = require_admin(request)
+    if redirect:
+        return redirect
+    if not validate_csrf_token(csrf_token):
+        return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+
+    execute_command(
+        "UPDATE app_user SET is_active = 1, updated_at = GETUTCDATE() WHERE id = :id",
+        {"id": user_id},
+        connection="WORKBENCH",
+    )
+    return RedirectResponse(f"/admin/users/{user_id}", status_code=302)
+
+
 # ── POST /admin/users/provision-oidc ─────────────────────────────────────────
 # Pre-provision an OIDC user before they have ever signed in. Creates an
 # app_user row with email + display_name and immediately assigns a role so the

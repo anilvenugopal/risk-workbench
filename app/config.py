@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     irp_submission_max_retries: int = 3
     irp_submission_retry_base_secs: int = 60
 
+    # A poller that dies between claiming a retry and recording its outcome leaves
+    # the irp_job at SUBMISSION RETRYING, which no query reaches. A row untouched
+    # for this long is treated as abandoned and reclaimed to SUBMISSION FAILED.
+    irp_submission_retry_stale_secs: int = 300
+
     # Pinned currency defaults that pre-fill the execute-analysis modal's currency
     # picker (P-16, T-19). Ops edits these in .env; the app never advances them when
     # a newer vintage syncs. An empty vintage (or one absent from the cache) leaves

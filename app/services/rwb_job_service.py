@@ -8,12 +8,14 @@ poller's **reconciler** (``reconcile_stale_rwb_jobs``) reclaims rows whose worke
 died mid-flight — its logic lives here as queue maintenance; the poller only
 invokes it each pass.
 
-App-side UUIDs are bound as ``str``. Timestamps are supplied in UTC, and JSON
-columns are serialized with ``json.dumps``.
+Conventions (matches ``package_service`` / ``submission_service``): app-side
+UUIDs bound as ``str``, app-supplied UTC timestamps, JSON columns serialized
+with ``json.dumps``.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -22,7 +24,7 @@ from sqlalchemy import text
 
 from app import log_context
 from app.services._common import _json, _uid, _utcnow
-from db import execute_command, execute_one, get_connection, is_unique_violation
+from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 _INSERT_IF_ABSENT = """
     INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
@@ -121,8 +123,8 @@ def ensure_pending_rwb_job(
                     "by": (str(actor_id) if actor_id is not None else None)}, conn):
                     return job_id
                 return None
-            if row["status_code"] in ("pending", "running"):
-                return None  # already in flight — skip
+            if row["status_code"] not in ("succeeded", "failed"):
+                return None
             conn.execute(text(
                 """
                 UPDATE rwb_job
@@ -135,6 +137,8 @@ def ensure_pending_rwb_job(
             ), {"input": _json(input_data), "now": now, "cid": correlation_id,
                 "by": (str(actor_id) if actor_id is not None else None),
                 "id": str(row["id"])})
+            # _uid, not str: uniqueidentifier reads back UPPERCASE, and every id
+            # a service hands out is lowercase (see _common._uid).
             return _uid(row["id"])
 
 
@@ -155,6 +159,24 @@ def claim_rwb_job(*, rwb_job_id: Any, worker_id: str) -> bool:
     return rows == 1
 
 
+def cancel_rwb_job(*, rwb_job_id: Any) -> bool:
+    """Cancel a queued row before a worker claims it: ``pending`` → ``cancelled``.
+    Same atomic-guard shape as ``claim_rwb_job`` — whichever of the two runs first
+    against a given row wins; the other's ``UPDATE`` matches zero rows and is a
+    no-op. Returns ``False`` for a row that is already running or terminal."""
+    now = _utcnow()
+    rows = execute_command(
+        """
+        UPDATE rwb_job
+        SET status_code = 'cancelled', updated_at = :now
+        WHERE id = :id AND status_code = 'pending'
+        """,
+        {"now": now, "id": str(rwb_job_id)},
+        connection="WORKBENCH",
+    )
+    return rows == 1
+
+
 def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     """Read one queue row (post-claim, the worker runtime binds its log context
     from this — ``claim_rwb_job`` deliberately keeps its bool contract). Returns
@@ -167,6 +189,52 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
         """,
         {"id": str(rwb_job_id)},
         connection="WORKBENCH",
+    )
+
+
+def list_rwb_jobs_for_monitoring() -> list[dict]:
+    """Every ``rwb_job`` row for the monitoring page (CR-004a), grouped by
+    ``rwb_job_type`` and ordered by status then most-recently-updated within each
+    group, per ``contracts/job-monitoring-routes.md``. Elapsed-time display (now
+    minus ``submitted_at``/``completed_at``) is computed by the caller, not here —
+    it changes on every render, so baking it into the query would only be correct
+    at the instant the query ran."""
+    return execute(
+        """
+        SELECT id, requestor_type, requestor_id, rwb_job_type, status_code,
+               error_detail, attempt_count, submitted_at, completed_at,
+               inserted_at, updated_at
+        FROM rwb_job
+        ORDER BY rwb_job_type, status_code, updated_at DESC
+        """,
+        {},
+        connection="WORKBENCH",
+    )
+
+
+def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
+    """Resubmit a failed job from the monitoring page (CR-004a), given only its
+    id — the UI doesn't already know a row's ``requestor_type``/``requestor_id``/
+    ``rwb_job_type``/``input_data`` the way a code caller of
+    ``ensure_pending_rwb_job`` normally would, so this looks them up first. Calls
+    ``ensure_pending_rwb_job`` unchanged: resets the SAME row (same ``id``,
+    ``attempt_count`` incremented, ``error_detail``/``output_data``/``completed_at``
+    cleared) — no new row, no new dedup logic. Returns ``None`` if the row is
+    unknown or is not failed."""
+    row = execute_one(
+        "SELECT requestor_type, requestor_id, rwb_job_type, input_data "
+        "FROM rwb_job WHERE id = :id AND status_code = 'failed'",
+        {"id": str(rwb_job_id)},
+        connection="WORKBENCH",
+    )
+    if row is None:
+        return None
+    input_data = json.loads(row["input_data"]) if row["input_data"] else None
+    return ensure_pending_rwb_job(
+        requestor_type=row["requestor_type"],
+        requestor_id=row["requestor_id"],
+        rwb_job_type=row["rwb_job_type"],
+        input_data=input_data,
     )
 
 
@@ -189,6 +257,17 @@ def complete_rwb_job(
          "now": now, "id": str(rwb_job_id)},
         connection="WORKBENCH",
     )
+
+
+def load_input_data(rwb_job_id: Any) -> dict:
+    """The job's parsed ``input_data`` payload — ``{}`` when the row is missing
+    or carries none. The one queue-payload decoder: workers read their approved
+    plan and context through this."""
+    row = execute_one("SELECT input_data FROM rwb_job WHERE id = :id",
+                      {"id": str(rwb_job_id)}, connection="WORKBENCH")
+    if row is None or not row["input_data"]:
+        return {}
+    return json.loads(row["input_data"])
 
 
 def reconcile_stale_rwb_jobs(*, stale_secs: int, now: datetime | None = None) -> int:
@@ -216,11 +295,61 @@ def reconcile_stale_rwb_jobs(*, stale_secs: int, now: datetime | None = None) ->
             return result.rowcount
 
 
+def backfill_edm_detail_rows(
+    edm_ids: list[Any], *, statuses: tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Every ``backfill_edm_detail`` queue row belonging to the given EDMs,
+    newest ``updated_at`` first, as ``{edm_id, status_code}`` — the one owner
+    of the membership predicate across the THREE enqueue keys: the poller's
+    head keys on the finished ``import_edm`` irp_job, the manual Sync's on
+    ``(analyst_request, edm_id)``, and a completed breakout's auto-fired head
+    on its ``run_breakout_*`` job row (spec 005 FR-013). A quick breakout job's
+    requestor IS the source portfolio; a custom group's is the
+    ``breakout_group`` row, whose ``source_portfolio_id`` resolves the EDM.
+    ``statuses`` narrows the read (the in-flight checks pass
+    ``('pending', 'running')``)."""
+    if not edm_ids:
+        return []
+    params: dict[str, Any] = {f"e{i}": str(e) for i, e in enumerate(edm_ids)}
+    edms = ", ".join(f":e{i}" for i in range(len(edm_ids)))
+    status_clause = ""
+    if statuses:
+        params.update({f"s{i}": s for i, s in enumerate(statuses)})
+        codes = ", ".join(f":s{i}" for i in range(len(statuses)))
+        status_clause = f"AND rj.status_code IN ({codes}) "
+    return execute(
+        "SELECT rj.status_code, "
+        "COALESCE(ij.irp_edm_id, p.edm_id, rj.requestor_id) AS edm_id "
+        "FROM rwb_job rj "
+        "LEFT JOIN irp_job ij ON rj.requestor_type = 'irp_job' "
+        "AND rj.requestor_id = ij.id "
+        "LEFT JOIN rwb_job bj ON rj.requestor_type = 'rwb_job' "
+        "AND rj.requestor_id = bj.id "
+        "AND bj.rwb_job_type LIKE 'run_breakout_%' "
+        "LEFT JOIN breakout_group bg ON bj.requestor_type = 'breakout_group' "
+        "AND bj.requestor_id = bg.id "
+        "LEFT JOIN irp_portfolio p "
+        "ON p.id = COALESCE(bg.source_portfolio_id, bj.requestor_id) "
+        "WHERE rj.rwb_job_type = 'backfill_edm_detail' "
+        f"AND (ij.irp_edm_id IN ({edms}) "
+        "     OR (rj.requestor_type = 'analyst_request' "
+        f"         AND rj.requestor_id IN ({edms})) "
+        f"     OR p.edm_id IN ({edms})) "
+        + status_clause +
+        "ORDER BY rj.updated_at DESC",
+        params, connection="WORKBENCH")
+
+
 __all__ = [
     "enqueue_rwb_job",
     "ensure_pending_rwb_job",
     "claim_rwb_job",
+    "cancel_rwb_job",
+    "resubmit_rwb_job",
     "get_rwb_job",
+    "list_rwb_jobs_for_monitoring",
     "complete_rwb_job",
+    "load_input_data",
     "reconcile_stale_rwb_jobs",
+    "backfill_edm_detail_rows",
 ]

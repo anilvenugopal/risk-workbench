@@ -96,6 +96,18 @@ h1,h2,h3{margin:0}
 .status-chip--ready { background: var(--c-green-050); color: var(--c-green-700); border-color: var(--c-green-200); }
 .status-chip--error, .status-chip--submission-failed { background: var(--c-red-050); color: var(--c-red-700); border-color: var(--c-red-200); }
 
+/* details.css — .dtable__group divider, VERBATIM (broker analyses reuse). */
+.dtable__group { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); background: var(--surface-recessed); border-bottom: 1px solid var(--border-faint); border-top: 1px solid var(--border-faint); }
+.dtable__group .name { font-weight: var(--fw-semibold); font-size: var(--fs-label); color: var(--text-primary); }
+.dtable__group .ref { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--text-tertiary); }
+.dtable__groupempty { padding: var(--space-2) var(--space-3); font-size: var(--fs-caption); color: var(--text-tertiary); border-bottom: 1px solid var(--border-faint); }
+
+/* existing button/select chrome, approximated for the preview */
+.btn-sm { font-size: var(--fs-caption); font-weight: var(--fw-medium); padding: 3px var(--space-3); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); cursor: pointer; }
+.btn-sm:disabled { color: var(--text-disabled); cursor: default; }
+select { font: inherit; font-size: var(--fs-label); padding: 2px var(--space-2); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--surface-panel); }
+.rm-link { font-family: var(--font-mono); font-size: var(--fs-caption); color: var(--color-brand); text-decoration: none; }
+
 /* ============================================================================
    NET-NEW — the only genuinely new rule. Everything above is verbatim/reused.
    ============================================================================ */
@@ -115,67 +127,119 @@ h1,h2,h3{margin:0}
   <div class="pv-hero">User-executed analyses section</div>
   <div class="pv-sub">Renders inside <code>partials/edm_detail_body.html</code> on both the standalone and submission-contextual EDM detail pages — no new route. Modeled on <code>broker_analysis_row.html</code>: same <code>.dtable</code>/<code>.drow</code> component, same expand-to-settings-grid behavior, but with a <b>Portfolio</b> column instead of EDM/type/peril/&hellip; columns, and no RDM grouping (FR-013). The page's existing 3s self-poll delivers live status updates — no new polling mechanism.</div>
 
-  <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 1 · populated — every status a run can show</div>
-  <p class="pv-cap">Status is derived from the analysis's latest tracked job, not a stored label (T-07): freshly-inserted rows with no job yet read <b>Submitting&hellip;</b>; a live Risk Modeler job shows its own status (<b>Queued</b>, <b>Running</b>); a submission that never reached Risk Modeler reads <b>Failed to submit &middot; attempt n/max</b> and keeps retrying until the configured maximum (FR-010); a finished run backfills its settings into the expanded row (FR-009); a run Risk Modeler executed and failed, or one cancelled directly in Risk Modeler (P-13), both show their reason inline &mdash; visible without expanding (FR-011).</p>
-  <p class="pv-cap">The expanded settings grid is the identical field set and derivation broker analyses already show (<code>analysis_service.AnalysisSettings</code>/<code>_to_display</code>, shared via <code>partials/_analysis_metadata_fields.html</code> so the two views can't drift) &mdash; nothing new is guessed here. <b>Term</b> and <b>PLA</b> render blank in this example because their Risk Modeler field names are still unconfirmed (<code>docs/IRP_INTEGRATION_FOLLOWUPS.md</code> &sect;9); no string-matching against the event-rate scheme happens anywhere &mdash; <b>Engine type</b> (DLM/HD) and <b>Analysis type/mode</b> come straight from Risk Modeler's own documented fields.</p>
+  <!-- ================================================================ -->
+  <div class="pv-eyebrow">State 1 · populated — grouped by status, failures on top (design 18 D4/D5)</div>
+  <p class="pv-cap">Rows are partitioned into three fixed groups — <b>Failed</b> (run failures and failed-to-submit rows), <b>In progress</b>, <b>Ready</b> — date-descending within each group. The header gains a status filter (server-rendered <code>selected</code>, survives the 3s poll) and a <b>Delete</b> button that enables when terminal rows are ticked (P-19): the delete cascades to Risk Modeler synchronously, then soft-deletes locally. Only terminal rows get a checkbox — a row whose job just FINISHED but whose <code>irp_id</code> backfill hasn't landed yet does not (deleting in that window would orphan the RM analysis). Names follow the <code>CRE_{portfolio}_{template}</code> rule with <code>_2</code>, <code>_3</code>… rerun suffixes (P-05/P-10 as amended); a backfilled row links out to the analysis in Risk Modeler (<b>RM ↗</b>). New columns: <b>Template</b> and <b>Submitted</b> (localized).</p>
 
   <div class="sec-head">
     <span class="sec-title">Analyses</span>
     <span class="badge badge--neutral">7</span>
     <span class="sec-spacer"></span>
-    <span class="sec-note">Submitted from this EDM &middot; updates live &middot; no RDM grouping</span>
+    <select name="status">
+      <option selected>All statuses</option><option>Failed</option>
+      <option>In progress</option><option>Ready</option>
+    </select>
+    <button class="btn-sm">Delete</button>
+    <span class="sec-note">Submitted from this EDM &middot; no RDM grouping</span>
   </div>
   <div class="dtable-shell">
-    <div class="dtable" style="--cols:minmax(220px,1.6fr) minmax(150px,1fr) minmax(200px,1.4fr);min-width:700px">
+    <div class="dtable" style="--cols:28px minmax(200px,1.5fr) minmax(130px,1fr) minmax(130px,1fr) minmax(200px,1.4fr) 110px;min-width:950px">
       <div class="dtable__head">
-        <span class="l">Analysis</span><span class="l">Portfolio</span><span class="l">Status</span>
+        <span></span><span class="l">Analysis</span><span class="l">Portfolio</span>
+        <span class="l">Template</span><span class="l">Status</span><span class="l">Submitted</span>
       </div>
 
-      <details class="drow">
-        <summary>
-          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Southeast Wind US HU DLM v23</span></span></span></span>
-          <span class="l">US Southeast Wind</span>
-          <span class="l"><span class="status-chip status-chip--importing">Submitting&hellip;</span></span>
-        </summary>
-      </details>
+      <div class="dtable__group"><span class="name">Failed</span><span class="ref">3</span></div>
 
       <details class="drow">
         <summary>
+          <span class="l"><input type="checkbox"></span>
           <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Southeast Wind US HU HD v23</span></span></span></span>
-          <span class="l">US Southeast Wind</span>
-          <span class="l"><span class="status-chip status-chip--importing">Queued</span></span>
-        </summary>
-      </details>
-
-      <details class="drow">
-        <summary>
-          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Gulf Coast Property US HU DLM v23</span></span></span></span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Gulf Coast Property_Coastal Flood HD v3</span></span></span></span>
           <span class="l">US Gulf Coast Property</span>
-          <span class="l"><span class="status-chip status-chip--importing">Running</span></span>
+          <span class="l">Coastal Flood HD v3</span>
+          <span class="l"><span class="status-chip status-chip--error">Failed</span>
+            <span class="exec-reason">ENGINE-400:Exposure failed to process. No valid locations for the peril region.</span></span>
+          <span class="l">2026-08-21 9:31 AM</span>
         </summary>
       </details>
 
       <details class="drow">
         <summary>
+          <span class="l"><input type="checkbox"></span>
           <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Gulf Coast Property US HU Accumulation</span></span></span></span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v22</span></span></span></span>
+          <span class="l">US Southeast Wind</span>
+          <span class="l">US HU DLM v22</span>
+          <span class="l"><span class="status-chip status-chip--error">Cancelled</span>
+            <span class="exec-reason">Risk Modeler status: CANCELLED</span></span>
+          <span class="l">2026-08-21 9:12 AM</span>
+        </summary>
+      </details>
+
+      <details class="drow">
+        <summary>
+          <span class="l"><input type="checkbox"></span>
+          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Gulf Coast Property_US HU Accumulation</span></span></span></span>
           <span class="l">US Gulf Coast Property</span>
+          <span class="l">US HU Accumulation</span>
           <span class="l"><span class="status-chip status-chip--submission-failed">Failed to submit &middot; attempt 2/3</span>
             <span class="exec-reason">Risk Modeler unreachable: connection timed out</span></span>
+          <span class="l">2026-08-20 4:48 PM</span>
         </summary>
       </details>
+
+      <div class="dtable__group"><span class="name">In progress</span><span class="ref">3</span></div>
+
+      <details class="drow">
+        <summary>
+          <span class="l"></span>
+          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Southeast Wind_US HU DLM v23</span></span></span></span>
+          <span class="l">US Southeast Wind</span>
+          <span class="l">US HU DLM v23</span>
+          <span class="l"><span class="status-chip status-chip--importing">Submitting&hellip;</span></span>
+          <span class="l">2026-08-24 10:02 AM</span>
+        </summary>
+      </details>
+
+      <details class="drow">
+        <summary>
+          <span class="l"></span>
+          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Southeast Wind_US HU HD v23</span></span></span></span>
+          <span class="l">US Southeast Wind</span>
+          <span class="l">US HU HD v23</span>
+          <span class="l"><span class="status-chip status-chip--importing">Queued</span></span>
+          <span class="l">2026-08-24 10:02 AM</span>
+        </summary>
+      </details>
+
+      <details class="drow">
+        <summary>
+          <span class="l"></span>
+          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Gulf Coast Property_US HU DLM v23</span></span></span></span>
+          <span class="l">US Gulf Coast Property</span>
+          <span class="l">US HU DLM v23</span>
+          <span class="l"><span class="status-chip status-chip--importing">Running</span></span>
+          <span class="l">2026-08-24 10:01 AM</span>
+        </summary>
+      </details>
+
+      <div class="dtable__group"><span class="name">Ready</span><span class="ref">1</span></div>
 
       <details class="drow" open>
         <summary>
+          <span class="l"><input type="checkbox"></span>
           <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Southeast Wind US HU HD v23 (2)</span>
-              <span class="dt-sub">A-48213 &middot; rerun</span></span></span></span>
+            <span class="dt-namecol"><span class="dt-title">CRE_US Southeast Wind_US HU HD v23_2</span>
+              <a class="rm-link" href="#">RM ↗</a></span></span></span>
           <span class="l">US Southeast Wind</span>
+          <span class="l">US HU HD v23</span>
           <span class="l"><span class="status-chip status-chip--ready">Finished</span></span>
+          <span class="l">2026-08-22 2:20 PM</span>
         </summary>
         <div class="drow__body">
           <dl class="settings-grid">
@@ -191,26 +255,6 @@ h1,h2,h3{margin:0}
             <div><dt>Loss amplification (PLA)</dt><dd class="blank">not provided</dd></div>
           </dl>
         </div>
-      </details>
-
-      <details class="drow">
-        <summary>
-          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Gulf Coast Property Coastal Flood HD v3</span></span></span></span>
-          <span class="l">US Gulf Coast Property</span>
-          <span class="l"><span class="status-chip status-chip--error">Failed</span>
-            <span class="exec-reason">No locations match the criteria for peril FL</span></span>
-        </summary>
-      </details>
-
-      <details class="drow">
-        <summary>
-          <span class="l"><span class="dt-name"><span class="dt-caret">▸</span>
-            <span class="dt-namecol"><span class="dt-title">US Southeast Wind US HU DLM v22 (legacy)</span></span></span></span>
-          <span class="l">US Southeast Wind</span>
-          <span class="l"><span class="status-chip status-chip--error">Cancelled</span>
-            <span class="exec-reason">Cancelled in Risk Modeler</span></span>
-        </summary>
       </details>
 
     </div>

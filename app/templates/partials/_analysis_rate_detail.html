@@ -1,6 +1,0 @@
-{# The rate/event-rate drill-down, shared verbatim by broker_analysis_row.html
-   and executed_analysis_row.html (spec 010 US2). Context: `d` —
-   analysis_service.AnalysisSettings. Caller gates this on `d.has_rate_detail`. #}
-<span><span class="k">Event-rate scheme</span>{{ d.event_rate_scheme or '—' }}</span>
-<span><span class="k">Rate vintage</span>{{ d.rate_vintage or '—' }}</span>
-<span><span class="k">Time-dependency</span>{{ d.term or '—' }}</span>

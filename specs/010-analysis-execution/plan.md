@@ -35,16 +35,16 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   item's `tag_names` when the execution has a submission context; RM resolves/creates the
   tag at submit. Workbench-side the association is the existing
   `requested_from_submission_id` + plan `submission_id` — no new column.
-- Naming: `irp_analysis.name` = the ≤64-char name sent to RM, new `full_name` = the
-  untruncated name; local collision check + `" - n"` suffix, `skip_duplicate_check=True`
-  (T-04/T-05).
+- Naming: `CRE_{portfolio}_{template}`; `irp_analysis.name` = the ≤64-char name sent to
+  RM, new `full_name` = the untruncated name; local collision check + `_2`, `_3`…
+  suffix, `skip_duplicate_check=True` (T-04/T-05).
 - `irp_analysis` reshaped for own analyses: `rdm_id`/`source_rdm_name`/`irp_id` become
   nullable, origin CHECK added, new `full_name`, `irp_portfolio_id`,
   `analysis_template_id`, `execution_id`, `failure_reason` (T-06).
 - `irp_job` gains `irp_portfolio_id` (reconciling DATA_MODEL §8), `irp_analysis_id`
   (status join + retry key), `request_params` (retry resubmits from it verbatim) (T-07/T-09).
 - Poller: `_GETTERS["analysis"] = get_analysis_job`; terminal handler stores RM's failure
-  reason on the analysis, enqueues `backfill_analysis_detail` on FINISHED (T-08/T-10).
+  reason on the analysis, enqueues `finalize_analysis` on FINISHED (T-08/T-10).
 - `_submission_retry` implemented: per-analysis newest `SUBMISSION FAILED` row, exponential
   backoff, update-in-place; `IRP_SUBMISSION_MAX_RETRIES` default becomes 3 (T-09).
 - Live updates are the existing HTMX 3s body self-poll — no SSE exists in the app; FR-014's
@@ -66,7 +66,7 @@ row per (analysis, perspective), and a loss-numbers fragment on the analysis row
   (`max_retries=0`, failure → `failed` + `error_detail`, reconciler recovers
   interruption); the P-14 backoff retry and retrieval-failed display are deferred.
 
-**Risk.** The wheel is pre-release (0.6.0rc2) and moves: signatures in
+**Risk.** The wheel moves: signatures in
 [contracts/irp-gateway.md](contracts/irp-gateway.md) must be re-confirmed against the
 active wheel at implementation; the IRP-sandbox tier is the proof.
 
@@ -77,7 +77,7 @@ active wheel at implementation; the IRP-sandbox tier is the proof.
 **Language/Version**: Python ≥3.12
 
 **Primary Dependencies**: FastAPI + Jinja2 + HTMX 2 + Alpine.js (server-rendered, no SPA);
-Dramatiq[redis]; `irp-integration==0.6.0rc2` (TestPyPI, source-switchable); SQLAlchemy
+Dramatiq[redis]; `irp-integration==0.6.0` (TestPyPI, source-switchable); SQLAlchemy
 Core via the `/db` package (pyodbc, ODBC 18); `pyarrow` (new, loss phase)
 
 **Storage**: SQL Server — `rwb_workbench` (Alembic single revision, drop-create-seed);
@@ -110,11 +110,12 @@ modal, one fragment, three workers, one poller job type
 Articles that shaped the design:
 
 - **Article 2 (sequencing derived, not stored)** — no run/batch table: a run is its
-  execution UUID on the jobs it created; RM coupling stays name-based (submit resolves
-  names; backfill resolves by exact submitted name). The plan JSON is an approved input
-  snapshot, not a stored DAG.
+  execution UUID on the jobs it created; submit resolves names, but completion is
+  ID-based (the backfill uses the `analysisId` the poller extracts from the FINISHED
+  job body — names are display-only). The plan JSON is an approved input snapshot, not
+  a stored DAG.
 - **Article 3 (kind tables; external-status carve-out)** — new categoricals are kind
-  tables (`execute_analysis_batch`/`backfill_analysis_detail` rows in
+  tables (`execute_analysis_batch`/`finalize_analysis` rows in
   `rwb_job_type_kind`; new `analysis_perspective_kind`); RM's job vocabulary stays only
   on the carved-out `irp_job.status`; `irp_analysis_status_kind` deliberately not widened
   (T-07).
@@ -162,7 +163,7 @@ app/
 ├── services/analysis_service.py     # user-executed read model (+ loss read, loss phase)
 ├── services/irp_job_service.py      # linkage columns, retry helpers
 ├── services/irp_gateway.py          # submit/get/backfill/result functions
-├── workers/analysis_jobs.py         # execute_analysis_batch, backfill_analysis_detail,
+├── workers/analysis_jobs.py         # execute_analysis_batch, finalize_analysis,
 │                                    # retrieve_analysis_results (new)
 ├── workers/runtime.py               # TimeLimitExceeded handling (007-branch fix)
 ├── poller/run.py                    # analysis getter/handler, _submission_retry

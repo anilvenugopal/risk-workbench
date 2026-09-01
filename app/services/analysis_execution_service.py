@@ -4,11 +4,8 @@
 stored state (never Risk Modeler — Article 11), compose the run's plan **once**
 (AGENTS.md rule 8 — approved plans are immutable), persist it as the sole
 ``execute_analysis_batch`` ``rwb_job`` for a fresh ``execution_id``, and dispatch.
-The worker (``app/workers/analysis_jobs.py``) reads nothing else at execution time.
-
-``build_full_name``/``name_attempt`` are pure naming helpers (T-04/T-05): the
-worker calls them in its per-work-unit loop, where the live-name collision check
-against ``irp_analysis`` actually happens (this module never touches that table).
+The worker (``app/workers/analysis_jobs.py``) reads nothing else at execution time,
+and owns the analysis naming (T-04/T-05); this module never touches ``irp_analysis``.
 """
 
 from __future__ import annotations
@@ -28,9 +25,6 @@ from app.services import (
 from app.services._common import _uid
 from app.workers import dispatch
 from db import execute
-
-NAME_MAX_LEN = 64
-
 
 # ── currency picker reference data (modal presentation) ─────────────────────────
 
@@ -94,23 +88,6 @@ class SuitePick:
     currency_vintage: str = ""
 
 
-# ── naming helpers (T-04/T-05) — pure; the worker owns the live-collision loop ──
-
-def build_full_name(portfolio_name: str, template_name: str) -> str:
-    return f"{portfolio_name} {template_name}"
-
-
-def name_attempt(full_name: str, attempt: int) -> tuple[str, str]:
-    """The (full_name, submitted_name) pair for collision attempt ``attempt``
-    (0 = no suffix). ``submitted_name`` is right-truncated to
-    ``NAME_MAX_LEN``, the suffix re-clipping the base so it always fits."""
-    if attempt == 0:
-        return full_name, full_name[:NAME_MAX_LEN]
-    suffix = f" - {attempt}"
-    return (full_name + suffix,
-            full_name[:NAME_MAX_LEN - len(suffix)] + suffix)
-
-
 # ── template snapshot reads (gate membership + plan-item values) ───────────────
 
 def _template_rows(template_ids: list[str]) -> dict[str, dict]:
@@ -142,18 +119,6 @@ def _template_rows(template_ids: list[str]) -> dict[str, dict]:
         for tid, row in by_id.items():
             row["tags"] = tags_by_id.get(tid, [])
     return by_id
-
-
-def _suite_template_ids(suite_id: str) -> set[str] | None:
-    """Live template ids belonging to a suite, or ``None`` when the suite itself
-    doesn't exist / is deleted."""
-    suite = template_service.get_suite(suite_id)
-    if suite is None:
-        return None
-    return {
-        item["template_id"] for item in suite["items"]
-        if item["template_name"] is not None and item["template_deleted_at"] is None
-    }
 
 
 def _validate_currency(code: str, scheme: str, vintage: str) -> tuple[dict | None, str | None]:
@@ -222,10 +187,15 @@ def _validate(
     if kind == "suite":
         any_templates_selected = False
         for pick in suite_picks:
-            suite_template_ids = _suite_template_ids(pick.suite_id)
-            if suite_template_ids is None:
+            suite = template_service.get_suite(pick.suite_id)
+            if suite is None:
                 errors.append("A selected suite no longer exists.")
                 continue
+            suite_template_ids = {
+                item["template_id"] for item in suite["items"]
+                if item["template_name"] is not None
+                and item["template_deleted_at"] is None
+            }
             picked = [_uid(t) for t in dict.fromkeys(pick.template_ids)]
             foreign = [t for t in picked if t not in suite_template_ids]
             if foreign:
@@ -238,7 +208,6 @@ def _validate(
             if picked:
                 any_templates_selected = True
                 if currency is not None:
-                    suite = template_service.get_suite(pick.suite_id)
                     suite_items.append(_ValidSuiteItem(
                         suite_id=pick.suite_id, suite_name=suite["name"],
                         currency=currency, template_ids=picked))
@@ -342,11 +311,8 @@ def request_execution(
 
 
 __all__ = [
-    "NAME_MAX_LEN",
     "ExecutionGateError",
     "SuitePick",
-    "build_full_name",
-    "name_attempt",
     "currency_options",
     "currency_scheme_options",
     "vintage_options",

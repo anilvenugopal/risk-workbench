@@ -38,11 +38,16 @@
 
   <div class="shell__col">
     <header class="shell__topbar">
-      <img class="topbar__appname" src="/static/icons/rwb.svg" alt="Risk Workbench">
+      <img class="topbar__appname topbar__appname--light" src="/static/icons/rwb.svg" alt="Risk Workbench">
+      <img class="topbar__appname topbar__appname--dark" src="/static/icons/rwb_white.svg" alt="Risk Workbench">
       <button class="topbar__search" @click="searchOpen = true" aria-label="Search">
         <span class="topbar__search-ico">⚲</span>
         <span class="topbar__search-hint">Search</span>
         <span class="topbar__kbd">Ctrl J</span>
+      </button>
+      <button class="icon-btn theme-toggle" data-theme-toggle aria-label="Toggle dark mode">
+        <span class="theme-toggle__icon theme-toggle__icon--light">{% include "icons/theme_light.svg" %}</span>
+        <span class="theme-toggle__icon theme-toggle__icon--dark">{% include "icons/theme_dark.svg" %}</span>
       </button>
       <a class="topbar__help" href="#">Help</a>
     </header>
@@ -72,6 +77,12 @@
             {% else %}
             <span class="crumb crumb--current">{{ crumb.label }}</span>
             {% endif %}
+            {% endfor %}
+            {# Entity crumbs are display context only — nav structure still
+               derives from the manifest. #}
+            {% for crumb in extra_crumbs|default([]) %}
+            <span class="crumb__sep">/</span>
+            <a class="crumb" href="{{ crumb.route }}">{{ crumb.label }}</a>
             {% endfor %}
           </div>
           <div class="pagehdr__actions">{% block page_actions %}{% endblock %}</div>

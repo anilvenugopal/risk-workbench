@@ -40,6 +40,7 @@ from .kerberos import (check_kerberos_status, init_kerberos, is_ticket_valid,
                        ensure_valid_kerberos_ticket)
 from .execute import (execute, execute_one, execute_scalar, execute_command,
                       row_limit)
+from .elt import upload_parquet, enrich
 
 __all__ = [
     # errors
@@ -54,6 +55,8 @@ __all__ = [
     "ensure_valid_kerberos_ticket",
     # safe execution (default)
     "execute", "execute_one", "execute_scalar", "execute_command", "row_limit",
+    # ELT / enrichment
+    "upload_parquet", "enrich",
 ]
 # NOTE: the trusted-script path is intentionally NOT re-exported here. Import it
 # explicitly from db.scripts so its use is always visible in code review.

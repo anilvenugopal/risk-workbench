@@ -1,6 +1,30 @@
 // app.js — the small client-side sliver. Alpine handles modal state, the
 // Ctrl/Cmd-J shortcut, focus, and arrow-key navigation; HTMX handles the
 // search request and result rendering (see the shell's #search-results).
+
+// ── Theme (dark/light) ────────────────────────────────────────────────────────
+// Runs at the top of this non-deferred, head-loaded script — before <body>
+// paints — so .dark lands on <html> with no flash of the wrong theme. No saved
+// choice follows the OS setting; once the toggle is clicked, the explicit
+// choice sticks and no longer tracks prefers-color-scheme changes.
+const THEME_KEY = 'rwb-theme';
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (e) {}
+  const dark = saved ? saved === 'dark'
+    : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('dark', dark);
+})();
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.querySelector('[data-theme-toggle]');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const dark = !document.documentElement.classList.contains('dark');
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) {}
+  });
+});
+
 function appShell() {
   return {
     searchOpen: false,
@@ -136,37 +160,6 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Hazard-lookup portfolio picker. A MutationObserver (not @change, unlike
-  // syncPicks below) because the geohaz-cell poll disables/enables a checkbox by
-  // OOB-swapping its whole <span> on job completion — a DOM replacement fires no
-  // native change event.
-  Alpine.data('geohazSelection', () => ({
-    count: 0,
-    total: 0,
-    observer: null,
-    init() {
-      this.refresh();
-      this.observer = new MutationObserver(() => this.refresh());
-      this.observer.observe(this.$root, { childList: true, subtree: true });
-    },
-    destroy() { if (this.observer) this.observer.disconnect(); },
-    boxes() {
-      return this.$root.querySelectorAll(
-        'input[name="portfolio_ids"]:not(.analysis-pick):not(:disabled)');
-    },
-    refresh() {
-      const boxes = this.boxes();
-      this.total = boxes.length;
-      this.count = Array.from(boxes).filter((box) => box.checked).length;
-      this.$refs.selectAll.checked = this.total > 0 && this.count === this.total;
-      this.$refs.selectAll.indeterminate = this.count > 0 && this.count < this.total;
-    },
-    all(checked) {
-      this.boxes().forEach((box) => { box.checked = checked; });
-      this.refresh();
-    },
-  }));
-
   // Standalone EDM/RDM import form (issue #17 UX): source file comes first and
   // auto-populates the name; Import stays disabled until a
   // file is picked, a name is present, and the collision check has come back
@@ -223,6 +216,69 @@ document.addEventListener('alpine:init', () => {
     },
     onCheckError(e) {
       if (ncFailOpen(e)) this.onSwap();
+    },
+  }));
+
+  // The breakout modal's custom-groups pane (spec 005 FR-018). Pills toggle
+  // x-show, so switching dimensions loses no ticked state (T-15), and the chips
+  // are derived from the checkboxes, so clearing the boxes clears them. Add
+  // breakout is gated the way Import is: disabled until the as-you-type check
+  // comes back usable — 'ok', or 'unchecked' when Risk Modeler was unreachable
+  // (the group-preview route re-checks at Add either way).
+  Alpine.data('breakoutCustom', (opts = {}) => ({
+    dim: opts.dim || '',
+    nameVal: '',
+    nameState: 'pending',
+    sel: [],
+    get checking() {
+      return !!this.nameVal.trim() && this.nameState === 'pending';
+    },
+    get nameCleared() {
+      return !!this.nameVal.trim() && ncCleared(this.nameState);
+    },
+    resel() {
+      this.sel = [...this.$root.querySelectorAll('.bo-checks input:checked')]
+        .map((c) => ({
+          name: c.name,
+          v: c.value,
+          shown: c.dataset.display,
+          d: c.closest('.bo-checks').dataset.dimlabel,
+        }));
+    },
+    onChange() {
+      this.resel();
+      boClearCartError(this.$root);
+    },
+    onName(e) {
+      this.nameVal = e.target.value;
+      this.nameState = 'pending';
+      ncReset(this.$root.querySelector('.name-collision'));
+      boClearCartError(this.$root);
+    },
+    unpick(s) {
+      this.$root.querySelectorAll('.bo-checks input:checked').forEach((c) => {
+        if (c.name === s.name && c.value === s.v) c.checked = false;
+      });
+      this.resel();
+    },
+    onSwap() {
+      this.nameState = ncState(this.$root.querySelector('.name-collision'));
+    },
+    onCheckError(e) {
+      if (ncFailOpen(e)) this.onSwap();
+    },
+    // Keyed on the status: the mount clears isError for a 409 refusal, which
+    // also makes htmx report the refusal as successful.
+    onAdded(e) {
+      if (e.detail.xhr.status !== 200) return;
+      this.$root.querySelectorAll('.bo-checks input:checked')
+        .forEach((c) => { c.checked = false; });
+      this.$root.querySelector('[name=group_label]').value = '';
+      boClearCartError(this.$root);
+      ncReset(this.$root.querySelector('.name-collision'));
+      this.nameVal = '';
+      this.nameState = 'pending';
+      this.resel();
     },
   }));
 
@@ -679,45 +735,161 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // "Sync from Risk Modeler" picker: counts the ticked EDMs for the button label and
-  // makes the whole row a hit area. With JS off none of it is needed — the button
-  // stays enabled and an empty irp_ids POST is a no-op redirect.
-  Alpine.data('syncPicks', () => ({
+  // Checkbox picker for the "Sync from Risk Modeler" EDM table (name: irp_ids) and
+  // the hazard-lookup portfolio table (name: portfolio_ids, observe: true). Counts
+  // the ticked boxes for the button label and drives the select-all tri-state.
+  // Back-navigation restores the ticks, so the count comes from the DOM — assuming
+  // zero leaves the button disabled over visibly ticked boxes. With JS off none of
+  // it is needed: the button stays enabled and an empty POST is a no-op redirect.
+  //
+  // `observe` adds a MutationObserver because the geohaz-cell poll disables and
+  // enables a checkbox by OOB-swapping its whole <span> on job completion, and a
+  // DOM replacement fires no native change event.
+  Alpine.data('checkPicks', ({ name, observe = false, visibleOnly = false } = {}) => ({
     count: 0,
-    // Back-navigation restores the ticks, so the count comes from the DOM — assuming
-    // zero leaves the button disabled over visibly ticked boxes.
-    init() { this.onChange(); },
+    total: 0,
+    observer: null,
+    init() {
+      this.onChange();
+      if (observe) {
+        this.observer = new MutationObserver(() => this.onChange());
+        this.observer.observe(this.$root, { childList: true, subtree: true });
+      }
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
     boxes() {
-      return this.$root.querySelectorAll('input[name="irp_ids"]');
+      const boxes = this.$root.querySelectorAll(`input[name="${name}"]:not(:disabled)`);
+      // The suite builder's filter hides non-matching rows: select-all and the
+      // count then cover only the templates the analyst can see.
+      if (!visibleOnly) return boxes;
+      return Array.from(boxes).filter((box) => box.offsetParent !== null);
     },
     onChange() {
-      this.count = this.$root.querySelectorAll(
-        'input[name="irp_ids"]:checked').length;
+      const boxes = this.boxes();
+      this.total = boxes.length;
+      this.count = Array.from(boxes).filter((box) => box.checked).length;
+      const selectAll = this.$refs.selectAll;
+      if (!selectAll) return;
+      selectAll.checked = this.total > 0 && this.count === this.total;
+      selectAll.indeterminate = this.count > 0 && this.count < this.total;
     },
     all(checked) {
-      this.boxes().forEach((b) => { b.checked = checked; });
+      this.boxes().forEach((box) => { box.checked = checked; });
       this.onChange();
     },
     pick(e) {
       // A click that ends a drag-selection keeps the selection, so an exposureId
       // can be copied out of a row without toggling it.
       if (window.getSelection().toString()) return;
-      const box = e.currentTarget.querySelector('input[name="irp_ids"]');
+      const box = e.currentTarget.querySelector(`input[name="${name}"]`);
       if (!box) return;
       box.checked = !box.checked;
       this.onChange();
     },
   }));
 
-  // Portfolio multi-select on the EDM detail page (spec 010) — counts ticked
-  // portfolios so the Execute Suite/Execute Template buttons enable; the boxes
-  // themselves are read straight off the DOM by hx-include at click time.
-  Alpine.data('portfolioPicks', () => ({
+  // Analysis multi-select in the merged analyses section (spec 010 P-19,
+  // spec 011 US3) — counts ticked rows for the summary line and the Delete
+  // button, which disables whenever a broker row (data-broker) is ticked; the
+  // boxes themselves are read straight off the DOM by hx-include at click
+  // time. init() recounts after each 3s swap (the swap hook below restores the
+  // ticks by value); the MutationObserver recounts when an RDM group lazy-loads
+  // its broker rows, which fires no change event.
+  Alpine.data('analysisPicks', () => ({
     count: 0,
-    init() { this.onChange(); },
+    total: 0,
+    brokerCount: 0,
+    observer: null,
+    init() {
+      this.onChange();
+      this.observer = new MutationObserver(() => this.onChange());
+      this.observer.observe(this.$root, { childList: true, subtree: true });
+    },
+    destroy() { if (this.observer) this.observer.disconnect(); },
+    boxes() {
+      return this.$root.querySelectorAll('input[name="analysis_ids"]');
+    },
     onChange() {
-      this.count = this.$root.querySelectorAll(
-        'input.analysis-pick[name="portfolio_ids"]:checked').length;
+      const boxes = Array.from(this.boxes());
+      this.total = boxes.length;
+      const checked = boxes.filter((box) => box.checked);
+      this.count = checked.length;
+      this.brokerCount = checked.filter(
+        (box) => box.dataset.broker !== undefined).length;
+      const selectAll = this.$refs.selectAll;
+      if (!selectAll) return;
+      selectAll.checked = this.total > 0 && this.count === this.total;
+      selectAll.indeterminate = this.count > 0 && this.count < this.total;
+    },
+    all(checked) {
+      this.boxes().forEach((box) => { box.checked = checked; });
+      this.onChange();
+    },
+  }));
+
+  // The Compare modal's cart (spec 013 T-02): strictly client-side — tick
+  // order marks the first pick base (FR-003); Compare opens the built
+  // /results/comparison URL in a new tab (the View pattern), whose render
+  // re-validates every pair. Rows are read only via their data attributes.
+  Alpine.data('compareCart', (maxPairs) => ({
+    picks: [],   // [{id, name, currency}] in tick order
+    pairs: [],   // [{base, second}] in add order
+    error: '',
+    maxPairs,
+    get baseId() { return this.picks.length ? this.picks[0].id : null; },
+    get compareLabel() {
+      const n = this.pairs.length;
+      return 'Compare ' + n + ' pair' + (n === 1 ? '' : 's') + ' ↗';
+    },
+    picked(id) { return this.picks.some((p) => p.id === id); },
+    toggle(e) {
+      this.error = '';
+      const d = e.target.closest('[data-id]').dataset;
+      if (e.target.checked) {
+        this.picks.push({ id: d.id, name: d.name, currency: d.currency || null });
+      } else {
+        this.picks = this.picks.filter((p) => p.id !== d.id);
+      }
+    },
+    addPair() {
+      if (this.picks.length !== 2) return;
+      const [base, second] = this.picks;
+      // refusals leave the picks ticked so the analyst can change one (FR-005)
+      const noCurrency = [base, second].find((p) => !p.currency);
+      if (noCurrency) {
+        this.error = noCurrency.name
+          + ' has no recorded run currency, so it cannot be paired.';
+        return;
+      }
+      if (base.currency !== second.currency) {
+        this.error = 'These analyses were run in different currencies ('
+          + base.currency + ' vs ' + second.currency
+          + ') — figures are never converted, so they cannot be paired.';
+        return;
+      }
+      if (this.pairs.length >= this.maxPairs) {
+        this.error = 'A comparison holds at most ' + this.maxPairs
+          + ' pairs — remove a pair to add another.';
+        return;
+      }
+      this.pairs.push({ base, second });
+      this.picks = [];
+      this.error = '';
+    },
+    removePair(i) {
+      this.pairs.splice(i, 1);
+      this.error = '';
+    },
+    open() {
+      if (!this.pairs.length) return;
+      const params = new URLSearchParams({
+        pairs: this.pairs.map((p) => p.base.id + ':' + p.second.id).join(','),
+      });
+      const ds = this.$root.dataset;
+      if (ds.submission) params.set('submission', ds.submission);
+      if (ds.edm) params.set('edm', ds.edm);
+      window.open('/results/comparison?' + params.toString(), '_blank');
+      this.$root.closest('.modal').remove();
     },
   }));
 
@@ -764,15 +936,15 @@ document.addEventListener('alpine:init', () => {
     recompute() {
       const root = this.$root;
       if (root.dataset.kind === 'suite') {
-        let ok = false;
-        root.querySelectorAll('.exec-row').forEach((row) => {
-          const chosen = row.querySelector('input[name="chosen_suite_ids"]');
-          if (!chosen || !chosen.checked) return;
-          const hasTemplates = row.querySelectorAll(
-            '.exec-tpl-list input[type="checkbox"]:checked').length > 0;
-          if (hasTemplates && this.currencyComplete(row)) ok = true;
+        // Every chosen suite must be complete, not just one: the gate posts them
+        // all, and a 422 re-render loses the analyst's picks (FR-020).
+        const chosen = Array.from(root.querySelectorAll('.exec-row')).filter((row) => {
+          const box = row.querySelector('input[name="chosen_suite_ids"]');
+          return box && box.checked;
         });
-        this.canSubmit = ok;
+        this.canSubmit = chosen.length > 0 && chosen.every((row) => (
+          row.querySelectorAll('.exec-tpl-list input[type="checkbox"]:checked').length > 0
+          && this.currencyComplete(row)));
       } else {
         const hasTemplates = root.querySelectorAll(
           '.entity-candidate-list input[name="template_ids"]:checked').length > 0;
@@ -800,23 +972,31 @@ document.addEventListener('click', (e) => {
 // (second granularity — fractional seconds dropped). The raw UTC value stays in
 // the title tooltip. Runs at load and again on htmx:load, so stamps swapped in by
 // the live #edm-detail poll stay localized.
+// "2026-07-24 18:03:11.482910" → a Date parsed as UTC; values that already
+// carry a zone are parsed as-is. Returns null when the value isn't a date.
+function parseUtcStamp(raw) {
+  const trimmed = (raw || '').trim();
+  const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(trimmed)
+    ? trimmed.replace(' ', 'T')
+    : trimmed.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
+  const d = new Date(iso);
+  return isNaN(d) ? null : d;
+}
+
+function formatLocalStamp(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const time = d.toLocaleTimeString(undefined, {
+    hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+  });
+  return `${date} ${time}`;
+}
+
 function localizeUtcTimes(root) {
   const scope = root instanceof Element ? root : document;
   scope.querySelectorAll('time[data-utc]').forEach((el) => {
-    const raw = (el.dataset.utc || '').trim();
-    // "2026-07-24 18:03:11.482910" → ISO with an explicit Z; values that already
-    // carry a zone are parsed as-is.
-    const iso = /[Zz]|[+-]\d\d:?\d\d$/.test(raw)
-      ? raw.replace(' ', 'T')
-      : raw.replace(' ', 'T').replace(/\.\d+$/, '') + 'Z';
-    const d = new Date(iso);
-    if (isNaN(d)) return;
-    const pad = (n) => String(n).padStart(2, '0');
-    const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const time = d.toLocaleTimeString(undefined, {
-      hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
-    });
-    el.textContent = `${date} ${time}`;
+    const d = parseUtcStamp(el.dataset.utc);
+    if (d) el.textContent = formatLocalStamp(d);
   });
 }
 if (document.readyState !== 'loading') {
@@ -837,11 +1017,8 @@ document.addEventListener('htmx:load', (e) => localizeUtcTimes(e.detail.elt));
 // keeps its offset. Elements the response added (a generated portfolio row) are
 // absent from the record and render at their server-rendered default.
 //
-// Keyed by the target element, not held in one slot: the Portfolios section
-// poll swaps the section and out-of-band-swaps two more elements, and an
-// analyst opening the breakout modal mid-poll adds a fourth request. With one
-// slot, beforeSwap B overwrote A's record and afterSettle A consumed B's — so
-// A restored B's open rows and B restored nothing at all.
+// Keyed by the target element: up to four swaps are in flight at once during a
+// breakout episode, and each afterSettle must read its own record.
 const swapState = new WeakMap();
 
 function detailsOpenState(root) {
@@ -917,54 +1094,195 @@ document.addEventListener('rwb:toast', (e) => {
 });
 
 // Analysis execution submit (spec 010): the execute modal's POST fires this
-// alongside rwb:toast (HX-Trigger header) and closes itself; the Analyses
-// section refetches on its own (executed_analyses_section.html) — this only
-// clears the portfolio picks that were just submitted, so Execute Suite /
-// Execute Template disable again (portfolioPicks() reads checked boxes off
-// the DOM, so a real 'change' event is what makes it recompute).
-document.addEventListener('execution-submitted', () => {
-  const checked = document.querySelectorAll(
-    'input.analysis-pick[name="portfolio_ids"]:checked');
+// alongside rwb:toast (HX-Trigger header) and closes itself. Clear the
+// portfolio picks that were just submitted so Execute Suite / Execute Template
+// disable again (checkPicks reads checked boxes off the DOM, so a real 'change'
+// event is what makes it recompute). Fetch the Analyses section once with the
+// execution id; the returned fragment polls while the batch or an analysis is
+// still in progress, including before the first analysis row exists.
+document.addEventListener('execution-submitted', (e) => {
+  const checked = document.querySelectorAll('input[name="portfolio_ids"]:checked');
   checked.forEach((box) => { box.checked = false; });
   if (checked.length) checked[0].dispatchEvent(new Event('change', { bubbles: true }));
+
+  const executionId = e.detail && e.detail.execution_id;
+  const section = document.getElementById('edm-executed-analyses');
+  if (!executionId || !section) return;
+  const url = new URL(section.getAttribute('hx-get'), window.location.origin);
+  url.searchParams.set('execution_id', executionId);
+  htmx.ajax('GET', url.pathname + url.search, {
+    target: '#edm-executed-analyses', swap: 'outerHTML',
+  });
 });
 
-// The freshly-enqueued execute_analysis_batch job writes its first pending
-// irp_analysis row worker-side, moments after the request above returns
-// (Article 5) — the section's own immediate refetch can land before that
-// write happens. Re-fire the event a few times until a row shows up as
-// pending/running (the section's hx-trigger then carries "every 3s" and
-// keeps itself current from there) or we give up.
-document.addEventListener('execution-submitted', () => {
-  let attempts = 0;
-  const poll = window.setInterval(() => {
-    attempts += 1;
-    const section = document.getElementById('edm-executed-analyses');
-    const live = section && (section.getAttribute('hx-trigger') || '').includes('every 3s');
-    if (live || !section || attempts >= 10) { window.clearInterval(poll); return; }
-    htmx.trigger(document.body, 'execution-submitted');
-  }, 2000);
-});
-
-// Swapping the Analyses section (outerHTML, on every poll) rebuilds every row
-// from scratch, so an expanded row's <details open> would otherwise reset —
-// losing the analyst's place mid-inspection. Remember which analysis rows
-// were open just before the swap and reopen those same rows once the fresh
-// content lands (picking up whatever changed in them along the way).
-let _analysesReopenIds = null;
+// Swapping a merged analyses section (outerHTML, on every poll) rebuilds every
+// row from scratch, so an expanded row's <details open> and a ticked
+// checkbox would otherwise reset — losing the analyst's place mid-inspection
+// or mid-selection. Remember both just before the swap and restore them once
+// the fresh content lands (a row deleted or no longer deletable simply has no
+// box to restore); one bubbling change event makes analysisPicks() recount.
+// Keyed by the section's own id (data-analyses-section marks both the EDM
+// page's Analyses section and the submission page's Results section).
+let _analysesRestore = null;
 document.addEventListener('htmx:beforeSwap', (e) => {
-  if (e.detail.target.id !== 'edm-executed-analyses') return;
-  _analysesReopenIds = [...e.detail.target.querySelectorAll('.drow[open]')]
-    .map((row) => row.id).filter(Boolean);
+  const target = e.detail.target;
+  if (!target || !target.hasAttribute
+      || !target.hasAttribute('data-analyses-section')) return;
+  _analysesRestore = {
+    id: target.id,
+    openIds: [...target.querySelectorAll('.drow[open]')]
+      .map((row) => row.id).filter(Boolean),
+    checkedIds: [...target.querySelectorAll(
+      'input[name="analysis_ids"]:checked')].map((box) => box.value),
+  };
 });
 document.addEventListener('htmx:afterSwap', () => {
-  if (!_analysesReopenIds || !_analysesReopenIds.length) { _analysesReopenIds = null; return; }
-  const section = document.getElementById('edm-executed-analyses');
-  _analysesReopenIds.forEach((id) => {
-    const row = section && document.getElementById(id);
-    if (row) row.open = true;
+  if (_analysesRestore === null) return;
+  const section = document.getElementById(_analysesRestore.id);
+  if (section) {
+    _analysesRestore.openIds.forEach((id) => {
+      const row = document.getElementById(id);
+      if (row) row.open = true;
+    });
+    let restored = null;
+    _analysesRestore.checkedIds.forEach((value) => {
+      const box = section.querySelector(
+        `input[name="analysis_ids"][value="${value}"]`);
+      if (box) { box.checked = true; restored = box; }
+    });
+    if (restored) restored.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  _analysesRestore = null;
+});
+
+// Serializes the section's .dtable to TSV — headers first — and writes it to
+// the clipboard, so a paste lands in Excel as columns. Cell values come from
+// data-value where a cell carries one (the raw stored number, the UTC
+// timestamp), textContent otherwise — no server round trip, no recomputation
+// of stored numbers. The checkbox column is skipped; group divider rows carry
+// no data cells and are skipped by the .drow selector. Delegated from the
+// document: the button arrives with every 3s section swap.
+function tableToTsv(dtable) {
+  const cellValue = (cell) => {
+    const holder = cell.hasAttribute('data-value')
+      ? cell : cell.querySelector('[data-value]');
+    const value = holder ? holder.getAttribute('data-value') : null;
+    return (value !== null ? value : cell.textContent.trim())
+      .replace(/\s+/g, ' ');
+  };
+  const rows = [];
+  const head = dtable.querySelector('.dtable__head');
+  if (head) {
+    rows.push([...head.children].slice(1).map((c) => c.textContent.trim()));
+  }
+  dtable.querySelectorAll('.drow > summary').forEach((summary) => {
+    rows.push([...summary.children].slice(1).map(cellValue));
   });
-  _analysesReopenIds = null;
+  return rows.map((r) => r.join('\t')).join('\n');
+}
+// The dedicated results page's matrix is a real <table class="ep"> with
+// colspan/rowspan headers and message cells — serialize via an occupancy
+// matrix so spanned cells pad with blanks and every TSV row stays aligned.
+function epToTsv(table) {
+  const matrix = [];
+  [...table.querySelectorAll('tr')].forEach((tr, r) => {
+    matrix[r] = matrix[r] || [];
+    let c = 0;
+    [...tr.children].forEach((cell) => {
+      while (matrix[r][c] !== undefined) c += 1;
+      const holder = cell.hasAttribute('data-value')
+        ? cell : cell.querySelector('[data-value]');
+      const value = holder ? holder.getAttribute('data-value')
+        : cell.textContent.trim().replace(/\s+/g, ' ');
+      for (let i = 0; i < (cell.rowSpan || 1); i += 1) {
+        for (let j = 0; j < (cell.colSpan || 1); j += 1) {
+          matrix[r + i] = matrix[r + i] || [];
+          matrix[r + i][c + j] = (i === 0 && j === 0) ? value : '';
+        }
+      }
+      c += cell.colSpan || 1;
+    });
+  });
+  return matrix.map((row) => [...row].map((v) => v === undefined ? '' : v)
+    .join('\t')).join('\n');
+}
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element
+    && e.target.closest('[data-copy-table]');
+  if (!btn) return;
+  const scope = btn.closest('details.sec') || btn.closest('.page-pad') || document;
+  const dtable = scope.querySelector('.dtable');
+  const ep = dtable ? null : scope.querySelector('table.ep');
+  if (!dtable && !ep) { showToast('Nothing to copy yet.', 'warning'); return; }
+  navigator.clipboard.writeText(dtable ? tableToTsv(dtable) : epToTsv(ep)).then(
+    () => showToast('Table copied — paste into Excel.', 'success'),
+    () => showToast('Couldn’t reach the clipboard.', 'error'));
+});
+
+// The checked ids travel in tick order — kept per section by a document-level
+// listener, because Alpine's analysisPicks is re-instantiated by every 3s poll
+// swap. Boxes ticked by select-all fire no per-box change event and append in
+// DOM order at submit. After the new tab opens, the originating selection
+// resets; one bubbling change event makes analysisPicks recount.
+const analysisPickOrder = new Map();
+document.addEventListener('change', (e) => {
+  const box = e.target;
+  if (!(box instanceof HTMLInputElement) || box.name !== 'analysis_ids') return;
+  const section = box.closest('[data-analyses-section]');
+  if (!section) return;
+  const order = (analysisPickOrder.get(section.id) || [])
+    .filter((v) => v !== box.value);
+  if (box.checked) order.push(box.value);
+  analysisPickOrder.set(section.id, order);
+});
+document.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element
+    && e.target.closest('[data-view-analyses]');
+  if (!btn) return;
+  const section = btn.closest('[data-analyses-section]');
+  if (!section) return;
+  const checked = [...section.querySelectorAll(
+    'input[name="analysis_ids"]:checked')].map((b) => b.value);
+  const ids = (analysisPickOrder.get(section.id) || [])
+    .filter((v) => checked.includes(v));
+  checked.forEach((v) => { if (!ids.includes(v)) ids.push(v); });
+  if (!ids.length) return;
+  const base = btn.dataset.viewUrl;
+  window.open(base + (base.includes('?') ? '&' : '?') + 'ids=' + ids.join(','),
+    '_blank');
+  analysisPickOrder.set(section.id, []);
+  let last = null;
+  section.querySelectorAll('input[name="analysis_ids"]:checked').forEach((b) => {
+    b.checked = false; last = b;
+  });
+  if (last) last.dispatchEvent(new Event('change', { bubbles: true }));
+});
+
+// The server renders millions (the default, never auto-switching); picking a
+// unit rewrites every [data-unit-value] cell from the raw stored number —
+// display scaling only, never a recomputation. The
+// htmx:load hook re-applies the picked unit after a perspective swap
+// re-renders the table in millions.
+function formatUnitValue(v, unit) {
+  if (unit === 'thousands') return (v / 1e3).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (unit === 'ones') return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return (v / 1e6).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+function applyUnits() {
+  const sel = document.querySelector('[data-units-select]');
+  if (!sel) return;
+  document.querySelectorAll('[data-unit-value]').forEach((el) => {
+    const v = Number(el.dataset.unitValue);
+    if (Number.isFinite(v)) el.textContent = formatUnitValue(v, sel.value);
+  });
+}
+document.addEventListener('change', (e) => {
+  if (e.target instanceof Element
+      && e.target.hasAttribute('data-units-select')) applyUnits();
+});
+document.addEventListener('htmx:load', () => {
+  const sel = document.querySelector('[data-units-select]');
+  if (sel && sel.value !== 'millions') applyUnits();
 });
 
 // Pull a human message out of an error response — our partials carry the reason in a

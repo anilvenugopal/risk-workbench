@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.geohaz_service import completion_summary
+from app.poller.run import _geohaz_completion_summary as completion_summary
 
 
 def _body(summary) -> dict:

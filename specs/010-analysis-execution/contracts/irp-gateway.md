@@ -2,9 +2,9 @@
 
 `app/services/irp_gateway.py` is the only module importing `irp_integration`
 (architecture-guard test). Signatures below are against the active wheel, TestPyPI
-`irp-integration==0.6.0rc2` — pre-release; confirm at implementation
-(`make irp-status`). New free functions + `IRPGateway` protocol methods +
-`_RealGateway` implementations + `FakeIRP` counterparts (`tests/unit/fakes/fake_irp.py`).
+`irp-integration==0.6.0`; confirm at implementation (`make irp-status`). New free
+functions + `IRPGateway` protocol methods + `_RealGateway` implementations + `FakeIRP`
+counterparts (`tests/unit/fakes/fake_irp.py`).
 
 ## Submission phase
 
@@ -25,6 +25,11 @@ def submit_portfolio_analysis(
 def get_analysis_job(irp_id: str) -> JobStatusResult:
     """client.analysis.get_analysis_job(int(irp_id)) — single-status check, poller only.
     Same result shape as get_import_job (status + raw body)."""
+
+def delete_analysis(irp_id: str) -> None:
+    """client.analysis.delete_analysis(int(irp_id)) — the Risk Modeler half of the
+    analyses-delete cascade (P-19). Request path, synchronous, before the local
+    soft delete; raises so a failed delete keeps the row visible for retry."""
 ```
 
 Never wrapped: `submit_portfolio_analysis_jobs` (drops request bodies, ignores currency
@@ -32,13 +37,9 @@ Never wrapped: `submit_portfolio_analysis_jobs` (drops request bodies, ignores c
 
 ## Backfill phase
 
-```python
-def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
-    """client.analysis.get_analysis_by_name — raises on 0 or >1 matches.
-    Feeds irp_analysis.irp_id + settings_metadata (existing AnalysisMetadata shape)."""
-```
-
-(Existing `search_analyses` / `get_analysis_metadata` reused where they already fit.)
+No new gateway method: the backfill calls the existing
+`get_analysis_metadata(analysis_id=...)` with the `analysisId` the poller extracted
+from the FINISHED job body.
 
 ## Loss phase
 
@@ -54,10 +55,16 @@ All map to `client.analysis.get_*(analysis_id, perspective_code, exposure_resour
 perspective doesn't exist (T-15), never an error. Worker-side only (Article 11) — the web
 layer reads `analysis_result_meta` and Parquet, never these.
 
+The `exposure_resource_id` argument is the portfolio `resourceUri` captured at submit,
+read from `irp_job_resource` (`resource_type='portfolio'`) — not
+`irp_analysis.exposure_resource_id`, which holds RM's numeric `exposureResourceId` for
+broker rows (R9/FR-036).
+
 ## FakeIRP additions
 
 Per-name programmable outcomes so unit tests cover: successful submit (returns job id +
 body with `resourceUri`), submit raising `IRPIntegrationError` (FR-010 path), job status
-sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_by_name`
-resolution, and per-perspective result payloads including the empty-perspective and
-HD/PLT cases.
+sequences ending FINISHED / FAILED-with-reason / CANCELLED, `get_analysis_metadata`
+by-id resolution (seeded via `add_analysis`, forced failure via
+`raise_on_analysis_metadata`), and per-perspective result payloads including the
+empty-perspective and HD/PLT cases.

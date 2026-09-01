@@ -29,7 +29,7 @@ Advances `11` §2.4 (the builder prototype, O11-5). This session reviewed the pr
 | Item | Decision | Detail / rationale |
 |---|---|---|
 | Layout | **Two panes:** selection options **left**, current selection as a **list** **right** | Replaces the current stacked pills/checkbox/"picked-chips" arrangement. Cheryl: "it'll be really easy to differentiate it, select it. You get more room for a longer list." |
-| Sizing | **Fixed modal size** | Ben dislikes the modal growing/shrinking with content. Fixed size regardless of how many values/breakouts. |
+| Sizing | **Fixed modal size** | Ben dislikes the modal growing/shrinking with content. Fixed footprint regardless of how many values/breakouts. |
 | List content | One name; **LOB list and state list side-by-side, alpha-sorted** | Clean, scannable; carries forward `11`'s alpha-sort requirement. |
 
 **Current code:** `app/templates/partials/breakout_modal.html` already has a live selection preview — the `bo-picked` chip row derived from ticked checkboxes (so part of "see as you build" exists) — but it's a **single vertical pane** (`bo-pills` → `bo-checks` → `bo-picked` → cart). The change is to re-lay-out into two fixed panes and swap the chip cloud for a right-hand **list**. No service change required for layout.
@@ -108,7 +108,7 @@ A long, mostly exploratory discussion. Direction agreed; **implementation delibe
 
 ## 6. Event-rate-scheme metadata & results scope (carry-over)
 
-Continues `11` §3.3 / **O11-2** — the highest-value grouping item.
+Continues `11` §3.3 / **O11-2** — the highest-leverage grouping item.
 
 - The **event rate scheme is not exposed** through the normal analysis-import path. It shows only on **grouped** analyses (the group config's rate-scheme picker) and via a **Data Bridge** workaround that leaves two copies of the data (an RDM on Data Bridge, queryable by SQL, plus the results in Risk Modeler). Cheryl confirmed live: two imported analyses showed **no rate scheme** in the analysis detail, but grouping them revealed both as "RMS 2023 stochastic event rates" — so it's stored, just not surfaced (the field renders blank in the RM UI), likely a background join.
 - Wendy believes the rate-scheme **ID** is on the analysis record and must be linked to another table for the name, but couldn't locate it live ("it's definitely somewhere, I just don't know where"); Jeff has a query that assembles full analysis details.
@@ -141,7 +141,7 @@ Consolidated view (aligned direction → current state → change). "Absent" = n
 | — | Modal/global error surface + notifications | Per-row breakout errors persist; no global surface | Fix stuck banner; toasts; in-app notification center | `breakout_modal.html`, `static/js/app.js` |
 | O12-6 | Event-rate-scheme retrieval | `AnalysisSettings` slot exists, blank-on-missing | Blocked on Moody's answer (where the field lives) | `services/analysis_service.py` / `irp_gateway.py` |
 
-**Already satisfied this cycle (no action):** sub-portfolio **name-as-typed** + **duplicate-name block** (name-check route + `name_collision.html`, P-24/P-25); **criteria + "From" lineage** on the row (`portfolio_row.html`, FR-014 rev. 2026-08-11); **country** as a breakout dimension; the **live selection preview** (chips — to be reshaped into the D1 list).
+**Already satisfied this cycle (no action):** sub-portfolio **name-as-typed** + **duplicate-name block** (name-check route + `name_collision.html`, P-24/P-25); **criteria + "From" lineage** on the row (`portfolio_row.html`, FR-014 rev. 2026-08-11); **country** as a first-class breakout dimension; the **live selection preview** (chips — to be reshaped into the D1 list).
 
 ---
 
@@ -152,5 +152,5 @@ Consolidated view (aligned direction → current state → change). "Absent" = n
 - **O12-3** — **Peril breakout end-to-end (D3/D4).** Build the quick-by-peril path and peril-name labels; verify on a mixed-peril test portfolio (§3). *Ben.* (Continues O11-3.)
 - **O12-4** — **Tag conventions & lifecycle (D9–D12).** Dedicated session: what the tag is (CRM ID / cedent / field combination), and when it's created / updated / removed; then implement (§5). *Ben / Wendy / Cheryl.*
 - **O12-5** — **Merge / "from all exposures" demand (D13).** Confirm whether it's needed post-automation; possibly poll the team (§4.1). *Wendy / Cheryl / team.*
-- **O12-6 (highest-value)** — **Event-rate-scheme retrieval.** Cheryl to contact the Moody's team for where the rate scheme is stored / how to pull it and what happens on upload; Ben to join; unblocks grouping automation (§6). *Cheryl → Moody's; Ben.* (Continues O11-2.)
+- **O12-6 (highest-leverage)** — **Event-rate-scheme retrieval.** Cheryl to contact the Moody's team for where the rate scheme is stored / how to pull it and what happens on upload; Ben to join; unblocks grouping automation (§6). *Cheryl → Moody's; Ben.* (Continues O11-2.)
 - **O12-7** — **Global error surface / notifications.** Fix the stuck breakout banner; decide toasts vs. an in-app notification center (§4.2). *Ben (Anil on approach).*

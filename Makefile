@@ -21,6 +21,7 @@
         db-bootstrap db-migrate db-rebuild \
         test test-sql lint format \
         wsl-setup wsl-start wsl-stop \
+        wsl-workers wsl-workers-stop wsl-worker-logs \
         wsl-db-bootstrap wsl-db-migrate wsl-db-seed wsl-db-rebuild \
         wsl-test wsl-test-sql \
         wsl-user-setup \
@@ -55,8 +56,9 @@ stop:   ## [Docker] Stop all services (data volumes preserved)
 logs:   ## [Docker] Stream logs from the app container
 	$(COMPOSE) logs -f linux-box
 
-logs-worker:   ## [Docker] Stream dramatiq worker log
-	$(BOX) tail -f /workspace/.dev-logs/worker.log
+logs-worker:   ## [Docker] Stream one queue's dramatiq worker log (usage: make logs-worker QUEUE=upload_edm)
+	@test -n "$(QUEUE)" || (echo "Usage: make logs-worker QUEUE=<job_type>  (see: make wsl-worker-list)" && exit 1)
+	$(BOX) tail -f /workspace/.dev-logs/worker-$(QUEUE).log
 
 logs-poller:   ## [Docker] Stream poller log
 	$(BOX) tail -f /workspace/.dev-logs/poller.log
@@ -100,7 +102,7 @@ format:   ## [Docker] Run ruff formatter
 # Makefile targets are thin dispatchers only — no secrets, no env parsing.
 #
 # First time: make wsl-setup
-# Every day:  make wsl-start  →  make wsl-app / wsl-worker / wsl-poller
+# Every day:  make wsl-start  →  make wsl-app / wsl-workers / wsl-poller
 
 wsl-setup:   ## [WSL2] Create databases and run migrations (after manual system installs)
 	@echo "  Prerequisites: uv, ODBC Driver 18, Redis must be installed first."
@@ -119,8 +121,24 @@ wsl-stop:   ## [WSL2] Stop SQL Server container and Redis
 wsl-app:   ## [WSL2] Start the web app (uvicorn with live reload on :8000)
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload'
 
-wsl-worker:   ## [WSL2] Start the Dramatiq background worker
-	@bash -c 'source infra/scripts/wsl-env.sh && uv run dramatiq app.workers.entrypoint --processes "$${RWB_WORKER_PROCESSES:-1}" --threads "$${RWB_WORKER_THREADS:-2}"'
+wsl-worker:   ## [WSL2] Start one queue's Dramatiq worker (usage: make wsl-worker QUEUE=upload_edm)
+	@test -n "$(QUEUE)" || (echo "Usage: make wsl-worker QUEUE=<job_type>  (see: make wsl-worker-list)" && exit 1)
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run dramatiq app.workers.entrypoint -Q "$(QUEUE)" --processes "$${RWB_WORKER_PROCESSES:-1}" --threads "$${RWB_WORKER_THREADS:-2}"'
+
+wsl-workers:   ## [WSL2] Start every queue's Dramatiq worker in the background (logs: make wsl-worker-logs)
+	@bash infra/scripts/wsl-workers.sh start
+
+wsl-workers-stop:   ## [WSL2] Stop the background workers started by `make wsl-workers`
+	@bash infra/scripts/wsl-workers.sh stop
+
+wsl-worker-logs:   ## [WSL2] Live tail of background worker logs, all queues (usage: make wsl-worker-logs [QUEUE=upload_edm])
+	@bash infra/scripts/wsl-worker-logs.sh $(if $(QUEUE),--queue $(QUEUE))
+
+wsl-worker-list:   ## [WSL2] List available queue names for `make wsl-worker QUEUE=...`
+	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.workers.queues'
+
+wsl-worker-health:   ## [WSL2] Report live/dead status of every queue's worker (PID file + process scan)
+	@bash infra/scripts/wsl-worker-health.sh
 
 wsl-poller:   ## [WSL2] Start the IRP job poller
 	@bash -c 'source infra/scripts/wsl-env.sh && uv run python -m app.poller.run --loop'

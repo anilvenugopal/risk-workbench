@@ -10,8 +10,8 @@ reclaim a dead worker's row.
 
 from __future__ import annotations
 
-import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -26,23 +26,25 @@ from app import log_context
 from app.config import settings
 from app.services import rwb_job_service
 from app.services._common import _utcnow
-from db import execute_one, get_connection
+from db import execute, get_connection
 
 logger = logging.getLogger(__name__)
 
 
-def worker_id(module: str) -> str:
-    """The heartbeat identity for a job actor — call as ``worker_id(__name__)``."""
-    return f"{socket.gethostname()}:{module}"
-
-
-def load_input(rwb_job_id: Any) -> dict:
-    row = execute_one(
-        "SELECT input_data FROM rwb_job WHERE id = :id",
-        {"id": str(rwb_job_id)}, connection="WORKBENCH")
-    if row is None or not row["input_data"]:
-        return {}
-    return json.loads(row["input_data"])
+def worker_id() -> str:
+    """The heartbeat identity for a job actor — identifies the OS process, not
+    the job or the module it happens to be defined in (neither is the
+    worker's own business; ``rwb_job_type`` already names the job on every
+    log line and DB row). ``hostname:pid`` is unique among currently-running
+    processes, which is what matters for "is this the process to kill" and
+    "which of N processes on this queue handled this" (``RWB_WORKER_PROCESSES``
+    > 1) — without the PID, every process on a host produced the identical
+    string. Sliced to 128 chars to match ``rwb_job.claimed_by`` and
+    ``rwb_job_heartbeat.worker_id``'s ``NVARCHAR(128)`` width: a longer value
+    would otherwise raise "String or binary data would be truncated" on
+    write and fail the claim, rather than merely displaying truncated."""
+    raw = f"{socket.gethostname()}:{os.getpid()}"
+    return raw[:128]
 
 
 # ── the body → rwb_job outcome contract (worker-poller.md §1) ────────────────────
@@ -137,11 +139,6 @@ class _Heartbeat:
 
 # ── the shared claim → heartbeat → complete lifecycle ───────────────────────────
 
-def worker_id(module_name: str) -> str:
-    """The host:module claim/heartbeat identity actors pass to run_job."""
-    return f"{socket.gethostname()}:{module_name}"
-
-
 def run_job(*, rwb_job_id: Any, worker_id: str,
             body: Callable[[], "JobResult | dict | None"]) -> bool:
     """Claim the row; if won, run ``body`` under a heartbeat and complete it in place.
@@ -213,8 +210,47 @@ def run_job(*, rwb_job_id: Any, worker_id: str,
         log_context.clear(token)
 
 
+# ── synchronous drain (unit tier) ───────────────────────────────────────────────
+
+JobBodies = dict[str, Callable[[Any], "JobResult | dict | None"]]
+
+
+def run_one(bodies: JobBodies, *, rwb_job_id: Any, rwb_job_type: str,
+            worker_id: str = "worker") -> bool:
+    """Claim + run a single ``rwb_job`` through the body ``bodies`` maps its type to.
+    Returns ``run_job``'s result (``False`` if the row was already claimed, or
+    ``bodies`` has no body for the type)."""
+    body = bodies.get(rwb_job_type)
+    if body is None:
+        logger.debug("no body for rwb_job_type %s — skipping", rwb_job_type)
+        return False
+    return run_job(rwb_job_id=rwb_job_id, worker_id=worker_id,
+                   body=lambda: body(rwb_job_id))
+
+
+def run_pending(bodies: JobBodies, *, worker_id: str = "worker") -> int:
+    """Claim + run every currently-``pending`` ``rwb_job`` once, skipping the types
+    ``bodies`` has no body for. Snapshot-based (rows a body enqueues are picked up on
+    the next call), so tests advance the queue by calling this after each poller pass.
+    Returns the number of rows run."""
+    rows = execute(
+        "SELECT id, rwb_job_type FROM rwb_job WHERE status_code = 'pending' "
+        "ORDER BY inserted_at, id",
+        {}, connection="WORKBENCH",
+    )
+    count = 0
+    for row in rows:
+        if run_one(bodies, rwb_job_id=row["id"], rwb_job_type=row["rwb_job_type"],
+                   worker_id=worker_id):
+            count += 1
+    return count
+
+
 __all__ = [
+    "JobBodies",
     "JobResult",
-    "upsert_heartbeat",
     "run_job",
+    "run_one",
+    "run_pending",
+    "worker_id",
 ]

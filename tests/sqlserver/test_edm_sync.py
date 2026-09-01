@@ -468,3 +468,52 @@ def test_sync_button_rendered_by_state(monkeypatch):
                                                    detail_state="importing"))
     html = _client().get("/edms/edm-1").text
     assert "/edms/edm-1/sync" not in html
+
+
+def test_backfill_status_sees_breakout_fired_heads_quick_and_group(workbench_db):
+    # A completed breakout auto-fires backfill_edm_detail keyed on its own
+    # run_breakout_* job row (FR-013). That job's requestor is the source
+    # portfolio for a quick breakout, but the breakout_group row for a custom
+    # group — both must resolve to the EDM, single and batched read alike.
+    def _portfolio(edm_id: str) -> str:
+        pid = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO irp_portfolio (id, edm_id, name, irp_id, inserted_at, "
+            "updated_at) VALUES (:i, :e, 'src', '1', '2026-01-01', '2026-01-01')",
+            {"i": pid, "e": edm_id}, connection="WORKBENCH")
+        return pid
+
+    def _job(requestor_type: str, requestor_id: str, job_type: str,
+             status: str) -> str:
+        jid = str(uuid.uuid4())
+        execute_command(
+            "INSERT INTO rwb_job (id, requestor_type, requestor_id, "
+            "rwb_job_type, status_code, attempt_count, inserted_at, updated_at) "
+            "VALUES (:i, :rt, :r, :t, :s, 1, '2026-01-01', '2026-01-01')",
+            {"i": jid, "rt": requestor_type, "r": requestor_id, "t": job_type,
+             "s": status}, connection="WORKBENCH")
+        return jid
+
+    quick_edm = _legacy_edm(name="quick_edm")
+    quick_job = _job("analyst_request", _portfolio(quick_edm),
+                     "run_breakout_lob", "succeeded")
+    _job("rwb_job", quick_job, "backfill_edm_detail", "pending")
+
+    group_edm = _legacy_edm(name="group_edm")
+    group_row_id = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO breakout_group (id, source_portfolio_id, group_key, "
+        "label, filters, name, number, cart_id, inserted_at, updated_at) "
+        "VALUES (:i, :p, 'k1', 'Coastal', :f, 'src - Coastal', 'src-Coastal', "
+        ":c, '2026-01-01', '2026-01-01')",
+        {"i": group_row_id, "p": _portfolio(group_edm),
+         "f": '{"state": ["FL"]}', "c": str(uuid.uuid4())},
+        connection="WORKBENCH")
+    group_job = _job("breakout_group", group_row_id,
+                     "run_breakout_custom", "succeeded")
+    _job("rwb_job", group_job, "backfill_edm_detail", "pending")
+
+    assert edm_service.latest_backfill_status(quick_edm) == "pending"
+    assert edm_service.latest_backfill_status(group_edm) == "pending"
+    assert edm_service.latest_backfill_statuses([quick_edm, group_edm]) == {
+        quick_edm: "pending", group_edm: "pending"}

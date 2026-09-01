@@ -26,9 +26,13 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 - Result getters: `get_stats` / `get_elt` / `get_ep` / `get_plt(analysis_id,
   perspective_code, exposure_resource_id)`, perspective codes `GR`/`GU`/`RL`, return
   `List[Dict]` (not DataFrames). `get_plt` is HD-only. There is no `get_analysis_results`.
-- `get_analysis_by_name(analysis_name, edm_name)` raises on 0 or >1 matches — usable for
-  the completion backfill; `get_analysis_by_app_analysis_id` returns
-  `{analysisId, exposureResourceId, analysisName, engineType, uri, raw}`.
+- The completion backfill needs no name search: the FINISHED job body
+  (`GET /platform/model/v1/jobs/{jobId}`) carries the created analysis at
+  `tasks[].output.log.analysisId` (observed in both tasks, Ben's sandbox
+  2026-08-25), and the analysis-details response
+  (`GET /platform/riskdata/v1/analyses/{id}`) — stored verbatim as
+  `settings_metadata` — carries `appAnalysisId`, the id the RM web UI route
+  takes (design 19 O19-3).
 - The client retries 429/5xx itself (5 attempts, backoff) — no second retry layer.
 - Error caveat: the analysis methods re-wrap most exceptions as `IRPAPIError` without
   `from e`; catch `IRPIntegrationError` and keep the message as the failure reason.
@@ -86,13 +90,13 @@ Evidence gathered 2026-08-20 from this worktree, the active `irp-integration` wh
 | T-01 | One `execute_analysis_batch` rwb_job per execution; the approved plan (portfolios, template value snapshots with each item's confirmed currency block, treaty names) persisted in `input_data`; worker loops the submit call with per-item isolation and a resumable skip check | Approved |
 | T-02 | Loop `submit_portfolio_analysis_job` app-side; never `submit_portfolio_analysis_jobs` | Approved |
 | T-03 | Currency block always passed explicitly, taken from the modal's confirmed selection (per suite — spec P-15, note 17 D4/D5); `asOfDate` derived from the chosen vintage's `irp_currency_scheme_vintage.effective_date` at plan-persist time | Approved (amended 2026-08-20) |
-| T-04 | Name = `"{portfolio.name} {template.name}"` (single space); `irp_analysis.name` holds the ≤64-char name sent to RM, new `full_name` column holds the untruncated name | Approved |
-| T-05 | Rerun collision check is local (`irp_analysis` names for the EDM), suffix `" - n"` fitted inside the 64-char cap (RM rejects parentheses in analysis names); RM call uses `skip_duplicate_check=True` | Approved |
+| T-04 | Name = `"CRE_{portfolio.name}_{template.name}"` (design 18, 2026-08-24); `irp_analysis.name` holds the ≤64-char name sent to RM, new `full_name` column holds the untruncated name | Approved |
+| T-05 | Rerun collision check is local (`irp_analysis` names for the EDM), suffix `_2`, `_3`… fitted inside the 64-char cap (RM rejects parentheses in analysis names); RM call uses `skip_duplicate_check=True` | Approved |
 | T-06 | Schema edits in the single revision `0001_initial.py` (dev drop-create-seed): reshape `irp_analysis`, extend `irp_job`, add `analysis_result_meta` + `analysis_perspective_kind` in the loss phase | Approved |
 | T-07 | Analysis job status shown in the UI comes from the latest `irp_job` row per analysis (join via new `irp_job.irp_analysis_id`); `irp_analysis.status_code` keeps the existing four coarse codes | Approved |
 | T-08 | Run-failure reason: poller terminal handler extracts the message from the completion body into `irp_analysis.failure_reason`; submit-failure reason written by the worker the same way | Approved |
 | T-09 | Implement the poller `_submission_retry` batch: per-analysis latest `SUBMISSION FAILED` row, exponential backoff, retry updates that row in place; `IRP_SUBMISSION_MAX_RETRIES` default changes `None` → 3 (PRD §14.3) | Approved |
-| T-10 | On `FINISHED` the poller enqueues `backfill_analysis_detail`; that worker resolves the RM analysis by name, writes `irp_id` + `settings_metadata`, and (loss phase) chains `retrieve_analysis_results` | Approved |
+| T-10 | On `FINISHED` the poller extracts `tasks[].output.log.analysisId` from the completion body into the backfill's `input_data`; `finalize_analysis` fetches the analysis details by that id, writes `irp_id` + `irp_app_analysis_id` + `settings_metadata`, and (loss phase) chains `retrieve_analysis_results`. Name search dropped (2026-08-26) — the 64-char truncation makes names collide | Approved |
 | T-11 | Live updates reuse the existing 3s body self-poll; the `live` flag adds "any executed analysis non-terminal". No SSE in this feature | Approved |
 | T-12 | Fill the `/workflows/irp-jobs` stub with a minimal `irp_job` listing (name/type/status/submitted-by/when, 3s poll) so analysis jobs are visible per FR-014; delivered as the iteration's final phase | Approved 2026-08-20 |
 | T-13 | Loss storage per DATA_MODEL §9: Parquet row-level files + one `analysis_result_meta` row per (analysis, perspective); summary columns `aal`, `std_dev`, `max_event_loss`, `elt_record_count`, `has_plt`; return-period/OEP/AEP numbers read from the EP Parquet at view time; add `pyarrow` | Approved |
@@ -136,11 +140,13 @@ plan at compose time; pre-filling a visible picker from the T-19 env defaults is
 submit-time defaulting — the analyst confirms it.
 
 **T-04 — two name columns.** The submitted name is not derivable from the full name once
-a suffix exists (the suffix survives clipping, the middle doesn't), and the completion
-backfill resolves the RM analysis by its exact submitted name (Article 2, name-based
-coupling). Broker rows keep `full_name` NULL. Rejected: storing only the full name and
-re-deriving (ambiguous), a separator other than a space (§2.6 says "portfolio name +
-template name"; inventing punctuation adds nothing).
+a suffix exists (the suffix survives clipping, the middle doesn't), and `name` records
+the exact string RM shows for the analysis. Completion no longer depends on the name:
+the backfill resolves by the job-payload `analysisId` (T-10 as amended 2026-08-26), so
+name uniqueness is a display concern, not a correctness requirement. Broker rows keep
+`full_name` NULL. Rejected: storing only the full name and re-deriving (ambiguous), a
+separator other than a space (§2.6 says "portfolio name + template name"; inventing
+punctuation adds nothing).
 
 **T-05 — local collision check.** Pre-cutover the workbench is the only thing writing
 analyses into its EDMs (no-backwards-compatibility rule), so local names are the truth;
@@ -190,7 +196,7 @@ doctrine).
 **Retrieval/backfill failure handling (P-14 amended 2026-08-20).** The originally
 clarified design — automatic backoff retry up to a configured maximum plus a
 retrieval-failed display — is deferred to a later iteration. `retrieve_analysis_results`
-and `backfill_analysis_detail` follow the standard rwb_job actor pattern every existing
+and `finalize_analysis` follow the standard rwb_job actor pattern every existing
 worker uses: `max_retries=0`, a failure lands the `rwb_job` in `failed` with
 `error_detail`, interruption is recovered by the heartbeat + reconciler, and resume goes
 through each worker's skip check. The detail view shows results-pending until numbers

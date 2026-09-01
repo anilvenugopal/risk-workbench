@@ -3,7 +3,9 @@
 Article 11: every Risk Modeler call goes through this thin gateway so the poller
 and workers can be unit-tested against a fake (Article 12). The web layer only
 ever reaches the *submit* / *search* methods indirectly, via services that enqueue
-workers — it never calls the ``get_*`` status checks or any result retrieval.
+workers — plus one synchronous ``delete_analysis`` on the request path (spec 010
+P-19, permitted like submits by Article 11) — it never calls the ``get_*`` status
+checks or any result retrieval.
 
 **Single-status-check only.** ``get_*_job`` maps to one status read; the blocking
 ``poll_*_to_completion`` helpers are NEVER wrapped here (they run for minutes and
@@ -28,6 +30,11 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence, runtime_checkable
+
+# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
+# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
+# raises this on any submit failure (spec 010, contracts/irp-gateway.md).
+from irp_integration.exceptions import IRPIntegrationError
 
 logger = logging.getLogger(__name__)
 
@@ -87,15 +94,16 @@ _COVERAGE_SCRIPTS = {
 # the stored summary (8/4 D15 — lines of business is the known case).
 _FREE_TEXT_STORAGE_CAP = 500
 
-# Re-exported so callers (workers, FakeIRP) never import irp-integration directly
-# — this module stays the sole importer (T007). ``submit_portfolio_analysis``
-# raises this on any submit failure (spec 010, contracts/irp-gateway.md); the
-# fallback keeps this module importable without the wheel installed.
-try:
-    from irp_integration.exceptions import IRPIntegrationError
-except ImportError:  # pragma: no cover — the wheel is always installed in dev/CI
-    class IRPIntegrationError(Exception):
-        """Fallback used only when irp-integration isn't installed."""
+
+def _peril_code(value: Any) -> str:
+    """The one owner of peril value stringification. ``loccvg.PERIL`` is a
+    smallint, but pandas may hand it back as a float (3 → "3.0") — the
+    canonical form everywhere (stored summary, selection keys, match-count
+    filters) is the integer string."""
+    try:
+        return str(int(float(value)))
+    except (TypeError, ValueError):
+        return str(value)
 
 
 class DuplicatePortfolioNameError(Exception):
@@ -157,11 +165,9 @@ class EdmCatalogEntry:
 
 @dataclass(frozen=True)
 class AnalysisHit:
-    """One analysis — a broker analysis returned by ``search_analyses`` (D2), or
-    an own-executed analysis resolved by exact name via ``get_analysis_by_name``
-    (spec 010, worker-only). ``analysis_id`` is Moody's ``analysisId`` as a
-    string. The source names are echoed back so the backfill worker can persist
-    lineage on ``irp_analysis``.
+    """One broker analysis returned by ``search_analyses`` (D2).
+    ``analysis_id`` is Moody's ``analysisId`` as a string. The source names are
+    echoed back so the backfill worker can persist lineage on ``irp_analysis``.
 
     Spec 004 (R9/FR-036): the hit now carries RM's exposure pointer —
     ``exposure_resource_id`` + ``exposure_resource_type`` (previously dropped) — so
@@ -208,19 +214,6 @@ class TreatyDetail:
 
 
 # ── Breakout value objects (spec 005 — contracts/data-access.md §3) ─────────────
-
-@dataclass(frozen=True)
-class BreakoutSelection:
-    """The resolved account ids per breakout value, one call per run. The real
-    gateway resolves every value from ONE set-based DataBridge query (R1,
-    revised 2026-08-05), so its failure raises and fails the whole job with
-    nothing created; ``errors_by_value`` stays on the seam for implementations
-    that can fail per value — the worker fails such an entry with no create
-    call (W-14). A value with no matching accounts is an EMPTY list, which the
-    worker turns into a zero-match failure with no create call (FR-008)."""
-    accounts_by_value: dict[str, list[int]]
-    errors_by_value: dict[str, str]
-
 
 @dataclass(frozen=True)
 class SubPortfolioResult:
@@ -343,35 +336,6 @@ class IRPGateway(Protocol):
 
     def get_analysis_metadata(self, *, analysis_id: int) -> AnalysisMetadata: ...
 
-    # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
-
-    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
-                              portfolio_irp_id: str) -> str | None: ...
-
-    # ── spec-005 breakout composition (worker-only — the one RM write seam) ──────
-
-    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
-                                 source_portfolio_irp_id: str, dimension: str,
-                                 values: Sequence[str]) -> BreakoutSelection: ...
-
-    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
-                             source_portfolio_irp_id: str,
-                             filters: dict[str, Sequence[str]]) -> int: ...
-
-    def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
-                             name: str, number: str, description: str,
-                             account_ids: Sequence[int]) -> SubPortfolioResult: ...
-
-    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
-                               portfolio_irp_id: str,
-                               account_ids: Sequence[int]) -> SubPortfolioResult: ...
-
-    def find_portfolio_by_number(self, *, exposure_irp_id: str,
-                                 number: str) -> list[PortfolioHit]: ...
-
-    def find_portfolio_by_name(self, *, exposure_irp_id: str,
-                               name: str) -> list[PortfolioHit]: ...
-
     def list_model_profiles(self) -> list[ModelProfileEntry]: ...
 
     def list_output_profiles(self) -> list[OutputProfileEntry]: ...
@@ -397,7 +361,43 @@ class IRPGateway(Protocol):
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit: ...
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]: ...
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]: ...
+
+    def delete_analysis(self, irp_id: str) -> None: ...
+
+    # ── spec-005 breakout reads (fetch_portfolio_stamp is request-path-legal) ────
+
+    def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
+                              portfolio_irp_id: str) -> str | None: ...
+
+    # ── spec-005 breakout composition (worker-only RM writes) ───────────────────
+
+    def select_breakout_accounts(
+            self, *, edm_name: str, exposure_irp_id: str,
+            source_portfolio_irp_id: str, dimension: str,
+            values: Sequence[str]) -> dict[str, list[int]]: ...
+
+    def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str,
+                             filters: dict[str, Sequence[str]]) -> int: ...
+
+    def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                             name: str, number: str, description: str,
+                             account_ids: Sequence[int]) -> SubPortfolioResult: ...
+
+    def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
+                               portfolio_irp_id: str,
+                               account_ids: Sequence[int]) -> SubPortfolioResult: ...
+
+    def find_portfolio_by_number(self, *, exposure_irp_id: str,
+                                 number: str) -> list[PortfolioHit]: ...
+
+    def find_portfolio_by_name(self, *, exposure_irp_id: str,
+                               name: str) -> list[PortfolioHit]: ...
 
 
 # ── The real implementation — imports irp-integration lazily ─────────────────────
@@ -499,22 +499,32 @@ class _RealGateway:
 
     # ── spec-004 detail reads (worker-only; single-item, loop app-side — R1) ──────
 
-    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
-        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios (paginated so a
-        # 25-portfolio EDM enumerates completely). Field names read defensively —
-        # the wheel is pre-release (R1).
-        rows = self._client().portfolio.search_portfolios_paginated(edm_irp_id)
+    def _search_portfolios(self, exposure_irp_id: Any, *,
+                           rm_filter: str | None = None,
+                           name_fallback: str | None = None,
+                           ) -> list[PortfolioHit]:
+        # GET /platform/riskdata/v1/exposures/{exposureId}/portfolios, paginated
+        # so a portfolio past the first page never reads as absent. Field names
+        # read defensively — the wheel is pre-release (R1). ``name_fallback``
+        # None drops a row RM returned without a name; a string keeps the row
+        # under that name.
+        rows = self._client().portfolio.search_portfolios_paginated(
+            int(exposure_irp_id),
+            **({"filter": rm_filter} if rm_filter is not None else {}))
         hits: list[PortfolioHit] = []
         for r in rows:
             pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            name = r.get("name") or r.get("portfolioName")
-            if pid is None or not name:
+            name = r.get("name") or r.get("portfolioName") or name_fallback
+            if pid is None or name is None:
                 continue
             stamp = r.get("stampDate")
             hits.append(PortfolioHit(
                 irp_id=str(pid), name=str(name),
                 stamp=(str(stamp) if stamp is not None else None)))
         return hits
+
+    def list_portfolios(self, *, edm_irp_id: int) -> list[PortfolioHit]:
+        return self._search_portfolios(edm_irp_id)
 
     def fetch_portfolio_stamp(self, *, exposure_irp_id: str,
                               portfolio_irp_id: str) -> str | None:
@@ -545,9 +555,10 @@ class _RealGateway:
                 edm_name=edm_name, edm_irp_id=int(exposure_irp_id))
         return self._database_names[key]
 
-    def select_breakout_accounts(self, *, edm_name: str, exposure_irp_id: str,
-                                 source_portfolio_irp_id: str, dimension: str,
-                                 values: Sequence[str]) -> BreakoutSelection:
+    def select_breakout_accounts(
+            self, *, edm_name: str, exposure_irp_id: str,
+            source_portfolio_irp_id: str, dimension: str,
+            values: Sequence[str]) -> dict[str, list[int]]:
         # One set-based DataBridge query resolves EVERY value at once (R1,
         # revised 2026-08-05): the REST selection — paginated account
         # enumeration plus a chunked accountId-IN policy scan — cannot complete
@@ -558,7 +569,10 @@ class _RealGateway:
         # script's joins, so the values filtered here are byte-identical to
         # the stored summary the plan was approved from; ACCGRPID is the id
         # RM's account operations accept as accountId. Any failure RAISES —
-        # the worker fails the job before anything is created.
+        # the worker fails the job before anything is created (W-14: never
+        # proceed on an id list the query cannot prove complete). A value the
+        # query returned no rows for maps to an EMPTY list, which the worker
+        # turns into a zero-match failure with no create call (FR-008).
         script = _SELECTION_SCRIPTS.get(dimension)
         if script is None:
             raise ValueError(
@@ -570,16 +584,14 @@ class _RealGateway:
             params={"portfolio_id": int(source_portfolio_irp_id)},
             database=database)
         rows = frames[0].to_dict("records") if frames else []
+        coerce = _peril_code if dimension == "peril" else str
         by_value: dict[str, set[int]] = {}
         for row in rows:
             value, account_id = row.get("Value"), row.get("AccountId")
             if value is None or account_id is None:
                 continue
-            by_value.setdefault(str(value), set()).add(int(account_id))
-        return BreakoutSelection(
-            accounts_by_value={v: sorted(by_value.get(v, set()))
-                               for v in values},
-            errors_by_value={})
+            by_value.setdefault(coerce(value), set()).add(int(account_id))
+        return {v: sorted(by_value.get(v, set())) for v in values}
 
     def count_breakout_match(self, *, edm_name: str, exposure_irp_id: str,
                              source_portfolio_irp_id: str,
@@ -637,16 +649,12 @@ class _RealGateway:
     def _portfolio_name_taken(self, exposure_irp_id: str, name: str) -> bool:
         # W-10: IRPValidationError alone is not "the name is taken" — it also
         # covers the two length violations. Verify against RM before treating
-        # the failure as the adoption signal. Paginated, like every other
-        # portfolio lookup here: a name held by a portfolio past the first page
-        # would otherwise read as free and the entry would fail instead of
-        # adopting.
+        # the failure as the adoption signal.
         try:
-            hits = self._client().portfolio.search_portfolios_paginated(
-                int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
+            return bool(self.find_portfolio_by_name(
+                exposure_irp_id=exposure_irp_id, name=name))
         except Exception:  # noqa: BLE001 — unverifiable → let the original error stand
             return False
-        return len(hits) > 0
 
     def create_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                              name: str, number: str, description: str,
@@ -674,22 +682,8 @@ class _RealGateway:
     def populate_sub_portfolio(self, *, edm_name: str, exposure_irp_id: str,
                                portfolio_irp_id: str,
                                account_ids: Sequence[int]) -> SubPortfolioResult:
-        # The add step + read-back verification, shared by the create path and
-        # the adopt-then-populate heal (R7). Re-adding already-member accounts
-        # is safe and returns completed 0 (W-9), so the heal runs
-        # unconditionally; success is decided by reading the portfolio back,
-        # never by the add call's completed/total counts. The read-back is a
-        # DataBridge count (R1, revised 2026-08-05) — the paginated REST
-        # enumeration cannot verify a portfolio past 100,000 accounts (W-20).
-        # A count that does not equal the ids sent RAISES: FR-008 asks for
-        # exactly the selected accounts, so an under- or over-populated
-        # portfolio fails that sub-portfolio and writes no lineage row. The RM
-        # portfolio stays (P-07 — nothing is deleted); the re-run adopts it on
-        # its number and re-adds, which heals a partial add. It cannot heal an
-        # OVER-populated one: re-adding never removes a member, so an adopted
-        # portfolio holding accounts outside the selection fails on every run
-        # until someone removes them in Risk Modeler — which is what the message
-        # says, since the app deletes nothing.
+        # A healthy re-run reports completed 0, so the DataBridge read-back
+        # count decides success, never the add response counts (W-9).
         pm = self._client().portfolio
         ids = [int(i) for i in account_ids]
         chunks = range(0, len(ids), _ADD_CHUNK_SIZE)
@@ -718,19 +712,9 @@ class _RealGateway:
         # number fails that sub-portfolio rather than adopting an arbitrary
         # one (FR-011). Numbers are unique only within an exposure; the
         # exposure-scoped search covers that (W-17).
-        rows = self._client().portfolio.search_portfolios_paginated(
-            int(exposure_irp_id), filter=f"portfolioNumber={json.dumps(number)}")
-        hits: list[PortfolioHit] = []
-        for r in rows:
-            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            if pid is None:
-                continue
-            stamp = r.get("stampDate")
-            hits.append(PortfolioHit(
-                irp_id=str(pid), name=str(r.get("name") or
-                                          r.get("portfolioName") or ""),
-                stamp=(str(stamp) if stamp is not None else None)))
-        return hits
+        return self._search_portfolios(
+            exposure_irp_id, name_fallback="",
+            rm_filter=f"portfolioNumber={json.dumps(number)}")
 
     def find_portfolio_by_name(self, *, exposure_irp_id: str,
                                name: str) -> list[PortfolioHit]:
@@ -739,19 +723,9 @@ class _RealGateway:
         # Every hit counts — the check blocks, it never adopts, so ambiguity
         # is fine here. Request-path-legal: the submit-time pattern of
         # constitution Art. 2, like fetch_portfolio_stamp above.
-        rows = self._client().portfolio.search_portfolios_paginated(
-            int(exposure_irp_id), filter=f"portfolioName={json.dumps(name)}")
-        hits: list[PortfolioHit] = []
-        for r in rows:
-            pid = r.get("id") if r.get("id") is not None else r.get("portfolioId")
-            if pid is None:
-                continue
-            stamp = r.get("stampDate")
-            hits.append(PortfolioHit(
-                irp_id=str(pid),
-                name=str(r.get("name") or r.get("portfolioName") or name),
-                stamp=(str(stamp) if stamp is not None else None)))
-        return hits
+        return self._search_portfolios(
+            exposure_irp_id, name_fallback=name,
+            rm_filter=f"portfolioName={json.dumps(name)}")
 
     def get_portfolio_exposure(self, *, edm_irp_id: int,
                                portfolio_irp_id: int) -> ExposureDetail:
@@ -883,13 +857,13 @@ class _RealGateway:
                 "value": value, "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for row in rows("portfolio_perils.sql"):
-            # spec 005 follow-on (P-19): peril breakout values, for custom
-            # grouping only. The value is loccvg.PERIL — a numeric RMS peril
-            # code with no in-EDM code→name lookup (W-21) — so the code is its
-            # own display and the label is never synthesized (P-12).
+            # spec 005 (P-19 rev. 2026-08-12): peril breakout values. The value
+            # is loccvg.PERIL — a numeric RMS peril code with no in-EDM
+            # code→name lookup (W-21) — so the code is its own display and the
+            # label is never synthesized (P-12); _peril_code canonicalizes it.
             count = row.get("AccountCount")
             entry(row)["breakout_values"].setdefault("peril", []).append({
-                "value": str(row["Peril"]), "label": None,
+                "value": _peril_code(row["Peril"]), "label": None,
                 "accounts": (int(count) if count is not None else 0)})
         for dimension, script in _COVERAGE_SCRIPTS.items():
             # spec 005 FR-007 as revised 2026-08-05: `covered` is the account
@@ -975,10 +949,6 @@ class _RealGateway:
         data = self._client().import_job.get_import_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    def get_geohaz_job(self, irp_id: str) -> JobStatus:
-        data = self._client().portfolio.get_geohaz_job(int(irp_id))
-        return JobStatus(status=str(data["status"]), result=data)
-
     # ── spec-010 analysis execution (worker-only) ─────────────────────────────
 
     def submit_portfolio_analysis(
@@ -1012,19 +982,32 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    def get_analysis_by_name(self, analysis_name: str, edm_name: str) -> AnalysisHit:
-        # Raises IRPIntegrationError (IRPAPIError) on 0 or >1 matches — Article 2
-        # name-based coupling; the caller resolves an own-executed analysis by
-        # the exact ≤64-char name it submitted.
-        r = self._client().analysis.get_analysis_by_name(analysis_name, edm_name)
-        return AnalysisHit(
-            analysis_id=str(r["analysisId"]),
-            name=r.get("analysisName"),
-            source_rdm_name=r.get("sourceRdmName"),
-            exposure_name=r.get("exposureName"),
-            exposure_resource_id=(str(r["exposureResourceId"])
-                                  if r.get("exposureResourceId") is not None else None),
-            exposure_resource_type=r.get("exposureResourceType"))
+    # ── spec-011 result reads (worker-only; contracts/irp-gateway.md) ─────────
+
+    def get_analysis_stats(self, *, analysis_id: int, perspective_code: str,
+                           exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/stats — RM's row list
+        # verbatim. The wheel validates perspective_code against its own
+        # PERSPECTIVE_CODES (T-02); the gateway never bypasses that check.
+        return self._client().analysis.get_stats(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def get_analysis_ep(self, *, analysis_id: int, perspective_code: str,
+                        exposure_resource_id: int) -> list[dict]:
+        # GET /platform/riskdata/v1/analyses/{analysisId}/ep — one element per
+        # epType (OEP, AEP, TCE-OEP, TCE-AEP), returned verbatim; the worker's
+        # builder does the filtering and the return-period lookup.
+        return self._client().analysis.get_ep(
+            analysis_id, perspective_code, exposure_resource_id)
+
+    def delete_analysis(self, irp_id: str) -> None:
+        # DELETE /platform/riskdata/v1/analyses/{analysisId} — synchronous.
+        # Failures raise IRPIntegrationError; the caller keeps the local row.
+        self._client().analysis.delete_analysis(int(irp_id))
+
+    def get_geohaz_job(self, irp_id: str) -> JobStatus:
+        data = self._client().portfolio.get_geohaz_job(int(irp_id))
+        return JobStatus(status=str(data["status"]), result=data)
 
     # ── name searches for the blocking collision check (R8, amended #17) ──────────
 
@@ -1252,57 +1235,6 @@ def get_analysis_metadata(*, analysis_id: int) -> AnalysisMetadata:
     return _active().get_analysis_metadata(analysis_id=analysis_id)
 
 
-def fetch_portfolio_stamp(*, exposure_irp_id: str,
-                          portfolio_irp_id: str) -> str | None:
-    return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
-                                           portfolio_irp_id=portfolio_irp_id)
-
-
-def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
-                             source_portfolio_irp_id: str, dimension: str,
-                             values: Sequence[str]) -> BreakoutSelection:
-    return _active().select_breakout_accounts(
-        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
-        source_portfolio_irp_id=source_portfolio_irp_id,
-        dimension=dimension, values=values)
-
-
-def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
-                         source_portfolio_irp_id: str,
-                         filters: dict[str, Sequence[str]]) -> int:
-    return _active().count_breakout_match(
-        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
-        source_portfolio_irp_id=source_portfolio_irp_id, filters=filters)
-
-
-def create_sub_portfolio(*, edm_name: str, exposure_irp_id: str, name: str,
-                         number: str, description: str,
-                         account_ids: Sequence[int]) -> SubPortfolioResult:
-    return _active().create_sub_portfolio(
-        edm_name=edm_name, exposure_irp_id=exposure_irp_id, name=name,
-        number=number, description=description, account_ids=account_ids)
-
-
-def populate_sub_portfolio(*, edm_name: str, exposure_irp_id: str,
-                           portfolio_irp_id: str,
-                           account_ids: Sequence[int]) -> SubPortfolioResult:
-    return _active().populate_sub_portfolio(
-        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
-        portfolio_irp_id=portfolio_irp_id, account_ids=account_ids)
-
-
-def find_portfolio_by_number(*, exposure_irp_id: str,
-                             number: str) -> list[PortfolioHit]:
-    return _active().find_portfolio_by_number(
-        exposure_irp_id=exposure_irp_id, number=number)
-
-
-def find_portfolio_by_name(*, exposure_irp_id: str,
-                           name: str) -> list[PortfolioHit]:
-    return _active().find_portfolio_by_name(
-        exposure_irp_id=exposure_irp_id, name=name)
-
-
 def list_model_profiles() -> list[ModelProfileEntry]:
     return _active().list_model_profiles()
 
@@ -1354,28 +1286,95 @@ def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
 
 
-def get_analysis_by_name(analysis_name: str, edm_name: str) -> AnalysisHit:
-    return _active().get_analysis_by_name(analysis_name, edm_name)
+def get_analysis_stats(*, analysis_id: int, perspective_code: str,
+                       exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_stats(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def get_analysis_ep(*, analysis_id: int, perspective_code: str,
+                    exposure_resource_id: int) -> list[dict]:
+    return _active().get_analysis_ep(
+        analysis_id=analysis_id, perspective_code=perspective_code,
+        exposure_resource_id=exposure_resource_id)
+
+
+def delete_analysis(irp_id: str) -> None:
+    _active().delete_analysis(irp_id)
+
+
+def fetch_portfolio_stamp(*, exposure_irp_id: str,
+                          portfolio_irp_id: str) -> str | None:
+    return _active().fetch_portfolio_stamp(exposure_irp_id=exposure_irp_id,
+                                           portfolio_irp_id=portfolio_irp_id)
+
+
+def select_breakout_accounts(*, edm_name: str, exposure_irp_id: str,
+                             source_portfolio_irp_id: str, dimension: str,
+                             values: Sequence[str]) -> dict[str, list[int]]:
+    return _active().select_breakout_accounts(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        source_portfolio_irp_id=source_portfolio_irp_id,
+        dimension=dimension, values=values)
+
+
+def count_breakout_match(*, edm_name: str, exposure_irp_id: str,
+                         source_portfolio_irp_id: str,
+                         filters: dict[str, Sequence[str]]) -> int:
+    return _active().count_breakout_match(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        source_portfolio_irp_id=source_portfolio_irp_id, filters=filters)
+
+
+def create_sub_portfolio(*, edm_name: str, exposure_irp_id: str, name: str,
+                         number: str, description: str,
+                         account_ids: Sequence[int]) -> SubPortfolioResult:
+    return _active().create_sub_portfolio(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id, name=name,
+        number=number, description=description, account_ids=account_ids)
+
+
+def populate_sub_portfolio(*, edm_name: str, exposure_irp_id: str,
+                           portfolio_irp_id: str,
+                           account_ids: Sequence[int]) -> SubPortfolioResult:
+    return _active().populate_sub_portfolio(
+        edm_name=edm_name, exposure_irp_id=exposure_irp_id,
+        portfolio_irp_id=portfolio_irp_id, account_ids=account_ids)
+
+
+def find_portfolio_by_number(*, exposure_irp_id: str,
+                             number: str) -> list[PortfolioHit]:
+    return _active().find_portfolio_by_number(
+        exposure_irp_id=exposure_irp_id, number=number)
+
+
+def find_portfolio_by_name(*, exposure_irp_id: str,
+                           name: str) -> list[PortfolioHit]:
+    return _active().find_portfolio_by_name(
+        exposure_irp_id=exposure_irp_id, name=name)
 
 
 __all__ = [
     "SubmitResult", "JobStatus", "EntityHit", "EdmHit", "RdmHit", "AnalysisHit",
     "PortfolioHit", "ExposureDetail", "TreatyDetail", "AnalysisMetadata",
-    "BreakoutSelection", "SubPortfolioResult", "DuplicatePortfolioNameError",
     "ModelProfileEntry", "OutputProfileEntry", "EventRateSchemeEntry",
     "CurrencyEntry", "CurrencySchemeEntry", "CurrencySchemeVintageEntry",
+    "SubPortfolioResult", "DuplicatePortfolioNameError",
     "IRPGateway", "configure", "reset",
     "submit_edm_import", "submit_rdm_import", "submit_geohaz",
     "search_analyses", "get_import_job", "get_geohaz_job",
     "search_edms", "search_rdms",
     "list_portfolios", "get_portfolio_exposure", "get_edm_exposure_summary",
-    "search_treaties", "get_analysis_metadata", "fetch_portfolio_stamp",
+    "search_treaties", "get_analysis_metadata", "list_model_profiles",
+    "list_output_profiles", "list_event_rate_schemes", "list_currencies",
+    "list_currency_schemes", "list_currency_scheme_vintages",
+    "submit_portfolio_analysis", "get_analysis_job",
+    "get_analysis_stats", "get_analysis_ep",
+    "delete_analysis",
+    "fetch_portfolio_stamp",
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
     "find_portfolio_by_name",
-    "list_model_profiles",
-    "list_output_profiles", "list_event_rate_schemes", "list_currencies",
-    "list_currency_schemes", "list_currency_scheme_vintages",
-    "submit_portfolio_analysis", "get_analysis_job", "get_analysis_by_name",
     "IRPIntegrationError",
 ]
