@@ -29,14 +29,19 @@ function appShell() {
   return {
     searchOpen: false,
     init() {
-      // when the modal opens, focus the input and clear stale results
+      // when the modal opens, focus the input and re-fetch the blank-query
+      // fragment (hint + filter pills) fresh from the server rather than
+      // hardcoding it here, so the pill list stays driven by one source
+      // (search_service.PROVIDER_TYPES)
       this.$watch('searchOpen', (v) => {
         if (v) {
           this.$nextTick(() => {
             const i = document.getElementById('search-input');
             if (i) { i.value = ''; i.focus(); }
+            const box = document.querySelector('.search-box');
+            if (box) Alpine.$data(box).activeType = '';
             const r = document.getElementById('search-results');
-            if (r) r.innerHTML = '<div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>';
+            if (r) htmx.ajax('GET', '/api/search', { target: r, swap: 'innerHTML' });
           });
         }
       });

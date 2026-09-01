@@ -13,7 +13,13 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from app.nav import get_nav_context
-from app.services import analysis_service, edm_service, irp_job_service, submission_service
+from app.services import (
+    analysis_service,
+    edm_service,
+    irp_job_service,
+    search_service,
+    submission_service,
+)
 
 router = APIRouter()
 
@@ -193,6 +199,25 @@ def results_comparison(request: Request, pairs: str = "", submission: str = "",
 @router.get("/account", response_class=HTMLResponse)
 def account(request: Request):
     return _render(request, "pages/account.html", "account")
+
+
+@router.get("/api/search", response_class=HTMLResponse)
+def api_search(request: Request, q: str = "", type: str = ""):
+    """The Ctrl/Cmd-J modal's result fragment (PRD §19). Renders only the
+    results/filter-pill markup — no shell, no nav — for the modal's HTMX swap."""
+    current_user = request.state.user
+    term = q.strip()
+    groups = search_service.global_search(
+        term, user_roles=current_user.role_codes or [], type=type or None,
+    )
+    return _templates(request).TemplateResponse(
+        request, "partials/search_results.html", {
+            "term": term,
+            "groups": groups,
+            "provider_types": search_service.PROVIDER_TYPES,
+            "active_type": type,
+        },
+    )
 
 
 # ── Workflows sidebar ─────────────────────────────────────────────────────────
