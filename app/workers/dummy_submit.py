@@ -25,10 +25,15 @@ from app.workers import dispatch, loader
 
 
 def _submit(rwb_job_type: str, input_data: dict) -> str:
+    dummy_id = str(uuid.uuid4())
     job_id = enqueue_rwb_job(
         requestor_type="analyst_request",
-        requestor_id=str(uuid.uuid4()),
+        requestor_id=dummy_id,
         rwb_job_type=rwb_job_type,
+        link_type="not_applicable",
+        link_id=None,
+        context_type=None,
+        context_id=None,
         input_data=input_data,
     )
     if job_id is None:

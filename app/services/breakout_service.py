@@ -978,7 +978,10 @@ def request_breakout(edm_id: Any, portfolio_id: Any, dimension: str,
     # Idempotent enqueue — one live-job slot per (portfolio, dimension).
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=str(portfolio_id),
-        rwb_job_type=f"run_breakout_{dimension}", input_data=input_data,
+        rwb_job_type=f"run_breakout_{dimension}",
+        link_type="edm", link_id=edm_id,
+        context_type="portfolio", context_id=portfolio_id,
+        input_data=input_data,
         actor_id=str(actor_id))
     if job_id is None:
         return None
@@ -1301,6 +1304,8 @@ def request_group_breakout(edm_id: Any, portfolio_id: Any,
         job_id = rwb_job_service.ensure_pending_rwb_job(
             requestor_type="breakout_group", requestor_id=group_row_id,
             rwb_job_type="run_breakout_custom",
+            link_type="edm", link_id=edm_id,
+            context_type="breakout_group", context_id=group_row_id,
             input_data={
                 "edm_id": str(edm_id), "portfolio_id": str(portfolio_id),
                 "dimension": "custom", "actor_id": str(actor_id),

@@ -207,10 +207,21 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
     ctx = rwb_job_service.load_input_data(rwb_job_id)
     analysis_id = ctx.get("analysis_id")
     row = execute_one(
-        "SELECT 1 AS present FROM irp_analysis WHERE id = :id",
+        "SELECT edm_id, rdm_id FROM irp_analysis WHERE id = :id",
         {"id": analysis_id}, connection="WORKBENCH") if analysis_id else None
     if row is None:
         return runtime.JobResult.ok(skipped="analysis missing")
+    # ck_irp_analysis_origin guarantees at least one of edm_id/rdm_id is set;
+    # neither present means that constraint was bypassed — a real bug, not a
+    # legitimate not_applicable case (CR-04c §6).
+    if row["edm_id"] is not None:
+        link_type, link_id = "edm", row["edm_id"]
+    elif row["rdm_id"] is not None:
+        link_type, link_id = "rdm", row["rdm_id"]
+    else:
+        raise ValueError(
+            f"irp_analysis {analysis_id} has neither edm_id nor rdm_id — "
+            "violates ck_irp_analysis_origin")
 
     rm_id = ctx.get("rm_analysis_id")
     if not rm_id:
@@ -245,6 +256,8 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
     retrieval_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_analysis", requestor_id=analysis_id,
         rwb_job_type="retrieve_analysis_results",
+        link_type=link_type, link_id=link_id,
+        context_type="irp_analysis", context_id=analysis_id,
         input_data={"analysis_id": analysis_id})
     dispatch.dispatch(rwb_job_id=retrieval_id,
                       rwb_job_type="retrieve_analysis_results")
