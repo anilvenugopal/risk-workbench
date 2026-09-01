@@ -4,7 +4,7 @@
 
 ## Status
 
-**Phase:** Ready for tasks
+**Phase:** Phase 1 complete — unit and SQL Server tiers both green.
 **Blocking:** Nothing. Scoped to Phase 1 only — see Out of scope.
 
 ## Outcome
