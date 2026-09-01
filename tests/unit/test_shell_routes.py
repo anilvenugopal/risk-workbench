@@ -338,3 +338,56 @@ class TestResultsAnalysesPage:
         resp = client.get("/results/analyses")
         assert resp.status_code == 200
         assert "No analyses to display" in resp.text
+
+
+# ── PRD §19: global search (Ctrl/Cmd-J) ──────────────────────────────────────
+
+class TestApiSearch:
+    def test_blank_query_renders_hint(self):
+        resp = TestClient(_make_app()).get("/api/search")
+        assert resp.status_code == 200
+        assert "Type to search" in resp.text
+
+    def test_no_results_renders_no_results_hint(self, monkeypatch):
+        from app.services import search_service
+
+        monkeypatch.setattr(search_service, "global_search", lambda *a, **k: [])
+        resp = TestClient(_make_app()).get("/api/search?q=nonexistent")
+        assert resp.status_code == 200
+        assert "No results for" in resp.text
+
+    def test_groups_render_as_result_items(self, monkeypatch):
+        from app.services import search_service
+
+        def fake_search(term, *, user_roles, type=None):
+            return [search_service.SearchGroup(
+                type="edms", title="EDMs",
+                items=[search_service.SearchItem(
+                    label="Coastal HO 2026", href="/edms/abc", meta="EDM")],
+            )]
+
+        monkeypatch.setattr(search_service, "global_search", fake_search)
+        resp = TestClient(_make_app()).get("/api/search?q=coastal")
+        assert resp.status_code == 200
+        assert "Coastal HO 2026" in resp.text
+        assert 'href="/edms/abc"' in resp.text
+
+    def test_filter_pills_render_one_per_provider_type(self):
+        from app.services import search_service
+
+        resp = TestClient(_make_app()).get("/api/search")
+        for _type, title in search_service.PROVIDER_TYPES:
+            assert title in resp.text
+
+    def test_type_param_is_passed_through_to_the_provider(self, monkeypatch):
+        from app.services import search_service
+
+        seen = {}
+
+        def fake_search(term, *, user_roles, type=None):
+            seen["type"] = type
+            return []
+
+        monkeypatch.setattr(search_service, "global_search", fake_search)
+        TestClient(_make_app()).get("/api/search?q=coastal&type=edms")
+        assert seen["type"] == "edms"

@@ -110,16 +110,18 @@
   {# ── Search modal ── #}
   <div class="search-modal" x-show="searchOpen" x-cloak @click.self="searchOpen = false"
        @keydown.escape.window="searchOpen = false" x-transition.opacity>
-    <div class="search-box" @click.stop>
+    <div class="search-box" @click.stop x-data="{ activeType: '' }">
       <div class="search-box__bar">
         <span class="search-box__ico">⚲</span>
         <input id="search-input" class="search-box__input" type="text" autocomplete="off"
                placeholder="Search submissions, workflows, templates…"
                hx-get="/api/search" hx-trigger="input changed delay:200ms"
-               hx-target="#search-results" name="q" x-ref="searchInput">
+               hx-target="#search-results"
+               hx-vals="js:{type: Alpine.$data(document.querySelector('.search-box')).activeType}"
+               name="q" x-ref="searchInput">
         <span class="search-box__esc">esc</span>
       </div>
-      <div id="search-results" class="search-box__results">
+      <div id="search-results">
         <div class="sr-hint">Type to search submissions, workflows, templates, and navigation.</div>
       </div>
     </div>
