@@ -204,10 +204,13 @@ def test_broker_results_pending_then_failed_with_reason(iteration2_db):
     pending_id = _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
     failed_id = _analysis(rdm_id=rdm, edm_id=edm, irp_id="2")
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'rdm', :rdm, 'irp_analysis', :rid, "
         "'retrieve_analysis_results', 'failed', 'results read failed for WX')",
-        {"id": str(uuid.uuid4()), "rid": failed_id}, connection="WORKBENCH")
+        {"id": str(uuid.uuid4()), "rid": failed_id, "rdm": rdm},
+        connection="WORKBENCH")
 
     [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
     by_id = {a.id: a for a in g.analyses}

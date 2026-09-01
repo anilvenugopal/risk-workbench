@@ -517,12 +517,16 @@ def _extract(gr_aal=38270.59, gr_std=2645726.19):
     }
 
 
-def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve (GR)"):
+def _failed_retrieval(analysis_id: str, edm_id: str,
+                      detail="RM returned 500 on EP curve (GR)"):
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'edm', :edm, 'irp_analysis', :rid, "
         "'retrieve_analysis_results', 'failed', :detail)",
-        {"id": str(uuid.uuid4()), "rid": analysis_id, "detail": detail},
+        {"id": str(uuid.uuid4()), "rid": analysis_id, "edm": edm_id,
+         "detail": detail},
         connection="WORKBENCH")
 
 
@@ -566,7 +570,7 @@ def test_failed_retrieval_reads_failed_with_reason_and_run_stays_finished(
     edm = _edm()
     analysis = _executed(edm_id=edm, status_code="ready", irp_id="9001")
     _job(analysis_id=analysis, status="FINISHED")
-    _failed_retrieval(analysis)
+    _failed_retrieval(analysis, edm)
 
     [row] = analysis_service.list_executed_analyses(edm_id=edm)
     assert row.results_state == "failed"
@@ -721,7 +725,7 @@ def test_results_columns_broker_row_and_failed_retrieval_join(iteration2_db):
     rdm = _mk("irp_rdm", name="Acme RDM", status="ready")
     broker = _mk("irp_analysis", edm_id=edm, rdm_id=rdm, irp_id="88215",
                  name="FL HU Gross 2026", status_code="ready")
-    _failed_retrieval(broker)
+    _failed_retrieval(broker, edm)
 
     columns, missing = analysis_service.list_results_columns(
         analysis_ids=[broker])
@@ -826,7 +830,7 @@ def _comparable_fixture(iteration2_db):
     broker_failed = _broker_handle(rdm_id=rdm_two, edm_id=edm_one,
                                    irp_id="9002", name="Broker Two",
                                    currency=None)
-    _failed_retrieval(broker_failed)
+    _failed_retrieval(broker_failed, edm_one)
     return SimpleNamespace(
         submission=submission, edm_one=edm_one, edm_two=edm_two,
         own_old=own_old, own_new=own_new, broker_rep=broker_rep)

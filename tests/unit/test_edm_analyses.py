@@ -255,12 +255,16 @@ def test_expanded_row_shows_results_pending_while_retrieval_runs(client):
 # ── the merged analyses section (spec 011 US3, T031) ──────────────────────────
 
 
-def _failed_retrieval(analysis_id: str, detail="RM returned 500 on EP curve"):
+def _failed_retrieval(analysis_id: str, edm_id: str,
+                      detail="RM returned 500 on EP curve"):
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, error_detail) VALUES (:id, 'irp_analysis', :rid, "
+        "'edm', :edm, 'irp_analysis', :rid, "
         "'retrieve_analysis_results', 'failed', :detail)",
-        {"id": str(uuid.uuid4()), "rid": analysis_id, "detail": detail},
+        {"id": str(uuid.uuid4()), "rid": analysis_id, "edm": edm_id,
+         "detail": detail},
         connection="WORKBENCH")
 
 
@@ -272,7 +276,7 @@ def test_merged_section_columns_and_the_four_aal_states(client):
                              "regionCode": "NA", "region": "North America"})
     _seed_executed(edm_id=edm_id, name="Awaiting retrieval")
     failed = _seed_executed(edm_id=edm_id, name="Retrieval failed")
-    _failed_retrieval(failed)
+    _failed_retrieval(failed, edm_id)
     _seed_executed(edm_id=edm_id, name="Still running", job_status="RUNNING", status_code="running")
 
     html = client.get(f"/edms/{edm_id}/analyses").text
