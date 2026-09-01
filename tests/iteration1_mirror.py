@@ -96,6 +96,12 @@ ITERATION2_SCHEMA = [
     """CREATE TABLE rwb_job_requestor_type_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
+    """CREATE TABLE rwb_job_link_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
+    """CREATE TABLE rwb_job_context_type_kind (
+        code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
+    )""",
     """CREATE TABLE rwb_job_status_kind (
         code TEXT PRIMARY KEY, label TEXT, sort_order INTEGER, inserted_at TEXT
     )""",
@@ -120,6 +126,8 @@ ITERATION2_SCHEMA = [
     )""",
     """CREATE TABLE rwb_job (
         id TEXT PRIMARY KEY, requestor_type TEXT, requestor_id TEXT,
+        link_type TEXT NOT NULL, link_id TEXT,
+        context_type TEXT, context_id TEXT,
         rwb_job_type TEXT, status_code TEXT, input_data TEXT, output_data TEXT,
         error_detail TEXT, attempt_count INTEGER, claimed_by TEXT,
         correlation_id TEXT,
@@ -302,6 +310,13 @@ RWB_JOB_REQUESTOR_TYPE_SEED = [("irp_job", "IRP Job", 10),
                                ("rwb_job", "RWB Job", 30),
                                ("breakout_group", "Breakout Group", 40),  # T-13
                                ("irp_analysis", "IRP Analysis", 50)]  # spec 011 T-01
+RWB_JOB_LINK_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
+                          ("not_applicable", "Not applicable", 900)]  # CR-04c
+RWB_JOB_CONTEXT_TYPE_SEED = [("edm", "EDM", 10), ("rdm", "RDM", 20),
+                             ("irp_analysis", "IRP Analysis", 30),
+                             ("portfolio", "Portfolio", 40),
+                             ("breakout_group", "Breakout Group", 50),
+                             ("execution", "Execution", 60)]  # CR-04c
 RWB_JOB_STATUS_SEED = [("pending", "Pending", 10), ("running", "Running", 20),
                        ("succeeded", "Succeeded", 30), ("failed", "Failed", 40)]
 IRP_ANALYSIS_STATUS_SEED = [("pending", "Pending", 10), ("ready", "Ready", 30),
@@ -329,6 +344,7 @@ EXACT_MATCH_TABLES = (
     # Iteration 2 — irp_job / rwb_job families (full mirrors, exact match).
     "irp_job_type_kind", "irp_job_resource_type_kind", "rwb_job_type_kind",
     "rwb_job_requestor_type_kind", "rwb_job_status_kind", "irp_analysis_status_kind",
+    "rwb_job_link_type_kind", "rwb_job_context_type_kind",
     "irp_job", "irp_job_resource", "rwb_job", "rwb_job_heartbeat", "irp_analysis",
     # Iteration 3 — EDM detail entities (spec 004; full mirrors, exact match).
     "irp_portfolio", "irp_treaty",

@@ -71,7 +71,10 @@ def test_ineligible_portfolio_rejects_all_jobs(iteration2_db, blocker):
     else:
         rwb_job_service.ensure_pending_rwb_job(
             requestor_type="analyst_request", requestor_id=blocked,
-            rwb_job_type="run_geohaz", input_data={})
+            rwb_job_type="run_geohaz",
+            link_type="edm", link_id=edm_id,
+            context_type="portfolio", context_id=blocked,
+            input_data={})
 
     before = _job_count()
     with pytest.raises(GeohazLaunchConflict, match="Portfolio 2"):
@@ -148,7 +151,10 @@ def test_read_shows_live_status_then_stored_hazard_version(iteration2_db):
     submitting, submitted, live, succeeded, failed, never = portfolio_ids
     rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=submitting,
-        rwb_job_type="run_geohaz", input_data={})
+        rwb_job_type="run_geohaz",
+        link_type="edm", link_id=edm_id,
+        context_type="portfolio", context_id=submitting,
+        input_data={})
     irp_job_service.record_submitted_irp_job(
         irp_job_type="geohaz", irp_edm_id=edm_id,
         irp_portfolio_id=submitted, irp_id="909", status="SUBMITTED")

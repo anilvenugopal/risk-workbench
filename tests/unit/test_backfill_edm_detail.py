@@ -557,7 +557,10 @@ def test_missing_edm_and_no_irp_id_skip_gracefully(iteration2_db, fake_irp, driv
                                  actor_id=iteration2_db.user_a)
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=res.entity_id,
-        rwb_job_type="backfill_edm_detail", input_data={"edm_id": res.entity_id})
+        rwb_job_type="backfill_edm_detail",
+        link_type="edm", link_id=res.entity_id,
+        context_type="edm", context_id=res.entity_id,
+        input_data={"edm_id": res.entity_id})
     entity_jobs.run_one(rwb_job_id=job_id, rwb_job_type="backfill_edm_detail")
     assert _portfolio_rows(res.entity_id) == []
     job = execute_one("SELECT status_code FROM rwb_job WHERE id=:i",

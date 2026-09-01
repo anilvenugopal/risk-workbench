@@ -252,10 +252,13 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(iteration2_db, fa
         execution_id=plan["execution_id"], actor_id=iteration2_db.user_a)
     job_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
         "status_code, input_data) VALUES (:id, 'analyst_request', :rid, "
+        "'edm', :edm, 'execution', :rid, "
         "'execute_analysis_batch', 'pending', :input)",
-        {"id": job_id, "rid": plan["execution_id"], "input": json.dumps(plan)},
+        {"id": job_id, "rid": plan["execution_id"], "edm": plan["edm_id"],
+         "input": json.dumps(plan)},
         connection="WORKBENCH")
 
     analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="execute_analysis_batch",
@@ -288,10 +291,12 @@ def test_finalize_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
 
     job_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
-        "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
-        "'finalize_analysis', 'pending', :input)",
-        {"id": job_id, "rid": str(uuid.uuid4()),
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, input_data) VALUES (:id, 'irp_job', :rid, 'edm', :edm, "
+        "'irp_analysis', :aid, 'finalize_analysis', 'pending', :input)",
+        {"id": job_id, "rid": str(uuid.uuid4()), "edm": edm_id,
+         "aid": analysis["id"],
          "input": json.dumps({"analysis_id": analysis["id"],
                               "rm_analysis_id": "9001"})},
         connection="WORKBENCH")
@@ -317,13 +322,15 @@ def test_finalize_resolves_by_job_payload_analysis_id(iteration2_db, fake_irp):
     assert resource["resource_uri"] == "/irp/analysis/1"
 
 
-def _run_finalize(input_data: dict) -> str:
+def _run_finalize(input_data: dict, edm_id: str) -> str:
     job_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type, "
-        "status_code, input_data) VALUES (:id, 'irp_job', :rid, "
-        "'finalize_analysis', 'pending', :input)",
-        {"id": job_id, "rid": str(uuid.uuid4()),
+        "INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, "
+        "link_id, context_type, context_id, rwb_job_type, "
+        "status_code, input_data) VALUES (:id, 'irp_job', :rid, 'edm', :edm, "
+        "'irp_analysis', :aid, 'finalize_analysis', 'pending', :input)",
+        {"id": job_id, "rid": str(uuid.uuid4()), "edm": edm_id,
+         "aid": input_data["analysis_id"],
          "input": json.dumps(input_data)},
         connection="WORKBENCH")
     analysis_jobs.run_one(rwb_job_id=job_id, rwb_job_type="finalize_analysis",
@@ -357,7 +364,7 @@ def test_finalize_without_analysis_id_fails_the_rwb_job(iteration2_db, fake_irp)
 
     # completion payload carried no tasks[].output.log.analysisId
     job_id = _run_finalize({"analysis_id": analysis["id"],
-                            "rm_analysis_id": None})
+                            "rm_analysis_id": None}, edm_id)
     _assert_finalize_failed(job_id, analysis["id"], "no analysisId")
 
 
@@ -373,7 +380,7 @@ def test_finalize_metadata_failure_fails_the_rwb_job(iteration2_db, fake_irp):
     fake_irp.raise_on_analysis_metadata = True
 
     job_id = _run_finalize({"analysis_id": analysis["id"],
-                            "rm_analysis_id": "9001"})
+                            "rm_analysis_id": "9001"}, edm_id)
     _assert_finalize_failed(job_id, analysis["id"], "analysis resolve failed")
     retained = execute_one(
         "SELECT irp_id FROM irp_analysis WHERE id = :id",
@@ -473,9 +480,15 @@ def _seed_finished_analysis(*, irp_id="9001", portfolio_irp_id="555",
 
 
 def _run_retrieval(analysis_id: str) -> dict:
+    row = execute_one("SELECT edm_id, rdm_id FROM irp_analysis WHERE id = :id",
+                      {"id": analysis_id}, connection="WORKBENCH")
+    link_type = "edm" if row["edm_id"] is not None else "rdm"
+    link_id = row["edm_id"] if row["edm_id"] is not None else row["rdm_id"]
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_analysis", requestor_id=analysis_id,
         rwb_job_type="retrieve_analysis_results",
+        link_type=link_type, link_id=link_id,
+        context_type="irp_analysis", context_id=analysis_id,
         input_data={"analysis_id": analysis_id})
     analysis_jobs.run_one(rwb_job_id=job_id,
                           rwb_job_type="retrieve_analysis_results",
@@ -650,11 +663,11 @@ def test_finalize_success_chains_one_retrieval_and_a_refire_is_a_noop(
                           exposure_name="EDM One",
                           metadata={"appAnalysisId": 41867})
 
-    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)
     assert len(_retrieval_jobs_for(analysis["id"])) == 1
 
     # re-fired trigger: the UNIQUE key makes the insert a no-op (FR-006)
-    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"})
+    _run_finalize({"analysis_id": analysis["id"], "rm_analysis_id": "9001"}, edm_id)
     assert len(_retrieval_jobs_for(analysis["id"])) == 1
 
 

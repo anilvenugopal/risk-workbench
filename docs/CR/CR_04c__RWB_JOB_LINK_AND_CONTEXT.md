@@ -1,7 +1,7 @@
 # Change Request — Add link/context fields to `rwb_job`, retire the overloaded `requestor_id`
 
 **ID:** CR-04c
-**Status:** Draft — Phase 1 scoped, Phase 2 not yet planned in detail
+**Status:** Phase 1 complete (unit + SQL Server tiers green), pending review. Phase 2 not yet planned in detail.
 **Applies to:** `alembic/versions/`, `app/services/rwb_job_service.py`, every enqueue call site listed in §4, `docs/DATA_MODEL.md`
 
 ## 1. Summary
@@ -400,13 +400,15 @@ Ordered; each step is its own commit; verify with `uv run pytest tests/unit`
    (`irp_analysis_id` etc.). **Does not run on an existing DB** — Alembic
    tracks applied state via one `alembic_version` row (`"0001"`); no new
    revision id here means `upgrade head` on an already-`0001` DB is a no-op.
-2. `infra/scripts/patches/2026_08_rwb_job_link_context.sql` (new, plain SQL,
-   not an Alembic revision) — brings an existing, non-empty DB to the same
-   shape without dropping data. Contains, in order: column adds, kind-table
-   create+seed, backfill (T4), FK adds (T5). Every statement guarded
-   (`IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE ...)`, `IF OBJECT_ID(...)
-   IS NULL`, `MERGE ... WHEN NOT MATCHED` — same idiom as
-   `infra/scripts/seed_db.py`) so re-running it is a no-op.
+2. `infra/scripts/patches/2026_08_rwb_job_link_context_{1..6}_*.sql` (new,
+   plain SQL, not an Alembic revision) — six files, run in that numeric
+   order, bringing an existing, non-empty DB to the same shape without
+   dropping data: `_1_columns`, `_2_kind_tables`, `_3_seed_kinds`,
+   `_4_backfill` (T4, see §10), `_5_not_null`, `_6_fk_constraints`. Split
+   into separate files because SQL Server compiles a batch's column
+   references before an earlier statement in the same batch takes effect —
+   one combined file failed with "Invalid column name". Every file is
+   guarded so re-running it is a no-op.
 
 T1–T3 = artifact 1 (write once). T4–T5 = artifact 2 (write once, run against
 any non-empty environment, including yours, instead of drop-rebuild).
@@ -861,7 +863,49 @@ mistake §6 corrects.
 **Verify**: `uv run pytest tests/unit` — full pass, this is the gate for T1-T6
 being complete.
 
-## 10. What Phase 1 explicitly leaves for later (do not attempt in this pass)
+## 10. Backfill logic reference (T4), one row per SQL block
+
+Verified 2026-09-01 against the actual current production code at every call
+site listed in §4 — not against this document's own earlier draft of the
+SQL. Confirmed correct: every JSON key/casing (`$.analysis_id`, `$.edm_id`,
+`$.execution_id`) matches what the real enqueue code writes, every
+multi-producer `(requestor_type, rwb_job_type)` combination is covered by
+one join/filter shape shared by all its producers, and no two blocks can
+double-process the same row (each is scoped by a `requestor_type` no other
+block claims, and every block skips rows another block already resolved via
+`link_type IS NULL`).
+
+Find each row in `infra/scripts/patches/2026_08_rwb_job_link_context_4_backfill.sql`
+by searching for the exact text in the "Find by searching for" column — each
+string appears exactly once in that file, in its `WHERE` clause.
+
+| Find by searching for (in `_4_backfill.sql`) | Producing call site(s), §4 # | `link_type` / `link_id` | `context_type` / `context_id` |
+|---|---|---|---|
+| `'backfill_edm_detail' AND rj.link_type IS NULL`<br>— **first** occurrence in the file (the block just below `-- irp_job-triggered EDM sites`) | #4 (EDM-import terminal), #7 (geohaz terminal) | `edm` / `irp_job.irp_edm_id` | `edm` / `irp_job.irp_edm_id` |
+| `'backfill_rdm_analyses' AND rj.link_type IS NULL`<br>(the one joined to `irp_job`) | #5 (RDM-import terminal) | `rdm` / `irp_job.irp_rdm_id` | `rdm` / `irp_job.irp_rdm_id` |
+| `'finalize_analysis' AND rj.link_type IS NULL` | #6 (analysis terminal) | `edm` / `irp_job.irp_edm_id` | `irp_analysis` / `input_data.analysis_id` |
+| `'retrieve_analysis_results' AND rj.link_type IS NULL` | #10 (RDM-backfill chaining), #11 (finalize chaining) | `edm` if `irp_analysis.edm_id` set, else `rdm` / that column | `irp_analysis` / `irp_analysis.id` |
+| `'run_breakout_custom' AND rj.link_type IS NULL` | #13 (custom breakout) | `edm` / `irp_portfolio.edm_id` via `breakout_group.source_portfolio_id` | `breakout_group` / `breakout_group.id` |
+| `IN ('run_geohaz', 'run_breakout_lob', ...)` | #12 (quick breakout), #14 (geohaz) | `edm` / `irp_portfolio.edm_id` via `requestor_id` | `portfolio` / `requestor_id` |
+| `IN ('upload_edm', 'backfill_edm_detail')`<br>(the one with `EXISTS (SELECT 1 FROM irp_edm ...)`) | #1–3 (EDM upload/retry/replace), #15 (EDM sync) | `edm` / `requestor_id` | `edm` / `requestor_id` |
+| `IN ('upload_rdm', 'backfill_rdm_analyses')`<br>(the one with `EXISTS (SELECT 1 FROM irp_rdm ...)`) | #1–3 (RDM upload/retry/replace), #16 (RDM sync) | `rdm` / `requestor_id` | `rdm` / `requestor_id` |
+| `JOIN rwb_job parent ON`<br>(also targets `backfill_edm_detail` — this is its **second**, distinct occurrence in the file) | #18 (breakout-completion chaining) | `edm` / parent job's `input_data.edm_id` | `edm` / parent job's `input_data.edm_id` |
+| `'execute_analysis_batch' AND rj.link_type IS NULL` | #9 (analysis batch execution) | `edm` / `input_data.edm_id` | `execution` / `input_data.execution_id` |
+| `IN ('sync_irp_metadata', 'dummy_wait', 'dummy_fail')` | #17 (metadata sync), `dummy_submit.py` | `not_applicable` / `NULL` | `NULL` / `NULL` |
+| *(nothing — no matching text exists)* | any `(requestor_type, rwb_job_type)` not covered above | none found in current code | left `NULL` — the script's own verify query must return zero rows before step 5 runs | left `NULL` |
+
+**One open item, not a logic defect:** `rwb_job_type_kind` seeds three codes
+with no producing call site anywhere in the current codebase —
+`download_export_file`, `push_results_to_loss_repo`, `notify_analyst`. No
+backfill block targets them. If any historical row ever used one of these
+types, it is left with `link_type = NULL` and step 5's guard (`THROW` if any
+`NULL` row exists) stops the script rather than silently accepting it — this
+is the intended behavior (§9 T4: "a real gap... not a row to silently paper
+over"), not something to add a catch-all for. Confirmed harmless for an
+empty `rwb_job` table; unverified for any environment with historical rows,
+where the step 4 verify query must be run and return zero rows before step 5.
+
+## 11. What Phase 1 explicitly leaves for later (do not attempt in this pass)
 
 - Dropping `uq_rwb_job_requestor_type` or adding the new
   `(context_type, context_id, rwb_job_type)` constraint — §8's open question;
@@ -872,7 +916,7 @@ being complete.
 - The `012-grouping-execution` branch (PR #84) — handled by the separate
   follow-on document referenced in §3, not by this task list.
 
-## 11. What this CR deliberately does not do
+## 12. What this CR deliberately does not do
 
 - Does not add a `submission_id` column to `rwb_job`. `submission_edm` and
   `submission_rdm` are many-to-many join tables (an EDM/RDM can belong to

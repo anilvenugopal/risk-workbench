@@ -114,16 +114,23 @@ def test_loss_results_round_trips_as_json(scratch_analysis):
 def test_retrieval_enqueue_dedups_under_the_real_unique_key(scratch_analysis):
     """FR-006: a re-fired retrieval trigger is a no-op insert against the real
     ``UNIQUE(requestor_type, requestor_id, rwb_job_type)`` key."""
+    edm_id = execute_scalar(
+        "SELECT edm_id FROM irp_analysis WHERE id = :i",
+        {"i": scratch_analysis}, connection="WORKBENCH")
     try:
         first = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_analysis", requestor_id=scratch_analysis,
             rwb_job_type="retrieve_analysis_results",
+            link_type="edm", link_id=edm_id,
+            context_type="irp_analysis", context_id=scratch_analysis,
             input_data={"analysis_id": scratch_analysis})
         assert first is not None
 
         second = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_analysis", requestor_id=scratch_analysis,
             rwb_job_type="retrieve_analysis_results",
+            link_type="edm", link_id=edm_id,
+            context_type="irp_analysis", context_id=scratch_analysis,
             input_data={"analysis_id": scratch_analysis})
         assert second is None
 
