@@ -27,10 +27,12 @@ from app.services._common import _json, _uid, _utcnow
 from db import execute, execute_command, execute_one, get_connection, is_unique_violation
 
 _INSERT_IF_ABSENT = """
-    INSERT INTO rwb_job (id, requestor_type, requestor_id, rwb_job_type,
-        status_code, input_data, attempt_count, correlation_id, inserted_at,
-        updated_at, inserted_by, updated_by)
-    SELECT :id, :rt, :rid, :jt, 'pending', :input, 0, :cid, :now, :now, :by, :by
+    INSERT INTO rwb_job (id, requestor_type, requestor_id, link_type, link_id,
+        context_type, context_id, rwb_job_type, status_code, input_data,
+        attempt_count, correlation_id, inserted_at, updated_at, inserted_by,
+        updated_by)
+    SELECT :id, :rt, :rid, :lt, :lid, :ct, :ctxid, :jt, 'pending', :input, 0,
+        :cid, :now, :now, :by, :by
     WHERE NOT EXISTS (
         SELECT 1 FROM rwb_job
         WHERE requestor_type = :rt AND requestor_id = :rid AND rwb_job_type = :jt
@@ -62,8 +64,9 @@ def _insert_head(params: dict, conn) -> bool:
 
 def enqueue_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
-    input_data: dict | None = None, actor_id: Any | None = None,
-    correlation_id: str | None = None, conn=None,
+    link_type: str, link_id: Any | None, context_type: str | None,
+    context_id: Any | None, input_data: dict | None = None,
+    actor_id: Any | None = None, correlation_id: str | None = None, conn=None,
 ) -> str | None:
     """Idempotent insert on ``UNIQUE(requestor_type, requestor_id, rwb_job_type)``
     (FR-043 / SC-014). Returns the new job id, or ``None`` if a matching row already
@@ -71,6 +74,13 @@ def enqueue_rwb_job(
     reconciler re-enqueue is a no-op. Never resurrects a terminal row (that is the
     fan-in idempotency backbone the poller/workers rely on); the request path uses
     ``ensure_pending_rwb_job``.
+
+    ``link_type``/``link_id`` name the EDM or RDM this job concerns (CR-04c) —
+    always required; ``link_type="not_applicable"`` covers job types with no
+    EDM/RDM. ``context_type``/``context_id`` name what this job's own operation
+    acts on, derived from the worker body — never copied from ``requestor_id``.
+    Both are required keyword arguments but accept ``None`` for job types that
+    act on no single application row.
 
     ``correlation_id`` defaults to the bound log context's — the request middleware
     (web tier) or the per-job bind (poller/worker chaining) has stamped it, so call
@@ -80,6 +90,9 @@ def enqueue_rwb_job(
     job_id = str(uuid.uuid4())
     params = {
         "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
+        "lt": link_type, "lid": (str(link_id) if link_id is not None else None),
+        "ct": context_type,
+        "ctxid": (str(context_id) if context_id is not None else None),
         "jt": rwb_job_type, "input": _json(input_data), "now": _utcnow(),
         "cid": correlation_id or log_context.correlation_id(),
         "by": (str(actor_id) if actor_id is not None else None),
@@ -89,15 +102,22 @@ def enqueue_rwb_job(
 
 def ensure_pending_rwb_job(
     *, requestor_type: str, requestor_id: Any, rwb_job_type: str,
-    input_data: dict | None = None, actor_id: Any | None = None,
-    correlation_id: str | None = None,
+    link_type: str, link_id: Any | None, context_type: str | None,
+    context_id: Any | None, input_data: dict | None = None,
+    actor_id: Any | None = None, correlation_id: str | None = None,
 ) -> str | None:
     """Request-path (re)enqueue for retry / re-sync (FR-044/FR-045). Insert a fresh
     ``pending`` head if none exists; if the existing head is **terminal**
     (``succeeded``/``failed``) reset it to ``pending`` for a new attempt; if it is
-    already ``pending``/``running`` skip it (return ``None``). This is the deliberate
-    counterpart to ``enqueue_rwb_job`` — that one never revives a terminal row so a
-    mechanical re-poll cannot; this one does, because an analyst asked for it.
+    already ``pending``/``running``/``cancelled`` skip it (return ``None``). This is
+    the deliberate counterpart to ``enqueue_rwb_job`` — that one never revives a
+    terminal row so a mechanical re-poll cannot; this one does, because an analyst
+    asked for it.
+
+    ``link_type``/``link_id``/``context_type``/``context_id`` — see
+    ``enqueue_rwb_job`` (CR-04c). A revived row's four fields are re-stamped from
+    this call's values, replacing rather than merging with the prior row's, the
+    same way ``input_data`` is fully replaced.
 
     A revived row is re-stamped with the *retrying* request's correlation id
     (default: the bound log context's) — a retry is a new causal chain."""
@@ -118,6 +138,10 @@ def ensure_pending_rwb_job(
                 # in flight", the same outcome as the pending/running skip below.
                 if _insert_head({
                     "id": job_id, "rt": requestor_type, "rid": str(requestor_id),
+                    "lt": link_type,
+                    "lid": (str(link_id) if link_id is not None else None),
+                    "ct": context_type,
+                    "ctxid": (str(context_id) if context_id is not None else None),
                     "jt": rwb_job_type, "input": _json(input_data), "now": now,
                     "cid": correlation_id,
                     "by": (str(actor_id) if actor_id is not None else None)}, conn):
@@ -131,12 +155,17 @@ def ensure_pending_rwb_job(
                 SET status_code = 'pending', claimed_by = NULL, output_data = NULL,
                     error_detail = NULL, completed_at = NULL, submitted_at = NULL,
                     input_data = :input, attempt_count = attempt_count + 1,
-                    correlation_id = :cid, updated_at = :now, updated_by = :by
+                    correlation_id = :cid, updated_at = :now, updated_by = :by,
+                    link_type = :lt, link_id = :lid, context_type = :ct,
+                    context_id = :ctxid
                 WHERE id = :id
                 """
             ), {"input": _json(input_data), "now": now, "cid": correlation_id,
                 "by": (str(actor_id) if actor_id is not None else None),
-                "id": str(row["id"])})
+                "id": str(row["id"]), "lt": link_type,
+                "lid": (str(link_id) if link_id is not None else None),
+                "ct": context_type,
+                "ctxid": (str(context_id) if context_id is not None else None)})
             # _uid, not str: uniqueidentifier reads back UPPERCASE, and every id
             # a service hands out is lowercase (see _common._uid).
             return _uid(row["id"])
@@ -183,7 +212,8 @@ def get_rwb_job(*, rwb_job_id: Any) -> dict | None:
     ``None`` when the id is unknown."""
     return execute_one(
         """
-        SELECT id, requestor_type, requestor_id, rwb_job_type, status_code,
+        SELECT id, requestor_type, requestor_id, link_type, link_id,
+               context_type, context_id, rwb_job_type, status_code,
                attempt_count, correlation_id
         FROM rwb_job WHERE id = :id
         """,
@@ -201,7 +231,8 @@ def list_rwb_jobs_for_monitoring() -> list[dict]:
     at the instant the query ran."""
     return execute(
         """
-        SELECT id, requestor_type, requestor_id, rwb_job_type, status_code,
+        SELECT id, requestor_type, requestor_id, link_type, link_id,
+               context_type, context_id, rwb_job_type, status_code,
                error_detail, attempt_count, submitted_at, completed_at,
                inserted_at, updated_at
         FROM rwb_job
@@ -222,7 +253,8 @@ def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
     cleared) — no new row, no new dedup logic. Returns ``None`` if the row is
     unknown or is not failed."""
     row = execute_one(
-        "SELECT requestor_type, requestor_id, rwb_job_type, input_data "
+        "SELECT requestor_type, requestor_id, rwb_job_type, input_data, "
+        "link_type, link_id, context_type, context_id "
         "FROM rwb_job WHERE id = :id AND status_code = 'failed'",
         {"id": str(rwb_job_id)},
         connection="WORKBENCH",
@@ -234,6 +266,10 @@ def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:
         requestor_type=row["requestor_type"],
         requestor_id=row["requestor_id"],
         rwb_job_type=row["rwb_job_type"],
+        link_type=row["link_type"],
+        link_id=row["link_id"],
+        context_type=row["context_type"],
+        context_id=row["context_id"],
         input_data=input_data,
     )
 

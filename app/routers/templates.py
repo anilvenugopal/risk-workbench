@@ -415,6 +415,8 @@ def sync_metadata(
         requestor_type="analyst_request",
         requestor_id=_METADATA_SYNC_REQUESTOR_ID,
         rwb_job_type="sync_irp_metadata",
+        link_type="not_applicable", link_id=None,
+        context_type=None, context_id=None,
         actor_id=request.state.user.id,
     )
     if job_id is None:

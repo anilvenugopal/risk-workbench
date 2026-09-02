@@ -26,6 +26,12 @@ from app.services.rwb_job_service import (
 from app.workers.runtime import upsert_heartbeat
 from db import execute_one, execute_scalar
 
+# Filler for tests exercising dedup/claim/reconcile/cancel mechanics that
+# don't care about link/context semantics (CR-04c) — a real EDM/RDM id would
+# be noise here.
+_NO_LINK = {"link_type": "not_applicable", "link_id": None,
+           "context_type": None, "context_id": None}
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
@@ -36,9 +42,9 @@ def _utcnow() -> datetime:
 def test_enqueue_is_idempotent_on_composite_key(workbench_db):
     rid = str(uuid.uuid4())
     first = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                            rwb_job_type="upload_edm", input_data={"n": 1})
+                            rwb_job_type="upload_edm", input_data={"n": 1}, **_NO_LINK)
     dup = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                          rwb_job_type="upload_edm", input_data={"n": 2})
+                          rwb_job_type="upload_edm", input_data={"n": 2}, **_NO_LINK)
     assert first is not None
     assert dup is None  # dedup hit — nothing inserted
     n = execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
@@ -49,9 +55,9 @@ def test_enqueue_is_idempotent_on_composite_key(workbench_db):
 def test_enqueue_distinct_type_not_deduped(workbench_db):
     rid = str(uuid.uuid4())
     a = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                        rwb_job_type="upload_edm")
+                        rwb_job_type="upload_edm", **_NO_LINK)
     b = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                        rwb_job_type="upload_rdm")
+                        rwb_job_type="upload_rdm", **_NO_LINK)
     assert a is not None and b is not None and a != b
 
 
@@ -69,12 +75,12 @@ def test_enqueue_absorbs_unique_violation_request_path(workbench_db, monkeypatch
     from app.services import rwb_job_service
     rid = str(uuid.uuid4())
     assert enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                           rwb_job_type="upload_edm") is not None
+                           rwb_job_type="upload_edm", **_NO_LINK) is not None
     monkeypatch.setattr(rwb_job_service, "_INSERT_IF_ABSENT", _plain_insert_sql())
     # The losing insert hits the UNIQUE key; it must be absorbed as a dedup hit, not
     # raise (an unhandled IntegrityError would be a 500 on the request path).
     dup = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=rid,
-                          rwb_job_type="upload_edm")
+                          rwb_job_type="upload_edm", **_NO_LINK)
     assert dup is None
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
                           {"r": rid}, connection="WORKBENCH") == 1
@@ -88,12 +94,12 @@ def test_enqueue_absorbs_unique_violation_conn_path(workbench_db, monkeypatch):
     with get_connection("WORKBENCH") as conn:
         with conn.begin():
             first = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                                    rwb_job_type="upload_rdm", conn=conn)
+                                    rwb_job_type="upload_rdm", conn=conn, **_NO_LINK)
             dup = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                                  rwb_job_type="upload_rdm", conn=conn)
+                                  rwb_job_type="upload_rdm", conn=conn, **_NO_LINK)
             # the outer txn must survive the absorbed violation and still commit work.
             other = enqueue_rwb_job(requestor_type="irp_job", requestor_id=rid,
-                                    rwb_job_type="upload_edm", conn=conn)
+                                    rwb_job_type="upload_edm", conn=conn, **_NO_LINK)
     assert first is not None and dup is None and other is not None
     assert execute_scalar("SELECT COUNT(*) FROM rwb_job WHERE requestor_id = :r",
                           {"r": rid}, connection="WORKBENCH") == 2
@@ -103,7 +109,8 @@ def test_enqueue_absorbs_unique_violation_conn_path(workbench_db, monkeypatch):
 
 def test_atomic_claim_wins_once_then_loses(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
     assert claim_rwb_job(rwb_job_id=job_id, worker_id="w2") is False  # already claimed
     row = execute_one("SELECT status_code, claimed_by FROM rwb_job WHERE id = :id",
@@ -116,7 +123,8 @@ def test_atomic_claim_wins_once_then_loses(workbench_db):
 
 def test_heartbeat_upsert_keeps_one_row_per_job(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")
@@ -129,7 +137,8 @@ def test_heartbeat_upsert_keeps_one_row_per_job(workbench_db):
 
 def test_reconciler_reclaims_stale_running_row(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     # heartbeat is 10 minutes old → stale.
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1",
@@ -144,7 +153,8 @@ def test_reconciler_reclaims_stale_running_row(workbench_db):
 
 def test_reconciler_leaves_fresh_running_row(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     upsert_heartbeat(rwb_job_id=job_id, worker_id="w1")  # fresh
     assert reconcile_stale_rwb_jobs(stale_secs=120) == 0
@@ -155,7 +165,8 @@ def test_reconciler_leaves_fresh_running_row(workbench_db):
 
 def test_reconciler_reclaims_running_row_with_no_heartbeat(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated
     assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
     status = execute_scalar("SELECT status_code FROM rwb_job WHERE id = :id",
@@ -167,7 +178,8 @@ def test_reconciler_reclaims_running_row_with_no_heartbeat(workbench_db):
 
 def test_complete_sets_terminal_status_and_payload(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=job_id, status="succeeded", output_data={"ok": True})
     row = execute_one(
@@ -192,7 +204,7 @@ def test_enqueue_stamps_bound_context_correlation(workbench_db):
     try:
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
                                  requestor_id=str(uuid.uuid4()),
-                                 rwb_job_type="upload_edm")
+                                 rwb_job_type="upload_edm", **_NO_LINK)
     finally:
         log_context.clear(token)
     assert _correlation_of(job_id) == "chain-1"
@@ -204,7 +216,7 @@ def test_enqueue_explicit_correlation_wins_over_context(workbench_db):
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
                                  requestor_id=str(uuid.uuid4()),
                                  rwb_job_type="upload_edm",
-                                 correlation_id="explicit-id")
+                                 correlation_id="explicit-id", **_NO_LINK)
     finally:
         log_context.clear(token)
     assert _correlation_of(job_id) == "explicit-id"
@@ -213,7 +225,7 @@ def test_enqueue_explicit_correlation_wins_over_context(workbench_db):
 def test_enqueue_without_context_leaves_null(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
-                             rwb_job_type="upload_edm")
+                             rwb_job_type="upload_edm", **_NO_LINK)
     assert _correlation_of(job_id) is None
 
 
@@ -223,7 +235,8 @@ def test_ensure_pending_restamps_on_retry(workbench_db):
     token = log_context.bind(correlation_id="first-request")
     try:
         job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                        requestor_id=rid, rwb_job_type="upload_edm")
+                                        requestor_id=rid, rwb_job_type="upload_edm",
+                                        **_NO_LINK)
     finally:
         log_context.clear(token)
     assert _correlation_of(job_id) == "first-request"
@@ -232,7 +245,8 @@ def test_ensure_pending_restamps_on_retry(workbench_db):
     token = log_context.bind(correlation_id="retry-request")
     try:
         revived = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                         requestor_id=rid, rwb_job_type="upload_edm")
+                                         requestor_id=rid, rwb_job_type="upload_edm",
+                                         **_NO_LINK)
     finally:
         log_context.clear(token)
     assert revived == job_id
@@ -244,14 +258,15 @@ def test_ensure_pending_in_flight_skip_keeps_original_chain(workbench_db):
     token = log_context.bind(correlation_id="original")
     try:
         job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                        requestor_id=rid, rwb_job_type="upload_edm")
+                                        requestor_id=rid, rwb_job_type="upload_edm",
+                                        **_NO_LINK)
     finally:
         log_context.clear(token)
     token = log_context.bind(correlation_id="second")
     try:
         assert ensure_pending_rwb_job(requestor_type="analyst_request",
                                       requestor_id=rid,
-                                      rwb_job_type="upload_edm") is None
+                                      rwb_job_type="upload_edm", **_NO_LINK) is None
     finally:
         log_context.clear(token)
     assert _correlation_of(job_id) == "original"
@@ -260,12 +275,13 @@ def test_ensure_pending_in_flight_skip_keeps_original_chain(workbench_db):
 def test_ensure_pending_does_not_revive_cancelled_job(workbench_db):
     rid = str(uuid.uuid4())
     job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                    requestor_id=rid, rwb_job_type="upload_edm")
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    **_NO_LINK)
     assert cancel_rwb_job(rwb_job_id=job_id) is True
 
     assert ensure_pending_rwb_job(requestor_type="analyst_request",
                                   requestor_id=rid,
-                                  rwb_job_type="upload_edm") is None
+                                  rwb_job_type="upload_edm", **_NO_LINK) is None
     row = execute_one(
         "SELECT status_code, attempt_count FROM rwb_job WHERE id = :id",
         {"id": job_id}, connection="WORKBENCH")
@@ -275,7 +291,8 @@ def test_ensure_pending_does_not_revive_cancelled_job(workbench_db):
 def test_get_rwb_job_returns_row_or_none(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
-                             rwb_job_type="upload_edm", correlation_id="c-9")
+                             rwb_job_type="upload_edm", correlation_id="c-9",
+                             **_NO_LINK)
     row = get_rwb_job(rwb_job_id=job_id)
     assert row["rwb_job_type"] == "upload_edm"
     assert row["correlation_id"] == "c-9"
@@ -287,7 +304,8 @@ def test_reconciler_preserves_original_chain(workbench_db):
     # A reclaimed row is the SAME causal chain retrying — never re-stamped.
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
                              requestor_id=str(uuid.uuid4()),
-                             rwb_job_type="upload_edm", correlation_id="chain-1")
+                             rwb_job_type="upload_edm", correlation_id="chain-1",
+                             **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # never heartbeated → stale
     assert reconcile_stale_rwb_jobs(stale_secs=120) == 1
     assert _correlation_of(job_id) == "chain-1"
@@ -354,7 +372,8 @@ def test_queue_names_returns_current_actors():
 
 def test_cancel_pending_row_succeeds(workbench_db):
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     assert cancel_rwb_job(rwb_job_id=job_id) is True
     row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
                       {"id": job_id}, connection="WORKBENCH")
@@ -364,7 +383,8 @@ def test_cancel_pending_row_succeeds(workbench_db):
 def test_cancel_non_pending_row_is_noop(workbench_db):
     for target_status in ("running", "succeeded", "failed", "cancelled"):
         job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                                 requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                                 requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                                 **_NO_LINK)
         claim_rwb_job(rwb_job_id=job_id, worker_id="w1")  # pending -> running
         if target_status == "running":
             pass  # already there
@@ -374,7 +394,7 @@ def test_cancel_non_pending_row_is_noop(workbench_db):
             # already-claimed row above.
             job_id = enqueue_rwb_job(requestor_type="analyst_request",
                                      requestor_id=str(uuid.uuid4()),
-                                     rwb_job_type="upload_edm")
+                                     rwb_job_type="upload_edm", **_NO_LINK)
             cancel_rwb_job(rwb_job_id=job_id)
         else:
             complete_rwb_job(rwb_job_id=job_id, status=target_status)
@@ -396,7 +416,8 @@ def test_claim_racing_cancel_resolves_to_one_winner(workbench_db):
     # then_loses above), just the second contender is cancel instead of a
     # second claim.
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     assert claim_rwb_job(rwb_job_id=job_id, worker_id="w1") is True
     assert cancel_rwb_job(rwb_job_id=job_id) is False  # lost the race — already running
     row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
@@ -404,7 +425,8 @@ def test_claim_racing_cancel_resolves_to_one_winner(workbench_db):
     assert row["status_code"] == "running"
 
     job_id_2 = enqueue_rwb_job(requestor_type="analyst_request",
-                               requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                               requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                               **_NO_LINK)
     assert cancel_rwb_job(rwb_job_id=job_id_2) is True
     assert claim_rwb_job(rwb_job_id=job_id_2, worker_id="w1") is False  # lost — already cancelled
     row_2 = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
@@ -422,7 +444,8 @@ def test_resubmit_via_ensure_pending_resets_same_row(workbench_db):
     # function is caught here, not discovered from the UI.
     rid = str(uuid.uuid4())
     job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                    requestor_id=rid, rwb_job_type="upload_edm")
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
 
@@ -434,7 +457,8 @@ def test_resubmit_via_ensure_pending_resets_same_row(workbench_db):
     assert before["error_detail"] == "boom"
 
     resubmitted_id = ensure_pending_rwb_job(requestor_type="analyst_request",
-                                            requestor_id=rid, rwb_job_type="upload_edm")
+                                            requestor_id=rid, rwb_job_type="upload_edm",
+                                            **_NO_LINK)
     # Compared case-insensitively, not by exact string equality: confirmed
     # directly against the real SQL Server tier that a uniqueidentifier
     # round-trips with different letter casing than the lowercase string
@@ -469,9 +493,11 @@ def test_list_rwb_jobs_for_monitoring_returns_all_types_and_fields(workbench_db)
     from app.services.rwb_job_service import list_rwb_jobs_for_monitoring
 
     wait_id = enqueue_rwb_job(requestor_type="analyst_request",
-                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                              **_NO_LINK)
     fail_id = enqueue_rwb_job(requestor_type="analyst_request",
-                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_rdm")
+                              requestor_id=str(uuid.uuid4()), rwb_job_type="upload_rdm",
+                              **_NO_LINK)
     claim_rwb_job(rwb_job_id=fail_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=fail_id, status="failed", error_detail="boom")
 
@@ -491,9 +517,11 @@ def test_list_rwb_jobs_for_monitoring_orders_by_type_then_status_then_recency(wo
     # group means the more-recently-touched one (job_b, cancelled after
     # job_a was enqueued) sorts first.
     job_a = enqueue_rwb_job(requestor_type="analyst_request",
-                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                            **_NO_LINK)
     job_b = enqueue_rwb_job(requestor_type="analyst_request",
-                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                            requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                            **_NO_LINK)
     cancel_rwb_job(rwb_job_id=job_b)  # touches job_b's updated_at
 
     rows = [r for r in list_rwb_jobs_for_monitoring()
@@ -512,7 +540,7 @@ def test_resubmit_rwb_job_by_id_matches_ensure_pending_contract(workbench_db):
     rid = str(uuid.uuid4())
     job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
                                     requestor_id=rid, rwb_job_type="upload_edm",
-                                    input_data={"edm_id": "e1"})
+                                    input_data={"edm_id": "e1"}, **_NO_LINK)
     claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
 
@@ -542,7 +570,8 @@ def test_resubmit_rwb_job_non_terminal_row_returns_none(workbench_db):
     from app.services.rwb_job_service import resubmit_rwb_job
 
     job_id = enqueue_rwb_job(requestor_type="analyst_request",
-                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm")
+                             requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                             **_NO_LINK)
     assert resubmit_rwb_job(rwb_job_id=job_id) is None
     row = execute_one("SELECT status_code FROM rwb_job WHERE id = :id",
                       {"id": job_id}, connection="WORKBENCH")
@@ -554,13 +583,13 @@ def test_resubmit_rwb_job_rejects_succeeded_and_cancelled_rows(workbench_db):
 
     succeeded_id = enqueue_rwb_job(requestor_type="analyst_request",
                                    requestor_id=str(uuid.uuid4()),
-                                   rwb_job_type="upload_edm")
+                                   rwb_job_type="upload_edm", **_NO_LINK)
     claim_rwb_job(rwb_job_id=succeeded_id, worker_id="w1")
     complete_rwb_job(rwb_job_id=succeeded_id, status="succeeded")
 
     cancelled_id = enqueue_rwb_job(requestor_type="analyst_request",
                                    requestor_id=str(uuid.uuid4()),
-                                   rwb_job_type="upload_edm")
+                                   rwb_job_type="upload_edm", **_NO_LINK)
     cancel_rwb_job(rwb_job_id=cancelled_id)
 
     assert resubmit_rwb_job(rwb_job_id=succeeded_id) is None
@@ -571,3 +600,79 @@ def test_resubmit_rwb_job_rejects_succeeded_and_cancelled_rows(workbench_db):
             "SELECT status_code, attempt_count FROM rwb_job WHERE id = :id",
             {"id": job_id}, connection="WORKBENCH")
         assert row == {"status_code": status, "attempt_count": 0}
+
+
+# ── link/context fields (CR-04c) ──────────────────────────────────────────────
+
+def test_enqueue_requires_link_type(workbench_db):
+    import pytest
+    with pytest.raises(TypeError):
+        enqueue_rwb_job(requestor_type="analyst_request",
+                        requestor_id=str(uuid.uuid4()), rwb_job_type="upload_edm",
+                        link_id=None, context_type=None, context_id=None)
+
+
+def test_enqueue_stores_link_and_context_fields(workbench_db):
+    edm_id = str(uuid.uuid4())
+    job_id = enqueue_rwb_job(requestor_type="analyst_request", requestor_id=edm_id,
+                             rwb_job_type="upload_edm",
+                             link_type="edm", link_id=edm_id,
+                             context_type="edm", context_id=edm_id)
+    row = get_rwb_job(rwb_job_id=job_id)
+    assert row["link_type"] == "edm"
+    assert str(row["link_id"]).lower() == edm_id
+    assert row["context_type"] == "edm"
+    assert str(row["context_id"]).lower() == edm_id
+
+
+def test_enqueue_allows_null_context_when_job_has_none(workbench_db):
+    job_id = enqueue_rwb_job(requestor_type="analyst_request",
+                             requestor_id=str(uuid.uuid4()),
+                             rwb_job_type="dummy_wait", **_NO_LINK)
+    row = get_rwb_job(rwb_job_id=job_id)
+    assert row["link_type"] == "not_applicable"
+    assert row["link_id"] is None
+    assert row["context_type"] is None
+    assert row["context_id"] is None
+
+
+def test_ensure_pending_restamps_link_and_context_on_retry(workbench_db):
+    rid = str(uuid.uuid4())
+    first_edm = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    link_type="edm", link_id=first_edm,
+                                    context_type="edm", context_id=first_edm)
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="x")
+
+    second_edm = str(uuid.uuid4())
+    revived = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                     requestor_id=rid, rwb_job_type="upload_edm",
+                                     link_type="edm", link_id=second_edm,
+                                     context_type="edm", context_id=second_edm)
+    assert revived == job_id
+    row = get_rwb_job(rwb_job_id=job_id)
+    assert str(row["link_id"]).lower() == second_edm
+    assert str(row["context_id"]).lower() == second_edm
+
+
+def test_resubmit_rwb_job_carries_link_and_context_through_unchanged(workbench_db):
+    from app.services.rwb_job_service import resubmit_rwb_job
+
+    rid = str(uuid.uuid4())
+    edm_id = str(uuid.uuid4())
+    job_id = ensure_pending_rwb_job(requestor_type="analyst_request",
+                                    requestor_id=rid, rwb_job_type="upload_edm",
+                                    link_type="edm", link_id=edm_id,
+                                    context_type="edm", context_id=edm_id)
+    claim_rwb_job(rwb_job_id=job_id, worker_id="w1")
+    complete_rwb_job(rwb_job_id=job_id, status="failed", error_detail="boom")
+
+    resubmitted_id = resubmit_rwb_job(rwb_job_id=job_id)
+    assert str(resubmitted_id).lower() == str(job_id).lower()
+    row = get_rwb_job(rwb_job_id=job_id)
+    assert row["link_type"] == "edm"
+    assert str(row["link_id"]).lower() == edm_id
+    assert row["context_type"] == "edm"
+    assert str(row["context_id"]).lower() == edm_id

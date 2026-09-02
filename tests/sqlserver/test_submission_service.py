@@ -36,6 +36,7 @@ from app.services.submission_service import (
     reassign_owner,
     remove_crm_id,
     search_submissions_for_link,
+    search_submissions_global,
     set_status,
     update_submission,
 )
@@ -1008,6 +1009,28 @@ def test_search_for_link_empty_term_returns_nothing(workbench_db):
     _mk(workbench_db, name="Anything", inc=date(2026, 8, 1))
     assert search_submissions_for_link("") == []
     assert search_submissions_for_link("   ") == []
+
+
+# ── Global search provider (PRD §19) ─────────────────────────────────────────
+
+def test_search_global_matches_name_or_cedant(workbench_db):
+    sid = _mk(workbench_db, name="Coastal Re HO 2026",
+              cedant="Coastal Re", inc=date(2026, 1, 1)).submission_id
+    assert sid in {r.id for r in search_submissions_global("coastal")}
+    assert sid in {r.id for r in search_submissions_global("HO 2026")}
+
+
+def test_search_global_matches_tagged_crm_id(workbench_db):
+    sid = _mk(workbench_db, name="Zenith Mutual 2026",
+              cedant="Zenith Mutual", inc=date(2026, 1, 1)).submission_id
+    add_crm_id(submission_id=sid, crm_id="CRM-9912", actor_id=workbench_db.user_a)
+    assert sid in {r.id for r in search_submissions_global("9912")}
+
+
+def test_search_global_empty_term_returns_nothing(workbench_db):
+    _mk(workbench_db, name="Anything", inc=date(2026, 8, 1))
+    assert search_submissions_global("") == []
+    assert search_submissions_global("   ") == []
 
 
 def test_update_stale_marker_conflicts(workbench_db):

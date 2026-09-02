@@ -484,20 +484,27 @@ def test_backfill_status_sees_breakout_fired_heads_quick_and_group(workbench_db)
         return pid
 
     def _job(requestor_type: str, requestor_id: str, job_type: str,
-             status: str) -> str:
+             status: str, edm_id: str, context_type: str,
+             context_id: str) -> str:
         jid = str(uuid.uuid4())
         execute_command(
             "INSERT INTO rwb_job (id, requestor_type, requestor_id, "
+            "link_type, link_id, context_type, context_id, "
             "rwb_job_type, status_code, attempt_count, inserted_at, updated_at) "
-            "VALUES (:i, :rt, :r, :t, :s, 1, '2026-01-01', '2026-01-01')",
+            "VALUES (:i, :rt, :r, 'edm', :edm, :ct, :cid, "
+            ":t, :s, 1, '2026-01-01', '2026-01-01')",
             {"i": jid, "rt": requestor_type, "r": requestor_id, "t": job_type,
-             "s": status}, connection="WORKBENCH")
+             "s": status, "edm": edm_id, "ct": context_type, "cid": context_id},
+            connection="WORKBENCH")
         return jid
 
     quick_edm = _legacy_edm(name="quick_edm")
-    quick_job = _job("analyst_request", _portfolio(quick_edm),
-                     "run_breakout_lob", "succeeded")
-    _job("rwb_job", quick_job, "backfill_edm_detail", "pending")
+    quick_portfolio = _portfolio(quick_edm)
+    quick_job = _job("analyst_request", quick_portfolio,
+                     "run_breakout_lob", "succeeded", quick_edm,
+                     "portfolio", quick_portfolio)
+    _job("rwb_job", quick_job, "backfill_edm_detail", "pending", quick_edm,
+         "edm", quick_edm)
 
     group_edm = _legacy_edm(name="group_edm")
     group_row_id = str(uuid.uuid4())
@@ -510,8 +517,10 @@ def test_backfill_status_sees_breakout_fired_heads_quick_and_group(workbench_db)
          "f": '{"state": ["FL"]}', "c": str(uuid.uuid4())},
         connection="WORKBENCH")
     group_job = _job("breakout_group", group_row_id,
-                     "run_breakout_custom", "succeeded")
-    _job("rwb_job", group_job, "backfill_edm_detail", "pending")
+                     "run_breakout_custom", "succeeded", group_edm,
+                     "breakout_group", group_row_id)
+    _job("rwb_job", group_job, "backfill_edm_detail", "pending", group_edm,
+         "edm", group_edm)
 
     assert edm_service.latest_backfill_status(quick_edm) == "pending"
     assert edm_service.latest_backfill_status(group_edm) == "pending"

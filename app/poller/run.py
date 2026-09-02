@@ -76,6 +76,8 @@ def _handle_import_edm_terminal(conn, job: dict, status: str, resolved: dict) ->
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_edm_detail",
+            link_type="edm", link_id=job["irp_edm_id"],
+            context_type="edm", context_id=job["irp_edm_id"],
             input_data={"edm_id": _uid(job["irp_edm_id"])},
             conn=conn,
         )
@@ -94,6 +96,8 @@ def _handle_import_rdm_terminal(conn, job: dict, status: str, resolved: dict) ->
         jid = rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="backfill_rdm_analyses",
+            link_type="rdm", link_id=job["irp_rdm_id"],
+            context_type="rdm", context_id=job["irp_rdm_id"],
             input_data={
                 "rdm_id": _uid(job["irp_rdm_id"]),
                 "apply_irp_id": job["irp_id"]},
@@ -162,6 +166,8 @@ def _handle_analysis_terminal(conn, job: dict, status: str, resolved: dict) -> N
         rwb_job_service.enqueue_rwb_job(
             requestor_type="irp_job", requestor_id=job["id"],
             rwb_job_type="finalize_analysis",
+            link_type="edm", link_id=job["irp_edm_id"],
+            context_type="irp_analysis", context_id=job["irp_analysis_id"],
             input_data={"analysis_id": str(job["irp_analysis_id"]),
                         "rm_analysis_id": _analysis_created_id(resolved.get("result"))},
             conn=conn,
@@ -192,6 +198,8 @@ def _handle_geohaz_terminal(conn, job: dict, status: str, resolved: dict) -> Non
     rwb_job_service.enqueue_rwb_job(
         requestor_type="irp_job", requestor_id=job["id"],
         rwb_job_type="backfill_edm_detail",
+        link_type="edm", link_id=job["irp_edm_id"],
+        context_type="edm", context_id=job["irp_edm_id"],
         input_data={"edm_id": _uid(job["irp_edm_id"])},
         conn=conn,
     )

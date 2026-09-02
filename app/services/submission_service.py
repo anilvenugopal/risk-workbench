@@ -896,6 +896,24 @@ def search_submissions_for_link(
     return _submission_rows(clauses, params, exclude_id=exclude_id, limit=limit)
 
 
+def search_submissions_global(term: str, *, limit: int = 10) -> list[SubmissionRow]:
+    """Submissions matching ``term`` as a single substring of name, cedant, or
+    any tagged CRM id. Backs the Ctrl/Cmd-J submissions provider (PRD §19) —
+    unlike ``search_submissions_for_link``, a single substring rather than
+    AND-across-words, since global search has no "every word must match"
+    expectation and needs to reach the CRM tag table the link picker does not."""
+    trimmed = (term or "").strip()
+    if len(trimmed) < MIN_SUGGEST_TERM:
+        return []
+    like = f"%{_escape_like(trimmed)}%"
+    clauses = [
+        "(s.name LIKE :q ESCAPE '\\' OR s.cedant_name LIKE :q ESCAPE '\\' "
+        "OR EXISTS (SELECT 1 FROM submission_crm_id c "
+        "WHERE c.submission_id = s.id AND c.crm_id LIKE :q ESCAPE '\\'))"
+    ]
+    return _submission_rows(clauses, {"q": like}, limit=limit)
+
+
 # ── Edit / reassign (gated + concurrency-checked) ────────────────────────────
 
 _MUTABLE_FIELDS = (

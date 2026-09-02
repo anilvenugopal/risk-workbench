@@ -621,6 +621,8 @@ def sync_detail(*, edm_id: Any, actor_id: Any) -> str | None:
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
         rwb_job_type="backfill_edm_detail",
+        link_type="edm", link_id=eid,
+        context_type="edm", context_id=eid,
         input_data={"edm_id": eid},
         actor_id=str(actor_id),
     )

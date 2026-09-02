@@ -250,6 +250,8 @@ def test_failed_sync_reason_and_prior_snapshot_time_are_displayed(
         requestor_type="analyst_request",
         requestor_id=templates._METADATA_SYNC_REQUESTOR_ID,
         rwb_job_type="sync_irp_metadata",
+        link_type="not_applicable", link_id=None,
+        context_type=None, context_id=None,
     )
     rwb_job_service.complete_rwb_job(
         rwb_job_id=job_id,

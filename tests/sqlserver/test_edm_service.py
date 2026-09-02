@@ -81,7 +81,10 @@ def test_import_is_idempotent_on_re_enqueue(workbench_db, fake_irp, drive):
     # The head already exists; a second head for the same edm dedups (UNIQUE key).
     dup = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=res.entity_id,
-        rwb_job_type="upload_edm", input_data={})
+        rwb_job_type="upload_edm",
+        link_type="edm", link_id=res.entity_id,
+        context_type="edm", context_id=res.entity_id,
+        input_data={})
     assert dup is None
 
 

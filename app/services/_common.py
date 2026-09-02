@@ -302,7 +302,9 @@ def _import_entity(
         input_data["requested_from_submission_id"] = sid
     job_id = rwb_job_service.enqueue_rwb_job(
         requestor_type="analyst_request", requestor_id=entity_id,
-        rwb_job_type=cfg["job_type"], input_data=input_data, actor_id=actor,
+        rwb_job_type=cfg["job_type"], link_type=kind, link_id=entity_id,
+        context_type=kind, context_id=entity_id,
+        input_data=input_data, actor_id=actor,
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])
     return entity_id, not check.checked
@@ -363,7 +365,9 @@ def _retry_import(kind: str, *, entity_id: Any, actor_id: Any) -> None:
     )
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type=cfg["job_type"], input_data={cfg["id_col"]: eid},
+        rwb_job_type=cfg["job_type"], link_type=kind, link_id=eid,
+        context_type=kind, context_id=eid,
+        input_data={cfg["id_col"]: eid},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])
@@ -400,7 +404,9 @@ def _replace_source_file(
             f"This {cfg['label']} changed since you opened it — reload and re-apply.")
     job_id = rwb_job_service.ensure_pending_rwb_job(
         requestor_type="analyst_request", requestor_id=eid,
-        rwb_job_type=cfg["job_type"], input_data={cfg["id_col"]: eid},
+        rwb_job_type=cfg["job_type"], link_type=kind, link_id=eid,
+        context_type=kind, context_id=eid,
+        input_data={cfg["id_col"]: eid},
         actor_id=str(actor_id),
     )
     dispatch.dispatch(rwb_job_id=job_id, rwb_job_type=cfg["job_type"])

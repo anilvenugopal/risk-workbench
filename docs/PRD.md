@@ -1213,21 +1213,22 @@ The `notification_preference` table is re-introduced with this iteration. Per-us
 
 ## 19. Feature: Global search
 
-**Ctrl/Cmd-J** opens a modal (Alpine.js: open/close, keyboard nav, focus trap). Search-as-you-type via HTMX (`hx-trigger="keyup changed delay:200ms"`). A **provider registry** fans out across result groups:
+**Ctrl/Cmd-J** opens a modal (Alpine.js: open/close, keyboard nav, focus trap). Search-as-you-type via HTMX (`hx-trigger="input changed delay:200ms"`). A **provider registry** (`app/services/search_service.py`) fans out across result groups, each provider capped independently (`GROUP_LIMIT`, currently 5) so one noisy provider never crowds out the rest:
 
-- **Navigation** — reads the nav manifest; new nav items are searchable automatically
-- **Submissions** — name, cedant, treaty type
-- **EDMs** — EDM name, submission
-- **RDMs** — RDM name, submission
-- **Portfolios** — portfolio name, EDM
-- **Treaties** — treaty name, EDM
-- **Analyses** — analysis/group name, submission, status
-- **Jobs** — IRP job / RWB job, by type and status
-- **Results** — analysis job name
+- **Pages** — reads the nav manifest (`nav.searchable_nodes()`); new nav items are searchable automatically, filtered by the signed-in user's roles
+- **Submissions** — name, cedant, tagged CRM id
+- **EDMs** — EDM name
+- **RDMs** — RDM name
+- **Analysis Templates** — template name
+- **Users** — display name, email
 
-FR (7/14) also asks that **search, sort, and filter be available on every list section** — portfolios, treaties, analyses, and results, not just submissions — delivered via the shared list ergonomics (§20.4), with the command palette above spanning the same object set.
+**Deferred providers (not built this pass):** Portfolios, Treaties, Analyses (own + broker runs), Jobs (IRP/RWB), and Results. Analyses in particular has no unscoped list function yet — every existing query is scoped to one EDM/RDM/submission — and no single per-analysis detail URL to land a result on (results render via `/results/analyses?ids=...`). These pick up in a later pass over the same provider-registry shape.
 
-Adding a searchable type = register one provider. There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Start with SQL `LIKE`; move to Full-Text indexes if volume demands.
+**Filter pills + hotkey footer (2026-09-01 addition, modeled on Palantir Foundry's quicksearch — not in the original spec).** A pill row above the results narrows the fan-out to one provider (`type` query param on `/api/search`); a static footer under the results shows the keyboard hints (`↑↓ Move`, `↵ Select`, `esc Close`). Both are presentation-only — no new keyboard behavior, since `app.js`'s existing `onKey()` already drives arrow/enter navigation over `.sr-item`.
+
+FR (7/14) also asks that **search, sort, and filter be available on every list section** — portfolios, treaties, analyses, and results, not just submissions — delivered via the shared list ergonomics (§20.4), with the command palette above spanning the same object set. That per-list work remains a separate, unscoped item (§20.4).
+
+Adding a searchable type = register one provider (a function in `search_service.py` plus an entry in `PROVIDER_TYPES`). There is **no customer scoping** to apply (CR-003 M2/O1 — no RLS); every authenticated analyst searches across all deals. Providers use SQL `LIKE`; move to Full-Text indexes if volume demands.
 
 ---
 
@@ -1474,6 +1475,8 @@ This prompt applies independently to each of the three app-managed databases (`W
 ### Iteration 13 — Global search
 
 > **Consolidated (2026-07-21).** Was split across the old Iteration 3 (framework) and Iteration 7 (remaining providers). Built once here at the end, over the complete entity set — no half-built-then-finished split.
+>
+> **Delivered in part (2026-09-01, branch `avenugopal/global_search`).** The framework and six providers shipped: pages, submissions (name/cedant/CRM id), EDMs, RDMs, analysis templates, and users. Portfolios, treaties, analyses, jobs, groupings, and results remain — see §19's deferred-providers note for why analyses needs more than a registry entry (no unscoped list function, no per-analysis detail URL).
 
 **In:** §19 search framework + §20 command palette (Ctrl/Cmd-J); all providers — navigation, submission, EDM, RDM, jobs, analyses, groupings, and results.
 
@@ -1614,6 +1617,14 @@ This prompt applies independently to each of the three app-managed databases (`W
 ---
 
 ## 24. Change log
+
+### 2026-09-01 — Iteration 13 partially delivered: six search providers + filter pills/hotkey footer
+
+Scope: §19, §21 Iteration 13, this log. Branch `avenugopal/global_search`. The Ctrl/Cmd-J modal, keyboard nav, and CSS already existed (built ahead of the iteration as part of the shell); this pass added the missing `GET /api/search` route and its provider registry.
+
+- **Six providers shipped:** pages (nav manifest, role-filtered), submissions (name/cedant/tagged CRM id — new `submission_service.search_submissions_global`), EDMs and RDMs (existing `list_edms`/`list_rdms` substring filters), analysis templates (new query), users (new query, active users only).
+- **Portfolios, treaties, analyses, jobs, groupings, and results deferred** — not registered as providers this pass. Analyses needs more than a registry entry: no existing query lists analyses unscoped (every one filters by EDM/RDM/submission), and there is no single per-analysis detail URL to send a result to.
+- **Filter pills + hotkey footer added** — modeled on Palantir Foundry's quicksearch, not in the original §19 text. A pill row narrows the modal to one provider; a static footer shows the keyboard hints. Presentation-only, riding the keyboard handling `app.js` already had.
 
 ### 2026-08-27 — §17 renamed to analysis comparison; comparison reconciled to the 8/26 session; Iteration 10 rescoped
 
