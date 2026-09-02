@@ -282,7 +282,9 @@
 .entity-table-state strong { display: block; color: var(--text-secondary);
   margin-bottom: var(--space-1); }
 .submission-entity-modal { width: 720px; max-height: calc(100vh - 40px); }
-.submission-entity-modal .modal-body { overflow-y: auto; gap: var(--space-3); }
+.submission-entity-modal > form { display: flex; flex-direction: column; min-height: 0; }
+.submission-entity-modal .modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  gap: var(--space-3); }
 .entity-candidate-search { margin-bottom: var(--space-3); }
 .entity-candidate-list { border: 1px solid var(--border-default);
   border-radius: var(--radius-md); max-height: 280px; overflow-y: auto; }
