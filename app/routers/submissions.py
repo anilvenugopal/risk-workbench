@@ -389,7 +389,8 @@ def _group_modal_response(
     currency defaults, Propagate ON — FR-004/FR-005)."""
     members = grouping_service.list_eligible_members(submission.id)
     ctx: dict = {"submission": submission,
-                 "action_url": f"/submissions/{submission.id}/analyses/group"}
+                 "action_url": f"/submissions/{submission.id}/analyses/group",
+                 "inspect_url": f"/submissions/{submission.id}/analyses/group/inspect"}
     if len(members) < 2:
         ctx["blocking"] = ("This submission needs at least two finished "
                            "analyses before they can be grouped.")
@@ -430,6 +431,31 @@ def group_compose_modal(request: Request, submission_id: str):
         preselected=request.query_params.getlist("analysis_ids"))
 
 
+@router.post("/submissions/{submission_id}/analyses/group/inspect",
+             response_class=HTMLResponse)
+async def group_compose_inspect(request: Request, submission_id: str):
+    """The dialog's Inspect members step: Platform reads only, rendered into
+    ``#group-inspection`` (contracts/routes.md). Gate and read failures render
+    the same fragment with the error list at 422."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
+    try:
+        view = grouping_service.inspect_grouping(
+            submission_id=submission.id,
+            member_ids=form.getlist("member_ids"))
+    except ExecutionGateError as exc:
+        return _partial(request, "partials/group_inspection.html",
+                        {"errors": exc.errors}, status_code=422)
+    return _partial(request, "partials/group_inspection.html",
+                    {"view": view, "errors": []})
+
+
 @router.post("/submissions/{submission_id}/analyses/group")
 async def group_compose_submit(request: Request, submission_id: str):
     form = await request.form()
@@ -453,6 +479,11 @@ async def group_compose_submit(request: Request, submission_id: str):
             currency_code=currency_code, currency_scheme=currency_scheme,
             currency_vintage=currency_vintage,
             propagate_detailed_output=propagate,
+            num_of_simulations=form.get("num_of_simulations", ""),
+            event_rate_selections=form.getlist("event_rate_selection"),
+            expected_inspection_fingerprint=form.get(
+                "expected_inspection_fingerprint", ""),
+            inspected_analysis_ids=form.getlist("inspected_analysis_ids"),
             actor_id=request.state.user.id)
     except ExecutionGateError as exc:
         # Retargeted at the mount because htmx drops a non-2xx body at the

@@ -1,6 +1,7 @@
-{# Group compose dialog (spec 012, contracts/routes.md — approved preview:
-   docs/ui_previews/group_compose_modal.html). Rendered into #group-modal by
-   GET /submissions/{sid}/analyses/group and re-rendered at 422 by the POST. #}
+{# Group compose dialog (spec 012, contracts/routes.md). Rendered into
+   #group-modal by GET /submissions/{sid}/analyses/group and re-rendered at 422
+   by the POST. The Inspect members button fills #group-inspection from
+   POST …/group/inspect; the mount div allows the 422 swaps. #}
 {% from "partials/currency_block.html" import currency_block with context %}
 <div class="modal-overlay" @click.self="document.getElementById('group-modal').replaceChildren()">
   <div class="modal-card submission-entity-modal" role="dialog" aria-modal="true" aria-labelledby="group-modal-title"
@@ -19,8 +20,8 @@
     {% else %}
     <form method="post" action="{{ action_url }}" @change="recompute()" @input="recompute()"
           hx-post="{{ action_url }}" hx-target="#group-modal" hx-swap="innerHTML"
-          hx-on::before-swap="if([409,422].includes(event.detail.xhr.status)) event.detail.shouldSwap=true"
-          @htmx:after-request="if ($event.detail.successful) document.getElementById('group-modal').replaceChildren()">
+          @htmx:after-swap="recompute()"
+          @htmx:after-request="if ($event.detail.elt === $el && $event.detail.successful) document.getElementById('group-modal').replaceChildren()">
       <input type="hidden" name="csrf_token" value="{{ generate_csrf_token() }}">
       <div class="modal-body">
         {% if errors %}<div class="modal-error">{% for error in errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
@@ -35,14 +36,24 @@
           <div class="entity-candidate-list">
             {% for m in members %}
             <label class="entity-candidate">
-              <input type="checkbox" name="member_ids" value="{{ m.id }}"{% if m.id in preselected %} checked{% endif %}>
+              <input type="checkbox" name="member_ids" value="{{ m.id }}"{% if m.id in preselected %} checked{% endif %} @change="clearInspection()">
               <span title="{{ m.display_name }}">{{ m.display_name }}</span>
               {% if m.engine %}<span class="exec-summary">{{ m.engine }}</span>{% endif %}
               <span class="badge badge--neutral badge--sm">{{ m.kind_label|lower }}</span>
             </label>
             {% endfor %}
           </div>
+          <div class="wf-field__hint">Treaty terms that share a Treaty Number are not compared. Inconsistent terms can produce unexpected grouped results.</div>
         </div>
+
+        <div>
+          <button class="btn-sm" type="button" hx-post="{{ inspect_url }}" hx-include="closest form"
+                  hx-target="#group-inspection" hx-swap="innerHTML" hx-indicator="#group-inspect-indicator"
+                  :disabled="!canInspect">Inspect members</button>
+          <span id="group-inspect-indicator" class="htmx-indicator tag-empty">Inspecting…</span>
+        </div>
+        <div id="group-inspection"
+             hx-on::before-swap="if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
 
         {{ currency_block('group', 'for this group', 'currency_code', 'currency_scheme', 'currency_vintage', currency_code_val, currency_scheme_val, currency_vintage_val, vintage_options) }}
 

@@ -156,7 +156,8 @@
     {% include "partials/analyses_merged_section.html" %}
   {% endwith %}
   <div id="submission-entity-modal"></div>
-  <div id="group-modal"></div>
+  <div id="group-modal"
+       hx-on::before-swap="if ([409, 422].includes(event.detail.xhr.status)) { event.detail.shouldSwap = true; event.detail.isError = false; }"></div>
   {# Compare modal mount (spec 013) — outside the self-polling Results section
      so the 3s poll never removes an open modal (breakout-modal precedent). #}
   <div id="compare-modal-mount"></div>

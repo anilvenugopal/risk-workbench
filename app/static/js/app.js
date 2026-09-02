@@ -831,19 +831,35 @@ document.addEventListener('alpine:init', () => {
   // submit enables at ≥2 checked members, a non-empty name, and a complete
   // currency block. recompute() is also called by the currency_block macro's
   // vintage-swap hook.
+  // Group compose (spec 012): Group enables only on an inspection result
+  // whose scheme choices are all made; a member change drops the inspection.
   Alpine.data('groupComposeModal', () => ({
     canSubmit: false,
+    canInspect: false,
     init() { this.recompute(); },
+    clearInspection() {
+      const box = this.$root.querySelector('#group-inspection');
+      if (box) box.replaceChildren();
+      this.recompute();
+    },
     recompute() {
       const picked = this.$root.querySelectorAll(
         'input[name="member_ids"]:checked').length;
+      this.canInspect = picked >= 2;
       const name = this.$root.querySelector('input[name="group_name"]');
       const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']
         .every((f) => {
           const select = this.$root.querySelector(`select[name="${f}"]`);
           return select && select.value;
         });
-      this.canSubmit = picked >= 2 && !!(name && name.value.trim()) && currencyDone;
+      const inspected = !!this.$root.querySelector('[data-inspection-ready]');
+      const schemesChosen = Array.from(
+        this.$root.querySelectorAll('select[name="event_rate_selection"]'))
+        .every((select) => select.value);
+      const sims = this.$root.querySelector('input[name="num_of_simulations"]');
+      const simsOk = !!sims && /^\d+$/.test(sims.value) && Number(sims.value) > 0;
+      this.canSubmit = picked >= 2 && !!(name && name.value.trim()) && currencyDone
+        && inspected && schemesChosen && simsOk;
     },
   }));
 
