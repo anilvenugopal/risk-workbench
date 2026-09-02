@@ -1,11 +1,11 @@
 """Dramatiq actor for grouping submission (spec 012, contracts/grouping-worker.md).
 
 ``submit_grouping`` executes the approved compose plan verbatim (AGENTS.md
-rule 8): claim the group ``irp_analysis`` row + its membership rows, make one
-``submit_analysis_grouping`` gateway call (the wheel resolves member names and
-auto-builds the region/peril simulation set internally — T-03), and record the
-``irp_job``. Runs in the worker, never the request path — the wheel's
-per-member read fan-out disqualifies the request path (T-02, Article 11).
+rule 8): claim the group ``irp_analysis`` row + its membership rows, make sure
+the group name is free tenant-wide, make one ``submit_grouping`` gateway call
+with the plan's Platform ids, settings, event-rate selections, and inspection
+fingerprint (the package re-inspects and raises typed problems — T-03), and
+record the ``irp_job``. Runs in the worker, never the request path (T-02).
 """
 
 from __future__ import annotations
@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 
 _ = broker.redis_broker
 
-# The wheel's tenant-wide duplicate pre-check message (matched by prefix — the
-# only submit failure that retries, with the next ``_n`` name).
-DUPLICATE_NAME_PREFIX = "Analysis Group with this name already exists"
-
 # Bound on total name attempts (claim collisions + duplicate-name retries) —
 # past this many suffixes something other than a collision is wrong.
 MAX_NAME_ATTEMPTS = 25
+
+INSPECTION_CHANGED_REASON = (
+    "The member analyses or reference data changed after inspection. "
+    "Reopen the compose dialog and inspect again.")
 
 
 def _claim_group(plan: dict) -> dict:
@@ -129,6 +129,22 @@ def _rename_group(plan: dict, group: dict, attempt: int) -> tuple[dict, int]:
         return {**group, "name": name, "full_name": full_name}, attempt
 
 
+def _grouping_failure_reason(problems) -> str:
+    """An analyst-readable reason from the package's structured problems."""
+    if any(str(p.code) == "inspection_changed" for p in problems):
+        return INSPECTION_CHANGED_REASON
+    parts = []
+    for p in problems:
+        reason = p.message
+        if p.partition is not None:
+            reason += (f" (partition {p.partition.peril_code} · "
+                       f"{p.partition.region_code} · {p.partition.model_version})")
+        if p.pet_ids:
+            reason += f" (PET IDs {', '.join(str(i) for i in p.pet_ids)})"
+        parts.append(reason)
+    return "; ".join(parts)
+
+
 def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
     plan = rwb_job_service.load_input_data(rwb_job_id)
     group_id = plan["group_analysis_id"]
@@ -139,51 +155,48 @@ def _submit_grouping_body(rwb_job_id: Any) -> runtime.JobResult:
         return runtime.JobResult.ok(skipped="already submitted")
 
     group = _claim_group(plan)
-    members = plan["members"]
     submit_kwargs = {
-        "analysis_names": [m["name"] for m in members],
-        "analysis_edm_map": {m["name"]: m["edm_name"] for m in members
-                             if m["kind"] == "own"},
-        "group_names": {m["name"] for m in members if m["kind"] == "group"},
+        "analysis_ids": [m["irp_id"] for m in plan["members"]],
         "currency": plan["currency"],
         "propagate_detailed_losses": plan["propagate_detailed_losses"],
+        "num_of_simulations": plan["num_of_simulations"],
+        "event_rate_selections": plan["event_rate_selections"],
+        "expected_inspection_fingerprint": plan["expected_inspection_fingerprint"],
     }
     attempt = 0
-    while True:
-        try:
-            irp_id, request_body = irp_gateway.submit_analysis_grouping(
-                group_name=group["name"], **submit_kwargs)
-            break
-        except Exception as exc:  # noqa: BLE001 — message prefix decides retry vs terminal
-            if str(exc).startswith(DUPLICATE_NAME_PREFIX):
-                group, attempt = _rename_group(plan, group, attempt)
-                continue
-            logger.warning("grouping submit failed for %s: %s",
-                           group["name"], exc)
-            recorded = {**submit_kwargs,
-                        "group_names": sorted(submit_kwargs["group_names"]),
-                        "group_name": group["name"]}
-            irp_job_service.record_submission_failure(
-                irp_job_type="grouping",
-                requested_from_submission_id=plan["submission_id"],
-                irp_analysis_id=group_id, payload=recorded,
-                request_params=recorded, actor_id=plan.get("actor_id"))
-            execute_command(
-                "UPDATE irp_analysis SET status_code = 'error', "
-                "failure_reason = :r, updated_at = :now WHERE id = :id",
-                {"r": str(exc), "now": _utcnow(), "id": group_id},
-                connection="WORKBENCH")
-            return runtime.JobResult.fail(str(exc))
+    try:
+        # The package no longer pre-checks group names tenant-wide, and
+        # finalize_analysis resolves the group by name only (T-11).
+        while irp_gateway.count_analyses_named(group["name"]) > 0:
+            group, attempt = _rename_group(plan, group, attempt)
+        irp_id, request_body = irp_gateway.submit_grouping(
+            group_name=group["name"], **submit_kwargs)
+    except Exception as exc:  # noqa: BLE001 — every submit failure is recorded, none retried
+        if isinstance(exc, irp_gateway.IRPGroupingValidationError):
+            reason = _grouping_failure_reason(exc.problems)
+        else:
+            reason = str(exc)
+        logger.warning("grouping submit failed for %s: %s", group["name"], reason)
+        recorded = {**submit_kwargs, "group_name": group["name"]}
+        irp_job_service.record_submission_failure(
+            irp_job_type="grouping",
+            requested_from_submission_id=plan["submission_id"],
+            irp_analysis_id=group_id, payload=recorded,
+            request_params=recorded, actor_id=plan.get("actor_id"))
+        execute_command(
+            "UPDATE irp_analysis SET status_code = 'error', "
+            "failure_reason = :r, updated_at = :now WHERE id = :id",
+            {"r": reason, "now": _utcnow(), "id": group_id},
+            connection="WORKBENCH")
+        return runtime.JobResult.fail(reason)
 
-    recorded = {**submit_kwargs,
-                "group_names": sorted(submit_kwargs["group_names"]),
-                "group_name": group["name"]}
+    recorded = {**submit_kwargs, "group_name": group["name"]}
     with get_connection("WORKBENCH") as conn, conn.begin():
         irp_job_service.record_submitted_irp_job(
             irp_job_type="grouping",
             requested_from_submission_id=plan["submission_id"],
             irp_analysis_id=group_id, irp_id=irp_id,
-            payload=recorded, response=request_body,
+            payload=request_body, response={"job_id": int(irp_id)},
             request_params=recorded,
             actor_id=plan.get("actor_id"), conn=conn)
         conn.execute(text(

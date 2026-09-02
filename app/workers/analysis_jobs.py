@@ -216,8 +216,8 @@ def _finalize_analysis_body(rwb_job_id: Any) -> runtime.JobResult:
     if not rm_id and row["is_group"] and row["edm_id"] is None:
         # A grouping completion body carries no analysisId, and a group has no
         # EDM to disambiguate a name search with — but its name was unique
-        # tenant-wide at submit (the wheel's duplicate pre-check + the worker's
-        # _n retry), so a name-only search must hit exactly once (spec 012 T-11).
+        # tenant-wide at submit (the grouping worker's duplicate pre-check +
+        # its _n retry), so a name-only search must hit exactly once (spec 012 T-11).
         try:
             rm_id = irp_gateway.get_analysis_by_name_only(row["name"]).analysis_id
         except Exception as exc:  # noqa: BLE001 — resolution failed, visible job failure
