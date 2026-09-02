@@ -18,10 +18,11 @@ from sqlalchemy import text
 
 from app.config import settings as app_settings
 from app.services import analysis_service
-from app.services._common import _utcnow
-from db import execute_command, get_connection
+from app.services._common import _uid, _utcnow
+from db import execute, execute_command, get_connection
 from tests.unit.grouping_rows import (
     link_submission_edm,
+    seed_broker_analysis,
     seed_group,
     seed_submission,
 )
@@ -500,6 +501,98 @@ def test_delete_keeps_earlier_rows_when_the_poller_claims_a_later_one(
     assert _deleted_at(first) is not None
     assert _deleted_at(raced) is None
     assert fake_irp.deleted_analyses == ["1"]
+
+
+# ── delete_submission_analyses (spec 012 contracts/routes.md) ────────────────
+
+
+def test_delete_by_submission_removes_a_group(iteration2_db, fake_irp):
+    submission = seed_submission("Sub One")
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready", irp_id="8100")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[group],
+        actor_id=iteration2_db.user_a)
+
+    assert fake_irp.deleted_analyses == ["8100"]
+    assert _deleted_at(group) is not None
+    assert outcome.deleted == 1
+
+
+def test_delete_by_submission_spans_every_edm_of_the_deal(iteration2_db,
+                                                          fake_irp):
+    first, second = _edm("E1"), _edm("E2")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, first)
+    link_submission_edm(submission, second)
+    coastal = _executed(edm_id=first, name="A", status_code="ready", irp_id="1")
+    inland = _executed(edm_id=second, name="B", status_code="ready", irp_id="2")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[coastal, inland],
+        actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 2
+    assert sorted(fake_irp.deleted_analyses) == ["1", "2"]
+    assert _deleted_at(coastal) is not None and _deleted_at(inland) is not None
+
+
+def test_delete_by_submission_rejects_a_broker_row(iteration2_db, fake_irp):
+    submission = seed_submission("Sub One")
+    broker = seed_broker_analysis(submission, "Broker EU Wind")
+
+    with pytest.raises(ValueError):
+        analysis_service.delete_submission_analyses(
+            submission_id=submission, analysis_ids=[broker],
+            actor_id=iteration2_db.user_a)
+    assert fake_irp.deleted_analyses == []
+    assert _deleted_at(broker) is None
+
+
+def test_delete_by_submission_rejects_a_row_of_another_deal(iteration2_db,
+                                                            fake_irp):
+    edm = _edm()
+    mine, theirs = seed_submission("Mine"), seed_submission("Theirs")
+    link_submission_edm(theirs, edm)
+    foreign = _executed(edm_id=edm, status_code="ready", irp_id="1")
+
+    with pytest.raises(ValueError):
+        analysis_service.delete_submission_analyses(
+            submission_id=mine, analysis_ids=[foreign],
+            actor_id=iteration2_db.user_a)
+    assert _deleted_at(foreign) is None
+
+
+def test_deleting_a_member_leaves_the_group_and_its_membership(iteration2_db,
+                                                               fake_irp):
+    """``irp_analysis_group_member`` rows are retained — the group row's own
+    ``deleted_at`` is the visibility gate (data-model 012 §2)."""
+    edm = _edm()
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    member = _executed(edm_id=edm, name="A", status_code="ready", irp_id="1")
+    group = _mk("irp_analysis", submission_id=submission, is_group=1,
+                name="CRE_Sub One_Group", full_name="CRE_Sub One_Group",
+                status_code="ready", irp_id="8100")
+    execute_command(
+        "INSERT INTO irp_analysis_group_member "
+        "(group_analysis_id, member_analysis_id, inserted_at) "
+        "VALUES (:g, :m, :now)",
+        {"g": group, "m": member, "now": _utcnow()}, connection="WORKBENCH")
+
+    outcome = analysis_service.delete_submission_analyses(
+        submission_id=submission, analysis_ids=[member],
+        actor_id=iteration2_db.user_a)
+
+    assert outcome.deleted == 1
+    assert _deleted_at(member) is not None
+    assert _deleted_at(group) is None
+    [remaining] = execute(
+        "SELECT member_analysis_id FROM irp_analysis_group_member "
+        "WHERE group_analysis_id = :g", {"g": group}, connection="WORKBENCH")
+    assert _uid(remaining["member_analysis_id"]) == member.lower()
 
 
 # ── spec 011: results state, extract, and submitted settings (T013) ──────────

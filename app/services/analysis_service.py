@@ -597,28 +597,27 @@ _SOFT_DELETE_ANALYSIS = (
 )
 
 
-def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
-                             actor_id: Any) -> DeleteOutcome:
-    """Delete terminal own-executed analyses (spec 010 P-19): validate the
-    whole batch up front (every posted id must resolve on this EDM and be
-    ``is_deletable``, else ``ValueError``), then per row cascade to Risk
-    Modeler first and soft-delete locally on success. A row whose RM delete
-    fails is recorded in ``failed`` and kept visible for retry; a row the poller
-    claimed for a submission retry mid-batch is recorded in ``retrying`` and left
-    alone. Neither aborts the batch — the rows already deleted stay deleted, and
-    the caller reports all three counts. RM-first order: a crash between the two
+def _delete_analyses(rows: list[ExecutedAnalysis], analysis_ids: list[Any],
+                     actor_id: Any, foreign_message: str) -> DeleteOutcome:
+    """Delete terminal analyses (spec 010 P-19): validate the whole batch up
+    front (every posted id must resolve among ``rows`` and be ``is_deletable``,
+    else ``ValueError``), then per row cascade to Risk Modeler first and
+    soft-delete locally on success. A row whose RM delete fails is recorded in
+    ``failed`` and kept visible for retry; a row the poller claimed for a
+    submission retry mid-batch is recorded in ``retrying`` and left alone.
+    Neither aborts the batch — the rows already deleted stay deleted, and the
+    caller reports all three counts. RM-first order: a crash between the two
     calls leaves a visible row with a dangling ``irp_id`` — recoverable by
     retrying — rather than a hidden RM analysis."""
     ids = [i for i in dict.fromkeys(_uid(a) for a in analysis_ids) if i]
     if not ids:
         raise ValueError("No analyses selected.")
-    rows = {a.id: a for a in list_executed_analyses(edm_id=edm_id)}
+    by_id = {a.id: a for a in rows}
     picked = []
     for analysis_id in ids:
-        row = rows.get(analysis_id)
+        row = by_id.get(analysis_id)
         if row is None:
-            raise ValueError(
-                "A selected analysis no longer belongs to this EDM.")
+            raise ValueError(foreign_message)
         if not row.is_deletable:
             raise ValueError(
                 f"'{row.full_name or row.name}' is still in progress "
@@ -663,6 +662,27 @@ def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
                             connection="WORKBENCH")
         deleted += 1
     return DeleteOutcome(deleted=deleted, failed=failed, retrying=retrying)
+
+
+def delete_executed_analyses(*, edm_id: Any, analysis_ids: list[Any],
+                             actor_id: Any) -> DeleteOutcome:
+    """The EDM page's Analyses grid: own analyses executed from one EDM."""
+    return _delete_analyses(
+        list_executed_analyses(edm_id=edm_id), analysis_ids, actor_id,
+        "A selected analysis no longer belongs to this EDM.")
+
+
+def delete_submission_analyses(*, submission_id: Any, analysis_ids: list[Any],
+                               actor_id: Any) -> DeleteOutcome:
+    """The submission page's Results grid: own analyses across every EDM of the
+    deal, plus its group rows (spec 012 contracts/routes.md — a group carries
+    ``submission_id`` and no ``edm_id``, so this is the only grid it can be
+    deleted from). Broker rows are not in the candidate set, so posting one
+    raises the same ``ValueError`` an unrelated id does."""
+    return _delete_analyses(
+        list_submission_executed_analyses(submission_id=submission_id),
+        analysis_ids, actor_id,
+        "A selected analysis no longer belongs to this deal.")
 
 
 @dataclass
@@ -967,7 +987,7 @@ __all__ = [
     "ComparableAnalysis", "ComparisonPair", "DeleteOutcome",
     "ExecutedAnalysis", "PairPercent", "PerspectiveResults", "ResultsColumn",
     "SubmittedSettings",
-    "delete_executed_analyses",
+    "delete_executed_analyses", "delete_submission_analyses",
     "execution_batch_is_live",
     "expanded_return_periods", "list_analysis_perspectives",
     "list_broker_analyses", "list_comparable_analyses",

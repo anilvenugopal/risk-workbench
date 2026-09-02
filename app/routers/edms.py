@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._analysis_delete import delete_analyses_response
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import save_notes
 from app.services import (
@@ -362,7 +363,7 @@ async def contextual_delete_analyses(
     if edm_service.get_contextual_edm_detail(
             submission_id=submission_id, edm_id=edm_id) is None:
         return _contextual_not_found(request)
-    return _delete_analyses_response(request, edm_id, form)
+    return delete_analyses_response(request, form, edm_id=edm_id)
 
 
 @router.post("/submissions/{submission_id}/edms/{edm_id}/sync")
@@ -669,38 +670,6 @@ def detail_analyses_compare(request: Request, edm_id: str):
     return compare_modal_response(request, edm_id=edm_id)
 
 
-def _delete_analyses_response(request: Request, edm_id: str, form) -> Response:
-    """Shared body of the two analyses-delete POSTs (P-19): synchronous
-    request-path cascade — Risk Modeler delete first, local soft delete on
-    success. Validation failures return 422 whose banner text app.js surfaces
-    as a toast (htmx:responseError)."""
-    analysis_ids = form.getlist("analysis_ids")
-    try:
-        outcome = analysis_service.delete_executed_analyses(
-            edm_id=edm_id, analysis_ids=analysis_ids,
-            actor_id=request.state.user.id)
-    except ValueError as exc:
-        return HTMLResponse(
-            f'<div class="form-banner--error">{escape(str(exc))}</div>',
-            status_code=422)
-    message = f"Deleted {outcome.deleted} analysis(es)."
-    toast_type = "success"
-    if outcome.failed:
-        message += (f" {len(outcome.failed)} could not be deleted in "
-                    "Risk Modeler.")
-        toast_type = "warning"
-    if outcome.retrying:
-        message += (f" {len(outcome.retrying)} could not be deleted — a "
-                    "submission retry is in progress.")
-        toast_type = "warning"
-    return Response(status_code=204, headers={
-        "HX-Trigger": json.dumps({
-            "analyses-changed": True,
-            "rwb:toast": {"message": message, "type": toast_type},
-        }),
-    })
-
-
 @router.post("/edms/{edm_id}/analyses/delete")
 async def delete_analyses(request: Request, edm_id: str):
     form = await request.form()
@@ -708,7 +677,7 @@ async def delete_analyses(request: Request, edm_id: str):
         if request.headers.get("HX-Request") == "true":
             return Response(status_code=204, headers={"HX-Refresh": "true"})
         return RedirectResponse(f"/edms/{edm_id}", status_code=303)
-    return _delete_analyses_response(request, edm_id, form)
+    return delete_analyses_response(request, form, edm_id=edm_id)
 
 
 @router.post("/edms/{edm_id}/geohaz")
