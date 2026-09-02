@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import date
+from datetime import date, datetime
 from urllib.parse import quote
 
 import pytest
@@ -1465,7 +1465,7 @@ def _seed_results_data(client) -> tuple[str, str, str]:
             "VALUES (:id, :edm, :n, :n, 'ready', :at, :p, :t)",
             {"id": str(uuid.uuid4()), "edm": edm_id,
              "n": f"CRE_{edm_name.split()[0]}_v25",
-             "at": f"2026-08-2{index + 1}T00:00:00",
+             "at": datetime(2026, 8, 21 + index),
              "p": portfolio_id, "t": template_id},
             connection="WORKBENCH")
         edm_ids.append(edm_id)
@@ -1508,7 +1508,9 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
     assert 'data-value="Coastal HO"' in html
-    assert '<time data-utc="2026-08-21T00:00:00"' in html
+    # inserted_at is DATETIME2 and reads back as a datetime, so the emitted
+    # value is space-separated — the form parseUtcStamp (app.js) expects.
+    assert '<time data-utc="2026-08-21 00:00:00"' in html
 
 
 def test_results_fragment_status_filter_rides_the_poll_url(client):

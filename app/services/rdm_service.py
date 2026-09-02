@@ -187,8 +187,12 @@ def latest_backfill_status(rdm_id: Any) -> str | None:
 def latest_backfill_statuses(rdm_ids: list[Any]) -> dict[str, str | None]:
     """``latest_backfill_status`` for a whole entity table in one query —
     newest ``updated_at`` per RDM reduced app-side. Every requested id gets a
-    key; RDMs whose analyses capture never ran map to ``None``."""
-    statuses: dict[str, str | None] = {str(r): None for r in rdm_ids}
+    key; RDMs whose analyses capture never ran map to ``None``.
+
+    Keyed by ``_uid``, not ``str``: the requested ids are lowercase and the
+    joined uniqueidentifier reads back UPPERCASE, so raw keys would never meet
+    and every requested RDM would report ``None``."""
+    statuses: dict[str, str | None] = {_uid(r): None for r in rdm_ids}
     if not statuses:
         return statuses
     params = {f"e{i}": value for i, value in enumerate(statuses)}
@@ -206,7 +210,7 @@ def latest_backfill_statuses(rdm_ids: list[Any]) -> dict[str, str | None]:
         "ORDER BY rj.updated_at DESC",
         params, connection="WORKBENCH")
     for row in rows:
-        key = str(row["rdm_id"])
+        key = _uid(row["rdm_id"])
         if statuses.get(key) is None:
             statuses[key] = row["status_code"]
     return statuses

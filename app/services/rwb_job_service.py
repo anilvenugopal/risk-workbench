@@ -228,8 +228,11 @@ def list_rwb_jobs_for_monitoring() -> list[dict]:
     group, per ``contracts/job-monitoring-routes.md``. Elapsed-time display (now
     minus ``submitted_at``/``completed_at``) is computed by the caller, not here —
     it changes on every render, so baking it into the query would only be correct
-    at the instant the query ran."""
-    return execute(
+    at the instant the query ran.
+
+    The four uniqueidentifier columns are normalized with ``_uid`` — they read
+    back UPPERCASE, and every id a service hands out is lowercase."""
+    rows = execute(
         """
         SELECT id, requestor_type, requestor_id, link_type, link_id,
                context_type, context_id, rwb_job_type, status_code,
@@ -241,6 +244,10 @@ def list_rwb_jobs_for_monitoring() -> list[dict]:
         {},
         connection="WORKBENCH",
     )
+    return [{**row, "id": _uid(row["id"]),
+             "requestor_id": _uid(row["requestor_id"]),
+             "link_id": _uid(row["link_id"]),
+             "context_id": _uid(row["context_id"])} for row in rows]
 
 
 def resubmit_rwb_job(*, rwb_job_id: Any) -> str | None:

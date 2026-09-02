@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 
 import pytest
 from fastapi import FastAPI, Request
@@ -144,8 +145,12 @@ def _seed_executed(*, edm_id: str, name: str, loss_results=None,
     if portfolio_name:
         portfolio_id = str(uuid.uuid4())
         execute_command(
-            "INSERT INTO irp_portfolio (id, edm_id, name) VALUES (:id, :edm, :n)",
-            {"id": portfolio_id, "edm": edm_id, "n": portfolio_name},
+            "INSERT INTO irp_portfolio (id, edm_id, irp_id, name) "
+            "VALUES (:id, :edm, :irp_id, :n)",
+            {"id": portfolio_id, "edm": edm_id, "n": portfolio_name,
+             # UNIQUE(edm_id, irp_id) counts NULLs as equal, and one EDM
+             # here carries several portfolios.
+             "irp_id": str(uuid.uuid4().int % 2_000_000_000)},
             connection="WORKBENCH")
     if template_name:
         template_id = str(uuid.uuid4())
@@ -160,8 +165,9 @@ def _seed_executed(*, edm_id: str, name: str, loss_results=None,
         "loss_results, submitted_settings, inserted_at, irp_portfolio_id, "
         "analysis_template_id, inserted_by) "
         "VALUES (:id, :edm, :n, :n, :sc, '9001', :x, 0, :sm, :lr, :ss, "
-        "'2026-08-26T00:00:00', :p, :t, :by)",
+        ":at, :p, :t, :by)",
         {"id": analysis_id, "edm": edm_id, "n": name, "x": str(uuid.uuid4()),
+         "at": datetime(2026, 8, 26),
          "sc": status_code, "p": portfolio_id, "t": template_id,
          "by": inserted_by,
          "sm": (json.dumps(settings) if settings else None),
@@ -278,7 +284,8 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     _seed_executed(edm_id=edm_id, name="Awaiting retrieval")
     failed = _seed_executed(edm_id=edm_id, name="Retrieval failed")
     _failed_retrieval(failed, edm_id)
-    _seed_executed(edm_id=edm_id, name="Still running", job_status="RUNNING", status_code="running")
+    _seed_executed(edm_id=edm_id, name="Still running", job_status="RUNNING",
+                   status_code="pending")
 
     html = client.get(f"/edms/{edm_id}/analyses").text
 
@@ -302,7 +309,9 @@ def test_merged_section_columns_and_the_four_aal_states(client):
     assert "RM returned 500 on EP curve" in html
     assert html.count('class="aal-state"') == 1  # the running row reads — instead
     # Submitted is UTC in <time data-utc> for the browser sliver (FR-024, T-10)
-    assert '<time data-utc="2026-08-26T00:00:00"' in html
+    # inserted_at is DATETIME2 and reads back as a datetime, so the emitted
+    # value is space-separated — the form parseUtcStamp (app.js) expects.
+    assert '<time data-utc="2026-08-26 00:00:00"' in html
     # the copy sliver's hooks (FR-018): the button and the data-value attributes
     assert "data-copy-table" in html
     assert "data-analyses-section" in html
@@ -313,7 +322,7 @@ def test_merged_section_status_filter_rides_the_poll_url(client):
     _seed_executed(edm_id=edm_id, name="Ready one", loss_results=_extract(),
                    portfolio_name="Ready portfolio")
     _seed_executed(edm_id=edm_id, name="Running one", job_status="RUNNING",
-                   status_code="running", portfolio_name="Running portfolio")
+                   status_code="pending", portfolio_name="Running portfolio")
 
     html = client.get(f"/edms/{edm_id}/analyses?status=ready").text
 

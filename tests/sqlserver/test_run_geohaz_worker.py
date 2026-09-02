@@ -33,9 +33,9 @@ def test_worker_submit_success_records_geohaz_job_and_resource(
         "SELECT * FROM irp_job WHERE irp_job_type = 'geohaz'",
         {}, connection="WORKBENCH")
     assert job["status"] == "SUBMITTED"
-    assert str(job["irp_edm_id"]) == edm_id
-    assert str(job["irp_portfolio_id"]) == portfolio_ids[0]
-    assert str(job["inserted_by"]) == workbench_db.user_a
+    assert str(job["irp_edm_id"]).lower() == edm_id
+    assert str(job["irp_portfolio_id"]).lower() == portfolio_ids[0]
+    assert str(job["inserted_by"]).lower() == workbench_db.user_a
     enqueued = execute_one(
         "SELECT input_data FROM rwb_job WHERE id = :id",
         {"id": head_id}, connection="WORKBENCH")
@@ -70,9 +70,12 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
         "SELECT id, requestor_id, input_data FROM rwb_job "
         "WHERE rwb_job_type = 'run_geohaz'",
         {}, connection="WORKBENCH")
-    jobs = {str(row["requestor_id"]): str(row["id"]) for row in enqueued}
+    # Keyed lowercase: uniqueidentifier reads back UPPERCASE and every lookup
+    # below uses the lowercase portfolio id the service handed out.
+    jobs = {str(row["requestor_id"]).lower(): str(row["id"])
+            for row in enqueued}
     enqueued_params = {
-        str(row["requestor_id"]): json.loads(row["input_data"])["params"]
+        str(row["requestor_id"]).lower(): json.loads(row["input_data"])["params"]
         for row in enqueued
     }
     original_submit = fake_irp.submit_geohaz
@@ -95,19 +98,20 @@ def test_worker_failure_is_terminal_and_does_not_touch_sibling(
         "SELECT irp_portfolio_id, irp_id, status, request_params, inserted_by "
         "FROM irp_job WHERE irp_job_type = 'geohaz'",
         {}, connection="WORKBENCH")
-    by_portfolio = {str(row["irp_portfolio_id"]): row for row in irp_jobs}
+    by_portfolio = {str(row["irp_portfolio_id"]).lower(): row
+                    for row in irp_jobs}
     failed = by_portfolio[portfolio_ids[0]]
     assert failed["status"] == "SUBMISSION FAILED"
     assert failed["irp_id"] is None
     assert (json.loads(failed["request_params"])
             == enqueued_params[portfolio_ids[0]])
-    assert str(failed["inserted_by"]) == workbench_db.user_b
+    assert str(failed["inserted_by"]).lower() == workbench_db.user_b
     succeeded = by_portfolio[portfolio_ids[1]]
     assert succeeded["status"] == "SUBMITTED"
     assert succeeded["irp_id"] is not None
 
     heads = {
-        str(row["requestor_id"]): row
+        str(row["requestor_id"]).lower(): row
         for row in execute(
             "SELECT requestor_id, status_code, error_detail FROM rwb_job "
             "WHERE rwb_job_type = 'run_geohaz'",

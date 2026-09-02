@@ -248,16 +248,24 @@ def test_sync_skips_gracefully_when_name_unresolvable(
 # The no-JS fallback is Post/Redirect/Get, so a refresh never re-prompts the form.
 
 class _InjectUser(BaseHTTPMiddleware):
+    def __init__(self, app, user_id: str = "analyst-1"):
+        super().__init__(app)
+        self.user_id = user_id
+
     async def dispatch(self, request: Request, call_next):
         from app.services.auth_service import CurrentUser
         request.state.user = CurrentUser(
-            id="analyst-1", email="analyst@example.com", display_name="Analyst",
+            id=self.user_id, email="analyst@example.com", display_name="Analyst",
             session_id="s", role_codes=["analyst"], is_admin=False,
             must_change_password=False, entra_oid=None, is_active=True)
         return await call_next(request)
 
 
-def _client() -> TestClient:
+def _client(user_id: str = "analyst-1") -> TestClient:
+    """The default ``"analyst-1"`` suits route tests that monkeypatch the
+    service. A route that writes a row stamped with the actor must be given a
+    seeded analyst id instead — ``rwb_job.inserted_by`` is a uniqueidentifier
+    with an FK to ``app_user.id``."""
     from app.auth.csrf import generate_csrf_token
     from app.config import settings
     from app.routers import edms
@@ -269,7 +277,7 @@ def _client() -> TestClient:
     templates.env.globals["oidc_auth_enabled"] = settings.oidc_auth_enabled
     templates.env.globals["generate_csrf_token"] = generate_csrf_token
     app.state.templates = templates
-    app.add_middleware(_InjectUser)
+    app.add_middleware(_InjectUser, user_id=user_id)
     app.include_router(edms.router)
     return TestClient(app, follow_redirects=False)
 

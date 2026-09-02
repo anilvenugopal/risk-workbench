@@ -78,12 +78,16 @@ def _rdm(name: str, irp_id: int | None = None) -> str:
     return _mk("irp_rdm", name=name, status="ready", irp_id=irp_id)
 
 
-def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str = "A",
+def _analysis(*, rdm_id: str, edm_id: str, irp_id: str, name: str | None = None,
               settings: dict | None = None, is_group: bool = False,
               loss_results: dict | None = None,
               row_id: str | None = None) -> str:
+    # The default name follows irp_id because uq_irp_analysis_live_edm_name is
+    # UNIQUE(edm_id, name) over live rows, and these tests put several analyses
+    # under one EDM. No test here reads the name.
     cols: dict = dict(rdm_id=rdm_id, edm_id=edm_id, irp_id=irp_id,
-                      name=name, source_rdm_name="R", status_code="ready",
+                      name=name or f"A{irp_id}", source_rdm_name="R",
+                      status_code="ready",
                       settings_metadata=(json.dumps(settings) if settings
                                          else None),
                       loss_results=(json.dumps(loss_results) if loss_results

@@ -340,6 +340,11 @@ _HANDLE_SELECT = """
 """
 
 
+# SQL Server rejects a statement carrying more than 2100 bind parameters, and
+# one EDM can hold more analyses than that.
+_IN_CLAUSE_LIMIT = 1000
+
+
 def _mark_failed_retrievals(analyses: list) -> None:
     """Flip still-pending rows whose retrieval ``rwb_job`` ended ``failed`` to
     failed + reason while the run status stays untouched. A terminal failed row
@@ -348,16 +353,20 @@ def _mark_failed_retrievals(analyses: list) -> None:
     pending = [a for a in analyses if a.results_state == "pending"]
     if not pending:
         return
-    params = {f"a{i}": a.id for i, a in enumerate(pending)}
-    placeholders = ", ".join(f":a{i}" for i in range(len(pending)))
-    failed = execute(
-        f"SELECT requestor_id, error_detail FROM rwb_job "
-        f"WHERE requestor_type = 'irp_analysis' "
-        f"AND rwb_job_type = 'retrieve_analysis_results' "
-        f"AND status_code = 'failed' "
-        f"AND requestor_id IN ({placeholders})",
-        params, connection="WORKBENCH")
-    by_id = {_uid(row["requestor_id"]): row["error_detail"] for row in failed}
+    by_id: dict[str, str | None] = {}
+    for start in range(0, len(pending), _IN_CLAUSE_LIMIT):
+        batch = pending[start:start + _IN_CLAUSE_LIMIT]
+        params = {f"a{i}": a.id for i, a in enumerate(batch)}
+        placeholders = ", ".join(f":a{i}" for i in range(len(batch)))
+        failed = execute(
+            f"SELECT requestor_id, error_detail FROM rwb_job "
+            f"WHERE requestor_type = 'irp_analysis' "
+            f"AND rwb_job_type = 'retrieve_analysis_results' "
+            f"AND status_code = 'failed' "
+            f"AND requestor_id IN ({placeholders})",
+            params, connection="WORKBENCH")
+        by_id.update({_uid(row["requestor_id"]): row["error_detail"]
+                      for row in failed})
     for a in pending:
         if a.id in by_id:
             a.results_state = "failed"

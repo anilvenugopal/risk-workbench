@@ -441,10 +441,14 @@ def latest_backfill_status(edm_id: str) -> str | None:
 def latest_backfill_statuses(edm_ids: list[Any]) -> dict[str, str | None]:
     """``latest_backfill_status`` for a whole entity table in one query —
     newest ``updated_at`` per EDM reduced app-side. Every requested id gets a
-    key; EDMs whose detail backfill never ran map to ``None``."""
-    statuses: dict[str, str | None] = {str(e): None for e in edm_ids}
+    key; EDMs whose detail backfill never ran map to ``None``.
+
+    Keyed by ``_uid``, not ``str``: the requested ids are lowercase and
+    ``rwb_job.link_id`` reads back UPPERCASE, so raw keys would never meet and
+    every requested EDM would report ``None``."""
+    statuses: dict[str, str | None] = {_uid(e): None for e in edm_ids}
     for row in rwb_job_service.backfill_edm_detail_rows(list(statuses)):
-        key = str(row["edm_id"])
+        key = _uid(row["edm_id"])
         if statuses.get(key) is None:
             statuses[key] = row["status_code"]
     return statuses

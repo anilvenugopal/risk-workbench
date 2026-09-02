@@ -93,13 +93,14 @@ def test_happy_path_creates_rows_with_lineage_and_enqueues_backfill(
         ("usfl_commercial - EQ Comm", "EQ Comm"),
         ("usfl_commercial - FLD Comm", "FLD Comm")]
     assert all(r["breakout_dimension_code"] == "lob" for r in rows)
-    assert all(r["inserted_by"] == workbench_db.user_a for r in rows)  # FR-015
+    assert all(str(r["inserted_by"]).lower() == workbench_db.user_a
+               for r in rows)                                          # FR-015
     assert all(r["irp_id"] for r in rows)
 
     # the completion enqueue keys on THIS breakout job row (FR-013)
     heads = _backfill_heads()
-    assert [(h["requestor_type"], h["requestor_id"]) for h in heads] == [
-        ("rwb_job", jid)]
+    assert [(h["requestor_type"], str(h["requestor_id"]).lower())
+            for h in heads] == [("rwb_job", jid)]
     # ... and the selection ran ONCE, before the loop
     assert len(fake_irp.selection_calls) == 1
     assert fake_irp.selection_calls[0]["values"] == ["EQ Comm", "FLD Comm"]
@@ -342,7 +343,7 @@ def test_adopt_by_number_with_exactly_one_hit(workbench_db, fake_irp):
     assert fake_irp.populate_calls == [
         {"portfolio_irp_id": "900", "account_ids": [1, 2]}]
     rows = _generated_rows(source_id)
-    assert [(r["irp_id"], r["inserted_by"]) for r in rows] == [
+    assert [(r["irp_id"], str(r["inserted_by"]).lower()) for r in rows] == [
         ("900", workbench_db.user_a)]
 
 
@@ -493,13 +494,13 @@ def test_audit_recoverable_from_job_row_and_generated_rows(
     assert json.loads(job["input_data"])["actor_id"] == str(
         workbench_db.user_a)                            # 1. actor
     assert job["updated_at"] is not None                 # 2. timestamp
-    assert job["requestor_id"] == source_id              # 3. source portfolio
+    assert str(job["requestor_id"]).lower() == source_id  # 3. source portfolio
     assert job["rwb_job_type"] == "run_breakout_lob"     # 4. dimension
     outcomes = json.loads(job["output_data"])["sub_portfolios"]
     assert {o["value"]: o["outcome"] for o in outcomes} == {
         "A": "created", "B": "failed"}                   # 5. outcomes
     rows = _generated_rows(source_id)
-    assert [r["inserted_by"] for r in rows] == [
+    assert [str(r["inserted_by"]).lower() for r in rows] == [
         workbench_db.user_a]                            # 6. confirming analyst
 
 

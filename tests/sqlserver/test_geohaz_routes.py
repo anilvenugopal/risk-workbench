@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 from app.services import analysis_service, edm_service, irp_job_service
 from app.services._common import SubmissionRef
@@ -104,7 +105,7 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
 ):
     edm_id, portfolio_ids = _edm_with_portfolios(2)
 
-    response = _client().post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz",
         data=_form(portfolio_ids),
         headers={"HX-Request": "true"},
@@ -117,7 +118,8 @@ def test_launch_post_enqueues_each_portfolio_and_returns_confirmation(
         "SELECT requestor_id, input_data FROM rwb_job "
         "WHERE rwb_job_type='run_geohaz'",
         {}, connection="WORKBENCH")
-    assert {str(row["requestor_id"]) for row in heads} == set(portfolio_ids)
+    assert {str(row["requestor_id"]).lower()
+            for row in heads} == set(portfolio_ids)
     for row in heads:
         params = json.loads(row["input_data"])["params"]
         assert params["data_version"] == "25.0"
@@ -140,7 +142,7 @@ def test_contextual_launch_preserves_submission_content(
         edm_service, "get_contextual_edm_detail",
         lambda **kwargs: _context(edm_id),
     )
-    client = _client()
+    client = _client(workbench_db.user_a)
     page = client.get(f"/submissions/submission-a/edms/{edm_id}")
 
     assert f'action="/edms/{edm_id}/geohaz"' in page.text
@@ -196,12 +198,13 @@ def test_contextual_launch_plain_post_redirects_to_contextual_page(
     data = _form(portfolio_ids)
     data["submission_id"] = "submission-a"
 
-    response = _client().post(f"/edms/{edm_id}/geohaz", data=data)
+    response = _client(workbench_db.user_a).post(
+        f"/edms/{edm_id}/geohaz", data=data)
 
     assert response.status_code == 303
     assert response.headers["location"] == (
         f"/submissions/submission-a/edms/{edm_id}?geohaz=queued")
-    page = _client().get(response.headers["location"])
+    page = _client(workbench_db.user_a).get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
     assert 'href="/submissions/submission-a"' in page.text
 
@@ -226,12 +229,12 @@ def test_contextual_launch_rejects_an_unrelated_edm(
 def test_launch_post_without_htmx_uses_prg_and_confirmation_banner(workbench_db):
     edm_id, portfolio_ids = _edm_with_portfolios(1)
 
-    response = _client().post(
+    response = _client(workbench_db.user_a).post(
         f"/edms/{edm_id}/geohaz", data=_form(portfolio_ids))
 
     assert response.status_code == 303
     assert response.headers["location"] == f"/edms/{edm_id}?geohaz=queued"
-    page = _client().get(response.headers["location"])
+    page = _client(workbench_db.user_a).get(response.headers["location"])
     assert "Hazard lookup queued" in page.text
 
 
@@ -286,9 +289,12 @@ def test_detail_and_cell_render_live_state_then_stop_polling(workbench_db):
 
 def test_missing_portfolio_cell_is_terminal_empty_fragment(workbench_db):
     edm_id, _ = _edm_with_portfolios(1)
+    # A well-formed id with no row: irp_portfolio.id is a uniqueidentifier,
+    # so a non-GUID string never reaches the "no such portfolio" path.
+    missing = str(uuid.uuid4())
 
     response = _client().get(
-        f"/edms/{edm_id}/portfolios/not-a-portfolio/geohaz-cell")
+        f"/edms/{edm_id}/portfolios/{missing}/geohaz-cell")
 
     assert response.status_code == 200
     assert "&mdash;" in response.text

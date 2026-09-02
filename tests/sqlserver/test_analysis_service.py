@@ -183,9 +183,9 @@ def test_no_job_yet_reads_submitting(workbench_db):
 
 def test_queued_and_running_are_live_importing(workbench_db):
     edm = _edm()
-    queued = _executed(edm_id=edm, status_code="pending")
+    queued = _executed(edm_id=edm, name="Queued", status_code="pending")
     _job(analysis_id=queued, status="QUEUED")
-    running = _executed(edm_id=edm, status_code="pending")
+    running = _executed(edm_id=edm, name="Running", status_code="pending")
     _job(analysis_id=running, status="RUNNING")
 
     rows = {a.id: a for a in analysis_service.list_executed_analyses(edm_id=edm)}
@@ -211,10 +211,10 @@ def test_finished_reads_ready_and_not_live_once_results_stored(workbench_db):
 
 def test_failed_and_cancelled_read_error_with_reason(workbench_db):
     edm = _edm()
-    failed = _executed(edm_id=edm, status_code="error",
+    failed = _executed(edm_id=edm, name="Failed", status_code="error",
                        failure_reason="No locations match the criteria")
     _job(analysis_id=failed, status="FAILED")
-    cancelled = _executed(edm_id=edm, status_code="error",
+    cancelled = _executed(edm_id=edm, name="Cancelled", status_code="error",
                           failure_reason="Cancelled in Risk Modeler")
     _job(analysis_id=cancelled, status="CANCELLED")
 

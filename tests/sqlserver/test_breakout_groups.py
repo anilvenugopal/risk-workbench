@@ -55,17 +55,24 @@ def _group(label: str, filters: dict) -> dict:
 
 
 def _group_rows(pid: str) -> list[dict]:
-    return execute(
+    # uniqueidentifier reads back UPPERCASE; the ids these rows are compared
+    # against — service return values and ids inside input_data JSON — are the
+    # lowercase strings uuid4() produced. Normalize on read (see _common._uid).
+    rows = execute(
         "SELECT id, group_key, label, filters, name, number, cart_id "
         "FROM breakout_group WHERE source_portfolio_id = :s ORDER BY name",
         {"s": pid}, connection="WORKBENCH")
+    return [{**r, "id": str(r["id"]).lower(),
+             "cart_id": str(r["cart_id"]).lower()} for r in rows]
 
 
 def _custom_jobs() -> list[dict]:
-    return execute(
+    rows = execute(
         "SELECT id, requestor_type, requestor_id, status_code, input_data "
         "FROM rwb_job WHERE rwb_job_type = 'run_breakout_custom'",
         {}, connection="WORKBENCH")
+    return [{**r, "id": str(r["id"]).lower(),
+             "requestor_id": str(r["requestor_id"]).lower()} for r in rows]
 
 
 def _generated_rows(source_id: str) -> list[dict]:
@@ -357,7 +364,7 @@ def test_group_worker_unions_within_and_intersects_across(
     assert row["breakout_dimension_code"] == "custom"
     assert row["breakout_value"] == compute_group_key(
         {"state": ["TX", "CA"], "lob": ["EQ Comm"]})
-    assert row["breakout_group_id"] == _group_rows(pid)[0]["id"]
+    assert str(row["breakout_group_id"]).lower() == _group_rows(pid)[0]["id"]
     # one selection read per dimension, each scoped to its own values
     assert [(c["dimension"], c["values"]) for c in fake_irp.selection_calls] \
         == [("lob", ["EQ Comm"]), ("state", ["CA", "TX"])]

@@ -256,7 +256,7 @@ def test_confirm_happy_path_persists_plan_and_enqueues_one_job(
     job = jobs[0]
     assert job["rwb_job_type"] == "run_breakout_lob"
     assert job["requestor_type"] == "analyst_request"
-    assert job["requestor_id"] == pid          # the SOURCE portfolio (FR-015)
+    assert str(job["requestor_id"]).lower() == pid   # the SOURCE portfolio (FR-015)
     data = json.loads(job["input_data"])
     assert data["edm_id"] == edm_id
     assert data["portfolio_id"] == pid

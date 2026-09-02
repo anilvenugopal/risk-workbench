@@ -448,6 +448,10 @@ def test_backfill_skips_stored_results_even_without_the_dedup_row(
     rdm_id = _rdm_ready(workbench_db, fake_irp, drive)
     analysis_jobs.run_pending()
     execute_command(
+        "DELETE FROM rwb_job_heartbeat WHERE rwb_job_id IN "
+        "(SELECT id FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results')",
+        {}, connection="WORKBENCH")
+    execute_command(
         "DELETE FROM rwb_job WHERE rwb_job_type='retrieve_analysis_results'",
         {}, connection="WORKBENCH")
 

@@ -118,11 +118,11 @@ def test_valid_launch_enqueues_one_job_per_portfolio_with_shared_params(
         input_data = json.loads(row["input_data"])
         assert input_data["params"] == expected_params
         assert input_data["irp_edm_id"] == edm_id
-        assert input_data["irp_portfolio_id"] == str(row["requestor_id"])
+        assert input_data["irp_portfolio_id"] == str(row["requestor_id"]).lower()
         assert input_data["requested_by_user_id"] == workbench_db.user_a
-        assert str(row["inserted_by"]) == workbench_db.user_a
+        assert str(row["inserted_by"]).lower() == workbench_db.user_a
         assert row["status_code"] == "pending"
-    assert set(sent) == {(str(row["id"]), "run_geohaz") for row in rows}
+    assert set(sent) == {(str(row["id"]).lower(), "run_geohaz") for row in rows}
 
 
 def test_launch_normalizes_sql_server_uuid_casing(workbench_db, monkeypatch):

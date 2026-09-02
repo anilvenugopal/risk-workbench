@@ -100,8 +100,8 @@ def test_save_generated_reclaims_soft_deleted_lineage_row(workbench_db):
     row = rows[0]
     assert row["deleted_at"] is None
     assert (row["irp_id"], row["name"]) == ("21", "A - FL")
-    assert row["inserted_by"] == workbench_db.user_a   # first confirmer kept
-    assert row["updated_by"] == workbench_db.user_b
+    assert str(row["inserted_by"]).lower() == workbench_db.user_a  # first confirmer
+    assert str(row["updated_by"]).lower() == workbench_db.user_b
 
 
 def test_dead_row_with_conflicting_lineage_still_refuses(workbench_db):
@@ -156,13 +156,9 @@ def test_lineage_write_reports_a_non_unique_integrity_error_as_itself(
     # UNIQUE-race recovery. It must surface as itself, not as a claim the write
     # lost a race it never entered.
     edm_id, a = _setup_source()
-    execute_command(
-        "CREATE TRIGGER reject_fl BEFORE INSERT ON irp_portfolio "
-        "WHEN NEW.breakout_value = 'FL' BEGIN "
-        "SELECT RAISE(ABORT, 'FOREIGN KEY constraint failed'); END",
-        {}, connection="WORKBENCH")
+    unknown_actor = str(uuid.uuid4())  # no app_user row: violates inserted_by
 
-    with pytest.raises(IntegrityError, match="FOREIGN KEY constraint failed"):
+    with pytest.raises(IntegrityError, match="FOREIGN KEY constraint"):
         portfolio_service.save_generated_portfolio(
             edm_id, name="A - FL", irp_id="11", source_portfolio_id=a.id,
-            dimension_code="state", value="FL", actor_id=None)
+            dimension_code="state", value="FL", actor_id=unknown_actor)

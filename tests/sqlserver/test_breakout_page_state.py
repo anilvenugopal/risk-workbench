@@ -32,7 +32,9 @@ _next_irp_id = iter(range(1000, 9999))
 
 
 def _mk_edm(*, name: str = "night_edm") -> str:
-    return mk_edm(name=name, now=NOW)
+    # irp_id is UNIQUE across live EDMs (uq_irp_edm_live_irp_id), and one test
+    # makes two EDMs, so every EDM this module makes takes the next one.
+    return mk_edm(name=name, irp_id=next(_next_irp_id), now=NOW)
 
 
 def _mk_portfolio(edm_id: str, *, name: str = "usfl_commercial") -> str:

@@ -105,7 +105,7 @@ def test_batch_worker_submits_and_records_job(workbench_db, fake_irp):
     assert rows[0]["full_name"] == "CRE_Portfolio A_Template A"
     # `pending` until a terminal write: irp_job.status carries the progress.
     assert rows[0]["status_code"] == "pending"
-    assert rows[0]["irp_portfolio_id"] == portfolio_id
+    assert str(rows[0]["irp_portfolio_id"]).lower() == portfolio_id
 
     irp_job = execute_one(
         "SELECT status, irp_analysis_id, request_params FROM irp_job "
@@ -266,7 +266,7 @@ def test_resume_reuses_claimed_name_when_crash_left_no_irp_job(workbench_db, fak
 
     rows = _analyses_for(edm_id)
     assert len(rows) == 1
-    assert rows[0]["id"] == claimed["id"]
+    assert str(rows[0]["id"]).lower() == claimed["id"]
     assert rows[0]["name"] == claimed["name"]
     assert rows[0]["status_code"] == "pending"
 
@@ -713,7 +713,7 @@ def test_claim_snapshots_the_plan_item_and_a_resumed_claim_keeps_it(
     again = analysis_jobs._claim_analysis(
         edm_id=edm_id, portfolio={"id": portfolio_id, "name": "Portfolio A"},
         item=edited, execution_id=execution_id, actor_id=workbench_db.user_a)
-    assert again["id"] == claimed["id"]
+    assert str(again["id"]).lower() == str(claimed["id"]).lower()
     kept = execute_one(
         "SELECT submitted_settings FROM irp_analysis WHERE id = :id",
         {"id": claimed["id"]}, connection="WORKBENCH")["submitted_settings"]
