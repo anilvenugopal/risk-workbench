@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.auth.csrf import validate_csrf_token
 from app.nav import get_nav_context
+from app.routers._analysis_delete import delete_analyses_response
 from app.routers._compare import compare_modal_response
 from app.routers._entity_notes import apply_notes, check_csrf, note_context
 from app.services import (
@@ -326,7 +327,7 @@ def _results_section_context(request: Request, submission_id: str,
         "section_title": "Results",
         "analyses_table_url": f"/submissions/{submission_id}/analyses",
         "rdm_analyses_prefix": f"/submissions/{submission_id}/rdms",
-        "delete_url": None,
+        "delete_url": f"/submissions/{submission_id}/analyses/delete",
         "status_filter": _results_status_filter(request),
         # Keeps the 3s poll alive between a compose POST and the worker's claim
         # of the group row (spec 012 — no group row exists yet to read as live).
@@ -472,6 +473,22 @@ async def group_compose_submit(request: Request, submission_id: str):
             "rwb:toast": {"message": "Grouping submitted.", "type": "success"},
         }),
     })
+
+
+@router.post("/submissions/{submission_id}/analyses/delete")
+async def delete_submission_analyses(request: Request, submission_id: str):
+    """The Results grid's Delete (spec 012 contracts/routes.md): own analyses
+    across every EDM of the deal plus its group rows. A group row carries
+    ``submission_id`` and no ``edm_id``, so the EDM page's delete cannot reach
+    it — this route is the only one that can."""
+    form = await request.form()
+    if not validate_csrf_token(form.get("csrf_token")):
+        if _is_htmx(request):
+            return Response(status_code=204, headers={"HX-Refresh": "true"})
+        return RedirectResponse(f"/submissions/{submission_id}", status_code=303)
+    if submission_service.get_submission(submission_id) is None:
+        return _not_found(request)
+    return delete_analyses_response(request, form, submission_id=submission_id)
 
 
 @router.get("/submissions/{submission_id}/analyses/compare",

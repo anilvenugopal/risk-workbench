@@ -20,6 +20,7 @@ tests want the real writes).
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import date
@@ -1496,12 +1497,62 @@ def test_results_fragment_lists_own_rows_across_edms_and_rdm_groups(client):
     # the RDM group row lazy-loads from the submission-scoped fragment route
     assert "Acme Broker RDM" in html
     assert f'hx-get="/submissions/{submission_id}/rdms/{rdm_id}/analyses"' in html
-    # deletion stays on the EDM page — no Delete control here
-    assert "Delete</button>" not in html
+    # own rows and groups delete from here (spec 012 contracts/routes.md)
+    assert "Delete</button>" in html
+    assert f'hx-post="/submissions/{submission_id}/analyses/delete"' in html
     # copy sliver hooks and the Submitted <time data-utc> UTC emit (FR-018/FR-024)
     assert "data-copy-table" in html
     assert 'data-value="Coastal HO"' in html
     assert '<time data-utc="2026-08-21T00:00:00"' in html
+
+
+def test_results_delete_soft_deletes_and_triggers_a_refetch(client, fake_irp):
+    submission_id, _, _ = _seed_results_data(client)
+    html = client.get(f"/submissions/{submission_id}/analyses").text
+    ids = re.findall(r'name="analysis_ids" value="([^"]+)"', html)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": _csrf(), "analysis_ids": ids[0]},
+    )
+
+    assert response.status_code == 204
+    triggered = json.loads(response.headers["HX-Trigger"])
+    assert triggered["analyses-changed"] is True
+    assert triggered["rwb:toast"]["type"] == "success"
+    assert ids[0] not in client.get(
+        f"/submissions/{submission_id}/analyses").text
+
+
+def test_results_delete_reports_a_non_terminal_row(client, fake_irp):
+    submission_id, edm_id, _ = _seed_results_data(client)
+    running = str(uuid.uuid4())
+    execute_command(
+        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code) "
+        "VALUES (:id, :edm, 'CRE_Running_v25', 'CRE_Running_v25', 'pending')",
+        {"id": running, "edm": edm_id}, connection="WORKBENCH")
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": _csrf(), "analysis_ids": running},
+    )
+
+    assert response.status_code == 422
+    assert "still in progress" in response.text
+    assert fake_irp.deleted_analyses == []
+
+
+def test_results_delete_rejects_invalid_csrf(client):
+    submission_id, _, _ = _seed_results_data(client)
+
+    response = client.post(
+        f"/submissions/{submission_id}/analyses/delete",
+        data={"csrf_token": "bad", "analysis_ids": str(uuid.uuid4())},
+        headers={"HX-Request": "true"},
+    )
+
+    assert response.status_code == 204
+    assert response.headers["HX-Refresh"] == "true"
 
 
 def test_results_fragment_status_filter_rides_the_poll_url(client):

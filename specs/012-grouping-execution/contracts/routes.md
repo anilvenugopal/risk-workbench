@@ -49,6 +49,25 @@ Behavior:
   the worker claims the job (normally within seconds), so the merged grid
   shows it from claim onward through its existing polling.
 
+## `POST /submissions/{submission_id}/analyses/delete`
+
+Multi-select delete from the submission's Results grid. Form fields:
+`csrf_token`, repeated `analysis_ids`. Same cascade, validation, and response
+as the EDM route (spec 010 `contracts/routes.md` — Risk Modeler delete first,
+local soft delete on success, `204` with
+`HX-Trigger: {"analyses-changed": true, "rwb:toast": …}`, `422` banner on a
+validation failure).
+
+What differs is the candidate set: `delete_submission_analyses` validates
+against `list_submission_executed_analyses`, so a batch may span every EDM of
+the deal and may include group rows. A group carries `submission_id` and no
+`edm_id`, so this is the only route that can delete one. Broker rows are not
+in the candidate set — posting one is rejected like any unrelated id, and the
+grid's Delete button already disables while a broker row is ticked.
+
+Member rows in `irp_analysis_group_member` are retained when either a group or
+one of its members is deleted (data-model §2).
+
 ## Merged grid changes (`analyses_merged_section.html`)
 
 - Summary bar gains **Group** (`data-group-analyses`), enabled when ≥2 rows
