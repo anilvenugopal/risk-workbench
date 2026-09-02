@@ -32,10 +32,16 @@ def _submitted_group(iteration2_db, fake_irp) -> dict:
     link_submission_edm(submission_id, edm_id)
     a1 = seed_own_analysis(edm_id, "CRE_P1_T1")
     a2 = seed_own_analysis(edm_id, "CRE_P2_T1")
+    ids = [execute_one("SELECT irp_id FROM irp_analysis WHERE id = :id",
+                       {"id": a}, connection="WORKBENCH")["irp_id"]
+           for a in (a1, a2)]
     svc.request_grouping(
         submission_id=submission_id, submission_name="Sub One",
         member_ids=[a1, a2], group_name="CRE_Sub One_Group",
         currency_code="USD", currency_scheme="RMS", currency_vintage="RL25",
+        num_of_simulations="1", event_rate_selections=[],
+        expected_inspection_fingerprint=f"v1:fake-{ids[0]},{ids[1]}",
+        inspected_analysis_ids=[str(i) for i in ids],
         actor_id=iteration2_db.user_a)
     grouping_jobs.run_pending(worker_id="w1")
     group = execute_one(

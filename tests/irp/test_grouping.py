@@ -1,29 +1,28 @@
 """Sandbox round-trips for analysis grouping (spec 012, T020/T022 — quickstart §4).
 
-Three cases, each driven by its own pair of environment variables naming
-FINISHED sandbox analyses (comma-separated names) and their EDMs
-(comma-separated, positionally aligned; leave an entry empty for a name-only
-member). Each case skips — never fails — when its variables are unset: no
-fixture name is safe to hardcode against someone else's sandbox tenant.
+Each case is driven by an environment variable naming FINISHED sandbox
+analyses by **Platform analysis id** (comma-separated) and skips — never
+fails — when it is unset: no fixture id is safe to hardcode against someone
+else's sandbox tenant.
 
-quickstart §4 lists the variable pairs; each skip message names its own.
+- ``IRP_TEST_GROUP_ELT_IDS``: two or more pure-ELT analyses sharing one
+  event-rate scheme. Inspect → submit with ``num_of_simulations=1`` → poll
+  ``get_grouping_job`` single-status to terminal → stats/EP for the group's
+  ``analysisId`` (the T-11 assumption is not validated until this passes).
+  The same ids submitted with a fabricated fingerprint must be rejected with
+  ``inspection_changed`` before any POST.
+- ``IRP_TEST_GROUP_CONFLICTING_ELT_IDS``: ELT analyses whose event-rate
+  schemes differ in exactly one partition. One group per offered scheme; each
+  request body carries the chosen scheme (SC-002).
 
-T020 submits a grouping, polls ``get_grouping_job`` single-status to a terminal
-state, and asserts the stats/EP getters serve the group's ``analysisId`` — the
-T-11 assumption (group results retrieval reuses the analysis read path) is not
-a validated claim until it passes. The two T022 cases stop at FINISHED: they
-prove SC-002, that a mixed-scheme DLM pair and a DLM + HD pair each group with
-zero manual pre-steps and no scheme parameter anywhere in the submitted
-payload. Propagate detailed output verification stops at the
-``propagateDetailedLosses`` payload flag until spec O-02 defines what it
-retains.
+Propagate detailed output verification stops at the ``propagateDetailedLosses``
+flag until spec O-02 defines what it retains.
 
 Run: ``make shell`` then ``uv run pytest tests/irp --run-irp -k grouping``.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import time
 
@@ -42,35 +41,15 @@ _CURRENCY = {"code": "USD", "scheme": "RMS", "vintage": "RL25",
              "asOfDate": "2025-05-28"}
 
 
-def _member_set(names_var: str, edms_var: str) -> tuple[list[str], dict[str, str]]:
-    names = [n.strip() for n in os.environ.get(names_var, "").split(",")
-             if n.strip()]
-    edms = [e.strip() for e in os.environ.get(edms_var, "").split(",")]
-    if len(names) < 2:
-        pytest.skip(f"set {names_var} (comma-separated, ≥2 FINISHED sandbox "
-                    f"analyses) and {edms_var} to run this case")
-    edm_map = {name: edm
-               for name, edm in zip(names, edms, strict=False) if edm}
-    return names, edm_map
+def _member_ids(var: str) -> list[int]:
+    ids = [int(v) for v in os.environ.get(var, "").split(",") if v.strip()]
+    if len(ids) < 2:
+        pytest.skip(f"set {var} (comma-separated Platform analysis ids of ≥2 "
+                    f"FINISHED sandbox analyses) to run this case")
+    return ids
 
 
-def _group_to_terminal(gateway, *, label: str, names: list[str],
-                       edm_map: dict[str, str]) -> tuple[str, str]:
-    """Submit one grouping and poll it to a terminal state.
-
-    Returns the group name and the terminal status. Asserts SC-002 on the
-    submitted payload: no event-rate-scheme parameter — the wheel auto-builds
-    the region/peril simulation set.
-    """
-    group_name = f"RWB {label} {int(time.time())}"
-    irp_id, request_body = gateway.submit_analysis_grouping(
-        group_name=group_name, analysis_names=names, analysis_edm_map=edm_map,
-        group_names=set(), currency=_CURRENCY,
-        propagate_detailed_losses=True)
-    assert irp_id
-    assert "eventratescheme" not in json.dumps(request_body).lower()
-    assert request_body["settings"]["propagateDetailedLosses"] is True
-
+def _poll_to_terminal(gateway, irp_id: str) -> str | None:
     deadline = time.time() + _POLL_TIMEOUT_SECS
     status = None
     while time.time() < deadline:
@@ -78,16 +57,41 @@ def _group_to_terminal(gateway, *, label: str, names: list[str],
         if status in ("FINISHED", "FAILED", "CANCELLED"):
             break
         time.sleep(_POLL_INTERVAL_SECS)
-    return group_name, status
+    return status
 
 
-def test_grouping_submit_poll_and_results_round_trip():
+def _submit(gateway, *, label: str, ids: list[int], inspection,
+            selections: list[dict], num_of_simulations: int) -> tuple[str, str, dict]:
+    group_name = f"RWB {label} {int(time.time())}"
+    irp_id, request_body = gateway.submit_grouping(
+        analysis_ids=ids, group_name=group_name, currency=_CURRENCY,
+        propagate_detailed_losses=True, num_of_simulations=num_of_simulations,
+        event_rate_selections=selections,
+        expected_inspection_fingerprint=inspection.fingerprint)
+    assert irp_id
+    assert request_body["resourceUris"] == [
+        f"/platform/riskdata/v1/analyses/{i}" for i in ids]
+    assert request_body["settings"]["analysisName"] == group_name
+    assert request_body["settings"]["propagateDetailedLosses"] is True
+    return irp_id, group_name, request_body
+
+
+def test_pure_elt_group_inspect_submit_poll_and_results_round_trip():
     gateway = irp_gateway._RealGateway()
-    names, edm_map = _member_set("IRP_TEST_GROUP_MEMBER_NAMES",
-                                 "IRP_TEST_GROUP_MEMBER_EDMS")
-    group_name, status = _group_to_terminal(
-        gateway, label="T020 Group", names=names, edm_map=edm_map)
-    assert status == "FINISHED"
+    ids = _member_ids("IRP_TEST_GROUP_ELT_IDS")
+
+    inspection = gateway.inspect_grouping(analysis_ids=ids)
+    assert inspection.blocking_problems == ()
+    assert inspection.output_loss_table == "ELT"
+    assert not any(p.event_rate_selection_required for p in inspection.partitions)
+
+    irp_id, group_name, body = _submit(
+        gateway, label="T020 ELT", ids=ids, inspection=inspection,
+        selections=[], num_of_simulations=1)
+    assert body["settings"]["numOfSimulations"] == 1
+    assert body["settings"]["simulateToPLT"] is False
+
+    assert _poll_to_terminal(gateway, irp_id) == "FINISHED"
 
     hit = gateway.get_analysis_by_name_only(group_name)
     meta = gateway.get_analysis_metadata(analysis_id=int(hit.analysis_id))
@@ -105,22 +109,51 @@ def test_grouping_submit_poll_and_results_round_trip():
     assert ep
 
 
-def test_mixed_event_rate_scheme_dlm_members_group_and_finish():
-    """US-2 acceptance 1 / SC-002 — two DLM analyses run under different
-    event-rate schemes group with no scheme choice and no pre-step."""
+def test_stale_fingerprint_is_rejected_before_any_post():
+    """US-2 acceptance 4: the package re-inspects at submit and refuses a
+    fingerprint that no longer matches — no job id is returned."""
     gateway = irp_gateway._RealGateway()
-    names, edm_map = _member_set("IRP_TEST_GROUP_MIXED_SCHEME_NAMES",
-                                 "IRP_TEST_GROUP_MIXED_SCHEME_EDMS")
-    _, status = _group_to_terminal(
-        gateway, label="T022 Mixed", names=names, edm_map=edm_map)
-    assert status == "FINISHED"
+    ids = _member_ids("IRP_TEST_GROUP_ELT_IDS")
+
+    with pytest.raises(irp_gateway.IRPGroupingValidationError) as exc:
+        gateway.submit_grouping(
+            analysis_ids=ids, group_name=f"RWB stale {int(time.time())}",
+            currency=_CURRENCY, propagate_detailed_losses=True,
+            num_of_simulations=1, event_rate_selections=[],
+            expected_inspection_fingerprint="v1:" + "0" * 64)
+
+    assert [str(p.code) for p in exc.value.problems] == ["inspection_changed"]
 
 
-def test_dlm_and_hd_members_group_and_finish():
-    """US-2 acceptance 2 / SC-002 — a DLM + HD pair groups with no pre-step."""
+def test_conflicting_schemes_group_once_per_offered_scheme():
+    """US-2 acceptance 1 / SC-002: the analyst's scheme choice is the only
+    input a conflict needs; every offered scheme yields a finished group."""
     gateway = irp_gateway._RealGateway()
-    names, edm_map = _member_set("IRP_TEST_GROUP_DLM_HD_NAMES",
-                                 "IRP_TEST_GROUP_DLM_HD_EDMS")
-    _, status = _group_to_terminal(
-        gateway, label="T022 DlmHd", names=names, edm_map=edm_map)
-    assert status == "FINISHED"
+    ids = _member_ids("IRP_TEST_GROUP_CONFLICTING_ELT_IDS")
+
+    inspection = gateway.inspect_grouping(analysis_ids=ids)
+    assert inspection.blocking_problems == ()
+    conflicting = [p for p in inspection.partitions if p.event_rate_selection_required]
+    assert len(conflicting) == 1
+    partition = conflicting[0]
+    assert len(partition.event_rate_scheme_options) >= 2
+
+    submitted = []
+    for option in partition.event_rate_scheme_options:
+        scheme_id = option.event_rate_scheme_id
+        selection = {"peril_code": partition.key.peril_code,
+                     "region_code": partition.key.region_code,
+                     "model_version": partition.key.model_version,
+                     "event_rate_scheme_id": scheme_id}
+        irp_id, _, body = _submit(
+            gateway, label=f"T022 scheme {scheme_id}", ids=ids,
+            inspection=inspection, selections=[selection], num_of_simulations=1)
+        entries = body["settings"]["regionPerilSimulationSet"]
+        assert entries
+        assert {e["eventRateSchemeId"] for e in entries} == {scheme_id}
+        assert all(e["simulationSetId"] == 0 and e["simulationPeriods"] == 0
+                   for e in entries)
+        submitted.append(irp_id)
+
+    for irp_id in submitted:
+        assert _poll_to_terminal(gateway, irp_id) == "FINISHED"

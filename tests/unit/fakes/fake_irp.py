@@ -27,7 +27,15 @@ from app.services.irp_gateway import (
     EdmCatalogEntry,
     EntityHit,
     EventRateSchemeEntry,
+    EventRateSchemeOption,
     ExposureDetail,
+    GroupingInspection,
+    GroupingMember,
+    GroupingPartition,
+    GroupingPartitionKey,
+    GroupingProblem,
+    GroupingRegionFact,
+    IRPGroupingValidationError,
     IRPIntegrationError,
     JobStatus,
     ModelProfileEntry,
@@ -235,17 +243,25 @@ class FakeIRP:
         # recorded result reads: {"call", "analysis_id", "perspective_code",
         # "exposure_resource_id"} — the idempotency assertions count these
         self.result_calls: list[dict] = []
-        # ── spec-012 grouping (worker-only) ──────────────────────────────────
-        # recorded submit_analysis_grouping calls, in order
+        # ── spec-012 grouping (contracts/grouping-worker.md) ─────────────────
+        # recorded inspect_grouping id lists and submit_grouping kwargs, in order
+        self.grouping_inspects: list[list[int]] = []
         self.grouping_submits: list[dict] = []
-        # group names whose submit raises the wheel's tenant-wide duplicate
-        # pre-check error (matched by the worker on its message prefix)
+        # the inspection inspect_grouping returns (seed_grouping_inspection);
+        # None → a pure-ELT, non-conflicting inspection built for the ids
+        self.grouping_inspection: GroupingInspection | None = None
+        # makes inspect_grouping raise IRPIntegrationError with this message
+        self.grouping_inspect_error: str | None = None
+        # names count_analyses_named reports as taken, besides those in _analyses
         self.duplicate_group_names: set[str] = set()
-        # member names whose resolution raises (skip_missing=False — the wheel
-        # errors before the POST)
-        self.missing_group_members: set[str] = set()
+        # recorded count_analyses_named names, in order
+        self.grouping_name_checks: list[str] = []
         # group names whose submit raises a generic failure
         self.raise_on_submit_grouping_for: set[str] = set()
+        # structured problems submit_grouping raises as IRPGroupingValidationError
+        self.grouping_submit_problems: list[GroupingProblem] = []
+        # force the inspection_changed rejection even when fingerprints match
+        self.grouping_fingerprints_change = False
 
     # ── control surface (test-only) ────────────────────────────────────────────
 
@@ -651,39 +667,119 @@ class FakeIRP:
 
     # ── spec-012 grouping (mirrors contracts/grouping-worker.md) ─────────────
 
-    def submit_analysis_grouping(
-        self, *, group_name: str, analysis_names: list[str],
-        analysis_edm_map: dict[str, str], group_names: set[str],
-        currency: dict, propagate_detailed_losses: bool,
+    def seed_grouping_inspection(
+        self, analysis_ids: list[int], *, output_loss_table: str = "ELT",
+        conflicting: list[int] | None = None,
+        periods: dict[int, int] | None = None,
+        blocking: tuple[GroupingProblem, ...] = (),
+    ) -> GroupingInspection:
+        """Seed what ``inspect_grouping`` returns. Every member sits in one
+        WS · NA · 11.0 partition; ``conflicting`` lists the scheme ids on offer
+        and marks the partition as requiring a selection; ``periods`` makes the
+        named members PLT (PET ``900+n``) with that many periods; ``blocking``
+        seeds the problems verbatim."""
+        self.grouping_inspection = self._build_inspection(
+            list(analysis_ids), output_loss_table=output_loss_table,
+            conflicting=conflicting, periods=periods, blocking=blocking)
+        return self.grouping_inspection
+
+    @staticmethod
+    def _build_inspection(ids: list[int], *, output_loss_table: str = "ELT",
+                          conflicting: list[int] | None = None,
+                          periods: dict[int, int] | None = None,
+                          blocking: tuple[GroupingProblem, ...] = (),
+                          ) -> GroupingInspection:
+        periods = periods or {}
+        key = GroupingPartitionKey(peril_code="WS", region_code="NA",
+                                   model_version="11.0")
+        members = []
+        for n, analysis_id in enumerate(ids):
+            plt = analysis_id in periods
+            scheme = conflicting[n % len(conflicting)] if conflicting else 101
+            region = GroupingRegionFact(
+                analysis_id=analysis_id, framework="PLT" if plt else "ELT",
+                peril_code="WS", region_code="NA", model_version="11.0",
+                engine_version="RL25", sub_region="NA", model_region_code="NA_WS",
+                event_rate_scheme_id=None if plt else scheme,
+                pet_id=(900 + n) if plt else None,
+                periods=periods.get(analysis_id), apply_contract_flag=False)
+            members.append(GroupingMember(
+                analysis_id=analysis_id, exists=True, is_group=False,
+                analysis_framework="PLT" if plt else "ELT",
+                engine_type="HD" if plt else "DLM", engine_version="RL25",
+                peril_code="WS", region_code="NA", model_version="11.0",
+                regions=(region,)))
+        options = tuple(
+            EventRateSchemeOption(event_rate_scheme_id=s, label=f"Scheme {s}")
+            for s in (conflicting or [101]))
+        partition = GroupingPartition(
+            key=key, analysis_ids=tuple(ids), event_rate_scheme_options=options,
+            observed_pet_ids=tuple(900 + n for n, a in enumerate(ids)
+                                   if a in periods),
+            event_rate_selection_required=bool(conflicting),
+            simulation_set_compatible=True)
+        required = ["analysis_name", "currency", "propagate_detailed_losses",
+                    "num_of_simulations"]
+        if conflicting:
+            required.append("event_rate_selections")
+        return GroupingInspection(
+            analysis_ids=tuple(ids),
+            resource_uris=tuple(f"/platform/riskdata/v1/analyses/{i}" for i in ids),
+            inspected_at="2026-09-02T00:00:00+00:00",
+            fingerprint=f"v1:fake-{','.join(str(i) for i in ids)}",
+            members=tuple(members), output_loss_table=output_loss_table,
+            simulate_to_plt=(output_loss_table == "PLT"),
+            partitions=(partition,), simulation_mappings=(),
+            required_caller_inputs=tuple(required), warnings=(),
+            blocking_problems=tuple(blocking))
+
+    def _inspection_for(self, ids: list[int]) -> GroupingInspection:
+        return self.grouping_inspection or self._build_inspection(ids)
+
+    def inspect_grouping(self, *, analysis_ids: list[int]) -> GroupingInspection:
+        self.grouping_inspects.append(list(analysis_ids))
+        if self.grouping_inspect_error:
+            raise IRPIntegrationError(self.grouping_inspect_error)
+        return self._inspection_for(list(analysis_ids))
+
+    def submit_grouping(
+        self, *, analysis_ids: list[int], group_name: str, currency: dict,
+        propagate_detailed_losses: bool, num_of_simulations: int,
+        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]:
         self.grouping_submits.append({
+            "analysis_ids": list(analysis_ids),
             "group_name": group_name,
-            "analysis_names": list(analysis_names),
-            "analysis_edm_map": dict(analysis_edm_map),
-            "group_names": set(group_names),
             "currency": dict(currency),
             "propagate_detailed_losses": propagate_detailed_losses,
+            "num_of_simulations": num_of_simulations,
+            "event_rate_selections": [dict(s) for s in event_rate_selections],
+            "expected_inspection_fingerprint": expected_inspection_fingerprint,
         })
-        if group_name in self.duplicate_group_names:
-            raise IRPIntegrationError(
-                f"Analysis Group with this name already exists: {group_name}")
-        missing = [n for n in analysis_names if n in self.missing_group_members]
-        if missing:
-            raise IRPIntegrationError(
-                f"Analysis with this name does not exist: {missing[0]}")
         if group_name in self.raise_on_submit_grouping_for:
             raise IRPIntegrationError(
                 f"fake IRP: forced grouping submit failure for '{group_name}'")
+        inspection = self._inspection_for(list(analysis_ids))
+        if (self.grouping_fingerprints_change
+                or expected_inspection_fingerprint != inspection.fingerprint):
+            raise IRPGroupingValidationError((GroupingProblem(
+                code="inspection_changed",
+                message="Grouping facts changed after inspection; inspect the analyses again.",
+                analysis_ids=tuple(analysis_ids)),))
+        if self.grouping_submit_problems:
+            raise IRPGroupingValidationError(tuple(self.grouping_submit_problems))
         irp_id = self._next_id()
         self.jobs[irp_id] = "QUEUED"
         request_body = {
             "resourceType": "analyses",
-            "resourceUris": [f"/platform/riskdata/v1/analyses/{name}"
-                             for name in analysis_names],
+            "resourceUris": list(inspection.resource_uris),
             "settings": {
                 "analysisName": group_name,
                 "currency": dict(currency),
+                "simulateToPLT": inspection.simulate_to_plt,
                 "propagateDetailedLosses": propagate_detailed_losses,
+                "numOfSimulations": num_of_simulations,
+                "regionPerilSimulationSet": [],
             },
         }
         return irp_id, request_body
@@ -691,6 +787,11 @@ class FakeIRP:
     def get_grouping_job(self, irp_id: str) -> JobStatus:
         return JobStatus(status=self.jobs.get(irp_id, "QUEUED"),
                          result=self.results.get(irp_id))
+
+    def count_analyses_named(self, name: str) -> int:
+        self.grouping_name_checks.append(name)
+        return (len([a for a in self._analyses if a["name"] == name])
+                + (1 if name in self.duplicate_group_names else 0))
 
     def get_analysis_by_name_only(self, name: str) -> AnalysisHit:
         hits = [a for a in self._analyses if a["name"] == name]

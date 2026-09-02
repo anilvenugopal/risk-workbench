@@ -1,14 +1,24 @@
 """Row makers for the spec-012 grouping tests — raw INSERTs against the SQLite
 WORKBENCH the ``iteration2_db`` fixture registers (same shape as
 ``analysis_rows``), shared by the gate/plan, worker, and poller modules.
+
+``irp_id="auto"`` hands out distinct Platform ids from 80001 upward; pass
+``None`` for a row that has no Platform id yet.
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import uuid
 
 from db import execute_command
+
+_next_irp_id = itertools.count(80001)
+
+
+def _irp_id(value: str | None) -> str | None:
+    return str(next(_next_irp_id)) if value == "auto" else value
 
 
 def seed_submission(name: str = "Sub One") -> str:
@@ -27,13 +37,15 @@ def link_submission_edm(submission_id: str, edm_id: str) -> None:
 
 
 def seed_own_analysis(edm_id: str, name: str, status: str = "ready",
-                      settings: dict | None = None) -> str:
+                      settings: dict | None = None,
+                      irp_id: str | None = "auto") -> str:
     analysis_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO irp_analysis (id, edm_id, name, full_name, status_code, "
-        "is_group, settings_metadata, inserted_at) "
-        "VALUES (:id, :edm, :name, :name, :status, 0, :settings, :now)",
-        {"id": analysis_id, "edm": edm_id, "name": name, "status": status,
+        "INSERT INTO irp_analysis (id, edm_id, irp_id, name, full_name, "
+        "status_code, is_group, settings_metadata, inserted_at) "
+        "VALUES (:id, :edm, :irp, :name, :name, :status, 0, :settings, :now)",
+        {"id": analysis_id, "edm": edm_id, "irp": _irp_id(irp_id),
+         "name": name, "status": status,
          "settings": (json.dumps(settings) if settings else None),
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
     return analysis_id
@@ -60,16 +72,18 @@ def seed_broker_analysis(submission_id: str, name: str,
 
 
 def seed_group(submission_id: str, name: str, status: str = "ready",
-               members: list[dict] | None = None) -> str:
+               members: list[dict] | None = None,
+               irp_id: str | None = "auto") -> str:
     """``members`` seeds the approved compose plan the worker stores verbatim in
     ``submitted_settings`` — plan-shaped entries, as
     ``grouping_service.request_grouping`` writes them."""
     group_id = str(uuid.uuid4())
     execute_command(
-        "INSERT INTO irp_analysis (id, submission_id, name, full_name, "
+        "INSERT INTO irp_analysis (id, submission_id, irp_id, name, full_name, "
         "status_code, is_group, submitted_settings, inserted_at) "
-        "VALUES (:id, :sub, :name, :name, :status, 1, :plan, :now)",
-        {"id": group_id, "sub": submission_id, "name": name, "status": status,
+        "VALUES (:id, :sub, :irp, :name, :name, :status, 1, :plan, :now)",
+        {"id": group_id, "sub": submission_id, "irp": _irp_id(irp_id),
+         "name": name, "status": status,
          "plan": (json.dumps({"members": members})
                   if members is not None else None),
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
