@@ -59,12 +59,18 @@ def seed_broker_analysis(submission_id: str, name: str,
     return analysis_id
 
 
-def seed_group(submission_id: str, name: str, status: str = "ready") -> str:
+def seed_group(submission_id: str, name: str, status: str = "ready",
+               members: list[dict] | None = None) -> str:
+    """``members`` seeds the approved compose plan the worker stores verbatim in
+    ``submitted_settings`` — plan-shaped entries, as
+    ``grouping_service.request_grouping`` writes them."""
     group_id = str(uuid.uuid4())
     execute_command(
         "INSERT INTO irp_analysis (id, submission_id, name, full_name, "
-        "status_code, is_group, inserted_at) "
-        "VALUES (:id, :sub, :name, :name, :status, 1, :now)",
+        "status_code, is_group, submitted_settings, inserted_at) "
+        "VALUES (:id, :sub, :name, :name, :status, 1, :plan, :now)",
         {"id": group_id, "sub": submission_id, "name": name, "status": status,
+         "plan": (json.dumps({"members": members})
+                  if members is not None else None),
          "now": "2026-08-27T00:00:00"}, connection="WORKBENCH")
     return group_id

@@ -793,6 +793,52 @@ def test_results_columns_include_a_group_in_ids_order(iteration2_db):
     assert group_column.for_code("GR").aal == 91000.0
 
 
+def _inline_panel(analysis) -> str:
+    env = Environment(loader=FileSystemLoader("app/templates"))
+    env.globals["default_perspective"] = analysis_service.DEFAULT_PERSPECTIVE
+    return env.get_template("partials/analysis_results_inline.html").render(
+        a=analysis)
+
+
+def test_group_row_exposes_member_names_from_the_approved_plan(iteration2_db):
+    edm = _edm("EDM One")
+    submission = seed_submission("Sub One")
+    link_submission_edm(submission, edm)
+    _executed(edm_id=edm, portfolio_id=_portfolio(edm), name="CRE_P1_T1",
+              status_code="ready", settings=SETTINGS_FULL)
+    seed_group(submission, "CRE_Sub One_Group", members=[
+        {"analysis_id": str(uuid.uuid4()), "name": "CRE_P1_T1",
+         "display_name": "CRE_Portfolio One_Template One", "kind": "own",
+         "edm_name": "EDM One"},
+        {"analysis_id": str(uuid.uuid4()), "name": "Broker EU Wind",
+         "kind": "broker", "edm_name": None},
+    ])
+
+    rows = {r.name: r for r in
+            analysis_service.list_submission_executed_analyses(
+                submission_id=submission)}
+
+    group = rows["CRE_Sub One_Group"]
+    assert group.submitted.member_names == [
+        "CRE_Portfolio One_Template One", "Broker EU Wind"]
+    assert rows["CRE_P1_T1"].submitted.member_names == []
+    panel = _inline_panel(group)
+    assert "<dt>Members</dt>" in panel
+    assert "<li>CRE_Portfolio One_Template One</li>" in panel
+    assert "<dt>Members</dt>" not in _inline_panel(rows["CRE_P1_T1"])
+
+
+def test_group_row_with_no_plan_has_no_member_names(iteration2_db):
+    submission = seed_submission("Sub One")
+    seed_group(submission, "CRE_Sub One_Group")
+
+    [group] = analysis_service.list_submission_executed_analyses(
+        submission_id=submission)
+
+    assert group.submitted.member_names == []
+    assert "<dt>Members</dt>" not in _inline_panel(group)
+
+
 # ── spec 013: ResultsColumn engine and run currency (T-03/T-04) ───────────────
 
 

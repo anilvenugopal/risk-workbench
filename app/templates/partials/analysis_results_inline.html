@@ -25,6 +25,10 @@
     {% else %}<div><dt>{{ label }}</dt><dd class="blank">not returned</dd></div>
     {% endif %}
     {% endfor %}
+    {% if s and s.member_names %}
+    <div class="settings-grid__wide"><dt>Members</dt>
+      <dd><ul>{% for n in s.member_names %}<li>{{ n }}</li>{% endfor %}</ul></dd></div>
+    {% endif %}
   </dl>
 </div>
 

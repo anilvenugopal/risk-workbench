@@ -102,6 +102,8 @@ class SubmittedSettings:
     construction_occupancy: str | None = None
     # submitted_settings.currency.code — the own row's pairing-guard value.
     currency: str | None = None
+    # spec 012 — the group row's member analyses, in approved-plan order.
+    member_names: list[str] = field(default_factory=list)
 
 
 def _submitted_view(raw: Any) -> SubmittedSettings:
@@ -110,11 +112,17 @@ def _submitted_view(raw: Any) -> SubmittedSettings:
         return SubmittedSettings()
     unknown = p.get("treat_construction_occupancy_as_unknown")
     currency = p.get("currency")
+    members = p.get("members")
+    if not isinstance(members, list):
+        members = []
+    names = [m.get("display_name") or m.get("name") for m in members
+             if isinstance(m, dict)]
     return SubmittedSettings(
         construction_occupancy=("Treat as unknown" if unknown
                                 else _text(unknown)),
         currency=(_text(currency.get("code"))
                   if isinstance(currency, dict) else None),
+        member_names=[n for n in names if n],
     )
 
 
