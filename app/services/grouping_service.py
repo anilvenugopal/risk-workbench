@@ -166,7 +166,8 @@ def request_grouping(
         "currency": currency,
         "propagate_detailed_losses": bool(propagate_detailed_output),
         "members": [
-            {"analysis_id": m.id, "name": m.name, "kind": m.kind,
+            {"analysis_id": m.id, "name": m.name,
+             "display_name": m.display_name, "kind": m.kind,
              "edm_name": m.edm_name}
             for m in picked
         ],

@@ -13,9 +13,9 @@
   "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25", "asOfDate": "2026-05-28"},
   "propagate_detailed_losses": true,
   "members": [
-    {"analysis_id": "<uuid>", "name": "<submitted ≤64 name>", "kind": "own",    "edm_name": "<EDM name>"},
-    {"analysis_id": "<uuid>", "name": "<name>",               "kind": "broker", "edm_name": null},
-    {"analysis_id": "<uuid>", "name": "<group name>",         "kind": "group",  "edm_name": null}
+    {"analysis_id": "<uuid>", "name": "<submitted ≤64 name>", "display_name": "<untruncated name>", "kind": "own",    "edm_name": "<EDM name>"},
+    {"analysis_id": "<uuid>", "name": "<name>",               "display_name": "<untruncated name>", "kind": "broker", "edm_name": null},
+    {"analysis_id": "<uuid>", "name": "<group name>",         "display_name": "<untruncated name>", "kind": "group",  "edm_name": null}
   ]
 }
 ```

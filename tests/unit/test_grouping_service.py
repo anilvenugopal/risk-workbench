@@ -193,11 +193,13 @@ def test_plan_is_persisted_verbatim_on_the_rwb_job(iteration2_db):
                                 "vintage": "RL25", "asOfDate": "2025-05-28"}
     assert plan["propagate_detailed_losses"] is True
     assert plan["members"] == [
-        {"analysis_id": ctx["a1"], "name": "CRE_P1_T1", "kind": "own",
-         "edm_name": "EDM One"},
-        {"analysis_id": broker, "name": "Broker EU Wind", "kind": "broker",
+        {"analysis_id": ctx["a1"], "name": "CRE_P1_T1",
+         "display_name": "CRE_P1_T1", "kind": "own", "edm_name": "EDM One"},
+        {"analysis_id": broker, "name": "Broker EU Wind",
+         "display_name": "Broker EU Wind", "kind": "broker",
          "edm_name": None},
-        {"analysis_id": nested, "name": "Existing group", "kind": "group",
+        {"analysis_id": nested, "name": "Existing group",
+         "display_name": "Existing group", "kind": "group",
          "edm_name": None},
     ]
 
