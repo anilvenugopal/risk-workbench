@@ -179,7 +179,7 @@ caller input. Decisions: research.md Clarifications 2026-09-02.
 - [X] T034 [T-03] FakeIRP: `inspect_grouping` (seeded or default pure-ELT inspection), `submit_grouping` (typed kwargs recorded; generic, structured, and `inspection_changed` failure knobs), `count_analyses_named`; `seed_grouping_inspection` helper over the gateway re-exports
 - [X] T035 [FR-009] [FR-019] Unit tests: `test_grouping_service.py` (new gate rules, plan keys, inspection view with no writes), `test_grouping_routes.py` (dialog, inspect fragment states, submit with and without fingerprint), `test_grouping_jobs_worker.py` (typed submit kwargs, request body recorded, pre-check retry, structured failure reasons), `test_grouping_poller.py` (seeds gain `irp_id`)
 - [X] T036 [T-11] Rewrite `tests/irp/test_grouping.py` per quickstart §4 (T020/T022 above) — unverified until run inside `linux-box` with `--run-irp`
-- [ ] T037 Pin irp-integration `0.8.0rc1` from TestPyPI (`pyproject.toml`, `uv.lock`); production `irp-pypi` unchanged
+- [X] T037 Pin irp-integration `0.8.0rc1` from TestPyPI (`pyproject.toml`, `uv.lock`); production `irp-pypi` unchanged
 - [X] T038 Verification: unit tier green for every grouping module with no new failures against the icon-symlink baseline; `ruff check` on changed files; no reference to `submit_analysis_grouping`, `get_analysis_grouping_job`, `build_region_peril_simulation_set`, `analysis_edm_map`, `group_names`, `skip_missing`, `missing_group_members`, or `DUPLICATE_NAME_PREFIX` under `app/`, `tests/`, `specs/012-grouping-execution/`, PRD, FUNCTIONAL_REQUIREMENTS, or the planned sequence diagrams
 
 ---
