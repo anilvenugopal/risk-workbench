@@ -25,10 +25,11 @@ How to verify the feature. Contracts: [contracts/](contracts/); schema:
 uv run pytest tests/unit
 ```
 
-Covers: compose gate, group naming and collision suffix, plan composition,
-worker submit paths against `FakeIRP` (success / duplicate-name retry /
-uniform submission-failure recording), poller grouping routing, group read
-models.
+Covers: compose gate, inspection view, group naming and collision suffix,
+plan composition, compose routes (dialog, inspect fragment states, submit),
+worker submit paths against `FakeIRP` (success with the exact request body /
+duplicate-name pre-check retry / generic and structured submission failures),
+poller grouping routing, group read models.
 
 ## 2. SQL Server tier
 
@@ -47,21 +48,30 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    absent from the compose pick-list (US-1 acceptance 2).
 2. Click Group. The dialog shows the pick-list with your rows pre-checked, the
    name prefilled `CRE_<submission>_Group`, currency/scheme/vintage prefilled
-   from the env defaults, Propagate detailed output ON (US-1 acceptance 1).
-3. Submit. The `submit_grouping` job appears immediately in the RWB jobs
-   monitor; the group row appears in the grid when the worker claims the job
-   (normally within seconds) and shows `pending → running`. On completion the
-   row turns `ready`, Engine column reads **Group** (US-1 acceptance 3–4,
-   US-3 acceptance 2).
-4. Pick two finished DLM analyses run under different event-rate schemes (or a
-   DLM + an HD): group them with no scheme choice anywhere in the dialog; the
-   group finishes (US-2 acceptance 1–2, SC-002).
-5. Force a member-resolution failure (e.g. delete a member analysis in Risk
-   Modeler between compose and worker pickup): the job records
-   `SUBMISSION FAILED` with the cause in `failure_reason` / job monitoring,
-   and no grouping job appears in Risk Modeler. An unresolvable scheme set is
-   rejected by the platform instead — the grouping job fails with the cause
-   (US-2 acceptance 3, SC-005, spec O-09).
+   from the env defaults, Propagate detailed output ON, and the treaty notice
+   under the member list (US-1 acceptance 1, FR-020). Group is disabled.
+3. Click **Inspect members**. The fragment shows the group output type (ELT or
+   PLT), a row per member with its peril · region · model version and scheme
+   or PET facts, and the simulation count prefilled (largest member PLT length
+   for PLT, 1 for ELT). Group enables. Submit. The `submit_grouping` job
+   appears immediately in the RWB jobs monitor; the group row appears in the
+   grid when the worker claims the job and shows `pending → running`. On
+   completion the row turns `ready`, Engine column reads **Group** (US-1
+   acceptance 3–4, US-3 acceptance 2). In `irp_job`,
+   `last_submission_payload` is the exact request body.
+4. Pick two finished DLM analyses run under different event-rate schemes and
+   inspect: one dropdown per conflicting partition lists only the members'
+   schemes, none preselected, and Group stays disabled until you choose.
+   Choose and submit; the group finishes (US-2 acceptance 1, SC-002). Pick a
+   DLM + an HD and inspect: output reads PLT and the simulation count is
+   prefilled from the members (US-2 acceptance 2).
+5. Blocked and changed states: inspect a member set the platform cannot group
+   (for example a nested group whose PET cannot be resolved) — the fragment
+   names the problem with members, partition, and PET ids, and Group stays
+   disabled; nothing reaches Risk Modeler (US-2 acceptance 3). Inspect, then
+   change a member's facts in Risk Modeler before submitting — the job records
+   `SUBMISSION FAILED` with a `failure_reason` telling you to inspect again,
+   and no grouping job appears in Risk Modeler (US-2 acceptance 4, SC-005).
 6. Tick the finished group plus an analysis → **View**: both open on
    `/results/analyses`; the ◀/▶ controls move the group column to either end
    (US-3 acceptance 1, 3).
@@ -78,20 +88,26 @@ make shell
 uv run pytest tests/irp --run-irp -k grouping
 ```
 
-Three cases in `tests/irp/test_grouping.py`, each skipped until its member set
-is named in the environment (comma-separated analysis names, plus their EDMs
-comma-separated and positionally aligned; an empty EDM entry means a name-only
-member):
+Cases in `tests/irp/test_grouping.py`, each skipped until its member set is
+named in the environment as comma-separated **Platform analysis ids** of
+FINISHED sandbox analyses:
 
-| Case | Names | EDMs |
-|---|---|---|
-| Group results round-trip (T-11) | `IRP_TEST_GROUP_MEMBER_NAMES` | `IRP_TEST_GROUP_MEMBER_EDMS` |
-| Mixed event-rate schemes, both DLM (SC-002) | `IRP_TEST_GROUP_MIXED_SCHEME_NAMES` | `IRP_TEST_GROUP_MIXED_SCHEME_EDMS` |
-| DLM + HD pair (SC-002) | `IRP_TEST_GROUP_DLM_HD_NAMES` | `IRP_TEST_GROUP_DLM_HD_EDMS` |
+| Case | Variable |
+|---|---|
+| Pure-ELT round-trip (T-11) and stale-fingerprint rejection | `IRP_TEST_GROUP_ELT_IDS` (≥2 analyses sharing one event-rate scheme) |
+| Conflicting event-rate schemes (SC-002) | `IRP_TEST_GROUP_CONFLICTING_ELT_IDS` (≥2 ELT analyses whose schemes differ in one partition) |
 
-The first submits a real grouping, polls `get_grouping_job` to `FINISHED`, then
-asserts `get_analysis_stats` / `get_analysis_ep` return data for the group's
-`analysisId` — until it passes, T-11 is an assumption, not a validated claim.
-The other two stop at `FINISHED` and assert no event-rate-scheme parameter
-appears in the submitted payload. All three assert the
-`propagateDetailedLosses` flag and nothing more about it, pending O-02.
+The first inspects (no blocking problems, `output_loss_table == "ELT"`, no
+selection required), submits with `num_of_simulations=1`, asserts the request
+body (`resourceUris` are the ids, `settings.numOfSimulations == 1`,
+`settings.simulateToPLT is False`), polls `get_grouping_job` to `FINISHED`,
+then asserts `get_analysis_stats` / `get_analysis_ep` return data for the
+group's `analysisId` — until it passes, T-11 is an assumption, not a validated
+claim. The same ids submitted with a fabricated fingerprint must raise
+`IRPGroupingValidationError` carrying `inspection_changed` and create no job.
+The conflicting case inspects (exactly one partition requires a selection,
+≥2 options), submits once per offered scheme under separate names, asserts
+each body's `regionPerilSimulationSet[*].eventRateSchemeId` equals the chosen
+scheme with `simulationSetId == 0` and `simulationPeriods == 0`, and polls
+both to `FINISHED`. Propagate detailed output verification stops at the
+`propagateDetailedLosses` flag, pending O-02.

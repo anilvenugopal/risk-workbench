@@ -486,13 +486,14 @@ Running the work and tracking it — including GeoHaz and treaty setup.
 
 Combining and breaking out results across dimensions. A group is an analysis in
 Risk Modeler (`irp_analysis` with `is_group = true`), created by
-`submit_analysis_grouping_job`.
+`client.grouping.inspect` followed by `client.grouping.submit`.
 
 > **Design record (2026-08-10 → 08-27; design notes 11 §3, 15 §4, 17 §4).**
 > Grouping is a first-class flow — pick finished analyses, configure, run —
 > replacing Risk Modeler's three-dot "enter analysis to group" entry.
-> Event-rate-scheme reconciliation is automated by irp-integration
-> (`build_region_peril_simulation_set`; write-up:
+> irp-integration inspects the members and lists each conflicting
+> peril/region/model-version partition with the schemes its members use; the
+> analyst picks one per partition (write-up:
 > `grouping-and-event-rate-schemes.md` in the IRP workspace root, next to this
 > repo). **CIC has not reviewed the grouping implementation** — the walkthrough
 > Ben owes (design note 11 O11-2, note 15 O15-7) is still open.
@@ -503,11 +504,11 @@ Risk Modeler (`irp_analysis` with `is_group = true`), created by
 | The grouping pick-list is scoped to the current submission. | Not implemented | Checkboxes on the EDM detail page. **Corrected 8/20** from EDM-scoped to submission-scoped; members can span EDMs and RDMs within the submission. |
 | Analyses carry a submission-level IRP tag, applied at submit time. | Not implemented | **Decided 8/27**: an IRP tag (queryable in the platform and via API), not a Workbench-only association — grouping candidates stay findable when the analyst isn't in the Workbench. Extends §4 "Tags can be set per analysis." |
 | Currency, currency scheme, and vintage are chosen at group-submit time. | Not implemented | Same picker and env-var defaults as analysis submission (§5, spec 009 P-11). |
-| Event-rate-scheme selection is automated — the analyst never picks a scheme. | Partial | irp-integration resolves `regionPerilSimulationSet` across members, covering differing DLM schemes and DLM+HD mixes; Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, note 15 §4.3). Library-side built; CIC review pending (O11-2 / O15-7). |
-| Mixing DLM and HD analyses in one group is supported. | Partial | **Reversed 8/27** — previously listed as an invalid grouping. irp-integration reconciles ELT and PLT members in one `regionPerilSimulationSet` and forces `simulateToPLT`. |
+| When members of a partition use different event-rate schemes, the analyst picks one of the members' schemes; the Workbench never chooses. | Partial | irp-integration's inspection lists the conflicting partitions and their schemes; the compose dialog shows one dropdown per partition with no default; the package builds `regionPerilSimulationSet` from the choices. Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, note 15 §4.3). CIC review pending (O11-2 / O15-7). |
+| Mixing DLM and HD analyses in one group is supported. | Partial | **Reversed 8/27** — previously listed as an invalid grouping. irp-integration reconciles ELT and PLT members in one `regionPerilSimulationSet` and derives `simulateToPLT`; the analyst confirms the simulation count. |
 | "Propagate detailed output" defaults ON; the analyst may turn it off. | Not implemented | Exactly what detail is retained (state-level, per-treaty) is still open — note 11 O11-1. |
 | "Create independent groups" defaults OFF. | Not implemented | "We're never going to want to turn those on." |
-| Invalid groupings show error messaging. | Not implemented | e.g. an event-rate scheme that cannot be resolved across members. |
+| Invalid groupings show error messaging. | Not implemented | Inspection names the blocking problem with the members, partition, and PET ids before anything reaches the platform. |
 | Nested grouping (groups of groups) is supported. | Not implemented |  |
 | A group is treated like any other analysis. | Not implemented | Viewed and exported the same way; the results grid discloses a group via the Engine column, not the name (note 20 D8). |
 | Group names are auto-generated from the deal. | Not implemented | Exact shape open — whether the `CRE` prefix / `_n` conventions (§5) apply. |

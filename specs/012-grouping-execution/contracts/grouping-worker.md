@@ -9,19 +9,28 @@
   "submission_id": "<uuid>",
   "submission_name": "<str>",
   "group_full_name": "CRE_Acme_Re_2026_Group",
-  "actor_id": "<uuid>",
+  "actor_id": "<uuid|null>",
   "currency": {"code": "USD", "scheme": "RMS", "vintage": "RL25", "asOfDate": "2026-05-28"},
   "propagate_detailed_losses": true,
+  "num_of_simulations": 50000,
+  "event_rate_selections": [
+    {"peril_code": "WS", "region_code": "NA", "model_version": "11.0", "event_rate_scheme_id": 738}
+  ],
+  "expected_inspection_fingerprint": "v1:<sha256>",
   "members": [
-    {"analysis_id": "<uuid>", "name": "<submitted ≤64 name>", "display_name": "<untruncated name>", "kind": "own",    "edm_name": "<EDM name>"},
-    {"analysis_id": "<uuid>", "name": "<name>",               "display_name": "<untruncated name>", "kind": "broker", "edm_name": null},
-    {"analysis_id": "<uuid>", "name": "<group name>",         "display_name": "<untruncated name>", "kind": "group",  "edm_name": null}
+    {"analysis_id": "<uuid>", "irp_id": 5630592, "name": "<submitted ≤64 name>", "display_name": "<untruncated name>", "kind": "own"},
+    {"analysis_id": "<uuid>", "irp_id": 5630601, "name": "<name>",               "display_name": "<untruncated name>", "kind": "broker"},
+    {"analysis_id": "<uuid>", "irp_id": 5630777, "name": "<group name>",         "display_name": "<untruncated name>", "kind": "group"}
   ]
 }
 ```
 
-The worker executes this verbatim (AGENTS.md rule 8) — it never re-derives the
-member set, name, or currency.
+`irp_id` is the member's Platform `analysisId` (`irp_analysis.irp_id` as an
+int). `event_rate_selections` holds one entry per partition the inspection
+marked `event_rate_selection_required`; `expected_inspection_fingerprint` is
+the `GroupingInspection.fingerprint` the analyst inspected. The worker
+executes this verbatim (AGENTS.md rule 8) — it never re-derives the member
+set, name, currency, simulation count, selections, or fingerprint.
 
 ## `submit_grouping` worker body (`app/workers/grouping_jobs.py`)
 
@@ -33,70 +42,97 @@ CR-04 `rwb_actor`; queue name `submit_grouping`; `max_retries=0`.
    `submitted_settings` = plan). PK hit → resume. Local name collision →
    increment attempt (same loop as `_claim_analysis`). INSERT the
    `irp_analysis_group_member` rows.
-2. **Submit** — one gateway call: `irp_gateway.submit_analysis_grouping(...)`
-   (below). The wheel resolves member names to URIs and auto-builds the
-   region/peril simulation set internally; with `skip_missing=False` a
-   missing or ambiguous member raises before the POST. The Workbench passes
-   names only and never calls `build_region_peril_simulation_set` (T-03).
-   Error handling mirrors the analysis worker:
-   - Duplicate group name — the `IRPAPIError` whose message starts
-     `Analysis Group with this name already exists` (the wheel's tenant-wide
-     pre-POST check): increment the name attempt, update the group row's
-     `name`/`full_name`, retry (bounded, as in the claim loop).
-   - Any other exception (missing/ambiguous member, fan-out transport error,
-     rejected POST): `irp_job_service.record_submission_failure(...)`
-     (`irp_job_type='grouping'`, status `SUBMISSION FAILED`) + group row
-     `status_code='error'`, `failure_reason` = the exception text; no
-     automatic retry (T-11). Scheme resolution has no pre-submit failure mode
-     in wheel 0.6.2 (lookups fall back; an unresolvable set is rejected by
-     the platform) — spec O-09.
-3. **Record** — one transaction: `record_submitted_irp_job`
+2. **Name pre-check** — `irp_gateway.count_analyses_named(group.name)`; while
+   the count is non-zero, move the group row to the next locally free `_n`
+   name (`_rename_group`, bounded by `MAX_NAME_ATTEMPTS`). The package no
+   longer pre-checks group names, and `finalize_analysis` resolves the group
+   by name only, so uniqueness at submit is the worker's job.
+3. **Submit** — one gateway call: `irp_gateway.submit_grouping(...)` (below)
+   with the plan's Platform ids, currency, propagate flag, simulation count,
+   selections, and fingerprint. The package re-inspects, compares the
+   fingerprint, validates the selections, and POSTs.
+   - `IRPGroupingValidationError` (`.problems`): `failure_reason` is built
+     from the problems — an `inspection_changed` code yields "The member
+     analyses or reference data changed after inspection. Reopen the compose
+     dialog and inspect again."; otherwise each problem's message is joined
+     with its partition (`peril · region · model version`) and PET ids when
+     present.
+   - Any other exception (pre-check read failure, transport error, rejected
+     POST): `failure_reason` = the exception text.
+   - Both: `irp_job_service.record_submission_failure(...)`
+     (`irp_job_type='grouping'`, status `SUBMISSION FAILED`, payload and
+     `request_params` = the submit kwargs plus `group_name`) + group row
+     `status_code='error'`, `failure_reason`; no automatic retry (T-11).
+4. **Record** — one transaction: `record_submitted_irp_job`
    (`irp_job_type='grouping'`, `irp_analysis_id=group_analysis_id`,
-   `requested_from_submission_id`, `irp_id`, payload, response) + group row
+   `requested_from_submission_id`, `irp_id` = the job id, `payload` = the
+   exact request body the package POSTed, `response` = `{"job_id": <int>}`,
+   `request_params` = the submit kwargs plus `group_name`) + group row
    `status_code='running'`.
 
-## Gateway additions (`app/services/irp_gateway.py` — Protocol, `_RealGateway`, module functions, `FakeIRP`)
+## Gateway (`app/services/irp_gateway.py` — Protocol, `_RealGateway`, module functions, `FakeIRP`)
+
+The gateway re-exports the package grouping types (`GroupingInspection`,
+`GroupingMember`, `GroupingRegionFact`, `GroupingPartition`,
+`GroupingPartitionKey`, `EventRateSchemeOption`, `GroupingProblem`,
+`GroupingProblemCode`, `GroupingSimulationMapping`) and
+`IRPGroupingValidationError`, so the service, worker, templates, and `FakeIRP`
+never import `irp_integration`.
 
 ```python
-def submit_analysis_grouping(
+def inspect_grouping(*, analysis_ids: list[int]) -> GroupingInspection:
+```
+
+`client.grouping.inspect(analysis_ids=analysis_ids)` — Platform reads only,
+nothing created. Raises `IRPIntegrationError` subclasses on a malformed id
+list or a failed read.
+
+```python
+def submit_grouping(
     *,
-    group_name: str,                      # ≤64, already collision-resolved
-    analysis_names: list[str],            # all member names
-    analysis_edm_map: dict[str, str],     # own members only: name -> EDM name
-    group_names: set[str],                # member names that are groups (name-only lookup)
-    currency: dict,                       # {code, scheme, vintage, asOfDate} — always explicit
+    analysis_ids: list[int],                  # Platform analysisIds, from the plan
+    group_name: str,                          # ≤64, collision-resolved by the worker
+    currency: dict,                           # {code, scheme, vintage, asOfDate}
     propagate_detailed_losses: bool,
-) -> tuple[str, dict]:                    # (irp job id, request body)
+    num_of_simulations: int,                  # > 0
+    event_rate_selections: list[dict],        # {peril_code, region_code, model_version, event_rate_scheme_id}
+    expected_inspection_fingerprint: str,
+) -> tuple[str, dict]:                        # (irp job id, exact request body)
 ```
 
-Wraps `client.analysis.submit_analysis_grouping_job(..., skip_missing=False)`
-(T-10). Wheel-managed and not exposed: `simulate_to_plt`, `num_simulations`,
-window dates, `region_peril_simulation_set` (auto-built), `description` (empty).
-The wheel result's `job_id` is returned with `http_request_body`; a `skipped`
-result cannot occur with `skip_missing=False`. Every wheel failure —
-duplicate name, member resolution, fan-out transport, the POST itself —
-raises the same `IRPAPIError`; only the duplicate-name message prefix is
-distinguished (worker step 2).
+Builds `GroupingCurrency(code, scheme, vintage, as_of_date=currency["asOfDate"])`,
+`GroupingSettings(analysis_name=group_name, currency, propagate_detailed_losses,
+num_of_simulations)` (description and windows omitted), and one
+`EventRateSelection(GroupingPartitionKey(peril_code, region_code,
+model_version), event_rate_scheme_id)` per selection, then calls
+`client.grouping.submit(...)`. Returns `(str(submission.job_id),
+submission.request_body)`. `IRPGroupingValidationError` and `IRPAPIError`
+propagate to the worker.
 
 ```python
-def get_grouping_job(job_id: str) -> JobStatus:
+def get_grouping_job(irp_id: str) -> JobStatus:
 ```
 
-Wraps the single-status `client.analysis.get_analysis_grouping_job(job_id)` —
-same `JobStatus` shape as `get_analysis_job`. The
-`poll_analysis_grouping_job_to_completion` variants are never wrapped
-(Article 11).
+`client.grouping.get_job(job_id=int(irp_id))` — the single-status read;
+`JobStatus(status=str(data["status"]), result=data)`, same shape as
+`get_analysis_job`. No `poll_*_to_completion` variant is wrapped (Article 11).
 
 ```python
-def get_analysis_by_name_only(name: str) -> AnalysisSearchHit:
+def count_analyses_named(name: str) -> int:
 ```
 
-`search_analyses(filter='analysisName = "<name>"')`; raises unless exactly one
-hit. Used by the group branch of `finalize_analysis`. Groups have no
-EDM to disambiguate with, but the wheel's tenant-wide duplicate pre-check
-plus the worker's `_n` retry guarantee the group's own name was unique at
-submit; a duplicate appearing between submit and `finalize_analysis` is a tenant hygiene
-error worth failing loudly on.
+`len(client.analysis.search_analyses_paginated(filter='analysisName="<name>"'))`
+— the tenant-wide duplicate pre-check the package no longer performs (worker
+step 2).
+
+```python
+def get_analysis_by_name_only(name: str) -> AnalysisHit:
+```
+
+Same filter; raises unless exactly one hit. Used by the group branch of
+`finalize_analysis`. The worker's pre-check plus the `_n` retry guarantee the
+group's name was unique at submit; a duplicate appearing between submit and
+finalize is a tenant hygiene error worth failing loudly on.
 
 ## Poller (`app/poller/run.py`)
 

@@ -75,7 +75,7 @@ Every submission follows three sequential phases. The workbench covers all three
 - **Job heartbeat** — a child-table row (`rwb_job_heartbeat`) stamped every `RWB_HEARTBEAT_INTERVAL_SECS` by a daemon thread while a worker holds a job. Proves the job is progressing, independent of which worker and independent of job duration.
 - **Reconciler** — a single-instance periodic sweep (folded into the poller process) that recovers `running` `rwb_job` rows whose heartbeat is stale. Stale = heartbeat older than `RWB_HEARTBEAT_STALE_SECS` (a constant multiple of the heartbeat interval; never a function of job size or duration). Resets `running → pending` and re-enqueues via Dramatiq. Does not scan `pending` rows (durable Redis covers those).
 - **IRP job type** — a kind-table discriminator on every `irp_job` row; determines which IRP polling endpoint to call: `import_edm`, `import_rdm`, `delete_edm`, `geohaz`, `analysis`, `grouping`, `export`.
-- **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. Cannot be mixed within a group. DLM requires an event-rate scheme; HD makes it optional.
+- **DLM / HD** — two Moody's model families (Detailed Loss Module / High-Definition). Not file-level attributes — determined by the selected analysis profile's `softwareVersionCode`. DLM requires an event-rate scheme; HD makes it optional.
 - **GeoHaz (hazard lookup)** — an optional pre-analysis operation that runs Moody's hazard lookup on a portfolio (`irp_job_type = geohaz`, §10B). In this workbench it is **hazard lookup only** — geocoding is *not* re-run (broker geocoding is preserved); re-geocoding, if ever needed, is done intentionally inside the model, not here. Async (polled by the poller).
 - **Exposure Repository** — on-prem SQL Server that holds pre-aggregated exposure summary data (output of Phase A). Separate connection from the Workbench Metamodel DB.
 - **Loss Repository** — on-prem SQL Server that holds finalized loss sets / analysis results (output of Phase C). Separate connection from both other databases.
@@ -914,7 +914,7 @@ There is **no typed handle to chain or invalidate.** Each op resolves its inputs
 Validation is **entity-existence + uniqueness + reference-data**, checked when the analyst acts, not as a two-phase whole-graph pass:
 - **Uniqueness** — no duplicate EDM/analysis/group name in RM (checked live via `search_*` before submit; a dup name is retryable).
 - **Reference-data** — model/output profiles, event-rate schemes, servers, treaties resolve against the local IRP cache (DATA_MODEL §10); pick-lists resolve locally.
-- **Groupability** (grouping) — mixing DLM and HD members is supported *(reversed 2026-08-27; the former homogeneity check is retired)*; the composed op must resolve an event-rate scheme set across members (`regionPerilSimulationSet`, automated — §16.4). **`dlm`/`hd` are not types** — DLM vs HD is an analysis-profile property (from cached `irp_model_profile.software_version_code`), not a file attribute.
+- **Groupability** (grouping) — mixing DLM and HD members is supported *(reversed 2026-08-27; the former homogeneity check is retired)*; the composed op inspects the members and the analyst picks an event-rate scheme for each conflicting peril/region/model-version partition (`regionPerilSimulationSet` — §16.4). **`dlm`/`hd` are not types** — DLM vs HD is an analysis-profile property (from cached `irp_model_profile.software_version_code`), not a file attribute.
 
 A failed prerequisite surfaces as `irp_job.status = 'BLOCKED'` (the only "needs attention" pre-submit state); it is not a stored stage gate.
 
@@ -945,7 +945,7 @@ Each IRP-backed op sets `irp_job.irp_job_type` (a kind-table FK, for poll routin
 | Geo-coding & Hazard | `client.portfolio.submit_geohaz_job(portfolio_name, edm_name, ...)` | `geohaz` |
 | Analysis (single) | `client.analysis.submit_portfolio_analysis_job(edm_name, portfolio_name, job_name, ...)` → `(job_id, request_body)` | `analysis` |
 | Analysis (batch) | **loop** `submit_portfolio_analysis_job` app-side, once per item, capturing each `(job_id, request_body)` | `analysis` per item |
-| Grouping | `client.analysis.submit_analysis_grouping_job(group_name, analysis_names, ...)` | `grouping` |
+| Grouping | `client.grouping.inspect(analysis_ids)` then `client.grouping.submit(analysis_ids, settings, event_rate_selections, expected_inspection_fingerprint)` | `grouping` |
 | File Export (Parquet) | `client.analysis.submit_analysis_export_job(analysis_id, loss_details)` | `export` |
 
 > **Subportfolio creation is synchronous** — `create_portfolio()` returns `(portfolio_id, request_body)` (HTTP 201 + Location), no job; the service writes `irp_portfolio.irp_id` inline (§10A, §15.5). One-click breakouts loop this call app-side. **Treaty create/edit is a Risk Modeler pass-through (§12.4)** — no IRP job from the workbench; `search_treaties` resolves names synchronously. EDM create-fresh / upgrade / delete and RDM write-back are out of the MVP spine; if revived they map onto the same `irp_job_type` set.
@@ -970,7 +970,7 @@ Standalone loop process (`app/poller/run.py`). **Not Dramatiq** — a batch oper
 | `delete_edm` | EDM delete job getter *(exact single-status getter confirmed against the installed library at planning — A21)* |
 | `geohaz` | `client.portfolio.get_geohaz_job(id)` |
 | `analysis` | `client.analysis.get_analysis_job(id)` |
-| `grouping` | `client.analysis.get_analysis_grouping_job(id)` |
+| `grouping` | `client.grouping.get_job(job_id)` |
 | `export` | `client.export_job.get_export_job(id)` |
 
 > Imports poll via `import_job.get_import_job`, **not** `risk_data_job`/`get_workflow` (the prototype confirms this).
@@ -1133,7 +1133,7 @@ The `push_results_to_loss_repo` Dramatiq worker writes to it after analysis resu
 
 ### 16.4 Results grouping
 
-After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`submit_analysis_grouping_job` → `irp_job_type = grouping`). A group is an `irp_analysis` with `is_group=true` (not a separate entity). **Nested grouping (groups of groups) is supported.** A group is **treated like any other analysis** — viewed and exported the same way; results are retrieved the same way as individual analyses; the results grid discloses a group via the Engine column, not the name (design note 20 D8).
+After analysis, the analyst may group results by dimension (geography, line of business, etc.) using IRP's grouping API (`client.grouping.inspect` → `client.grouping.submit` → `irp_job_type = grouping`). A group is an `irp_analysis` with `is_group=true` (not a separate entity). **Nested grouping (groups of groups) is supported.** A group is **treated like any other analysis** — viewed and exported the same way; results are retrieved the same way as individual analyses; the results grid discloses a group via the Engine column, not the name (design note 20 D8).
 
 **The flow is first-class** (design note 11 §3): pick finished analyses or groups, configure, run — replacing Risk Modeler's three-dot "enter analysis to group" entry. The **pick-list is scoped to the current submission** (checkboxes on the EDM detail page; members can span EDMs and RDMs within the submission — design note 17 §4, corrected from EDM-scoped). Groups exist only at submission level, which is why the results page is entered from the submission page (design note 19 D14). Every Workbench-submitted analysis carries a **submission-level IRP tag** (queryable in the platform and via API — decided 2026-08-27) so grouping candidates stay findable when the analyst isn't in the Workbench.
 
@@ -1141,9 +1141,9 @@ After analysis, the analyst may group results by dimension (geography, line of b
 - **Currency / scheme / vintage** — chosen at group-submit time with the same picker and env-var defaults as analysis submission (§11.1a, spec 009 P-11).
 - **Propagate detailed output** — default ON, user may disable. Exactly what detail is retained (state-level, per-treaty) is open — O11-1.
 - **Create independent groups** — default OFF ("we're never going to want to turn those on").
-- **Event-rate schemes** — never user-picked. irp-integration resolves `regionPerilSimulationSet` across members automatically (`build_region_peril_simulation_set`; write-up `grouping-and-event-rate-schemes.md`, IRP workspace root), covering differing DLM schemes and DLM+HD mixes — Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, design note 15 §4.3). **CIC has not reviewed this implementation** (O11-2 / O15-7 — the walkthrough is still owed).
+- **Event-rate schemes** — chosen by the analyst when members conflict, never by the Workbench. irp-integration's inspection (`client.grouping.inspect`) lists each conflicting peril/region/model-version partition with the schemes its members use; the analyst picks one per partition in the compose dialog, no default preselected, and the package builds `regionPerilSimulationSet` from the choices (write-up `grouping-and-event-rate-schemes.md`, IRP workspace root). Differing DLM schemes and DLM+HD mixes group this way — Risk Modeler's manual pre-step (Convert event rate and loss: copy + `_event` + new rates, no rerun) is not required. Hurricane is the case that matters (80/20, design note 15 §4.3). **CIC has not reviewed this implementation** (O11-2 / O15-7 — the walkthrough is still owed).
 
-**Mixing DLM and HD members is supported** *(reversed 2026-08-27 — previously an invalid grouping caught by a homogeneity check)*: the library reconciles ELT and PLT members in one `regionPerilSimulationSet` and forces `simulateToPLT`. **Group names are auto-generated from the deal** — exact shape open (whether the `CRE`/`_n` analysis-naming conventions apply). **Invalid groupings show error messaging** — e.g. an event-rate scheme that cannot be resolved across members.
+**Mixing DLM and HD members is supported** *(reversed 2026-08-27 — previously an invalid grouping caught by a homogeneity check)*: the library reconciles ELT and PLT members in one `regionPerilSimulationSet` and derives `simulateToPLT`; the analyst confirms the group PLT length (simulation count). **Group names are auto-generated from the deal** — exact shape open (whether the `CRE`/`_n` analysis-naming conventions apply). **Invalid groupings show error messaging** — e.g. an event-rate scheme that cannot be resolved across members.
 
 **Out of scope (FR §6):** creating ELTs by zone / county / country (done in SQL or the old tool today); **opt-in end-of-suite auto-grouping** (design note 17 §4) — deferred, the mixed-currency case is unresolved.
 
@@ -1447,7 +1447,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 
 **Out:** results export, analysis comparison, end-of-suite auto-grouping (deferred — FR §6).
 
-**Exit:** compose a grouping over finished analyses scoped to a submission; members with differing event-rate schemes — including a DLM+HD mix — group without a manual pre-step; the group runs, its result is retrievable, and it appears in the results views like any other analysis.
+**Exit:** compose a grouping over finished analyses scoped to a submission; members with differing event-rate schemes — including a DLM+HD mix — group with one scheme choice in the dialog and no step in Risk Modeler; the group runs, its result is retrievable, and it appears in the results views like any other analysis.
 
 ### Iteration 10 — Analysis comparison
 
@@ -1575,7 +1575,7 @@ This prompt applies independently to each of the three app-managed databases (`W
 - **Signed-cookie / server-side session** — cookie holds only the session ID (random 32-byte hex); all identity and role context lives in DB (§5.1.4).
 - **No row-level security (CR-003 M2/O1).** No `customer_id`, no `apply_scope()`, no `user_customer_access`; every authenticated analyst sees every deal. Global roles gate *functions*, not *rows*; `assigned_analyst_id` is a soft "my submissions" owner (§6).
 - **No file inventory (CR-003 M5).** No `file_artifact` model, scanner, or discrepancy detection; a single `source_file_path` per EDM/RDM is chosen at package creation (§8).
-- **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, used by grouping's event-rate-scheme resolution (§13.3, §16.4); DLM+HD mixing is supported. (There are no handle types at all under CR-002.)
+- **`dlm`/`hd` are NOT types** — an analysis-profile property detected from `softwareVersionCode`, shown by grouping's member inspection (§13.3, §16.4); DLM+HD mixing is supported. (There are no handle types at all under CR-002.)
 - **Analysis results hybrid storage** — *revised 2026-08-25:* viewing reads the bounded `irp_analysis.loss_results` extract; the Parquet + SQL-metadata hybrid for row-level data (ELT, EP, PLT) is export-only (§16.1).
 - **Top-level navigation uses `hx-boost`**, composing with `hx-push-url` (§4.3).
 - **Styling extends the ITCSS design system via tokens** — never hardcoded hex (§2.4).

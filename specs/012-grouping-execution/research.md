@@ -33,72 +33,73 @@ before 012 lands:
 would inherit 011's missing CR-04 framework and force this feature to redo the
 merge later.
 
-## T-02 — The grouping submit runs in a Dramatiq worker, not the request path
+## T-02 — Inspection runs on the request path; the submit runs in a Dramatiq worker
 
-**Decision**: `POST /submissions/{sid}/analyses/group` validates, persists the
-approved plan as a `rwb_job` (`rwb_job_type = submit_grouping`), and returns.
-A new `submit_grouping` actor in `app/workers/grouping_jobs.py` performs the
-IRP submission. Per Article 10 / CR-04 the actor gets its own queue named
+**Decision**: `POST /submissions/{sid}/analyses/group/inspect` runs the local
+gate and calls `client.grouping.inspect()` through `irp_gateway.inspect_grouping`
+on the request path, rendering the result into the dialog. `POST
+/submissions/{sid}/analyses/group` validates, persists the approved plan as a
+`rwb_job` (`rwb_job_type = submit_grouping`), and returns. The
+`submit_grouping` actor in `app/workers/grouping_jobs.py` performs the IRP
+submission. Per Article 10 / CR-04 the actor gets its own queue named
 `submit_grouping`.
 
-**Rationale**: Article 11 permits synchronous IRP submission on the request
-path because submit calls are a sub-second HTTP round trip. The grouping
-submit is not: before POSTing, `submit_analysis_grouping_job` resolves every
-member name via `search_analyses`, and its automatic
-`build_region_peril_simulation_set` fan-out calls `search_analyses`,
-`get_analysis_by_id`, and `get_regions` **per member**, plus SimulationSet /
-PETMetadata / SoftwareModelVersionMap reference-table lookups
-(`irp_integration/analysis.py:421-702`; write-up
-`grouping-and-event-rate-schemes.md`, IRP workspace root). The repo's own
-sequence diagram classifies grouping "async Job, read-fan-out heavy at submit"
-(`docs/sequence_diagrams/planned/granular/grouping.md`). A ten-member group is
-30+ serial HTTP calls — not a request the analyst waits on.
+**Rationale**: Article 11 permits Platform calls on the request path when they
+return promptly and the analyst is waiting on the result. Inspection is such a
+call: `GroupingManager._inspect` (package `0.8.0rc1`, `grouping.py:424-850`)
+performs reads only — `get_analysis_by_id` and `get_regions` per member, plus
+model-version, event-rate-scheme, and PET metadata reference lookups — and
+creates nothing. Its fan-out is bounded by the member count the analyst just
+picked, and the analyst needs the result (scheme choices, output type,
+suggested simulation count) before they can submit. The HTMX indicator covers
+the wait. The submit stays in the worker: it re-runs the same inspection and
+then POSTs, and a created grouping job needs the poller anyway.
 
-**Alternatives considered**: Request-path submit (the analysis-execution
-precedent is also worker-side via `execute_analysis_batch`, so there is no
-request-path precedent to match); pre-building the simulation set on the
-request path and passing it to the worker — same fan-out, wrong tier.
+**Alternatives considered**: Background inspection with a persisted result —
+rejected for now: it adds a job type and a polling loop to the dialog for a
+call measured in seconds; revisit if a measured run exceeds the proxy timeout
+(handover §8.3). Request-path submit — rejected: the analysis-execution
+precedent is worker-side via `execute_analysis_batch`, and the poller tracks
+the job either way.
 
-## T-03 — Groupability validation: local compose gate; everything platform-side delegated to the wheel's single submit call
+## T-03 — Groupability validation: local gate, then the package's inspection and its submit-time re-inspection
 
-**Decision**: The compose gate (request path) checks only what the Workbench
-already knows: two or more members selected, every member exists, is not
-deleted, belongs to the submission, and is finished (`status_code = 'ready'`).
-The worker then makes one call — `submit_analysis_grouping_job` with
-`skip_missing=False` — and reimplements nothing from irp-integration: the
-wheel resolves member names to URIs, auto-builds `regionPerilSimulationSet`
-from the resolved ids, and POSTs. Every submit exception except the
-duplicate-name case (T-09) is recorded exactly as the analysis worker records
-a submit failure: `SUBMISSION FAILED` `irp_job` + group row
-`status_code = 'error'` + `failure_reason` = the exception text, visible in
-the grid and job monitoring (FR-011). Spec amended (O-09): FR-009's "before
-anything is submitted" narrows to member/name failures.
+**Decision**: The compose gate (request path) checks what the Workbench knows:
+two or more members selected, every member exists, is not deleted, belongs to
+the submission, is finished (`status_code = 'ready'`), and carries a Platform
+analysis id. Inspection then runs the package's rule engine and the dialog
+renders its `blocking_problems` (message, members, partition, PET ids) — a
+blocked member set never reaches the submit. At submit, the gate additionally
+requires that the picked members equal the inspected ids, that a fingerprint
+is present, that the simulation count is a positive integer, and that each
+event-rate selection is well formed and names a distinct partition. Which
+partitions require a selection is not re-derived locally — the package checks
+it at submit. The worker calls `client.grouping.submit()`, which re-inspects,
+compares fingerprints, validates the selections, and raises
+`IRPGroupingValidationError` with a `problems` tuple on any block; the worker
+maps the problems to `failure_reason` (an `inspection_changed` code becomes
+"inspect again"; other problems keep their message plus partition and PET
+ids) and records `SUBMISSION FAILED`. Every other exception is recorded with
+its text, as before.
 
-**Evidence** (wheel 0.6.2 source, read 2026-08-27): every failure mode of
-`submit_analysis_grouping_job` raises the same `IRPAPIError` — tenant-wide
-duplicate group name (message prefix `Analysis Group with this name already
-exists`), missing or ambiguous members with `skip_missing=False`, fan-out
-transport errors, and the POST wrapper (`Failed to submit analysis group
-job`). Member/name failures raise **before** the POST.
-`build_region_peril_simulation_set` never raises past input validation:
-conflicting schemes per peril/region just trigger building the set, failed
-reference lookups fall back (scheme id 0, engine-string parsing,
-analysis-level codes), and an analysis with no regions is skipped — so there
-is no pre-submit "unresolvable schemes" failure mode; an unresolvable set is
-rejected by the platform (a rejected POST creates nothing; a created grouping
-job that fails is stamped `error` by the poller).
+**Evidence** (package `0.8.0rc1` source, read 2026-09-02): `submit()`
+(`grouping.py:280-331`) raises `IRPGroupingValidationError((GroupingProblem(
+code="inspection_changed", …),))` when the fresh fingerprint differs, then
+`IRPGroupingValidationError(inspection.blocking_problems)` when any block is
+present, then validates the selections against the partitions
+(`_resolve_event_rate_selections`, codes `event_rate_selection_missing` /
+`_duplicate` / `_unknown_partition` / `_not_required` / `_not_offered`) before
+the POST. `GroupingProblemCode` lists 24 stable codes. `warnings` is always
+empty in this release. The exception subclasses `IRPValidationError` and
+therefore `IRPIntegrationError`, so the gateway's existing catch-all still
+records it.
 
-**Alternatives considered**: A separate worker-side
-`build_region_peril_simulation_set` call as a pre-submit validation step —
-rejected: the function has no failure mode to surface (it falls back), the
-wheel rebuilds the set inside the submit call anyway (double fan-out), and
-distinguishing "resolution" from "submit" errors would mean matching wheel
-message text beyond the one duplicate-name prefix the `_n` retry needs. Full
-resolution on the request path — rejected per T-02. Local plausibility checks
-from stored `settings_metadata` (engineType/perilCode) — rejected: the
-library's resolution consults RM region rows and reference tables the
-Workbench does not cache; a local pre-check could only duplicate a subset and
-would still miss real failures.
+**Alternatives considered**: Re-deriving the required partitions at the
+submit gate from a second inspection — rejected: doubles the Platform reads
+and the package performs the same check with the same fingerprint anyway.
+Local plausibility checks from stored `settings_metadata` — rejected: the
+package's rules consult RM region rows and reference tables the Workbench
+does not cache.
 
 ## T-04 — Group rows get `irp_analysis.submission_id`; the origin CHECK gains a third leg
 
@@ -234,39 +235,38 @@ duplicate-name `IRPAPIError` (the wheel pre-checks `analysisName` against
 2026-08-20, and the grouping settings schema pattern caps `analysisName` at 64).
 The analysis naming machinery already implements all of it.
 
-## T-10 — `skip_missing=False`; a member that fails resolution fails the job
+## T-10 — Members are identified by Platform analysis id
 
-**Decision**: The gateway wrapper calls `submit_analysis_grouping_job` with
-`skip_missing=False`, so a member name that resolves to zero analyses raises
-instead of being dropped.
+**Decision**: The plan carries each member's Platform `analysisId`
+(`irp_analysis.irp_id`, cast to `int`) and the gateway passes the ids to
+`client.grouping.inspect(analysis_ids=…)` and `submit(analysis_ids=…)`. A
+member without an `irp_id` fails the compose gate ("<name> has no Risk
+Modeler analysis id yet."). Member names stay in the plan for display only.
 
-**Rationale**: The wheel's default `skip_missing=True` silently narrows the
-member set — the exact hazard `docs/sequence_diagrams/planned/granular/grouping.md`
-flags, and a violation of the approved-plan rule (AGENTS.md architecture rule
-8: the worker executes the plan the user approved, never a silent recompute).
-Member resolution is name-based per Article 2: own analyses pass
-`analysis_edm_map` (name → EDM name) so the wheel filters
-`analysisName + exposureName`; group members pass through `group_names`
-(name-only lookup); broker-analysis members resolve name-only — if a broker
-name is ambiguous in the tenant the submit fails loudly and the analyst
-renames or excludes it. The same applies to a nested-group member whose name
-is duplicated tenant-wide (`Duplicate groups exist with name`): possible only
-for names created outside the Workbench, since the wheel's tenant-wide
-duplicate pre-check and the worker's `_n` retry keep every Workbench group
-name unique at submit. No compose-gate name check is added for these — the
-wheel already names the cause and the failure is recorded
-`SUBMISSION FAILED` with `failure_reason` (T-03).
+**Rationale**: The `0.8.0rc1` package accepts ids only — name resolution,
+`analysis_edm_map`, `group_names`, and `skip_missing` were removed with
+`submit_analysis_grouping_job`. Names are the wrong key anyway: analysis names
+duplicate tenant-wide (design note 22 O22-16), so a name-based lookup could
+pick another tenant user's analysis, and the removed `skip_missing=True`
+default could silently narrow the approved member set (AGENTS.md rule 8). The
+id is already stored: `finalize_analysis` writes `irp_id` for every finished
+own analysis and group (`analysis_jobs.py`), and the RDM backfill writes it
+for broker analyses (`entity_jobs.py`), so every `ready` member has one.
+
+**Rejected**: name-based lookup — removed from the package and unsafe with
+duplicate names in the tenant.
 
 ## T-11 — Group completion reuses the analysis chain, with name-only resolution
 
 **Decision**: The poller gains `_GETTERS["grouping"] =
-irp_gateway.get_grouping_job` (wrapping the wheel's single-status
-`get_analysis_grouping_job`) and `_handle_grouping_terminal`: `FINISHED` →
-enqueue `finalize_analysis` for the group's `irp_analysis` row;
-`FAILED`/`CANCELLED` → `status_code='error'` + `failure_reason`.
-`finalize_analysis` branches for group rows (no EDM): it resolves the
-platform `analysisId` by name-only `search_analyses` filter instead of
-`get_analysis_by_name(name, edm_name)`, then proceeds unchanged —
+irp_gateway.get_grouping_job` (wrapping the single-status
+`client.grouping.get_job(job_id=…)`, which returns the raw Platform job dict
+with the same `status` vocabulary as analysis jobs) and
+`_handle_grouping_terminal`: `FINISHED` → enqueue `finalize_analysis` for the
+group's `irp_analysis` row; `FAILED`/`CANCELLED` → `status_code='error'` +
+`failure_reason`. `finalize_analysis` branches for group rows (no EDM): it
+resolves the platform `analysisId` by name-only `search_analyses` filter
+instead of `get_analysis_by_name(name, edm_name)`, then proceeds unchanged —
 `get_analysis_metadata`, stamp `irp_id`/`settings_metadata`/`status_code='ready'`,
 chain `retrieve_analysis_results`. Status **Assumed**: that
 `get_analysis_stats`/`get_analysis_ep` serve group `analysisId`s the same as
@@ -274,13 +274,22 @@ individual analyses is expected (PRD §16.4: results retrieved the same way;
 a group's `additionalProperties` carries `eventRateSchemes`, so RM treats
 groups as analyses) but is verified in the sandbox (quickstart step).
 
+Name-only resolution needs the group name to be unique tenant-wide at submit.
+The `0.8.0rc1` package no longer pre-checks group names (the `"Analysis Group
+with this name already exists"` error is gone), so the worker performs the
+check itself: `irp_gateway.count_analyses_named(name)` wraps
+`search_analyses_paginated(filter='analysisName="<name>"')`, and a non-zero
+count moves the group row to the next `_n` name before the submit (bounded by
+`MAX_NAME_ATTEMPTS`). A duplicate created between the check and the POST still
+fails loudly at finalize, as before.
+
 **Rationale**: FR-013 requires a group's results viewed and retrieved exactly
 as an analysis's; reusing `retrieve_analysis_results` and the stored
 `loss_results` extract is the smallest change that satisfies it. The poller's
-`poll_analysis_grouping_job_to_completion` variants are forbidden (Article 11);
-only the single-status getter is wrapped. Grouping submissions get no
-automatic retry: `_submission_retry` stays analysis-only — FR-011 requires
-visible failure, not auto-retry, and the analyst recomposes from the dialog.
+`poll_*_to_completion` variants are forbidden (Article 11); only the
+single-status getter is wrapped. Grouping submissions get no automatic retry:
+`_submission_retry` stays analysis-only — FR-011 requires visible failure, not
+auto-retry, and the analyst recomposes from the dialog.
 
 ## T-12 — Group rows render on submission-level pages only; the compose pick-list is submission-scoped from either entry
 
@@ -305,22 +314,25 @@ the EDM-page case where eligible members live in other EDMs.
 
 ## Assumptions carried without a decision ID
 
-- **Simulation windows and `numOfSimulations`** are left at the wheel's
-  defaults (`reporting_window_start="01/01/2021"`, windows likewise,
-  `num_simulations=50000`); `simulateToPLT` is managed by the wheel (forced
-  `True` when the built `regionPerilSimulationSet` is non-empty). None are
-  analyst-facing in the compose dialog. The wheel's defaults are the ones its
-  author validated against the sandbox.
-- **`description` is sent empty** — the platform caps it at 50 characters,
-  too short to carry anything structural.
+- **`numOfSimulations` is a caller input** the package never chooses (handover
+  R-04). The dialog prefills it from the inspection — the largest member
+  `periods` for a PLT group, `1` for a pure ELT group, where the Platform
+  requires a positive value with no group-PLT meaning (live observation
+  `knowledge/sources/observations/grouping-pure-elt-conflicting-event-rates-2026-09-01.json`,
+  IRP workspace) — and the analyst may edit it.
+- **Simulation windows and `description` are omitted** — `GroupingSettings`
+  leaves them `None` and the package sends no key; the platform caps
+  `description` at 50 characters, too short to carry anything structural.
+- **`simulateToPLT` is derived by the package** from the inspected members
+  (`GroupingInspection.simulate_to_plt`); the Workbench displays it as the
+  group output type and never sets it.
 - **`propagate_detailed_losses`** maps FR-005's "Propagate detailed output"
-  directly; the Workbench default is ON (the wheel's parameter default is
-  False, so the worker always passes the plan's explicit value). What detail
-  is retained stays open product-side (O-02) — pass-through only.
-- **irp-integration 0.6.2 suffices** — `submit_analysis_grouping_job`,
-  `get_analysis_grouping_job`, and `build_region_peril_simulation_set` are all
-  in the installed wheel (byte-identical to the local checkout at 992e125).
-  No wheel change is needed for this feature.
+  directly; the Workbench default is ON and the worker always passes the
+  plan's explicit value. What detail is retained stays open product-side
+  (O-02) — pass-through only.
+- **irp-integration `0.8.0rc1`** (TestPyPI) is the pinned dev build; its
+  `client.grouping` module is the only grouping API. Production stays on PyPI
+  `0.2.0` until the package is released there.
 
 ## Clarifications
 
@@ -332,3 +344,19 @@ the EDM-page case where eligible members live in other EDMs.
 - Q: The worker contract had a separate pre-submit "Resolve" step calling `build_region_peril_simulation_set`, but the gateway exposes one submit call — which is it? → A: One call; the wheel resolves members and builds the simulation set internally, and the Workbench reimplements nothing from irp-integration. T-03 rewritten with the wheel-source evidence.
 - Q: Wheel 0.6.2 raises the same `IRPAPIError` for every failure and its scheme resolution never fails pre-submit — how does the worker classify errors, and does FR-009's "before anything is submitted" hold? → A: Uniform handling — the duplicate-name message prefix retries with `_n`; every other exception records `SUBMISSION FAILED` + `failure_reason` like the analysis worker. Spec amended (O-09): the pre-submit guarantee narrows to member/name failures; an unresolvable scheme set surfaces as a failed job with the named cause. FR-009, US2 acceptance 3, and SC-005 rewritten.
 - Q: Does the Workbench carry Risk Modeler's Create independent groups checkbox at all? → A: No — dropped entirely, no checkbox and no emulation (O-08 and FR-006 rewritten): CIC never enables it and the results views already show a group beside its member analyses. The per-member emulation stays recorded in T-08 as the rejected alternative.
+
+### Session 2026-09-02
+
+Source: irp-integration `0.8.0rc1` (TestPyPI, installed in `.venv`), the
+handover document `irp-integration-grouping-plan.md` §8 (IRP workspace root),
+design note 22, and the live observation
+`knowledge/sources/observations/grouping-pure-elt-conflicting-event-rates-2026-09-01.json`
+(IRP workspace).
+
+- Q: The package replaced the automatic grouping API with `client.grouping.inspect()` / `submit()` / `get_job()`; does the compose dialog get a rendered preview first? → A: No preview; the templates are built directly (the layout is the approved dialog plus an inspection fragment inside it).
+- Q: When members of a partition use different event-rate schemes, is one preselected? → A: No default. The analyst must pick from the members' schemes, and Group stays disabled until every conflicting partition has a choice (note 22 O22-1). O-06 → Approved; FR-007 rewritten.
+- Q: What prefills the simulation count? → A: The largest member `periods` for a PLT group, `1` for a pure ELT group; editable in the dialog. FR-019 added.
+- Q: How is the migration committed? → A: One commit per logical step on `012-grouping-execution` (spec docs, gateway, compose flow, worker, tests, dependency lock), no push.
+- Q: Members were resolved by name; the package accepts ids only — what identifies a member? → A: The Platform analysis id already stored on `irp_analysis.irp_id` (note 22 O22-16: names duplicate tenant-wide). T-10 rewritten; O-09 rewritten.
+- Q: The package no longer pre-checks duplicate group names — what keeps finalize's name-only resolution valid? → A: The worker pre-checks tenant-wide with `count_analyses_named` and retries with `_n`. T-11 amended.
+- Q: Treaty consistency? → A: Not validated (handover R-12); the dialog discloses the limitation. Non-negotiable 6 and FR-020 added.

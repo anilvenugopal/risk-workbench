@@ -84,7 +84,7 @@ offered in the next compose pick-list.
 - [X] T017 [P] [US1] [FR-003] [FR-009] [T-03] [T-09] Unit tests in `tests/unit/test_grouping_service.py`: eligibility (running/failed excluded, broker included, finished group included — nesting), gate failures (unfinished member, foreign member, deleted member, <2 members, invalid currency triple → collected errors, nothing persisted), `build_group_name` + `_n` collision suffix + 64-char truncation, plan composition carried verbatim into `rwb_job.input_data`
 - [X] T018 [P] [US1] [FR-011] [T-09] Unit tests in `tests/unit/test_grouping_jobs_worker.py` against FakeIRP: success path (claim → submit → `irp_job` recorded → group row `running`), claim idempotency on redelivery (PK resume), duplicate-name retry updates `name`/`full_name`, submission failure recorded (`SUBMISSION FAILED` + `failure_reason`, no automatic retry)
 - [X] T019 [P] [US1] [FR-011] [FR-012] [T-11] Unit tests in `tests/unit/`: poller `grouping` routing and terminal handling (FINISHED → `finalize_analysis` enqueue, FAILED reason extraction); `finalize_analysis` group branch (name-only resolution success, ambiguous/zero hits fail the job)
-- [ ] T020 [US1] [T-11] IRP sandbox test in `tests/irp/test_grouping.py` (quickstart §4): submit a real grouping of two finished sandbox analyses, poll `get_grouping_job` single-status to FINISHED, assert `get_analysis_stats`/`get_analysis_ep` return data for the group's `analysisId` — until this passes T-11 is an assumption, not a validated claim
+- [ ] T020 [US1] [T-11] IRP sandbox test in `tests/irp/test_grouping.py` (quickstart §4): inspect the `IRP_TEST_GROUP_ELT_IDS` members (no blocking problems, ELT, no selection required), submit with `num_of_simulations=1`, assert the request body, poll `get_grouping_job` single-status to FINISHED, assert `get_analysis_stats`/`get_analysis_ep` return data for the group's `analysisId` — until this passes T-11 is an assumption, not a validated claim
   - Proof: `make shell` → `uv run pytest tests/irp --run-irp -k grouping` green
 
 **Checkpoint**: quickstart §3 steps 1–3 and 7 run end-to-end. **STOP** — approver clicks the running feature before US2.
@@ -107,7 +107,7 @@ Risk Modeler.
 ### Tests for User Story 2
 
 - [X] T021 [P] [US2] [FR-007] [FR-009] [T-03] Unit test in `tests/unit/test_grouping_jobs_worker.py`: FakeIRP missing-member failure mode → `SUBMISSION FAILED` `irp_job` recorded, group row `error` + `failure_reason` = the exception text, no automatic retry (SC-005: cause named; the wheel raises before the POST, so nothing reached the platform — O-09)
-- [ ] T022 [US2] [FR-007] [FR-008] IRP sandbox cases in `tests/irp/test_grouping.py`: two finished DLM analyses under different event-rate schemes group and finish; a DLM + HD pair groups and finishes; no scheme parameter appears anywhere in the submitted payload (SC-002); Propagate detailed output verification stops at the `propagateDetailedLosses` payload flag until O-02 defines what it retains
+- [ ] T022 [US2] [FR-007] [FR-009] IRP sandbox cases in `tests/irp/test_grouping.py`: the `IRP_TEST_GROUP_CONFLICTING_ELT_IDS` members inspect to exactly one partition requiring a selection with ≥2 options, submit once per offered scheme and each finishes with the chosen `eventRateSchemeId` in `regionPerilSimulationSet` (SC-002); a fabricated fingerprint raises `IRPGroupingValidationError` with `inspection_changed` and creates no job; Propagate detailed output verification stops at the `propagateDetailedLosses` payload flag until O-02 defines what it retains
   - Proof: `uv run pytest tests/irp --run-irp -k grouping` green; quickstart §3 step 5 walkthrough for the failure case
 
 **Checkpoint**: US1 + US2 acceptance verifiable per quickstart. **STOP** for approver
@@ -161,6 +161,26 @@ submission-name tag; every Workbench-submitted analysis of the submission appear
 - [ ] T026 [P] Reconcile `docs/DATA_MODEL.md` with the landed schema: `irp_analysis.submission_id` + the three-leg origin CHECK + `uq_irp_analysis_live_submission_name`, the `irp_analysis_group_member` table, the `submit_grouping` job type
 - [ ] T027 Run the full quickstart.md verification (§1–§4) against the running stack; report tiers by name and count, naming any tier that did not run (the stack is the developer's call — report and stop if it is down)
 - [ ] T028 Diff subtraction review per AGENTS.md: remove comments/tests restating the implementation, inline single-use helpers, remove speculative branches, compare diff size with requirement size
+
+---
+
+## Phase 8: irp-integration 0.8.0rc1 migration (inspect-then-submit)
+
+**Purpose**: The package replaced the name-based automatic grouping API with
+`client.grouping.inspect()` / `submit()` / `get_job()`. Members are Platform ids,
+event-rate schemes are the analyst's explicit choice, and the simulation count is a
+caller input. Decisions: research.md Clarifications 2026-09-02.
+
+- [X] T029 [O-06] [O-09] [FR-007] [FR-019] [FR-020] Revise spec 012 documents for the inspect-then-submit contract: spec.md (outcome, scope, non-negotiables 1 and 6, O-06/O-08/O-09, US-2, FR-006/007/009/019/020, SC-002/005), plan.md (design summary, T-02/T-03/T-10/T-11, Article 2 deviation, rule-8 note), research.md (T-02/T-03/T-10/T-11, assumptions, clarifications), contracts, data-model.md §4–5, quickstart.md; PRD §13.3/§14.3/§14.4/§16.4, FUNCTIONAL_REQUIREMENTS §6, and the planned grouping sequence diagrams lose the removed method names and the "never user-picked" rule
+- [ ] T030 [T-10] [T-11] Gateway in `app/services/irp_gateway.py`: replace `submit_analysis_grouping` with `inspect_grouping(analysis_ids)`, `submit_grouping(analysis_ids, group_name, currency, propagate_detailed_losses, num_of_simulations, event_rate_selections, expected_inspection_fingerprint)`, `get_grouping_job` over `client.grouping.get_job`, and `count_analyses_named`; re-export the package grouping types and `IRPGroupingValidationError`; Protocol, `_RealGateway`, module functions, `__all__`
+- [ ] T031 [T-03] [T-10] `grouping_service.py`: `GroupMember.irp_id`, `inspect_grouping` → `GroupingInspectionView` (suggested simulation count), `request_grouping` gate rules for inspected ids, fingerprint, simulation count, selections; plan carries `irp_id`, `num_of_simulations`, `event_rate_selections`, `expected_inspection_fingerprint`; `edm_name` removed
+- [ ] T032 [T-02] [FR-007] [FR-019] [FR-020] Routes and templates: `POST …/analyses/group/inspect` in `app/routers/submissions.py`; `group_compose_modal.html` gains Inspect members, the `#group-inspection` div, the treaty notice, the source-guarded close handler; new `partials/group_inspection.html` (errors, blocked, choices, ready); `#group-modal` mounts allow the 422 swap; `groupComposeModal` in `app.js` gains `canInspect`, `clearInspection`, and the inspection-aware `canSubmit`
+- [ ] T033 [T-11] [O-09] Worker `app/workers/grouping_jobs.py`: tenant-wide `count_analyses_named` pre-check with `_n` retry replaces the `DUPLICATE_NAME_PREFIX` match; submit by Platform id via `irp_gateway.submit_grouping`; `IRPGroupingValidationError.problems` → `failure_reason`; `irp_job.last_submission_payload` = exact request body, `last_submission_response` = `{"job_id"}`
+- [ ] T034 [T-03] FakeIRP: `inspect_grouping` (seeded or default pure-ELT inspection), `submit_grouping` (typed kwargs recorded; generic, structured, and `inspection_changed` failure knobs), `count_analyses_named`; `seed_grouping_inspection` helper over the gateway re-exports
+- [ ] T035 [FR-009] [FR-019] Unit tests: `test_grouping_service.py` (new gate rules, plan keys, inspection view with no writes), `test_grouping_routes.py` (dialog, inspect fragment states, submit with and without fingerprint), `test_grouping_jobs_worker.py` (typed submit kwargs, request body recorded, pre-check retry, structured failure reasons), `test_grouping_poller.py` (seeds gain `irp_id`)
+- [ ] T036 [T-11] Rewrite `tests/irp/test_grouping.py` per quickstart §4 (T020/T022 above) — unverified until run inside `linux-box` with `--run-irp`
+- [ ] T037 Pin irp-integration `0.8.0rc1` from TestPyPI (`pyproject.toml`, `uv.lock`); production `irp-pypi` unchanged
+- [ ] T038 Verification: unit tier green for every grouping module with no new failures against the icon-symlink baseline; `ruff check` on changed files; no reference to `submit_analysis_grouping`, `get_analysis_grouping_job`, `build_region_peril_simulation_set`, `analysis_edm_map`, `group_names`, `skip_missing`, `missing_group_members`, or `DUPLICATE_NAME_PREFIX` under `app/`, `tests/`, `specs/012-grouping-execution/`, PRD, FUNCTIONAL_REQUIREMENTS, or the planned sequence diagrams
 
 ---
 
