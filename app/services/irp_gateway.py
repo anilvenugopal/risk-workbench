@@ -34,7 +34,21 @@ from typing import Any, Protocol, Sequence, runtime_checkable
 # Re-exported so callers (workers, FakeIRP) never import irp-integration directly
 # — this module stays the sole importer (T007). ``submit_portfolio_analysis``
 # raises this on any submit failure (spec 010, contracts/irp-gateway.md).
-from irp_integration.exceptions import IRPIntegrationError
+from irp_integration.exceptions import IRPGroupingValidationError, IRPIntegrationError
+
+# Spec 012 grouping types (contracts/grouping-worker.md): the service renders
+# ``GroupingInspection`` and the worker reads ``IRPGroupingValidationError.problems``.
+from irp_integration.grouping import (
+    EventRateSchemeOption,
+    GroupingInspection,
+    GroupingMember,
+    GroupingPartition,
+    GroupingPartitionKey,
+    GroupingProblem,
+    GroupingProblemCode,
+    GroupingRegionFact,
+    GroupingSimulationMapping,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -361,15 +375,19 @@ class IRPGateway(Protocol):
 
     def get_analysis_job(self, irp_id: str) -> JobStatus: ...
 
-    # ── spec-012 grouping (worker-only; contracts/grouping-worker.md) ────────
+    # ── spec-012 grouping (contracts/grouping-worker.md) ─────────────────────
 
-    def submit_analysis_grouping(
-        self, *, group_name: str, analysis_names: list[str],
-        analysis_edm_map: dict[str, str], group_names: set[str],
-        currency: dict, propagate_detailed_losses: bool,
+    def inspect_grouping(self, *, analysis_ids: list[int]) -> GroupingInspection: ...
+
+    def submit_grouping(
+        self, *, analysis_ids: list[int], group_name: str, currency: dict,
+        propagate_detailed_losses: bool, num_of_simulations: int,
+        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]: ...
 
     def get_grouping_job(self, irp_id: str) -> JobStatus: ...
+
+    def count_analyses_named(self, name: str) -> int: ...
 
     def get_analysis_by_name_only(self, name: str) -> AnalysisHit: ...
 
@@ -994,35 +1012,55 @@ class _RealGateway:
         data = self._client().analysis.get_analysis_job(int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
-    # ── spec-012 grouping (worker-only; contracts/grouping-worker.md) ─────────
+    # ── spec-012 grouping (contracts/grouping-worker.md) ──────────────────────
 
-    def submit_analysis_grouping(
-        self, *, group_name: str, analysis_names: list[str],
-        analysis_edm_map: dict[str, str], group_names: set[str],
-        currency: dict, propagate_detailed_losses: bool,
+    def inspect_grouping(self, *, analysis_ids: list[int]) -> GroupingInspection:
+        # Platform reads only — permitted on the request path (T-02).
+        return self._client().grouping.inspect(analysis_ids=analysis_ids)
+
+    def submit_grouping(
+        self, *, analysis_ids: list[int], group_name: str, currency: dict,
+        propagate_detailed_losses: bool, num_of_simulations: int,
+        event_rate_selections: list[dict], expected_inspection_fingerprint: str,
     ) -> tuple[str, dict]:
-        # skip_missing=False (T-10): a member that fails name resolution raises
-        # instead of silently narrowing the approved member set (AGENTS.md
-        # rule 8). The wheel resolves names to URIs and auto-builds the
-        # region/peril simulation set internally; simulate_to_plt, simulation
-        # windows and description stay wheel-managed (contract).
-        result = self._client().analysis.submit_analysis_grouping_job(
-            group_name=group_name, analysis_names=analysis_names,
-            analysis_edm_map=analysis_edm_map, group_names=group_names,
-            currency=currency,
-            propagate_detailed_losses=propagate_detailed_losses,
-            skip_missing=False,
+        from irp_integration.grouping import (  # noqa: PLC0415 — request-side types stay here
+            EventRateSelection,
+            GroupingCurrency,
+            GroupingSettings,
         )
-        return str(result["job_id"]), result["http_request_body"]
+        settings = GroupingSettings(
+            analysis_name=group_name,
+            currency=GroupingCurrency(
+                code=currency["code"], scheme=currency["scheme"],
+                vintage=currency["vintage"], as_of_date=currency["asOfDate"]),
+            propagate_detailed_losses=propagate_detailed_losses,
+            num_of_simulations=num_of_simulations)
+        selections = [
+            EventRateSelection(
+                partition=GroupingPartitionKey(
+                    peril_code=s["peril_code"], region_code=s["region_code"],
+                    model_version=s["model_version"]),
+                event_rate_scheme_id=s["event_rate_scheme_id"])
+            for s in event_rate_selections
+        ]
+        submission = self._client().grouping.submit(
+            analysis_ids=analysis_ids, settings=settings,
+            event_rate_selections=selections,
+            expected_inspection_fingerprint=expected_inspection_fingerprint)
+        return str(submission.job_id), submission.request_body
 
     def get_grouping_job(self, irp_id: str) -> JobStatus:
-        data = self._client().analysis.get_analysis_grouping_job(int(irp_id))
+        data = self._client().grouping.get_job(job_id=int(irp_id))
         return JobStatus(status=str(data["status"]), result=data)
 
+    def count_analyses_named(self, name: str) -> int:
+        return len(self._client().analysis.search_analyses_paginated(
+            filter=f"analysisName={json.dumps(name)}"))
+
     def get_analysis_by_name_only(self, name: str) -> AnalysisHit:
-        # Groups have no EDM to disambiguate with; the wheel's tenant-wide
-        # duplicate pre-check plus the worker's _n retry guarantee the name was
-        # unique at submit — a duplicate appearing since is worth failing on.
+        # Groups have no EDM to disambiguate with; the worker's tenant-wide
+        # duplicate pre-check plus its _n retry guarantee the name was unique
+        # at submit — a duplicate appearing since is worth failing on.
         rows = self._client().analysis.search_analyses_paginated(
             filter=f"analysisName={json.dumps(name)}")
         if len(rows) != 1:
@@ -1344,20 +1382,29 @@ def get_analysis_job(irp_id: str) -> JobStatus:
     return _active().get_analysis_job(irp_id)
 
 
-def submit_analysis_grouping(
-    *, group_name: str, analysis_names: list[str],
-    analysis_edm_map: dict[str, str], group_names: set[str],
-    currency: dict, propagate_detailed_losses: bool,
+def inspect_grouping(*, analysis_ids: list[int]) -> GroupingInspection:
+    return _active().inspect_grouping(analysis_ids=analysis_ids)
+
+
+def submit_grouping(
+    *, analysis_ids: list[int], group_name: str, currency: dict,
+    propagate_detailed_losses: bool, num_of_simulations: int,
+    event_rate_selections: list[dict], expected_inspection_fingerprint: str,
 ) -> tuple[str, dict]:
-    return _active().submit_analysis_grouping(
-        group_name=group_name, analysis_names=analysis_names,
-        analysis_edm_map=analysis_edm_map, group_names=group_names,
-        currency=currency,
-        propagate_detailed_losses=propagate_detailed_losses)
+    return _active().submit_grouping(
+        analysis_ids=analysis_ids, group_name=group_name, currency=currency,
+        propagate_detailed_losses=propagate_detailed_losses,
+        num_of_simulations=num_of_simulations,
+        event_rate_selections=event_rate_selections,
+        expected_inspection_fingerprint=expected_inspection_fingerprint)
 
 
 def get_grouping_job(irp_id: str) -> JobStatus:
     return _active().get_grouping_job(irp_id)
+
+
+def count_analyses_named(name: str) -> int:
+    return _active().count_analyses_named(name)
 
 
 def get_analysis_by_name_only(name: str) -> AnalysisHit:
@@ -1454,5 +1501,10 @@ __all__ = [
     "select_breakout_accounts", "count_breakout_match", "create_sub_portfolio",
     "populate_sub_portfolio", "find_portfolio_by_number",
     "find_portfolio_by_name",
-    "IRPIntegrationError",
+    "inspect_grouping", "submit_grouping", "get_grouping_job",
+    "count_analyses_named", "get_analysis_by_name_only",
+    "GroupingInspection", "GroupingMember", "GroupingRegionFact",
+    "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
+    "GroupingProblem", "GroupingProblemCode", "GroupingSimulationMapping",
+    "IRPIntegrationError", "IRPGroupingValidationError",
 ]
