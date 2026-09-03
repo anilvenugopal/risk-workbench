@@ -118,7 +118,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-016**: The existing left-to-right ordering control in the results view works on group columns the same as on analysis columns; the drag-and-drop rework and O20-10 defects are out of scope here (O-04).
 - **FR-017**: Every Workbench-submitted individual analysis carries a submission-level IRP tag whose value is the submission name (O-05), applied at submit time and queryable in the platform and via API. Groups carry no tag — the platform grouping job accepts none (O-07).
 - **FR-018**: Groups can be members of other groups (nested grouping).
-- **FR-019**: The simulation count is a positive integer the analyst confirms at compose time. For a PLT group it is the target group PLT length, prefilled with the largest member PLT length; for an ELT group it is prefilled with 1 and the dialog says the group stays an ELT (O-06).
+- **FR-019**: The simulation count is a positive integer. For a PLT group the analyst confirms it at compose time as the target group PLT length, prefilled with the largest member PLT length; for an ELT group the dialog shows no count and submits 1 (O-06).
 - **FR-020**: The compose dialog states that treaty terms sharing a Treaty Number are not compared and that inconsistent terms can produce unexpected grouped results.
 
 ## Key Entities

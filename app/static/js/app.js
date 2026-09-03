@@ -827,39 +827,78 @@ document.addEventListener('alpine:init', () => {
     },
   }));
 
-  // Group compose dialog (spec 012). Same DOM-only pattern as executeModal:
-  // submit enables at ≥2 checked members, a non-empty name, and a complete
-  // currency block. recompute() is also called by the currency_block macro's
+  // Group compose dialog (spec 012): one form, three x-show panes on `step`.
+  // Screen 1's Next fires the button's `inspect` trigger (hx-post to the
+  // inspect route); Back from screen 2 aborts that request so no stale swap
+  // can land. Hidden panes still serialize, so the final POST carries every
+  // screen. recompute() is also called by the currency_block macro's
   // vintage-swap hook.
-  // Group compose (spec 012): Group enables only on an inspection result
-  // whose scheme choices are all made; a member change drops the inspection.
   Alpine.data('groupComposeModal', () => ({
+    step: 1,
+    picked: 0,
+    groupName: '',
+    canNext1: false,
+    hasInspection: false,
+    canNext2: false,
     canSubmit: false,
-    canInspect: false,
+    schemesChosen: [],
     init() { this.recompute(); },
+    filter(q) {
+      const needle = q.trim().toLowerCase();
+      this.$root.querySelectorAll('.entity-candidate[data-name]').forEach((row) => {
+        // .entity-candidate sets display:flex, which beats the hidden attribute
+        row.style.display = row.dataset.name.includes(needle) ? '' : 'none';
+      });
+    },
+    inspect() {
+      this.clearInspection();
+      this.step = 2;
+      htmx.trigger(this.$refs.inspect, 'inspect');
+    },
+    back() {
+      if (this.step === 2) {
+        htmx.trigger(this.$refs.inspect, 'htmx:abort');
+        this.clearInspection();
+      }
+      this.$root.querySelector('#group-submit-errors').replaceChildren();
+      this.step -= 1;
+    },
+    toSettings() {
+      this.schemesChosen = Array.from(
+        this.$root.querySelectorAll('select[name="event_rate_selection"]'))
+        .map((select) => ({
+          partition: select.dataset.partition,
+          label: select.selectedOptions[0].dataset.label,
+        }));
+      this.step = 3;
+      this.recompute();
+    },
     clearInspection() {
-      const box = this.$root.querySelector('#group-inspection');
-      if (box) box.replaceChildren();
+      ['#group-inspection', '#group-summary', '#group-sims'].forEach((id) => {
+        this.$root.querySelector(id).replaceChildren();
+      });
+      this.schemesChosen = [];
       this.recompute();
     },
     recompute() {
-      const picked = this.$root.querySelectorAll(
-        'input[name="member_ids"]:checked').length;
-      this.canInspect = picked >= 2;
-      const name = this.$root.querySelector('input[name="group_name"]');
+      const root = this.$root;
+      this.picked = root.querySelectorAll('input[name="member_ids"]:checked').length;
+      const name = root.querySelector('input[name="group_name"]');
+      this.groupName = name ? name.value.trim() : '';
+      this.canNext1 = this.picked >= 2 && !!this.groupName;
+      this.hasInspection = root.querySelector('#group-inspection').children.length > 0;
+      const schemesDone = Array.from(
+        root.querySelectorAll('select[name="event_rate_selection"]'))
+        .every((select) => select.value);
+      this.canNext2 = !!root.querySelector('[data-inspection-ready]') && schemesDone;
       const currencyDone = ['currency_code', 'currency_scheme', 'currency_vintage']
         .every((f) => {
-          const select = this.$root.querySelector(`select[name="${f}"]`);
+          const select = root.querySelector(`select[name="${f}"]`);
           return select && select.value;
         });
-      const inspected = !!this.$root.querySelector('[data-inspection-ready]');
-      const schemesChosen = Array.from(
-        this.$root.querySelectorAll('select[name="event_rate_selection"]'))
-        .every((select) => select.value);
-      const sims = this.$root.querySelector('input[name="num_of_simulations"]');
+      const sims = root.querySelector('input[name="num_of_simulations"]');
       const simsOk = !!sims && /^\d+$/.test(sims.value) && Number(sims.value) > 0;
-      this.canSubmit = picked >= 2 && !!(name && name.value.trim()) && currencyDone
-        && inspected && schemesChosen && simsOk;
+      this.canSubmit = this.canNext1 && this.canNext2 && currencyDone && simsOk;
     },
   }));
 

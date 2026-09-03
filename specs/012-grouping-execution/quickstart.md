@@ -25,8 +25,9 @@ How to verify the feature. Contracts: [contracts/](contracts/); schema:
 uv run pytest tests/unit
 ```
 
-Covers: compose gate, inspection view, group naming and collision suffix,
-plan composition, compose routes (dialog, inspect fragment states, submit),
+Covers: compose gate, inspection view and screen rows (`test_grouping_view.py`),
+group naming and collision suffix, plan composition, compose routes (dialog,
+inspect fragment states and oob parts, submit 422 retarget),
 worker submit paths against `FakeIRP` (success with the exact request body /
 duplicate-name pre-check retry / generic and structured submission failures),
 poller grouping routing, group read models.
@@ -46,32 +47,45 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
 1. Open a submission whose Results grid shows ≥2 finished analyses. Tick two;
    the **Group** button enables. Tick a running or failed row instead — it is
    absent from the compose pick-list (US-1 acceptance 2).
-2. Click Group. The dialog shows the pick-list with your rows pre-checked, the
-   name prefilled `CRE_<submission>_Group`, currency/scheme/vintage prefilled
-   from the env defaults, Propagate detailed output ON, and the treaty notice
-   under the member list (US-1 acceptance 1, FR-020). Group is disabled.
-3. Click **Inspect members**. The fragment shows the group output type (ELT or
-   PLT), a row per member with its peril · region · model version and scheme
-   or PET facts, and the simulation count prefilled (largest member PLT length
-   for PLT, 1 for ELT). Group enables. Submit. The `submit_grouping` job
+2. Click Group. Screen 1 shows the whole pick-list with your rows pre-checked,
+   "N of M selected", and the name prefilled `CRE_<submission>_Group`; typing
+   in the search box filters the list by name without a request (US-1
+   acceptance 1). Untick a row so one member is left: **Next** disables.
+3. Click **Next**. The wait state shows while Risk Modeler is read, then
+   screen 2: the facts strip (group output ELT or PLT, member count, scheme
+   mismatch count), one table row per peril · region · model version with the
+   members by name and the scheme each row uses, and the treaty section.
+   **Next** is enabled. Click it: screen 3 shows the name, output, and members
+   on the left, and currency/scheme/vintage prefilled from the env defaults
+   and Propagate detailed output ON on the right; an ELT group shows no
+   simulation count. Click **Back** twice: screen 1 still has your members
+   ticked. Go forward again and click **Group**. The `submit_grouping` job
    appears immediately in the RWB jobs monitor; the group row appears in the
    grid when the worker claims the job and shows `pending → running`. On
    completion the row turns `ready`, Engine column reads **Group** (US-1
    acceptance 3–4, US-3 acceptance 2). In `irp_job`,
    `last_submission_payload` is the exact request body.
 4. Pick two finished DLM analyses run under different event-rate schemes and
-   inspect: one dropdown per conflicting partition lists only the members'
-   schemes, none preselected, and Group stays disabled until you choose.
-   Choose and submit; the group finishes (US-2 acceptance 1, SC-002). Pick a
-   DLM + an HD and inspect: output reads PLT and the simulation count is
-   prefilled from the members (US-2 acceptance 2).
-5. Blocked and changed states: inspect a member set the platform cannot group
-   (for example a nested group whose PET cannot be resolved) — the fragment
-   names the problem with members, partition, and PET ids, and Group stays
-   disabled; nothing reaches Risk Modeler (US-2 acceptance 3). Inspect, then
+   click Next: the conflicting row's scheme cell is a dropdown listing only
+   the members' schemes with their member counts, none preselected, and Next
+   stays disabled until you choose. Choose, continue, and Group; "Schemes
+   chosen" on screen 3 names your pick; the group finishes (US-2 acceptance
+   1, SC-002). Pick a DLM + an HD and click Next: output reads PLT and screen
+   3 shows the simulation count prefilled with the largest member PLT length
+   (US-2 acceptance 2).
+5. Blocked, error, and changed states: inspect a member set the platform
+   cannot group (for example two HD analyses run against different
+   simulation sets in one partition) — screen 2 opens with "These members
+   cannot be grouped", the problem and its members, the row's scheme cell
+   reads "Different simulation sets", and Next stays disabled; nothing
+   reaches Risk Modeler (US-2 acceptance 3). Inspect with Risk Modeler
+   unreachable: screen 2 shows the read error with **Retry**. Inspect, then
    change a member's facts in Risk Modeler before submitting — the job records
    `SUBMISSION FAILED` with a `failure_reason` telling you to inspect again,
    and no grouping job appears in Risk Modeler (US-2 acceptance 4, SC-005).
+   Force a compose 422 (inspect in a second tab, then submit here with a
+   stale fingerprint): the errors appear at the top of screen 3 and the
+   dialog keeps its state.
 6. Tick the finished group plus an analysis → **View**: both open on
    `/results/analyses`; the ◀/▶ controls move the group column to either end
    (US-3 acceptance 1, 3).

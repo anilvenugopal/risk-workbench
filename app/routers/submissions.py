@@ -52,6 +52,7 @@ from app.services.errors import (
     SubmissionClosed,
     UnknownLinkError,
 )
+from app.services.grouping_view import build_inspection_screen
 from db import execute
 
 router = APIRouter()
@@ -377,16 +378,14 @@ def submission_rdm_analyses(request: Request, submission_id: str, rdm_id: str):
 
 # ── Group compose dialog (spec 012, contracts/routes.md) ─────────────────────
 
-def _group_modal_response(
-    request: Request, submission, *, preselected: list[str],
-    group_name: str | None = None, currency_code: str | None = None,
-    currency_scheme: str | None = None, currency_vintage: str | None = None,
-    propagate_detailed_output: bool = True, errors: list[str] | None = None,
-    status_code: int = 200,
-):
-    """The dialog fragment, shared by the GET and the gate's 422 re-render.
-    ``None`` field values take the fresh-open prefills (generated name, env
-    currency defaults, Propagate ON — FR-004/FR-005)."""
+@router.get("/submissions/{submission_id}/analyses/group",
+            response_class=HTMLResponse)
+def group_compose_modal(request: Request, submission_id: str):
+    """The three-screen dialog with its fresh-open prefills: generated name,
+    env currency defaults, Propagate ON (FR-004/FR-005)."""
+    submission = submission_service.get_submission(submission_id)
+    if submission is None:
+        return _not_found(request)
     members = grouping_service.list_eligible_members(submission.id)
     ctx: dict = {"submission": submission,
                  "action_url": f"/submissions/{submission.id}/analyses/group",
@@ -394,49 +393,33 @@ def _group_modal_response(
     if len(members) < 2:
         ctx["blocking"] = ("This submission needs at least two finished "
                            "analyses before they can be grouped.")
-        return _partial(request, "partials/group_compose_modal.html", ctx,
-                        status_code=status_code)
+        return _partial(request, "partials/group_compose_modal.html", ctx)
     defaults = analysis_execution_service.currency_defaults()
-    scheme = currency_scheme if currency_scheme is not None else defaults["scheme"]
     ctx.update({
         "blocking": None,
         "members": members,
-        "preselected": {p.lower() for p in preselected},
-        "group_name": (group_name if group_name is not None else
-                       grouping_service.build_group_name(submission.id,
-                                                         submission.name)),
-        "currency_code_val": (currency_code if currency_code is not None
-                              else defaults["code"]),
-        "currency_scheme_val": scheme,
-        "currency_vintage_val": (currency_vintage if currency_vintage is not None
-                                 else defaults["vintage"]),
-        "vintage_options": analysis_execution_service.vintage_options(scheme),
+        "preselected": {p.lower() for p in
+                        request.query_params.getlist("analysis_ids")},
+        "group_name": grouping_service.build_group_name(submission.id,
+                                                        submission.name),
+        "currency_code_val": defaults["code"],
+        "currency_scheme_val": defaults["scheme"],
+        "currency_vintage_val": defaults["vintage"],
+        "vintage_options": analysis_execution_service.vintage_options(
+            defaults["scheme"]),
         "currency_options": analysis_execution_service.currency_options(),
         "scheme_options": analysis_execution_service.currency_scheme_options(),
-        "propagate_detailed_output": propagate_detailed_output,
-        "errors": errors or [],
     })
-    return _partial(request, "partials/group_compose_modal.html", ctx,
-                    status_code=status_code)
-
-
-@router.get("/submissions/{submission_id}/analyses/group",
-            response_class=HTMLResponse)
-def group_compose_modal(request: Request, submission_id: str):
-    submission = submission_service.get_submission(submission_id)
-    if submission is None:
-        return _not_found(request)
-    return _group_modal_response(
-        request, submission,
-        preselected=request.query_params.getlist("analysis_ids"))
+    return _partial(request, "partials/group_compose_modal.html", ctx)
 
 
 @router.post("/submissions/{submission_id}/analyses/group/inspect",
              response_class=HTMLResponse)
 async def group_compose_inspect(request: Request, submission_id: str):
-    """The dialog's Inspect members step: Platform reads only, rendered into
-    ``#group-inspection`` (contracts/routes.md). Gate and read failures render
-    the same fragment with the error list at 422."""
+    """Screen 2 of the dialog: Platform reads only, rendered into
+    ``#group-inspection`` plus the out-of-band ``#group-summary`` and
+    ``#group-sims`` (contracts/routes.md). Gate and read failures render the
+    same fragment with the error list at 422."""
     form = await request.form()
     if not validate_csrf_token(form.get("csrf_token")):
         if _is_htmx(request):
@@ -453,7 +436,8 @@ async def group_compose_inspect(request: Request, submission_id: str):
         return _partial(request, "partials/group_inspection.html",
                         {"errors": exc.errors}, status_code=422)
     return _partial(request, "partials/group_inspection.html",
-                    {"view": view, "errors": []})
+                    {"view": view, "screen": build_inspection_screen(view),
+                     "errors": []})
 
 
 @router.post("/submissions/{submission_id}/analyses/group")
@@ -466,19 +450,16 @@ async def group_compose_submit(request: Request, submission_id: str):
     submission = submission_service.get_submission(submission_id)
     if submission is None:
         return _not_found(request)
-    member_ids = form.getlist("member_ids")
-    group_name = form.get("group_name", "")
-    currency_code = form.get("currency_code", "")
-    currency_scheme = form.get("currency_scheme", "")
-    currency_vintage = form.get("currency_vintage", "")
-    propagate = form.get("propagate_detailed_output") is not None
     try:
         grouping_request_id = grouping_service.request_grouping(
             submission_id=submission.id, submission_name=submission.name,
-            member_ids=member_ids, group_name=group_name,
-            currency_code=currency_code, currency_scheme=currency_scheme,
-            currency_vintage=currency_vintage,
-            propagate_detailed_output=propagate,
+            member_ids=form.getlist("member_ids"),
+            group_name=form.get("group_name", ""),
+            currency_code=form.get("currency_code", ""),
+            currency_scheme=form.get("currency_scheme", ""),
+            currency_vintage=form.get("currency_vintage", ""),
+            propagate_detailed_output=(
+                form.get("propagate_detailed_output") is not None),
             num_of_simulations=form.get("num_of_simulations", ""),
             event_rate_selections=form.getlist("event_rate_selection"),
             expected_inspection_fingerprint=form.get(
@@ -486,16 +467,13 @@ async def group_compose_submit(request: Request, submission_id: str):
             inspected_analysis_ids=form.getlist("inspected_analysis_ids"),
             actor_id=request.state.user.id)
     except ExecutionGateError as exc:
-        # Retargeted at the mount because htmx drops a non-2xx body at the
-        # triggering element's own target by default.
-        response = _group_modal_response(
-            request, submission, preselected=member_ids,
-            group_name=group_name, currency_code=currency_code,
-            currency_scheme=currency_scheme, currency_vintage=currency_vintage,
-            propagate_detailed_output=propagate, errors=exc.errors,
-            status_code=422)
+        # Retargeted at screen 3's error slot because htmx drops a non-2xx
+        # body at the triggering element's own target by default; the dialog
+        # keeps its state.
+        response = _partial(request, "partials/group_submit_errors.html",
+                            {"errors": exc.errors}, status_code=422)
         if _is_htmx(request):
-            response.headers["HX-Retarget"] = "#group-modal"
+            response.headers["HX-Retarget"] = "#group-submit-errors"
             response.headers["HX-Reswap"] = "innerHTML"
         return response
     return Response(status_code=204, headers={

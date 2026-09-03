@@ -5,7 +5,10 @@ modal (`app/routers/edms.py` execute routes).
 
 ## `GET /submissions/{submission_id}/analyses/group`
 
-Renders the compose dialog into `#group-modal`.
+Renders the compose dialog into `#group-modal`: one `<form>` with three
+screens as Alpine `x-show` panes on a `step` state — Members, Inspection,
+Settings — and a step indicator in the header. Hidden panes still serialize,
+so the final POST carries every screen and Back never loses a screen's inputs.
 
 Query params: `analysis_ids` (repeated, optional) — the grid's ticked rows,
 pre-checked in the pick-list.
@@ -17,24 +20,37 @@ Context:
   `id, irp_id, display_name, kind (own|broker|group), engine`. Ineligible
   rows (running/failed) are not listed (FR-003, US-1 acceptance 2).
 - `group_name`: prefilled `CRE_<submission name>_Group` (T-09), editable.
-- `inspect_url`: the inspect route below, posted by the **Inspect members**
-  button (`hx-include="closest form"`, target `#group-inspection`).
-- Currency block: the `currency_block` macro from
+- `inspect_url`: the inspect route below, posted by screen 1's **Next**
+  button (`hx-trigger="inspect"`, fired by the Alpine `inspect()` method;
+  target `#group-inspection`, indicator `#group-inspect-wait`).
+- Currency block on screen 3: the `currency_block` macro from
   `execute_analysis_modal.html` with `currency_defaults()` prefill and the
   existing `/edms/execute/vintage-options` cascade (FR-004).
-- `propagate_detailed_output`: checkbox, checked (FR-005). Risk Modeler's
-  Create independent groups checkbox is not carried over (FR-006, O-08).
-- The treaty notice under the member list: "Treaty terms that share a Treaty
-  Number are not compared. Inconsistent terms can produce unexpected grouped
-  results." (FR-020).
+- Propagate detailed output: checkbox on screen 3, checked (FR-005). Risk
+  Modeler's Create independent groups checkbox is not carried over (FR-006,
+  O-08).
 - `blocking` message instead of the form when the submission has fewer than
   two eligible members.
 
-The Group button is disabled until the form holds an inspection result
-(`[data-inspection-ready]`), every `select[name=event_rate_selection]` has a
-value, `num_of_simulations` is a positive integer, the name is non-empty, and
-the currency triple is chosen. Changing a member checkbox empties
-`#group-inspection`.
+Screen 1 (Members): the group name, a client-side name search over the
+pick-list (`data-name` on each row), the pick-list with the grid's rows
+pre-checked, and "N of M selected". **Next** enables at ≥2 checked members
+and a non-empty name; it empties `#group-inspection`, `#group-summary` and
+`#group-sims`, moves to screen 2, and fires the inspect request. **Back**
+from screen 2 aborts an in-flight inspect (`htmx:abort`) and empties the same
+three targets, so no stale swap can land.
+
+Screen 2 (Inspection): the wait state while the request runs, then the
+inspect response. **Next** enables on `[data-inspection-ready]` with every
+`select[name=event_rate_selection]` chosen; it records the chosen scheme
+labels for screen 3's "Schemes chosen" list and moves on.
+
+Screen 3 (Settings): the summary (`#group-summary`) and simulation count
+(`#group-sims`) rendered by the inspect response, the schemes chosen, the
+currency block, Propagate detailed output. **Group** submits the form
+(`hx-swap="none"`) and enables when the currency triple is chosen and
+`num_of_simulations` is a positive integer. Submit errors land in
+`#group-submit-errors` at the top of the screen.
 
 ## `POST /submissions/{submission_id}/analyses/group/inspect`
 
@@ -51,28 +67,44 @@ Behavior — Platform reads only, nothing persisted:
   `view: GroupingInspectionView` — `inspection` (the package
   `GroupingInspection`), `members` (Platform id → `GroupMember`, for display
   names), `suggested_num_of_simulations` (largest PLT member `periods` for a
-  PLT group, else 1).
+  PLT group, else 1) — and `screen: InspectionScreen` from
+  `grouping_view.build_inspection_screen(view)`: one `PartitionRow` per
+  partition (key, the members' distinct engine versions, member display
+  names, `mode`, `SchemeOption`s) and one `ProblemText` per blocking problem.
 
-Fragment states:
+Every response, the 422 included, also carries `#group-summary` and
+`#group-sims` as `hx-swap-oob` divs, so each inspection resets screen 3.
 
-- **Blocked** (`inspection.blocking_problems` non-empty): one warning box per
-  problem — message, "Members: <display names>", "Partition: peril · region ·
-  model version" and "PET IDs: …" when present. No hidden fields, so Group
-  stays disabled.
-- **Ready**: "Group output: ELT" or "Group output: PLT (members are simulated
-  to a PLT)"; a member table (display name, framework, peril · region · model
-  version, scheme id or PET id + periods per region); one required
-  `<select name="event_rate_selection">` per partition with
-  `event_rate_selection_required`, an empty first option and one option per
-  `event_rate_scheme_options` whose value is the JSON
-  `{"peril_code","region_code","model_version","event_rate_scheme_id"}`;
+Fragment states, all rendered into `#group-inspection`:
+
+- **Error** (422): one `.insp-notice--block` with the error list and a
+  **Retry** button that fires the inspect again. The oob divs are empty.
+- **Blocked** (`inspection.blocking_problems` non-empty): the "These members
+  cannot be grouped" notice — one paragraph per problem, the members listed
+  by display name — above the facts strip and the partition table. No hidden
+  fields and empty oob divs, so Next stays disabled.
+- **Ready**: the facts strip ("Group output ELT|PLT", member count, scheme
+  mismatch count); the partition table with Peril and Region codes, Model
+  version as `<engine versions> · <model version>`, member display names,
+  and the Event-rate scheme cell by row `mode` — `incompatible` (partition
+  not `simulation_set_compatible`) reads "Different simulation sets";
+  `choose` (`event_rate_selection_required`) is a
+  `<select name="event_rate_selection" data-partition="<peril> / <region> / <model version>">`
+  with an empty first option and one option per `event_rate_scheme_options`
+  whose value is the JSON
+  `{"peril_code","region_code","model_version","event_rate_scheme_id"}`, text
+  `<label> (<n> members)` and `data-label` the label (`opt.label`, or
+  `Scheme <id>` without one); `resolved` (one option) shows that label;
+  `none` shows an em dash. The select carries no `required` attribute — a
+  hidden required select would block the browser's submit; the Alpine gate
+  and `request_grouping` enforce the choice. Then the Treaty mismatches
+  section, the hidden `expected_inspection_fingerprint`, one hidden
+  `inspected_analysis_ids` per member, and the `[data-inspection-ready]`
+  marker. `#group-summary` holds the group name (`x-text`), the output, and
+  the members with engine and kind. `#group-sims` holds, for a PLT group,
   `<input type="number" name="num_of_simulations" min="1">` prefilled with
-  the suggestion and a PLT/ELT hint (FR-019); hidden
-  `expected_inspection_fingerprint`, one hidden `inspected_analysis_ids` per
-  member, and the `[data-inspection-ready]` marker.
-
-The `#group-inspection` div allows the 422 swap
-(`hx-on::before-swap`), so gate errors render in place.
+  the suggestion and the "Largest member: <n>" hint; for an ELT group,
+  `<input type="hidden" name="num_of_simulations" value="1">` (FR-019).
 
 ## `POST /submissions/{submission_id}/analyses/group`
 
@@ -96,9 +128,10 @@ Behavior:
   non-empty and free among live group names of the submission (the `_n`
   suffix is applied automatically on collision, not an error); currency
   triple resolves in the cache (same `_validate_currency` rules). All
-  failures collected → 422 re-render of the whole dialog with the error list
-  (`HX-Retarget: #group-modal`), nothing persisted (SC-005). The inspection
-  fragment is dropped by the re-render; the analyst inspects again.
+  failures collected → `partials/group_submit_errors.html` (one
+  `.modal-error` block) at 422 with `HX-Retarget: #group-submit-errors` and
+  `HX-Reswap: innerHTML`, nothing persisted (SC-005). The dialog keeps its
+  state: the analyst fixes the input on screen 3 or goes Back.
 - Success: persist the approved plan as one `submit_grouping` `rwb_job`,
   dispatch, respond `204` with
   `HX-Trigger: {"grouping-submitted": {...}, "rwb:toast": …}`. The toast is

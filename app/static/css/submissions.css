@@ -392,3 +392,75 @@
 .drive-browse__error { padding: var(--space-3); font-size: var(--fs-label);
   color: var(--text-tertiary); }
 .drive-browse__error { color: var(--color-danger); }
+
+/* Group compose dialog, screens 2 and 3 (spec 012). */
+.insp-facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
+  align-items: center; font-size: var(--fs-label); color: var(--text-secondary); }
+.insp-facts b { color: var(--text-primary); font-weight: var(--fw-semibold); }
+/* Partition table: one row per peril / region / model-version partition. */
+.insp-table-wrap { border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  overflow-x: auto; }
+.insp-table { width: 100%; border-collapse: collapse; font-size: var(--fs-label); min-width: 860px; }
+.insp-table .insp-table__key { white-space: nowrap; }
+.insp-table th { background: var(--surface-recessed); font-size: var(--fs-eyebrow);
+  letter-spacing: .05em; text-transform: uppercase; color: var(--text-tertiary);
+  font-weight: var(--fw-semibold); text-align: left; padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default); white-space: nowrap; }
+.insp-table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border-faint);
+  vertical-align: top; }
+.insp-table tr:last-child td { border-bottom: 0; }
+.insp-table td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.insp-table .insp-table__members { width: 38%; }
+.insp-table .insp-table__scheme { width: 36%; min-width: 280px; }
+.insp-table .wf-field__input { padding: 5px 8px; }
+.insp-members { display: flex; flex-direction: column; gap: 3px; }
+.insp-member { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.insp-member__name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text-primary); }
+.insp-resolved { color: var(--text-primary); overflow-wrap: anywhere; }
+.insp-resolved--block { color: var(--color-negative); }
+.insp-choose { display: flex; flex-direction: column; gap: 3px; }
+.insp-choose .wf-field__hint { color: var(--color-warning); }
+.insp-choose select { text-overflow: ellipsis; }
+/* Notices: treaty mismatches (warn, never block) and blocking problems. */
+.insp-notice { border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4); font-size: var(--fs-label);
+  color: var(--text-secondary); background: var(--surface-recessed); }
+.insp-notice--warn { background: var(--color-warning-bg); border-color: var(--color-warning-border); }
+.insp-notice--warn .insp-notice__title { color: var(--color-warning); }
+.insp-notice--block { background: var(--color-negative-bg); border-color: var(--color-negative-border); }
+.insp-notice--block .insp-notice__title { color: var(--color-negative); }
+.insp-notice--ok { background: var(--color-positive-bg); border-color: var(--color-positive-border);
+  color: var(--color-positive); }
+.insp-notice__title { font-weight: var(--fw-semibold); margin-bottom: var(--space-1); }
+.insp-notice p { margin: 0; }
+.insp-notice ul { margin: var(--space-2) 0 0; padding-left: 18px; }
+.insp-notice li { margin: 2px 0; }
+.insp-notice code { color: var(--text-primary); }
+/* Wait state: the inspect button's hx-indicator, shown while its request runs. */
+.insp-wait { display: none; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-9) var(--space-4); color: var(--text-tertiary); font-size: var(--fs-label); }
+.insp-wait.htmx-request { display: flex; }
+.spin { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border-default);
+  border-top-color: var(--color-brand); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+/* Screen 3: summary on the left, settings on the right. */
+.sum-grid { display: grid; grid-template-columns: 3fr 2fr; gap: var(--space-5); }
+@media (max-width: 760px) { .sum-grid { grid-template-columns: 1fr; } }
+.sum-settings { display: flex; flex-direction: column; gap: var(--space-3); }
+.sum-list { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px var(--space-3);
+  font-size: var(--fs-label); }
+.sum-list dt { color: var(--text-tertiary); white-space: nowrap; }
+.sum-list dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.sum-scheme { display: block; }
+.sum-scheme + .sum-scheme { margin-top: 4px; }
+.sum-scheme small { display: block; font-size: var(--fs-caption); color: var(--text-tertiary); }
+.sum-members { border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  font-size: var(--fs-label); }
+.sum-members > div { display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px var(--space-3); border-bottom: 1px solid var(--border-faint); }
+.sum-members > div:last-child { border-bottom: 0; }
+.sum-members > div > span:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.check-row { display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-3); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); cursor: pointer; font-size: var(--fs-label); }

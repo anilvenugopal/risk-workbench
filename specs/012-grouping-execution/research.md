@@ -353,10 +353,23 @@ design note 22, and the live observation
 `knowledge/sources/observations/grouping-pure-elt-conflicting-event-rates-2026-09-01.json`
 (IRP workspace).
 
-- Q: The package replaced the automatic grouping API with `client.grouping.inspect()` / `submit()` / `get_job()`; does the compose dialog get a rendered preview first? → A: No preview; the templates are built directly (the layout is the approved dialog plus an inspection fragment inside it).
+- Q: The package replaced the automatic grouping API with `client.grouping.inspect()` / `submit()` / `get_job()`; does the compose dialog get a rendered preview first? → A: No preview; the templates are built directly (the layout is the approved dialog plus an inspection fragment inside it). *(Superseded the same day by the compose-flow session below.)*
 - Q: When members of a partition use different event-rate schemes, is one preselected? → A: No default. The analyst must pick from the members' schemes, and Group stays disabled until every conflicting partition has a choice (note 22 O22-1). O-06 → Approved; FR-007 rewritten.
 - Q: What prefills the simulation count? → A: The largest member `periods` for a PLT group, `1` for a pure ELT group; editable in the dialog. FR-019 added.
 - Q: How is the migration committed? → A: One commit per logical step on `012-grouping-execution` (spec docs, gateway, compose flow, worker, tests, dependency lock), no push.
 - Q: Members were resolved by name; the package accepts ids only — what identifies a member? → A: The Platform analysis id already stored on `irp_analysis.irp_id` (note 22 O22-16: names duplicate tenant-wide). T-10 rewritten; O-09 rewritten.
 - Q: The package no longer pre-checks duplicate group names — what keeps finalize's name-only resolution valid? → A: The worker pre-checks tenant-wide with `count_analyses_named` and retries with `_n`. T-11 amended.
 - Q: Treaty consistency? → A: Not validated (handover R-12); the dialog discloses the limitation. Non-negotiable 6 and FR-020 added.
+
+### Session 2026-09-02 (compose flow)
+
+Source: the rendered preview `docs/ui_previews/group_compose_modal.html`
+(artifact `https://claude.ai/code/artifact/daebcd15-64e1-4dfc-9d45-42cfa2170f3c`),
+reviewed with the approver.
+
+- Q: The single-scroll dialog (members, name, Inspect members, the inspection fragment, currency, Propagate in one body) was judged dirty and the flow bad — what replaces it? → A: Three screens in one 1080px modal and one form: Members (pick-list with name search, editable name, "N of M selected"; Next runs the inspection), Inspection (wait state, facts strip, partition table, treaty section, blocked and read-error states; Next needs every dropdown chosen), Settings (summary, currency block, Propagate, simulation count; Group submits, a 422 shows on this screen without losing state). Screen 2 is always shown, even when nothing needs a choice. Approved from the preview; supersedes the "no preview" answer above.
+- Q: What does the partition table show? → A: Peril and region as the codes the inspection returns (`WS`, `NA`; no name map), model version with the engine version from the region facts (`RL23 · 11.0`), member display names only (no scheme, PET, or period text), and the scheme cell — a dropdown only where the members' schemes differ, each option naming its member count. Names wrap; every name and resolved scheme carries a `title` tooltip.
+- Q: Where does the simulation count live? → A: Screen 3, and only for a PLT group; an ELT group submits a hidden `1`. FR-019 amended.
+- Q: The scheme dropdowns were `required` — kept? → A: Dropped. A hidden required select blocks the browser's submit from screen 3; the Alpine gate and `request_grouping` enforce the choice.
+- Q: How does the submit's 422 render? → A: A `partials/group_submit_errors.html` fragment retargeted at `#group-submit-errors` on screen 3; the dialog is no longer re-rendered, so the inspection and inputs survive.
+- Q: Where do the view rules live? → A: A new `app/services/grouping_view.py` (`build_inspection_screen`) builds rows, options, and problem texts; `grouping_service.py` stays at gate + plan scope. The plan the dialog emits (`request_grouping`, 11 keys) and the worker are unchanged.

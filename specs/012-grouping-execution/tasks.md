@@ -184,6 +184,24 @@ caller input. Decisions: research.md Clarifications 2026-09-02.
 
 ---
 
+## Phase 9: three-screen compose dialog
+
+**Purpose**: Replace the single-scroll compose dialog with the approved
+three-screen flow (Members → Inspection → Settings) from the rendered preview
+`docs/ui_previews/group_compose_modal.html`. Decisions: research.md
+Clarifications, Session 2026-09-02 (compose flow). The plan the dialog emits
+and the worker do not change.
+
+- [X] T039 [FR-019] Revise spec 012 documents for the compose flow: contracts/routes.md (three screens, oob targets, submit 422 retarget, hidden simulation count for ELT, `required` dropped), plan.md (design bullets 1–2, UI row, project structure), spec.md FR-019, research.md (compose-flow session superseding the "no preview" answer), quickstart.md §1 and §3 steps 2–5
+- [X] T040 View model `app/services/grouping_view.py`: `build_inspection_screen(view) -> InspectionScreen` with `PartitionRow` (key, engine versions from the region facts, member display names, `mode` incompatible → choose → resolved → none), `SchemeOption` (`label or "Scheme <id>"`, member count per scheme, the posted JSON value), `ProblemText` (wheel message + member names)
+- [X] T041 [FR-019] Templates, JS, CSS: `group_compose_modal.html` shell + three `x-show` panes + step footer; `group_inspection.html` error/blocked/ready branches with the `#group-summary` and `#group-sims` oob divs; new `group_submit_errors.html`; `groupComposeModal` in `app.js` (`step`, `filter`, `inspect`, `back`, `toSettings`, `clearInspection`, `recompute`); `.modal-card--group` and `.steps*` in `components.css`, `.insp-*`, `.spin`, `.sum-*`, `.check-row` in `submissions.css`
+- [X] T042 Routes in `app/routers/submissions.py`: GET renders the dialog only; inspect passes `screen=build_inspection_screen(view)`; submit 422 renders `group_submit_errors.html` with `HX-Retarget: #group-submit-errors`
+- [X] T043 Unit tests: `test_grouping_view.py` (row modes, option labels and counts, engine versions, problem member names); `test_grouping_routes.py` assertions for the three screens (Next, facts strip, table cells, hidden ELT count, PLT hint, blocked notice, incompatible cell, Retry, 422 retarget); `FakeIRP.seed_grouping_inspection(simulation_set_compatible=…)`
+- [ ] T044 Click-through on the developer's stack per quickstart.md §3 steps 2–5, then the diff subtraction review
+- [ ] T045 [FR-020] Inspection content: treaty mismatch notices (treaty number, friendly term names for `LOSS_AFFECTING_TREATY_FIELDS`, member names; read with `getattr(problem, "treaty_numbers", ())` until a wheel with the fields is pinned), treaty counts on the facts strip and screen 3, the six plain-language problem texts by code; spec.md FR-020 and non-negotiable 6 (the inspection compares loss-affecting treaty terms per Treaty Number and lists mismatches; they never block); verification grep for `Inspect members` and `group-inspect-indicator`
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

@@ -18,25 +18,32 @@ per-queue worker framework this feature extends (T-01).
 
 - The merged analyses grid (submission page and submission-contextual EDM
   page) gains a **Group** button in its summary bar, enabled at ≥2 ticked
-  rows. It opens the compose dialog: a submission-scoped member pick-list
-  (finished own analyses, broker analyses, finished groups — ticked rows
-  pre-checked), the prefilled editable group name
-  (`CRE_<submission name>_Group`, T-09), an **Inspect members** button, the
-  reused currency/scheme/vintage `currency_block` macro with env-var
-  defaults, and Propagate detailed output ON (O-08 drops Risk Modeler's
-  Create independent groups checkbox).
-- Compose is two requests. `POST /submissions/{sid}/analyses/group/inspect`
-  runs the local gate (≥2 eligible members, each with a Platform analysis id)
-  and calls `irp_gateway.inspect_grouping` — `client.grouping.inspect()`,
-  reads only — on the request path (T-02), rendering an inspection fragment
-  into the form: group output ELT or PLT, member facts, one `<select>` per
-  partition that requires an event-rate choice (options limited to the
-  members' schemes, none preselected), a simulation count prefilled from the
-  members, hidden fingerprint and inspected ids, or the blocking problems.
-  `POST /submissions/{sid}/analyses/group` re-runs the gate in
+  rows. It opens the compose dialog: one form, three screens in a 1080px
+  shell. Screen 1 (Members) is the submission-scoped pick-list (finished own
+  analyses, broker analyses, finished groups — ticked rows pre-checked) with
+  a client-side name search and the prefilled editable group name
+  (`CRE_<submission name>_Group`, T-09). Screen 2 (Inspection) is the
+  inspect response. Screen 3 (Settings) is the summary, the reused
+  currency/scheme/vintage `currency_block` macro with env-var defaults,
+  Propagate detailed output ON (O-08 drops Risk Modeler's Create independent
+  groups checkbox), and the simulation count for a PLT group.
+- Compose is two requests. Screen 1's Next posts
+  `POST /submissions/{sid}/analyses/group/inspect`, which runs the local gate
+  (≥2 eligible members, each with a Platform analysis id) and calls
+  `irp_gateway.inspect_grouping` — `client.grouping.inspect()`, reads only —
+  on the request path (T-02). `app/services/grouping_view.py` turns the
+  result into screen 2: a facts strip and one table row per peril / region /
+  model-version partition (members by display name; the scheme cell is a
+  `<select>` limited to the members' schemes with none preselected where they
+  differ, the shared scheme where they agree, "Different simulation sets"
+  where the partition is incompatible), the blocking problems above the
+  table, and the hidden fingerprint and inspected ids when nothing blocks.
+  The same response fills screen 3's summary and simulation count out of
+  band. `POST /submissions/{sid}/analyses/group` re-runs the gate in
   `app/services/grouping_service.py` (members unchanged since inspection,
   fingerprint present, positive simulation count, well-formed selections —
-  `ExecutionGateError` pattern, 422 re-render), then persists the approved
+  `ExecutionGateError` pattern, 422 into screen 3's error slot), then
+  persists the approved
   plan verbatim as one `rwb_job` (`rwb_job_type = submit_grouping`,
   requestor `analyst_request`) and dispatches. The plan carries the Platform
   analysis ids, settings, selections, fingerprint, and a minted
@@ -75,7 +82,7 @@ per-queue worker framework this feature extends (T-01).
 |---|---|
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
 | Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue; tenant-wide name pre-check; structured failure reasons); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
-| UI | Group button + compose dialog (`group_compose_modal.html`, reuses `currency_block`) with the Inspect members step and its `group_inspection.html` fragment; group rows in the submission merged grid and results page; Engine column renders "Group" |
+| UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members, inspection, settings; reuses `currency_block`), its `group_inspection.html` screen built by `grouping_view.py`, and the `group_submit_errors.html` 422 fragment; group rows in the submission merged grid and results page; Engine column renders "Group" |
 | Library | irp-integration pinned to `0.8.0rc1` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
 
 ## High-risk technical decisions
@@ -153,6 +160,7 @@ alembic/versions/0001_initial.py       # submission_id + CHECK + uq index; irp_a
 infra/scripts/seed_db.py               # submit_grouping seed mirror
 tests/iteration1_mirror.py             # schema + seed mirror for the unit tier
 app/services/grouping_service.py       # eligibility, gate, naming, inspection view, plan compose, enqueue
+app/services/grouping_view.py          # inspection screen rows, options, problem texts
 app/services/irp_gateway.py            # inspect_grouping / submit_grouping / get_grouping_job / count_analyses_named / name-only analysis search
 app/services/analysis_service.py       # group rows in submission read models; Engine "Group"
 app/workers/grouping_jobs.py           # submit_grouping actor
@@ -160,8 +168,9 @@ app/workers/analysis_jobs.py           # finalize_analysis group branch
 app/poller/run.py                      # grouping getter + terminal handler
 app/routers/submissions.py             # GET/POST /submissions/{sid}/analyses/group, POST .../group/inspect
 app/templates/partials/analyses_merged_section.html   # Group button
-app/templates/partials/group_compose_modal.html       # dialog
-app/templates/partials/group_inspection.html          # inspection fragment
+app/templates/partials/group_compose_modal.html       # dialog shell + three panes
+app/templates/partials/group_inspection.html          # screen 2 + screen 3's oob summary and simulation count
+app/templates/partials/group_submit_errors.html       # submit 422 errors
 tests/unit/  tests/sqlserver/  tests/irp/
 ```
 

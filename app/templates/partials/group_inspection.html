@@ -1,51 +1,121 @@
-{# Inspection fragment of the group compose dialog (spec 012, contracts/routes.md).
-   Rendered into #group-inspection by POST …/analyses/group/inspect: errors
-   (422), blocked (problems, no hidden fields), or ready (choices + simulation
-   count + fingerprint). The Group button enables on [data-inspection-ready]. #}
+{# Screen 2 of the group compose dialog (spec 012, contracts/routes.md),
+   rendered into #group-inspection by POST …/analyses/group/inspect: a read
+   error with Retry (422), or the partition table with the blocking problems
+   above it. The hidden fingerprint, inspected ids, and [data-inspection-ready]
+   marker appear only when nothing blocks. #group-summary and #group-sims are
+   screen 3's server-rendered parts, swapped out of band on every response. #}
 {% if errors %}
-<div class="modal-error">{% for error in errors %}<div>{{ error }}</div>{% endfor %}</div>
+<div class="insp-notice insp-notice--block">
+  <div class="insp-notice__title">The members could not be inspected</div>
+  {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+  <button class="btn-sm" type="button" style="margin-top:var(--space-2)" @click="inspect()">Retry</button>
+</div>
+<div id="group-summary" hx-swap-oob="true"></div>
+<div id="group-sims" hx-swap-oob="true"></div>
 {% else %}
 {% set inspection = view.inspection %}
-<div class="exec-section-label">Group output: {{ inspection.output_loss_table }}{% if inspection.output_loss_table == 'PLT' %} <span class="tag-empty">(members are simulated to a PLT)</span>{% endif %}</div>
-<div class="entity-candidate-list">
-  {% for m in inspection.members %}
-  {% set member = view.members.get(m.analysis_id) %}
-  <div class="entity-candidate">
-    <span title="{{ member.display_name if member else m.analysis_id }}">{{ member.display_name if member else m.analysis_id }}</span>
-    <span class="exec-summary">{{ m.analysis_framework or '' }}{% if m.engine_type %} · {{ m.engine_type }}{% endif %}</span>
-    <span class="exec-summary">{% for r in m.regions %}{{ r.peril_code }} · {{ r.region_code }} · {{ r.model_version }}{% if r.framework == 'PLT' %} · PET {{ r.pet_id }} · {{ r.periods }} periods{% else %} · scheme {{ r.event_rate_scheme_id }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}</span>
+<div data-inspection>
+  {% if screen.blocked %}
+  <div class="insp-notice insp-notice--block">
+    <div class="insp-notice__title">These members cannot be grouped</div>
+    {% for p in screen.problems %}
+    <p>{{ p.text }}</p>
+    {% if p.member_names %}<ul>{% for name in p.member_names %}<li>{{ name }}</li>{% endfor %}</ul>{% endif %}
+    {% endfor %}
   </div>
-  {% endfor %}
+  {% endif %}
+
+  <div class="insp-facts">
+    <span>Group output <b>{{ screen.output_loss_table }}</b></span>
+    <span><b>{{ screen.member_count }}</b> member{{ '' if screen.member_count == 1 else 's' }}</span>
+    {% if not screen.blocked %}<span><b>{{ screen.conflict_count }}</b> scheme mismatch{{ '' if screen.conflict_count == 1 else 'es' }}</span>{% endif %}
+  </div>
+
+  <div>
+    <div class="exec-section-label">Event-rate schemes</div>
+    <div class="insp-table-wrap">
+      <table class="insp-table">
+        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+        <tbody>
+          {% for row in screen.rows %}
+          <tr>
+            <td>{{ row.key.peril_code }}</td><td>{{ row.key.region_code }}</td>
+            <td class="n">{% if row.engine_versions %}{{ row.engine_versions|join(' / ') }} · {% endif %}{{ row.key.model_version }}</td>
+            <td>
+              <div class="insp-members">
+                {% for name in row.member_names %}<div class="insp-member"><span class="insp-member__name" title="{{ name }}">{{ name }}</span></div>{% endfor %}
+              </div>
+            </td>
+            <td>
+              {% if row.mode == 'incompatible' %}
+              <div class="insp-resolved insp-resolved--block">Different simulation sets</div>
+              {% elif row.mode == 'choose' %}
+              <div class="insp-choose">
+                <select class="wf-field__input" name="event_rate_selection" data-partition="{{ row.label }}"
+                        aria-label="Event-rate scheme for {{ row.label }}" title="Choose a scheme"
+                        @change="$el.title = $el.selectedOptions[0].dataset.label || 'Choose a scheme'">
+                  <option value="" selected>Choose a scheme&hellip;</option>
+                  {% for opt in row.options %}
+                  <option value='{{ opt.value|tojson }}' data-label="{{ opt.label }}">{{ opt.label }} ({{ opt.member_count }} member{{ '' if opt.member_count == 1 else 's' }})</option>
+                  {% endfor %}
+                </select>
+                <span class="wf-field__hint">Members use different schemes. Choose one.</span>
+              </div>
+              {% elif row.mode == 'resolved' %}
+              <div class="insp-resolved" title="{{ row.resolved.label }}">{{ row.resolved.label }}</div>
+              {% else %}
+              <div class="insp-resolved tag-empty">&mdash;</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+    <div class="exec-section-label">Treaty mismatches</div>
+    <div class="insp-notice insp-notice--ok">No treaty number appears with different loss-affecting terms across the members.</div>
+  </div>
+
+  {% if not screen.blocked %}
+  <input type="hidden" name="expected_inspection_fingerprint" value="{{ inspection.fingerprint }}">
+  {% for id in inspection.analysis_ids %}<input type="hidden" name="inspected_analysis_ids" value="{{ id }}">{% endfor %}
+  <span data-inspection-ready hidden></span>
+  {% endif %}
 </div>
 
-{% if inspection.blocking_problems %}
-{% for p in inspection.blocking_problems %}
-<div class="state-box state-box--warn">
-  <div>{{ p.message }}</div>
-  {% if p.analysis_ids %}<div>Members: {% for id in p.analysis_ids %}{{ view.members[id].display_name if id in view.members else id }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
-  {% if p.partition %}<div>Partition: {{ p.partition.peril_code }} · {{ p.partition.region_code }} · {{ p.partition.model_version }}</div>{% endif %}
-  {% if p.pet_ids %}<div>PET IDs: {{ p.pet_ids|join(', ') }}</div>{% endif %}
-</div>
-{% endfor %}
-{% else %}
-{% for part in inspection.partitions if part.event_rate_selection_required %}
-<div class="wf-field">
-  <label for="group-scheme-{{ loop.index }}">{{ part.key.peril_code }} · {{ part.key.region_code }} · {{ part.key.model_version }} EVENT-RATE SCHEME</label>
-  <select class="wf-field__input" id="group-scheme-{{ loop.index }}" name="event_rate_selection" required>
-    <option value="">Choose a scheme</option>
-    {% for opt in part.event_rate_scheme_options %}
-    <option value='{{ {"peril_code": part.key.peril_code, "region_code": part.key.region_code, "model_version": part.key.model_version, "event_rate_scheme_id": opt.event_rate_scheme_id}|tojson }}'>{{ opt.label or opt.event_rate_scheme_id }}</option>
+<div id="group-summary" hx-swap-oob="true">
+  {% if not screen.blocked %}
+  <dl class="sum-list">
+    <dt>Group name</dt><dd x-text="groupName"></dd>
+    <dt>Output</dt><dd>{{ screen.output_loss_table }}</dd>
+  </dl>
+  <div class="exec-section-label" style="margin-top:var(--space-3)">Members ({{ screen.member_count }})</div>
+  <div class="sum-members">
+    {% for id in inspection.analysis_ids %}
+    {% set member = view.members.get(id) %}
+    <div>
+      <span title="{{ member.display_name if member else id }}">{{ member.display_name if member else id }}</span>
+      {% if member and member.engine %}<span class="exec-summary">{{ member.engine }}</span>{% endif %}
+      {% if member %}<span class="badge badge--neutral badge--sm">{{ member.kind_label|lower }}</span>{% endif %}
+    </div>
     {% endfor %}
-  </select>
+  </div>
+  {% endif %}
 </div>
-{% endfor %}
-<div class="wf-field">
-  <label for="group-num-simulations">SIMULATION COUNT</label>
-  <input class="wf-field__input" id="group-num-simulations" type="number" name="num_of_simulations" min="1" step="1" value="{{ view.suggested_num_of_simulations }}">
-  <div class="wf-field__hint">{% if inspection.output_loss_table == 'PLT' %}Target group PLT length. Longer member PLTs are truncated, shorter ones repeated.{% else %}Risk Modeler requires a positive value; the group stays an ELT.{% endif %}</div>
+<div id="group-sims" hx-swap-oob="true">
+  {% if not screen.blocked %}
+  {% if screen.output_loss_table == 'PLT' %}
+  <div class="wf-field">
+    <label for="group-num-simulations">SIMULATION COUNT</label>
+    <input class="wf-field__input" id="group-num-simulations" type="number" name="num_of_simulations" min="1" step="1" value="{{ view.suggested_num_of_simulations }}">
+    <div class="wf-field__hint">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated. Largest member: {{ "{:,}".format(view.suggested_num_of_simulations) }}.</div>
+  </div>
+  {% else %}
+  <input type="hidden" name="num_of_simulations" value="1">
+  {% endif %}
+  {% endif %}
 </div>
-<input type="hidden" name="expected_inspection_fingerprint" value="{{ inspection.fingerprint }}">
-{% for id in inspection.analysis_ids %}<input type="hidden" name="inspected_analysis_ids" value="{{ id }}">{% endfor %}
-<span data-inspection-ready hidden></span>
-{% endif %}
 {% endif %}

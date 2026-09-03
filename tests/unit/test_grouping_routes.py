@@ -103,8 +103,8 @@ def test_get_renders_the_dialog_with_prechecked_members(iteration2_db):
     assert 'value="CRE_Sub One_Group"' in response.text  # prefilled, editable
     assert response.text.count(" checked") >= 2          # both rows pre-checked
     assert "Propagate detailed output" in response.text
-    assert "Inspect members" in response.text
-    assert "Treaty terms that share a Treaty Number are not compared." in response.text
+    assert ">Next<" in response.text and "Inspect members" not in response.text
+    assert 'data-name="cre_p1_t1"' in response.text          # the search filter's key
     assert 'name="num_of_simulations"' not in response.text  # arrives with the inspection
     assert "Create independent groups" not in response.text  # FR-006 / O-08
 
@@ -131,11 +131,14 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     response = _inspect(_client(), ctx)
 
     assert response.status_code == 200
-    assert "Group output: ELT" in response.text
+    assert "Group output <b>ELT</b>" in response.text
+    assert "<td>WS</td><td>NA</td>" in response.text
+    assert "RL25 · 11.0" in response.text
     assert "CRE_P1_T1" in response.text and "CRE_P2_T1" in response.text
     assert 'name="event_rate_selection"' not in response.text
-    assert 'name="num_of_simulations"' in response.text and 'value="1"' in response.text
-    assert "the group stays an ELT" in response.text
+    assert '<div class="insp-resolved" title="Scheme 101">Scheme 101</div>' in response.text
+    assert '<input type="hidden" name="num_of_simulations" value="1">' in response.text
+    assert "SIMULATION COUNT" not in response.text
     fingerprint = f"v1:fake-{ctx['irp_ids'][0]},{ctx['irp_ids'][1]}"
     assert f'name="expected_inspection_fingerprint" value="{fingerprint}"' in response.text
     assert response.text.count('name="inspected_analysis_ids"') == 2
@@ -151,8 +154,11 @@ def test_inspect_offers_only_the_members_schemes_for_a_conflict(
 
     assert response.status_code == 200
     assert response.text.count('name="event_rate_selection"') == 1
-    assert "WS · NA · 11.0" in response.text
-    assert "Scheme 101" in response.text and "Scheme 205" in response.text
+    assert 'data-partition="WS / NA / 11.0"' in response.text
+    assert "Scheme 101 (1 member)" in response.text
+    assert "Scheme 205 (1 member)" in response.text
+    assert "<b>1</b> scheme mismatch<" in response.text
+    assert " required" not in response.text  # the Alpine gate enforces the choice
     option_values = [
         json.loads(v) for v in _option_values(response.text)]
     assert option_values == [
@@ -179,10 +185,10 @@ def test_inspect_renders_a_plt_group_with_the_suggested_length(
 
     response = _inspect(_client(), ctx)
 
-    assert "Group output: PLT" in response.text
-    assert 'value="50000"' in response.text
+    assert "Group output <b>PLT</b>" in response.text
+    assert 'name="num_of_simulations" min="1" step="1" value="50000"' in response.text
     assert "Target group PLT length" in response.text
-    assert "PET 901 · 50000 periods" in response.text
+    assert "Largest member: 50,000." in response.text
 
 
 def test_inspect_blocked_names_the_problem_and_offers_no_submit(
@@ -194,17 +200,30 @@ def test_inspect_blocked_names_the_problem_and_offers_no_submit(
         message="Members use different PETs in one partition.",
         analysis_ids=tuple(ids),
         partition=GroupingPartitionKey("WS", "NA", "11.0"),
-        pet_ids=(900, 901)),))
+        pet_ids=(900, 901)),), simulation_set_compatible=False)
 
     response = _inspect(_client(), ctx)
 
     assert response.status_code == 200
+    assert "These members cannot be grouped" in response.text
     assert "Members use different PETs in one partition." in response.text
-    assert "Members: CRE_P1_T1, CRE_P2_T1" in response.text
-    assert "Partition: WS · NA · 11.0" in response.text
-    assert "PET IDs: 900, 901" in response.text
+    assert "<li>CRE_P1_T1</li>" in response.text and "<li>CRE_P2_T1</li>" in response.text
+    assert "Different simulation sets" in response.text
     assert "data-inspection-ready" not in response.text
     assert 'name="expected_inspection_fingerprint"' not in response.text
+    assert 'name="num_of_simulations"' not in response.text
+    assert "Group name" not in response.text  # screen 3's summary stays empty
+
+
+def test_inspect_incompatible_partition_names_the_cell(iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    fake_irp.seed_grouping_inspection(ctx["irp_ids"],
+                                      simulation_set_compatible=False)
+
+    response = _inspect(_client(), ctx)
+
+    assert "Different simulation sets" in response.text
+    assert 'name="event_rate_selection"' not in response.text
 
 
 def test_inspect_gate_failure_renders_the_error_at_422(iteration2_db, fake_irp):
@@ -214,6 +233,7 @@ def test_inspect_gate_failure_renders_the_error_at_422(iteration2_db, fake_irp):
 
     assert response.status_code == 422
     assert "Pick at least two analyses to group." in response.text
+    assert ">Retry<" in response.text
     assert fake_irp.grouping_inspects == []
 
 
@@ -240,8 +260,10 @@ def test_post_gate_failure_re_renders_at_422(iteration2_db):
         headers={"HX-Request": "true"})
 
     assert response.status_code == 422
-    assert response.headers["HX-Retarget"] == "#group-modal"
+    assert response.headers["HX-Retarget"] == "#group-submit-errors"
+    assert response.headers["HX-Reswap"] == "innerHTML"
     assert "Pick at least two analyses to group." in response.text
+    assert "GROUP NAME" not in response.text  # the dialog is not re-rendered
 
 
 def test_post_without_an_inspection_re_renders_at_422(iteration2_db):

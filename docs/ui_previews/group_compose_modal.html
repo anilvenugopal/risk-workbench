@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Group compose dialog · Risk Workbench</title>
+<title>Grouping Compose Flow</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* ============================================================================
    TOKENS — inlined VERBATIM from app/static/css/tokens.css.
@@ -24,9 +24,9 @@
   --color-brand:var(--c-navy-700); --color-brand-hover:var(--c-navy-600); --color-brand-faint:var(--c-navy-050); --color-brand-wash:var(--c-navy-100); --color-brand-border:var(--c-navy-200);
   --btn-primary-fg:#FFFFFF; --btn-primary-bg:var(--c-navy-700);
   --color-danger:var(--c-red-700); --color-danger-bg:var(--c-red-050); --color-danger-wash:var(--c-red-100); --color-danger-border:var(--c-red-200);
-  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
   --color-info:var(--c-navy-600); --color-info-bg:var(--c-navy-050); --color-info-border:var(--c-navy-200);
   --color-positive:var(--c-green-700); --color-positive-bg:var(--c-green-050); --color-positive-wash:var(--c-green-100); --color-positive-border:var(--c-green-200);
+  --color-negative:var(--c-red-700); --color-negative-bg:var(--c-red-050); --color-negative-wash:var(--c-red-100); --color-negative-border:var(--c-red-200);
   --color-warning:var(--c-amber-700); --color-warning-bg:var(--c-amber-050); --color-warning-wash:var(--c-amber-100); --color-warning-border:var(--c-amber-200);
 
   --surface-page:var(--c-surface-0); --surface-panel:var(--c-surface-1); --surface-recessed:var(--c-surface-2); --surface-hover:var(--c-surface-3); --surface-nav:var(--c-surface-nav);
@@ -45,61 +45,47 @@
   --ring-focus:0 0 0 3px rgba(26,52,97,0.22);
   --dur-fast:120ms;
 }
+
 *{box-sizing:border-box}
 body{margin:0;background:var(--surface-page);color:var(--text-primary);font-family:var(--font-ui);font-size:var(--fs-body);line-height:1.5;-webkit-font-smoothing:antialiased}
 h1,h2,h3{margin:0}
+code{font-family:var(--font-mono);font-size:var(--fs-mono)}
+button{font-family:inherit}
+:focus-visible{outline:none;box-shadow:var(--ring-focus)}
 
-/* components.css — verbatim: badge, btn-sm, modal-*, tabs */
+/* ── existing component kit, VERBATIM (components.css / app.css / submissions.css / details.css) ── */
 .badge{display:inline-flex;align-items:center;gap:var(--space-1);padding:2px var(--space-2);border-radius:var(--radius-pill);font-size:var(--fs-caption);font-weight:var(--fw-medium);border:1px solid transparent;white-space:nowrap}
 .badge--neutral{background:var(--color-neutral-bg);color:var(--color-neutral-text);border-color:var(--color-neutral-border)}
+.badge--brand{background:var(--color-brand-wash);color:var(--color-brand);border-color:var(--color-brand-border)}
+.badge--positive{background:var(--color-positive-wash);color:var(--color-positive);border-color:var(--color-positive-border)}
+.badge--warning{background:var(--color-warning-wash);color:var(--color-warning);border-color:var(--color-warning-border)}
+.badge--negative{background:var(--color-negative-wash);color:var(--color-negative);border-color:var(--color-negative-border)}
 .badge--sm{font-size:10px;padding:1px 6px}
-.icon-btn{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);border:0;background:transparent;cursor:pointer;font-size:16px}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;background:transparent;border-radius:var(--radius-sm);color:var(--text-tertiary);cursor:pointer;font-size:16px}
 .icon-btn:hover{background:var(--surface-hover);color:var(--text-primary)}
-.btn-sm{font-size:var(--fs-caption);padding:4px 10px;border:1px solid var(--border-default);background:var(--surface-panel);border-radius:var(--radius-sm);cursor:pointer;color:var(--text-secondary)}
-.btn-sm--primary{background:var(--color-brand);color:var(--btn-primary-fg);border-color:var(--color-brand)}
-.btn-sm:disabled{opacity:.5;cursor:not-allowed}
 .modal-overlay{position:fixed;inset:0;background:rgba(15,22,41,0.45);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:1000}
 .modal-card{background:var(--surface-panel);border:1px solid var(--border-default);border-radius:var(--radius-xl);box-shadow:var(--shadow-lg);width:380px;max-width:calc(100vw - 40px);display:flex;flex-direction:column;overflow:hidden}
+.modal-card--wide{width:min(860px,94vw);max-width:94vw;max-height:min(85vh,720px)}
+.modal-card--wide .modal-title{font-size:var(--fs-h3)}
+.modal-card--wide .modal-body{padding:var(--space-4);gap:var(--space-3);flex:1 1 auto;min-height:0;overflow-y:auto}
 .modal-header{display:flex;align-items:center;padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border-faint)}
 .modal-title{flex:1;font-size:var(--fs-label);font-weight:var(--fw-semibold);color:var(--text-primary)}
 .modal-body{padding:var(--space-3) var(--space-4);display:flex;flex-direction:column;gap:var(--space-1)}
-.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border-top:1px solid var(--color-negative-border)}
+.modal-error{padding:var(--space-2) var(--space-4);font-size:var(--fs-caption);color:var(--color-negative);background:var(--color-negative-wash);border:1px solid var(--color-negative-border);border-radius:var(--radius-sm)}
 .modal-footer{display:flex;align-items:center;justify-content:flex-end;gap:var(--space-2);padding:var(--space-3) var(--space-4);border-top:1px solid var(--border-faint)}
 .modal-btn{display:inline-flex;align-items:center;height:30px;padding:0 var(--space-4);border-radius:var(--radius-md);font-size:var(--fs-label);font-weight:var(--fw-medium);cursor:pointer;border:0}
 .modal-btn:disabled{opacity:.5;cursor:not-allowed}
 .modal-btn--secondary{color:var(--text-secondary);border:1px solid var(--border-default);background:transparent}
 .modal-btn--primary{color:var(--btn-primary-fg);background:var(--btn-primary-bg);border:1px solid transparent}
-/* submissions.css — the wide/scrollable modal variant, reused verbatim: this is
-   the SAME class submission_entity_add_modal.html uses, so the execute modal
-   gets the same tall-content behavior (bounded height, scrolling body) with no
-   new modal-shell CSS. */
-.submission-entity-modal{width:720px;max-height:calc(100vh - 40px)}
-.submission-entity-modal .modal-body{overflow-y:auto;gap:var(--space-3)}
-/* app.css — .wf-field/.wf-fields, VERBATIM (the real rule: a 120px/1fr grid,
-   label left of its control — every other form field in the app looks like
-   this; the previous draft of this preview had the scaffold's simplified
-   flex-column approximation, which doesn't match). */
 .wf-fields{display:flex;flex-direction:column;gap:10px}
 .wf-field{display:grid;grid-template-columns:120px 1fr;align-items:center}
 .wf-field label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium)}
-.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:0;width:100%}
+.wf-field__input{padding:7px 10px;border:1px solid var(--border-default);border-radius:var(--radius-sm);font-size:var(--fs-label);background:var(--surface-panel);min-width:0;width:100%;font-family:inherit;color:var(--text-primary)}
 .wf-field__input--empty{border-color:var(--color-warning-border);background:var(--color-warning-wash)}
+.wf-field__val{border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:7px 10px;font-size:var(--fs-label);background:var(--surface-panel)}
 .wf-field__hint{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.wf-field__msg{grid-column:2;font-size:var(--fs-caption);margin-top:3px}
 .tag-empty{color:var(--text-tertiary)}
-/* .ta / .ta__* — submissions.css, VERBATIM: the searchable-select enhancement
-   already used for Model Profile / Event Rate Scheme / Output Profile on the
-   analysis template form (its own comment names currency/scheme/vintage as
-   future users of this exact component) — reused here, not reinvented. */
-.ta{position:relative;grid-column:2}
-.ta > input.wf-field__input{width:100%}
-.ta__menu{position:absolute;z-index:20;top:calc(100% + 3px);left:0;right:0;background:var(--surface-panel);border:1px solid var(--border-strong);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);max-height:240px;overflow:auto;padding:var(--space-1);display:flex;flex-direction:column;gap:1px}
-.ta__opt{display:block;width:100%;text-align:left;border:0;background:none;cursor:pointer;padding:6px var(--space-2);border-radius:var(--radius-sm);font:inherit;font-size:var(--fs-label);color:var(--text-primary)}
-.ta__opt:hover,.ta__opt.is-active{background:var(--color-brand-faint)}
-.ta__empty{padding:var(--space-2);font-size:var(--fs-caption);color:var(--text-tertiary);text-align:center}
-/* entity-candidate-* — submissions.css, verbatim. This is the SAME bounded,
-   independently-scrolling checkbox list already used for "add existing
-   EDM/RDM" candidates; reused here for the treaty picker and the flat
-   template list (kind=template) with NO new classes. */
 .entity-candidate-search{margin-bottom:var(--space-3)}
 .entity-candidate-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:280px;overflow-y:auto}
 .entity-candidate{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);cursor:pointer}
@@ -107,197 +93,485 @@ h1,h2,h3{margin:0}
 .entity-candidate:hover{background:var(--surface-hover)}
 .entity-candidate > span:nth-child(2){flex:1}
 .entity-candidate-empty{padding:var(--space-5);text-align:center;color:var(--text-tertiary)}
-.state-box{padding:var(--space-5);border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-recessed);color:var(--text-secondary)}
-.state-box--warn{background:var(--color-warning-wash);border-color:var(--color-warning-border);color:var(--color-warning)}
+.state-box{border:1px dashed var(--border-strong);border-radius:var(--radius-md);background:var(--surface-recessed);padding:var(--space-4);color:var(--text-tertiary);font-size:var(--fs-label);text-align:center}
+.state-box--warn{border-color:var(--color-warning-border);background:var(--color-warning-bg);color:var(--color-warning)}
+.exec-section-label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:.04em;margin-bottom:var(--space-1)}
+.exec-summary{font-size:var(--fs-caption);color:var(--text-tertiary)}
+.exec-currency{background:var(--surface-recessed);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)}
+.ta{position:relative;grid-column:2}
 
-/* ============================================================================
-   NET-NEW — the only genuinely new rules. Everything else on this page
-   (modal shell, search field, candidate list/rows/empty state, footer, the
-   three currency selects themselves) is the existing .modal-*/
-   .entity-candidate-*/.wf-field*/.ta* CSS, verbatim, reused as-is. What's new
-   is just the EXPANDABLE suite row — .entity-candidate-list has no
-   equivalent, since its rows are flat <label> checkboxes, and a suite needs
-   to disclose its templates and its own currency block. .exec-currency is
-   only a thin recessed wrapper around three ordinary .wf-field rows — no new
-   grid, no new form control.
-   ============================================================================ */
-.pv-wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6)}
-.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em}
+/* ── preview page chrome (not app CSS) ── */
+.pv-wrap{max-width:1180px;margin:0 auto;padding:var(--space-7) var(--space-6) var(--space-9)}
+.pv-hero{font-size:var(--fs-hero);font-weight:var(--fw-semibold);letter-spacing:-.01em;text-wrap:balance}
 .pv-sub{color:var(--text-secondary);margin-top:var(--space-1);max-width:80ch}
 .pv-eyebrow{font-size:var(--fs-eyebrow);letter-spacing:var(--tracking-eyebrow);text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);margin:var(--space-8) 0 var(--space-2)}
 .pv-cap{color:var(--text-secondary);font-size:var(--fs-label);margin:0 0 var(--space-4);max-width:90ch}
 .pv-cap b{color:var(--text-primary)}
-.pv-stage{position:static;background:transparent;display:block;padding:0;margin-bottom:var(--space-6)}
-.pv-stage .modal-card{margin:0}
+.pv-stage{position:static;background:transparent;display:block;padding:0;margin-bottom:var(--space-6);backdrop-filter:none}
+.pv-stage .modal-card{margin:0;max-height:none}
+.pv-flow{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3);margin:var(--space-5) 0 0;max-width:900px}
+.pv-flow > div{border:1px solid var(--border-default);border-radius:var(--radius-md);background:var(--surface-panel);padding:var(--space-3) var(--space-4);font-size:var(--fs-label);color:var(--text-secondary)}
+.pv-flow b{display:block;color:var(--text-primary);margin-bottom:2px}
+.pv-flow i{display:block;font-style:normal;font-size:var(--fs-caption);color:var(--text-tertiary);margin-top:var(--space-2)}
 
-/* .exec-list takes the IDENTICAL bounded-scroll treatment as
-   .entity-candidate-list (same border/radius/max-height/overflow-y) — a long
-   suite or template list scrolls in its own box, independent of the search
-   field above and the treaty picker / currency blocks below, exactly like
-   the existing "add existing EDM" candidate list already does for the same
-   long-list problem. .exec-row reuses .entity-candidate's row chrome
-   (border-bottom separator, hover) rather than inventing a bordered card. */
-.exec-list{border:1px solid var(--border-default);border-radius:var(--radius-md);max-height:320px;overflow-y:auto}
-.exec-row{border-bottom:1px solid var(--border-faint)}
-.exec-row:last-child{border-bottom:0}
-.exec-row__head{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);cursor:pointer}
-.exec-row__head:hover{background:var(--surface-hover)}
-.exec-row__caret{font-size:11px;color:var(--text-tertiary);width:12px;transition:transform var(--dur-fast) ease}
-.exec-row[open] .exec-row__caret{transform:rotate(90deg)}
-.exec-row__name{flex:1;font-size:var(--fs-label);color:var(--text-primary)}
-.exec-row__count{font-size:var(--fs-caption);color:var(--text-tertiary)}
-.exec-row__body{padding:var(--space-2) var(--space-3) var(--space-3) 40px;display:flex;flex-direction:column;gap:var(--space-3);border-top:1px solid var(--border-faint)}
-.exec-tpl-list{display:flex;flex-direction:column;gap:2px}
-.exec-tpl{display:flex;align-items:center;gap:var(--space-2);padding:6px 0;font-size:var(--fs-label)}
-.exec-tpl__name{flex:1;color:var(--text-secondary)}
-.exec-tpl--off .exec-tpl__name{color:var(--text-disabled);text-decoration:line-through}
-.exec-section-label{font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);text-transform:uppercase;letter-spacing:.04em;margin-bottom:var(--space-1)}
-.exec-picked{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-2);padding:var(--space-2) var(--space-3);background:var(--surface-recessed);border-radius:var(--radius-md);font-size:var(--fs-label);color:var(--text-secondary)}
-.exec-picked b{color:var(--text-primary)}
-.exec-summary{font-size:var(--fs-caption);color:var(--text-tertiary)}
-.exec-summary b{color:var(--text-primary);font-weight:var(--fw-semibold)}
-.exec-currency{background:var(--surface-recessed);border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-2) var(--space-3)}
-.exec-currency__warn{margin-top:var(--space-1);font-size:var(--fs-caption);color:var(--color-warning)}
+/* ============================================================================
+   NET-NEW — the only new rules the implementation adds (components.css for
+   the step indicator, submissions.css for the inspection table and notices).
+   ============================================================================ */
+/* The grouping dialog is wider than the breakout modal: analysis names and
+   event-rate scheme names run to 60-80 characters and the inspection table
+   has to hold both side by side. */
+.modal-card--group{width:min(1080px,94vw)}
+/* Step indicator in the modal header. Order is real here — the three screens
+   are a sequence and Next/Back move along it. */
+.steps{display:flex;align-items:center;gap:var(--space-2);margin-right:var(--space-4)}
+.step{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-caption);color:var(--text-tertiary);font-weight:var(--fw-medium);white-space:nowrap}
+.step__n{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:var(--radius-pill);border:1px solid var(--border-strong);font-size:10px;font-variant-numeric:tabular-nums}
+.step--current{color:var(--text-primary)}
+.step--current .step__n{background:var(--color-brand);border-color:var(--color-brand);color:var(--btn-primary-fg)}
+.step--done{color:var(--color-brand)}
+.step--done .step__n{background:var(--color-brand-wash);border-color:var(--color-brand-border);color:var(--color-brand)}
+.step__sep{width:16px;height:1px;background:var(--border-default)}
+
+/* Facts strip at the top of screens 2 and 3: output type and counts. */
+.insp-facts{display:flex;flex-wrap:wrap;gap:var(--space-2) var(--space-4);align-items:center;font-size:var(--fs-label);color:var(--text-secondary)}
+.insp-facts b{color:var(--text-primary);font-weight:var(--fw-semibold)}
+
+/* Partition table: one row per peril / region / model-version partition. */
+.insp-table-wrap{border:1px solid var(--border-default);border-radius:var(--radius-md);overflow-x:auto}
+.insp-table{width:100%;border-collapse:collapse;font-size:var(--fs-label);min-width:860px}
+.insp-table .insp-table__key{white-space:nowrap}
+.insp-table th{background:var(--surface-recessed);font-size:var(--fs-eyebrow);letter-spacing:.05em;text-transform:uppercase;color:var(--text-tertiary);font-weight:var(--fw-semibold);text-align:left;padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-default);white-space:nowrap}
+.insp-table td{padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--border-faint);vertical-align:top}
+.insp-table tr:last-child td{border-bottom:0}
+.insp-table td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+.insp-table .insp-table__members{width:38%}
+.insp-table .insp-table__scheme{width:36%;min-width:280px}
+.insp-table .wf-field__input{padding:5px 8px}
+/* One member per line. */
+.insp-members{display:flex;flex-direction:column;gap:3px}
+.insp-member{display:flex;align-items:baseline;gap:var(--space-2);min-width:0}
+.insp-member__name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere;color:var(--text-primary)}
+.insp-resolved{color:var(--text-primary);overflow-wrap:anywhere}
+.insp-choose{display:flex;flex-direction:column;gap:3px}
+.insp-choose .wf-field__hint{color:var(--color-warning)}
+.insp-choose select{text-overflow:ellipsis}
+
+/* Notices: treaty mismatches (warn, does not block) and blocking problems (negative). */
+.insp-notice{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-label);color:var(--text-secondary);background:var(--surface-recessed)}
+.insp-notice--warn{background:var(--color-warning-bg);border-color:var(--color-warning-border)}
+.insp-notice--warn .insp-notice__title{color:var(--color-warning)}
+.insp-notice--block{background:var(--color-negative-bg);border-color:var(--color-negative-border)}
+.insp-notice--block .insp-notice__title{color:var(--color-negative)}
+.insp-notice--ok{background:var(--color-positive-bg);border-color:var(--color-positive-border);color:var(--color-positive)}
+.insp-notice__title{font-weight:var(--fw-semibold);margin-bottom:var(--space-1)}
+.insp-notice p{margin:0}
+.insp-notice ul{margin:var(--space-2) 0 0;padding-left:18px}
+.insp-notice li{margin:2px 0}
+.insp-notice code{color:var(--text-primary)}
+
+/* Loading and error states of screen 2 */
+.insp-wait{display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-9) var(--space-4);color:var(--text-tertiary);font-size:var(--fs-label)}
+.spin{width:22px;height:22px;border-radius:50%;border:2px solid var(--border-default);border-top-color:var(--color-brand);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+/* Screen 3 summary */
+.sum-members{border:1px solid var(--border-default);border-radius:var(--radius-md);font-size:var(--fs-label)}
+.sum-members > div{display:flex;align-items:center;gap:var(--space-2);padding:6px var(--space-3);border-bottom:1px solid var(--border-faint)}
+.sum-members > div:last-child{border-bottom:0}
+.sum-members > div > span:first-child{flex:1;min-width:0;overflow-wrap:anywhere}
+.sum-grid{display:grid;grid-template-columns:3fr 2fr;gap:var(--space-5)}
+@media (max-width:760px){.sum-grid{grid-template-columns:1fr}}
+.sum-list{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px var(--space-3);font-size:var(--fs-label)}
+.sum-list dt{color:var(--text-tertiary);white-space:nowrap}
+.sum-list dd{margin:0;color:var(--text-primary);overflow-wrap:anywhere}
+.sum-scheme{display:block}
+.sum-scheme small{display:block;font-size:var(--fs-caption);color:var(--text-tertiary)}
+.check-row{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--border-default);border-radius:var(--radius-md);cursor:pointer;font-size:var(--fs-label)}
+.check-row .wf-field__hint{margin-left:auto}
 </style>
 </head>
 <body>
 <div class="pv-wrap">
 
-  <div class="pv-hero">Group compose dialog</div>
-  <div class="pv-sub">Opens from the <b>Group</b> button in the merged analyses grid's summary bar (submission page and submission-contextual EDM page), enabled once &ge;2 rows are ticked. Everything on this page is existing CSS — the <code>.modal-card.submission-entity-modal</code> shell, <code>.entity-candidate-list</code> pick-list rows, the <code>.wf-field</code> grid, and the <code>currency_block</code> macro reused verbatim from the execute modal. Nothing net-new.</div>
+  <div class="pv-hero">Group analyses: the three-screen compose dialog</div>
+  <div class="pv-sub">Opens from the <b>Group</b> button in the merged analyses grid once two or more rows are ticked. Replaces the single-scroll dialog with three screens in one shell 1080px wide (a new <code>.modal-card--group</code> width on the <code>.modal-card--wide</code> shell). Analysis and scheme names run long, so names wrap onto more lines instead of truncating, and every name carries a hover tooltip (the <code>title</code> attribute the pick-list already uses). Everything below the header is existing CSS except the step indicator, the partition table, and the notice blocks, which are marked net-new in the source.</div>
+
+  <div class="pv-flow">
+    <div><b>1 · Members</b>Pick two or more finished analyses; name the group.<i>Next runs the inspection.</i></div>
+    <div><b>2 · Inspection</b>Event-rate scheme table by peril / region / model version; treaty mismatches.<i>Next needs every conflicting row chosen. Treaty mismatches never block.</i></div>
+    <div><b>3 · Settings</b>Summary, currency block, Propagate detailed output, simulation count when the group is a PLT.<i>Group submits.</i></div>
+  </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 1 · compose — two rows pre-checked, name prefilled, defaults loaded, Propagate ON</div>
-  <p class="pv-cap">The pick-list is <b>submission-scoped</b> and mixes every eligible member: finished own analyses, broker analyses, and finished groups (nesting, FR-018). Running/failed rows are not listed (FR-003). The two rows ticked in the grid arrive pre-checked. The name is prefilled <code>CRE_&lt;submission&gt;_Group</code> and editable (FR-002); currency/scheme/vintage prefill from the <code>DEFAULT_ANALYSIS_CURRENCY_*</code> env defaults (FR-004). <b>Propagate detailed output</b> is ON and is the only other setting — Risk Modeler's "Create independent groups" is deliberately absent (FR-006, O-08). Submit enables at &ge;2 checked members + a non-empty name + a complete currency block.</p>
+  <div class="pv-eyebrow">Screen 1 · Members — three rows arrived pre-checked from the grid, name prefilled</div>
+  <p class="pv-cap">The whole submission-scoped pick-list, including the rows ticked in the grid. The search box filters by name as the analyst types (client-side, no request). Running and failed analyses are not listed. The count under the list is what <b>Next</b> gates on: two or more members and a non-empty name.</p>
 
-  <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card submission-entity-modal">
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
       <div class="modal-header">
         <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--current"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
         <div class="wf-field">
-          <label>GROUP NAME</label>
-          <input class="wf-field__input" type="text" value="CRE_Acme Re 2026_Group">
+          <label for="s1-name">GROUP NAME</label>
+          <input class="wf-field__input" id="s1-name" type="text" value="CRE_Acme Re 2026_Group">
         </div>
 
         <div>
-          <div class="exec-section-label">Members <span class="tag-empty">(finished analyses of this submission — pick at least two)</span></div>
+          <div class="exec-section-label">Members</div>
+          <div class="entity-candidate-search">
+            <input class="wf-field__input" type="search" placeholder="Search analyses by name" aria-label="Search analyses by name">
+          </div>
           <div class="entity-candidate-list">
             <label class="entity-candidate"><input type="checkbox" checked>
-              <span>CRE_US Southeast Wind_US HU DLM v23</span>
+              <span title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span>
               <span class="exec-summary">DLM &middot; 23.0</span>
               <span class="badge badge--neutral badge--sm">own</span></label>
             <label class="entity-candidate"><input type="checkbox" checked>
-              <span>CRE_US Gulf Coast Property_US HU HD v23</span>
+              <span title="CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23">CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</span>
               <span class="exec-summary">HD &middot; 23.0</span>
               <span class="badge badge--neutral badge--sm">own</span></label>
+            <label class="entity-candidate"><input type="checkbox" checked>
+              <span title="Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</span>
+              <span class="exec-summary">DLM &middot; 23.0</span>
+              <span class="badge badge--neutral badge--sm">broker</span></label>
             <label class="entity-candidate"><input type="checkbox">
-              <span>Broker EU Wind 2025</span>
+              <span title="Acme Re EU Wind 2025 (broker)">Acme Re EU Wind 2025 (broker)</span>
               <span class="exec-summary">DLM &middot; 21.0</span>
               <span class="badge badge--neutral badge--sm">broker</span></label>
             <label class="entity-candidate"><input type="checkbox">
-              <span>CRE_Acme Re 2026_Group</span>
+              <span title="CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23">CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23</span>
+              <span class="exec-summary">DLM &middot; 23.0</span>
+              <span class="badge badge--neutral badge--sm">own</span></label>
+            <label class="entity-candidate"><input type="checkbox">
+              <span title="CRE_Acme Re 2026_Group">CRE_Acme Re 2026_Group</span>
               <span class="exec-summary">Group</span>
               <span class="badge badge--neutral badge--sm">group</span></label>
           </div>
+          <div class="wf-field__hint" style="margin-top:var(--space-1)">3 of 6 selected</div>
         </div>
-
-        <div class="exec-currency">
-          <div class="exec-section-label">Currency for this group</div>
-          <div class="wf-fields">
-            <div class="wf-field"><label>ANALYSIS CURRENCY</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
-            <div class="wf-field"><label>CURRENCY SCHEME</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
-            <div class="wf-field"><label>SCHEME VINTAGE</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)"></div></div>
-          </div>
-        </div>
-
-        <label class="entity-candidate" style="border:1px solid var(--border-default);border-radius:var(--radius-md)">
-          <input type="checkbox" checked>
-          <span>Propagate detailed output</span>
-        </label>
       </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
-        <button class="modal-btn modal-btn--primary" type="button">Group</button>
+        <button class="modal-btn modal-btn--primary" type="button">Next</button>
       </div>
     </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 2 · gate failure — 422 re-render with the collected errors</div>
-  <p class="pv-cap">The POST re-renders the same dialog with every failure collected (nothing persisted, SC-005): here a member deleted between open and submit is gone from the pick-list, dropping the selection under two.</p>
+  <div class="pv-eyebrow">Between 1 and 2 · Inspecting</div>
+  <p class="pv-cap">Next posts the members to the inspect route and swaps the body for screen 2. While Risk Modeler is read, the body shows the wait state; <b>Back</b> stays enabled so the analyst can abandon a slow inspection, and the footer's primary action is absent until results arrive.</p>
 
-  <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card submission-entity-modal">
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
       <div class="modal-header">
         <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="modal-error" style="border:1px solid var(--color-negative-border);border-radius:var(--radius-sm)">
-          <div>A selected analysis is no longer eligible for grouping.</div>
-          <div>Pick at least two analyses to group.</div>
+        <div class="insp-wait"><div class="spin" role="status" aria-label="Inspecting"></div>Inspecting 3 members in Risk Modeler&hellip;</div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Screen 2 · Inspection — one scheme mismatch (one row chosen, one still open) and one treaty mismatch</div>
+  <p class="pv-cap">One row per peril / region / model-version partition. The <b>Members</b> column lists the analyses in that partition by name only, wrapping long names; scheme ids, PET ids, and period counts are not shown. The scheme column is the widest so a full scheme name fits on one or two lines. A native dropdown cannot wrap its selected text, so the select carries the chosen scheme as its tooltip and the open list shows the full names. A mismatched row's dropdown offers only the members' schemes, each option naming who uses it; it starts empty in the warning style and no default is preselected. A consistent row shows the scheme that will be used. <b>Next</b> enables when every open dropdown has a choice. Treaty mismatches are listed underneath and never block.</p>
+
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
+      <div class="modal-header">
+        <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="insp-facts">
+          <span>Group output <b>PLT</b></span>
+          <span><b>3</b> members</span>
+          <span><b>1</b> scheme mismatch</span>
+          <span><b>1</b> treaty mismatch</span>
         </div>
-        <div class="wf-field">
-          <label>GROUP NAME</label>
-          <input class="wf-field__input" type="text" value="CRE_Acme Re 2026_Group">
+
+        <div>
+          <div class="exec-section-label">Event-rate schemes</div>
+          <div class="insp-table-wrap">
+            <table class="insp-table">
+              <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Windstorm</td><td>NA</td><td class="n">23.0</td>
+                  <td>
+                    <div class="insp-members">
+                      <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span></div>
+                      <div class="insp-member"><span class="insp-member__name" title="Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</span></div>
+                      <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23">CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</span></div>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="insp-choose">
+                      <select class="wf-field__input wf-field__input--empty" aria-label="Event-rate scheme for Windstorm NA 23.0" title="Choose a scheme">
+                        <option value="" selected>Choose a scheme&hellip;</option>
+                        <option>RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term (1 member)</option>
+                        <option>RiskLink 25.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term (1 member)</option>
+                      </select>
+                      <span class="wf-field__hint">Members use different schemes. Choose one.</span>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Windstorm</td><td>NA</td><td class="n">21.0</td>
+                  <td>
+                    <div class="insp-members">
+                      <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span></div>
+                      <div class="insp-member"><span class="insp-member__name" title="Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</span></div>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="insp-choose">
+                      <select class="wf-field__input" aria-label="Event-rate scheme for Windstorm NA 21.0" title="RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term">
+                        <option>RiskLink 21.0 Stochastic Event Rates - North Atlantic Hurricane Long-Term (1 member)</option>
+                        <option selected>RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term (1 member)</option>
+                      </select>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>Earthquake</td><td>NA</td><td class="n">23.0</td>
+                  <td>
+                    <div class="insp-members">
+                      <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span></div>
+                      <div class="insp-member"><span class="insp-member__name" title="Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</span></div>
+                    </div>
+                  </td>
+                  <td><div class="insp-resolved" title="RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term">RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</div></td>
+                </tr>
+                <tr>
+                  <td>Severe convective storm</td><td>NA</td><td class="n">23.0</td>
+                  <td>
+                    <div class="insp-members">
+                      <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23">CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</span></div>
+                    </div>
+                  </td>
+                  <td><div class="insp-resolved tag-empty">&mdash;</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="exec-section-label">Treaty mismatches</div>
+          <div class="insp-notice insp-notice--warn">
+            <div class="insp-notice__title">Treaty Number XOL-2026-01 has different loss-affecting terms in 2 members</div>
+            <p>Differing terms: <code>attachmentPoint</code>, <code>occurrenceLimit</code>. Risk Modeler groups these as one treaty, so the grouped result may not be what either member produced alone.</p>
+            <ul>
+              <li>CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23 &middot; treaty <code>88412</code></li>
+              <li>Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker) &middot; treaty <code>90177</code></li>
+            </ul>
+          </div>
+          <div class="wf-field__hint" style="margin-top:var(--space-1)">Treaty mismatches do not stop the grouping. Compared terms: cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, loss occurrences.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button" disabled>Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Screen 2 · Inspection — nothing to resolve</div>
+  <p class="pv-cap">Every row is consistent and no treaty terms differ. The table still shows the scheme each partition will use, and the treaty section collapses to one line. <b>Next</b> is enabled immediately.</p>
+
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
+      <div class="modal-header">
+        <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="insp-facts">
+          <span>Group output <b>ELT</b></span>
+          <span><b>2</b> members</span>
+          <span><b>0</b> scheme mismatches</span>
+          <span><b>0</b> treaty mismatches</span>
         </div>
         <div>
-          <div class="exec-section-label">Members <span class="tag-empty">(finished analyses of this submission — pick at least two)</span></div>
-          <div class="entity-candidate-list">
-            <label class="entity-candidate"><input type="checkbox" checked>
-              <span>CRE_US Southeast Wind_US HU DLM v23</span>
-              <span class="exec-summary">DLM &middot; 23.0</span>
-              <span class="badge badge--neutral badge--sm">own</span></label>
-            <label class="entity-candidate"><input type="checkbox">
-              <span>Broker EU Wind 2025</span>
-              <span class="exec-summary">DLM &middot; 21.0</span>
-              <span class="badge badge--neutral badge--sm">broker</span></label>
+          <div class="exec-section-label">Event-rate schemes</div>
+          <div class="insp-table-wrap">
+            <table class="insp-table">
+              <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Windstorm</td><td>NA</td><td class="n">23.0</td>
+                  <td><div class="insp-members">
+                    <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span></div>
+                    <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23">CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23</span></div>
+                  </div></td>
+                  <td><div class="insp-resolved" title="RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term">RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</div></td>
+                </tr>
+                <tr>
+                  <td>Earthquake</td><td>NA</td><td class="n">23.0</td>
+                  <td><div class="insp-members">
+                    <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23">CRE_Acme Re 2026_US Earthquake Schedule_US EQ DLM v23</span></div>
+                  </div></td>
+                  <td><div class="insp-resolved" title="RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term">RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</div></td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
-        <div class="exec-currency">
-          <div class="exec-section-label">Currency for this group</div>
-          <div class="wf-fields">
-            <div class="wf-field"><label>ANALYSIS CURRENCY</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
-            <div class="wf-field"><label>CURRENCY SCHEME</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
-            <div class="wf-field"><label>SCHEME VINTAGE</label>
-              <div class="ta"><input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)"></div></div>
-          </div>
+        <div>
+          <div class="exec-section-label">Treaty mismatches</div>
+          <div class="insp-notice insp-notice--ok">No treaty number appears with different loss-affecting terms across the members.</div>
         </div>
-        <label class="entity-candidate" style="border:1px solid var(--border-default);border-radius:var(--radius-md)">
-          <input type="checkbox" checked>
-          <span>Propagate detailed output</span>
-        </label>
       </div>
       <div class="modal-footer">
-        <button class="modal-btn modal-btn--secondary" type="button">Cancel</button>
-        <button class="modal-btn modal-btn--primary" type="button" disabled>Group</button>
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button">Next</button>
       </div>
     </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
-  <div class="pv-eyebrow">State 3 · blocking — fewer than two eligible members</div>
-  <p class="pv-cap">With fewer than two eligible members in the submission the dialog shows a blocking message instead of the form (same pattern as the execute modal's blocking states).</p>
+  <div class="pv-eyebrow">Screen 2 · Inspection — blocked</div>
+  <p class="pv-cap">A member set the platform cannot group (here two HD members run against different simulation sets in one partition). The problem is stated in plain words with the partition and members named; the table still renders so the analyst can see the rest. <b>Next</b> is disabled and the fix is <b>Back</b> to change members. An inspection that fails to read Risk Modeler renders the same way with the read error and a <b>Retry</b> button.</p>
 
-  <div class="pv-stage modal-overlay" style="position:static">
-    <div class="modal-card submission-entity-modal">
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
       <div class="modal-header">
         <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
         <button class="icon-btn" type="button" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="state-box state-box--warn">This submission needs at least two finished analyses before they can be grouped.</div>
+        <div class="insp-notice insp-notice--block">
+          <div class="insp-notice__title">These members cannot be grouped</div>
+          <p>Two HD analyses in Windstorm / NA / 23.0 were run against different simulation sets, and Risk Modeler can only group one per partition. Go back and remove one of them.</p>
+          <ul>
+            <li>CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</li>
+            <li>Acme Re North America Wind Renewal 2026 HD Simulation (broker)</li>
+          </ul>
+        </div>
+        <div class="insp-facts">
+          <span>Group output <b>PLT</b></span>
+          <span><b>2</b> members</span>
+        </div>
+        <div>
+          <div class="exec-section-label">Event-rate schemes</div>
+          <div class="insp-table-wrap">
+            <table class="insp-table">
+              <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Windstorm</td><td>NA</td><td class="n">23.0</td>
+                  <td><div class="insp-members">
+                    <div class="insp-member"><span class="insp-member__name" title="CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23">CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</span></div>
+                    <div class="insp-member"><span class="insp-member__name" title="Acme Re North America Wind Renewal 2026 HD Simulation (broker)">Acme Re North America Wind Renewal 2026 HD Simulation (broker)</span></div>
+                  </div></td>
+                  <td><div class="insp-resolved" style="color:var(--color-negative)">Different simulation sets</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="modal-btn modal-btn--secondary" type="button">Close</button>
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button" disabled>Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Screen 3 · Settings — PLT group</div>
+  <p class="pv-cap">The left column restates what will be grouped: name and output type, then the members, then the inspection outcome (schemes chosen and the treaty mismatch count). The right column is the settings: the currency block reused from the execute modal, <b>Propagate detailed output</b> ON, and <b>Simulation count</b> prefilled with the largest member PLT length. For an ELT group the simulation count field is absent and 1 is sent. <b>Group</b> submits; a 422 re-renders this screen with the errors at the top in the existing <code>.modal-error</code> style.</p>
+
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
+      <div class="modal-header">
+        <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--done"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">3</span>Settings</span>
+        </nav>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="sum-grid">
+          <div>
+            <div class="exec-section-label">What will be grouped</div>
+            <dl class="sum-list">
+              <dt>Group name</dt><dd>CRE_Acme Re 2026_Group</dd>
+              <dt>Output</dt><dd>PLT</dd>
+            </dl>
+            <div class="exec-section-label" style="margin-top:var(--space-3)">Members (3)</div>
+            <div class="sum-members">
+              <div><span title="CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span><span class="exec-summary">DLM</span><span class="badge badge--neutral badge--sm">own</span></div>
+              <div><span title="CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23">CRE_Acme Re 2026_US Gulf Coast Commercial Schedule_US HU HD v23</span><span class="exec-summary">HD</span><span class="badge badge--neutral badge--sm">own</span></div>
+              <div><span title="Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</span><span class="exec-summary">DLM</span><span class="badge badge--neutral badge--sm">broker</span></div>
+            </div>
+            <div class="exec-section-label" style="margin-top:var(--space-3)">Inspection</div>
+            <dl class="sum-list">
+              <dt>Schemes chosen</dt><dd><span class="sum-scheme"><small>Windstorm / NA / 23.0</small>RiskLink 25.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</span><span class="sum-scheme" style="margin-top:4px"><small>Windstorm / NA / 21.0</small>RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</span></dd>
+              <dt>Treaties</dt><dd><span class="badge badge--warning badge--sm">1 mismatch</span> <span class="tag-empty">XOL-2026-01</span></dd>
+            </dl>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:var(--space-3)">
+            <div class="exec-currency">
+              <div class="exec-section-label">Currency for this group</div>
+              <div class="wf-fields">
+                <div class="wf-field"><label>ANALYSIS CURRENCY</label>
+                  <div class="ta"><input class="wf-field__input" type="text" readonly value="USD"></div></div>
+                <div class="wf-field"><label>CURRENCY SCHEME</label>
+                  <div class="ta"><input class="wf-field__input" type="text" readonly value="RMS Scheme"></div></div>
+                <div class="wf-field"><label>SCHEME VINTAGE</label>
+                  <div class="ta"><input class="wf-field__input" type="text" readonly value="RL25 (effective 2025-05-28)"></div></div>
+              </div>
+            </div>
+            <label class="check-row"><input type="checkbox" checked><span>Propagate detailed output</span></label>
+            <div class="wf-field">
+              <label for="s3-sims">SIMULATION COUNT</label>
+              <input class="wf-field__input" id="s3-sims" type="number" min="1" step="1" value="50000">
+              <div class="wf-field__msg wf-field__hint">Target group PLT length. Longer member PLTs are truncated, shorter ones repeated. Largest member: 50,000.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button">Group</button>
       </div>
     </div>
   </div>

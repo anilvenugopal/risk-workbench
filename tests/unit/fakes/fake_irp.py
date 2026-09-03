@@ -672,15 +672,18 @@ class FakeIRP:
         conflicting: list[int] | None = None,
         periods: dict[int, int] | None = None,
         blocking: tuple[GroupingProblem, ...] = (),
+        simulation_set_compatible: bool = True,
     ) -> GroupingInspection:
         """Seed what ``inspect_grouping`` returns. Every member sits in one
         WS · NA · 11.0 partition; ``conflicting`` lists the scheme ids on offer
         and marks the partition as requiring a selection; ``periods`` makes the
         named members PLT (PET ``900+n``) with that many periods; ``blocking``
-        seeds the problems verbatim."""
+        seeds the problems verbatim; ``simulation_set_compatible`` is passed
+        through to the partition."""
         self.grouping_inspection = self._build_inspection(
             list(analysis_ids), output_loss_table=output_loss_table,
-            conflicting=conflicting, periods=periods, blocking=blocking)
+            conflicting=conflicting, periods=periods, blocking=blocking,
+            simulation_set_compatible=simulation_set_compatible)
         return self.grouping_inspection
 
     @staticmethod
@@ -688,6 +691,7 @@ class FakeIRP:
                           conflicting: list[int] | None = None,
                           periods: dict[int, int] | None = None,
                           blocking: tuple[GroupingProblem, ...] = (),
+                          simulation_set_compatible: bool = True,
                           ) -> GroupingInspection:
         periods = periods or {}
         key = GroupingPartitionKey(peril_code="WS", region_code="NA",
@@ -717,7 +721,7 @@ class FakeIRP:
             observed_pet_ids=tuple(900 + n for n, a in enumerate(ids)
                                    if a in periods),
             event_rate_selection_required=bool(conflicting),
-            simulation_set_compatible=True)
+            simulation_set_compatible=simulation_set_compatible)
         required = ["analysis_name", "currency", "propagate_detailed_losses",
                     "num_of_simulations"]
         if conflicting:
