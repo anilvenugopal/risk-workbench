@@ -36,9 +36,9 @@ per-queue worker framework this feature extends (T-01).
   model-version partition (members by display name; the scheme cell is a
   `<select>` limited to the members' schemes with none preselected where they
   differ, the shared scheme where they agree), the blocking problems above the
-  table, the treaty mismatch notices from `inspection.warnings` below it
-  (never blocking), and the hidden fingerprint and inspected ids when nothing
-  blocks.
+  table, one treaty mismatch table per Treaty Number from
+  `inspection.warnings` below it (never blocking), and the hidden fingerprint
+  and inspected ids when nothing blocks.
   The same response fills screen 3's summary and simulation count out of
   band. `POST /submissions/{sid}/analyses/group` re-runs the gate in
   `app/services/grouping_service.py` (members unchanged since inspection,
@@ -191,9 +191,9 @@ Article 2 deviation recorded in the Constitution Check above.
   failure; `inspection_changed` and structured-problem failure reasons),
   poller `grouping` routing and terminal handling, group rows in submission
   read models and results columns, compose routes including the inspect
-  fragment states, treaty mismatch view (friendly term names, member names,
-  ids, carried when blocked) and its notice, facts-strip count, and summary
-  row.
+  fragment states, treaty mismatch view (one row per compared treaty, terms
+  through `treaty_service.display_value`, differing columns marked, carried
+  when blocked) and its table, facts-strip count, and summary row.
 - **SQL Server integration**: schema drift guard for `submission_id`, the
   relaxed CHECK, `uq_irp_analysis_live_submission_name`,
   `irp_analysis_group_member`, and the `submit_grouping` kind row.

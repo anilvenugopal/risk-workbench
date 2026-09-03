@@ -156,11 +156,18 @@ button{font-family:inherit}
 .insp-choose{display:flex;flex-direction:column;gap:3px}
 .insp-choose .wf-field__hint{color:var(--color-warning)}
 .insp-choose select{text-overflow:ellipsis}
+/* Treaty mismatch table: Risk Modeler's eleven columns, differing ones marked. */
+.insp-table--treaty{min-width:1040px}
+.insp-table--treaty .insp-table__name{width:24%;min-width:210px;overflow-wrap:anywhere}
+.insp-table th.insp-diff{color:var(--color-warning)}
+.insp-table td.insp-diff{background:var(--color-warning-bg);color:var(--text-primary);font-weight:var(--fw-medium)}
+.insp-treaty + .insp-treaty{margin-top:var(--space-3)}
+.insp-treaty__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--space-3);margin-bottom:var(--space-1);font-size:var(--fs-label);color:var(--text-tertiary)}
+.insp-treaty__head b{color:var(--text-primary);font-family:var(--font-mono)}
+.insp-treaty__diff{color:var(--color-warning)}
 
-/* Notices: treaty mismatches (warn, does not block) and blocking problems (negative). */
+/* Notices: the no-mismatch line and blocking problems (negative). */
 .insp-notice{border:1px solid var(--border-default);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:var(--fs-label);color:var(--text-secondary);background:var(--surface-recessed)}
-.insp-notice--warn{background:var(--color-warning-bg);border-color:var(--color-warning-border)}
-.insp-notice--warn .insp-notice__title{color:var(--color-warning)}
 .insp-notice--block{background:var(--color-negative-bg);border-color:var(--color-negative-border)}
 .insp-notice--block .insp-notice__title{color:var(--color-negative)}
 .insp-notice--ok{background:var(--color-positive-bg);border-color:var(--color-positive-border);color:var(--color-positive)}
@@ -168,7 +175,6 @@ button{font-family:inherit}
 .insp-notice p{margin:0}
 .insp-notice ul{margin:var(--space-2) 0 0;padding-left:18px}
 .insp-notice li{margin:2px 0}
-.insp-notice code{color:var(--text-primary)}
 
 /* Loading and error states of screen 2 */
 .insp-wait{display:flex;flex-direction:column;align-items:center;gap:var(--space-3);padding:var(--space-9) var(--space-4);color:var(--text-tertiary);font-size:var(--fs-label)}
@@ -382,13 +388,29 @@ button{font-family:inherit}
 
         <div>
           <div class="exec-section-label">Treaty mismatches</div>
-          <div class="insp-notice insp-notice--warn">
-            <div class="insp-notice__title">Treaty Number XOL-2026-01 has different loss-affecting terms in 2 members</div>
-            <p>Differing terms: <code>attachmentPoint</code>, <code>occurrenceLimit</code>. Risk Modeler groups these as one treaty, so the grouped result may not be what either member produced alone.</p>
-            <ul>
-              <li>CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23 &middot; treaty <code>88412</code></li>
-              <li>Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker) &middot; treaty <code>90177</code></li>
-            </ul>
+          <div class="insp-treaty">
+            <div class="insp-treaty__head">
+              <b>XOL-2026-01</b>
+              <span>2 treaties &middot; 2 analyses</span>
+              <span class="insp-treaty__diff">Differs on Attachment Point, Occurrence Limit</span>
+            </div>
+            <div class="insp-table-wrap">
+              <table class="insp-table insp-table--treaty">
+                <thead><tr>
+                  <th class="insp-table__name">Analysis</th><th class="insp-table__key">Analysis ID</th><th class="insp-table__key">Treaty ID</th><th class="insp-table__key">Treaty Number</th><th class="insp-table__key">Treaty Type</th><th class="insp-table__key">Effective Date</th><th class="insp-table__key">Expiration Date</th><th class="insp-table__key insp-diff">Attachment Point</th><th class="insp-table__key insp-diff">Occurrence Limit</th><th class="insp-table__key">Per Risk Limit</th><th class="insp-table__key">Currency</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="insp-table__name">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</td>
+                    <td class="n">4471902</td><td class="n">88412</td><td class="n">XOL-2026-01</td><td class="n">Catastrophe</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n insp-diff">5,000,000</td><td class="n insp-diff">10,000,000</td><td class="n">1,000,000</td><td class="n">USD</td>
+                  </tr>
+                  <tr>
+                    <td class="insp-table__name">Acme Re North America Wind Renewal 2026 RL25 Stochastic Rates (broker)</td>
+                    <td class="n">4471903</td><td class="n">90177</td><td class="n">XOL-2026-01</td><td class="n">Catastrophe</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n insp-diff">2,500,000</td><td class="n insp-diff">2,000,000</td><td class="n">1,000,000</td><td class="n">USD</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
           <div class="wf-field__hint" style="margin-top:var(--space-1)">Treaty mismatches do not stop the grouping. Compared terms: cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, loss occurrences.</div>
         </div>
@@ -450,6 +472,113 @@ button{font-family:inherit}
         <div>
           <div class="exec-section-label">Treaty mismatches</div>
           <div class="insp-notice insp-notice--ok">No treaty number appears with different loss-affecting terms across the members.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn modal-btn--secondary" type="button">Back</button>
+        <button class="modal-btn modal-btn--primary" type="button">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="pv-eyebrow">Screen 2 &middot; Inspection &mdash; two treaty mismatches: a currency difference across three analyses, and a difference in a term the table does not carry</div>
+  <p class="pv-cap">One table per Treaty Number, in Risk Modeler's column order, so the analyst reads the differing values without leaving the Workbench. The values are the terms <b>as applied to each analysis</b>, not the EDM definition: the third analysis below runs in CAD against a treaty defined in USD, and that is what Risk Modeler flagged. Differing columns are marked in the header and the cells. Risk Modeler compares 23 terms but shows eleven, so the heading names every differing term &mdash; <b>XOL-2026-09</b> differs only on Priority and its eleven columns are identical. A treaty Risk Modeler returned without an id shows an em dash. Eleven columns scroll horizontally inside the modal rather than widening it. <b>Next</b> stays enabled: treaty mismatches never block.</p>
+
+  <div class="pv-stage modal-overlay">
+    <div class="modal-card modal-card--wide modal-card--group">
+      <div class="modal-header">
+        <span class="modal-title">Group analyses &middot; Acme Re 2026</span>
+        <nav class="steps" aria-label="Steps">
+          <span class="step step--done"><span class="step__n">1</span>Members</span><span class="step__sep"></span>
+          <span class="step step--current"><span class="step__n">2</span>Inspection</span><span class="step__sep"></span>
+          <span class="step"><span class="step__n">3</span>Settings</span>
+        </nav>
+        <button class="icon-btn" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="insp-facts">
+          <span>Group output <b>ELT</b></span>
+          <span><b>3</b> members</span>
+          <span><b>0</b> scheme mismatches</span>
+          <span><b>2</b> treaty mismatches</span>
+        </div>
+
+        <div>
+          <div class="exec-section-label">Event-rate schemes</div>
+          <div class="insp-table-wrap">
+            <table class="insp-table">
+              <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Hurricane</td><td>NA</td><td class="n">RL23 &middot; 23.0</td>
+                  <td><div class="insp-members">
+                    <div class="insp-member"><span class="insp-member__name">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</span></div>
+                    <div class="insp-member"><span class="insp-member__name">CRE_Acme Re 2026_Gulf Coast Property Schedule_US HU DLM v23</span></div>
+                    <div class="insp-member"><span class="insp-member__name">Acme Re Canada Wind Renewal 2026 (broker)</span></div>
+                  </div></td>
+                  <td><div class="insp-resolved" title="RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term">RiskLink 23.0 Stochastic Event Rates - North Atlantic Hurricane Medium-Term</div></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="exec-section-label">Treaty mismatches</div>
+          <div class="insp-treaty">
+            <div class="insp-treaty__head">
+              <b>CATA-2026-04</b>
+              <span>3 treaties &middot; 3 analyses</span>
+              <span class="insp-treaty__diff">Differs on Currency, Occurrence Limit</span>
+            </div>
+            <div class="insp-table-wrap">
+              <table class="insp-table insp-table--treaty">
+                <thead><tr>
+                  <th class="insp-table__name">Analysis</th><th class="insp-table__key">Analysis ID</th><th class="insp-table__key">Treaty ID</th><th class="insp-table__key">Treaty Number</th><th class="insp-table__key">Treaty Type</th><th class="insp-table__key">Effective Date</th><th class="insp-table__key">Expiration Date</th><th class="insp-table__key">Attachment Point</th><th class="insp-table__key insp-diff">Occurrence Limit</th><th class="insp-table__key">Per Risk Limit</th><th class="insp-table__key insp-diff">Currency</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="insp-table__name">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</td>
+                    <td class="n">4471902</td><td class="n">88412</td><td class="n">CATA-2026-04</td><td class="n">Catastrophe</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n">5,000,000</td><td class="n insp-diff">10,000,000</td><td class="n">1,000,000</td><td class="n insp-diff">USD</td>
+                  </tr>
+                  <tr>
+                    <td class="insp-table__name">CRE_Acme Re 2026_Gulf Coast Property Schedule_US HU DLM v23</td>
+                    <td class="n">4471903</td><td class="n">90177</td><td class="n">CATA-2026-04</td><td class="n">Catastrophe</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n">5,000,000</td><td class="n insp-diff">10,000,000</td><td class="n">1,000,000</td><td class="n insp-diff">USD</td>
+                  </tr>
+                  <tr>
+                    <td class="insp-table__name">Acme Re Canada Wind Renewal 2026 (broker)</td>
+                    <td class="n">4471904</td><td class="n"><span class="tag-empty">&mdash;</span></td><td class="n">CATA-2026-04</td><td class="n">Catastrophe</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n">5,000,000</td><td class="n insp-diff">13,750,000</td><td class="n">1,000,000</td><td class="n insp-diff">CAD</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="insp-treaty">
+            <div class="insp-treaty__head">
+              <b>XOL-2026-09</b>
+              <span>2 treaties &middot; 2 analyses</span>
+              <span class="insp-treaty__diff">Differs on Priority</span>
+            </div>
+            <div class="insp-table-wrap">
+              <table class="insp-table insp-table--treaty">
+                <thead><tr>
+                  <th class="insp-table__name">Analysis</th><th class="insp-table__key">Analysis ID</th><th class="insp-table__key">Treaty ID</th><th class="insp-table__key">Treaty Number</th><th class="insp-table__key">Treaty Type</th><th class="insp-table__key">Effective Date</th><th class="insp-table__key">Expiration Date</th><th class="insp-table__key">Attachment Point</th><th class="insp-table__key">Occurrence Limit</th><th class="insp-table__key">Per Risk Limit</th><th class="insp-table__key">Currency</th>
+                </tr></thead>
+                <tbody>
+                  <tr>
+                    <td class="insp-table__name">CRE_Acme Re 2026_US Southeast Coastal Property Schedule_US HU DLM v23</td>
+                    <td class="n">4471902</td><td class="n">88420</td><td class="n">XOL-2026-09</td><td class="n">Working Excess</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n">2,000,000</td><td class="n">8,000,000</td><td class="n">500,000</td><td class="n">USD</td>
+                  </tr>
+                  <tr>
+                    <td class="insp-table__name">CRE_Acme Re 2026_Gulf Coast Property Schedule_US HU DLM v23</td>
+                    <td class="n">4471903</td><td class="n">90185</td><td class="n">XOL-2026-09</td><td class="n">Working Excess</td><td class="n">2026-01-01</td><td class="n">2026-12-31</td><td class="n">2,000,000</td><td class="n">8,000,000</td><td class="n">500,000</td><td class="n">USD</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="wf-field__hint" style="margin-top:var(--space-1)">Treaty mismatches do not stop the grouping. Compared terms: cedant, treaty type, currency, attachment and limit terms, dates, percentages, priority, reinstatement and aggregate terms, LOBs, loss occurrences.</div>
         </div>
       </div>
       <div class="modal-footer">

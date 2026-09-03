@@ -422,12 +422,24 @@
 .insp-choose { display: flex; flex-direction: column; gap: 3px; }
 .insp-choose .wf-field__hint { color: var(--color-warning); }
 .insp-choose select { text-overflow: ellipsis; }
-/* Notices: treaty mismatches (warn, never block) and blocking problems. */
+/* Treaty mismatch table: Risk Modeler's eleven columns, one table per Treaty
+   Number, the differing terms marked in the header and the cells. */
+.insp-table--treaty { min-width: 1040px; }
+.insp-table--treaty .insp-table__name { width: 24%; min-width: 210px;
+  overflow-wrap: anywhere; }
+.insp-table th.insp-diff { color: var(--color-warning); }
+.insp-table td.insp-diff { background: var(--color-warning-bg);
+  color: var(--text-primary); font-weight: var(--fw-medium); }
+.insp-treaty + .insp-treaty { margin-top: var(--space-3); }
+.insp-treaty__head { display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: 2px var(--space-3); margin-bottom: var(--space-1);
+  font-size: var(--fs-label); color: var(--text-tertiary); }
+.insp-treaty__head b { color: var(--text-primary); font-family: var(--font-mono); }
+.insp-treaty__diff { color: var(--color-warning); }
+/* Notices: the no-mismatch line and the blocking problems. */
 .insp-notice { border: 1px solid var(--border-default); border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4); font-size: var(--fs-label);
   color: var(--text-secondary); background: var(--surface-recessed); }
-.insp-notice--warn { background: var(--color-warning-bg); border-color: var(--color-warning-border); }
-.insp-notice--warn .insp-notice__title { color: var(--color-warning); }
 .insp-notice--block { background: var(--color-negative-bg); border-color: var(--color-negative-border); }
 .insp-notice--block .insp-notice__title { color: var(--color-negative); }
 .insp-notice--ok { background: var(--color-positive-bg); border-color: var(--color-positive-border);
@@ -436,7 +448,6 @@
 .insp-notice p { margin: 0; }
 .insp-notice ul { margin: var(--space-2) 0 0; padding-left: 18px; }
 .insp-notice li { margin: 2px 0; }
-.insp-notice code { color: var(--text-primary); }
 /* Wait state: the inspect button's hx-indicator, shown while its request runs. */
 .insp-wait { display: none; flex-direction: column; align-items: center; gap: var(--space-3);
   padding: var(--space-9) var(--space-4); color: var(--text-tertiary); font-size: var(--fs-label); }

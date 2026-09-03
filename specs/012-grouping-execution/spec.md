@@ -37,7 +37,7 @@ An analyst combines finished analyses and groups within a submission into a sing
 3. A group is treated like any other analysis — viewed and retrieved the same way; the results grid discloses a group via the Engine column, not the name.
 4. The member pick-list is scoped to the current submission; members may span EDMs and RDMs within it.
 5. Currency, scheme, and vintage are confirmed by the analyst at each group submit with env-var defaults — never stored configuration.
-6. Loss-affecting treaty terms sharing a Treaty Number are compared at inspection; every mismatch is listed with the treaty number, differing terms, and members, and never blocks the submit.
+6. Loss-affecting treaty terms sharing a Treaty Number are compared at inspection; every mismatch is shown as a table of the compared treaties with the values that differ, and never blocks the submit.
 
 ## Open product decisions
 
@@ -119,7 +119,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-017**: Every Workbench-submitted individual analysis carries a submission-level IRP tag whose value is the submission name (O-05), applied at submit time and queryable in the platform and via API. Groups carry no tag — the platform grouping job accepts none (O-07).
 - **FR-018**: Groups can be members of other groups (nested grouping).
 - **FR-019**: The simulation count is a positive integer. For a PLT group the analyst confirms it at compose time as the target group PLT length, prefilled with the largest member PLT length; for an ELT group the dialog shows no count and submits 1 (O-06).
-- **FR-020**: The inspection screen lists each treaty term mismatch — the Treaty Number, the differing loss-affecting terms by display name, the members carrying it, and the treaty ids — and shows the mismatch count on the facts strip; the settings summary shows the count and the treaty numbers. Mismatches never block the submit.
+- **FR-020**: The inspection screen shows one table per mismatched Treaty Number, in Risk Modeler's column order — analysis name, analysis id, treaty id, Treaty Number, treaty type, effective and expiration date, attachment point, occurrence limit, per risk limit, currency — one row per treaty as applied to its member, with the differing columns marked. Risk Modeler compares more terms than it shows, so the heading names every differing term by display name. The facts strip shows the mismatch count and the settings summary shows the count and the treaty numbers. Mismatches never block the submit.
 
 ## Key Entities
 

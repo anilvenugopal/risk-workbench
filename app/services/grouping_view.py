@@ -9,10 +9,28 @@ posted.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from app.services.grouping_service import GroupingInspectionView
-from app.services.irp_gateway import GroupingPartition, GroupingPartitionKey
-from app.services.treaty_service import humanize_key
+from app.services.irp_gateway import (
+    GroupingPartition,
+    GroupingPartitionKey,
+    GroupingTreaty,
+)
+from app.services.treaty_service import display_value, humanize_key
+
+# The loss-affecting terms Risk Modeler's grouping screen shows beside the
+# treaty identity, in its column order. ``Per Risk Limit`` is its header for
+# ``riskLimit``; ``humanize_key`` would give ``Risk Limit``.
+TREATY_COLUMNS = (
+    ("treatyType", "Treaty Type"),
+    ("effectiveDate", "Effective Date"),
+    ("expirationDate", "Expiration Date"),
+    ("attachmentPoint", "Attachment Point"),
+    ("occurrenceLimit", "Occurrence Limit"),
+    ("riskLimit", "Per Risk Limit"),
+    ("currency", "Currency"),
+)
 
 
 @dataclass(frozen=True)
@@ -44,14 +62,36 @@ class ProblemText:
 
 
 @dataclass(frozen=True)
-class TreatyMismatch:
-    """One ``inconsistent_treaty_terms`` warning: treaties sharing a Treaty
-    Number across the members whose loss-affecting terms differ. Members and
-    treaty ids are two independent lists — the package does not pair them."""
+class TreatyMismatchRow:
+    """One treaty as applied to one member. ``terms`` carries the
+    ``TREATY_COLUMNS`` values display-shaped (``CATA`` spelled out, dates
+    truncated); ``treaty_id`` is ``None`` when Risk Modeler returned no id."""
+    analysis_name: str
+    analysis_id: int
+    treaty_id: int | None
     treaty_number: str
-    differing_terms: tuple[str, ...]    # display labels, ``Attachment Point``
-    member_names: tuple[str, ...]
-    treaty_ids: tuple[int, ...]
+    terms: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class TreatyMismatch:
+    """One ``inconsistent_treaty_terms`` warning as Risk Modeler's table: the
+    treaties sharing a Treaty Number, one row each. ``differing_keys`` can name
+    any of the 23 compared terms, including ones ``TREATY_COLUMNS`` does not
+    carry, so the heading states them all."""
+    treaty_number: str
+    differing_keys: tuple[str, ...]
+    rows: tuple[TreatyMismatchRow, ...]
+
+    @property
+    def differing_terms(self) -> tuple[str, ...]:
+        return tuple(humanize_key(key) for key in self.differing_keys)
+
+    @property
+    def analysis_count(self) -> int:
+        """Distinct analyses, not rows: one analysis can carry two treaties
+        sharing a Treaty Number, and the package groups by number alone."""
+        return len({row.analysis_id for row in self.rows})
 
 
 @dataclass(frozen=True)
@@ -61,6 +101,7 @@ class InspectionScreen:
     rows: tuple[PartitionRow, ...]
     problems: tuple[ProblemText, ...]
     treaty_mismatches: tuple[TreatyMismatch, ...]
+    treaty_columns: tuple[tuple[str, str], ...] = TREATY_COLUMNS
 
     @property
     def blocked(self) -> bool:
@@ -87,11 +128,22 @@ def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
         treaty_mismatches=tuple(
             TreatyMismatch(
                 treaty_number=", ".join(p.treaty_numbers),
-                differing_terms=tuple(humanize_key(f) for f in p.differing_fields),
-                member_names=_names(view, p.analysis_ids),
-                treaty_ids=tuple(p.treaty_ids))
+                differing_keys=tuple(p.differing_fields),
+                rows=tuple(_treaty_row(view, t) for t in p.treaties))
             for p in inspection.warnings if p.code == "inconsistent_treaty_terms"),
     )
+
+
+def _treaty_row(view: GroupingInspectionView,
+                treaty: GroupingTreaty) -> TreatyMismatchRow:
+    member = view.members.get(treaty.analysis_id)
+    return TreatyMismatchRow(
+        analysis_name=member.display_name if member else str(treaty.analysis_id),
+        analysis_id=treaty.analysis_id,
+        treaty_id=treaty.treaty_id,
+        treaty_number=treaty.treaty_number,
+        terms={key: display_value(treaty.terms.get(key), key=key)
+               for key, _ in TREATY_COLUMNS})
 
 
 def _names(view: GroupingInspectionView, ids) -> tuple[str, ...]:
@@ -138,5 +190,6 @@ __all__ = [
     "ProblemText",
     "SchemeOption",
     "TreatyMismatch",
+    "TreatyMismatchRow",
     "build_inspection_screen",
 ]

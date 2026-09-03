@@ -12,26 +12,7 @@
    `uri`; values shaped service-side, 8/4 CR18) — for mis-coding checks
    (FR-021); the pinned .drow__body scrolls its own overflow (FR-023).
    Missing fields render "—", never an error. Read-only (FR-025). #}
-{%- macro money(v) -%}
-  {%- if v is none -%}<span class="na">&mdash;</span>
-  {%- elif v is number -%}${{ '{:,.0f}'.format(v) }}
-  {%- else -%}{{ v }}
-  {%- endif -%}
-{%- endmacro -%}
-{%- macro attr_val(v) -%}
-  {%- if v is none or v == '' -%}<span class="na">&mdash;</span>
-  {%- elif v is mapping -%}{{ v.get('code') or v.get('name') or v.items()|map('last')|join(', ') }}
-  {%- elif v is boolean -%}{{ 'Yes' if v else 'No' }}
-  {%- elif v is number -%}{{ '{:,.10g}'.format(v) }}
-  {%- else -%}{{ v }}
-  {%- endif -%}
-{%- endmacro -%}
-{%- macro presence(pair) -%}
-  {%- set first, more = pair -%}
-  {%- if first is none or first == '' -%}<span class="na">&mdash;</span>
-  {%- else -%}{{ first }}{% if more %} <span class="dt-geo-sub">+{{ more }}</span>{% endif %}
-  {%- endif -%}
-{%- endmacro -%}
+{%- from "partials/treaty_macros.html" import money, attr_val, presence -%}
 {%- set a = t.attributes or {} -%}
 <details class="drow">
   <summary>

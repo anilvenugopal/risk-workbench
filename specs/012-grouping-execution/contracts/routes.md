@@ -97,14 +97,23 @@ Fragment states, all rendered into `#group-inspection`:
   `none` shows an em dash. The select carries no `required` attribute — a
   hidden required select would block the browser's submit; the Alpine gate
   and `request_grouping` enforce the choice. Then the Treaty mismatches
-  section: one `.insp-notice--warn` per `inspection.warnings` entry with
-  `code == "inconsistent_treaty_terms"` — title "Treaty Number <n> has
-  different loss-affecting terms in <k> members", "Differing terms: <display
-  labels>" (`differing_fields` through `treaty_service.humanize_key`), the
-  member display names as a list, and "Treaty IDs: <ids>" when `treaty_ids`
-  is non-empty — followed by the hint that mismatches do not stop the
-  grouping; with no mismatch, the one-line `.insp-notice--ok`. Members and
-  treaty ids are listed unpaired. Then the hidden
+  section: one `.insp-treaty` per `inspection.warnings` entry with
+  `code == "inconsistent_treaty_terms"`, each a heading of the Treaty Number,
+  "<n> treaties · <k> analyses" (`k` counts distinct analyses, since one
+  analysis can carry two treaties sharing a number), and "Differs on <display
+  labels>" (`differing_fields` through `treaty_service.humanize_key`), over an
+  `.insp-table--treaty` in Risk Modeler's column order: Analysis (the
+  Workbench display name, or the id when the member is unknown), Analysis ID,
+  Treaty ID (em dash when the package reports none), Treaty Number, then one
+  column per `grouping_view.TREATY_COLUMNS` entry — treatyType, effectiveDate,
+  expirationDate, attachmentPoint, occurrenceLimit, riskLimit ("Per Risk
+  Limit"), currency — one row per `GroupingProblem.treaties` entry. Values are
+  the warning's own analysis-level terms through
+  `treaty_service.display_value`, so enum codes read spelled out and dates
+  date-truncated; a column whose key is in `differing_fields` carries
+  `insp-diff` on its header and its cells. The section ends with the hint that
+  mismatches do not stop the grouping; with no mismatch, the one-line
+  `.insp-notice--ok`. Then the hidden
   `expected_inspection_fingerprint`, one hidden `inspected_analysis_ids` per
   member, and the `[data-inspection-ready]` marker — gated on blocking
   problems only; warnings never disable Next. `#group-summary` holds the

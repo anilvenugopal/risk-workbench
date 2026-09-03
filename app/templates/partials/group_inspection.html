@@ -1,10 +1,12 @@
 {# Screen 2 of the group compose dialog (spec 012, contracts/routes.md),
    rendered into #group-inspection by POST …/analyses/group/inspect: a read
    error with Retry (422), or the partition table with the blocking problems
-   above it and the treaty term mismatches (warnings, never blocking) below.
+   above it and one treaty mismatch table per Treaty Number (warnings, never
+   blocking) below.
    The hidden fingerprint, inspected ids, and [data-inspection-ready] marker
    appear only when nothing blocks. #group-summary and #group-sims are
    screen 3's server-rendered parts, swapped out of band on every response. #}
+{% from "partials/treaty_macros.html" import attr_val %}
 {% if errors %}
 <div class="insp-notice insp-notice--block">
   <div class="insp-notice__title">The members could not be inspected</div>
@@ -79,11 +81,28 @@
   <div>
     <div class="exec-section-label">Treaty mismatches</div>
     {% for m in screen.treaty_mismatches %}
-    <div class="insp-notice insp-notice--warn"{% if not loop.first %} style="margin-top:var(--space-2)"{% endif %}>
-      <div class="insp-notice__title">Treaty Number {{ m.treaty_number }} has different loss-affecting terms in {{ m.member_names|length }} members</div>
-      <p>Differing terms: {{ m.differing_terms|join(', ') }}. Risk Modeler groups these as one treaty, so the grouped result may not be what either member produced alone.</p>
-      <ul>{% for name in m.member_names %}<li>{{ name }}</li>{% endfor %}</ul>
-      {% if m.treaty_ids %}<p style="margin-top:var(--space-2)">Treaty IDs: {{ m.treaty_ids|join(', ') }}</p>{% endif %}
+    <div class="insp-treaty">
+      <div class="insp-treaty__head">
+        <b>{{ m.treaty_number }}</b>
+        <span>{{ m.rows|length }} treaties · {{ m.analysis_count }} analys{{ 'is' if m.analysis_count == 1 else 'es' }}</span>
+        <span class="insp-treaty__diff">Differs on {{ m.differing_terms|join(', ') }}</span>
+      </div>
+      <div class="insp-table-wrap">
+        <table class="insp-table insp-table--treaty">
+          <thead><tr><th class="insp-table__name">Analysis</th><th class="insp-table__key">Analysis ID</th><th class="insp-table__key">Treaty ID</th><th class="insp-table__key">Treaty Number</th>{% for key, label in screen.treaty_columns %}<th class="insp-table__key{{ ' insp-diff' if key in m.differing_keys }}">{{ label }}</th>{% endfor %}</tr></thead>
+          <tbody>
+            {% for r in m.rows %}
+            <tr>
+              <td class="insp-table__name">{{ r.analysis_name }}</td>
+              <td class="n">{{ r.analysis_id }}</td>
+              <td class="n">{% if r.treaty_id %}{{ r.treaty_id }}{% else %}<span class="na">&mdash;</span>{% endif %}</td>
+              <td class="n">{{ r.treaty_number }}</td>
+              {% for key, _ in screen.treaty_columns %}<td class="n{{ ' insp-diff' if key in m.differing_keys }}">{{ attr_val(r.terms[key]) }}</td>{% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
     {% else %}
     <div class="insp-notice insp-notice--ok">No treaty number appears with different loss-affecting terms across the members.</div>

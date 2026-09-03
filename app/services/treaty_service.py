@@ -75,7 +75,7 @@ def humanize_key(key: str) -> str:
     return spaced[:1].upper() + spaced[1:]
 
 
-def _display_value(value: Any, key: str | None = None) -> Any:
+def display_value(value: Any, key: str | None = None) -> Any:
     """An RM attribute value shaped for DISPLAY: a sub-object collapses to its
     human label — ``code`` first (currency ``{code: USD}``), else the first
     non-empty ``*Name`` key (cedant ``{cedantId, cedantName}`` → the name, not
@@ -104,7 +104,7 @@ def _display_value(value: Any, key: str | None = None) -> Any:
                    if isinstance(v, (str, int, float)) and str(v).strip()]
         return ", ".join(scalars) or None
     if isinstance(value, (list, tuple)):
-        parts = [str(p) for p in (_display_value(v) for v in value)
+        parts = [str(p) for p in (display_value(v) for v in value)
                  if p not in (None, "")]
         return ", ".join(parts) or None
     return value
@@ -137,14 +137,14 @@ class TreatyRow:
             twin = _ALIAS_OF.get(k.lower())
             if twin and twin in attrs and str(attrs[twin]) == str(v):
                 continue
-            items.append((humanize_key(k), _display_value(v, key=k)))
+            items.append((humanize_key(k), display_value(v, key=k)))
         return items
 
     def display(self, key: str) -> Any:
         """One attribute shaped for display (the condensed columns): enum codes
         spelled out, date-times date-truncated, sub-objects collapsed — same
         shaping as the expanded grid."""
-        return _display_value((self.attributes or {}).get(key), key=key)
+        return display_value((self.attributes or {}).get(key), key=key)
 
     def display_presence(self, key: str) -> tuple[Any, int]:
         """A multi-valued attribute (cedant, lobs) as (first display value,
@@ -152,12 +152,12 @@ class TreatyRow:
         (8/5 D6). A scalar attribute returns (value, 0)."""
         value = (self.attributes or {}).get(key)
         if isinstance(value, (list, tuple)):
-            labels = [x for x in (_display_value(v) for v in value)
+            labels = [x for x in (display_value(v) for v in value)
                       if x not in (None, "")]
             if not labels:
                 return None, 0
             return labels[0], len(labels) - 1
-        return _display_value(value, key=key), 0
+        return display_value(value, key=key), 0
 
 
 # The two in-place overwrite paths of the idempotent upsert — same pattern as
@@ -264,4 +264,5 @@ def build_treaty_workbook(*, edm_id: Any) -> bytes:
 
 
 __all__ = ["TreatyRow", "upsert_treaty_detail", "prune_missing",
-           "list_treaties", "build_treaty_workbook", "humanize_key"]
+           "list_treaties", "build_treaty_workbook", "humanize_key",
+           "display_value"]

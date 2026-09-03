@@ -48,6 +48,7 @@ from irp_integration.grouping import (
     GroupingProblemCode,
     GroupingRegionFact,
     GroupingSimulationMapping,
+    GroupingTreaty,
 )
 
 logger = logging.getLogger(__name__)
@@ -1506,5 +1507,6 @@ __all__ = [
     "GroupingInspection", "GroupingMember", "GroupingRegionFact",
     "GroupingPartition", "GroupingPartitionKey", "EventRateSchemeOption",
     "GroupingProblem", "GroupingProblemCode", "GroupingSimulationMapping",
+    "GroupingTreaty",
     "IRPIntegrationError", "IRPGroupingValidationError",
 ]

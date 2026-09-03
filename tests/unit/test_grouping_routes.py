@@ -11,7 +11,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.testclient import TestClient
 
 from app.services import analysis_service
-from app.services.irp_gateway import GroupingPartitionKey, GroupingProblem
+from app.services.irp_gateway import (
+    GroupingPartitionKey,
+    GroupingProblem,
+    GroupingTreaty,
+)
 from db import execute, execute_one
 from tests.unit.analysis_rows import seed_currency, seed_edm
 from tests.unit.grouping_rows import (
@@ -149,7 +153,17 @@ def test_inspect_renders_an_elt_group_ready_to_submit(iteration2_db, fake_irp):
     assert "<dt>Treaties</dt><dd>No mismatches</dd>" in response.text
 
 
-def test_inspect_lists_a_treaty_mismatch_without_blocking(iteration2_db, fake_irp):
+def _treaty(analysis_id: int, treaty_id: int | None, **overrides) -> GroupingTreaty:
+    terms = {"treatyType": "CATA", "effectiveDate": "2026-01-01T00:00:00.000Z",
+             "expirationDate": "2026-12-31T00:00:00.000Z",
+             "attachmentPoint": 5_000_000, "occurrenceLimit": 10_000_000,
+             "riskLimit": 1_000_000, "currency": "USD"}
+    terms.update(overrides)
+    return GroupingTreaty(analysis_id=analysis_id, treaty_id=treaty_id,
+                          treaty_number="XOL-2026-01", terms=terms)
+
+
+def test_inspect_tables_a_treaty_mismatch_without_blocking(iteration2_db, fake_irp):
     ctx = _seeded_submission()
     ids = ctx["irp_ids"]
     fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
@@ -157,22 +171,53 @@ def test_inspect_lists_a_treaty_mismatch_without_blocking(iteration2_db, fake_ir
         message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
         analysis_ids=tuple(ids), treaty_numbers=("XOL-2026-01",),
         treaty_ids=(88412, 90177),
-        differing_fields=("attachmentPoint", "occurrenceLimit")),))
+        differing_fields=("attachmentPoint", "occurrenceLimit"),
+        treaties=(_treaty(ids[0], 88412),
+                  _treaty(ids[1], 90177, attachmentPoint=2_500_000,
+                          occurrenceLimit=2_000_000))),))
 
     response = _inspect(_client(), ctx)
 
     assert response.status_code == 200
-    assert ("Treaty Number XOL-2026-01 has different loss-affecting terms in 2 members"
-            in response.text)
-    assert "Differing terms: Attachment Point, Occurrence Limit." in response.text
-    assert "<li>CRE_P1_T1</li>" in response.text and "<li>CRE_P2_T1</li>" in response.text
-    assert "Treaty IDs: 88412, 90177" in response.text
+    assert "<b>XOL-2026-01</b>" in response.text
+    assert "2 treaties · 2 analyses" in response.text
+    assert "Differs on Attachment Point, Occurrence Limit" in response.text
+    for label in ("Analysis ID", "Treaty ID", "Treaty Number", "Treaty Type",
+                  "Effective Date", "Expiration Date", "Per Risk Limit",
+                  "Currency"):
+        assert f">{label}</th>" in response.text
+    # the two differing terms mark their headers, the seven others do not
+    assert response.text.count('insp-table__key insp-diff"') == 2
+    assert "CRE_P1_T1" in response.text and "CRE_P2_T1" in response.text
+    assert '<td class="n">88412</td>' in response.text
+    assert '<td class="n insp-diff">5,000,000</td>' in response.text
+    assert '<td class="n insp-diff">2,500,000</td>' in response.text
+    assert '<td class="n">Catastrophe</td>' in response.text
+    assert '<td class="n">2026-01-01</td>' in response.text
     assert "Treaty mismatches do not stop the grouping." in response.text
     assert "<b>1</b> treaty mismatch<" in response.text
     assert ('<dt>Treaties</dt><dd><span class="badge badge--warning badge--sm">1 mismatch</span> '
             '<span class="tag-empty">XOL-2026-01</span></dd>') in response.text
     assert "data-inspection-ready" in response.text
     assert 'name="expected_inspection_fingerprint"' in response.text
+
+
+def test_inspect_shows_an_em_dash_for_a_treaty_without_an_id(iteration2_db, fake_irp):
+    ctx = _seeded_submission()
+    ids = ctx["irp_ids"]
+    fake_irp.seed_grouping_inspection(ids, warnings=(GroupingProblem(
+        code="inconsistent_treaty_terms",
+        message="Treaty number XOL-2026-01 has inconsistent loss-affecting terms.",
+        analysis_ids=tuple(ids), treaty_numbers=("XOL-2026-01",),
+        treaty_ids=(88412,), differing_fields=("currency",),
+        treaties=(_treaty(ids[0], 88412),
+                  _treaty(ids[1], None, currency="CAD"))),))
+
+    response = _inspect(_client(), ctx)
+
+    assert response.status_code == 200
+    assert '<td class="n"><span class="na">&mdash;</span></td>' in response.text
+    assert '<td class="n insp-diff">CAD</td>' in response.text
 
 
 def test_inspect_offers_only_the_members_schemes_for_a_conflict(

@@ -56,11 +56,13 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    mismatch count, treaty mismatch count), one table row per peril · region ·
    model version with the members by name and the scheme each row uses, and
    the treaty section. When two members carry a treaty with the same Treaty
-   Number but a differing attachment point, the treaty section shows an amber
-   notice naming the treaty number, "Differing terms: Attachment Point", both
-   members, and the treaty ids, and screen 3's summary shows a Treaties row
-   with the "1 mismatch" badge; identical treaties show the green one-liner and
-   "0 treaty mismatches". **Next** is enabled either way. Click it: screen 3 shows the name, output, and members
+   Number but a differing attachment point, the treaty section shows a table
+   headed by the treaty number, "2 treaties · 2 analyses" and "Differs on
+   Attachment Point", with one row per member: read the two attachment points
+   off the marked column and confirm they are the values Risk Modeler shows
+   for those analyses, not the EDM definition. Screen 3's summary shows a
+   Treaties row with the "1 mismatch" badge; identical treaties show the green
+   one-liner and "0 treaty mismatches". **Next** is enabled either way. Click it: screen 3 shows the name, output, and members
    on the left, and currency/scheme/vintage prefilled from the env defaults
    and Propagate detailed output ON on the right; an ELT group shows no
    simulation count. Click **Back** twice: screen 1 still has your members
