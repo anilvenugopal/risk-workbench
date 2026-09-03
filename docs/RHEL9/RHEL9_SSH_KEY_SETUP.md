@@ -112,7 +112,7 @@ owner can read/write it."
 ### Step 3 — verify
 
 ```bash
-ssh -i ~/.ssh/risk-workbench-deploy dev-user@172.19.253.47
+ssh -i ~/.ssh/risk-workbench-deploy cinreadm@172.19.253.47
 ```
 
 (replace `172.19.253.47` with RHEL9's actual current address — see
@@ -174,7 +174,7 @@ step — untested in this project, verify it works before relying on it.
 ### Step 3 — verify
 
 ```powershell
-ssh -i $env:USERPROFILE\.ssh\risk-workbench-deploy dev-user@172.19.253.47
+ssh -i $env:USERPROFILE\.ssh\risk-workbench-deploy cinreadm@172.19.253.47
 ```
 
 (replace `172.19.253.47` with RHEL9's actual current address — see
@@ -213,7 +213,7 @@ jobs:
       - uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-      - run: ssh -o StrictHostKeyChecking=no dev-user@<rhel9-host> "deploy.sh"
+      - run: ssh -o StrictHostKeyChecking=no cinreadm@<rhel9-host> "deploy.sh"
 ```
 
 **Persistence**: not written to disk by `webfactory/ssh-agent`; lives only
@@ -249,7 +249,7 @@ steps:
   inputs:
     sshEndpoint: myServerSshConnection   # name of the SSH service connection
     runOptions: 'commands'
-    commands: 'cd /opt/risk-workbench && bash infra/scripts/rhel9/rhel9-app-install.sh'
+    commands: 'cd /rms && bash infra/scripts/rhel9/rhel9-app-install.sh'
 ```
 
 A sibling task, `CopyFilesOverSSH@0`, handles file transfer using the same
