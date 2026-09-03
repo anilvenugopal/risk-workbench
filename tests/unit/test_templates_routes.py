@@ -427,6 +427,24 @@ def test_edit_form_prefills_scheme_options_for_the_stored_profile(
     assert '<option value="RMS WS" selected>' in body
 
 
+def test_edit_form_keeps_a_saved_template_free_of_a_scheme(
+    iteration2_db, fake_irp,
+):
+    """scheme_options() pre-selects a lone profile match on the profile-change
+    cascade (FR-007), but a template saved without a scheme must reopen without
+    one — otherwise the next save silently puts the scheme back."""
+    metadata_jobs._sync_irp_metadata_body()
+    template_id = template_service.save_template(_values_for_service(
+        name="US Wind HD", analysis_profile_name="RMS Default HD",
+        event_rate_scheme_name=None,
+    ))
+
+    body = _client().get(f"/templates/analysis-templates/{template_id}").text
+
+    assert "<option value=\"\" selected>Choose a scheme" in _flat(body)
+    assert '<option value="RMS WS" selected>' not in body
+
+
 def test_edit_form_labels_hidden_scheme_as_hidden_not_missing(
     iteration2_db, fake_irp,
 ):

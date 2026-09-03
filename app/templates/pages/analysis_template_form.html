@@ -104,7 +104,7 @@
 
       <div class="wf-field">
         <label>EVENT RATE SCHEME</label>
-        <div class="ta" x-data="selectSearch()" @click.outside="close()">
+        <div class="ta" x-data="selectSearch({ clearable: true })" @click.outside="close()">
           <select class="wf-field__input" name="event_rate_scheme_name" id="tpl-scheme"
                   x-ref="select" x-show="false" @htmx:after-swap="sync()">
             {% with options = event_rate_scheme_options %}{% include "partials/scheme_options.html" %}{% endwith %}

@@ -386,10 +386,14 @@ document.addEventListener('alpine:init', () => {
   // list instead of a server round trip. `sync()` also re-runs after htmx swaps
   // a fresh option list into the cascade target (event rate scheme), since
   // replacing <option> children doesn't fire a native change event.
-  Alpine.data('selectSearch', () => ({
+  Alpine.data('selectSearch', (options = {}) => ({
     isOpen: false,
     activeIndex: -1,
     query: '',
+    // Optional fields pass { clearable: true } for a "None" row. The text input
+    // only filters, so without that row an analyst cannot undo a selection —
+    // emptying the input and leaving restores the committed label via close().
+    clearable: options.clearable === true,
     init() {
       this.sync();
     },
@@ -397,9 +401,11 @@ document.addEventListener('alpine:init', () => {
       return this.$refs.select;
     },
     get allOptions() {
-      return Array.from(this.select.options)
+      const rows = Array.from(this.select.options)
         .filter((o) => o.value !== '')
         .map((o) => ({ value: o.value, label: o.textContent.trim() }));
+      if (this.clearable) rows.unshift({ value: '', label: 'None' });
+      return rows;
     },
     get filteredOptions() {
       const term = this.query.trim().toLowerCase();
