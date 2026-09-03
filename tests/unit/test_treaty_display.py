@@ -12,7 +12,7 @@ number/boolean formatting. The Excel export stays verbatim (full fidelity).
 
 from __future__ import annotations
 
-from app.services.treaty_service import TreatyRow
+from app.services.treaty_service import TreatyRow, humanize_key
 
 # The live RM lob sub-object shape (user-reported 2026-07-24).
 LOBS = [
@@ -39,6 +39,11 @@ def test_uri_attribute_is_dropped_from_the_grid():
 def test_cedant_object_shows_the_name_only():
     items = _items({"cedant": {"cedantId": "ASST", "cedantName": "Asset Re"}})
     assert items["Cedant"] == "Asset Re"
+
+
+def test_initialisms_keep_their_case_in_labels():
+    assert [humanize_key(k) for k in ("maolAmount", "percentageRiShare", "occurrenceLimit")] == [
+        "MAOL Amount", "Percentage RI Share", "Occurrence Limit"]
 
 
 def test_lobs_list_shows_lob_names_not_raw_json():

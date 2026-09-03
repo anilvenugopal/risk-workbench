@@ -58,12 +58,13 @@ _ENUM_LABELS: dict[str, dict[str, str]] = {
 # mis-coding checks (FR-021).
 _ALIAS_OF = {"id": "treatyId", "name": "treatyName", "number": "treatyNumber"}
 
-_LABEL_OVERRIDES = {"lobs": "Lines of Business"}
+_LABEL_OVERRIDES = {"lobs": "Lines of Business", "maolamount": "MAOL Amount",
+                    "percentagerishare": "Percentage RI Share"}
 
 _TIMESTAMPISH = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}")
 
 
-def _humanize_key(key: str) -> str:
+def humanize_key(key: str) -> str:
     """A Risk Modeler camelCase attribute key as a display label:
     ``occurrenceLimit`` → ``Occurrence Limit``."""
     override = _LABEL_OVERRIDES.get(str(key).lower())
@@ -136,7 +137,7 @@ class TreatyRow:
             twin = _ALIAS_OF.get(k.lower())
             if twin and twin in attrs and str(attrs[twin]) == str(v):
                 continue
-            items.append((_humanize_key(k), _display_value(v, key=k)))
+            items.append((humanize_key(k), _display_value(v, key=k)))
         return items
 
     def display(self, key: str) -> Any:
@@ -263,4 +264,4 @@ def build_treaty_workbook(*, edm_id: Any) -> bytes:
 
 
 __all__ = ["TreatyRow", "upsert_treaty_detail", "prune_missing",
-           "list_treaties", "build_treaty_workbook"]
+           "list_treaties", "build_treaty_workbook", "humanize_key"]
