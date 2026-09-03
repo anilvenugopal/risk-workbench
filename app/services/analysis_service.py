@@ -317,6 +317,26 @@ def _text(value: Any) -> str | None:
     return str(value)
 
 
+def _event_rate_scheme(p: dict) -> str | None:
+    """Own analyses list their scheme in ``eventRateSchemeNames``. A group's
+    list is empty; its schemes (one per member region/peril) sit in
+    ``additionalProperties`` under key ``eventRateSchemes``, each property's
+    ``value`` an object with ``eventRateSchemeName``."""
+    named = _text(p.get("eventRateSchemeNames"))
+    if named:
+        return named
+    for prop in p.get("additionalProperties") or []:
+        if isinstance(prop, dict) and prop.get("key") == "eventRateSchemes":
+            names = []
+            for entry in prop.get("properties") or []:
+                value = entry.get("value") if isinstance(entry, dict) else None
+                name = value.get("eventRateSchemeName") if isinstance(value, dict) else None
+                if name and name not in names:
+                    names.append(name)
+            return ", ".join(names) or None
+    return None
+
+
 def _to_display(settings: dict | None) -> AnalysisSettings:
     p = settings or {}
     return AnalysisSettings(
@@ -333,8 +353,7 @@ def _to_display(settings: dict | None) -> AnalysisSettings:
         line_of_business=_text(_first(p, "lineOfBusiness", "lob")),
         term=_text(_first(p, "term", "timeDependency", "rateTimeDependency")),
         pla=_text(_first(p, "lossAmplification", "pla", "plaEnabled")),
-        # eventRateSchemeNames: a LIST of {id, code, name} reference objects.
-        event_rate_scheme=_text(p.get("eventRateSchemeNames")),
+        event_rate_scheme=_event_rate_scheme(p),
         rate_vintage=_text(_first(p, "rateVintage", "eventRateSchemeVersion")),
     )
 

@@ -155,6 +155,43 @@ def test_group_analysis_surfaced_as_group(iteration2_db):
     assert g.analyses[0].is_group is True
 
 
+# The LIVE group get-analysis payload (2026-09-02): eventRateSchemeNames is
+# EMPTY for a group; its schemes sit in additionalProperties under key
+# eventRateSchemes, one property per member region/peril.
+def _scheme_property(*names: str) -> dict:
+    return {"key": "eventRateSchemes", "properties": [
+        {"id": 0, "name": "", "value": {
+            "regionCode": "NA", "perilCode": "WS", "framework": "ELT",
+            "eventRateSchemeId": 738 + i, "eventRateSchemeName": name,
+            "simulationSetId": 0, "simulationSetName": "", "simulationPeriods": 0}}
+        for i, name in enumerate(names)]}
+
+
+def test_group_event_rate_scheme_read_from_additional_properties(iteration2_db):
+    rdm, edm = _rdm("R"), _edm("E")
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="1", is_group=True, settings=dict(
+        SETTINGS_LIVE, engineType="Group", eventRateSchemeNames=[],
+        additionalProperties=[
+            {"key": "propagateDetailedOutput",
+             "properties": [{"id": 0, "name": "", "value": "Yes"}]},
+            _scheme_property("RMS 2025 Historical Event Rates")]))
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="2", is_group=True, settings=dict(
+        SETTINGS_LIVE, eventRateSchemeNames=[], additionalProperties=[
+            _scheme_property("RMS 2025 Historical Event Rates",
+                             "RMS 2025 Historical Event Rates",
+                             "RMS 2025 Stochastic Event Rates")]))
+    _analysis(rdm_id=rdm, edm_id=edm, irp_id="3", is_group=True, settings=dict(
+        SETTINGS_LIVE, eventRateSchemeNames=[], additionalProperties=[]))
+
+    [g] = analysis_service.list_broker_analyses(rdm_id=rdm)
+    by_irp = {a.irp_id: a for a in g.analyses}
+    assert by_irp["1"].display.event_rate_scheme == "RMS 2025 Historical Event Rates"
+    # one entry per member; repeated names collapse
+    assert by_irp["2"].display.event_rate_scheme == (
+        "RMS 2025 Historical Event Rates, RMS 2025 Stochastic Event Rates")
+    assert by_irp["3"].display.event_rate_scheme is None
+
+
 def test_only_broker_rows_of_this_rdm_and_no_deleted(iteration2_db):
     rdm, other, edm = _rdm("R"), _rdm("R2"), _edm("E")
     _analysis(rdm_id=rdm, edm_id=edm, irp_id="1")
