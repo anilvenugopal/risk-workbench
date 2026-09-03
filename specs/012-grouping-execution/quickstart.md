@@ -80,8 +80,9 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    chosen" on screen 3 names your pick; the group finishes (US-2 acceptance
    1, SC-002). Pick a DLM + an HD and click Next: output reads PLT, every ELT
    row shows a Simulation set dropdown listing the platform's sets for that
-   partition with their period counts and none preselected, the HD row shows
-   none, and Next stays disabled until each is chosen; changing a scheme
+   partition with their period counts and none preselected, the HD row names
+   the PET its member ran on with that PET's period count and offers no
+   choice, and Next stays disabled until each dropdown is chosen; changing a scheme
    dropdown leaves the simulation-set dropdown as it was (FR-021). Screen 3
    shows the simulation count prefilled with the largest member PLT length
    (US-2 acceptance 2).

@@ -15,6 +15,7 @@ from app.services.grouping_service import GroupingInspectionView
 from app.services.irp_gateway import (
     GroupingPartition,
     GroupingPartitionKey,
+    GroupingRegionFact,
     GroupingTreaty,
     SimulationSetOption,
 )
@@ -51,6 +52,15 @@ class SimulationSetChoice:
 
 
 @dataclass(frozen=True)
+class ObservedPet:
+    """The PET one PLT member of the partition ran on. Risk Modeler shows it in
+    the group dialog's Simulation set column; the analyst cannot change it."""
+    pet_id: int
+    label: str                          # the PETMetadata name, or ``PET <id>``
+    simulation_periods: int | None
+
+
+@dataclass(frozen=True)
 class PartitionRow:
     key: GroupingPartitionKey
     label: str                          # ``WS / NA / 11.0``
@@ -60,6 +70,7 @@ class PartitionRow:
     options: tuple[SchemeOption, ...]
     simulation_set_required: bool       # an ELT partition of a PLT group
     simulation_set_options: tuple[SimulationSetChoice, ...]
+    observed_pets: tuple[ObservedPet, ...]  # a PLT partition's fixed PETs
 
     @property
     def resolved(self) -> SchemeOption | None:
@@ -127,8 +138,10 @@ class InspectionScreen:
         return len(self.treaty_mismatches)
 
     @property
-    def simulation_sets_required(self) -> bool:
-        return any(row.simulation_set_required for row in self.rows)
+    def simulation_sets_shown(self) -> bool:
+        """Every partition of a PLT group has a simulation set: chosen for an
+        ELT partition, fixed by the members for a PLT one."""
+        return self.output_loss_table == "PLT"
 
 
 def build_inspection_screen(view: GroupingInspectionView) -> InspectionScreen:
@@ -199,7 +212,19 @@ def _row(view: GroupingInspectionView, part: GroupingPartition) -> PartitionRow:
         mode=mode, options=options,
         simulation_set_required=part.simulation_set_selection_required,
         simulation_set_options=tuple(
-            _simulation_set(partition, opt) for opt in part.simulation_set_options))
+            _simulation_set(partition, opt) for opt in part.simulation_set_options),
+        observed_pets=_observed_pets(facts))
+
+
+def _observed_pets(facts: list[GroupingRegionFact]) -> tuple[ObservedPet, ...]:
+    pets: dict[int, ObservedPet] = {}
+    for fact in facts:
+        if fact.framework == "PLT" and fact.pet_id is not None:
+            pets.setdefault(fact.pet_id, ObservedPet(
+                pet_id=fact.pet_id,
+                label=fact.pet_name or f"PET {fact.pet_id}",
+                simulation_periods=fact.periods))
+    return tuple(pets[pet_id] for pet_id in sorted(pets))
 
 
 def _simulation_set(partition: dict, opt: SimulationSetOption) -> SimulationSetChoice:
@@ -212,6 +237,7 @@ def _simulation_set(partition: dict, opt: SimulationSetOption) -> SimulationSetC
 
 __all__ = [
     "InspectionScreen",
+    "ObservedPet",
     "PartitionRow",
     "ProblemText",
     "SchemeOption",

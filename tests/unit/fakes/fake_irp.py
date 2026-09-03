@@ -705,6 +705,7 @@ class FakeIRP:
                 engine_version="RL25", sub_region="NA", model_region_code="NA_WS",
                 event_rate_scheme_id=None if plt else scheme,
                 pet_id=(900 + n) if plt else None,
+                pet_name=f"PET {900 + n} rates" if plt else None,
                 periods=periods.get(analysis_id), apply_contract_flag=False)
             members.append(GroupingMember(
                 analysis_id=analysis_id, exists=True, is_group=False,

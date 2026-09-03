@@ -97,17 +97,20 @@ Fragment states, all rendered into `#group-inspection`:
   `Scheme <id>` without one); `resolved` (one option) shows that label;
   `none` shows an em dash. The select carries no `required` attribute — a
   hidden required select would block the browser's submit; the Alpine gate
-  and `request_grouping` enforce the choice. When any partition carries
-  `simulation_set_selection_required` (the ELT partitions of a PLT group) the
-  table gains a Simulation set column: such a row is a
+  and `request_grouping` enforce the choice. When the group output is PLT the
+  table gains a Simulation set column. A row carrying
+  `simulation_set_selection_required` (an ELT partition of a PLT group) is a
   `<select name="simulation_set_selection" data-partition="<peril> / <region> / <model version>">`
   with an empty first option and one option per `simulation_set_options` in
   package order, none preselected, whose value is the JSON
   `{"peril_code","region_code","model_version","simulation_set_id"}`, text
   `<label> (<periods> periods)` and `data-label` the label (`Simulation set
   <id>` without one). The option's reference `event_rate_scheme_id` is not
-  rendered; the scheme and simulation-set selects are independent. PLT/HD
-  rows show an em dash in that column, and an ELT group has no column. Then
+  rendered; the scheme and simulation-set selects are independent. A PLT/HD
+  row shows one `.insp-resolved` per distinct `pet_id` on its members' PLT
+  region facts, reading `<pet_name> (<periods> periods)` — `PET <id>` when
+  the `PETMetadata` lookup named no row, and no period text when the region
+  carried no period count. An ELT group has no column. Then
   the Treaty mismatches
   section: one `.insp-treaty` per `inspection.warnings` entry with
   `code == "inconsistent_treaty_terms"`, each a heading of the Treaty Number,

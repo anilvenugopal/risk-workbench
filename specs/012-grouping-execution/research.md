@@ -418,4 +418,18 @@ pairing above.
 - Q: Filter the simulation sets by the chosen scheme, since each reference row names an `eventRateSchemeId`? → A: No. Risk Modeler accepted set 147 (reference scheme 739) under scheme 738 for the NA/WS partition; the package documents `SimulationSetOption.event_rate_scheme_id` as descriptive only. The two selects are independent and a scheme change does not touch the simulation-set select.
 - Q: Preselect the first option, or the one whose reference scheme matches? → A: No default (Article 5, same rule as O-06 for schemes); the option order is the package's ascending id and carries no meaning. A partition with a single set still asks.
 - Q: Does the compose gate check that every required partition has a simulation set? → A: Parse and dedupe only, as for the event-rate selections; the required set is only knowable by re-inspecting, which the package does at submit. Missing, unknown-partition, and unoffered selections fail the job with the package message plus the partition in `failure_reason`; the Alpine gate keeps Next disabled until every dropdown is chosen.
-- Q: Show the HD partition's PET in the new column? → A: Not asked for; PLT/HD rows show an em dash, and the column is absent for an ELT group.
+- Q: Show the HD partition's PET in the new column? → A: Reversed the same day; see Session 2026-09-03 (HD PET names) below.
+
+### Session 2026-09-03 (HD PET names)
+
+Source: probes of the sandbox reference tables
+`/data-store/referenceTables/PETMetadata` (2,841 rows) and
+`/data-store/referenceTables/SimulationSet` (578 rows) through
+`ReferenceDataManager.get_all_pet_metadata` and `get_all_simulation_sets`,
+and irp-integration `0.8.0rc8` (commit `be1a6ef`, TestPyPI).
+
+- Q: Risk Modeler names the simulation set of an HD analysis with no ELT-to-PLT conversion, and the em dash of the previous session shows nothing. Where does the name come from? → A: `PETMetadata.petName`, keyed by the region's `petId` and the model version. `_inspect` already read that row for every PLT region fact to correct its peril and region codes from `modelRegionCode` and discarded the rest, so rc8 keeps it as `GroupingRegionFact.pet_name` at no extra request. `FINGERPRINT_VERSION` is 5.
+- Q: Resolve the `pet_id` against `SimulationSet`, the table the ELT options come from? → A: No, the name would be wrong. `PETMetadata` and `SimulationSet` are separate tables with separate ID sequences: 452 IDs occur in both and none of the 452 describe the same model region and model version. `PETMetadata` 15 is JPWS 2.0 "RMS V2.0 Stochastic Event Rates - Typhoon Events Only" while `SimulationSet` 15 is APEQ 7.0 "Philippines Earthquake, Risklink 7.0". The two only meet in the grouping request, where `regionPerilSimulationSet[].simulationSetId` carries a PET ID on a PLT row and a `SimulationSet` ID on an ELT row, and in the region payload, where Risk Modeler spells the same PET ID `petId` or `simulationSetId`.
+- Q: Keep the column hidden until some partition needs a choice? → A: No. Every partition of a PLT group has a simulation set, so the column appears whenever the group output is PLT — a group of HD members alone showed no column at all. An ELT group still has none.
+- Q: What does a PLT row show when `PETMetadata` names no single row for the PET? → A: `PET <id>`. `get_pet_metadata_exact` raising on zero or several rows already neither warns nor blocks, and the ID is the only fact left.
+- Q: One row, several PETs? → A: List them. Nothing blocks a partition whose PLT members ran on different PETs, and the grouping request carries one `regionPerilSimulationSet` entry per distinct PET.

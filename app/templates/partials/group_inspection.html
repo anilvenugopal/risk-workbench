@@ -38,10 +38,10 @@
   </div>
 
   <div>
-    <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_required %} and simulation sets{% endif %}</div>
+    <div class="exec-section-label">Event-rate schemes{% if screen.simulation_sets_shown %} and simulation sets{% endif %}</div>
     <div class="insp-table-wrap">
       <table class="insp-table">
-        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_required %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
+        <thead><tr><th class="insp-table__key">Peril</th><th class="insp-table__key">Region</th><th class="insp-table__key">Model version</th><th class="insp-table__members">Members</th><th class="insp-table__scheme">Event-rate scheme</th>{% if screen.simulation_sets_shown %}<th class="insp-table__set">Simulation set</th>{% endif %}</tr></thead>
         <tbody>
           {% for row in screen.rows %}
           <tr>
@@ -71,7 +71,7 @@
               <div class="insp-resolved tag-empty">&mdash;</div>
               {% endif %}
             </td>
-            {% if screen.simulation_sets_required %}
+            {% if screen.simulation_sets_shown %}
             <td>
               {% if row.simulation_set_required %}
               <div class="insp-choose">
@@ -85,6 +85,10 @@
                 </select>
                 <span class="wf-field__hint">Choose the simulation set for the ELT-to-PLT conversion.</span>
               </div>
+              {% elif row.observed_pets %}
+              {% for pet in row.observed_pets %}
+              <div class="insp-resolved" title="{{ pet.label }}">{{ pet.label }}{% if pet.simulation_periods %} ({{ "{:,}".format(pet.simulation_periods) }} periods){% endif %}</div>
+              {% endfor %}
               {% else %}
               <div class="insp-resolved tag-empty">&mdash;</div>
               {% endif %}

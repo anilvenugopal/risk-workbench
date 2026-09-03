@@ -278,9 +278,11 @@ def test_inspect_offers_a_simulation_set_per_elt_partition_of_a_plt_group(
     assert html.count('name="simulation_set_selection"') == 2
     assert 'aria-label="Simulation set for EQ / NA / 17.0"' in html
     assert 'aria-label="Simulation set for WS / NA / 11.0"' in html
-    # the HD partition keeps PET 15: no dropdown in its row
+    # the HD partition keeps PET 15: its row names the PET and has no dropdown
     jp_row = next(r for r in html.split("<tr>") if "<td>WS</td><td>JP</td>" in r)
     assert "<select" not in jp_row
+    assert ("RMS V2.0 Stochastic Event Rates - Typhoon Events Only "
+            "(50,000 periods)") in jp_row
     eq_values = [json.loads(v) for v in _option_values(html)
                  if '"simulation_set_id"' in v and '"EQ"' in v]
     assert [v["simulation_set_id"] for v in eq_values] == [83, 84, 85, 86, 87]
@@ -311,6 +313,12 @@ def test_inspect_renders_a_plt_group_with_the_suggested_length(
     assert 'name="num_of_simulations" min="1" step="1" value="50000"' in response.text
     assert "Target group PLT length" in response.text
     assert "Largest member: 50,000." in response.text
+    # both members are HD: the column names each PET and offers no choice
+    assert ">Simulation set</th>" in response.text
+    assert 'name="simulation_set_selection"' not in response.text
+    assert ('<div class="insp-resolved" title="PET 900 rates">'
+            "PET 900 rates (10,000 periods)</div>") in response.text
+    assert "PET 901 rates (50,000 periods)" in response.text
 
 
 def test_inspect_blocked_names_the_problem_and_offers_no_submit(

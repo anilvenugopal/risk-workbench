@@ -25,9 +25,10 @@ DLM_NAME = "CRE_EQ_HI_RES_US EQ wFFSL wDS - PERS Stochastic"
 GROUP_NAME = "HU_US Workbench Group"
 
 JP_WS = GroupingPartitionKey("WS", "JP", "2.1")
+JP_WS_PET_NAME = "RMS V2.0 Stochastic Event Rates - Typhoon Events Only"
 NA_EQ = GroupingPartitionKey("EQ", "NA", "17.0")
 NA_WS = GroupingPartitionKey("WS", "NA", "11.0")
-FINGERPRINT = "v4:" + "c" * 64
+FINGERPRINT = "v5:" + "c" * 64
 
 # Reference rows: ``event_rate_scheme_id`` names the scheme the row was built
 # for and constrains nothing — set 147 names 739 and is submitted under 738.
@@ -46,13 +47,15 @@ NA_WS_SIMULATION_SETS = (
 
 def _fact(analysis_id: int, key: GroupingPartitionKey, *, framework: str,
           engine_version: str, sub_region: str, scheme: int | None = None,
-          pet_id: int | None = None, periods: int | None = None) -> GroupingRegionFact:
+          pet_id: int | None = None, pet_name: str | None = None,
+          periods: int | None = None) -> GroupingRegionFact:
     return GroupingRegionFact(
         analysis_id=analysis_id, framework=framework, peril_code=key.peril_code,
         region_code=key.region_code, model_version=key.model_version,
         engine_version=engine_version, sub_region=sub_region,
         model_region_code=f"{sub_region}{key.peril_code}",
-        event_rate_scheme_id=scheme, pet_id=pet_id, periods=periods,
+        event_rate_scheme_id=scheme, pet_id=pet_id, pet_name=pet_name,
+        periods=periods,
         apply_contract_flag=False)
 
 
@@ -63,7 +66,8 @@ def mixed_group_inspection(hd_id: int, dlm_id: int, group_id: int) -> GroupingIn
             engine_type="HD", engine_version="HDv2.1", peril_code="WS",
             region_code="JP", model_version="2.1",
             regions=(_fact(hd_id, JP_WS, framework="PLT", engine_version="HDv2.1",
-                           sub_region="JP", pet_id=15, periods=50000),)),
+                           sub_region="JP", pet_id=15, pet_name=JP_WS_PET_NAME,
+                           periods=50000),)),
         GroupingMember(
             analysis_id=dlm_id, exists=True, is_group=False, analysis_framework="ELT",
             engine_type="DLM", engine_version="RL25", peril_code="EQ",

@@ -16,7 +16,8 @@ from app.services.irp_gateway import (
     GroupingTreaty,
     SimulationSetOption,
 )
-from tests.unit.grouping_inspections import JP_WS, NA_EQ, NA_WS, mixed_group_inspection
+from tests.unit.grouping_inspections import (
+    JP_WS, JP_WS_PET_NAME, NA_EQ, NA_WS, mixed_group_inspection)
 
 WS_NA = GroupingPartitionKey("WS", "NA", "11.0")
 
@@ -27,13 +28,15 @@ def _member(irp_id: int, name: str) -> GroupMember:
 
 
 def _fact(analysis_id: int, key=WS_NA, *, scheme: int | None = 101,
-          engine_version: str = "RL25") -> GroupingRegionFact:
+          engine_version: str = "RL25",
+          pet_name: str | None = "NA Hurricane rates") -> GroupingRegionFact:
     return GroupingRegionFact(
         analysis_id=analysis_id, framework="ELT" if scheme else "PLT",
         peril_code=key.peril_code, region_code=key.region_code,
         model_version=key.model_version, engine_version=engine_version,
         sub_region="NA", model_region_code="NA_WS", event_rate_scheme_id=scheme,
-        pet_id=None if scheme else 900, periods=None if scheme else 10000,
+        pet_id=None if scheme else 900, pet_name=None if scheme else pet_name,
+        periods=None if scheme else 10000,
         apply_contract_flag=False)
 
 
@@ -121,11 +124,14 @@ def test_a_plt_group_offers_a_simulation_set_per_elt_partition():
 
     screen = build_inspection_screen(view)
 
-    assert screen.simulation_sets_required
+    assert screen.simulation_sets_shown
     eq, jp, ws = screen.rows
     assert (jp.key, jp.mode, jp.simulation_set_required, jp.simulation_set_options) == (
         JP_WS, "none", False, ())
+    assert [(p.pet_id, p.label, p.simulation_periods) for p in jp.observed_pets] == [
+        (15, JP_WS_PET_NAME, 50000)]
     assert (eq.key, eq.mode, eq.simulation_set_required) == (NA_EQ, "resolved", True)
+    assert eq.observed_pets == ()
     assert [(o.simulation_set_id, o.simulation_periods) for o in eq.simulation_set_options] == [
         (83, 50000), (84, 50000), (85, 100000), (86, 100000), (87, 100000)]
     assert eq.simulation_set_options[4].label == "North America Earthquake Stochastic"
@@ -152,8 +158,31 @@ def test_a_simulation_set_without_a_label_is_named_by_id():
 def test_an_elt_group_needs_no_simulation_set():
     screen = build_inspection_screen(_view(TWO_MEMBERS, WS_PARTITION))
 
-    assert not screen.simulation_sets_required
+    assert not screen.simulation_sets_shown
     assert screen.rows[0].simulation_set_options == ()
+
+
+def test_an_hd_group_shows_the_pet_its_members_ran_on():
+    """No ELT partition means no choice to make, and still a simulation set to
+    show: Risk Modeler names the PET each HD member ran on."""
+    view = _view({1: [_fact(1, scheme=None)]}, (_partition([1], []),), output="PLT")
+
+    screen = build_inspection_screen(view)
+
+    assert screen.simulation_sets_shown
+    row, = screen.rows
+    assert (row.simulation_set_required, row.simulation_set_options) == (False, ())
+    assert [(p.pet_id, p.label, p.simulation_periods) for p in row.observed_pets] == [
+        (900, "NA Hurricane rates", 10000)]
+
+
+def test_a_pet_without_a_name_is_named_by_id():
+    view = _view({1: [_fact(1, scheme=None, pet_name=None)]},
+                 (_partition([1], []),), output="PLT")
+
+    row, = build_inspection_screen(view).rows
+
+    assert [p.label for p in row.observed_pets] == ["PET 900"]
 
 
 def test_problems_carry_the_message_and_the_members_display_names():
