@@ -32,7 +32,7 @@ An analyst combines finished analyses and groups within a submission into a sing
 
 ## Non-negotiable behavior
 
-1. Event-rate schemes are chosen by the analyst when members conflict; the Workbench never selects one. Choices are limited to schemes the members use.
+1. Event-rate schemes are chosen by the analyst when members conflict; the Workbench never selects one. Choices are limited to schemes the members use. In a PLT group, the simulation set of each ELT partition is also the analyst's choice, made independently of the scheme.
 2. Only finished analyses and groups are selectable as members; a submit with unmet prerequisites is blocked and the block is visible.
 3. A group is treated like any other analysis — viewed and retrieved the same way; the results grid discloses a group via the Engine column, not the name.
 4. The member pick-list is scoped to the current submission; members may span EDMs and RDMs within it.
@@ -120,6 +120,7 @@ Analysts are not always in the Workbench. Every individual analysis the Workbenc
 - **FR-018**: Groups can be members of other groups (nested grouping).
 - **FR-019**: The simulation count is a positive integer. For a PLT group the analyst confirms it at compose time as the target group PLT length, prefilled with the largest member PLT length; for an ELT group the dialog shows no count and submits 1 (O-06).
 - **FR-020**: The inspection screen shows one table per mismatched Treaty Number, in Risk Modeler's column order — analysis name, analysis id, treaty id, Treaty Number, treaty type, effective and expiration date, attachment point, occurrence limit, per risk limit, currency — one row per treaty as applied to its member, with the differing columns marked. Risk Modeler compares more terms than it shows, so the heading names every differing term by display name. The facts strip shows the mismatch count and the settings summary shows the count and the treaty numbers. Mismatches never block the submit.
+- **FR-021**: When the group output is PLT, the analyst chooses a simulation set for each ELT peril/region/model-version partition from the platform's sets for that partition, shown by name and period count; no set is preselected, the choice is independent of the event-rate scheme, and PLT/HD partitions keep their own PET. A partition with no available set blocks the inspection.
 
 ## Key Entities
 

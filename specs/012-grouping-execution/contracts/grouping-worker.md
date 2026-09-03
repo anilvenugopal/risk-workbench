@@ -16,7 +16,10 @@
   "event_rate_selections": [
     {"peril_code": "WS", "region_code": "NA", "model_version": "11.0", "event_rate_scheme_id": 738}
   ],
-  "expected_inspection_fingerprint": "v1:<sha256>",
+  "simulation_set_selections": [
+    {"peril_code": "WS", "region_code": "NA", "model_version": "11.0", "simulation_set_id": 147}
+  ],
+  "expected_inspection_fingerprint": "v4:<sha256>",
   "members": [
     {"analysis_id": "<uuid>", "irp_id": 5630592, "name": "<submitted ≤64 name>", "display_name": "<untruncated name>", "kind": "own"},
     {"analysis_id": "<uuid>", "irp_id": 5630601, "name": "<name>",               "display_name": "<untruncated name>", "kind": "broker"},
@@ -27,7 +30,9 @@
 
 `irp_id` is the member's Platform `analysisId` (`irp_analysis.irp_id` as an
 int). `event_rate_selections` holds one entry per partition the inspection
-marked `event_rate_selection_required`; `expected_inspection_fingerprint` is
+marked `event_rate_selection_required`; `simulation_set_selections` one per
+partition marked `simulation_set_selection_required` (the ELT partitions of a
+PLT group); `expected_inspection_fingerprint` is
 the `GroupingInspection.fingerprint` the analyst inspected. The worker
 executes this verbatim (AGENTS.md rule 8) — it never re-derives the member
 set, name, currency, simulation count, selections, or fingerprint.
@@ -74,8 +79,8 @@ CR-04 `rwb_actor`; queue name `submit_grouping`; `max_retries=0`.
 
 The gateway re-exports the package grouping types (`GroupingInspection`,
 `GroupingMember`, `GroupingRegionFact`, `GroupingPartition`,
-`GroupingPartitionKey`, `EventRateSchemeOption`, `GroupingProblem`,
-`GroupingProblemCode`, `GroupingSimulationMapping`) and
+`GroupingPartitionKey`, `EventRateSchemeOption`, `SimulationSetOption`,
+`GroupingProblem`, `GroupingProblemCode`, `GroupingSimulationMapping`) and
 `IRPGroupingValidationError`, so the service, worker, templates, and `FakeIRP`
 never import `irp_integration`.
 
@@ -96,6 +101,7 @@ def submit_grouping(
     propagate_detailed_losses: bool,
     num_of_simulations: int,                  # > 0
     event_rate_selections: list[dict],        # {peril_code, region_code, model_version, event_rate_scheme_id}
+    simulation_set_selections: list[dict],    # {peril_code, region_code, model_version, simulation_set_id}
     expected_inspection_fingerprint: str,
 ) -> tuple[str, dict]:                        # (irp job id, exact request body)
 ```
@@ -104,7 +110,9 @@ Builds `GroupingCurrency(code, scheme, vintage, as_of_date=currency["asOfDate"])
 `GroupingSettings(analysis_name=group_name, currency, propagate_detailed_losses,
 num_of_simulations)` (description and windows omitted), and one
 `EventRateSelection(GroupingPartitionKey(peril_code, region_code,
-model_version), event_rate_scheme_id)` per selection, then calls
+model_version), event_rate_scheme_id)` per event-rate selection and one
+`SimulationSetSelection(GroupingPartitionKey(...), simulation_set_id)` per
+simulation-set selection, then calls
 `client.grouping.submit(...)`. Returns `(str(submission.job_id),
 submission.request_body)`. `IRPGroupingValidationError` and `IRPAPIError`
 propagate to the worker.

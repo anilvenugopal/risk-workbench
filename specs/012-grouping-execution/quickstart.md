@@ -78,14 +78,18 @@ origin CHECK, `uq_irp_analysis_live_submission_name`,
    the members' schemes with their member counts, none preselected, and Next
    stays disabled until you choose. Choose, continue, and Group; "Schemes
    chosen" on screen 3 names your pick; the group finishes (US-2 acceptance
-   1, SC-002). Pick a DLM + an HD and click Next: output reads PLT and screen
-   3 shows the simulation count prefilled with the largest member PLT length
+   1, SC-002). Pick a DLM + an HD and click Next: output reads PLT, every ELT
+   row shows a Simulation set dropdown listing the platform's sets for that
+   partition with their period counts and none preselected, the HD row shows
+   none, and Next stays disabled until each is chosen; changing a scheme
+   dropdown leaves the simulation-set dropdown as it was (FR-021). Screen 3
+   shows the simulation count prefilled with the largest member PLT length
    (US-2 acceptance 2).
 5. Blocked, error, and changed states: inspect a member set the platform
-   cannot group (for example two HD analyses run against different
-   simulation sets in one partition) — screen 2 opens with "These members
-   cannot be grouped", the problem and its members, the row's scheme cell
-   reads "Different simulation sets", and Next stays disabled; nothing
+   cannot group (for example a DLM + HD pair whose ELT partition has no
+   simulation set in the platform's reference data) — screen 2 opens with
+   "These members cannot be grouped", the problem and its members, and Next
+   stays disabled; nothing
    reaches Risk Modeler (US-2 acceptance 3). Inspect with Risk Modeler
    unreachable: screen 2 shows the read error with **Retry**. Inspect, then
    change a member's facts in Risk Modeler before submitting — the job records

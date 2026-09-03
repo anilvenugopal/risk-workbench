@@ -35,7 +35,10 @@ per-queue worker framework this feature extends (T-01).
   result into screen 2: a facts strip and one table row per peril / region /
   model-version partition (members by display name; the scheme cell is a
   `<select>` limited to the members' schemes with none preselected where they
-  differ, the shared scheme where they agree), the blocking problems above the
+  differ, the shared scheme where they agree; in a PLT group each ELT row also
+  carries a simulation-set `<select>` over the platform's sets for the
+  partition, none preselected, independent of the scheme — FR-021), the
+  blocking problems above the
   table, one treaty mismatch table per Treaty Number from
   `inspection.warnings` below it (never blocking), and the hidden fingerprint
   and inspected ids when nothing blocks.
@@ -84,7 +87,7 @@ per-queue worker framework this feature extends (T-01).
 | Database | `irp_analysis.submission_id` (FK, nullable) + origin CHECK third leg + filtered unique `(submission_id, name)`; new `irp_analysis_group_member` table; `submit_grouping` seeded in `rwb_job_type_kind` (migration, `seed_db.py`, `iteration1_mirror.py`) |
 | Worker | New `app/workers/grouping_jobs.py` (`submit_grouping` actor, own queue; tenant-wide name pre-check; structured failure reasons); `finalize_analysis` gains the group branch (name-only resolution); poller `_GETTERS`/`_TERMINAL_HANDLERS` gain `grouping` |
 | UI | Group button + three-screen compose dialog (`group_compose_modal.html`: members, inspection, settings; reuses `currency_block`), its `group_inspection.html` screen built by `grouping_view.py`, and the `group_submit_errors.html` 422 fragment; group rows in the submission merged grid and results page; Engine column renders "Group" |
-| Library | irp-integration pinned to `0.8.0rc1` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
+| Library | irp-integration pinned to `0.8.0rc7` (TestPyPI); `irp_gateway` grouping methods replaced by `inspect_grouping` / `submit_grouping` / `get_grouping_job` / `count_analyses_named` over `client.grouping` (+ `FakeIRP`) |
 
 ## High-risk technical decisions
 
@@ -107,9 +110,10 @@ per-queue worker framework this feature extends (T-01).
 
 ## Technical Context
 
-**New dependencies**: irp-integration `0.8.0rc1` from TestPyPI (`make
+**New dependencies**: irp-integration `0.8.0rc7` from TestPyPI (`make
 irp-testpypi`), which ships `client.grouping.inspect()` / `submit()` /
-`get_job()` and removed the name-based `submit_analysis_grouping_job`,
+`get_job()` with explicit event-rate and simulation-set selections and removed
+the name-based `submit_analysis_grouping_job`,
 `get_analysis_grouping_job`, and public `build_region_peril_simulation_set`.
 Production (`make irp-pypi`, PyPI `0.2.0`) has no grouping API; switching
 production waits for the package release on PyPI.

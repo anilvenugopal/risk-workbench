@@ -42,8 +42,9 @@ three targets, so no stale swap can land.
 
 Screen 2 (Inspection): the wait state while the request runs, then the
 inspect response. **Next** enables on `[data-inspection-ready]` with every
-`select[name=event_rate_selection]` chosen; it records the chosen scheme
-labels for screen 3's "Schemes chosen" list and moves on.
+`select[name=event_rate_selection]` and `select[name=simulation_set_selection]`
+chosen; it records the chosen scheme labels for screen 3's "Schemes chosen"
+list and moves on.
 
 Screen 3 (Settings): the summary (`#group-summary`) and simulation count
 (`#group-sims`) rendered by the inspect response, the schemes chosen, the
@@ -96,7 +97,18 @@ Fragment states, all rendered into `#group-inspection`:
   `Scheme <id>` without one); `resolved` (one option) shows that label;
   `none` shows an em dash. The select carries no `required` attribute — a
   hidden required select would block the browser's submit; the Alpine gate
-  and `request_grouping` enforce the choice. Then the Treaty mismatches
+  and `request_grouping` enforce the choice. When any partition carries
+  `simulation_set_selection_required` (the ELT partitions of a PLT group) the
+  table gains a Simulation set column: such a row is a
+  `<select name="simulation_set_selection" data-partition="<peril> / <region> / <model version>">`
+  with an empty first option and one option per `simulation_set_options` in
+  package order, none preselected, whose value is the JSON
+  `{"peril_code","region_code","model_version","simulation_set_id"}`, text
+  `<label> (<periods> periods)` and `data-label` the label (`Simulation set
+  <id>` without one). The option's reference `event_rate_scheme_id` is not
+  rendered; the scheme and simulation-set selects are independent. PLT/HD
+  rows show an em dash in that column, and an ELT group has no column. Then
+  the Treaty mismatches
   section: one `.insp-treaty` per `inspection.warnings` entry with
   `code == "inconsistent_treaty_terms"`, each a heading of the Treaty Number,
   "<n> treaties · <k> analyses" (`k` counts distinct analyses, since one
@@ -130,6 +142,7 @@ Form fields: `csrf_token`, `member_ids` (repeated, ≥2), `group_name`,
 `currency_code`, `currency_scheme`, `currency_vintage`,
 `propagate_detailed_output` (checkbox), `num_of_simulations`,
 `event_rate_selection` (repeated, JSON option values),
+`simulation_set_selection` (repeated, JSON option values),
 `expected_inspection_fingerprint`, `inspected_analysis_ids` (repeated).
 
 Behavior:
@@ -142,7 +155,10 @@ Behavior:
   > 0 ("Enter a simulation count greater than zero."); each selection parses
   with `peril_code`, `region_code`, `model_version` (strings) and
   `event_rate_scheme_id` (int) and no partition repeats ("Choose an
-  event-rate scheme for every conflicting partition."); `group_name`
+  event-rate scheme for every conflicting partition."); each simulation-set
+  selection parses the same way with `simulation_set_id` (int) ("Choose a
+  simulation set for every partition converted from ELT to PLT.");
+  `group_name`
   non-empty and free among live group names of the submission (the `_n`
   suffix is applied automatically on collision, not an error); currency
   triple resolves in the cache (same `_validate_currency` rules). All
